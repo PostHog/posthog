@@ -40,6 +40,7 @@ class BaseTaskToolTest(BaseTest):
         repository=None,
         origin_product=None,
         deleted=False,
+        runtime=Task.Runtime.ACP,
     ):
         task = Task.objects.create(
             team=self.team,
@@ -48,6 +49,7 @@ class BaseTaskToolTest(BaseTest):
             origin_product=origin_product or Task.OriginProduct.USER_CREATED,
             repository=repository,
             created_by=self.user,
+            runtime=runtime,
         )
         if deleted:
             task.deleted = True
@@ -61,8 +63,11 @@ class BaseTaskToolTest(BaseTest):
         repository=None,
         origin_product=None,
         deleted=False,
+        runtime=Task.Runtime.ACP,
     ):
-        return await sync_to_async(self._create_task_sync)(title, description, repository, origin_product, deleted)
+        return await sync_to_async(self._create_task_sync)(
+            title, description, repository, origin_product, deleted, runtime
+        )
 
     def _create_task_run_sync(
         self,
@@ -177,6 +182,20 @@ class TestRunTaskTool(BaseTaskToolTest):
         assert "run_id" in artifact
 
         mock_execute_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.max_tools.execute_task_processing_workflow_async")
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_run_task_rejects_pi_task(self, mock_execute_workflow):
+        task = await self._create_task(runtime=Task.Runtime.PI)
+        tool = self._create_tool(RunTaskTool)
+
+        content, artifact = await tool._arun_impl(task_id=str(task.id))
+
+        assert content == "Pi tasks cannot be run through the ACP task workflow."
+        assert artifact["error"] == "unsupported_runtime"
+        assert not await sync_to_async(task.runs.exists)()
+        mock_execute_workflow.assert_not_called()
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

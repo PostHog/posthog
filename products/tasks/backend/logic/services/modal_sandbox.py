@@ -398,7 +398,10 @@ def get_template_base_image(template: SandboxTemplate) -> modal.Image:
     if settings.DEBUG:
         dockerfile_path, context_dir = _prepare_local_modal_build_context(template)
         return modal.Image.from_dockerfile(dockerfile_path, context_dir=context_dir, ignore=[])
-    return modal.Image.from_registry(_get_sandbox_image_reference(registry_image))
+    image_reference = resolve_template_base_image_reference(template)
+    if image_reference is None:
+        raise ValueError(f"Template does not use a registry image: {template}")
+    return modal.Image.from_registry(image_reference)
 
 
 def _get_template_image(template: SandboxTemplate) -> modal.Image:
@@ -409,6 +412,21 @@ def resolve_template_base_image(template: SandboxTemplate) -> modal.Image:
     # Undecorated import surface: the @cached wrapper on get_template_base_image trips
     # mypy's cross-module attribute resolution intermittently, so external callers import this.
     return get_template_base_image(template)
+
+
+def resolve_template_base_image_reference(template: SandboxTemplate) -> str | None:
+    if settings.DEBUG:
+        return None
+
+    registry_image = {
+        SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
+        SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
+        SandboxTemplate.VM_BASE: SANDBOX_VM_IMAGE,
+        SandboxTemplate.STREAMLIT_BASE: SANDBOX_STREAMLIT_IMAGE,
+    }.get(template)
+    if registry_image is None:
+        raise ValueError(f"Template does not use a registry image: {template}")
+    return _get_sandbox_image_reference(registry_image)
 
 
 @lru_cache(maxsize=3)

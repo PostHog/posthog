@@ -16,6 +16,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { formatBucketLabel } from './durationBuckets'
 import { OperationHistogram } from './OperationHistogram'
+import { errorRate, formatErrorRate } from './OperationsTable'
 import { formatDuration, TraceWaterfallView } from './TraceWaterfallView'
 import { TracingLatencyHeatmap } from './TracingLatencyHeatmap'
 import {
@@ -88,18 +89,16 @@ export function TracingOperationScene(): JSX.Element {
     const { setDateRange, setDurationSelection, setSampleIndex, selectSpan, setChartType, applyHeatmapBrush } =
         useActions(tracingOperationSceneLogic)
 
-    if (!spanName) {
+    if (!spanName || !serviceName) {
         return (
             <SceneContent>
                 <div className="flex flex-col items-center gap-1 py-16">
-                    <span>This link is missing an operation name.</span>
+                    <span>This link is missing an operation or service name.</span>
                     <Link to={urls.tracing()}>Back to tracing</Link>
                 </div>
             </SceneContent>
         )
     }
-
-    const errorRate = operationStats && operationStats.count > 0 ? operationStats.error_count / operationStats.count : 0
 
     return (
         <SceneContent>
@@ -125,10 +124,7 @@ export function TracingOperationScene(): JSX.Element {
             {operationStats && (
                 <div className="flex gap-8">
                     <StatBlock label="Requests" value={humanFriendlyNumber(operationStats.count)} />
-                    <StatBlock
-                        label="Error rate"
-                        value={`${(errorRate * 100).toFixed(errorRate > 0 && errorRate < 0.01 ? 2 : 1)}%`}
-                    />
+                    <StatBlock label="Error rate" value={formatErrorRate(errorRate(operationStats))} />
                     <StatBlock label="p50" value={formatDuration(operationStats.p50_duration_nano)} />
                     <StatBlock label="p95" value={formatDuration(operationStats.p95_duration_nano)} />
                     <StatBlock label="p99" value={formatDuration(operationStats.p99_duration_nano)} />
@@ -144,7 +140,12 @@ export function TracingOperationScene(): JSX.Element {
                                     {formatBucketLabel(durationSelection.minNs)} –{' '}
                                     {formatBucketLabel(durationSelection.maxNs)}
                                 </span>
-                                <LemonButton size="xsmall" type="tertiary" onClick={() => setDurationSelection(null)}>
+                                <LemonButton
+                                    size="xsmall"
+                                    type="tertiary"
+                                    onClick={() => setDurationSelection(null)}
+                                    disabledReason={samplesLoading ? 'Loading samples…' : undefined}
+                                >
                                     Clear
                                 </LemonButton>
                             </>
@@ -173,6 +174,7 @@ export function TracingOperationScene(): JSX.Element {
                     selection={durationSelection}
                     onSelect={setDurationSelection}
                     onClear={() => setDurationSelection(null)}
+                    samplesLoading={samplesLoading}
                     actions={
                         heatmapEnabled ? <OperationChartToggle chartType={chartType} onChange={setChartType} /> : null
                     }
@@ -196,7 +198,7 @@ export function TracingOperationScene(): JSX.Element {
                             }
                         />
                         <span className="text-sm whitespace-nowrap">
-                            {samples.length > 0 ? sampleIndex + 1 : 0} of {samples.length}
+                            {sampleIndex + 1} of {samples.length}
                             {samplesHaveMore ? '+' : ''}
                         </span>
                         <LemonButton

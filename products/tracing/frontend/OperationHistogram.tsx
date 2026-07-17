@@ -2,7 +2,7 @@ import { useCallback, useMemo } from 'react'
 
 import { LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
+import { Sparkline } from 'lib/components/Sparkline'
 
 import {
     formatBucketLabel,
@@ -11,6 +11,7 @@ import {
     type TracingDurationHistogramData,
 } from './durationBuckets'
 import type { DurationRange } from './operationFilters'
+import { categoryDurationXScale } from './TracingSparkline'
 
 interface OperationHistogramProps {
     data: TracingDurationHistogramData
@@ -18,26 +19,10 @@ interface OperationHistogramProps {
     selection: DurationRange | null
     onSelect: (selection: DurationRange) => void
     onClear: () => void
+    /** Clearing the selection refetches samples — disable the button while that's in flight. */
+    samplesLoading?: boolean
     /** Extra header content, right-aligned (e.g. the histogram/heatmap chart toggle). */
     actions?: React.ReactNode
-}
-
-// Duration buckets are categorical (1ms, 2ms, 5ms, ...) — the 1-2-5 series is already
-// log-spaced, so a plain category axis renders it evenly (mirrors TracingSparkline).
-function withCategoryXScale(scale: AnyScaleOptions): AnyScaleOptions {
-    return {
-        ...scale,
-        type: 'category',
-        ticks: {
-            display: true,
-            maxRotation: 0,
-            maxTicksLimit: 8,
-            font: {
-                size: 10,
-                lineHeight: 1,
-            },
-        },
-    } as AnyScaleOptions
 }
 
 export function OperationHistogram({
@@ -46,6 +31,7 @@ export function OperationHistogram({
     selection,
     onSelect,
     onClear,
+    samplesLoading = false,
     actions,
 }: OperationHistogramProps): JSX.Element {
     const onSelectionChange = useCallback(
@@ -68,8 +54,12 @@ export function OperationHistogram({
         const startIndexRaw = bucketsNs.indexOf(snapDurationToBucket(selection.minNs))
         // maxNs is the exclusive upper edge — the highlight ends at the bar before it.
         const endIndexRaw = bucketsNs.indexOf(snapDurationToBucket(selection.maxNs))
-        const startIndex = startIndexRaw === -1 ? 0 : startIndexRaw
-        const endIndex = endIndexRaw === -1 ? bucketsNs.length : endIndexRaw
+        // An off-axis edge clamps toward its near end; a selection entirely off the axis
+        // (e.g. persisted before a date change reshaped the distribution) collapses to
+        // start >= end and renders no highlight.
+        const startIndex = startIndexRaw !== -1 ? startIndexRaw : selection.minNs <= bucketsNs[0] ? 0 : bucketsNs.length
+        const endIndex =
+            endIndexRaw !== -1 ? endIndexRaw : selection.maxNs > bucketsNs[bucketsNs.length - 1] ? bucketsNs.length : 0
         if (startIndex >= endIndex) {
             return null
         }
@@ -85,7 +75,12 @@ export function OperationHistogram({
                         <span className="text-xs font-mono">
                             {formatBucketLabel(selection.minNs)} – {formatBucketLabel(selection.maxNs)}
                         </span>
-                        <LemonButton size="xsmall" type="tertiary" onClick={onClear}>
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            onClick={onClear}
+                            disabledReason={samplesLoading ? 'Loading samples…' : undefined}
+                        >
                             Clear
                         </LemonButton>
                     </>
@@ -101,7 +96,7 @@ export function OperationHistogram({
                         data={data.data}
                         className="w-full h-full"
                         onSelectionChange={onSelectionChange}
-                        withXScale={withCategoryXScale}
+                        withXScale={categoryDurationXScale}
                         renderLabel={(label) => label}
                         tooltipRowCutoff={100}
                         hideZerosInTooltip

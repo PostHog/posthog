@@ -39,6 +39,7 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 
 from ..facade.api import (
@@ -210,10 +211,6 @@ class _TracingTimeseriesQueryBodySerializer(serializers.Serializer):
         default=[],
         help_text="Property filters for the query.",
     )
-
-
-class _TracingTimeseriesRequestSerializer(serializers.Serializer):
-    query = _TracingTimeseriesQueryBodySerializer(help_text="The sparkline / duration-histogram query to execute.")
 
 
 class _TracingDurationHistogramQueryBodySerializer(_TracingTimeseriesQueryBodySerializer):
@@ -672,6 +669,13 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return filter_group
         return {"type": "AND", "values": []}
 
+    def _report_usage(self, request: Request, event: str, properties: dict) -> None:
+        # Usage telemetry must never turn a successful read into a 5xx, so swallow and record any failure.
+        try:
+            report_user_action(request.user, event, properties, team=self.team, request=request)
+        except Exception as e:
+            capture_exception(e)
+
     @extend_schema(parameters=[_TracingServiceNamesQuerySerializer])
     @action(detail=False, methods=["GET"], url_path="service-names", required_scopes=["tracing:read"])
     def service_names(self, request: Request, *args, **kwargs) -> Response:
@@ -972,13 +976,26 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except (ValidationError, ValueError, ParseError):
             filter_group = None
 
+        root_spans = query_data.get("rootSpans", True)
         response = run_duration_histogram_query(
             team=self.team,
             date_range=date_range,
             service_names=query_data.get("serviceNames", None),
             status_codes=query_data.get("statusCodes", None),
             filter_group=filter_group,
-            root_spans=query_data.get("rootSpans", True),
+            root_spans=root_spans,
+        )
+
+        self._report_usage(
+            request,
+            "tracing duration histogram queried",
+            {
+                "buckets_count": len(response.results),
+                "root_spans": root_spans,
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "service_names_count": len(query_data.get("serviceNames") or []),
+                "status_codes_count": len(query_data.get("statusCodes") or []),
+            },
         )
 
         return Response({"results": response.results}, status=status.HTTP_200_OK)
@@ -990,7 +1007,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @action(detail=False, methods=["POST"], url_path="latency-heatmap", required_scopes=["tracing:read"])
     def latency_heatmap(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
-        query_data = request.data.get("query", {})
+        query_data = request.data.get("query", {}) or {}
         date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
 
         try:
@@ -1043,6 +1060,17 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             compare_filter=compare_filter,
             filter_group=filter_group,
             service_names=query_data.get("serviceNames", None),
+        )
+
+        self._report_usage(
+            request,
+            "tracing aggregation queried",
+            {
+                "results_count": len(response.results),
+                "has_compare": bool(query_data.get("compareFilter")),
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "service_names_count": len(query_data.get("serviceNames") or []),
+            },
         )
 
         return Response(
@@ -1245,6 +1273,17 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         # Self-time needs a span's children present. On a paged (truncated) trace it overstates for
         # spans whose children fall on a later page — an accepted bound, same as the prior 2000 cap.
         annotate_self_time(results)
+
+        self._report_usage(
+            request,
+            "tracing trace fetched",
+            {
+                "spans_count": len(results),
+                "has_more": has_more,
+                "is_paginated": offset > 0,
+                "has_filter_group": bool(query_data.get("filterGroup")),
+            },
+        )
 
         return Response(
             {

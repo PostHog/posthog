@@ -14,6 +14,13 @@ from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 logger = structlog.get_logger(__name__)
 
 ####
+# Deprecated insight `dashboards` field: two-phase removal. While False (phase 1), every caller
+# still receives the field and usage is metered by access method; flipping to True (phase 2)
+# enforces the `include_dashboards` opt-in for non-first-party callers. Env-toggleable so the
+# enforcement can be reverted without a code change.
+INSIGHT_DASHBOARDS_OPT_IN_ENFORCED = get_from_env("INSIGHT_DASHBOARDS_OPT_IN_ENFORCED", False, type_cast=str_to_bool)
+
+####
 # django-axes
 
 # lockout after too many attempts
@@ -1187,3 +1194,13 @@ _NO_JOIN_DEFAULT_ROLLOUT_PERCENT = 100 if (CLOUD_DEPLOYMENT or "").upper() in ("
 WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT: int = get_from_env(
     "WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT", _NO_JOIN_DEFAULT_ROLLOUT_PERCENT, type_cast=int
 )
+
+# Admission control for long-lived SSE streams: the maximum number of streams
+# one worker process serves concurrently. Above the cap, sse_streaming_response()
+# returns 503 with a jittered Retry-After instead of opening the stream, keeping
+# processes unpinned and health probes responsive. Recovery depends on the
+# client: HTTP-level retriers honor Retry-After, but a native EventSource treats
+# any non-200 as fatal (readyState CLOSED, no auto-reconnect) and ignores the
+# header, so those consumers must reconnect from their onerror handler.
+# 0 rejects every stream (emergency lever).
+SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS = get_from_env("SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS", 500, type_cast=int)

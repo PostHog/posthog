@@ -72,6 +72,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/engineering_analytics/frontend/scenes/WorkflowRunsScene'),
     EngineeringAnalyticsAuthor: () =>
         import('../../products/engineering_analytics/frontend/scenes/EngineeringAnalyticsAuthorScene'),
+    EngineeringAnalyticsTeam: () =>
+        import('../../products/engineering_analytics/frontend/scenes/EngineeringAnalyticsTeamScene'),
     ErrorTracking: () => import('../../products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
     ErrorTrackingIssue: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
@@ -100,6 +102,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     MCPAnalyticsToolDetail: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsToolDetail'),
     Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
     TaskTracker: () => import('../../products/posthog_ai/frontend/scenes/TaskTracker/TaskTracker'),
+    Pulse: () => import('../../products/pulse/frontend/PulseScene'),
     ReplayVision: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScannersScene'),
     ReplayVisionScanner: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScanner'),
     ReplayVisionScannerEditor: () => import('../../products/replay_vision/frontend/replay_scanners/ScannerEditorScene'),

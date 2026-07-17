@@ -141,3 +141,19 @@ class TestEmailOctopusCanonicalDescriptions:
         descriptions = EmailOctopusSource().get_canonical_descriptions()
         assert set(descriptions.keys()) == {"lists", "campaigns", "contacts"}
         assert "list_id" in descriptions["contacts"]["columns"]
+
+
+class TestEmailOctopusSourceVersions:
+    def test_new_sources_default_to_v2(self) -> None:
+        # New sources (no pin) must be created on the current API version.
+        source = EmailOctopusSource()
+        assert source.default_version == "v2"
+        assert source.resolve_api_version(None) == "v2"
+
+    @parameterized.expand([("v1",), ("v2",)])
+    def test_existing_pin_is_honored(self, version: str) -> None:
+        # Pinned rows — including the legacy "v1" default existing sources carry — keep their
+        # version after the default bump, so their syncs are unaffected.
+        source = EmailOctopusSource()
+        assert version in source.supported_versions
+        assert source.resolve_api_version(version) == version

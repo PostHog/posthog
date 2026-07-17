@@ -2901,6 +2901,8 @@ const api = {
                 // false (default) groups by trace_id and returns root spans; true returns every
                 // matching span (root and child) flat. See products/tracing/backend logic.py.
                 flatSpans?: boolean
+                // true omits the per-span attribute maps — use when only scalar span fields are read.
+                excludeAttributes?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
@@ -2918,12 +2920,14 @@ const api = {
                 statusCodes?: number[]
                 filterGroup?: PropertyGroupFilter
                 offset?: number
-            }
+            },
+            signal?: AbortSignal
         ): Promise<{ results: Record<string, any>[]; hasMore: boolean; nextOffset?: number | null }> {
             return new ApiRequest()
                 .tracingSpans()
                 .withAction(`trace/${traceId}`)
                 .create({
+                    signal,
                     data: {
                         ...query,
                         dateRange: query?.dateRange ?? { date_from: '-24h' },
