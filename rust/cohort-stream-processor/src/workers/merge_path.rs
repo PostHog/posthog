@@ -26,9 +26,11 @@ use crate::observability::metrics::{
 };
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::partitions::partitioner::COHORT_PARTITION_COUNT;
+use crate::partitions::watermarks::LiveWatermarks;
 use crate::producer::{
-    map_transition, CaptureCascadeSink, CaptureStreamEventSink, CaptureTransferSink, CascadeSink,
-    CohortMembershipChange, MembershipSink, StreamEventSink, TransferSink,
+    map_transition, CaptureCascadeSink, CaptureSeedTileSink, CaptureStreamEventSink,
+    CaptureTransferSink, CascadeSink, CohortMembershipChange, MembershipSink, SeedTileSink,
+    StreamEventSink, TransferSink,
 };
 use crate::stage1::transition::LeafTransition;
 use crate::store::{BehavioralKey, PendingTransferKey, StoreHandle};
@@ -118,6 +120,13 @@ pub struct MergeWorkerDeps {
     /// from [`crate::config::Config::cohort_partition_count`] so a re-partitioned lane cannot
     /// misroute against a hardcoded literal.
     pub partition_count: u32,
+    /// Sink for cross-partition tile re-keys back into `cohort_stream_seed_events` (a no-op when
+    /// the seed gate is off).
+    pub seed_tile_sink: Arc<dyn SeedTileSink>,
+    /// Isolated from every other tracker so seed offsets can never contaminate the events ceiling.
+    pub seed_tracker: Arc<OffsetTracker>,
+    /// Fold-frontier watermarks the seed fence reads; the worker advances them post-mark.
+    pub live_watermarks: Arc<LiveWatermarks>,
 }
 
 impl MergeWorkerDeps {
@@ -134,6 +143,9 @@ impl MergeWorkerDeps {
             cascade_tracker: Arc::new(OffsetTracker::new()),
             cascade: CascadeConfig::default(),
             partition_count: COHORT_PARTITION_COUNT,
+            seed_tile_sink: Arc::new(CaptureSeedTileSink::new()),
+            seed_tracker: Arc::new(OffsetTracker::new()),
+            live_watermarks: Arc::new(LiveWatermarks::new()),
         })
     }
 }
@@ -870,6 +882,9 @@ mod tests {
             cascade_tracker: Arc::new(OffsetTracker::new()),
             cascade: CascadeConfig::default(),
             partition_count: COHORT_PARTITION_COUNT,
+            seed_tile_sink: Arc::new(crate::producer::CaptureSeedTileSink::new()),
+            seed_tracker: Arc::new(crate::partitions::offset_tracker::OffsetTracker::new()),
+            live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
         }
     }
 

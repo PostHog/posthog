@@ -342,7 +342,7 @@ struct FollowerOutcome<T> {
     transport_error: bool,
 }
 
-fn restrict_to_owned(offsets: HashMap<i32, i64>, owned: &[i32]) -> HashMap<i32, i64> {
+pub(crate) fn restrict_to_owned(offsets: HashMap<i32, i64>, owned: &[i32]) -> HashMap<i32, i64> {
     let owned: HashSet<i32> = owned.iter().copied().collect();
     offsets
         .into_iter()
@@ -424,6 +424,8 @@ mod tests {
                 person_id: Uuid::from_u128(0xCAFE).to_string(),
                 last_updated: "2026-05-26 12:34:56.789000".to_string(),
                 status: crate::producer::MembershipStatus::Entered,
+                origin: None,
+                run_id: None,
             },
             123,
         )

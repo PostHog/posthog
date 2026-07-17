@@ -25,6 +25,7 @@ use tracing::{debug, info, warn};
 pub use cohort_core::events::CohortStreamEvent;
 
 use crate::consumers::merges::{ConsumedCascade, ConsumedMerge, ConsumedTransfer};
+use crate::consumers::seeds::ConsumedSeed;
 use crate::filters::manager::CatalogHandle;
 use crate::merge::transfer::PendingTransfer;
 use crate::observability::metrics::{
@@ -34,12 +35,13 @@ use crate::observability::metrics::{
     COHORT_STREAM_EVENTS_SKIPPED_NOT_OWNED, COHORT_STREAM_KAFKA_RECV_ERRORS,
     COHORT_STREAM_MERGES_SKIPPED_NOT_OWNED, COHORT_STREAM_OFFSET_COMMITS,
     COHORT_STREAM_OFFSET_COMMIT_ERRORS, COHORT_STREAM_ROUTE_ERRORS,
-    COHORT_STREAM_TRANSFERS_SKIPPED_NOT_OWNED, COHORT_STREAM_WORKERS_SPAWNED,
-    DURABLE_RESTORE_PARTITIONS_KEPT_TOTAL, DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL,
+    COHORT_STREAM_SEEDS_SKIPPED_NOT_OWNED, COHORT_STREAM_TRANSFERS_SKIPPED_NOT_OWNED,
+    COHORT_STREAM_WORKERS_SPAWNED, DURABLE_RESTORE_PARTITIONS_KEPT_TOTAL,
+    DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL,
     DURABLE_RESTORE_PENDING_TRANSFERS_RECOVERED_PARTITIONS_TOTAL, MERGE_HELD_OFFSET_GAUGE,
     MERGE_PENDING_TRANSFERS_GAUGE, PARTITIONS_ASSIGNED_TOTAL, PARTITIONS_PAUSED,
     PARTITIONS_REVOKED_TOTAL, PARTITION_STATE_DELETED_TOTAL, PENDING_HELD_EVENTS,
-    REBALANCE_CLEANUP_SKIPPED_TOTAL, REVOKE_DRAIN_DURATION_SECONDS,
+    REBALANCE_CLEANUP_SKIPPED_TOTAL, REVOKE_DRAIN_DURATION_SECONDS, SEED_HELD_OFFSET_GAUGE,
 };
 use crate::partitions::backpressure::Backpressure;
 use crate::partitions::offset_tracker::OffsetTracker;
@@ -74,6 +76,9 @@ pub struct ConsumedEvent {
     pub event: CohortStreamEvent,
     pub partition: i32,
     pub offset: i64,
+    /// Broker timestamp (CreateTime ≈ shuffler produce instant) — the seed fence's live-watermark
+    /// input. `None` (`Timestamp::NotAvailable`) never advances the watermark.
+    pub broker_ts_ms: Option<i64>,
 }
 
 /// The Kafka-free routing core: dispatches consumed batches to per-partition workers, tracks
@@ -171,6 +176,7 @@ impl EventDispatcher {
                     ShuffleMessage::Event {
                         event: Box::new(consumed.event),
                         cse_offset: consumed.offset,
+                        broker_ts_ms: consumed.broker_ts_ms,
                     },
                 )
             })
@@ -213,6 +219,7 @@ impl EventDispatcher {
             let message = ShuffleMessage::Event {
                 event: Box::new(consumed.event),
                 cse_offset: consumed.offset,
+                broker_ts_ms: consumed.broker_ts_ms,
             };
             // A paused partition can still deliver a few already-fetched stragglers; queue them behind
             // the holdover rather than racing them ahead of older offsets.
@@ -363,6 +370,68 @@ impl EventDispatcher {
             .dispatch_to_workers(items, &self.merge.cascade_tracker)
             .await;
         counter!(COHORT_STREAM_CASCADES_SKIPPED_NOT_OWNED).increment(stats.not_owned_skipped);
+    }
+
+    /// Non-blocking seed dispatch: `try_send` each partition's sub-batch and raise the **seed**
+    /// tracker's dispatch ceiling only for what lands. Seeds carry no `event_offset`, so the ceiling
+    /// is computed here from each sub-batch's own max seed offset — never by the router. Returns the
+    /// un-dispatched seeds per partition for the caller to hold and pause (fence and backpressure
+    /// share that holdover).
+    pub fn dispatch_seeds(&self, batch: Vec<ConsumedSeed>) -> HashMap<i32, Vec<ConsumedSeed>> {
+        if self.draining.load(Ordering::SeqCst) {
+            if !batch.is_empty() {
+                counter!(COHORT_STREAM_SEEDS_SKIPPED_NOT_OWNED).increment(batch.len() as u64);
+                debug!(
+                    dropped = batch.len(),
+                    "seed dispatch after shutdown began; dropping batch for replay"
+                );
+            }
+            return HashMap::new();
+        }
+
+        let mut messages: Vec<(i32, ShuffleMessage)> = Vec::with_capacity(batch.len());
+        let mut max_offsets: HashMap<i32, i64> = HashMap::new();
+        let mut not_owned = 0u64;
+        for consumed in batch {
+            let partition = consumed.partition;
+            if !self.owned.contains(&partition) {
+                not_owned += 1;
+                continue;
+            }
+            self.ensure_worker(partition);
+            let entry = max_offsets.entry(partition).or_insert(consumed.offset);
+            *entry = (*entry).max(consumed.offset);
+            messages.push((partition, consumed.into_message()));
+        }
+        counter!(COHORT_STREAM_SEEDS_SKIPPED_NOT_OWNED).increment(not_owned);
+
+        let mut full: HashMap<i32, Vec<ConsumedSeed>> = HashMap::new();
+        let mut route_errors = 0u64;
+        for (partition, outcome) in self.router.try_route_batch(messages) {
+            match outcome {
+                // A sub-batch lands whole or not at all, so the pre-computed per-partition max is
+                // exactly the delivered ceiling.
+                SendOutcome::Sent { .. } => {
+                    if let Some(&max_offset) = max_offsets.get(&partition) {
+                        self.merge
+                            .seed_tracker
+                            .mark_dispatched(partition, max_offset + 1);
+                    }
+                }
+                SendOutcome::Full(returned) => {
+                    full.entry(partition).or_default().extend(
+                        returned
+                            .into_iter()
+                            .filter_map(|message| ConsumedSeed::from_message(partition, message)),
+                    );
+                }
+                SendOutcome::NoWorker | SendOutcome::ChannelClosed => route_errors += 1,
+            }
+        }
+        if route_errors > 0 {
+            counter!(COHORT_STREAM_ROUTE_ERRORS).increment(route_errors);
+        }
+        full
     }
 
     async fn dispatch_to_workers(
@@ -569,12 +638,17 @@ impl EventDispatcher {
         self.merge.merge_tracker.forget_partition(partition);
         self.merge.transfer_tracker.forget_partition(partition);
         self.merge.cascade_tracker.forget_partition(partition);
+        self.merge.seed_tracker.forget_partition(partition);
+        // Fail-closed on re-acquire: the next tenure re-derives its live watermark from its own
+        // folds rather than trusting a stale one.
+        self.merge.live_watermarks.forget_partition(partition);
 
         // Reset per-partition gauges. Held-offset gauges in particular are alerted on a sustained
         // non-zero level — without this, a hold that cleared on revoke would keep the alert firing.
         gauge!(MERGE_PENDING_TRANSFERS_GAUGE, "partition" => partition.to_string()).set(0.0);
         gauge!(MERGE_HELD_OFFSET_GAUGE, "partition" => partition.to_string()).set(0.0);
         gauge!(CASCADE_HELD_OFFSET_GAUGE, "partition" => partition.to_string()).set(0.0);
+        gauge!(SEED_HELD_OFFSET_GAUGE, "partition" => partition.to_string()).set(0.0);
 
         let Some(partition_id) = partition_to_store_id(partition) else {
             warn!(
@@ -792,6 +866,12 @@ impl EventDispatcher {
         self.tracker.as_ref()
     }
 
+    /// The events-topic tracker, for the seed consumer's idle probe (its folded frontier is the
+    /// watermark's "everything retained has been folded" check).
+    pub(crate) fn events_tracker(&self) -> &Arc<OffsetTracker> {
+        &self.tracker
+    }
+
     fn owned_committable_offsets(&self) -> HashMap<i32, i64> {
         self.tracker
             .committable_offsets()
@@ -867,7 +947,7 @@ pub struct CohortStreamEventsConsumer {
 impl CohortStreamEventsConsumer {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        consumer: StreamConsumer<CohortConsumerContext>,
+        consumer: Arc<StreamConsumer<CohortConsumerContext>>,
         topic: String,
         dispatcher: Arc<EventDispatcher>,
         handle: Handle,
@@ -878,7 +958,6 @@ impl CohortStreamEventsConsumer {
         consumer_command_rx: ConsumerCommandReceiver,
         restore_manifest: Option<OffsetManifest>,
     ) -> Self {
-        let consumer = Arc::new(consumer);
         let pauser: Arc<dyn PartitionPauser> =
             Arc::new(ConsumerPauser::new(consumer.clone(), topic.clone()));
         Self {
@@ -1156,7 +1235,12 @@ impl CohortStreamEventsConsumer {
                                     );
                                 }
                                 Some(payload) => match serde_json::from_slice::<CohortStreamEvent>(payload) {
-                                    Ok(event) => outcome.events.push(ConsumedEvent { event, partition, offset }),
+                                    Ok(event) => outcome.events.push(ConsumedEvent {
+                                        event,
+                                        partition,
+                                        offset,
+                                        broker_ts_ms: message.timestamp().to_millis(),
+                                    }),
                                     Err(err) => {
                                         outcome.deserialize_errors += 1;
                                         debug!(
@@ -1304,7 +1388,7 @@ async fn run_commit_loop(
 /// never delays the heartbeat. Re-asserts the full target every update — idempotent in librdkafka — so
 /// a swallowed pause error or a rebalance-reset toppar self-heals. `applied` tracks only which
 /// partitions to resume (those that left the target). Exits when the sender is dropped.
-async fn run_pauser_loop(
+pub(crate) async fn run_pauser_loop(
     pauser: Arc<dyn PartitionPauser>,
     mut rx: tokio::sync::mpsc::UnboundedReceiver<HashSet<i32>>,
 ) {
@@ -1698,6 +1782,9 @@ mod tests {
             cascade_tracker: Arc::new(OffsetTracker::new()),
             cascade: crate::workers::CascadeConfig::default(),
             partition_count: COHORT_PARTITION_COUNT,
+            seed_tile_sink: Arc::new(crate::producer::CaptureSeedTileSink::new()),
+            seed_tracker: Arc::new(crate::partitions::offset_tracker::OffsetTracker::new()),
+            live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
         });
         let dispatcher = EventDispatcher::new(
             PartitionRouter::new(64),
@@ -1747,6 +1834,7 @@ mod tests {
             event: matching_event(person, topic_partition, topic_offset),
             partition: topic_partition,
             offset: topic_offset,
+            broker_ts_ms: None,
         }
     }
 
@@ -2065,6 +2153,97 @@ mod tests {
             .iter()
             .filter_map(ShuffleMessage::event_offset)
             .collect()
+    }
+
+    fn consumed_seed(seed_person: Uuid, partition: i32, offset: i64) -> ConsumedSeed {
+        use cohort_core::seed::{ClaimEpoch, ConditionHash, RunId, SChunkMs, SeedTile};
+        ConsumedSeed {
+            work: crate::consumers::seeds::SeedWork::Tile(SeedTile::new(
+                TeamId(TEAM),
+                seed_person,
+                ConditionHash::parse("0123456789abcdef").unwrap(),
+                std::num::NonZeroU32::new(1).unwrap(),
+                20_614,
+                SChunkMs(1_700_000_000_000),
+                RunId(Uuid::nil()),
+                ClaimEpoch(1),
+            )),
+            partition,
+            offset,
+        }
+    }
+
+    fn held_seed_offsets(seeds: &[ConsumedSeed]) -> Vec<i64> {
+        seeds.iter().map(|seed| seed.offset).collect()
+    }
+
+    #[tokio::test]
+    async fn dispatch_seeds_raises_only_the_seed_ceiling_from_its_own_offsets() {
+        let (_dir, store) = temp_store();
+        let dispatcher = dispatcher_with_buffer(&store, behavioral_catalog(), 16);
+        dispatcher.assign_partition(0);
+        // Hold the receiver so no worker drains; the ceilings are the observable.
+        let mut rx = dispatcher.router.add_partition(0).unwrap();
+
+        let full = dispatcher.dispatch_seeds(vec![
+            consumed_seed(person(1), 0, 3),
+            consumed_seed(person(2), 0, 5),
+            // Unowned partition: dropped for replay, never held.
+            consumed_seed(person(3), 9, 1),
+        ]);
+        assert!(full.is_empty(), "both owned seeds landed");
+
+        // Seeds carry no event offset, so the router reported `max_offset: None`; the dispatcher
+        // must have raised the SEED ceiling itself — a mark within it commits.
+        let seed_tracker = &dispatcher.merge_deps().seed_tracker;
+        assert_eq!(
+            seed_tracker.mark_processed(0, 6),
+            MarkOutcome::WithinDispatch
+        );
+        assert_eq!(seed_tracker.committable_offsets().get(&0), Some(&6));
+        assert_eq!(
+            seed_tracker.mark_processed(0, 7),
+            MarkOutcome::CappedAheadOfDispatch,
+            "the ceiling is exactly the dispatched max + 1",
+        );
+
+        // The events tracker never sees a seed offset (Appendix C item 6 by another door).
+        assert_eq!(
+            dispatcher.tracker().mark_processed(0, 1),
+            MarkOutcome::CappedAheadOfDispatch,
+        );
+        assert!(dispatcher.tracker().committable_offsets().is_empty());
+
+        let batch = rx.try_recv().unwrap();
+        assert_eq!(
+            batch.iter().filter_map(ShuffleMessage::seed_offset).count(),
+            2,
+            "the two owned seeds ride the worker channel",
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatch_seeds_returns_the_over_budget_remainder_without_raising_its_ceiling() {
+        let (_dir, store) = temp_store();
+        // Seeds share the event intake budget: a one-message cap refuses the second sub-batch.
+        let dispatcher = dispatcher_with_intake_cap(&store, behavioral_catalog(), 16, 1);
+        dispatcher.assign_partition(0);
+        let _rx = dispatcher.router.add_partition(0).unwrap();
+
+        assert!(dispatcher
+            .dispatch_seeds(vec![consumed_seed(person(1), 0, 10)])
+            .is_empty());
+        let mut full = dispatcher.dispatch_seeds(vec![consumed_seed(person(2), 0, 11)]);
+        let held = full.remove(&0).expect("partition 0 held on the intake cap");
+        assert_eq!(held_seed_offsets(&held), vec![11]);
+
+        let seed_tracker = &dispatcher.merge_deps().seed_tracker;
+        assert_eq!(
+            seed_tracker.mark_processed(0, 12),
+            MarkOutcome::CappedAheadOfDispatch,
+            "a held seed's offset stays above the ceiling, so it can never commit",
+        );
+        assert_eq!(seed_tracker.committable_offsets().get(&0), Some(&11));
     }
 
     #[tokio::test]

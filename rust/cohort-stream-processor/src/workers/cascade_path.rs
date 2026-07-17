@@ -130,6 +130,8 @@ pub(crate) async fn handle_cascade(
             person_id: message.change.person_id.clone(),
             last_updated: last_updated.to_string(),
             status,
+            origin: None,
+            run_id: None,
         });
         writes.push((
             diff.stage2_key,
@@ -427,6 +429,9 @@ mod tests {
                 fanout_cap,
             },
             partition_count: crate::partitions::partitioner::COHORT_PARTITION_COUNT,
+            seed_tile_sink: Arc::new(crate::producer::CaptureSeedTileSink::new()),
+            seed_tracker: Arc::new(crate::partitions::offset_tracker::OffsetTracker::new()),
+            live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
         };
         // The cascade was dispatched this tenure, so its ceiling is raised — mirrors the dispatcher.
         deps.cascade_tracker
@@ -442,6 +447,8 @@ mod tests {
                 person_id: who.to_string(),
                 last_updated: TS.to_string(),
                 status: MembershipStatus::Entered,
+                origin: None,
+                run_id: None,
             },
             source_offset: 99,
             depth,

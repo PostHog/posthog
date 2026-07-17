@@ -72,6 +72,8 @@ pub async fn compose_stage2(
             person_id: person_id.to_string(),
             last_updated: last_updated.to_string(),
             status: diff.status(),
+            origin: None,
+            run_id: None,
         });
         // Write `false` rather than deleting so absence means "never evaluated".
         pending.push((

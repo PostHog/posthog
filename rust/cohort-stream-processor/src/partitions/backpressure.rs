@@ -90,6 +90,7 @@ mod tests {
                 redirect_hops: 0,
             }),
             cse_offset,
+            broker_ts_ms: None,
         }
     }
 

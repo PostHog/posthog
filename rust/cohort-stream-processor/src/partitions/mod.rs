@@ -13,6 +13,7 @@ pub mod pause;
 pub mod rebalance;
 pub mod router;
 pub mod shuffle_message;
+pub mod watermarks;
 
 pub use cohort_core::partitioner;
 
@@ -30,3 +31,4 @@ pub use rebalance::{
 };
 pub use router::{PartitionRouter, RouteError, SendOutcome};
 pub use shuffle_message::ShuffleMessage;
+pub use watermarks::{LiveWatermarks, WatermarkMs};

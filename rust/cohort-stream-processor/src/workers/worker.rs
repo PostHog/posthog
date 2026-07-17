@@ -45,6 +45,7 @@ use crate::workers::event_path::{
 };
 use crate::workers::merge_gc::{handle_merge_gc, MergeGcCursor};
 use crate::workers::merge_path::{handle_apply, handle_merge, handle_redrive, MergeWorkerDeps};
+use crate::workers::seed_path::handle_seed;
 use crate::workers::stage2_gc::{handle_stage2_orphan_gc, Stage2GcCursor};
 use crate::workers::stage2_path::compose_stage2;
 use crate::workers::sweep_callback::{sweep_evict, EvictionAction, SweepDropReason};
@@ -167,14 +168,22 @@ async fn run_worker(
         let mut buffer = OutputBuffer::new();
         let mut re_keys: Vec<CohortStreamEvent> = Vec::new();
         let mut max_offset: Option<i64> = None;
+        // Highest broker timestamp folded this batch; observed into the live watermarks only after
+        // the final mark, so a held batch never advances the seed fence.
+        let mut max_broker_ts: Option<i64> = None;
         // Set when a pre-arm flush fails: holds the whole batch's offset so Kafka replays it.
         let mut held = false;
 
         for message in batch {
             match message {
-                ShuffleMessage::Event { event, cse_offset } => {
+                ShuffleMessage::Event {
+                    event,
+                    cse_offset,
+                    broker_ts_ms,
+                } => {
                     max_offset =
                         Some(max_offset.map_or(cse_offset, |current| current.max(cse_offset)));
+                    max_broker_ts = max_broker_ts.max(broker_ts_ms);
                     let effects = handle_event(
                         partition_id,
                         &handle,
@@ -281,6 +290,30 @@ async fn run_worker(
                         &merge,
                         &last_updated,
                         &message,
+                        offset,
+                    )
+                    .await;
+                }
+                ShuffleMessage::Seed { work, offset } => {
+                    if flush_event_changes_before_inline(
+                        &sink,
+                        &mut buffer,
+                        partition_id,
+                        &mut held,
+                    )
+                    .await
+                    {
+                        break;
+                    }
+                    handle_seed(
+                        partition_id,
+                        &handle,
+                        &catalog,
+                        &sink,
+                        &merge,
+                        &mut queue,
+                        &last_updated,
+                        &work,
                         offset,
                     )
                     .await;
@@ -392,6 +425,13 @@ async fn run_worker(
                     "offset mark exceeded the dispatch ceiling and was capped (F1 invariant violation)",
                 );
             }
+        }
+        // Watermark advances at fold time, strictly post-mark: a consume-time watermark would
+        // reopen the double-count branch the fence deletes (events sitting unfolded in channels).
+        if let Some(broker_ts_ms) = max_broker_ts {
+            merge
+                .live_watermarks
+                .observe(partition_id as i32, broker_ts_ms);
         }
     }
 
@@ -1071,6 +1111,9 @@ mod tombstone_redirect_tests {
             cascade_tracker: Arc::new(OffsetTracker::new()),
             cascade: crate::workers::CascadeConfig::default(),
             partition_count: COHORT_PARTITION_COUNT,
+            seed_tile_sink: Arc::new(crate::producer::CaptureSeedTileSink::new()),
+            seed_tracker: Arc::new(crate::partitions::offset_tracker::OffsetTracker::new()),
+            live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
         })
     }
 
@@ -1088,6 +1131,9 @@ mod tombstone_redirect_tests {
             cascade_tracker: Arc::new(OffsetTracker::new()),
             cascade: crate::workers::CascadeConfig::default(),
             partition_count: COHORT_PARTITION_COUNT,
+            seed_tile_sink: Arc::new(crate::producer::CaptureSeedTileSink::new()),
+            seed_tracker: Arc::new(crate::partitions::offset_tracker::OffsetTracker::new()),
+            live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
         })
     }
 
@@ -1109,6 +1155,9 @@ mod tombstone_redirect_tests {
                 fanout_cap: 1000,
             },
             partition_count: COHORT_PARTITION_COUNT,
+            seed_tile_sink: Arc::new(crate::producer::CaptureSeedTileSink::new()),
+            seed_tracker: Arc::new(crate::partitions::offset_tracker::OffsetTracker::new()),
+            live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
         })
     }
 
@@ -1132,6 +1181,7 @@ mod tombstone_redirect_tests {
             vec![ShuffleMessage::Event {
                 event: Box::new(person_event(person, "u@p.com", 5, 0)),
                 cse_offset: 0,
+                broker_ts_ms: None,
             }],
         )
         .await;
@@ -1268,6 +1318,7 @@ mod tombstone_redirect_tests {
             vec![ShuffleMessage::Event {
                 event: Box::new(event),
                 cse_offset: 0,
+                broker_ts_ms: None,
             }],
         )
         .await;
@@ -1497,10 +1548,12 @@ mod tombstone_redirect_tests {
                 ShuffleMessage::Event {
                     event: Box::new(person_event(alice, "u@p.com", 5, 0)),
                     cse_offset: 0,
+                    broker_ts_ms: None,
                 },
                 ShuffleMessage::Event {
                     event: Box::new(person_event(p_old, "u@p.com", 5, 9)),
                     cse_offset: 1,
+                    broker_ts_ms: None,
                 },
             ]
         };
