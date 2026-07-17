@@ -162,7 +162,9 @@ def iter_property_definitions(
     params: dict[str, str] = {"type": prop_type, "limit": str(page_size)}
     if group_type_index is not None:
         params["group_type_index"] = str(group_type_index)
-    if names:
+    # The API splits `properties` on commas, so a name containing one can't be filtered
+    # server-side; fall back to a full scan and let the client-side exact match handle it.
+    if names and not any("," in name for name in names):
         params["properties"] = ",".join(names)
     url: Optional[str] = f"{host}/api/projects/{project_id}/property_definitions/?{urlencode(params)}"
     page = 0
