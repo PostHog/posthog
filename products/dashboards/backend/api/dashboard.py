@@ -142,6 +142,7 @@ from products.notifications.backend.facade.api import (
     has_been_dispatched,
 )
 from products.product_analytics.backend.api.insight import (
+    INCLUDE_DASHBOARDS_PARAMETER,
     DashboardTileBasicSerializer,
     InsightSerializer,
     InsightViewSet,
@@ -2115,7 +2116,12 @@ class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
             ),
         ],
     ),
-    partial_update=extend_schema(request=PatchedDashboardOpenApiSerializer),
+    # Dashboards nest insight payloads via `tiles[].insight`, so the deprecated-`dashboards`-field
+    # opt-in applies here too — on every action whose response uses DashboardSerializer.
+    create=extend_schema(parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
+    retrieve=extend_schema(parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
+    update=extend_schema(parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
+    partial_update=extend_schema(request=PatchedDashboardOpenApiSerializer, parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
 )
 class DashboardsViewSet(
     TeamAndOrgViewSetMixin,
