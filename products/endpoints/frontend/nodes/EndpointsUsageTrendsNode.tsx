@@ -27,9 +27,6 @@ type TrendsDataPoint = {
     breakdown?: string
 }
 
-/** Matches the SQL insight area chart's fill opacity. */
-const AREA_FILL_OPACITY = 0.5
-
 let uniqueNode = 0
 export function EndpointsUsageTrendsNode(props: {
     query: EndpointsUsageTrendsQuery
@@ -54,12 +51,37 @@ export function EndpointsUsageTrendsNode(props: {
     const queryResponse = response as EndpointsUsageTrendsQueryResponse | undefined
     const results = queryResponse?.results as TrendsDataPoint[] | undefined
 
-    const metric = props.query.metric
-    // Use area fills for CPU time and bytes read (sparkline-like), plain lines for others
+    if (responseLoading) {
+        return (
+            <div className="border rounded bg-bg-light p-4 h-60">
+                <LemonSkeleton className="w-full h-full" />
+            </div>
+        )
+    }
+
+    if (!results || results.length === 0) {
+        return (
+            <div className="flex items-center justify-center h-60 border rounded bg-bg-light text-muted">
+                No data available for this period
+            </div>
+        )
+    }
+
+    return <EndpointsUsageTrendsChart results={results} metric={props.query.metric} />
+}
+
+export function EndpointsUsageTrendsChart({
+    results,
+    metric,
+}: {
+    results: TrendsDataPoint[]
+    metric: string
+}): JSX.Element {
+    // CPU time and bytes read render better as filled areas; other metrics stay plain lines.
     const isAreaChart = metric === 'cpu_seconds' || metric === 'bytes_read'
 
     const { labels, series, scale } = useMemo(
-        () => transformDataForChart(results ?? [], metric ?? 'requests', isAreaChart),
+        () => transformDataForChart(results, metric, isAreaChart),
         [results, metric, isAreaChart]
     )
 
@@ -81,24 +103,8 @@ export function EndpointsUsageTrendsNode(props: {
         }
     }, [labels, series.length, scale])
 
-    if (responseLoading) {
-        return (
-            <div className="border rounded bg-bg-light p-4 h-60">
-                <LemonSkeleton className="w-full h-full" />
-            </div>
-        )
-    }
-
-    if (!results || results.length === 0) {
-        return (
-            <div className="flex items-center justify-center h-60 border rounded bg-bg-light text-muted">
-                No data available for this period
-            </div>
-        )
-    }
-
     return (
-        // Quill charts fill a *flex* parent (their root is flex-1), so the sized container must be a flex column.
+        // Quill charts fill a flex parent, so the sized container must be a flex column.
         <div className="border rounded bg-bg-light p-2 h-60 flex flex-col">
             <TimeSeriesLineChart series={series} labels={labels} theme={theme} config={config} />
         </div>
@@ -163,7 +169,7 @@ function transformDataForChart(
     series: Series[]
     scale: ScaleFactor
 } {
-    const fill = isAreaChart ? { fill: { opacity: AREA_FILL_OPACITY } } : {}
+    const fill = isAreaChart ? { fill: { opacity: 0.5 } } : {}
     const hasBreakdown = results.some((r) => r.breakdown !== undefined)
 
     if (hasBreakdown) {
