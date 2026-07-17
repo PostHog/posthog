@@ -248,6 +248,7 @@ class TestSharedVapiWebhook(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         interview = UserInterview.objects.get(team=self.team)
+        assert config.interviewee_context is not None
         assert interview.topic_id == config.interviewee_context.topic_id
         assert interview.respondent_name == "Robin"
         # Provided distinct_id is stored in interviewee_identifier, not a dedicated column.
@@ -273,6 +274,7 @@ class TestSharedVapiWebhook(APIBaseTest):
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
     def test_completed_response_supersedes_abandoned_partial_from_a_refresh(self) -> None:
         config = self._shared_config()
+        assert config.interviewee_context is not None
         topic = config.interviewee_context.topic
         # Simulate the abandoned partial an accidental refresh leaves behind for this respondent.
         abandoned = UserInterview.objects.create(
