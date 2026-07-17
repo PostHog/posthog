@@ -73,6 +73,10 @@ def remove_line_breaks(line: str) -> str:
 
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
+# Descriptions are an unbounded TextField; cap each one so a single oversized description can't
+# blow up every team member's prompt. The taxonomy already bounds the number of events per prompt.
+MAX_EVENT_DESCRIPTION_LENGTH = 500
+
 
 def sanitize_event_description(text: str) -> str:
     """Neutralize an untrusted event description before it goes into the model's context.
@@ -80,9 +84,11 @@ def sanitize_event_description(text: str) -> str:
     Event definition descriptions (and per-conversation context descriptions) are user-controlled
     project metadata, so they're treated as untrusted data: an editor could embed instructions that
     reach another user's agent session verbatim. Collapse control characters and whitespace so the
-    text can't break out of its line, and neutralize system_reminder framing.
+    text can't break out of its line, cap the length, and neutralize system_reminder framing.
     """
     collapsed = re.sub(r"\s+", " ", _CONTROL_CHARS_RE.sub(" ", text)).strip()
+    if len(collapsed) > MAX_EVENT_DESCRIPTION_LENGTH:
+        collapsed = collapsed[:MAX_EVENT_DESCRIPTION_LENGTH].rstrip() + "…"
     return sanitize_for_system_reminder(collapsed)
 
 
