@@ -117,7 +117,7 @@ Date|$pageview -> sign up conversion|$pageview -> sign up drop-off
 LIFECYCLE_EXAMPLE_PROMPT = """
 You are given a table with the results of a lifecycle query. Values are separated by the pipe character "|" and rows are separated by newlines. The first row is the header row. The first column is the date, and the remaining columns show the count of users in each lifecycle status for that period: New (first-time users), Returning (active in the previous period), Resurrecting (returning after inactivity), and Dormant (previously active but inactive, shown as negative values). If the query has multiple event series, each series is shown in a separate section with an "Event:" header.
 
-Important: lifecycle queries only include users with person profiles. Events captured without one (event property `$process_person_profile` set to `false` - anonymous users on SDKs configured with `person_profiles: 'identified_only'`, the default in posthog-js) are excluded entirely. In projects with anonymous traffic, lifecycle user counts are therefore expected to be far lower than a trends unique-user count of the same event; this is by design, not a bug or data loss. To compare like-for-like in a trends query, exclude events where `$process_person_profile` is `false`.
+Important: for event and action series, lifecycle queries only include users with person profiles. Events with `$process_person_profile: false` are excluded entirely; these come from anonymous users on SDKs configured with `person_profiles: 'identified_only'`, the default in posthog-js. Data warehouse series are not affected by this exclusion.
 
 Example:
 ```

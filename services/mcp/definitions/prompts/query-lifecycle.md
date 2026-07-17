@@ -81,14 +81,14 @@ Lifecycle insights analyze a **single event or action** over time. The `series` 
 
 Each user is categorized into one of four statuses for each time period:
 
-- **New** – the user performed the event for the first time ever during this period.
+- **New** – the user was seen for the first time (their person profile was created) during this period.
 - **Returning** – the user was active in the previous period and is active again in the current period.
 - **Resurrecting** – the user was inactive for one or more periods and became active again.
 - **Dormant** – the user was active in the previous period but did not perform the event in the current period. Dormant counts are shown as negative values.
 
 ## Anonymous users are excluded
 
-Lifecycle only counts users with person profiles. Events captured without one (event property `$process_person_profile` set to `false` — anonymous users on SDKs configured with `person_profiles: 'identified_only'`, the default in posthog-js) are excluded entirely. In projects with anonymous traffic, lifecycle totals are therefore expected to be far lower than a trends unique-user count of the same event. This is by design, not a bug or data loss. To compare like-for-like against a trends query, exclude events where `$process_person_profile` is `false`.
+Lifecycle only counts users with person profiles. Events with `$process_person_profile: false` are excluded entirely; these come from anonymous users on SDKs configured with `person_profiles: 'identified_only'`, the default in posthog-js. In projects with anonymous traffic, lifecycle totals are therefore expected to be far lower than a trends unique-user count of the same event. To confirm a gap is this expected exclusion rather than a data problem, add a filter to the trends query excluding events where `$process_person_profile` is `false`. If the gap persists after that, investigate further.
 
 ## Time interval
 
