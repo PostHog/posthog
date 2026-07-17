@@ -62,6 +62,20 @@ def _truncate_stream(text: str, cap: int = _STREAM_CAP_CHARS) -> str:
     return f"{text[:cap]}\n… [output truncated: exceeded {cap // 1024} KB]"
 
 
+def _preview_safe_cell(value: Any) -> Any:
+    """Coerce one preview cell to a JSON-encodable value (fallback path only)."""
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass  # pd.isna rejects containers and some objects — fall through to str
+    return str(value)
+
+
 def _load_headless_pyplot() -> Any:
     # matplotlib is heavy and sandbox-only; keep it off the module import path (ruff TID253),
     # and force the Agg backend before pyplot loads so figures render without a display.
@@ -106,6 +120,9 @@ class KernelSession:
         if node_type == "duckdb":
             return self._run_duckdb_node(node, preview_rows)
 
+        output_name = str(node.get("output_name") or "")
+        # Binding identities before the run, so a missed save can name the frames the run created.
+        ns_ids_before = {name: id(value) for name, value in self.shell.user_ns.items()} if output_name else {}
         self._plt.close("all")  # start from a clean figure state so we only capture this run's plots
         # display=False: only stdout/stderr are consumed (figures come from matplotlib
         # directly). Capturing display would also swap the ZMQ shell's display machinery,
@@ -140,7 +157,6 @@ class KernelSession:
                 media=media,
             )
 
-        output_name = str(node.get("output_name") or "")
         result_df = self._result_frame(output_name, execution.result)
         if output_name:
             if result_df is not None:
@@ -153,6 +169,7 @@ class KernelSession:
                 # reading a previous run's rows. The namespace is left to the user's code —
                 # it may hold a deliberate non-frame value under this name.
                 self._unregister_duck(output_name)
+                stderr += self._missed_save_note(output_name, ns_ids_before)
         columns, types, rows, row_count, has_more = self._preview(result_df, preview_rows)
         # result_id keys the on-disk frame for paging — only advertise one that actually exists.
         result_id = self._write_result_frame(result_df) if result_df is not None else None
@@ -247,6 +264,21 @@ class KernelSession:
             result_id=result_id,
         )
 
+    def _missed_save_note(self, output_name: str, ns_ids_before: dict[str, int]) -> str:
+        """A stderr note when the run made dataframes but none reached `output_name`."""
+        created = sorted(
+            name
+            for name, value in self.shell.user_ns.items()
+            if not name.startswith("_") and isinstance(value, pd.DataFrame) and ns_ids_before.get(name) != id(value)
+        )
+        if not created:
+            return ""
+        names = ", ".join(f"'{name}'" for name in created)
+        return (
+            f"\n[nothing was saved as '{output_name}': this run created {names}. "
+            f"Assign the dataframe to '{output_name}' or end the cell with it as the last expression.]"
+        )
+
     def _result_frame(self, output_name: str | None, last_expression: Any) -> "pd.DataFrame | None":
         # Prefer this run's last-expression value; the named output in the namespace is only
         # a fallback (it covers cells whose last line is an assignment, which yields no
@@ -270,7 +302,16 @@ class KernelSession:
         columns = [str(column) for column in df.columns]
         types = [[str(column), str(dtype)] for column, dtype in zip(df.columns, df.dtypes)]
         # to_json coerces numpy scalars, NaN and datetimes to JSON-native values in one pass.
-        rows = json.loads(df.head(limit).to_json(orient="values", date_format="iso"))
+        try:
+            rows = json.loads(df.head(limit).to_json(orient="values", date_format="iso"))
+        except (OverflowError, UnicodeDecodeError, ValueError, TypeError):
+            # Frames can carry values ujson can't encode — raw bytes from ClickHouse-native
+            # binary columns, or exotic objects user code produced. The preview is
+            # display-only (paging reads the Arrow frame), so degrade per cell instead of
+            # failing a run whose compute succeeded.
+            rows = [
+                [_preview_safe_cell(cell) for cell in row] for row in df.head(limit).itertuples(index=False, name=None)
+            ]
         # The preview is display-only (paging reads the Arrow frame), so huge cells get clipped.
         rows = [
             [

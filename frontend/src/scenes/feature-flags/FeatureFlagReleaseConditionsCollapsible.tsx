@@ -48,7 +48,7 @@ import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/uti
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
+import { IconArrowDown, IconArrowUp, IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -84,6 +84,7 @@ import {
     FeatureFlagGroupTypeWithSortKey,
     featureFlagReleaseConditionsLogic,
     isDistinctIdFilter,
+    withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
 import { getPropertySelectErrorMessages, PropertySelectError } from './propertySelectErrorMessages'
 
@@ -116,7 +117,8 @@ type MatchByOption = {
 function summarizeProperties(
     properties: AnyPropertyFilter[],
     aggregationTargetName: string,
-    getDistinctIdName: (distinctId: string) => string
+    getDistinctIdName: (distinctId: string) => string,
+    getFlagKey: (flagId: string) => string
 ): string {
     if (!properties || properties.length === 0) {
         // Capitalize first letter of aggregation target name
@@ -129,7 +131,8 @@ function summarizeProperties(
         if (property.type === PropertyFilterType.Cohort) {
             key = 'Cohort'
         } else if (property.type === PropertyFilterType.Flag) {
-            key = property.label || property.key || 'flag'
+            const resolved = withResolvedFlagLabels([property], getFlagKey)[0]
+            key = (resolved.type === PropertyFilterType.Flag && resolved.label) || 'flag'
         } else {
             key = property.key || 'property'
         }
@@ -178,6 +181,7 @@ interface ConditionHeaderProps {
     affectedCount: number | undefined
     aggregationTargetName: string
     getDistinctIdName: (distinctId: string) => string
+    getFlagKey: (flagId: string) => string
     onDuplicate: () => void
     onRemove: () => void
 }
@@ -189,12 +193,14 @@ function ConditionHeader({
     affectedCount,
     aggregationTargetName,
     getDistinctIdName,
+    getFlagKey,
     onDuplicate,
     onRemove,
 }: ConditionHeaderProps): JSX.Element {
     // Use description if available, otherwise summarize the filters
     const summary =
-        group.description || summarizeProperties(group.properties || [], aggregationTargetName, getDistinctIdName)
+        group.description ||
+        summarizeProperties(group.properties || [], aggregationTargetName, getDistinctIdName, getFlagKey)
     const rollout = group.rollout_percentage ?? 100
 
     const actualCount =
@@ -330,8 +336,15 @@ interface ConditionProps {
     totalGroups: number
     affectedCounts: Record<string, number | undefined>
     totalCounts: Record<string, number | undefined>
+    blastRadiusErrors: Record<string, boolean>
+    calculateBlastRadiusForCondition: (
+        sortKey: string,
+        properties: AnyPropertyFilter[] | undefined,
+        groupTypeIndex: number | null
+    ) => void
     aggregationTargetName: (conditionGroupTypeIndex?: number | null) => string
     getDistinctIdName: (distinctId: string) => string
+    getFlagKey: (flagId: string) => string
     taxonomicGroupTypesForCondition: (conditionGroupTypeIndex: number | null | undefined) => TaxonomicFilterGroupType[]
     groupTypes: Map<GroupTypeIndex, GroupType>
     setConditionAggregation: (index: number, groupTypeIndex: number | null) => void
@@ -400,8 +413,11 @@ const ConditionContent = ({
     totalGroups,
     affectedCounts,
     totalCounts,
+    blastRadiusErrors,
+    calculateBlastRadiusForCondition,
     aggregationTargetName,
     getDistinctIdName,
+    getFlagKey,
     taxonomicGroupTypesForCondition,
     groupTypes,
     setConditionAggregation,
@@ -532,6 +548,7 @@ const ConditionContent = ({
                                 affectedCount={group.sort_key ? affectedCounts[group.sort_key] : undefined}
                                 aggregationTargetName={aggregationTargetName(group.aggregation_group_type_index)}
                                 getDistinctIdName={getDistinctIdName}
+                                getFlagKey={getFlagKey}
                                 onDuplicate={onDuplicate}
                                 onRemove={onRemove}
                             />
@@ -607,7 +624,7 @@ const ConditionContent = ({
                                         <PropertyFilters
                                             orFiltering={true}
                                             pageKey={`feature-flag-workflow-${id}-${group.sort_key!}`}
-                                            propertyFilters={group?.properties}
+                                            propertyFilters={withResolvedFlagLabels(group?.properties, getFlagKey)}
                                             logicalRowDivider
                                             addText="Add filter"
                                             onChange={(properties) => {
@@ -658,7 +675,32 @@ const ConditionContent = ({
                                                 data-attr="rollout-percentage"
                                             />
                                         </div>
-                                        {group.sort_key && affectedCounts[group.sort_key] !== undefined ? (
+                                        {group.sort_key && blastRadiusErrors[group.sort_key] ? (
+                                            <div
+                                                role="status"
+                                                className="text-xs text-muted mt-2 flex items-center gap-2"
+                                            >
+                                                <IconErrorOutline className="text-danger text-sm shrink-0" />
+                                                <span>Couldn't estimate how many {resolvedTargetName} match.</span>
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="xsmall"
+                                                    onClick={() =>
+                                                        group.sort_key &&
+                                                        calculateBlastRadiusForCondition(
+                                                            group.sort_key,
+                                                            group.properties,
+                                                            resolveAggregationGroupTypeIndex(
+                                                                group.aggregation_group_type_index,
+                                                                releaseFilters.aggregation_group_type_index
+                                                            )
+                                                        )
+                                                    }
+                                                >
+                                                    Retry
+                                                </LemonButton>
+                                            </div>
+                                        ) : group.sort_key && affectedCounts[group.sort_key] !== undefined ? (
                                             <div className="text-xs text-muted mt-2">
                                                 {(() => {
                                                     const affected = group.sort_key
@@ -833,8 +875,10 @@ export function FeatureFlagReleaseConditionsCollapsible({
         filtersTaxonomicOptions,
         affectedCounts,
         totalCounts,
+        blastRadiusErrors,
         aggregationTargetName,
         getDistinctIdName,
+        getFlagKey,
         taxonomicGroupTypesForCondition,
         filters: releaseFilters,
         groupTypes,
@@ -865,6 +909,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
         setIsAnyItemDragging,
         setDraggedGroup,
         setEarlyExit,
+        calculateBlastRadiusForCondition,
     } = useActions(releaseConditionsLogic)
 
     const handleAddConditionSet = (): void => {
@@ -934,7 +979,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
                         summarizeProperties(
                             group.properties || [],
                             aggregationTargetName(group.aggregation_group_type_index),
-                            getDistinctIdName
+                            getDistinctIdName,
+                            getFlagKey
                         )
                     const rollout = group.rollout_percentage ?? 100
                     return (
@@ -1230,8 +1276,11 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                 totalGroups={filterGroups.length}
                                                 affectedCounts={affectedCounts}
                                                 totalCounts={totalCounts}
+                                                blastRadiusErrors={blastRadiusErrors}
+                                                calculateBlastRadiusForCondition={calculateBlastRadiusForCondition}
                                                 aggregationTargetName={aggregationTargetName}
                                                 getDistinctIdName={getDistinctIdName}
+                                                getFlagKey={getFlagKey}
                                                 taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                                 groupTypes={groupTypes}
                                                 setConditionAggregation={setConditionAggregation}
@@ -1275,7 +1324,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                                 aggregationTargetName(
                                                                     draggedGroup.aggregation_group_type_index
                                                                 ),
-                                                                getDistinctIdName
+                                                                getDistinctIdName,
+                                                                getFlagKey
                                                             )}
                                                     </span>
                                                 </div>
@@ -1306,8 +1356,11 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         totalGroups={filterGroups.length}
                                         affectedCounts={affectedCounts}
                                         totalCounts={totalCounts}
+                                        blastRadiusErrors={blastRadiusErrors}
+                                        calculateBlastRadiusForCondition={calculateBlastRadiusForCondition}
                                         aggregationTargetName={aggregationTargetName}
                                         getDistinctIdName={getDistinctIdName}
+                                        getFlagKey={getFlagKey}
                                         taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                         groupTypes={groupTypes}
                                         setConditionAggregation={setConditionAggregation}
@@ -1357,8 +1410,11 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         totalGroups={filterGroups.length}
                                         affectedCounts={affectedCounts}
                                         totalCounts={totalCounts}
+                                        blastRadiusErrors={blastRadiusErrors}
+                                        calculateBlastRadiusForCondition={calculateBlastRadiusForCondition}
                                         aggregationTargetName={aggregationTargetName}
                                         getDistinctIdName={getDistinctIdName}
+                                        getFlagKey={getFlagKey}
                                         taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                         groupTypes={groupTypes}
                                         setConditionAggregation={setConditionAggregation}
@@ -1390,8 +1446,11 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 totalGroups={filterGroups.length}
                                 affectedCounts={affectedCounts}
                                 totalCounts={totalCounts}
+                                blastRadiusErrors={blastRadiusErrors}
+                                calculateBlastRadiusForCondition={calculateBlastRadiusForCondition}
                                 aggregationTargetName={aggregationTargetName}
                                 getDistinctIdName={getDistinctIdName}
+                                getFlagKey={getFlagKey}
                                 taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                 groupTypes={groupTypes}
                                 setConditionAggregation={setConditionAggregation}

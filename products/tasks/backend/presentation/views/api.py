@@ -73,6 +73,7 @@ from products.tasks.backend.presentation.serializers import (
     StreamReadTokenResponseSerializer,
     TaskAutomationSerializer,
     TaskAutomationWriteSerializer,
+    TaskCreateSerializer,
     TaskListQuerySerializer,
     TaskPresenceBeaconRequestSerializer,
     TaskRepositoriesResponseSerializer,
@@ -114,6 +115,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskWriteSerializer,
     WarmTaskRequestSerializer,
     WarmTaskResponseSerializer,
+    WizardCloudRunSerializer,
 )
 
 from ee.hogai.utils.aio import async_to_sync
@@ -226,8 +228,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)
 
-    def _write_serializer(self, data, *, partial: bool = False) -> TaskWriteSerializer:
-        serializer = TaskWriteSerializer(
+    def _write_serializer(
+        self,
+        data,
+        *,
+        partial: bool = False,
+        serializer_class: type[TaskWriteSerializer] = TaskWriteSerializer,
+    ) -> TaskWriteSerializer:
+        serializer = serializer_class(
             data=data,
             partial=partial,
             context={"team": self.team, "team_id": self.team.id, "request": self.request},
@@ -273,9 +281,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         return Response(TaskSerializer(task).data)
 
-    @extend_schema(request=TaskWriteSerializer, responses={201: TaskSerializer})
+    @extend_schema(request=TaskCreateSerializer, responses={201: TaskSerializer})
     def create(self, request, **kwargs):
-        serializer = self._write_serializer(request.data)
+        serializer = self._write_serializer(request.data, serializer_class=TaskCreateSerializer)
         task = tasks_facade.create_task(self.team_id, self._user_id(), validated_data=dict(serializer.validated_data))
         return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
 
@@ -321,6 +329,35 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         repositories = tasks_facade.list_task_repositories(self.team_id, self._user_id())
         serializer = TaskRepositoriesResponseSerializer({"repositories": repositories})
         return Response(serializer.data)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=WizardCloudRunSerializer,
+                description="The team's active onboarding wizard cloud run.",
+            ),
+            204: OpenApiResponse(description="No active onboarding wizard cloud run for this project."),
+        },
+        summary="Get the team's active onboarding wizard cloud run",
+        description=(
+            "Returns the most recent onboarding wizard cloud run for the current project when it is "
+            "still running (or completed within the last day), so the setup-progress FAB can rehydrate "
+            "after a drop-flow signup that started the run server-side. Returns 204 when there is none."
+        ),
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="active_wizard_run",
+        required_scopes=["task:read"],
+        pagination_class=None,
+        filter_backends=[],
+    )
+    def active_wizard_run(self, request, **kwargs):
+        run = tasks_facade.get_active_wizard_cloud_run(self.team_id)
+        if run is None:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response(WizardCloudRunSerializer(run).data)
 
     @validated_request(
         request_serializer=TaskSummariesRequestSerializer,
@@ -920,6 +957,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         startable = tasks_facade.check_task_run_startable(pk, task_id, self.team_id)
         if startable == "not_found":
             raise NotFound()
+        if startable == "unsupported_runtime":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Pi tasks cannot be run through the ACP task workflow."}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if startable == "not_cloud":
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Only cloud runs can be started via this endpoint"}).data,
@@ -1446,7 +1488,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Send command to task run",
         description="Queue user_message JSON-RPC commands through the task workflow and forward sandbox control "
         "commands to the agent server. Supports user_message, cancel, close, permission_response, "
-        "and set_config_option commands.",
+        "set_config_option, and mcp_response commands.",
         strict_request_validation=True,
     )
     @action(
@@ -1457,6 +1499,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def command(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        if (
+            tasks_facade.task_runtime(task_id, self.team_id, self._user_id(), for_control=True)
+            == tasks_facade.TaskRuntime.PI
+        ):
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Pi tasks do not support ACP task commands."}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         method = request.validated_data["method"]
         request_id = request.validated_data.get("id")
         params = request.validated_data.get("params")
@@ -1794,6 +1845,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         outcome, run, _ = tasks_facade.resume_task_run_in_cloud(pk, task_id, self.team_id, self._user_id())
         if outcome == "not_found":
             raise NotFound()
+        if outcome == "unsupported_runtime":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Pi tasks cannot be run through the ACP task workflow."}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if outcome == "already_active":
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Run is already active in cloud"}).data,

@@ -52,7 +52,6 @@ import {
     isRerunWrapperKind,
 } from './hogInvocationsLogic'
 import { InvocationsSparkline } from './InvocationsSparkline'
-import { InvocationsBetaBanner } from './InvocationsTabBanners'
 
 const STATUS_OPTIONS: { value: RunStatus; label: string }[] = [
     { value: 'running', label: 'Running' },
@@ -221,14 +220,27 @@ export interface HogInvocationsProps extends HogInvocationsLogicProps {
      * matching the standalone Logs tab. Defaults to the hog-function renderer.
      */
     renderLogMessage?: (message: string) => JSX.Element | string
+    /**
+     * Trim the chrome for an embedded view — hides the sparkline, the person/kind/
+     * logged-errors filters, and the bulk re-run modal. Used by the batch view, which
+     * renders one scoped table per broadcast inside a collapsible panel.
+     */
+    compact?: boolean
 }
 
 /**
  * Rerun is async — posting to `/rerun` enqueues a cyclotron wrapper job; new
  * lifecycle rows show up here once the worker drains it.
  */
-export function HogInvocations({ id, functionKind, renderLogMessage }: HogInvocationsProps): JSX.Element | null {
-    const logic = hogInvocationsLogic({ id, functionKind })
+export function HogInvocations({
+    id,
+    functionKind,
+    renderLogMessage,
+    compact,
+    parentRunId,
+    defaultDateFrom,
+}: HogInvocationsProps): JSX.Element | null {
+    const logic = hogInvocationsLogic({ id, functionKind, parentRunId, defaultDateFrom })
     const {
         runs,
         runsLoading,
@@ -469,25 +481,28 @@ export function HogInvocations({ id, functionKind, renderLogMessage }: HogInvoca
 
     return (
         <div className="flex-1 deprecated-space-y-2 flex flex-col min-w-0">
-            <InvocationsBetaBanner />
-            <InvocationsSparkline
-                data={sparkline}
-                loading={sparklineLoading}
-                onDateRangeChange={(date_from, date_to) => setFilters({ date_from, date_to })}
-            />
+            {compact ? null : (
+                <InvocationsSparkline
+                    data={sparkline}
+                    loading={sparklineLoading}
+                    onDateRangeChange={(date_from, date_to) => setFilters({ date_from, date_to })}
+                />
+            )}
             <div className="flex flex-wrap items-center gap-2 justify-between">
                 <div className="flex items-center gap-2 flex-1 min-w-100">
                     <LemonInput
                         type="search"
                         size="small"
-                        placeholder="Search by invocation, event, distinct, or person ID…"
+                        placeholder="Search by ID or log message…"
                         fullWidth
                         value={filters.search ?? ''}
-                        onChange={(value) => setFilters({ search: value || undefined })}
+                        // Clear the drill-down's level narrowing on manual typing — a hand-typed
+                        // search matches log messages at any level, not just WARN/ERROR.
+                        onChange={(value) => setFilters({ search: value || undefined, log_levels: undefined })}
                         prefix={<IconSearch />}
                         allowClear
                     />
-                    <PersonFilterPicker id={id} functionKind={functionKind} />
+                    {compact ? null : <PersonFilterPicker id={id} functionKind={functionKind} />}
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
                     <StatusFilterDropdown
@@ -498,30 +513,34 @@ export function HogInvocations({ id, functionKind, renderLogMessage }: HogInvoca
                             })
                         }
                     />
-                    <LemonSelect<'all' | 'invocations' | 'rerun_jobs'>
-                        size="small"
-                        value={filters.kind ?? 'all'}
-                        onChange={(v) =>
-                            setFilters({
-                                kind: v === 'invocations' || v === 'rerun_jobs' ? v : undefined,
-                            })
-                        }
-                        options={[
-                            { value: 'all', label: 'All rows' },
-                            { value: 'invocations', label: 'Invocations only' },
-                            { value: 'rerun_jobs', label: 'Rerun jobs only' },
-                        ]}
-                    />
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconWarning />}
-                        active={!!filters.problem_only}
-                        onClick={() => setFilters({ problem_only: filters.problem_only ? undefined : true })}
-                        tooltip="Show only runs that logged an error or warning — e.g. an email bounce or complaint that arrived after the run finished"
-                    >
-                        Logged errors
-                    </LemonButton>
+                    {compact ? null : (
+                        <>
+                            <LemonSelect<'all' | 'invocations' | 'rerun_jobs'>
+                                size="small"
+                                value={filters.kind ?? 'all'}
+                                onChange={(v) =>
+                                    setFilters({
+                                        kind: v === 'invocations' || v === 'rerun_jobs' ? v : undefined,
+                                    })
+                                }
+                                options={[
+                                    { value: 'all', label: 'All rows' },
+                                    { value: 'invocations', label: 'Invocations only' },
+                                    { value: 'rerun_jobs', label: 'Rerun jobs only' },
+                                ]}
+                            />
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconWarning />}
+                                active={!!filters.problem_only}
+                                onClick={() => setFilters({ problem_only: filters.problem_only ? undefined : true })}
+                                tooltip="Show only runs that logged an error or warning — e.g. an email bounce or complaint that arrived after the run finished"
+                            >
+                                Logged errors
+                            </LemonButton>
+                        </>
+                    )}
                     <DateFilter
                         size="small"
                         dateTo={filters.date_to ?? undefined}
@@ -547,28 +566,32 @@ export function HogInvocations({ id, functionKind, renderLogMessage }: HogInvoca
                     >
                         Refresh
                     </LemonButton>
-                    <LemonButton
-                        size="small"
-                        type="primary"
-                        icon={<IconRevert />}
-                        onClick={() => setRerunModalOpen(true)}
-                    >
-                        Re-run…
-                    </LemonButton>
+                    {compact ? null : (
+                        <LemonButton
+                            size="small"
+                            type="primary"
+                            icon={<IconRevert />}
+                            onClick={() => setRerunModalOpen(true)}
+                        >
+                            Re-run…
+                        </LemonButton>
+                    )}
                 </div>
             </div>
 
-            <RerunModal
-                isOpen={rerunModalOpen}
-                onClose={() => setRerunModalOpen(false)}
-                initialDateFrom={filters.date_from}
-                initialDateTo={filters.date_to}
-                countMatches={(params) => countRerunMatches({ id, functionKind }, params)}
-                onSubmit={(params) => {
-                    bulkRerun(params)
-                    setRerunModalOpen(false)
-                }}
-            />
+            {compact ? null : (
+                <RerunModal
+                    isOpen={rerunModalOpen}
+                    onClose={() => setRerunModalOpen(false)}
+                    initialDateFrom={filters.date_from}
+                    initialDateTo={filters.date_to}
+                    countMatches={(params) => countRerunMatches({ id, functionKind }, params)}
+                    onSubmit={(params) => {
+                        bulkRerun(params)
+                        setRerunModalOpen(false)
+                    }}
+                />
+            )}
 
             {selectedCount > 0 ? (
                 <div className="flex items-center justify-between border rounded p-2 bg-bg-light">
@@ -695,9 +718,11 @@ function RunDetail({
     renderLogMessage?: (message: string) => JSX.Element | string
 }): JSX.Element {
     const isRerunWrapper = isRerunWrapperKind(record.function_kind)
+    // A batch child's log entries are keyed under the batch run (parent_run_id) as the log
+    // source, not the workflow id — so fetch this run's logs from there when it's a child.
     const logsLogicProps: LogsViewerLogicProps = {
         sourceType: functionKind,
-        sourceId: hogFunctionId,
+        sourceId: record.parent_run_id || hogFunctionId,
         logicKey: `invocations-${record.invocation_id}`,
         defaultFilters: { instanceId: record.invocation_id },
         groupByInstanceId: false,

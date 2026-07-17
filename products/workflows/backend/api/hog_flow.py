@@ -56,6 +56,7 @@ from posthog.models.filters import Filter
 from posthog.plugins.plugin_server_api import (
     create_hog_flow_invocation_test,
     create_hog_flow_scheduled_invocation,
+    get_hog_flow_in_flight_count,
     rerun_hog_invocations,
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -95,6 +96,13 @@ from products.workflows.backend.services.batch_audience import (
     get_batch_audience_person_ids,
     use_workflows_batch_audience_query,
 )
+from products.workflows.backend.services.revisions import use_workflows_revisions
+from products.workflows.backend.services.timing_reschedule import (
+    get_all_timing_action_ids,
+    get_timing_reschedule_action_ids,
+    use_workflows_timing_reschedule,
+)
+from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
@@ -104,12 +112,27 @@ logger = structlog.get_logger(__name__)
 # (nodejs/src/cdp/services/hogflows/actions/delay.ts) that throws at runtime on mismatch.
 DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhm]$")
 
-# Active workflows are read-only via MCP for now: edits can break runs already scheduled or in flight,
-# and there's no revision history to roll back. Shared by the plain update path and the graph endpoint.
+# Active workflows are read-only via MCP unless the workflows-revisions flag routes edits to the
+# draft (see perform_update / graph): edits can break runs already scheduled or in flight, and
+# there's no revision history to roll back. Shared by the plain update path and the graph endpoint.
 MCP_ACTIVE_EDIT_REJECTION = (
     "Editing an active workflow isn't supported via MCP yet — changes can break runs already "
     "scheduled or in flight, and there's no revision history to roll back. If you need different "
     "behavior, create a new draft workflow."
+)
+
+# The content of a workflow: everything the draft cycle stages and publish promotes, and nothing
+# else. Metadata (name, description) and lifecycle (status) always apply to the live row. The draft
+# blob is a full snapshot of these fields so publish is a plain copy, not a merge.
+DRAFT_CONTENT_FIELDS = (
+    "actions",
+    "edges",
+    "trigger",
+    "trigger_masking",
+    "conversion",
+    "exit_condition",
+    "abort_action",
+    "variables",
 )
 
 # A batch audience is a one-time snapshot of everyone matching the conditions at run time, so each
@@ -928,6 +951,24 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         ),
     )
 
+    draft = serializers.JSONField(
+        read_only=True,
+        help_text=(
+            "Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and "
+            "settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it "
+            "with the publish endpoint or throw it away with discard_draft."
+        ),
+    )
+    draft_updated_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "When the draft was last written; null when there's no staged draft. Pass this to publish (and as "
+            "base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a "
+            "mismatch returns 409."
+        ),
+    )
+
     def to_internal_value(self, data):
         status = data.get("status")
         if status is None and self.instance:
@@ -970,6 +1011,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "billable_action_types",
             "schedules",
             "user_access_level",
+            "draft",
+            "draft_updated_at",
         ]
         read_only_fields = [
             "id",
@@ -982,6 +1025,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "billable_action_types",  # Computed field, not user-editable
             "schedules",  # Managed via the schedules sub-resource, surfaced read-only here
             "user_access_level",
+            "draft",  # Written by draft routing (see perform_update / graph), never directly
+            "draft_updated_at",
         ]
 
     def validate(self, data):
@@ -1227,6 +1272,51 @@ class HogFlowInvocationSerializer(serializers.Serializer):
             "returns the next action id."
         ),
     )
+    use_draft = serializers.BooleanField(
+        default=False,
+        write_only=True,
+        help_text=(
+            "Test the workflow's staged draft instead of its live config. Requires an open draft; "
+            "can't be combined with an explicit configuration override."
+        ),
+    )
+
+
+class HogFlowPublishRequestSerializer(serializers.Serializer):
+    confirm = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "False (default) previews the publish: returns how many runs are in flight without changing "
+            "anything. True applies the staged draft to the live workflow."
+        ),
+    )
+    draft_updated_at = serializers.DateTimeField(
+        required=False,
+        help_text=(
+            "The draft_updated_at you loaded — required when confirm=true. A mismatch returns 409, so you "
+            "never publish a draft someone else has changed since you read it."
+        ),
+    )
+
+
+class HogFlowPublishResponseSerializer(serializers.Serializer):
+    published = serializers.BooleanField(help_text="Whether the draft was applied to the live workflow.")
+    in_flight_runs = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Runs currently in flight (parked on waits/delays or executing) that will follow the new config "
+            "once published. Null when the count is unavailable."
+        ),
+    )
+    draft_updated_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="Echo of the staged draft's timestamp — pass it back with confirm=true to publish exactly this draft.",
+    )
+    workflow = HogFlowSerializer(
+        required=False,
+        allow_null=True,
+        help_text="The workflow after publishing (only set when published=true).",
+    )
 
 
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
@@ -1280,6 +1370,8 @@ class HogFlowViewSet(
         "bulk_delete",
         "rerun",
         "graph",
+        "publish",
+        "discard_draft",
     ]
     queryset = HogFlow.objects.all()
     pagination_class = HogFlowPagination
@@ -1463,14 +1555,11 @@ class HogFlowViewSet(
         # unaffected). We check the raw request payload, not serializer.validated_data — HogFlowSerializer.validate
         # injects derived fields like 'trigger' and 'billable_action_types' which would otherwise make every
         # status-only PATCH look like a mixed edit.
+        route_to_draft = False
         if self._is_mcp_request(self.request):
             keys = set(self.request.data.keys())
             has_status = "status" in keys
             has_non_status = bool(keys - {"status"})
-
-            # Active workflows are read-only via MCP for now. Status-only PATCHes (lifecycle tools) pass through.
-            if serializer.instance.status == HogFlow.State.ACTIVE and has_non_status:
-                raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
 
             # Status transitions must go through the dedicated lifecycle tools (status-only PATCHes); a mixed
             # status + field payload is rejected so MCP can't sneak a transition through a field update.
@@ -1479,6 +1568,14 @@ class HogFlowViewSet(
                     "Status changes via MCP must use workflows-enable / workflows-disable / "
                     "workflows-archive — they can't be combined with other field updates."
                 )
+
+            # Content edits on an active workflow stage a draft when the revisions cycle is on for the
+            # team; otherwise active workflows stay read-only via MCP. Status-only PATCHes (lifecycle
+            # tools) pass through either way, and metadata-only edits apply live once the flag is on.
+            if serializer.instance.status == HogFlow.State.ACTIVE and has_non_status:
+                if not use_workflows_revisions(self.team):
+                    raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
+                route_to_draft = bool(keys & set(DRAFT_CONTENT_FIELDS))
 
         # TODO(team-workflows): Atomically increment version, insert new object instead of default update behavior
         instance_id = serializer.instance.id
@@ -1502,11 +1599,34 @@ class HogFlowViewSet(
             except HogFlow.DoesNotExist:
                 before_update = None
 
-            if base_updated_at and before_update and before_update.updated_at > base_updated_at:
+            # Draft edits race against other draft edits, not against the live row (which they don't
+            # touch), so the staleness baseline is the draft's own timestamp once a draft exists.
+            guard_timestamp = before_update.updated_at if before_update else None
+            if route_to_draft and before_update and before_update.draft_updated_at:
+                guard_timestamp = before_update.draft_updated_at
+            if base_updated_at and guard_timestamp and guard_timestamp > base_updated_at:
                 raise StaleWorkflowUpdateError()
 
-            serializer.save()
+            if route_to_draft:
+                assert before_update is not None
+                self._write_draft(serializer.instance, before_update, serializer.validated_data)
+                # Metadata in the same payload still applies live. Content (and the fields validate()
+                # derives from it — trigger, billable_action_types) must not leak onto the live row:
+                # they were computed from the draft's graph.
+                remaining = {
+                    k: v
+                    for k, v in serializer.validated_data.items()
+                    if k not in DRAFT_CONTENT_FIELDS and k != "billable_action_types"
+                }
+                if remaining:
+                    serializer.validated_data.clear()
+                    serializer.validated_data.update(remaining)
+                    serializer.save()
+            else:
+                serializer.save()
 
+        if not route_to_draft:
+            self._maybe_reschedule_timing_edits(before_update, serializer.instance)
         log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, previous=before_update)
         self._emit_resource_edited(serializer.instance)
 
@@ -1536,6 +1656,23 @@ class HogFlowViewSet(
             except Exception as e:
                 logger.warning("Failed to capture hog_flow_activated event", error=str(e))
 
+    def _write_draft(self, instance: HogFlow, locked: HogFlow, validated_data: dict) -> None:
+        # The draft is always a full content snapshot (live config as the base, staged draft on top,
+        # this edit's validated fields last) so publish is a plain copy with no merge logic.
+        snapshot = {field: getattr(locked, field) for field in DRAFT_CONTENT_FIELDS}
+        # The model's legacy default for actions/edges is `{}`, but the API shape is a list — normalize
+        # so publish's re-validation doesn't choke on a snapshot of a never-edited column.
+        for field in ("actions", "edges"):
+            if not snapshot[field]:
+                snapshot[field] = []
+        draft = {**snapshot, **(locked.draft or {})}
+        for field in DRAFT_CONTENT_FIELDS:
+            if field in validated_data:
+                draft[field] = validated_data[field]
+        instance.draft = draft
+        instance.draft_updated_at = timezone.now()
+        instance.save(update_fields=["draft", "draft_updated_at"])
+
     @extend_schema(request=HogFlowGraphUpdateSerializer, responses={200: HogFlowSerializer})
     @action(detail=True, methods=["PATCH"])
     def graph(self, request: Request, *args, **kwargs):
@@ -1553,12 +1690,21 @@ class HogFlowViewSet(
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
 
+            route_to_draft = False
             if self._is_mcp_request(request) and locked.status == HogFlow.State.ACTIVE:
-                raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
+                if not use_workflows_revisions(self.team):
+                    raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
+                route_to_draft = True
 
-            new_actions, new_edges = apply_graph_operations(
-                list(locked.actions or []), list(locked.edges or []), operations
-            )
+            # Draft edits compose on the staged draft, not on live — a second patch must see the first.
+            if route_to_draft and locked.draft:
+                base_actions = list(locked.draft.get("actions") or [])
+                base_edges = list(locked.draft.get("edges") or [])
+            else:
+                base_actions = list(locked.actions or [])
+                base_edges = list(locked.edges or [])
+
+            new_actions, new_edges = apply_graph_operations(base_actions, base_edges, operations)
 
             serializer = self.get_serializer(locked, data={"actions": new_actions, "edges": new_edges}, partial=True)
             # The surgical endpoint is the one path where structural corruption would be newly introduced,
@@ -1568,8 +1714,147 @@ class HogFlowViewSet(
 
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
-            # save() mutates and returns `locked` in place, so it's the saved HogFlow from here on.
+            if route_to_draft:
+                self._write_draft(locked, locked, serializer.validated_data)
+            else:
+                # save() mutates and returns `locked` in place, so it's the saved HogFlow from here on.
+                serializer.save()
+
+        if not route_to_draft:
+            self._maybe_reschedule_timing_edits(before_update, locked)
+        log_activity_from_viewset(self, locked, name=locked.name, previous=before_update)
+        self._emit_resource_edited(locked)
+
+        return Response(self.get_serializer(locked).data)
+
+    def _maybe_reschedule_timing_edits(self, before: Optional[HogFlow], after: HogFlow) -> None:
+        """Kick off a reschedule sweep of parked runs when a go-live config change could move
+        their wake times earlier (issue #66380): shortened delays and moved wait windows.
+
+        Called wherever the LIVE config changes - a direct save (the builder path, where save
+        is go-live), the graph endpoint, or publish - and never for draft writes, which don't
+        touch what runs execute. Deliberately called AFTER the writing transaction commits:
+        the feature-flag check can hit the network, and must not extend the select_for_update
+        row-lock hold. on_commit outside an atomic block runs the enqueue immediately, and in
+        tests (where an outer transaction wraps the request) it defers to that commit.
+        """
+        if not before or after.status != HogFlow.State.ACTIVE:
+            return
+        if before.status != HogFlow.State.ACTIVE:
+            # Re-enable: runs parked during the prior active period survive a disable (cancelled
+            # lazily, at wake, only while the flow is inactive), and timing edits made while
+            # inactive never swept - so converge every timing step rather than diffing against a
+            # baseline that may predate any number of unswept edits.
+            action_ids = get_all_timing_action_ids(after.actions)
+        else:
+            action_ids = get_timing_reschedule_action_ids(before.actions, after.actions)
+        if not action_ids:
+            return
+        if not use_workflows_timing_reschedule(self.team):
+            return
+        team_id = self.team_id
+        hog_flow_id = str(after.id)
+        transaction.on_commit(
+            lambda: reschedule_hog_flow_timing.delay(team_id=team_id, hog_flow_id=hog_flow_id, action_ids=action_ids)
+        )
+
+    def _get_in_flight_run_count(self, hog_flow: HogFlow) -> Optional[int]:
+        # Best-effort: publish must not fail because the counting service is unreachable — the count
+        # is advisory ("N runs in flight will follow the new config"), not a gate.
+        try:
+            res = get_hog_flow_in_flight_count(team_id=self.team_id, hog_flow_id=str(hog_flow.id))
+            if res.status_code == 200:
+                return res.json().get("count")
+            logger.warning(
+                "Failed to fetch in-flight run count for workflow",
+                hog_flow_id=str(hog_flow.id),
+                status_code=res.status_code,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to fetch in-flight run count for workflow", hog_flow_id=str(hog_flow.id), exc_info=True
+            )
+        return None
+
+    @extend_schema(request=HogFlowPublishRequestSerializer, responses={200: HogFlowPublishResponseSerializer})
+    @action(detail=True, methods=["POST"])
+    def publish(self, request: Request, *args, **kwargs):
+        # Promote the staged draft to the live config. Two-step by design: a call without confirm only
+        # echoes impact (how many runs are in flight), so callers — especially agents — never publish blind.
+        if not use_workflows_revisions(self.team):
+            raise exceptions.ValidationError("Publishing drafts isn't enabled for this project yet.")
+
+        param_serializer = HogFlowPublishRequestSerializer(data=request.data)
+        param_serializer.is_valid(raise_exception=True)
+        confirm = param_serializer.validated_data["confirm"]
+
+        instance = self.get_object()
+        if not instance.draft:
+            raise exceptions.ValidationError("This workflow has no staged draft to publish.")
+
+        if not confirm:
+            return Response(
+                {
+                    "published": False,
+                    "in_flight_runs": self._get_in_flight_run_count(instance),
+                    "draft_updated_at": instance.draft_updated_at,
+                }
+            )
+
+        expected_draft_updated_at = param_serializer.validated_data.get("draft_updated_at")
+        if not expected_draft_updated_at:
+            raise exceptions.ValidationError(
+                {"draft_updated_at": "Required when confirming a publish — pass the draft_updated_at you loaded."}
+            )
+
+        with transaction.atomic():
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
+            locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+            if not locked.draft:
+                raise exceptions.ValidationError("This workflow has no staged draft to publish.")
+            if locked.draft_updated_at != expected_draft_updated_at:
+                raise StaleWorkflowUpdateError()
+
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
+            before_update = HogFlow.objects.get(pk=instance.pk)
+            # The draft goes back through the normal serializer so publish revalidates strictly and
+            # recompiles bytecode — a stored blob is never trusted to be execution-ready.
+            serializer = self.get_serializer(locked, data=dict(locked.draft), partial=True)
+            serializer.is_valid(raise_exception=True)
             serializer.save()
+            locked.draft = None
+            locked.draft_updated_at = None
+            locked.save(update_fields=["draft", "draft_updated_at"])
+
+        self._maybe_reschedule_timing_edits(before_update, locked)
+        log_activity_from_viewset(self, locked, name=locked.name, previous=before_update)
+        self._emit_resource_edited(locked)
+
+        return Response(
+            {
+                "published": True,
+                "in_flight_runs": None,
+                "draft_updated_at": None,
+                "workflow": self.get_serializer(locked).data,
+            }
+        )
+
+    @extend_schema(request=None, responses={200: HogFlowSerializer})
+    @action(detail=True, methods=["POST"])
+    def discard_draft(self, request: Request, *args, **kwargs):
+        # Throw away the staged draft. Idempotent: discarding when nothing is staged is a no-op.
+        if not use_workflows_revisions(self.team):
+            raise exceptions.ValidationError("Drafts aren't enabled for this project yet.")
+
+        instance = self.get_object()
+        with transaction.atomic():
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
+            locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
+            before_update = HogFlow.objects.get(pk=instance.pk)
+            locked.draft = None
+            locked.draft_updated_at = None
+            locked.save(update_fields=["draft", "draft_updated_at"])
 
         log_activity_from_viewset(self, locked, name=locked.name, previous=before_update)
         self._emit_resource_edited(locked)
@@ -1594,10 +1879,22 @@ class HogFlowViewSet(
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)
 
+        payload = dict(serializer.validated_data)
+        if payload.pop("use_draft", False):
+            # The staged draft was validated when written, so it goes to the executor inline exactly
+            # like an explicit configuration override — workers never read (or cache) the draft column.
+            if payload.get("configuration"):
+                raise exceptions.ValidationError(
+                    {"use_draft": "Pass either use_draft or an explicit configuration override, not both."}
+                )
+            if not hog_flow or not hog_flow.draft:
+                raise exceptions.ValidationError({"use_draft": "This workflow has no staged draft to test."})
+            payload["configuration"] = hog_flow.draft
+
         res = create_hog_flow_invocation_test(
             team_id=self.team_id,
             hog_flow_id=str(hog_flow.id) if hog_flow else "new",
-            payload=serializer.validated_data,
+            payload=payload,
         )
 
         if res.status_code != 200:

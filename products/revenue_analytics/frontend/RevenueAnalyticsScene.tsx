@@ -18,9 +18,17 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { Onboarding } from './Onboarding'
 import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'
-import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
+import {
+    REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID,
+    REVENUE_ANALYTICS_QUERY_TO_NAME,
+    REVENUE_ANALYTICS_QUERY_TO_SHORT_ID,
+    RevenueAnalyticsQuery,
+    revenueAnalyticsLogic,
+} from './revenueAnalyticsLogic'
 import { RevenueAnalyticsViewStatusIcon } from './RevenueAnalyticsViewStatusIcon'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
 import { GrossRevenueTile, MRRTile, MetricsTile, OverviewTile, TopCustomersTile } from './tiles'
@@ -38,6 +46,29 @@ export function RevenueAnalyticsScene(): JSX.Element {
     const { dataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
     const { revenueEnabledDataWarehouseSources } = useValues(revenueAnalyticsLogic)
     const { featureFlags: enabledFlags } = useValues(enabledFeaturesLogic)
+
+    useAttachedContext([
+        {
+            type: 'insight',
+            key: REVENUE_ANALYTICS_QUERY_TO_SHORT_ID[RevenueAnalyticsQuery.MRR],
+            label: REVENUE_ANALYTICS_QUERY_TO_NAME[RevenueAnalyticsQuery.MRR],
+        },
+        {
+            type: 'insight',
+            key: REVENUE_ANALYTICS_QUERY_TO_SHORT_ID[RevenueAnalyticsQuery.GROSS_REVENUE],
+            label: REVENUE_ANALYTICS_QUERY_TO_NAME[RevenueAnalyticsQuery.GROSS_REVENUE],
+        },
+        {
+            type: 'insight',
+            key: REVENUE_ANALYTICS_QUERY_TO_SHORT_ID[RevenueAnalyticsQuery.METRICS],
+            label: REVENUE_ANALYTICS_QUERY_TO_NAME[RevenueAnalyticsQuery.METRICS],
+        },
+        {
+            type: 'insight',
+            key: REVENUE_ANALYTICS_QUERY_TO_SHORT_ID[RevenueAnalyticsQuery.TOP_CUSTOMERS],
+            label: REVENUE_ANALYTICS_QUERY_TO_NAME[RevenueAnalyticsQuery.TOP_CUSTOMERS],
+        },
+    ])
 
     const sourceRunningForTheFirstTime = revenueEnabledDataWarehouseSources?.find(
         (source) => source.status === 'Running' && !source.last_run_at
