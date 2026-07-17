@@ -152,7 +152,6 @@ function ImpersonationNoticeContent(): JSX.Element {
         isUpgradeModalOpen,
         isImpersonationUpgradeInProgress,
         orderedMembers,
-        changeableMembers,
         isChangingUser,
         membersLoading,
     } = useValues(impersonationNoticeLogic)
@@ -175,6 +174,7 @@ function ImpersonationNoticeContent(): JSX.Element {
 
     // Everyone is listed in power/name order. The current user's row is disabled and marked, so their
     // access level is visible without hoisting them out of order.
+    const hasOtherMembers = orderedMembers.some((member) => member.user.uuid !== user?.uuid)
     const changeUserItems = [
         ...orderedMembers.map((member) => {
             const isCurrentUser = member.user.uuid === user?.uuid
@@ -191,9 +191,7 @@ function ImpersonationNoticeContent(): JSX.Element {
             }
         }),
         // When the current user is the only member, spell it out so a lone disabled row doesn't look like a bug.
-        ...(changeableMembers.length === 0
-            ? [{ label: membersLoading ? 'Loading…' : 'No other members', disabledReason: ' ' }]
-            : []),
+        ...(!hasOtherMembers ? [{ label: membersLoading ? 'Loading…' : 'No other members', disabledReason: ' ' }] : []),
     ]
 
     const handleSessionExpired = useCallback((): void => {

@@ -683,32 +683,6 @@ describe('impersonationNoticeLogic', () => {
         })
     })
 
-    describe('changeableMembers selector', () => {
-        it('groups by power descending then names A→Z, excluding the impersonated user', async () => {
-            userLogic.actions.loadUserSuccess(MOCK_IMPERSONATED_USER)
-
-            // MOCK_IMPERSONATED_USER shares MOCK_DEFAULT_USER's uuid, so this member must be excluded.
-            const impersonatedSelf = mockMember('Self', OrganizationMembershipLevel.Owner, 1, MOCK_DEFAULT_USER.uuid)
-
-            membersLogic.actions.loadAllMembersSuccess([
-                mockMember('Zara', OrganizationMembershipLevel.Owner, 10, 'uuid-zara'),
-                mockMember('Anna', OrganizationMembershipLevel.Owner, 11, 'uuid-anna'),
-                mockMember('Yvonne', OrganizationMembershipLevel.Admin, 12, 'uuid-yvonne'),
-                mockMember('Bob', OrganizationMembershipLevel.Admin, 13, 'uuid-bob'),
-                mockMember('Xavier', OrganizationMembershipLevel.Member, 14, 'uuid-xavier'),
-                mockMember('Cara', OrganizationMembershipLevel.Member, 15, 'uuid-cara'),
-                impersonatedSelf,
-            ])
-
-            const names = logic.values.changeableMembers.map((member) => member.user.first_name)
-            expect(names).toEqual(['Anna', 'Zara', 'Bob', 'Yvonne', 'Cara', 'Xavier'])
-        })
-
-        it('returns an empty list when members have not loaded', async () => {
-            await expectLogic(logic).toMatchValues({ changeableMembers: [] })
-        })
-    })
-
     describe('orderedMembers selector', () => {
         it('sorts the current user in place by power then name, not hoisted to the top', async () => {
             userLogic.actions.loadUserSuccess({
@@ -729,15 +703,20 @@ describe('impersonationNoticeLogic', () => {
             expect(names).toEqual(['Zed', 'Ash', 'Casey', 'Bea'])
         })
 
-        it('still lists the current user when they are the only member', async () => {
+        // Covers both that the current user shows before the members list loads (via `me`, guarding
+        // the instant-display behavior) and that they remain when no one else is in the org.
+        it.each([
+            { scenario: 'before the members list has loaded', loadSelfOnly: false },
+            { scenario: 'when they are the only member', loadSelfOnly: true },
+        ])('lists just the current user $scenario', async ({ loadSelfOnly }) => {
             userLogic.actions.loadUserSuccess({ ...MOCK_IMPERSONATED_USER, first_name: 'Casey', last_name: '' })
 
-            // The members endpoint returns just the current user (matched by uuid).
-            membersLogic.actions.loadAllMembersSuccess([
-                mockMember('Casey', OrganizationMembershipLevel.Member, 1, MOCK_DEFAULT_USER.uuid),
-            ])
+            if (loadSelfOnly) {
+                membersLogic.actions.loadAllMembersSuccess([
+                    mockMember('Casey', OrganizationMembershipLevel.Member, 1, MOCK_DEFAULT_USER.uuid),
+                ])
+            }
 
-            expect(logic.values.changeableMembers).toEqual([])
             expect(logic.values.orderedMembers.map((member) => member.user.first_name)).toEqual(['Casey'])
         })
     })
