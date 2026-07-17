@@ -225,6 +225,33 @@ async fn async_main(config: Config) -> Result<()> {
     };
     let _discovery_handle = discovery.start(Arc::clone(&registry), discovery_token.clone());
 
+    // Peer awareness: track this consumer's own ready replicas via its
+    // Service's EndpointSlices, giving every pod a stable agreed index among
+    // its peers (the basis for deterministic aperture routing). Fails open:
+    // misconfiguration disables peer awareness rather than blocking startup.
+    let peer_tracker: Option<Arc<k8s_awareness::PeerTracker>> =
+        if config.peer_service_name.is_empty() {
+            None
+        } else if let Some(self_ip) = config.pod_ip.as_deref().and_then(|s| s.parse().ok()) {
+            let client = kube::Client::try_default()
+                .await
+                .context("Failed to create Kubernetes client for peer discovery")?;
+            let tracker = k8s_awareness::PeerTracker::new(self_ip);
+            tracker.watch(
+                client,
+                config.worker_namespace.clone(),
+                config.peer_service_name.clone(),
+                discovery_token.clone(),
+            );
+            Some(tracker)
+        } else {
+            error!(
+                pod_ip = ?config.pod_ip,
+                "PEER_SERVICE_NAME is set but POD_IP is missing or invalid; peer awareness disabled"
+            );
+            None
+        };
+
     // Reap drained workers: once a departed worker has finished its in-flight
     // batches (or hit the drain timeout), remove it from the registry and prune
     // its transport semaphore. No-op in static mode (workers never drain).
@@ -298,6 +325,7 @@ async fn async_main(config: Config) -> Result<()> {
         {
             let registry = Arc::clone(&registry);
             let dispatcher = Arc::clone(&dispatcher);
+            let peer_tracker = peer_tracker.clone();
             let group_id = group_id.clone();
             let secret = Arc::clone(&secret);
             app = app.route(
@@ -310,6 +338,7 @@ async fn async_main(config: Config) -> Result<()> {
                             &group_id,
                             &registry,
                             &dispatcher,
+                            &peer_tracker,
                         )))
                     };
                     ready(result)
@@ -320,6 +349,7 @@ async fn async_main(config: Config) -> Result<()> {
             let recorder = Arc::clone(recorder);
             let registry = Arc::clone(&registry);
             let dispatcher = Arc::clone(&dispatcher);
+            let peer_tracker = peer_tracker.clone();
             let group_id = group_id.clone();
             let secret = Arc::clone(&secret);
             app = app.route(
@@ -328,11 +358,14 @@ async fn async_main(config: Config) -> Result<()> {
                     let result = if !debug_authorized(&headers, &secret) {
                         Err(axum::http::StatusCode::UNAUTHORIZED)
                     } else {
-                        let load = build_debug_load(&group_id, &registry, &dispatcher);
+                        let load =
+                            build_debug_load(&group_id, &registry, &dispatcher, &peer_tracker);
                         Ok(axum::Json(DebugState {
                             group_id: load.group_id,
                             workers: load.workers,
                             dispatcher: load.dispatcher,
+                            peer_index: load.peer_index,
+                            peer_count: load.peer_count,
                             events: recorder.backlog(),
                         }))
                     };
@@ -489,7 +522,15 @@ fn build_debug_load(
     group_id: &str,
     registry: &ingestion_consumer::worker_registry::WorkerRegistry,
     dispatcher: &Dispatcher,
+    peer_tracker: &Option<Arc<k8s_awareness::PeerTracker>>,
 ) -> DebugLoad {
+    let (peer_index, peer_count) = match peer_tracker {
+        Some(tracker) => {
+            let peers = tracker.snapshot();
+            (peers.self_index, Some(peers.peer_count()))
+        }
+        None => (None, None),
+    };
     let dispatcher_load = dispatcher.debug_load();
     let workers = registry
         .health_snapshots()
@@ -516,5 +557,7 @@ fn build_debug_load(
         group_id: group_id.to_string(),
         workers,
         dispatcher: dispatcher_load,
+        peer_index,
+        peer_count,
     }
 }

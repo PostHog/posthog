@@ -225,6 +225,20 @@ pub struct Config {
     #[envconfig(from = "INGESTION_ROUTING_STRATEGY", default = "binpack")]
     pub routing_strategy: RoutingStrategy,
 
+    // ---- Peer awareness ----
+    /// Kubernetes Service whose EndpointSlices list this consumer's own peer
+    /// pods. Enables coordination-free peer awareness (each pod's stable index
+    /// among its replicas), the basis for deterministic aperture routing.
+    /// Empty (default) disables it. The Service is looked up in the pod's own
+    /// namespace (`POD_NAMESPACE`).
+    #[envconfig(from = "PEER_SERVICE_NAME", default = "")]
+    pub peer_service_name: String,
+
+    /// This pod's IP from the downward API, used to locate self in the peer
+    /// Service's EndpointSlices. Required when PEER_SERVICE_NAME is set.
+    #[envconfig(from = "POD_IP")]
+    pub pod_ip: Option<String>,
+
     // ---- Worker health / registry ----
     /// How often to probe each worker's /_ready endpoint (milliseconds).
     #[envconfig(default = "5000")]
