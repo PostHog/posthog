@@ -69,6 +69,13 @@ export function BatchExportConfiguration(): JSX.Element {
             <div className="flex flex-wrap gap-4 items-start">
                 <div className="flex flex-col flex-1 max-w-200 min-w-100 gap-y-3">
                     <div className="flex flex-col p-3 rounded border bg-surface-primary gap-y-2">
+                        <div className="flex flex-col gap-y-1">
+                            <h3 className="mb-0">Schedule</h3>
+                            <p className="text-secondary text-xs mb-0">
+                                Controls when batch export runs happen. The timezone here only affects the run schedule,
+                                not the timezone of the exported data.
+                            </p>
+                        </div>
                         <LemonField
                             label="Status"
                             name="paused"
@@ -124,7 +131,7 @@ export function BatchExportConfiguration(): JSX.Element {
                                         name="timezone"
                                         label="Timezone"
                                         className="flex-1"
-                                        info={`Timezone used for determining ${configuration.interval} boundaries for batch export runs`}
+                                        info={`Timezone used for determining ${configuration.interval} boundaries when scheduling batch export runs. This does not change the timezone of the exported data.`}
                                     >
                                         {({ value, onChange }) => {
                                             const currentTimezone = value || teamTimezone || 'UTC'
@@ -209,6 +216,12 @@ export function BatchExportConfiguration(): JSX.Element {
                         )}
                     </div>
                     <div className="flex flex-col p-3 rounded border bg-surface-primary gap-y-2">
+                        <div className="flex flex-col gap-y-1">
+                            <h3 className="mb-0">Data</h3>
+                            <p className="text-secondary text-xs mb-0">
+                                Controls which data is exported and how it's filtered.
+                            </p>
+                        </div>
                         <div className="flex gap-2 min-h-16">
                             <LemonField
                                 name="model"
