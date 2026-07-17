@@ -1,3 +1,5 @@
+from collections.abc import Iterable
+from typing import Any, cast
 from urllib.parse import urlparse
 
 import pytest
@@ -107,10 +109,10 @@ class TestKustomerSource:
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is KustomerResumeConfig
 
-    def test_version_declaration_keeps_v1_and_defaults_to_v2(self):
-        # New sources are stamped with default_version; existing v1 pins keep working.
+    def test_version_declaration_keeps_v1_default_with_v2_supported(self):
+        # v2 is declared but dormant; new sources stay stamped v1 until a /v2/ path is confirmed live.
         assert self.source.supported_versions == ("v1", "v2")
-        assert self.source.default_version == "v2"
+        assert self.source.default_version == "v1"
         assert self.source.deprecated_versions == ()
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.source.kustomer_source")
@@ -134,9 +136,9 @@ class TestKustomerSource:
         "products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.kustomer.make_tracked_session"
     )
     def test_source_requests_v1_rest_paths_for_every_version(self, mock_session, endpoint, pinned_version):
-        # Every list resource is served at /v1/ for both vendor versions; the v2
-        # default must not switch to /v2/, which would 404 the stream. Covering all
-        # six also guards against a per-resource /v2/ typo in the endpoint catalog.
+        # Every list resource is served at /v1/ for both vendor versions; a v2 pin
+        # must not switch to /v2/, which would 404 the stream. Covering all six also
+        # guards against a per-resource /v2/ typo in the endpoint catalog.
         page = mock.MagicMock(status_code=200, ok=True)
         page.json.return_value = {"data": [], "links": {}}
         mock_session.return_value.get.return_value = page
@@ -148,7 +150,7 @@ class TestKustomerSource:
         manager.can_resume.return_value = False
 
         response = self.source.source_for_pipeline(self.config, manager, inputs)
-        list(response.items())
+        list(cast(Iterable[Any], response.items()))
 
         url = mock_session.return_value.get.call_args.args[0]
         assert urlparse(url).path == f"/v1/{endpoint}"

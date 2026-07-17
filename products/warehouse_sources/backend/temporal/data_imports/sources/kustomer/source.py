@@ -37,8 +37,10 @@ class KustomerSource(ResumableSource[KustomerSourceConfig, KustomerResumeConfig]
     # for both — the "v2" docs toggle keeps these list endpoints at `/v1/`. So the
     # version is a pin recorded on the source, not a request-layer branch: every
     # version resolves to the same `/v1/<resource>` requests (see settings.py).
+    # v2 stays declared-but-dormant and the default remains v1 until a `/v2/<resource>`
+    # endpoint is confirmed to serve these resources, rather than 404.
     supported_versions = ("v1", "v2")
-    default_version = "v2"
+    default_version = "v1"
     api_docs_url = "https://developer.kustomer.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
