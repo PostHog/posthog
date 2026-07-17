@@ -19,6 +19,8 @@ interface OperationHistogramProps {
     selection: DurationRange | null
     onSelect: (selection: DurationRange) => void
     onClear: () => void
+    /** Clearing the selection refetches samples — disable the button while that's in flight. */
+    samplesLoading?: boolean
 }
 
 export function OperationHistogram({
@@ -27,6 +29,7 @@ export function OperationHistogram({
     selection,
     onSelect,
     onClear,
+    samplesLoading = false,
 }: OperationHistogramProps): JSX.Element {
     const onSelectionChange = useCallback(
         ({ startIndex, endIndex }: { startIndex: number; endIndex: number }): void => {
@@ -69,7 +72,12 @@ export function OperationHistogram({
                         <span className="text-xs font-mono">
                             {formatBucketLabel(selection.minNs)} – {formatBucketLabel(selection.maxNs)}
                         </span>
-                        <LemonButton size="xsmall" type="tertiary" onClick={onClear}>
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            onClick={onClear}
+                            disabledReason={samplesLoading ? 'Loading samples…' : undefined}
+                        >
                             Clear
                         </LemonButton>
                     </>

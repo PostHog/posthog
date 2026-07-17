@@ -784,6 +784,66 @@ export interface AgentApprovalsDecideResponseApi {
 }
 
 /**
+ * Body for `agent-applications-invoke` — start a new session on the agent's live (promoted) revision.
+ */
+export interface AgentInvokeRequestApi {
+    /** The user message that starts the session. Required, non-empty. */
+    message: string
+    /** Optional idempotency / threading key. A repeat invoke with the same external_key resumes the existing session instead of starting a new one. */
+    external_key?: string
+}
+
+/**
+ * * `queued` - queued
+ * * `running` - running
+ * * `completed` - completed
+ * * `closed` - closed
+ * * `cancelled` - cancelled
+ * * `failed` - failed
+ */
+export type AgentSessionStateEnumApi = (typeof AgentSessionStateEnumApi)[keyof typeof AgentSessionStateEnumApi]
+
+export const AgentSessionStateEnumApi = {
+    Queued: 'queued',
+    Running: 'running',
+    Completed: 'completed',
+    Closed: 'closed',
+    Cancelled: 'cancelled',
+    Failed: 'failed',
+} as const
+
+export interface AgentInvokeResponseApi {
+    /** The newly-created (or resumed, if external_key matched) session id. Feed to agent-applications-send / agent-applications-listen. */
+    session_id: string
+    /** Session state right after enqueue — `queued`. Poll agent-applications-listen for progress.
+     *
+     * * `queued` - queued
+     * * `running` - running
+     * * `completed` - completed
+     * * `closed` - closed
+     * * `cancelled` - cancelled
+     * * `failed` - failed */
+    state: AgentSessionStateEnumApi
+    /** True if an existing session matched `external_key` and was resumed, rather than a new one being created. */
+    resumed: boolean
+}
+
+export interface AgentListenResponseApi {
+    session_id: string
+    state: AgentSessionStateEnumApi
+    /** Total messages in the conversation so far. */
+    turns: number
+    /** Pass back as `cursor` on the next call to page forward — high-water mark of messages seen. */
+    next_cursor: number
+    /** Compact, payload-free progress summary: last assistant text, one-line tool activity, state/usage. */
+    digest: string
+    /** True when the digest was clipped to `max_chars` — read the full transcript via `agent-applications-sessions-retrieve`. */
+    truncated: boolean
+    /** True once the current turn has finished (`completed`) or the session ended (`closed`/`cancelled`/`failed`) — stop polling. A `completed` session is still open: `agent-applications-send` to continue it. */
+    done: boolean
+}
+
+/**
  * Body forwarded verbatim to the agent ingress for a *preview* invoke of a
  * non-live revision. The meaningful shape depends on the `rest` path segment:
  *
@@ -814,6 +874,28 @@ export interface AgentApplicationPreviewTokenResponseApi {
     auth: unknown
     /** Server-side alternative — `/api/projects/<team>/agent_applications/<slug>/preview-proxy/<path>` mints the JWT for you. Strips caller Authorization, so it works for public-auth agents; agents with required auth need the direct endpoints above. */
     preview_proxy: unknown
+}
+
+/**
+ * Body for `agent-applications-send` — append a message to an existing live session.
+ */
+export interface AgentSendRequestApi {
+    /** The session to append to (returned by agent-applications-invoke). Must belong to this agent. */
+    session_id: string
+    /** The user message to append. Required, non-empty. */
+    message: string
+}
+
+export interface AgentSendResponseApi {
+    /** Session state after the message was appended — `queued` (a new turn will run).
+     *
+     * * `queued` - queued
+     * * `running` - running
+     * * `completed` - completed
+     * * `closed` - closed
+     * * `cancelled` - cancelled
+     * * `failed` - failed */
+    state: AgentSessionStateEnumApi
 }
 
 export interface AgentSessionUsageTotalApi {
@@ -860,25 +942,6 @@ export interface AgentSessionPrincipalApi {
     /** Team the principal belongs to. Absent for anonymous sessions. */
     team_id?: number
 }
-
-/**
- * * `queued` - queued
- * * `running` - running
- * * `completed` - completed
- * * `closed` - closed
- * * `cancelled` - cancelled
- * * `failed` - failed
- */
-export type AgentSessionStateEnumApi = (typeof AgentSessionStateEnumApi)[keyof typeof AgentSessionStateEnumApi]
-
-export const AgentSessionStateEnumApi = {
-    Queued: 'queued',
-    Running: 'running',
-    Completed: 'completed',
-    Closed: 'closed',
-    Cancelled: 'cancelled',
-    Failed: 'failed',
-} as const
 
 /**
  * Trigger-specific metadata stamped at session creation. Discriminated on `kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is `agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and strips unknown keys at the persistence boundary, so consumers can trust `kind` and per-kind fields. TODO: narrow this DictField to a polymorphic serializer mirroring the union (needs `hogli build:openapi`).
@@ -1248,6 +1311,21 @@ export type AgentApplicationsApprovalsListParams = {
      * Filter by approval state. Comma-separated list accepted. Valid values: queued, approving, dispatched, dispatched_failed, rejected, expired. Defaults to all states.
      */
     state?: string
+}
+
+export type AgentApplicationsListenParams = {
+    /**
+     * `next_cursor` from the previous call. Omit on the first read; pass it back to summarize only what's new.
+     */
+    cursor?: number
+    /**
+     * Digest character budget (default 4000, range 1–20000). The digest is clipped to fit and `truncated` is set.
+     */
+    max_chars?: number
+    /**
+     * Session to read (must belong to this agent).
+     */
+    session_id: string
 }
 
 export type AgentApplicationsPreviewProxyGetParams = {
