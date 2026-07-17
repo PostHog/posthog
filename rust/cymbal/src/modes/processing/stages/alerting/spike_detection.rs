@@ -396,8 +396,16 @@ async fn get_spiking_issues(
         .into_iter()
         .collect();
 
+    // Spike detection is a best-effort side channel: a transient Redis blip here must not
+    // take down the whole processing batch, so fail open and just skip alerting for it.
     let (issue_buckets, team_buckets) =
-        fetch_bucket_data(redis, &issue_ids, &unique_team_ids, &bucket_timestamps).await?;
+        match fetch_bucket_data(redis, &issue_ids, &unique_team_ids, &bucket_timestamps).await {
+            Ok(data) => data,
+            Err(err) => {
+                warn!("Failed to fetch spike detection bucket data, skipping alerting: {err}");
+                return Ok(vec![]);
+            }
+        };
 
     let team_baselines: HashMap<i32, f64> = compute_team_baselines(&team_buckets);
 
@@ -1128,5 +1136,22 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].computed_baseline, 10.0);
         assert_eq!(result[0].current_bucket_value, 1000);
+    }
+
+    // A transient Redis error on the bucket reads must not abort the batch: spike detection
+    // fails open, returning no spiking issues so event processing continues normally.
+    #[tokio::test]
+    async fn test_redis_error_fails_open() {
+        let ctx = TestContext::new();
+        let mut redis = MockRedisClient::new();
+        redis.mget_error(common_redis::CustomRedisError::Timeout);
+
+        let configs = HashMap::from([(ctx.team_id, SpikeDetectionConfig::default())]);
+        let properties = HashMap::from([(ctx.issue_id, processed_properties(ctx.issue_id))]);
+
+        let result = get_spiking_issues(&redis, &ctx.issues_by_id(), &properties, &configs).await;
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
     }
 }
