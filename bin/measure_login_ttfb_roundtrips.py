@@ -127,10 +127,13 @@ def count_preflight_roundtrips() -> tuple[list[tuple[str, str]], list[tuple[str,
                     found.append((name, BLOCKING_CALLS[name]))
         return found
 
-    serial = _hits_in(
-        _get_func_source(REPO / "posthog" / "views.py", "preflight_check"),
-        skip_guards=frozenset({"is_authenticated", "in_cloud"}),
-    )
+    serial: list[tuple[str, str]] = []
+    for fn_name in ("preflight_check", "_build_preflight_base"):
+        try:
+            fn = _get_func_source(REPO / "posthog" / "views.py", fn_name)
+        except SystemExit:
+            continue
+        serial.extend(_hits_in(fn, skip_guards=frozenset({"is_authenticated", "in_cloud"})))
     parallel: list[tuple[str, str]] = []
     try:
         pool_fn = _get_func_source(REPO / "posthog" / "views.py", "_run_preflight_probes")
@@ -141,22 +144,25 @@ def count_preflight_roundtrips() -> tuple[list[tuple[str, str]], list[tuple[str,
     return serial, parallel
 
 
-def anonymous_preflight_cache_layers() -> tuple[bool, bool]:
+def anonymous_preflight_cache_layers() -> tuple[bool, bool, bool]:
     """Detect which caching layers serve the anonymous preflight payload.
 
-    Returns (shared_cache, local_cache). Each optimization introduces a sentinel constant:
+    Returns (shared_cache, local_cache, swr). Each optimization introduces a sentinel:
     - shared cache (Redis-backed): warm path costs a single cache round trip
     - per-worker in-memory layer: steady-state warm path costs zero external round trips
+    - stale-while-revalidate: TTL expiry serves the stale copy and refreshes off-thread,
+      so post-boot anonymous renders never block on a rebuild
     """
     views_src = (REPO / "posthog" / "views.py").read_text()
     shared = "ANONYMOUS_PREFLIGHT_CACHE_TTL_SECONDS" in views_src
     local = "ANONYMOUS_PREFLIGHT_LOCAL_TTL_SECONDS" in views_src
-    return shared, local
+    swr = "ANONYMOUS_PREFLIGHT_STALE_MAX_SECONDS" in views_src
+    return shared, local, swr
 
 
 def main() -> None:
     serial_hits, parallel_hits = count_preflight_roundtrips()
-    shared_cache, local_cache = anonymous_preflight_cache_layers()
+    shared_cache, local_cache, swr = anonymous_preflight_cache_layers()
 
     # Cold path: each serial hit is one blocking step; a concurrent probe batch costs
     # ~max(probe) wall-clock, so it counts as a single blocking step.
@@ -183,6 +189,7 @@ def main() -> None:
     )
     print(f"shared cache (cross-worker) : {shared_cache}")
     print(f"per-worker in-memory layer  : {local_cache}")
+    print(f"stale-while-revalidate      : {swr}  (TTL expiry refreshes off the request thread)")
     print(f"warm-path round trips       : {warm}")
     print()
     print(f"METRIC login_ttfb_roundtrips = {warm}")

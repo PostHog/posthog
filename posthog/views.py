@@ -1,5 +1,6 @@
 import os
 import time
+import threading
 import contextvars
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -12,7 +13,6 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 if TYPE_CHECKING:
     from django.contrib.auth.base_user import AbstractBaseUser
-    from django.contrib.auth.models import AnonymousUser
 
 from django.apps import apps
 from django.conf import settings
@@ -20,6 +20,7 @@ from django.contrib.admin.sites import site as admin_site
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required as base_login_required
+from django.contrib.auth.models import AnonymousUser
 from django.db import DEFAULT_DB_ALIAS, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.db.models import Q
@@ -205,7 +206,13 @@ ANONYMOUS_PREFLIGHT_CACHE_TTL_SECONDS = 60
 # render does no external I/O at all. Single-slot tuple swap is atomic under the GIL — a
 # benign race just refills. Copied in/out because callers mutate the payload (auth_brand).
 ANONYMOUS_PREFLIGHT_LOCAL_TTL_SECONDS = 15
+# Stale-while-revalidate: past the local TTL the stale copy is still served (no request
+# blocks on a rebuild) while a single-flight background thread refreshes both cache layers.
+# Past this cap the copy is considered too old to serve — e.g. the first request after a
+# long idle stretch — and the request rebuilds inline like a cold start.
+ANONYMOUS_PREFLIGHT_STALE_MAX_SECONDS = 300
 _anonymous_preflight_local: tuple[float, dict[str, Any]] | None = None
+_anonymous_preflight_refresh_lock = threading.Lock()
 
 
 def _probe_in_thread(span_name: str, fn: Callable[[], bool]) -> bool:
@@ -250,6 +257,107 @@ def _run_preflight_probes(user: "AbstractBaseUser | AnonymousUser") -> dict[str,
         return {key: future.result() for key, future in futures.items()}
 
 
+def _build_preflight_base(user: "AbstractBaseUser | AnonymousUser") -> dict[str, Any]:
+    """Build the user-independent-for-anonymous preflight base payload.
+
+    Everything except the per-request bits (auth brand cookie, authenticated extras),
+    so it can run on the request thread (cold path) or in the background refresher.
+    """
+    in_cloud = is_cloud()
+
+    with tracer.start_as_current_span("preflight.slack_config_main"):
+        slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
+    hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
+    salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
+
+    # On cloud every liveness probe short-circuits and the remaining reads do no
+    # external I/O, so don't spin the pool up at all — keep the cheap serial calls.
+    probe_results: dict[str, Any] = {}
+    if in_cloud:
+        sso_providers = _traced("preflight.available_social_auth_providers", get_instance_available_sso_providers)
+        can_create_org = _traced("preflight.can_create_org", get_can_create_org, user)
+    else:
+        with tracer.start_as_current_span("preflight.concurrent_checks"):
+            probe_results = _run_preflight_probes(user)
+        sso_providers = probe_results["available_social_auth_providers"]
+        can_create_org = probe_results["can_create_org"]
+
+    response = {
+        "django": True,
+        "redis": in_cloud or probe_results["redis"] or settings.TEST,
+        "plugins": in_cloud or probe_results["plugins"] or settings.TEST,
+        "celery": in_cloud or probe_results["celery"] or settings.TEST,
+        "clickhouse": in_cloud or probe_results["clickhouse"] or settings.TEST,
+        "kafka": in_cloud or probe_results["kafka"],
+        "db": in_cloud or probe_results["db"],
+        "initiated": in_cloud or probe_results["initiated"],
+        "cloud": in_cloud,
+        "demo": settings.DEMO,
+        "realm": get_instance_realm(),
+        "region": get_instance_region(),
+        "available_social_auth_providers": sso_providers,
+        "can_create_org": can_create_org,
+        "email_service_available": in_cloud
+        or _traced("preflight.is_email_available", is_email_available, with_absolute_urls=True),
+        "slack_service": {
+            "available": bool(slack_client_id),
+            "client_id": slack_client_id or None,
+        },
+        "data_warehouse_integrations": {
+            "hubspot": {"client_id": hubspot_client_id},
+            "salesforce": {"client_id": salesforce_client_id},
+        },
+        "object_storage": in_cloud or probe_results["object_storage"],
+        "public_egress_ip_addresses": settings.PUBLIC_EGRESS_IP_ADDRESSES,
+        "wizard_cloud_run_available": bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID),
+    }
+
+    if settings.DEBUG or settings.E2E_TESTING:
+        response["is_debug"] = True
+
+    if is_dev_login_allowed():
+        response["allow_dev_login"] = True
+
+    if settings.TEST:
+        response["is_test"] = True
+
+    if settings.DEV_DISABLE_NAVIGATION_HOOKS:
+        response["dev_disable_navigation_hooks"] = True
+
+    return response
+
+
+def _refresh_anonymous_preflight_async() -> None:
+    """Refresh both anonymous-payload cache layers off the request thread.
+
+    Single-flight per worker: if a refresh is already running, do nothing — the caller
+    is serving the stale copy either way. Failures are captured, never surfaced; the
+    stale copy keeps being served until a later refresh succeeds or the staleness cap
+    forces an inline rebuild.
+    """
+    if not _anonymous_preflight_refresh_lock.acquire(blocking=False):
+        return
+
+    def _refresh() -> None:
+        global _anonymous_preflight_local
+        try:
+            payload = _build_preflight_base(AnonymousUser())
+            safe_cache_set(ANONYMOUS_PREFLIGHT_CACHE_KEY, payload, ANONYMOUS_PREFLIGHT_CACHE_TTL_SECONDS)
+            _anonymous_preflight_local = (time.monotonic(), payload)
+        except Exception as e:
+            capture_exception(e)
+        finally:
+            connections.close_all()
+            _anonymous_preflight_refresh_lock.release()
+
+    refresh_thread = threading.Thread(target=_refresh, name="preflight-refresh", daemon=True)
+    try:
+        refresh_thread.start()
+    except BaseException:
+        _anonymous_preflight_refresh_lock.release()
+        raise
+
+
 @never_cache
 def preflight_check(request: HttpRequest, *, allow_cached: bool = False) -> JsonResponse:
     global _anonymous_preflight_local
@@ -261,73 +369,19 @@ def preflight_check(request: HttpRequest, *, allow_cached: bool = False) -> Json
     response: dict[str, Any] | None = None
     if use_cache:
         local = _anonymous_preflight_local
-        if local is not None and time.monotonic() - local[0] < ANONYMOUS_PREFLIGHT_LOCAL_TTL_SECONDS:
+        now = time.monotonic()
+        if local is not None and now - local[0] < ANONYMOUS_PREFLIGHT_STALE_MAX_SECONDS:
             response = {**local[1]}
+            if now - local[0] >= ANONYMOUS_PREFLIGHT_LOCAL_TTL_SECONDS:
+                # Serve stale, revalidate off-thread — expiry never blocks a render.
+                _refresh_anonymous_preflight_async()
         else:
             response = get_safe_cache(ANONYMOUS_PREFLIGHT_CACHE_KEY)
             if response is not None:
                 _anonymous_preflight_local = (time.monotonic(), {**response})
 
     if response is None:
-        with tracer.start_as_current_span("preflight.slack_config_main"):
-            slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
-        hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
-        salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
-
-        # On cloud every liveness probe short-circuits and the remaining reads do no
-        # external I/O, so don't spin the pool up at all — keep the cheap serial calls.
-        probe_results: dict[str, Any] = {}
-        if in_cloud:
-            sso_providers = _traced("preflight.available_social_auth_providers", get_instance_available_sso_providers)
-            can_create_org = _traced("preflight.can_create_org", get_can_create_org, request.user)
-        else:
-            with tracer.start_as_current_span("preflight.concurrent_checks"):
-                probe_results = _run_preflight_probes(request.user)
-            sso_providers = probe_results["available_social_auth_providers"]
-            can_create_org = probe_results["can_create_org"]
-
-        response = {
-            "django": True,
-            "redis": in_cloud or probe_results["redis"] or settings.TEST,
-            "plugins": in_cloud or probe_results["plugins"] or settings.TEST,
-            "celery": in_cloud or probe_results["celery"] or settings.TEST,
-            "clickhouse": in_cloud or probe_results["clickhouse"] or settings.TEST,
-            "kafka": in_cloud or probe_results["kafka"],
-            "db": in_cloud or probe_results["db"],
-            "initiated": in_cloud or probe_results["initiated"],
-            "cloud": in_cloud,
-            "demo": settings.DEMO,
-            "realm": get_instance_realm(),
-            "region": get_instance_region(),
-            "available_social_auth_providers": sso_providers,
-            "can_create_org": can_create_org,
-            "email_service_available": in_cloud
-            or _traced("preflight.is_email_available", is_email_available, with_absolute_urls=True),
-            "slack_service": {
-                "available": bool(slack_client_id),
-                "client_id": slack_client_id or None,
-            },
-            "data_warehouse_integrations": {
-                "hubspot": {"client_id": hubspot_client_id},
-                "salesforce": {"client_id": salesforce_client_id},
-            },
-            "object_storage": in_cloud or probe_results["object_storage"],
-            "public_egress_ip_addresses": settings.PUBLIC_EGRESS_IP_ADDRESSES,
-            "wizard_cloud_run_available": bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID),
-        }
-
-        if settings.DEBUG or settings.E2E_TESTING:
-            response["is_debug"] = True
-
-        if is_dev_login_allowed():
-            response["allow_dev_login"] = True
-
-        if settings.TEST:
-            response["is_test"] = True
-
-        if settings.DEV_DISABLE_NAVIGATION_HOOKS:
-            response["dev_disable_navigation_hooks"] = True
-
+        response = _build_preflight_base(request.user)
         if use_cache:
             safe_cache_set(ANONYMOUS_PREFLIGHT_CACHE_KEY, response, ANONYMOUS_PREFLIGHT_CACHE_TTL_SECONDS)
             _anonymous_preflight_local = (time.monotonic(), {**response})
