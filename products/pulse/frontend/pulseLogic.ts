@@ -1,11 +1,20 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
 import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
-import { pulseBriefsGenerateCreate, pulseBriefsList, pulseBriefsRetrieve, pulseBriefConfigsList } from './generated/api'
+import {
+    pulseBriefsGenerateCreate,
+    pulseBriefsList,
+    pulseBriefsRetrieve,
+    pulseBriefConfigsCreate,
+    pulseBriefConfigsDestroy,
+    pulseBriefConfigsList,
+    pulseBriefConfigsPartialUpdate,
+} from './generated/api'
 import type {
     BriefConfigApi,
     ProductBriefApi,
@@ -55,6 +64,14 @@ function isGeneratingBrief(brief: ProductBriefListApi): boolean {
     return brief.status === ProductBriefStatusEnumApi.Generating
 }
 
+export interface BriefConfigForm {
+    name: string
+    focus_prompt: string
+    dashboards: number[]
+}
+
+const EMPTY_CONFIG_FORM: BriefConfigForm = { name: '', focus_prompt: '', dashboards: [] }
+
 export const pulseLogic = kea<pulseLogicType>([
     path(['products', 'pulse', 'frontend', 'pulseLogic']),
     actions({
@@ -65,7 +82,33 @@ export const pulseLogic = kea<pulseLogicType>([
         stopPolling: true,
         pollGeneratingBriefs: true,
         briefsRefreshed: (briefs: ProductBriefApi[]) => ({ briefs }),
+        openConfigModal: (config: BriefConfigApi | null) => ({ config }),
+        closeConfigModal: true,
+        configSaved: (config: BriefConfigApi, created: boolean) => ({ config, created }),
+        deleteConfig: (configId: string) => ({ configId }),
+        configDeleted: (configId: string) => ({ configId }),
+        configDeleteFailed: true,
     }),
+    forms(({ actions, values }) => ({
+        configForm: {
+            defaults: EMPTY_CONFIG_FORM,
+            errors: ({ name }: BriefConfigForm) => ({
+                name: name.trim() ? undefined : 'Please enter a name',
+            }),
+            submit: async (formValues: BriefConfigForm) => {
+                const teamId = String(getCurrentTeamId())
+                const editing = values.editingConfig
+                // Only the dashboards anchor is editable here — spread the existing anchors so
+                // insight anchors set through the API survive a save from this form.
+                const anchors = { ...editing?.anchors, dashboards: formValues.dashboards }
+                const payload = { name: formValues.name.trim(), focus_prompt: formValues.focus_prompt, anchors }
+                const saved = editing
+                    ? await pulseBriefConfigsPartialUpdate(teamId, editing.id, payload)
+                    : await pulseBriefConfigsCreate(teamId, payload)
+                actions.configSaved(saved, !editing)
+            },
+        },
+    })),
     loaders(({ actions }) => ({
         briefConfigs: [
             [] as BriefConfigApi[],
@@ -131,6 +174,33 @@ export const pulseLogic = kea<pulseLogicType>([
                 generateBrief: () => false,
             },
         ],
+        configModalOpen: [
+            false,
+            {
+                openConfigModal: () => true,
+                closeConfigModal: () => false,
+                configSaved: () => false,
+            },
+        ],
+        editingConfig: [
+            null as BriefConfigApi | null,
+            {
+                openConfigModal: (_, { config }) => config,
+            },
+        ],
+        configIdBeingDeleted: [
+            null as string | null,
+            {
+                deleteConfig: (_, { configId }) => configId,
+                configDeleted: () => null,
+                configDeleteFailed: () => null,
+            },
+        ],
+        briefConfigs: {
+            configSaved: (state, { config, created }) =>
+                created ? [config, ...state] : state.map((existing) => (existing.id === config.id ? config : existing)),
+            configDeleted: (state, { configId }) => state.filter((config) => config.id !== configId),
+        },
         briefs: {
             generateBriefSuccess: (state, { generatedBrief }) => (generatedBrief ? [generatedBrief, ...state] : state),
             briefsRefreshed: (state, { briefs }) => {
@@ -229,6 +299,39 @@ export const pulseLogic = kea<pulseLogicType>([
             if (!values.briefs.some(isGeneratingBrief)) {
                 actions.stopPolling()
             }
+        },
+        openConfigModal: ({ config }) => {
+            actions.resetConfigForm({
+                name: config?.name ?? '',
+                focus_prompt: config?.focus_prompt ?? '',
+                dashboards: config?.anchors?.dashboards ?? [],
+            })
+        },
+        configSaved: ({ config, created }) => {
+            lemonToast.success(created ? 'Brief config created' : 'Brief config updated')
+            if (created) {
+                actions.selectConfig(config.id)
+            }
+        },
+        submitConfigFormFailure: ({ error }) => {
+            // Field-level validation failures already render inline — only toast API errors.
+            if (error instanceof ApiError) {
+                lemonToast.error(error.detail || 'Saving the brief config failed')
+            }
+        },
+        deleteConfig: async ({ configId }) => {
+            try {
+                await pulseBriefConfigsDestroy(String(getCurrentTeamId()), configId)
+            } catch {
+                actions.configDeleteFailed()
+                lemonToast.error('Deleting the brief config failed')
+                return
+            }
+            if (values.selectedConfigId === configId) {
+                actions.selectConfig(null)
+            }
+            actions.configDeleted(configId)
+            lemonToast.success('Brief config deleted')
         },
     })),
     afterMount(({ actions }) => {
