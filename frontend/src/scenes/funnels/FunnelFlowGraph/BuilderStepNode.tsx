@@ -164,6 +164,7 @@ export const BuilderStepNode = React.memo(function BuilderStepNode({
                         groupType={TaxonomicFilterGroupType.Events}
                         groupTypes={taxonomicGroupTypes}
                         value={hasEvent ? (step.action_id as string) : undefined}
+                        filter={hasEvent ? getActionFilterFromFunnelStep(step) : undefined}
                         onChange={(value, groupType, item) => {
                             updateStepEvent(stepIndex, value as string, groupType, item)
                         }}

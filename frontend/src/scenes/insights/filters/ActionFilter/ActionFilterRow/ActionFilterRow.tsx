@@ -28,6 +28,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { MathCategory, mathTypeToApiValues, mathsLogic } from 'scenes/trends/mathsLogic'
 
@@ -329,7 +330,9 @@ export function ActionFilterRow({
         value = action?.id || filter.id
     } else {
         name = filter.name || String(filter.id)
-        value = filter.name || filter.id
+        // `id` is the event actually queried — `name` can be a rename (e.g. set via the API),
+        // and committing it as the taxonomic value would select a non-existent event.
+        value = filter.id != null && filter.id !== '' ? filter.id : (filter.name ?? null)
     }
 
     const seriesIndicator =
@@ -345,7 +348,17 @@ export function ActionFilterRow({
         typeKey === 'plugin-filters'
             ? TaxonomicFilterGroupType.DataWarehouseSourceTables
             : TaxonomicFilterGroupType.DataWarehouse
-    const initialGroupType = isDataWarehouseFilter ? dataWarehouseGroupType : TaxonomicFilterGroupType.SuggestedFilters
+    // The committed value's real group — it drives the picker's committed-selection
+    // affordance (selected row floats to the top, with the series' rename applied).
+    // The picker still opens on the suggested-filters surface either way. All-events
+    // and inline-group series have no single committed row to promote.
+    const initialGroupType = isDataWarehouseFilter
+        ? dataWarehouseGroupType
+        : filter.type === EntityTypes.ACTIONS
+          ? TaxonomicFilterGroupType.Actions
+          : filter.type === EntityTypes.EVENTS && !isAllEventsEntityFilter(filter) && filter.id != null
+            ? TaxonomicFilterGroupType.Events
+            : TaxonomicFilterGroupType.SuggestedFilters
 
     // DWH events are not supported in inline events yet
     const canCombine = showCombine && !singleFilter && !isDataWarehouseFilter

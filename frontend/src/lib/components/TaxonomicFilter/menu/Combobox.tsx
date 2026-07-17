@@ -177,6 +177,8 @@ export interface MenuFilterComboboxProps {
     title?: string
     /** Currently-committed selection — rendered with a checkmark + scrolled into view. */
     selectedEntry?: MenuFilterEntry | null
+    /** Rename (custom name) carried by the series being edited — applied to the selected row. */
+    selectedRename?: SelectedRename | null
     /** Shared ref to the search input so the popover can target it for focus.
      *  Mutable because the adapter assigns the input element onto it. */
     inputRef?: MutableRefObject<HTMLInputElement | null>
@@ -198,6 +200,7 @@ export function MenuFilterCombobox({
     onBack,
     title,
     selectedEntry,
+    selectedRename,
     inputRef: externalInputRef,
     iconButton,
 }: MenuFilterComboboxProps): JSX.Element {
@@ -1098,6 +1101,7 @@ export function MenuFilterCombobox({
                                             // signal that with a chevron.
                                             opensSubmenu={drillTo === TaxonomicFilterGroupType.DataWarehouse}
                                             selectedRowId={selectedRowId}
+                                            selectedRename={selectedRename}
                                             onSelect={() => onCommit(entry, undefined, selectionContextFor(entry))}
                                         />
                                     )}
@@ -1224,8 +1228,16 @@ interface RowProps {
     opensSubmenu?: boolean
     /** DOM id of the currently-selected row (for the trailing checkmark). */
     selectedRowId?: string | null
+    /** Rename carried by the series being edited — applied to the selected row so its
+     *  label matches the series the user clicked, with the raw key as the value cell. */
+    selectedRename?: SelectedRename | null
     /** Commit this row (also fires item-selected telemetry). */
     onSelect: () => void
+}
+
+export interface SelectedRename {
+    label: string
+    raw: string
 }
 
 /**
@@ -1268,10 +1280,24 @@ function resolveRowCells(entry: MenuFilterEntry): {
     return { name: entry.name, category: entry.group.name }
 }
 
-function Row({ entry, showCategory, recency, opensSubmenu, selectedRowId, onSelect }: RowProps): JSX.Element {
-    const { name, value, category } = resolveRowCells(entry)
+function Row({
+    entry,
+    showCategory,
+    recency,
+    opensSubmenu,
+    selectedRowId,
+    selectedRename,
+    onSelect,
+}: RowProps): JSX.Element {
+    const cells = resolveRowCells(entry)
     const stableId = rowDomId(entry)
     const isSelected = selectedRowId === stableId
+    // The committed selection of a renamed series shows the series' name; the raw key
+    // it queries moves to the value cell, like any other friendly-labelled row.
+    const isRenamedSelection = isSelected && !!selectedRename && selectedRename.label !== cells.name
+    const name = isRenamedSelection ? selectedRename.label : cells.name
+    const value = isRenamedSelection && selectedRename.raw !== selectedRename.label ? selectedRename.raw : cells.value
+    const category = cells.category
     return (
         <Autocomplete.Item
             value={entry}
@@ -1304,9 +1330,16 @@ function Row({ entry, showCategory, recency, opensSubmenu, selectedRowId, onSele
             <div className="flex flex-col items-start gap-0 min-w-0 flex-1">
                 <span className="text-sm leading-tight truncate max-w-full">{name}</span>
                 {/* The preview pane (hidden below `md`) is the primary home for the
-                    raw value, so only narrow screens keep it inline on the row. */}
+                    raw value, so only narrow screens keep it inline on the row — except
+                    for a renamed selection, where the label alone doesn't reveal what
+                    the series queries, so the raw key stays inline at every size. */}
                 {value && (
-                    <span className="md:hidden font-mono text-xs text-tertiary/50 leading-tight truncate max-w-full">
+                    <span
+                        className={cn(
+                            'font-mono text-xs text-tertiary/50 leading-tight truncate max-w-full',
+                            !isRenamedSelection && 'md:hidden'
+                        )}
+                    >
                         {value}
                     </span>
                 )}

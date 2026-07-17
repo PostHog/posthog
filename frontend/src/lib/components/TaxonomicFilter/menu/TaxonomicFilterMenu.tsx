@@ -51,7 +51,7 @@ import { recentTaxonomicFiltersLogic } from '../recentTaxonomicFiltersLogic'
 import { taxonomicFilterPinnedPropertiesLogic } from '../taxonomicFilterPinnedPropertiesLogic'
 import { isQuickFilterItem, META_GROUP_TYPES, TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from '../types'
 import { filterPinnedForContext, filterRecentsForContext } from '../utils/suggestedContextFilters'
-import { MenuFilterCombobox } from './Combobox'
+import { MenuFilterCombobox, SelectedRename } from './Combobox'
 import { MenuFilterDwhConfig } from './DwhFlow'
 import { MenuFilterHogQLEditor } from './HogQLEditor'
 import { MenuInputTrigger } from './InputTrigger'
@@ -70,6 +70,8 @@ export interface TaxonomicFilterMenuProps {
     triggerLabel?: string
     /** Currently-selected entry — drives the trigger label. Optional. */
     selected?: MenuFilterEntry | null
+    /** Rename (custom name) carried by the series being edited — applied to the selected row in the combobox. */
+    selectedRename?: SelectedRename | null
     /**
      * Trigger override. Static element or render function receiving
      * trigger state.
@@ -234,6 +236,7 @@ export function resolveInitialMenuState(
 export function TaxonomicFilterMenu({
     triggerLabel,
     selected,
+    selectedRename,
     trigger,
     onCommit,
     placeholder,
@@ -721,6 +724,7 @@ export function TaxonomicFilterMenu({
                             // already title themselves with the group name.
                             title={state.drillTo === 'all' ? comboboxTitle : undefined}
                             selectedEntry={selected ?? null}
+                            selectedRename={selectedRename}
                             onCommit={handleCommit}
                             onBack={openMenu}
                             inputRef={comboboxInputRef}

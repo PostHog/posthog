@@ -12,6 +12,7 @@ import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { EntityFilterInfo, getEntityFilterDisplayInfo } from 'lib/components/EntityFilterInfo'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { AUTOCAPTURE_INTERACTIONS } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
@@ -41,7 +42,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
-import { EventDefinition, PropertyDefinition } from '~/types'
+import { EntityFilter, EntityTypes, EventDefinition, PropertyDefinition } from '~/types'
 
 import { NO_ITEM_SELECTED, infiniteListLogic } from './infiniteListLogic'
 
@@ -158,18 +159,42 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
     )
 }
 
+/**
+ * A renamed series doesn't reveal the thing it queries, so when a row is the committed
+ * selection of a renamed series, its label is the series' display name (with the
+ * underlying entity as secondary text + tooltip) — connecting the row to the series
+ * the user clicked. Data warehouse tabs keep their own committed-selection affordance.
+ */
+const getSelectedItemRenameMeta = (
+    selectedItemMeta: EntityFilter | null | undefined,
+    itemValue: string | number | null | undefined
+): EntityFilter | null => {
+    if (
+        !selectedItemMeta ||
+        selectedItemMeta.id == null ||
+        itemValue == null ||
+        selectedItemMeta.type === EntityTypes.DATA_WAREHOUSE ||
+        String(selectedItemMeta.id) !== String(itemValue)
+    ) {
+        return null
+    }
+    return getEntityFilterDisplayInfo(selectedItemMeta).isRenamed ? selectedItemMeta : null
+}
+
 const renderItemContents = ({
     item,
     listGroupType,
     itemGroup,
     eventNames,
     isActive,
+    selectedRenameMeta,
 }: {
     item: TaxonomicDefinitionTypes
     listGroupType: TaxonomicFilterGroupType
     itemGroup: TaxonomicFilterGroup
     eventNames: string[]
     isActive: boolean
+    selectedRenameMeta?: EntityFilter | null
 }): JSX.Element | string => {
     if (isQuickFilterItem(item)) {
         const icon = itemGroup.getIcon ? (
@@ -184,6 +209,21 @@ const renderItemContents = ({
                 <span className="truncate" title={item.name}>
                     {item.name}
                 </span>
+            </div>
+        )
+    }
+    if (selectedRenameMeta) {
+        const icon = isActive ? (
+            <div className="taxonomic-list-row-contents-icon">
+                <IconCheck />
+            </div>
+        ) : itemGroup.getIcon ? (
+            <div className="taxonomic-list-row-contents-icon">{itemGroup.getIcon(item)}</div>
+        ) : null
+        return (
+            <div className="taxonomic-list-row-contents min-w-0">
+                {icon}
+                <EntityFilterInfo filter={selectedRenameMeta} />
             </div>
         )
     }
@@ -337,6 +377,7 @@ interface InfiniteListRowProps {
     groupType: TaxonomicFilterGroupType | undefined
     value: string | number | null | undefined
     selectedProperties: TaxonomicFilterGroupValueMap
+    selectedItemMeta: EntityFilter | null | undefined
     eventNames: string[]
     highlightedIndex: number
     isActiveTab: boolean
@@ -403,6 +444,7 @@ export const InfiniteListRow = ({
     groupType,
     value,
     selectedProperties,
+    selectedItemMeta,
     eventNames,
     highlightedIndex,
     isActiveTab,
@@ -600,6 +642,7 @@ export const InfiniteListRow = ({
                     itemGroup: resolvedItemGroup,
                     eventNames,
                     isActive,
+                    selectedRenameMeta: isSelected ? getSelectedItemRenameMeta(selectedItemMeta, itemValue) : null,
                 })}
                 {isCrossGroupItem && (
                     <LemonTag size="small" type="highlight">
@@ -872,6 +915,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                                     groupType,
                                     value,
                                     selectedProperties,
+                                    selectedItemMeta,
                                     eventNames,
                                     highlightedIndex: index,
                                     isActiveTab,
