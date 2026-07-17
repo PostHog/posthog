@@ -2451,9 +2451,10 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 })
             },
             toggleConversations: () => {
+                // The optimistic reducer flips the config before this listener runs,
+                // so config.enabled already reflects the desired state.
                 const config = values.conversationsConfig
-                // Send the flipped target state. A missing config row means "off", so first toggle enables.
-                const desiredEnabled = !(config?.enabled ?? false)
+                const desiredEnabled = config?.enabled ?? true
                 actions.toggleSignalSource({
                     sourceProduct: SignalSourceProduct.Conversations,
                     sourceType: SignalSourceType.Ticket,
