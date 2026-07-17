@@ -107,6 +107,14 @@ class TestValidateCredentials:
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("secret", "jwt-id") is False
 
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap.make_tracked_session"
+    )
+    def test_validate_credentials_disables_http_sample_capture(self, mock_session):
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        validate_credentials("secret", "jwt-id")
+        assert mock_session.call_args.kwargs["capture"] is False
+
 
 class TestGetRows:
     @mock.patch(
@@ -120,6 +128,14 @@ class TestGetRows:
 
         assert batches == [projects]
         assert mock_session.return_value.request.call_count == 1
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap.make_tracked_session"
+    )
+    def test_disables_http_sample_capture(self, mock_session):
+        mock_session.return_value.request.return_value = _resp(_projects_page([{"project_id": "p1"}]))
+        list(get_rows("secret", "jwt-id", "projects", mock.MagicMock(), _make_manager()))
+        assert mock_session.call_args.kwargs["capture"] is False
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap.make_tracked_session"

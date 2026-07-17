@@ -77,7 +77,9 @@ def _format_datetime(value: Any) -> str:
 def validate_credentials(jwt_secret: str, jwt_id: str) -> bool:
     """Confirm the JWT secret pair is valid. GET /projects is a cheap authenticated probe."""
     try:
-        response = make_tracked_session().get(
+        # `capture=False` for the same reason as in `get_rows`: project responses carry
+        # user-authored content that the name-based scrubbers can't reliably sanitize.
+        response = make_tracked_session(capture=False).get(
             f"{USERSNAP_BASE_URL}/projects",
             headers=_get_headers(jwt_secret, jwt_id),
             timeout=10,
@@ -271,7 +273,11 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     # One session reused across every page (and every project in the fan-out) so urllib3
     # keeps the connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    # `capture=False`: feedback responses carry end-user emails, arbitrary submitted/custom
+    # text, screenshots, and recording URLs — user-authored content the name-based scrubbers
+    # can't reliably sanitize, so we exclude these requests from HTTP sample capture (they're
+    # still metered and logged).
+    session = make_tracked_session(capture=False)
 
     if endpoint == "projects":
         projects = _get_projects(session, jwt_secret, jwt_id, logger)
