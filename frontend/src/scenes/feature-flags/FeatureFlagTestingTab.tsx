@@ -425,7 +425,8 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                                                     <h6 className="font-medium text-sm">
                                                                         {condition.index === SUPER_CONDITION_INDEX
                                                                             ? 'Early access enrollment'
-                                                                            : condition.index === HOLDOUT_CONDITION_INDEX
+                                                                            : condition.index ===
+                                                                                HOLDOUT_CONDITION_INDEX
                                                                               ? 'Holdout'
                                                                               : `Condition #${condition.index + 1}`}
                                                                     </h6>

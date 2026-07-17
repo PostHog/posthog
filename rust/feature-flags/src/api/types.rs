@@ -843,9 +843,15 @@ impl FlagDetails {
         // conditions, and the loop above can't see it. Only shown when the flag actually resolved
         // through the holdout — the "excluded from holdout" case isn't distinguishable here without
         // threading the holdout hash result down from the matcher.
-        if matches!(flag_match.reason, FeatureFlagMatchReason::HoldoutConditionValue) {
+        if matches!(
+            flag_match.reason,
+            FeatureFlagMatchReason::HoldoutConditionValue
+        ) {
             if let Some(holdout) = &flag.filters.holdout {
-                analyses.insert(0, Self::build_holdout_condition_analysis(holdout, flag_match));
+                analyses.insert(
+                    0,
+                    Self::build_holdout_condition_analysis(holdout, flag_match),
+                );
             }
         }
 
