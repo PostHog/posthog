@@ -56,6 +56,7 @@ export interface impersonationNoticeLogicValues {
     user: UserType | null // userLogic
     adminLoginUrls: AdminLoginUrl[]
     orderedMembers: OrganizationMemberType[]
+    hasOtherMembers: boolean
     expiredSessionInfo: ExpiredSessionInfo | null
     isChangingUser: boolean
     isImpersonated: boolean
@@ -166,6 +167,7 @@ export interface impersonationNoticeLogicMeta {
             me: OrganizationMemberType | null,
             user: UserType | null
         ) => OrganizationMemberType[]
+        hasOtherMembers: (orderedMembers: OrganizationMemberType[], user: UserType | null) => boolean
     }
 }
 
@@ -280,9 +282,7 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
             },
         ],
         isSessionExpired: [(s) => [s.expiredSessionInfo], (info: ExpiredSessionInfo | null): boolean => info !== null],
-        // Everyone shown in the switcher, including the current (non-switchable) user, ordered by
-        // power level then name. `me` is the source for the current user's row so it appears even
-        // before the members list has loaded.
+        // Current user (via me) is shown in place among members, so their row appears before members load.
         orderedMembers: [
             (s) => [s.members, s.me, s.user],
             (
@@ -292,18 +292,18 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
             ): OrganizationMemberType[] => {
                 const others = (members ?? []).filter((member) => member.user.uuid !== user?.uuid)
                 return [...(me ? [me] : []), ...others].sort((a, b) => {
-                    // Higher-power levels first (Owner > Admin > Member).
                     if (a.level !== b.level) {
-                        return b.level - a.level
+                        return b.level - a.level // higher levels first
                     }
-                    // Then names A→Z within each level group.
                     const nameComparison = fullName(a.user).localeCompare(fullName(b.user))
-                    if (nameComparison !== 0) {
-                        return nameComparison
-                    }
-                    return a.user.uuid.localeCompare(b.user.uuid)
+                    return nameComparison !== 0 ? nameComparison : a.user.uuid.localeCompare(b.user.uuid)
                 })
             },
+        ],
+        hasOtherMembers: [
+            (s) => [s.orderedMembers, s.user],
+            (orderedMembers: OrganizationMemberType[], user: UserType | null): boolean =>
+                orderedMembers.some((member) => member.user.uuid !== user?.uuid),
         ],
     }),
 

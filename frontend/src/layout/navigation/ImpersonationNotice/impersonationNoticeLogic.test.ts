@@ -701,6 +701,7 @@ describe('impersonationNoticeLogic', () => {
             // Owner first (Zed), then Admins A→Z (Ash before the current user Casey), then Member (Bea).
             const names = logic.values.orderedMembers.map((member) => member.user.first_name)
             expect(names).toEqual(['Zed', 'Ash', 'Casey', 'Bea'])
+            expect(logic.values.hasOtherMembers).toBe(true)
         })
 
         // Covers both that the current user shows before the members list loads (via `me`, guarding
@@ -718,6 +719,7 @@ describe('impersonationNoticeLogic', () => {
             }
 
             expect(logic.values.orderedMembers.map((member) => member.user.first_name)).toEqual(['Casey'])
+            expect(logic.values.hasOtherMembers).toBe(false)
         })
     })
 

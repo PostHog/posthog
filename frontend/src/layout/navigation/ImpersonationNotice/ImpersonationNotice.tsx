@@ -152,6 +152,7 @@ function ImpersonationNoticeContent(): JSX.Element {
         isUpgradeModalOpen,
         isImpersonationUpgradeInProgress,
         orderedMembers,
+        hasOtherMembers,
         isChangingUser,
         membersLoading,
     } = useValues(impersonationNoticeLogic)
@@ -172,9 +173,6 @@ function ImpersonationNoticeContent(): JSX.Element {
     // used to pre-fill the change-user and upgrade modals.
     const storedReason = user?.is_impersonated_reason
 
-    // Everyone is listed in power/name order. The current user's row is disabled and marked, so their
-    // access level is visible without hoisting them out of order.
-    const hasOtherMembers = orderedMembers.some((member) => member.user.uuid !== user?.uuid)
     const changeUserItems = [
         ...orderedMembers.map((member) => {
             const isCurrentUser = member.user.uuid === user?.uuid
@@ -190,7 +188,7 @@ function ImpersonationNoticeContent(): JSX.Element {
                 onClick: isCurrentUser ? undefined : () => setPendingUserId(member.user.id),
             }
         }),
-        // When the current user is the only member, spell it out so a lone disabled row doesn't look like a bug.
+        // Spell out the lone-user case so a single disabled row doesn't look like a bug.
         ...(!hasOtherMembers ? [{ label: membersLoading ? 'Loading…' : 'No other members', disabledReason: ' ' }] : []),
     ]
 
