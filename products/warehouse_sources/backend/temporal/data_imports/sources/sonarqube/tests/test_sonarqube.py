@@ -341,10 +341,11 @@ class _BlockingStream:
         self.closed = threading.Event()
 
     def iter_content(self, chunk_size: int = 1) -> Any:
+        # Block as if reading a chunk from a peer dripping bytes under the idle timeout, until the
+        # watchdog closes us, then fail as a real socket read aborted mid-transfer would.
         if not self.closed.wait(timeout=5):
             raise AssertionError("watchdog did not close the response")
         raise ConnectionError("socket closed")
-        yield b""  # unreachable, but makes this a generator like requests' iter_content
 
     def close(self) -> None:
         self.closed.set()
