@@ -28474,9 +28474,9 @@ export namespace Schemas {
       count: number;
       /** Number of distinct scouts (skills) that produced output in the window — emitted a finding, or authored/edited an inbox report. */
       scout_count: number;
-      /** Number of distinct inbox reports scouts authored via `emit_report` in the window, deduped across runs. */
+      /** Number of distinct inbox reports scouts authored via `emit_report`, deduped across runs, over the same most-recent-120-output-runs set as `count`. */
       authored_report_count: number;
-      /** Number of distinct inbox reports scouts edited via `edit_report` in the window, deduped across runs and excluding reports also authored in the window (authoring supersedes an edit). */
+      /** Number of distinct inbox reports scouts edited via `edit_report`, deduped across runs, over the same most-recent-120-output-runs set as `count` and excluding reports also authored within that set (authoring supersedes an edit; a report whose authoring run falls outside the cap counts as edited). */
       edited_report_count: number;
       /**
          * ISO-8601 timestamp of the most recent output run (TaskRun completion, falling back to run creation), or null when nothing was produced in the window.

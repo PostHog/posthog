@@ -203,8 +203,10 @@ def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS
     `window_hours`, capped to the most recent `FLEET_FINDINGS_SUMMARY_RUN_CAP` runs by completion
     time (falling back to creation) — the same set the findings page renders, so the callout
     can't over-advertise. Returns the finding total (sum of `emitted_count`), the distinct scout
-    count, the distinct reports authored and edited (edits of a report also authored in the
-    window fold into authored, matching the scout detail view), and the most recent output time.
+    count, the distinct reports authored and edited (edits of a report also authored *within the
+    capped run set* fold into authored, matching the scout detail view — a report whose authoring
+    run ages out of the cap while a later edit survives counts as edited, the same classification
+    the findings page derives from its identically-capped window), and the most recent output time.
     """
     window_hours = max(1, min(window_hours, MAX_FINDINGS_WINDOW_HOURS))
     window_start = timezone.now() - timedelta(hours=window_hours)
