@@ -68,7 +68,7 @@ export function RecalculationStatus({ experiment }: { experiment: Experiment }):
                     </span>
                     {currentRecalculation?.completed_at && (
                         <>
-                            <LemonDivider vertical className="h-3.5" />
+                            <LemonDivider vertical className="h-3.5 self-center" />
                             <span className="flex items-center gap-1 whitespace-nowrap text-muted text-xs [&_span]:align-baseline">
                                 <span>Results calculated </span>
                                 <ExperimentLastRefreshText lastRefresh={currentRecalculation.completed_at} />

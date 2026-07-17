@@ -57,7 +57,9 @@ class TicketViewViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    scope_object = "conversation"
+    # "ticket" (not "conversation"): the conversation scope also authorizes AI conversation
+    # endpoints, which saved ticket views have no business granting access to
+    scope_object = "ticket"
     queryset = TicketView.objects.all().order_by("-created_at")
     serializer_class = TicketViewSerializer
     lookup_field = "short_id"

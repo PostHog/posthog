@@ -84,12 +84,15 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
         else []
     )
 
+    type_overrides = context.property_type_overrides or {}
+
     event_properties: dict[str, dict[str, str | None]] = {}
     for prop_def in event_property_definitions:
         if not prop_def.property_type:
             continue
 
-        prop_info: dict[str, str | None] = {"type": prop_def.property_type}
+        prop_type = type_overrides.get(prop_def.name, prop_def.property_type)
+        prop_info: dict[str, str | None] = {"type": prop_type}
         slot = prop_def.materialized_column_slots.first()
         if slot:
             prop_info["dmat"] = f"{DMAT_STRING_COLUMN_NAME_PREFIX}{slot.slot_index}"
