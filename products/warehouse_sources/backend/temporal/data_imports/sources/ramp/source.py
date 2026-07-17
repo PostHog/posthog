@@ -20,6 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+    OAUTH2_PERMANENT_ERROR_MARKER,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RampSourceConfig
@@ -59,10 +62,9 @@ class RampSource(ResumableSource[RampSourceConfig, RampResumeConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error: Unauthorized for url: https://api.ramp.com/developer/v1/token": "Ramp authentication failed. Please check your client ID and client secret.",
-            "401 Client Error: Unauthorized for url: https://demo-api.ramp.com/developer/v1/token": "Ramp authentication failed. Please check your client ID and client secret (and that they match the selected environment).",
-            "400 Client Error: Bad Request for url: https://api.ramp.com/developer/v1/token": "Ramp rejected the token request. Please check that your developer app has the required read scopes granted.",
-            "400 Client Error: Bad Request for url: https://demo-api.ramp.com/developer/v1/token": "Ramp rejected the token request. Please check that your developer app has the required read scopes granted.",
+            # Permanent token-exchange failures (invalid_client, bad request, missing scopes, …)
+            # all carry the framework's stable marker; transient 429/5xx token errors don't.
+            OAUTH2_PERMANENT_ERROR_MARKER: "Ramp authentication failed. Please check your client ID and client secret (and that they match the selected environment and have the required read scopes).",
             "403 Client Error: Forbidden for url: https://api.ramp.com": "Ramp denied access. Please check that your developer app has the read scope for this dataset.",
             "403 Client Error: Forbidden for url: https://demo-api.ramp.com": "Ramp denied access. Please check that your developer app has the read scope for this dataset.",
         }
@@ -155,7 +157,8 @@ A Ramp admin can create a developer app under Settings > Developer API. Grant it
             client_id=config.client_id,
             client_secret=config.client_secret,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
