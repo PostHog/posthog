@@ -1,4 +1,5 @@
 import re
+import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
@@ -7,6 +8,8 @@ from typing import Optional, Union
 from django.db.models import F, Q
 
 import structlog
+import posthoganalytics
+from posthoganalytics.ai.langchain import CallbackHandler
 from pydantic import ValidationError
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse, SubscriptionAIPromptMaxLength, TeamTaxonomyQuery
@@ -35,6 +38,22 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.schemas imp
 from ee.hogai.llm import MaxChatOpenAI
 
 logger = structlog.get_logger(__name__)
+
+
+def generation_callback_config(
+    *, user: User, team: Team, stage: str, trace_correlation_id: Optional[Union[int, str]]
+) -> dict:
+    """Attach a PostHog CallbackHandler so the report pipeline's LLM calls surface as `$ai_generation`
+    events (feature=ai_subscription) in AI observability. Without an attached handler these generations
+    are never captured, so they can't be monitored, evaluated, or billed. Per-call `feature`/`stage`
+    still flow from `MaxChatOpenAI.posthog_properties`; this only wires up the handler that emits them."""
+    handler = CallbackHandler(
+        posthoganalytics.default_client,
+        distinct_id=str(user.distinct_id),
+        properties={"feature": "ai_subscription", "stage": stage, "ai_product": "posthog_ai", "team_id": team.id},
+        trace_id=str(trace_correlation_id) if trace_correlation_id is not None else f"ai_subscription_{uuid.uuid4()}",
+    )
+    return {"callbacks": [handler]}
 
 
 # Single source of truth lives in the generated schema (frontend/src/queries/schema/schema-general.ts),
@@ -375,7 +394,12 @@ def _llm_selected_events(
     )
 
     try:
-        result = llm.invoke([("system", rendered_prompt)])
+        result = llm.invoke(
+            [("system", rendered_prompt)],
+            config=generation_callback_config(
+                user=user, team=team, stage="event_selection", trace_correlation_id=trace_correlation_id
+            ),
+        )
     except Exception:
         logger.warning("ai_subscription.event_selection_failed", team_id=team.id, exc_info=True)
         return []
@@ -538,7 +562,12 @@ def generate_query_plan(
         {"context_blob": context_blob, "cleaned_prompt": cleaned_prompt},
     )
 
-    result = llm.invoke([("system", rendered_prompt)])
+    result = llm.invoke(
+        [("system", rendered_prompt)],
+        config=generation_callback_config(
+            user=user, team=team, stage="plan", trace_correlation_id=trace_correlation_id
+        ),
+    )
     if not isinstance(result, QueryPlan):
         raise PromptRejectedError("Planner returned a malformed plan.")
     return result

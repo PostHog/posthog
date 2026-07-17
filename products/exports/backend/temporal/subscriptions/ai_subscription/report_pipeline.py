@@ -43,6 +43,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     StoredPlanInvalidError,
     build_enriched_prompt,
     build_frozen_prompt,
+    generation_callback_config,
 )
 
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
@@ -352,6 +353,9 @@ async def _synthesize(
                 ("system", synthesis_prompt),
                 ("human", _compose_synthesis_human_message(spec, rendered_results)),
             ],
+            config=generation_callback_config(
+                user=user, team=team, stage="synthesis", trace_correlation_id=trace_correlation_id
+            ),
         )
     except Exception as exc:
         raise AiReportStageError(ReportStage.SYNTHESIS, exc) from exc
@@ -508,7 +512,12 @@ async def _arequest_hogql_fix(
     )
 
     try:
-        result = await database_sync_to_async(llm.invoke, thread_sensitive=False)([("system", rendered)])
+        result = await database_sync_to_async(llm.invoke, thread_sensitive=False)(
+            [("system", rendered)],
+            config=generation_callback_config(
+                user=user, team=team, stage="query_fix", trace_correlation_id=trace_correlation_id
+            ),
+        )
     except Exception as exc:
         logger.warning(
             "ai_report.query_fix_llm_failed",
