@@ -6,9 +6,11 @@ import React from 'react'
 import {
     IconCalculator,
     IconCalendar,
+    IconClock,
     IconCode2,
     IconFilter,
     IconPencil,
+    IconPeople,
     IconSort,
     IconUser,
     IconWarning,
@@ -52,6 +54,7 @@ import {
     TileFilters,
 } from '~/queries/schema/schema-general'
 import {
+    getInterval,
     isActionsNode,
     isAnyDataWarehouseNode,
     isDataTableNodeWithHogQLQuery,
@@ -73,6 +76,7 @@ import {
     BaseMathType,
     FilterLogicalOperator,
     InsightFilterOverrideContext,
+    IntervalType,
     UserBasicType,
 } from '~/types'
 
@@ -612,6 +616,68 @@ export function DateRangeSummary({
     )
 }
 
+export function IntervalSummary({
+    interval,
+    override,
+    insightInterval,
+}: {
+    interval: IntervalType
+    override: { source: OverrideSource }
+    insightInterval?: IntervalType | null
+}): JSX.Element {
+    const replaced = insightInterval != null && insightInterval !== interval ? insightInterval : null
+    return (
+        <InsightDetailSectionDisplay icon={<IconClock />} label="Grouped by">
+            <div className="flex items-center gap-1">
+                <span className="font-medium">{capitalizeFirstLetter(interval)}</span>
+                <LayerTag source={override.source} />
+            </div>
+            {replaced && (
+                <div className="text-muted-alt text-xs mt-0.5 flex items-center gap-1">
+                    <span>
+                        was <span className="line-through">{capitalizeFirstLetter(replaced)}</span> from
+                    </span>
+                    <LayerTag source="insight" />
+                </div>
+            )}
+        </InsightDetailSectionDisplay>
+    )
+}
+
+const testAccountsLabel = (excluded: boolean): string => (excluded ? 'Excluded' : 'Included')
+
+export function TestAccountFilterSummary({
+    filterTestAccounts,
+    override,
+    insightFilterTestAccounts,
+}: {
+    filterTestAccounts: boolean
+    override: { source: OverrideSource }
+    insightFilterTestAccounts?: boolean | null
+}): JSX.Element {
+    // Show what the insight itself had only when it explicitly set the toggle to the other state.
+    const replaced =
+        insightFilterTestAccounts != null && insightFilterTestAccounts !== filterTestAccounts
+            ? insightFilterTestAccounts
+            : null
+    return (
+        <InsightDetailSectionDisplay icon={<IconPeople />} label="Internal and test users">
+            <div className="flex items-center gap-1">
+                <span className="font-medium">{testAccountsLabel(filterTestAccounts)}</span>
+                <LayerTag source={override.source} />
+            </div>
+            {replaced != null && (
+                <div className="text-muted-alt text-xs mt-0.5 flex items-center gap-1">
+                    <span>
+                        was <span className="line-through">{testAccountsLabel(replaced)}</span> from
+                    </span>
+                    <LayerTag source="insight" />
+                </div>
+            )}
+        </InsightDetailSectionDisplay>
+    )
+}
+
 interface InsightDetailsProps {
     query: Node | null
     footerInfo?: {
@@ -645,6 +711,8 @@ export const InsightDetails = React.memo(
             propertyGroups,
             overriddenByTile,
             breakdown: overrideBreakdown,
+            interval: overrideInterval,
+            filterTestAccounts: overrideFilterTestAccounts,
         } = getEffectiveFilterOverrides(filterOverrideContext, filtersOverride, tileFiltersOverride)
         const insightDateRange = isInsightVizNode(query) ? query.source.dateRange : undefined
         const dateOverride = getDateRangeOverrideDisplay(
@@ -702,6 +770,24 @@ export const InsightDetails = React.memo(
                             />
                         ) : (
                             <InsightBreakdownSummary query={query.source} />
+                        )}
+                        {overrideInterval && (
+                            <IntervalSummary
+                                interval={overrideInterval.value}
+                                override={{ source: overrideInterval.source }}
+                                insightInterval={isInsightVizNode(query) ? getInterval(query.source) : null}
+                            />
+                        )}
+                        {overrideFilterTestAccounts && (
+                            <TestAccountFilterSummary
+                                filterTestAccounts={overrideFilterTestAccounts.value}
+                                override={{ source: overrideFilterTestAccounts.source }}
+                                insightFilterTestAccounts={
+                                    isHogQLQuery(query.source)
+                                        ? query.source.filters?.filterTestAccounts
+                                        : query.source.filterTestAccounts
+                                }
+                            />
                         )}
                     </>
                 )}
