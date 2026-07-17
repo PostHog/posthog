@@ -6,8 +6,9 @@ import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns, Lem
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 
+import type { MessageSuppressionApi } from 'products/messaging/frontend/generated/api.schemas'
+
 import { suppressionListLogic } from './suppressionListLogic'
-import type { SuppressionEntry } from './types'
 
 const PAGE_SIZE = 20
 
@@ -31,7 +32,7 @@ export function SuppressionList(): JSX.Element {
         newIdentifier,
     } = useValues(suppressionListLogic)
 
-    const columns: LemonTableColumns<SuppressionEntry> = [
+    const columns: LemonTableColumns<MessageSuppressionApi> = [
         {
             title: 'Recipient',
             dataIndex: 'identifier',
@@ -50,7 +51,7 @@ export function SuppressionList(): JSX.Element {
         {
             title: 'Reason',
             key: 'reason',
-            render: function Render(_, entry: SuppressionEntry): JSX.Element {
+            render: function Render(_, entry: MessageSuppressionApi): JSX.Element {
                 return (
                     <span className="text-muted text-xs">{entry.reason || (entry.last_bounce_diagnostic ?? '—')}</span>
                 )
@@ -64,7 +65,7 @@ export function SuppressionList(): JSX.Element {
         },
         {
             width: 0,
-            render: function Render(_, entry: SuppressionEntry): JSX.Element {
+            render: function Render(_, entry: MessageSuppressionApi): JSX.Element {
                 return (
                     <More
                         overlay={

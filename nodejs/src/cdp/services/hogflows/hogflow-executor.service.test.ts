@@ -22,7 +22,7 @@ import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
-import { EmailSuppressionService } from '../messaging/email-suppression.service'
+import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
@@ -69,6 +69,7 @@ describe('Hogflow Executor', () => {
             new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
             hub.encryptedFields
         )
+        const emailSuppressionService = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
         const emailService = new EmailService(
             {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -80,7 +81,8 @@ describe('Hogflow Executor', () => {
             new TeamWorkflowsConfigService(hub.postgres),
             hub.ENCRYPTION_SALT_KEYS,
             hub.SITE_URL,
-            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
+            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+            emailSuppressionService
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         const hogExecutor = new HogExecutorService(
@@ -104,7 +106,6 @@ describe('Hogflow Executor', () => {
             hogExecutor
         )
         const recipientsManager = new RecipientsManagerService(hub.postgres)
-        const emailSuppressionService = new EmailSuppressionService(hub.postgres)
         const recipientPreferencesService = new RecipientPreferencesService(recipientsManager, emailSuppressionService)
         // Stubbed to always allow: this suite covers executor routing and flow control,
         // not MX validation (email-validation.service.test.ts does), and the real

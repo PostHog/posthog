@@ -146,6 +146,9 @@ export type CdpCoreServicesConfig = Pick<
         | 'SES_SECRET_ACCESS_KEY'
         | 'SES_REGION'
         | 'SES_ENDPOINT'
+        | 'EMAIL_SUPPRESSION_WRITE_ENABLED'
+        | 'EMAIL_SUPPRESSION_ENFORCE_ENABLED'
+        | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CDP_FETCH_RETRIES'
         | 'CDP_FETCH_BACKOFF_BASE_MS'
@@ -397,7 +400,11 @@ export function createCdpCoreServices(
     // Constructed here (rather than below with the other messaging services) so it can be threaded
     // into EmailService — the pre-send suppression check lives there so every send path shares one
     // choke point regardless of whether the invocation came from a workflow action or a hog function.
-    const emailSuppressionService = new EmailSuppressionService(deps.postgres)
+    const emailSuppressionService = new EmailSuppressionService(deps.postgres, {
+        writeEnabled: config.EMAIL_SUPPRESSION_WRITE_ENABLED,
+        enforceEnabled: config.EMAIL_SUPPRESSION_ENFORCE_ENABLED,
+        transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
+    })
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,

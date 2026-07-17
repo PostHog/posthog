@@ -11,7 +11,7 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
-import { EmailSuppressionService } from './email-suppression.service'
+import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import { EmailService, parseAddressList, sanitizeEmailSubject } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
@@ -96,7 +96,7 @@ describe('EmailService', () => {
             hub.ENCRYPTION_SALT_KEYS,
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-            new EmailSuppressionService(hub.postgres)
+            new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
         )
         mockFetch.mockClear()
     })
@@ -112,7 +112,7 @@ describe('EmailService', () => {
                 hub.ENCRYPTION_SALT_KEYS,
                 hub.SITE_URL,
                 new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-                new EmailSuppressionService(hub.postgres)
+                new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
             )
             expect(serviceWithoutSES.sesV2Client).toBeNull()
 

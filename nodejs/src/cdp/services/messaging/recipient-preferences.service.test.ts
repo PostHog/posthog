@@ -10,7 +10,7 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
-import { EmailSuppressionService } from './email-suppression.service'
+import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import { RecipientPreferencesService } from './recipient-preferences.service'
 import { RecipientTokensService } from './recipient-tokens.service'
 
@@ -38,7 +38,7 @@ describe('RecipientPreferencesService', () => {
             'getAllMarketingMessagingPreference'
         )
 
-        mockEmailSuppressionService = new EmailSuppressionService(hub.postgres)
+        mockEmailSuppressionService = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
         service = new RecipientPreferencesService(mockRecipientsManager, mockEmailSuppressionService)
     })
 
@@ -356,7 +356,10 @@ describe('RecipientPreferencesService', () => {
                 beforeEach(() => {
                     originalEnforceEnv = process.env.EMAIL_SUPPRESSION_ENFORCE_ENABLED
                     process.env.EMAIL_SUPPRESSION_ENFORCE_ENABLED = 'true'
-                    mockEmailSuppressionService = new EmailSuppressionService(hub.postgres)
+                    mockEmailSuppressionService = new EmailSuppressionService(
+                        hub.postgres,
+                        emailSuppressionConfigFromEnv()
+                    )
                     service = new RecipientPreferencesService(mockRecipientsManager, mockEmailSuppressionService)
                 })
 

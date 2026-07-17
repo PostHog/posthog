@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.db.models import F
 from django.db.models.functions import Coalesce, Now
 from django.utils import timezone
@@ -6,6 +8,7 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.documentation import _FallbackSerializer
@@ -37,6 +40,31 @@ class MessageSuppressionSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = fields
+        extra_kwargs = {
+            "id": {"help_text": "Server-assigned UUID for this suppression entry."},
+            "identifier": {
+                "help_text": "Normalized recipient email address. Suppression is keyed on this value, per team."
+            },
+            "source": {
+                "help_text": "How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `MANUAL` for user-added via the UI/API."
+            },
+            "reason": {
+                "help_text": "Human-readable reason for the suppression (e.g. 'Auto-suppressed after 5 consecutive soft bounces')."
+            },
+            "transient_bounce_count": {
+                "help_text": "Rolling count of consecutive soft bounces with no successful delivery in between. Reset to 0 on any successful delivery. Ignored for MANUAL entries."
+            },
+            "last_bounce_at": {"help_text": "Timestamp of the most recent bounce, if any."},
+            "last_bounce_diagnostic": {
+                "help_text": "SMTP diagnostic string from the most recent bounce (e.g. '550 5.1.1 user unknown'), kept for visibility."
+            },
+            "suppressed": {
+                "help_text": "Whether the address is actively suppressed. A BOUNCE row can exist while still only counting bounces (suppressed=false) before it crosses the threshold."
+            },
+            "suppressed_at": {"help_text": "Timestamp when the address was first suppressed."},
+            "created_at": {"help_text": "When the row was first created (first bounce or manual add)."},
+            "updated_at": {"help_text": "When the row was last touched by any write."},
+        }
 
 
 class PaginatedMessageSuppressionSerializer(serializers.Serializer):
@@ -80,7 +108,7 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         summary="List suppressed email addresses for the team",
     )
     @action(detail=False, methods=["get"])
-    def suppressions(self, request, **kwargs):
+    def suppressions(self, request: Request, **kwargs: Any) -> Response:
         """List suppressed recipients for the team, most recently updated first."""
         suppressions = (
             MessageSuppression.objects.for_team(self.team_id)
@@ -103,7 +131,7 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         summary="Manually add an email address to the suppression list",
     )
     @action(detail=False, methods=["post"])
-    def add_suppression(self, request, **kwargs):
+    def add_suppression(self, request: Request, **kwargs: Any) -> Response:
         """Manually suppress an email address so no workflow sends to it."""
         serializer = AddSuppressionRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -146,7 +174,7 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         summary="Remove an email address from the suppression list",
     )
     @action(detail=False, methods=["post"])
-    def remove_suppression(self, request, **kwargs):
+    def remove_suppression(self, request: Request, **kwargs: Any) -> Response:
         """Remove an address from the suppression list so it can receive messages again."""
         serializer = AddSuppressionRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

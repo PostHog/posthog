@@ -4,12 +4,6 @@ import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 
-// Consecutive soft bounces (with no successful delivery in between) before an address is
-// auto-suppressed. A single soft bounce is usually just the recipient server being briefly
-// unreachable, so we tolerate a few and only suppress a persistently-failing address. Tunable
-// via env without a deploy; defaults to 5 (~5 weeks for a weekly digest before we stop sending).
-const DEFAULT_TRANSIENT_BOUNCE_THRESHOLD = 5
-
 const cdpEmailSuppressionTotal = new Counter({
     name: 'cdp_email_suppression_total',
     help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce.',
@@ -18,24 +12,31 @@ const cdpEmailSuppressionTotal = new Counter({
 
 const DIAGNOSTIC_MAX_LENGTH = 1000
 
-function resolveThreshold(): number {
-    const raw = process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD
-    const parsed = raw ? parseInt(raw, 10) : NaN
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TRANSIENT_BOUNCE_THRESHOLD
-}
-
-const envFlagEnabled = (value: string | undefined): boolean => value === '1' || value?.toLowerCase() === 'true'
-
-// Two independent kill switches, both OFF by default so this ships dark:
-//   EMAIL_SUPPRESSION_WRITE_ENABLED   — record soft bounces / deliveries and populate the list
-//   EMAIL_SUPPRESSION_ENFORCE_ENABLED — actually skip sends to suppressed recipients
-// This lets us turn on writing first and observe what would be suppressed before enforcing.
-const isWriteEnabled = (): boolean => envFlagEnabled(process.env.EMAIL_SUPPRESSION_WRITE_ENABLED)
-const isEnforceEnabled = (): boolean => envFlagEnabled(process.env.EMAIL_SUPPRESSION_ENFORCE_ENABLED)
-
 const normalizeIdentifier = (email: string): string => email.trim().toLowerCase()
 
 const toKey = (teamId: number, identifier: string): string => `${teamId}:${identifier}`
+
+export type EmailSuppressionConfig = {
+    // Populate the list on soft bounces / hard bounces / deliveries.
+    writeEnabled: boolean
+    // Skip sends to suppressed recipients (pre-send hook).
+    enforceEnabled: boolean
+    // Consecutive soft bounces before auto-suppression.
+    transientBounceThreshold: number
+}
+
+// Test helper — production paths take config from `CdpConfig`; tests that still mutate process.env
+// can call this to construct the same shape without duplicating the parse logic.
+export function emailSuppressionConfigFromEnv(): EmailSuppressionConfig {
+    const flagOn = (value: string | undefined): boolean => value === '1' || value?.toLowerCase() === 'true'
+    const rawThreshold = process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD
+    const parsedThreshold = rawThreshold ? parseInt(rawThreshold, 10) : NaN
+    return {
+        writeEnabled: flagOn(process.env.EMAIL_SUPPRESSION_WRITE_ENABLED),
+        enforceEnabled: flagOn(process.env.EMAIL_SUPPRESSION_ENFORCE_ENABLED),
+        transientBounceThreshold: Number.isFinite(parsedThreshold) && parsedThreshold > 0 ? parsedThreshold : 5,
+    }
+}
 
 /**
  * Per-team email suppression list, backed by `posthog_messagesuppression`.
@@ -65,10 +66,13 @@ export class EmailSuppressionService {
     private readonly enforceEnabled: boolean
     private readonly lazyLoader: LazyLoader<boolean>
 
-    constructor(private postgres: PostgresRouter) {
-        this.threshold = resolveThreshold()
-        this.writeEnabled = isWriteEnabled()
-        this.enforceEnabled = isEnforceEnabled()
+    constructor(
+        private postgres: PostgresRouter,
+        config: EmailSuppressionConfig
+    ) {
+        this.writeEnabled = config.writeEnabled
+        this.enforceEnabled = config.enforceEnabled
+        this.threshold = config.transientBounceThreshold
         this.lazyLoader = new LazyLoader({
             name: 'email_suppression',
             loader: async (keys) => await this.loadSuppressed(keys),
@@ -167,7 +171,8 @@ export class EmailSuppressionService {
         try {
             await this.postgres.query(PostgresUse.COMMON_WRITE, query, params, 'recordTransientBounces')
             cdpEmailSuppressionTotal.inc({ result: 'transient_bounce' }, identifiers.length)
-            this.lazyLoader.clear()
+            // Only invalidate the keys we touched — cross-team entries stay warm.
+            this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
         } catch (error) {
             logger.error('[EmailSuppression] Failed to record transient bounces', { teamId, error })
         }
@@ -230,7 +235,8 @@ export class EmailSuppressionService {
         try {
             await this.postgres.query(PostgresUse.COMMON_WRITE, query, params, 'recordHardBounces')
             cdpEmailSuppressionTotal.inc({ result: 'hard_bounce' }, identifiers.length)
-            this.lazyLoader.clear()
+            // Only invalidate the keys we touched — cross-team entries stay warm.
+            this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
         } catch (error) {
             logger.error('[EmailSuppression] Failed to record hard bounces', { teamId, error })
         }

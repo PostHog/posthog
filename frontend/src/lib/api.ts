@@ -258,7 +258,6 @@ import type {
 } from 'products/tasks/frontend/generated/api.schemas'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { OptOutEntry } from 'products/workflows/frontend/OptOuts/types'
-import type { SuppressionEntry } from 'products/workflows/frontend/Suppression/types'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type {
@@ -1963,23 +1962,6 @@ export class ApiRequest {
 
     public messagingPreferencesAddOptOut(): ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('add_opt_out')
-    }
-
-    public messagingSuppressions(): ApiRequest {
-        // messaging_suppressions is registered under routers.projects only (not the dual-route
-        // shim), so the URL prefix must be /api/projects/... not /api/environments/...
-        return this.projects().current().addPathComponent('messaging_suppressions').addPathComponent('suppressions')
-    }
-
-    public messagingSuppressionsAdd(): ApiRequest {
-        return this.projects().current().addPathComponent('messaging_suppressions').addPathComponent('add_suppression')
-    }
-
-    public messagingSuppressionsRemove(): ApiRequest {
-        return this.projects()
-            .current()
-            .addPathComponent('messaging_suppressions')
-            .addPathComponent('remove_suppression')
     }
 
     public hogFlows(): ApiRequest {
@@ -6625,18 +6607,6 @@ const api = {
             return await new ApiRequest().messagingPreferencesAddOptOut().create({
                 data: { identifier, category_key: categoryKey },
             })
-        },
-        async getSuppressions(page?: number): Promise<CountedPaginatedResponse<SuppressionEntry>> {
-            return await new ApiRequest()
-                .messagingSuppressions()
-                .withQueryString({ page: page || 1 })
-                .get()
-        },
-        async addSuppression(identifier: string): Promise<SuppressionEntry> {
-            return await new ApiRequest().messagingSuppressionsAdd().create({ data: { identifier } })
-        },
-        async removeSuppression(identifier: string): Promise<void> {
-            return await new ApiRequest().messagingSuppressionsRemove().create({ data: { identifier } })
         },
     },
     hogFlows: {

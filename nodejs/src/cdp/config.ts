@@ -135,6 +135,15 @@ export type CdpConfig = ClickhouseConfig & {
     // means no restriction (dev/test); production should set this to the workflow SES topic ARN(s).
     SES_ALLOWED_SNS_TOPIC_ARNS: string
 
+    // Two independent kill switches for the email suppression list, both OFF by default so the
+    // feature ships dark. WRITE controls whether the SES webhook populates the list; ENFORCE
+    // controls whether the pre-send check actually skips suppressed recipients. Separating them
+    // lets us turn on writing first and observe what would be suppressed before enforcing.
+    EMAIL_SUPPRESSION_WRITE_ENABLED: boolean
+    EMAIL_SUPPRESSION_ENFORCE_ENABLED: boolean
+    // Consecutive soft bounces before an address is auto-suppressed. Tunable without a deploy.
+    EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: number
+
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
 
@@ -285,6 +294,9 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_REGION: isTestEnv() || isDevEnv() ? 'us-east-1' : '',
         SES_ALLOWED_SNS_TOPIC_ARNS: '',
+        EMAIL_SUPPRESSION_WRITE_ENABLED: false,
+        EMAIL_SUPPRESSION_ENFORCE_ENABLED: false,
+        EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
 
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
