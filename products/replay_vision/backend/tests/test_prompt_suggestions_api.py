@@ -188,6 +188,52 @@ class TestPromptSuggestions(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(ReplayScanner.objects.get(id=self.scanner.id).scanner_config.get("prompt"), prompt_before)
 
+    def test_apply_classifier_writes_tags_and_bumps_version(self) -> None:
+        scanner = self._create_scanner(
+            name="classifier-apply", scanner_type="classifier", scanner_config={"prompt": "p", "tags": ["a"]}
+        )
+        version_before = scanner.scanner_version
+        suggestion = ReplayScannerPromptSuggestion.objects.create(
+            scanner=scanner,
+            team=self.team,
+            suggested_prompt="p",
+            base_prompt="p",
+            base_config={"prompt": "p", "tags": ["a"]},
+            suggested_config={"prompt": "p", "tags": ["a", "b"]},
+            changes=[{"field": "tags", "kind": "tags", "op": "add", "before": None, "after": "b", "rationale": ""}],
+            status=SuggestionStatus.PENDING,
+            scanner_version=version_before,
+        )
+
+        url = f"{self.scanners_url}{scanner.id}/prompt_suggestions/{suggestion.id}/apply/"
+        resp = self.client.post(url)
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.scanner_config["tags"], ["a", "b"])
+        self.assertEqual(scanner.scanner_version, version_before + 1)
+
+    def test_apply_old_prompt_only_row_still_works(self) -> None:
+        # Rows generated before config-generic suggestions existed have suggested_config=None.
+        scanner = self._create_scanner(name="legacy-apply", scanner_type="monitor", scanner_config={"prompt": "old"})
+        suggestion = ReplayScannerPromptSuggestion.objects.create(
+            scanner=scanner,
+            team=self.team,
+            suggested_prompt="new",
+            base_prompt="old",
+            base_config=None,
+            suggested_config=None,
+            status=SuggestionStatus.PENDING,
+            scanner_version=scanner.scanner_version,
+        )
+
+        url = f"{self.scanners_url}{scanner.id}/prompt_suggestions/{suggestion.id}/apply/"
+        resp = self.client.post(url)
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.scanner_config["prompt"], "new")
+
     def test_dismiss_rejects_applied_suggestion(self) -> None:
         self._create_rated_observation("sess-1", False, "should be yes")
         suggestion_id = self.client.post(self._suggestions_url("generate/")).json()["id"]

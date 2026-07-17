@@ -315,8 +315,11 @@ class ReplayScannerPromptSuggestionViewSet(
                 raise ValidationError("Only the current recommendation can be applied.")
             if suggestion.scanner_version != scanner.scanner_version:
                 raise ValidationError("The scanner prompt changed since this was generated. Generate a fresh one.")
-            config = dict(scanner.scanner_config or {})
-            config["prompt"] = suggestion.suggested_prompt
+            # New rows carry the full proposed config. Old prompt-only rows fall back to a prompt overwrite.
+            if suggestion.suggested_config is not None:
+                config = dict(suggestion.suggested_config)
+            else:
+                config = {**(scanner.scanner_config or {}), "prompt": suggestion.suggested_prompt}
             # Same validation as the scanner edit endpoint: an oversized or malformed LLM rewrite
             # must not land in the config that every future observation snapshots.
             message = _scanner_config_error_message(ScannerType(scanner.scanner_type), config)
