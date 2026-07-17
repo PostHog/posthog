@@ -40,7 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MixpanelSource(ResumableSource[MixpanelSourceConfig, MixpanelResumeConfig]):
-    api_docs_url = "https://developer.mixpanel.com"
+    api_docs_url = "https://developer.mixpanel.com/reference/raw-data-export-api"
 
     supported_versions = SUPPORTED_API_VERSIONS
     default_version = DEFAULT_API_VERSION
