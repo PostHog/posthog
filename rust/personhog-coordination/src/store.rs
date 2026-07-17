@@ -3,8 +3,8 @@ use etcd_client::{Compare, CompareOp, DeleteOptions, PutOptions, Txn, TxnOp, Wat
 
 use crate::error::{Error, Result};
 use crate::types::{
-    AssignmentStatus, HandoffState, LeaderInfo, PartitionAssignment, PodDrainedAck, PodStatus,
-    PodWarmedAck, RegisteredPod, RegisteredRouter, RouterFreezeAck,
+    AssignmentPrecondition, AssignmentStatus, HandoffState, LeaderInfo, PartitionAssignment,
+    PodDrainedAck, PodStatus, PodWarmedAck, RegisteredPod, RegisteredRouter, RouterFreezeAck,
 };
 
 /// All etcd key patterns used by the PersonHog store.
@@ -179,6 +179,16 @@ impl PersonhogStore {
     pub async fn list_assignments_with_revision(&self) -> Result<(Vec<PartitionAssignment>, i64)> {
         let key = self.key(StoreKey::AssignmentsPrefix);
         Ok(self.inner.list_with_revision(&key).await?)
+    }
+
+    /// Like `list_assignments`, but pairs each record with its key's
+    /// `mod_revision` so a plan can assert, at apply time, that the
+    /// assignments it read are unchanged (`AssignmentPrecondition`).
+    pub async fn list_assignments_with_mod_revisions(
+        &self,
+    ) -> Result<Vec<(PartitionAssignment, i64)>> {
+        let key = self.key(StoreKey::AssignmentsPrefix);
+        Ok(self.inner.list_with_mod_revisions(&key).await?)
     }
 
     pub async fn put_assignments(&self, assignments: &[PartitionAssignment]) -> Result<()> {
@@ -427,20 +437,30 @@ impl PersonhogStore {
     // ── Transactional operations ────────────────────────────────
 
     /// Atomically write assignments and create handoff states.
-    /// Returns whether the transaction applied. It is guarded on every
-    /// handoff key being absent: concurrent planners (the pod watch racing
-    /// the handoff watch's re-trigger, or a failing-over coordinator) can
-    /// both plan the same partition, and an unguarded put would replace
-    /// the first handoff and orphan its acks. All-or-nothing on purpose —
-    /// a plan is one consistent placement computation, and the losing
-    /// caller replans off the winner's writes rather than applying a
-    /// half-stale plan.
+    /// Returns whether the transaction applied. Guarded so a plan only
+    /// lands if the world it was computed from is still the world:
+    ///
+    /// * every handoff key must be absent — concurrent planners (the pod
+    ///   watch racing the handoff watch's re-trigger, or a failing-over
+    ///   coordinator) can both plan the same partition, and an unguarded
+    ///   put would replace the first handoff and orphan its acks;
+    /// * every `AssignmentPrecondition` must hold — a handoff's
+    ///   `old_owner` is only meaningful if the assignment it was read
+    ///   from is unchanged. Without this, a plan whose snapshot predates
+    ///   a full create→complete→cleanup cycle of the same partition
+    ///   passes the absence guard and drains the wrong pod, leaving the
+    ///   real owner unfenced beside the new owner's warm cutoff.
+    ///
+    /// All-or-nothing on purpose — a plan is one consistent placement
+    /// computation, and the losing caller replans off the winner's writes
+    /// rather than applying a half-stale plan.
     pub async fn create_assignments_and_handoffs(
         &self,
         assignments: &[PartitionAssignment],
         handoffs: &[HandoffState],
+        preconditions: &[AssignmentPrecondition],
     ) -> Result<bool> {
-        let mut guards: Vec<Compare> = Vec::with_capacity(handoffs.len());
+        let mut guards: Vec<Compare> = Vec::with_capacity(handoffs.len() + preconditions.len());
         let mut ops: Vec<TxnOp> = Vec::with_capacity(assignments.len() + handoffs.len());
 
         for a in assignments {
@@ -455,6 +475,21 @@ impl PersonhogStore {
             // canonical etcd existence guard.
             guards.push(Compare::create_revision(key.clone(), CompareOp::Equal, 0));
             ops.push(TxnOp::put(key, value, None));
+        }
+        for precondition in preconditions {
+            match precondition {
+                AssignmentPrecondition::UnchangedSince {
+                    partition,
+                    mod_revision,
+                } => {
+                    let key = self.key(StoreKey::Assignment(*partition));
+                    guards.push(Compare::mod_revision(key, CompareOp::Equal, *mod_revision));
+                }
+                AssignmentPrecondition::Absent { partition } => {
+                    let key = self.key(StoreKey::Assignment(*partition));
+                    guards.push(Compare::create_revision(key, CompareOp::Equal, 0));
+                }
+            }
         }
 
         let txn = Txn::new().when(guards).and_then(ops);

@@ -1322,6 +1322,7 @@ async fn late_joining_router_stashes_before_populating_table() {
                 status: AssignmentStatus::Active,
             }],
             &[],
+            &[],
         )
         .await
         .expect("write assignment"));

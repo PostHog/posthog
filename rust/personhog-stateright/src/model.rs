@@ -386,9 +386,11 @@ impl Model for HandoffModel {
             // assignments for moved/fresh partitions are deferred until
             // Complete (`create_assignments_and_handoffs`). This action
             // is atomic (plan and apply in one transition); production
-            // earns that abstraction with create-if-absent guards on the
-            // handoff keys, so a concurrent plan's txn fails instead of
-            // replacing an in-flight handoff between read and write.
+            // earns that abstraction by guarding the apply txn on its
+            // read-set — handoff keys still absent, and each touched
+            // partition's assignment unchanged since the snapshot — so a
+            // stale plan fails instead of replacing an in-flight handoff
+            // or draining a superseded owner.
             Action::Rebalance => {
                 let current: HashMap<u32, String> = state
                     .assignments

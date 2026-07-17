@@ -13,9 +13,7 @@ use crate::error::{Error, Result};
 use crate::protocol::{drain_satisfied, freeze_quorum_met, plan_partial_rebalance, warm_satisfied};
 use crate::store::{self, PersonhogStore};
 use crate::strategy::AssignmentStrategy;
-use crate::types::{
-    AssignmentStatus, HandoffPhase, HandoffState, PartitionAssignment, PodStatus, RegisteredPod,
-};
+use crate::types::{AssignmentPrecondition, HandoffPhase, HandoffState, PodStatus, RegisteredPod};
 
 use crate::util;
 
@@ -599,11 +597,18 @@ impl Coordinator {
             );
         }
 
-        let current_assignments = store.list_assignments().await?;
+        // One revisioned snapshot feeds both the placement computation and
+        // the apply-time preconditions: a handoff's old_owner is only
+        // meaningful while the assignment it was read from is unchanged.
+        let current_assignments = store.list_assignments_with_mod_revisions().await?;
 
         let current_map: HashMap<u32, String> = current_assignments
             .iter()
-            .map(|a| (a.partition, a.owner.clone()))
+            .map(|(a, _)| (a.partition, a.owner.clone()))
+            .collect();
+        let assignment_revisions: HashMap<u32, i64> = current_assignments
+            .iter()
+            .map(|(a, revision)| (a.partition, *revision))
             .collect();
 
         // Placement and diff semantics (moves carry the prior owner, fresh
@@ -648,25 +653,27 @@ impl Coordinator {
             "creating handoffs"
         );
 
-        // Assignments for partitions that are NOT being moved (correct owner
-        // already) still need to be written to etcd, but reassignments and
-        // fresh assignments defer their PartitionAssignment writes until the
-        // handoff reaches Complete.
-        let handoff_partitions: HashSet<u32> =
-            handoff_objects.iter().map(|h| h.partition).collect();
-        let stable_assignments: Vec<PartitionAssignment> = plan
-            .desired
+        // The rebalance writes no assignment records: handoff completion is
+        // the sole writer of assignments (see `complete_handoff`'s
+        // invariant), so routers always observe owner changes as Complete
+        // events, and a stale plan can never restore a superseded owner.
+        // Each handoff instead carries a precondition tying it to the
+        // snapshot its old_owner came from.
+        let preconditions: Vec<AssignmentPrecondition> = handoff_objects
             .iter()
-            .map(|(&partition, owner)| PartitionAssignment {
-                partition,
-                owner: owner.clone(),
-                status: AssignmentStatus::Active,
+            .map(|h| match assignment_revisions.get(&h.partition) {
+                Some(&mod_revision) => AssignmentPrecondition::UnchangedSince {
+                    partition: h.partition,
+                    mod_revision,
+                },
+                None => AssignmentPrecondition::Absent {
+                    partition: h.partition,
+                },
             })
-            .filter(|a| !handoff_partitions.contains(&a.partition))
             .collect();
 
         if !store
-            .create_assignments_and_handoffs(&stable_assignments, &handoff_objects)
+            .create_assignments_and_handoffs(&[], &handoff_objects, &preconditions)
             .await?
         {
             // A concurrent invocation (the empty-set re-trigger racing a

@@ -122,6 +122,21 @@ impl EtcdStore {
         Ok((items, revision))
     }
 
+    /// Like `list`, but pairs each value with its key's `mod_revision` —
+    /// the per-key version an optimistic transaction compares against to
+    /// assert the record is unchanged since this read.
+    pub async fn list_with_mod_revisions<T: DeserializeOwned>(
+        &self,
+        prefix: &str,
+    ) -> Result<Vec<(T, i64)>> {
+        let options = GetOptions::new().with_prefix();
+        let resp = self.client.clone().get(prefix, Some(options)).await?;
+        resp.kvs()
+            .iter()
+            .map(|kv| Ok((serde_json::from_slice(kv.value())?, kv.mod_revision())))
+            .collect()
+    }
+
     /// The current etcd store revision, for anchoring watches when no
     /// snapshot read is involved.
     pub async fn current_revision(&self) -> Result<i64> {
