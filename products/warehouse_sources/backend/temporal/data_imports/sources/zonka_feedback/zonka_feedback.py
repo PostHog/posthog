@@ -23,8 +23,10 @@ ZONKA_API_VERSION_V2_1 = "v2.1"
 DATA_CENTER_IDS: tuple[str, ...] = ("us1", "e", "in")
 
 # Zonka versions its REST API through the account's region subdomain, not a URL path segment or a
-# version header, so every supported version targets the same host template. Keyed by version so a
-# future version that moves host families or adds a path prefix is a localized change here.
+# version header, so every supported version targets the same host template today. Keyed by version
+# to give the sync request path a single place to branch if a future version moves host families or
+# adds a path prefix; the version-agnostic host callers (`check_access`, `get_non_retryable_errors`)
+# would also need the pin threaded in at that point.
 _HOST_TEMPLATE_BY_VERSION: dict[str, str] = {
     ZONKA_API_VERSION_V1: "https://{data_center}.apis.zonkafeedback.com",
     ZONKA_API_VERSION_V2_1: "https://{data_center}.apis.zonkafeedback.com",
