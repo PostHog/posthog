@@ -25,20 +25,7 @@ class TestIntercomSource:
         assert self.source.default_version == "2.15"
         assert self.source.default_version in self.source.supported_versions
 
-    @pytest.mark.parametrize(
-        "pinned,expected",
-        [
-            (None, "2.15"),
-            ("", "2.15"),
-            ("2.13", "2.13"),
-            ("2.15", "2.15"),
-        ],
-    )
-    def test_resolve_api_version(self, pinned, expected):
-        # A present pin is honored verbatim; missing/empty falls back to the default.
-        assert self.source.resolve_api_version(pinned) == expected
-
-    @pytest.mark.parametrize("pinned,expected", [(None, "2.15"), ("2.13", "2.13"), ("2.15", "2.15")])
+    @pytest.mark.parametrize("pinned,expected", [(None, "2.15"), ("", "2.15"), ("2.13", "2.13"), ("2.15", "2.15")])
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.intercom_source")
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
