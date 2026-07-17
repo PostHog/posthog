@@ -132,6 +132,7 @@ You can create a team-scoped API key (prefixed `e2b_`) in your [E2B dashboard](h
         return e2b_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
