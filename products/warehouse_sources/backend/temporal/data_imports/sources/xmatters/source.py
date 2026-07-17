@@ -107,6 +107,7 @@ Use HTTP Basic auth with a REST Web Service User (or an API key as the username 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -123,7 +124,11 @@ Use HTTP Basic auth with a REST Web Service User (or an API key as the username 
         return schemas
 
     def validate_credentials(
-        self, config: XmattersSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: XmattersSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not is_valid_subdomain(config.subdomain):
             return False, "xMatters subdomain is invalid"

@@ -103,6 +103,7 @@ The token authenticates as your Atlassian account, so the data we can sync is li
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -119,7 +120,7 @@ The token authenticates as your Atlassian account, so the data we can sync is li
         return schemas
 
     def validate_credentials(
-        self, config: JiraSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: JiraSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         ok, status_code = validate_jira_credentials(config.subdomain, config.email, config.api_token)
         if ok:

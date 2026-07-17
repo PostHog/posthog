@@ -91,6 +91,7 @@ Create a user access token (it starts with `av_uat_`) from your [Aviator account
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = AVIATOR_ENDPOINTS[endpoint]
@@ -112,7 +113,11 @@ Create a user access token (it starts with `av_uat_`) from your [Aviator account
         return schemas
 
     def validate_credentials(
-        self, config: AviatorSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AviatorSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_aviator_credentials(config.api_token):
             return True, None

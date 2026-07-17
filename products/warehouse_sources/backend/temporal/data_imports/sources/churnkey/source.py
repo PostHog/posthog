@@ -108,6 +108,7 @@ The Data API key is distinct from your Cancel Flow API key — request one from 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -128,7 +129,11 @@ The Data API key is distinct from your Cancel Flow API key — request one from 
         return schemas
 
     def validate_credentials(
-        self, config: ChurnkeySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ChurnkeySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         is_valid, status_code = validate_churnkey_credentials(config.api_key, config.app_id)
         if is_valid:

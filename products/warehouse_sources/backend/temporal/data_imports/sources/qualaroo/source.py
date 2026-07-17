@@ -101,6 +101,7 @@ You can find your API key and secret under **Settings → API** in [Qualaroo](ht
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — the nudges list exposes no reliably ordered
         # server-side timestamp filter, so there is no incremental cursor to advance.
@@ -119,7 +120,11 @@ You can find your API key and secret under **Settings → API** in [Qualaroo](ht
         return schemas
 
     def validate_credentials(
-        self, config: QualarooSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: QualarooSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The key/secret pair is account-wide, so a single probe validates access to every schema.
         return _validate_qualaroo_credentials(config.api_key, config.api_secret)

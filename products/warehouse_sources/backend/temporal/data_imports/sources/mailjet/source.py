@@ -92,6 +92,7 @@ You can find your API key and secret key in your [Mailjet API key management pag
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # List resources have no reliable server-side time filter (full refresh only).
         # The statistics endpoints support Mailjet's FromTS window, so they sync incrementally.
@@ -111,7 +112,11 @@ You can find your API key and secret key in your [Mailjet API key management pag
         return schemas
 
     def validate_credentials(
-        self, config: MailjetSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MailjetSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_mailjet_credentials(config.api_key, config.secret_key):
             return True, None

@@ -86,6 +86,7 @@ An admin can generate a personal access token in Optimizely under Account Settin
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # No v2 list endpoint has an updated-since filter; the entities are
         # low-volume experiment config, so full refresh is the honest mode.
@@ -106,7 +107,11 @@ An admin can generate a personal access token in Optimizely under Account Settin
         return schemas
 
     def validate_credentials(
-        self, config: OptimizelySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: OptimizelySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_optimizely_credentials(config.api_token):
             return True, None

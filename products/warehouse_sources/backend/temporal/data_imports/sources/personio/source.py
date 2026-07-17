@@ -103,6 +103,7 @@ An admin can create API credentials in Personio under Settings > Integrations > 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -121,7 +122,11 @@ An admin can create API credentials in Personio under Settings > Integrations > 
         return schemas
 
     def validate_credentials(
-        self, config: PersonioSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PersonioSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_personio_credentials(config.client_id, config.client_secret):
             return True, None

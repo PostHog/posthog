@@ -88,6 +88,7 @@ You can generate an access token in your Huntr organization admin dashboard. The
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — only Huntr's jobs endpoint exposes a documented
         # created_after/created_before filter, and no resource exposes a reliable updated_after
@@ -107,7 +108,7 @@ You can generate an access token in your Huntr organization admin dashboard. The
         return schemas
 
     def validate_credentials(
-        self, config: HuntrSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: HuntrSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         # The access token is organization-wide, so a single probe validates access to every schema.
         return validate_credentials(config.access_token)

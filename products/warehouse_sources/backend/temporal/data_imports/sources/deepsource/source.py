@@ -139,6 +139,7 @@ The account login is the organization or user name exactly as it appears in Deep
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # No DeepSource connection accepts a server-side timestamp filter (Relay cursor args
         # only), so every schema is full refresh — see settings.py.
@@ -159,7 +160,11 @@ The account login is the organization or user name exactly as it appears in Deep
         return schemas
 
     def validate_credentials(
-        self, config: DeepsourceSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: DeepsourceSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_deepsource_credentials(config.api_token, config.account_login, config.vcs_provider)
 

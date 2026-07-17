@@ -91,6 +91,7 @@ You can create a personal access token under **Account settings → Developer** 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — GitBook's list endpoints expose no server-side
         # updated-after/since filter, so there is no timestamp cursor to advance an incremental sync.
@@ -109,7 +110,11 @@ You can create a personal access token under **Account settings → Developer** 
         return schemas
 
     def validate_credentials(
-        self, config: GitBookSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: GitBookSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # A single probe of `/user` confirms the token is genuine; per-endpoint access follows the
         # token owner's permissions and is surfaced at sync time via get_non_retryable_errors.

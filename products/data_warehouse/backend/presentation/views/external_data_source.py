@@ -1221,13 +1221,18 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     instance.team_id,
                     source_id=str(instance.pk),
                     owner_user_id=self.context["request"].user.id,
+                    api_version=source.resolve_api_version(instance.api_version),
                 )
             else:
-                credentials_valid, credentials_error = source.validate_credentials(source_config, instance.team_id)
+                credentials_valid, credentials_error = source.validate_credentials(
+                    source_config, instance.team_id, api_version=source.resolve_api_version(instance.api_version)
+                )
             if not credentials_valid:
                 raise ValidationError(credentials_error or "Invalid credentials")
             if instance.is_direct_query:
-                discovered_schemas = source.get_schemas(source_config, instance.team_id)
+                discovered_schemas = source.get_schemas(
+                    source_config, instance.team_id, api_version=source.resolve_api_version(instance.api_version)
+                )
                 validated_data["connection_metadata"] = get_direct_connection_metadata(
                     source_impl=source,
                     source_config=source_config,
@@ -2191,7 +2196,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             payload.get("cdc_enabled", False) and cdc_adapter is not None and is_cdc_enabled_for_team(self.team)
         )
 
-        source_schemas = source.get_schemas(source_config, self.team_id)
+        source_schemas = source.get_schemas(
+            source_config, self.team_id, api_version=source.resolve_api_version(new_source_model.api_version)
+        )
         if is_direct_query:
             new_source_model.connection_metadata = get_direct_connection_metadata(
                 source_impl=source,
@@ -2840,6 +2847,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     source=source,
                     config=config,
                     source_id=str(instance.pk),
+                    api_version=source.resolve_api_version(instance.api_version),
                 )
             except Exception as e:
                 capture_exception(e)
@@ -2943,7 +2951,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             config = source.parse_config(instance.job_inputs)
             # Explicit user action — bypass any cached schema discovery so newly added
             # upstream resources (e.g. Slack channels) appear immediately.
-            schemas = source.get_schemas(config, self.team_id, force_refresh=True)
+            schemas = source.get_schemas(
+                config, self.team_id, force_refresh=True, api_version=source.resolve_api_version(instance.api_version)
+            )
             connection_metadata = (
                 get_direct_connection_metadata(
                     source_impl=source,
@@ -3475,7 +3485,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if hog_fn_result.error or hog_fn_result.hog_function is None:
                 return failure(hog_fn_result.error)
 
-            registration = create_and_register_webhook(source, source_config, hog_fn_result, self.team_id)
+            registration = create_and_register_webhook(
+                source,
+                source_config,
+                hog_fn_result,
+                self.team_id,
+                api_version=source.resolve_api_version(instance.api_version),
+            )
         except Exception as e:
             capture_exception(e, {"source_id": source_id, "team_id": self.team_id})
             return failure(str(e))
@@ -4507,7 +4523,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if instance.job_inputs:
             try:
                 config = source.parse_config(instance.job_inputs)
-                external_status = source.get_external_webhook_info(config, webhook_url, self.team_id)
+                external_status = source.get_external_webhook_info(
+                    config, webhook_url, self.team_id, api_version=source.resolve_api_version(instance.api_version)
+                )
                 missing_events = self._compute_missing_webhook_events(source, config, instance, external_status)
             except Exception as e:
                 capture_exception(e)
@@ -4561,7 +4579,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         try:
             config = source.parse_config(instance.job_inputs)
-            source_schemas = source.get_schemas(config, self.team_id)
+            source_schemas = source.get_schemas(
+                config, self.team_id, api_version=source.resolve_api_version(instance.api_version)
+            )
         except ValidationError as e:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -4599,7 +4619,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": hog_fn_result.error},
             )
 
-        result = create_and_register_webhook(source, config, hog_fn_result, self.team_id)
+        result = create_and_register_webhook(
+            source, config, hog_fn_result, self.team_id, api_version=source.resolve_api_version(instance.api_version)
+        )
 
         return Response(
             status=status.HTTP_200_OK,
@@ -4690,7 +4712,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         }
         hog_function.save(update_fields=["inputs", "encrypted_inputs"])
 
-        success, error = source.webhook_inputs_updated(config, get_webhook_url(hog_function.id), self.team.pk, inputs)
+        success, error = source.webhook_inputs_updated(
+            config,
+            get_webhook_url(hog_function.id),
+            self.team.pk,
+            inputs,
+            api_version=source.resolve_api_version(instance.api_version),
+        )
         if not success:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -4886,6 +4914,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             source=source,
             config=config,
             source_id=str(instance.pk),
+            api_version=source.resolve_api_version(instance.api_version),
         )
 
         return Response(

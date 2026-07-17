@@ -97,6 +97,7 @@ Page size and daily request credits are determined by your NewsData.io plan.""",
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = NEWSDATA_ENDPOINTS[endpoint]
@@ -117,7 +118,11 @@ Page size and daily request credits are determined by your NewsData.io plan.""",
         return schemas
 
     def validate_credentials(
-        self, config: NewsDataSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: NewsDataSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_newsdata_credentials(config.api_key):
             return True, None

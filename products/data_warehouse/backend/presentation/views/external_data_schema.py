@@ -48,7 +48,7 @@ from products.data_warehouse.backend.facade.api import (
 )
 from products.data_warehouse.backend.presentation.views.source_api_versions import (
     ExternalDataSourceApiVersionDeprecationSerializer,
-    api_version_deprecation_payload_for_source,
+    api_version_deprecation_payload,
 )
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataJob,
@@ -334,18 +334,15 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         max_length=128,
         help_text=(
             "Vendor API version override for this schema. `null` (default) syncs on the source's "
-            "pinned version, unless the schema is not available on it — then it syncs on its "
-            "declared fallback version. Must be one of the versions this schema is available on. "
-            "User-managed: version-migration tooling never changes it. Not available for "
-            "webhook-sync schemas."
+            "pinned version. Must be one of the source type's supported versions. User-managed: "
+            "version-migration tooling never changes it. Not available for webhook-sync schemas."
         ),
     )
     api_version_deprecation = serializers.SerializerMethodField(
         read_only=True,
         help_text=(
-            "Set when the version this schema syncs on diverges from the source's (a user override, "
-            "or a schema not available on the source's version) and is deprecated by the vendor; "
-            "null otherwise. The source-level field covers the source pin."
+            "Set when this schema's version override is deprecated by the vendor; null when there "
+            "is no override or it is not deprecated. The source-level field covers the source pin."
         ),
     )
     available_columns = serializers.SerializerMethodField(
@@ -472,12 +469,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             user_access_level = user_access_control.get_user_access_level(source)
         try:
             source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
-            # The version the schema falls back to without an override, and the picker's options —
-            # both schema-aware, since a schema may not be available on every source version.
-            source_api_version: str | None = source_impl.resolve_schema_api_version(
-                schema.name, None, source.api_version
-            )
-            supported_api_versions = list(source_impl.supported_versions_for_schema(schema.name))
+            # The version the schema falls back to without an override, and the picker's options.
+            source_api_version: str | None = source_impl.resolve_api_version(source.api_version)
+            supported_api_versions = list(source_impl.supported_versions)
         except ValueError:
             source_api_version = None
             supported_api_versions = []
@@ -493,17 +487,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(ExternalDataSourceApiVersionDeprecationSerializer(allow_null=True))
     def get_api_version_deprecation(self, schema: ExternalDataSchema) -> dict[str, Any] | None:
-        # Only judged when the schema's resolved version diverges from the source's (a user
-        # override, or a schema not available on the source's version) — a deprecated source pin
-        # surfaces on the source, not on every schema that follows it.
-        try:
-            source_impl = SourceRegistry.get_source(ExternalDataSourceType(schema.source.source_type))
-        except ValueError:
+        # Only the schema-level override is judged here; a deprecated source pin surfaces on the
+        # source, not on every schema that follows it.
+        if not schema.api_version:
             return None
-        resolved = source_impl.resolve_schema_api_version(schema.name, schema.api_version, schema.source.api_version)
-        if not schema.api_version and resolved == source_impl.resolve_api_version(schema.source.api_version):
-            return None
-        return api_version_deprecation_payload_for_source(source_impl, resolved)
+        return api_version_deprecation_payload(schema.source.source_type, schema.api_version)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance = cast(Optional[ExternalDataSchema], self.instance)
@@ -529,12 +517,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     raise ValidationError(
                         {"api_version": "API version overrides are not supported for this source type."}
                     )
-                schema_versions = source_impl.supported_versions_for_schema(instance.name)
-                if override not in schema_versions:
+                if override not in source_impl.supported_versions:
                     raise ValidationError(
                         {
-                            "api_version": f"'{override}' is not a supported {instance.source.source_type} API version "
-                            f"for this schema. Supported versions for this schema: {', '.join(schema_versions)}"
+                            "api_version": f"'{override}' is not a supported {instance.source.source_type} API version. "
+                            f"Supported versions: {', '.join(source_impl.supported_versions)}"
                         }
                     )
         return attrs
@@ -1137,7 +1124,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             return False
         try:
             config = source_impl.parse_config(source.job_inputs)
-            source_schemas = source_impl.get_schemas(config, schema.team_id, names=[schema.name])
+            source_schemas = source_impl.get_schemas(
+                config,
+                schema.team_id,
+                names=[schema.name],
+                api_version=source_impl.resolve_api_version(schema.api_version or source.api_version),
+            )
         except Exception:
             return False
         return any(s.name == schema.name and s.webhook_only for s in source_schemas)
@@ -1153,7 +1145,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             source_type = ExternalDataSourceType(source.source_type)
             source_impl = SourceRegistry.get_source(source_type)
             config = source_impl.parse_config(source.job_inputs)
-            source_schemas = source_impl.get_schemas(config, schema.team_id, names=[schema.name])
+            source_schemas = source_impl.get_schemas(
+                config,
+                schema.team_id,
+                names=[schema.name],
+                api_version=source_impl.resolve_api_version(schema.api_version or source.api_version),
+            )
         except Exception:
             return False
         return any(s.name == schema.name and s.supports_xmin for s in source_schemas)
@@ -1199,7 +1196,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             return
 
         config = source_impl.parse_config(source.job_inputs)
-        source_schemas = source_impl.get_schemas(config, schema.team_id)
+        source_schemas = source_impl.get_schemas(
+            config, schema.team_id, api_version=source_impl.resolve_api_version(source.api_version)
+        )
         webhook_source_schemas = {s.name for s in source_schemas if s.supports_webhooks}
 
         if schema.name not in webhook_source_schemas:
@@ -1222,7 +1221,13 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
             if hog_fn_result.hog_function_created:
                 # Only register the webhook if we're creating the hog function when it didn't exist previously
-                result = create_and_register_webhook(source_impl, config, hog_fn_result, schema.team_id)
+                result = create_and_register_webhook(
+                    source_impl,
+                    config,
+                    hog_fn_result,
+                    schema.team_id,
+                    api_version=source_impl.resolve_api_version(source.api_version),
+                )
                 if not result.success:
                     raise ValidationError(
                         f"Failed to register webhook on your source: {result.error or 'Unknown error'}. "
@@ -1237,7 +1242,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 def reconcile() -> None:
                     try:
                         reconcile_result = reconcile_webhook_events(
-                            source_impl, config, hog_fn_result, schema.team_id, [schema.name]
+                            source_impl,
+                            config,
+                            hog_fn_result,
+                            schema.team_id,
+                            [schema.name],
+                            api_version=source_impl.resolve_api_version(source.api_version),
                         )
                         if not reconcile_result.success:
                             logger.warning(
@@ -1589,7 +1599,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         new_source = SourceRegistry.get_source(source_type_enum)
         config = new_source.parse_config(source.job_inputs)
 
-        credentials_valid, credentials_error = new_source.validate_credentials(config, self.team_id, instance.name)
+        effective_api_version = new_source.resolve_api_version(instance.api_version or source.api_version)
+        credentials_valid, credentials_error = new_source.validate_credentials(
+            config, self.team_id, instance.name, api_version=effective_api_version
+        )
         if not credentials_valid:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -1597,7 +1610,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            schemas = new_source.get_schemas(config, self.team_id, names=[instance.name])
+            schemas = new_source.get_schemas(
+                config, self.team_id, names=[instance.name], api_version=effective_api_version
+            )
         except Exception as e:
             capture_exception(e)
             return Response(

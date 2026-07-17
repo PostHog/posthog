@@ -86,6 +86,7 @@ You can find your API key in your [ChartMogul admin settings](https://app.chartm
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -102,7 +103,11 @@ You can find your API key in your [ChartMogul admin settings](https://app.chartm
         return schemas
 
     def validate_credentials(
-        self, config: ChartMogulSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ChartMogulSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_chartmogul_credentials(config.api_key):
             return True, None

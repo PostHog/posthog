@@ -98,6 +98,7 @@ You can find both in your ActiveCampaign account under **Settings > Developer**.
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -114,7 +115,11 @@ You can find both in your ActiveCampaign account under **Settings > Developer**.
         return schemas
 
     def validate_credentials(
-        self, config: ActiveCampaignSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ActiveCampaignSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_active_campaign_credentials(config.api_url, config.api_key)
 

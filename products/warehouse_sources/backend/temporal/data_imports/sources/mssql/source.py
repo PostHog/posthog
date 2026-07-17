@@ -135,6 +135,7 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Schema discovery opens a fresh connection on its own periodic cadence. A transient TDS
         # connection death mid-fetch (DB-Lib 20047, "DBPROCESS is dead or not enabled") recovers on
@@ -223,7 +224,7 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         )
 
     def validate_credentials(
-        self, config: MSSQLSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: MSSQLSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         from pymssql import OperationalError
 

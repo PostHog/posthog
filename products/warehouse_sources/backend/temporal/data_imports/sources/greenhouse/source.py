@@ -89,6 +89,7 @@ Grant the key read (`GET`) access to the resources you want to sync — for exam
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -107,7 +108,11 @@ Grant the key read (`GET`) access to the resources you want to sync — for exam
         return schemas
 
     def validate_credentials(
-        self, config: GreenhouseSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: GreenhouseSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # At source-create (`schema_name is None`) accept a 403 — the key may legitimately be
         # scoped only to the endpoints the user wants. For a per-schema check, probe that

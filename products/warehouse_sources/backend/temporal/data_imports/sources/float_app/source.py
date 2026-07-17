@@ -98,6 +98,7 @@ All streams sync via full refresh — Float's API exposes no server-side modifie
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = FLOAT_ENDPOINTS[endpoint]
@@ -118,7 +119,11 @@ All streams sync via full refresh — Float's API exposes no server-side modifie
         return schemas
 
     def validate_credentials(
-        self, config: FloatAppSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FloatAppSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         ok, status_code = validate_float_credentials(config.api_key)
         if ok:

@@ -93,6 +93,7 @@ You can create an API key under **Settings → API Keys** in [Reply](https://run
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Reply's v3 list endpoints expose no server-side
         # created/updated timestamp filter, so there is no incremental cursor to advance.
@@ -111,7 +112,11 @@ You can create an API key under **Settings → API Keys** in [Reply](https://run
         return schemas
 
     def validate_credentials(
-        self, config: ReplyIoSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ReplyIoSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # At source-create (schema_name=None) we probe `/whoami`, which needs no scope — one cheap
         # request confirms the token is genuine without blocking on per-table scopes. With a
@@ -120,7 +125,7 @@ You can create an API key under **Settings → API Keys** in [Reply](https://run
         return validate_credentials(config.api_key, endpoint=endpoint)
 
     def get_endpoint_permissions(
-        self, config: ReplyIoSourceConfig, team_id: int, endpoints: list[str]
+        self, config: ReplyIoSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         return check_endpoint_permissions(config.api_key, endpoints)
 

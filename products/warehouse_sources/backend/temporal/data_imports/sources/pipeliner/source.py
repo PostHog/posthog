@@ -128,6 +128,7 @@ To connect, create an API application in Pipeliner under **Administration → Un
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -144,7 +145,11 @@ To connect, create an API application in Pipeliner under **Administration → Un
         return schemas
 
     def validate_credentials(
-        self, config: PipelinerSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PipelinerSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key pair is space-wide, so a single probe validates access to every schema.
         return validate_pipeliner_credentials(

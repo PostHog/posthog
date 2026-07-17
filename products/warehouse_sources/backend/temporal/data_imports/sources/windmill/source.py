@@ -115,6 +115,7 @@ The audit logs table requires a workspace-admin token and is a Windmill Enterpri
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -133,7 +134,11 @@ The audit logs table requires a workspace-admin token and is a Windmill Enterpri
         return schemas
 
     def validate_credentials(
-        self, config: WindmillSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: WindmillSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_windmill_credentials(config.api_token, config.host, config.workspace, team_id)
 

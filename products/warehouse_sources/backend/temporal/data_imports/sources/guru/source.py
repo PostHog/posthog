@@ -97,6 +97,7 @@ You authenticate with your Guru account email and a user API token. A Guru admin
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -115,7 +116,7 @@ You authenticate with your Guru account email and a user API token. A Guru admin
         return schemas
 
     def validate_credentials(
-        self, config: GuruSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: GuruSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if validate_guru_credentials(config.username, config.api_token):
             return True, None

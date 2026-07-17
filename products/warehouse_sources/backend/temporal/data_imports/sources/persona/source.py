@@ -96,6 +96,7 @@ Sandbox and production environments use separate API keys — use the one for th
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = PERSONA_ENDPOINTS[endpoint]
@@ -116,7 +117,11 @@ Sandbox and production environments use separate API keys — use the one for th
         return schemas
 
     def validate_credentials(
-        self, config: PersonaSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PersonaSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         status = validate_persona_credentials(config.api_key)
         if status == 200:

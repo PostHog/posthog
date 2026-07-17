@@ -99,6 +99,7 @@ You can generate an API key from your workspace API settings in [Coassemble](htt
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — see the rationale in settings.py.
         schemas = [
@@ -116,7 +117,11 @@ You can generate an API key from your workspace API settings in [Coassemble](htt
         return schemas
 
     def validate_credentials(
-        self, config: CoassembleSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CoassembleSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key is workspace-wide, so a single probe validates access to every schema.
         return validate_credentials(config.workspace_id, config.api_key)

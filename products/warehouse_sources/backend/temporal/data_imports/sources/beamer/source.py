@@ -99,6 +99,7 @@ Notes:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "users":
@@ -125,7 +126,11 @@ Notes:
         return schemas
 
     def validate_credentials(
-        self, config: BeamerSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BeamerSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_beamer_credentials(config.api_key)
 

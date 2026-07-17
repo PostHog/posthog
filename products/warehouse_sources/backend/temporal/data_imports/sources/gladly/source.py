@@ -114,6 +114,7 @@ Your organization is the first part of your Gladly URL — for `myorg.gladly.com
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -132,7 +133,11 @@ Your organization is the first part of your Gladly URL — for `myorg.gladly.com
         return schemas
 
     def validate_credentials(
-        self, config: GladlySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: GladlySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             if validate_gladly_credentials(config.organization, config.agent_email, config.api_token):

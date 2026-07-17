@@ -123,6 +123,7 @@ You can create a personal access token with **Read** access under **Account sett
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — the Hub management API exposes no server-side
         # updated_after/since filter on repositories or tags, so there is no incremental cursor.
@@ -141,7 +142,11 @@ You can create a personal access token with **Read** access under **Account sett
         return schemas
 
     def validate_credentials(
-        self, config: DockerhubSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: DockerhubSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Both endpoints read from the same namespace with the same token, so a single login +
         # namespace probe validates access to every schema.

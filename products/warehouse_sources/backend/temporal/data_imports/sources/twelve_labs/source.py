@@ -96,6 +96,7 @@ You can create an API key in your [Twelve Labs dashboard](https://playground.twe
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = TWELVE_LABS_ENDPOINTS[endpoint]
@@ -115,7 +116,11 @@ You can create an API key in your [Twelve Labs dashboard](https://playground.twe
         return schemas
 
     def validate_credentials(
-        self, config: TwelveLabsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: TwelveLabsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         ok, status_code = validate_twelve_labs_credentials(config.api_key)
         if ok:

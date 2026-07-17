@@ -102,6 +102,7 @@ You can generate an API key in your Fillout account under **Settings → Develop
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas: list[SourceSchema] = []
         for endpoint in ENDPOINTS:
@@ -121,7 +122,11 @@ You can generate an API key in your Fillout account under **Settings → Develop
         return schemas
 
     def validate_credentials(
-        self, config: FilloutSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FilloutSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         api_base_url = config.api_base_url or DEFAULT_FILLOUT_API_BASE_URL
         if api_base_url not in ALLOWED_FILLOUT_API_BASE_URLS:

@@ -94,6 +94,7 @@ You can find your API key in the [Mollie dashboard](https://my.mollie.com/dashbo
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # No Mollie list endpoint exposes a server-side date filter, and mutable
         # objects change status after creation, so every stream is full refresh.
@@ -114,7 +115,11 @@ You can find your API key in the [Mollie dashboard](https://my.mollie.com/dashbo
         return schemas
 
     def validate_credentials(
-        self, config: MollieSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MollieSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_mollie_credentials(config.api_key):
             return True, None

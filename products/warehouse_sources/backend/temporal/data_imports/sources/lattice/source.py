@@ -101,6 +101,7 @@ A Lattice admin can generate an API key under Admin > Settings > API Keys (Latti
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # No Lattice list endpoint exposes a server-side timestamp filter;
         # full refresh only.
@@ -121,7 +122,11 @@ A Lattice admin can generate an API key under Admin > Settings > API Keys (Latti
         return schemas
 
     def validate_credentials(
-        self, config: LatticeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: LatticeSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_lattice_credentials(config.region, config.api_key)
 

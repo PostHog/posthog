@@ -145,7 +145,11 @@ class AttentiveSource(
         )
 
     def validate_credentials(
-        self, config: AttentiveSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AttentiveSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return api_client.validate_credentials(config.api_key)
 
@@ -175,6 +179,7 @@ class AttentiveSource(
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # All tables are webhook-only: Attentive's REST API has no list
         # endpoints to poll, so user-facing append/full-refresh toggles don't
@@ -197,7 +202,9 @@ class AttentiveSource(
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         return WebhookSourceManager(inputs, inputs.logger)
 
-    def create_webhook(self, config: AttentiveSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
+    def create_webhook(
+        self, config: AttentiveSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookCreationResult:
         return api_client.create_webhook(
             api_key=config.api_key,
             webhook_url=webhook_url,
@@ -205,7 +212,12 @@ class AttentiveSource(
         )
 
     def webhook_inputs_updated(
-        self, config: AttentiveSourceConfig, webhook_url: str, team_id: int, inputs: dict[str, Any]
+        self,
+        config: AttentiveSourceConfig,
+        webhook_url: str,
+        team_id: int,
+        inputs: dict[str, Any],
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The webhook is disabled right after creation so Attentive doesn't
         # fire events at PostHog before we can verify them with the signing
@@ -229,15 +241,18 @@ class AttentiveSource(
         webhook_url: str,
         team_id: int,
         eligible_schema_names: list[str],
+        api_version: str | None = None,
     ) -> WebhookSyncResult:
         return api_client.sync_webhook_events(config.api_key, webhook_url, eligible_schema_names)
 
     def get_external_webhook_info(
-        self, config: AttentiveSourceConfig, webhook_url: str, team_id: int
+        self, config: AttentiveSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo | None:
         return api_client.get_external_webhook_info(config.api_key, webhook_url)
 
-    def delete_webhook(self, config: AttentiveSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+    def delete_webhook(
+        self, config: AttentiveSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookDeletionResult:
         return api_client.delete_webhook(config.api_key, webhook_url)
 
     def source_for_pipeline(self, config: AttentiveSourceConfig, inputs: SourceInputs) -> SourceResponse:

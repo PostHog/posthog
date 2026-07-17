@@ -135,6 +135,7 @@ The `logs` table runs your log search query through the Search Job API over roll
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -156,7 +157,11 @@ The `logs` table runs your log search query through the Search Job API over roll
         return schemas
 
     def validate_credentials(
-        self, config: SumoLogicSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SumoLogicSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_sumo_logic_credentials(config.deployment, config.access_id, config.access_key)
 

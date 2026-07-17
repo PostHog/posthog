@@ -95,6 +95,7 @@ Each company has its own secret key. Create one in your ChargeDesk account under
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             cfg = CHARGEDESK_ENDPOINTS[endpoint]
@@ -112,7 +113,11 @@ Each company has its own secret key. Create one in your ChargeDesk account under
         return schemas
 
     def validate_credentials(
-        self, config: ChargedeskSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ChargedeskSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_chargedesk_credentials(config.api_key):
             return True, None

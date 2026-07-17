@@ -122,6 +122,7 @@ The `knowledge_base` table additionally requires the KnowledgeBase download opti
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "knowledge_base":
@@ -147,7 +148,11 @@ The `knowledge_base` table additionally requires the KnowledgeBase download opti
         return schemas
 
     def validate_credentials(
-        self, config: QualysVmdrSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: QualysVmdrSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_qualys_vmdr_credentials(config.api_server, config.username, config.password)
 

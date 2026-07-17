@@ -91,6 +91,7 @@ An admin can generate an API token in Dixa under Settings > Integrations > API T
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -109,7 +110,7 @@ An admin can generate an API token in Dixa under Settings > Integrations > API T
         return schemas
 
     def validate_credentials(
-        self, config: DixaSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: DixaSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_dixa_credentials(config.api_token)
 

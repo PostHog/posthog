@@ -320,6 +320,7 @@ If automatic creation failed due to a permissions error and you're using a restr
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -350,6 +351,7 @@ If automatic creation failed due to a permissions error and you're using a restr
         config: StripeSourceConfig,
         team_id: int,
         schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # No schema_name → basic auth probe. With schema_name → probe that endpoint.
         endpoints = [schema_name] if schema_name is not None else None
@@ -409,7 +411,7 @@ If automatic creation failed due to a permissions error and you're using a restr
             return False, str(e)
 
     def get_endpoint_permissions(
-        self, config: StripeSourceConfig, team_id: int, endpoints: list[str]
+        self, config: StripeSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         # 401 → mark every endpoint with the auth error so caller can surface it once.
         try:
@@ -434,7 +436,9 @@ If automatic creation failed due to a permissions error and you're using a restr
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         return WebhookSourceManager(inputs, inputs.logger)
 
-    def create_webhook(self, config: StripeSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
+    def create_webhook(
+        self, config: StripeSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookCreationResult:
         api_key = self._get_api_key(config, team_id)
         return create_webhook(api_key, config.stripe_account_id, webhook_url)
 
@@ -451,18 +455,21 @@ If automatic creation failed due to a permissions error and you're using a restr
         webhook_url: str,
         team_id: int,
         eligible_schema_names: list[str],
+        api_version: str | None = None,
     ) -> WebhookSyncResult:
         api_key = self._get_api_key(config, team_id)
         desired_events = self.get_desired_webhook_events(config, eligible_schema_names) or []
         return update_webhook_events(api_key, config.stripe_account_id, webhook_url, desired_events)
 
     def get_external_webhook_info(
-        self, config: StripeSourceConfig, webhook_url: str, team_id: int
+        self, config: StripeSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo:
         api_key = self._get_api_key(config, team_id)
         return get_external_webhook_info(api_key, config.stripe_account_id, webhook_url)
 
-    def delete_webhook(self, config: StripeSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+    def delete_webhook(
+        self, config: StripeSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookDeletionResult:
         api_key = self._get_api_key(config, team_id)
         return delete_webhook(api_key, config.stripe_account_id, webhook_url)
 

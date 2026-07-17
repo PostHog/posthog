@@ -91,6 +91,7 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = []
         for endpoint_config in INTERCOM_ENDPOINTS.values():
@@ -110,7 +111,7 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
         return schemas
 
     def validate_credentials(
-        self, config: IntercomSourceConfig, team_id: int, schema_name: str | None = None
+        self, config: IntercomSourceConfig, team_id: int, schema_name: str | None = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         try:
             integration = self.get_oauth_integration(config.intercom_integration_id, team_id)

@@ -94,6 +94,7 @@ You can create an Uptime API token in your [Better Stack dashboard](https://upti
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = BETTER_STACK_ENDPOINTS[endpoint]
@@ -112,7 +113,11 @@ You can create an Uptime API token in your [Better Stack dashboard](https://upti
         return schemas
 
     def validate_credentials(
-        self, config: BetterStackSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BetterStackSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         status = probe_credentials(config.api_token, schema_name)
 

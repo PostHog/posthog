@@ -72,13 +72,17 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
     def _get_authed_user_id(integration: "Integration") -> str | None:
         return (integration.config or {}).get("authed_user", {}).get("id")
 
-    def create_webhook(self, config: SlackSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
+    def create_webhook(
+        self, config: SlackSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookCreationResult:
         return WebhookCreationResult(
             success=False,
             error="Slack does not support automatic webhook creation. Please follow the manual setup instructions.",
         )
 
-    def delete_webhook(self, config: SlackSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+    def delete_webhook(
+        self, config: SlackSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookDeletionResult:
         # Slack does not expose an API to remove an Events API Request URL — the user has to
         # toggle it off manually in the app settings. Returning success lets the HogFunction
         # be cleaned up without showing the user a misleading "deletion failed" error.
@@ -183,6 +187,7 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas: list[SourceSchema] = [
             SourceSchema(
@@ -223,7 +228,7 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
         return schemas
 
     def validate_credentials(
-        self, config: SlackSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: SlackSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         try:
             integration = self.get_oauth_integration(config.slack_integration_id, team_id)

@@ -107,6 +107,7 @@ The instance URL is where you open the Unleash UI — for Unleash cloud it inclu
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — the Admin API exposes no server-side
         # updated_after/created_after filter, so there is no timestamp cursor to advance an
@@ -126,12 +127,16 @@ The instance URL is where you open the Unleash UI — for Unleash cloud it inclu
         return schemas
 
     def validate_credentials(
-        self, config: UnleashSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: UnleashSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_unleash_credentials(config.instance_url, config.api_token, schema_name, team_id)
 
     def get_endpoint_permissions(
-        self, config: UnleashSourceConfig, team_id: int, endpoints: list[str]
+        self, config: UnleashSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         # Tokens inherit their owner's role, so per-table access varies (users needs the Admin
         # root role). Probe each endpoint so the schema picker can flag unreadable tables.

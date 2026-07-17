@@ -97,6 +97,7 @@ Note that AppFollow bills API usage against a credit balance (reviews and rating
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = APPFOLLOW_ENDPOINTS[endpoint]
@@ -117,7 +118,11 @@ Note that AppFollow bills API usage against a credit balance (reviews and rating
         return schemas
 
     def validate_credentials(
-        self, config: AppfollowSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AppfollowSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         status = check_credentials(config.api_key)
         if status is None:

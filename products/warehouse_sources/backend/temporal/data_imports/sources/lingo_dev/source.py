@@ -85,6 +85,7 @@ You can create an API key in your [Lingo.dev dashboard](https://lingo.dev/app). 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Lingo.dev has no server-side timestamp filters, so only full refresh is supported.
         schemas = [
@@ -111,7 +112,11 @@ You can create an API key in your [Lingo.dev dashboard](https://lingo.dev/app). 
         }
 
     def validate_credentials(
-        self, config: LingoDevSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: LingoDevSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_lingo_dev_credentials(config.api_key)
 

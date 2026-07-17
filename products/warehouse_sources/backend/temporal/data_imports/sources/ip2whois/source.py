@@ -116,6 +116,7 @@ Each sync looks up every configured domain once and replaces the table with the 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # IP2WHOIS has no server-side change cursor, so the single table is full refresh only.
         schemas = [
@@ -134,7 +135,11 @@ Each sync looks up every configured domain once and replaces the table with the 
         return schemas
 
     def validate_credentials(
-        self, config: IP2WhoisSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: IP2WhoisSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_ip2whois_credentials(config.api_key, config.domains)
 

@@ -119,6 +119,7 @@ You can create a bot token or personal API key in your [FireHydrant API keys set
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = FIREHYDRANT_ENDPOINTS[endpoint]
@@ -140,7 +141,11 @@ You can create a bot token or personal API key in your [FireHydrant API keys set
         return schemas
 
     def validate_credentials(
-        self, config: FireHydrantSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FireHydrantSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_firehydrant_credentials(config.api_key, config.region)
 

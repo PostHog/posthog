@@ -105,6 +105,7 @@ Optionally set a **Start date** to bound the initial sync — leave it blank to 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = LEADFEEDER_ENDPOINTS[endpoint]
@@ -125,7 +126,11 @@ Optionally set a **Start date** to bound the initial sync — leave it blank to 
         return schemas
 
     def validate_credentials(
-        self, config: LeadfeederSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: LeadfeederSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_leadfeeder_credentials(config.api_token):
             return True, None

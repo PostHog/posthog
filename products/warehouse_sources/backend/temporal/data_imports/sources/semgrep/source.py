@@ -92,6 +92,7 @@ Create a token in Semgrep AppSec Platform under **Settings → Tokens** and gran
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Semgrep exposes no server-side updated-since filter: the findings `since` param filters
         # on `relevant_since`, which does not advance when a finding's status or triage changes,
@@ -112,7 +113,11 @@ Create a token in Semgrep AppSec Platform under **Settings → Tokens** and gran
         return schemas
 
     def validate_credentials(
-        self, config: SemgrepSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SemgrepSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # /deployments is the cheapest probe and the root every synced endpoint fans out from, so
         # it confirms the token for any schema.

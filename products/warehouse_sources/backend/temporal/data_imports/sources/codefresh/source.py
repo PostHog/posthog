@@ -101,6 +101,7 @@ Only the US SaaS host (`g.codefresh.io`) is supported. EU and self-hosted/on-pre
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = CODEFRESH_ENDPOINTS[endpoint]
@@ -122,7 +123,11 @@ Only the US SaaS host (`g.codefresh.io`) is supported. EU and self-hosted/on-pre
         return schemas
 
     def validate_credentials(
-        self, config: CodefreshSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CodefreshSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         valid, error = validate_codefresh_credentials(config.api_key, schema_name=schema_name)
         if valid:

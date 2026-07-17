@@ -99,6 +99,7 @@ Create an API client and Personal Access Token at [appfigures.com/developers/key
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = APPFIGURES_ENDPOINTS[endpoint]
@@ -119,7 +120,11 @@ Create an API client and Personal Access Token at [appfigures.com/developers/key
         return schemas
 
     def validate_credentials(
-        self, config: AppfiguresSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AppfiguresSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Probe the endpoint the requested schema actually hits (so per-table scope checks are
         # accurate), or the cheap products catalog at source-create.

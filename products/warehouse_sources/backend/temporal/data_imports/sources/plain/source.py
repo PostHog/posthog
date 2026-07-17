@@ -101,6 +101,7 @@ Make sure to grant the following read permissions:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -117,7 +118,7 @@ Make sure to grant the following read permissions:
         return schemas
 
     def validate_credentials(
-        self, config: PlainSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: PlainSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_plain_credentials(config.api_key)
 

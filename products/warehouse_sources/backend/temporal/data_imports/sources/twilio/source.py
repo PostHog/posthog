@@ -155,6 +155,7 @@ Your **Account SID** is on the [Twilio Console dashboard](https://console.twilio
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -171,7 +172,11 @@ Your **Account SID** is on the [Twilio Console dashboard](https://console.twilio
         return schemas
 
     def validate_credentials(
-        self, config: TwilioSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: TwilioSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             auth = self._get_auth(config)

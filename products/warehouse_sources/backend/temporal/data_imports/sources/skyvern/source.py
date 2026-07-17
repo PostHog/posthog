@@ -113,6 +113,7 @@ If you self-host Skyvern, set the base URL to your deployment (for example `http
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "runs":
@@ -144,7 +145,11 @@ If you self-host Skyvern, set the base URL to your deployment (for example `http
         return schemas
 
     def validate_credentials(
-        self, config: SkyvernSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SkyvernSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_skyvern_credentials(config.api_key, config.base_url)
 

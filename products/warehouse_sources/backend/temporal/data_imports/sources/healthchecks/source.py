@@ -117,6 +117,7 @@ Leave the base URL blank for Healthchecks.io Cloud, or set it to your instance U
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         descriptions = {
             "flips": "Up/down status-change history per check. Incrementally synced on the flip timestamp; retention is plan-limited to roughly the current month plus two prior.",
@@ -156,7 +157,11 @@ Leave the base URL blank for Healthchecks.io Cloud, or set it to your instance U
         return True, None
 
     def validate_credentials(
-        self, config: HealthchecksSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: HealthchecksSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         base_url_valid, base_url_error = self._validate_base_url(config.base_url, team_id)
         if not base_url_valid:

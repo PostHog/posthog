@@ -92,6 +92,7 @@ You can create an API key under **API dashboard** in [RentCast](https://app.rent
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — RentCast's list endpoints expose no reliably
         # ordered server-side timestamp filter, so there is no incremental cursor to advance.
@@ -110,7 +111,11 @@ You can create an API key under **API dashboard** in [RentCast](https://app.rent
         return schemas
 
     def validate_credentials(
-        self, config: RentCastSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RentCastSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single probe validates access to every schema.
         return _validate_rentcast_credentials(config.api_key)

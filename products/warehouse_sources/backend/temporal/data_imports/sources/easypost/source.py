@@ -94,6 +94,7 @@ You can find your API keys in your [EasyPost account settings](https://www.easyp
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = EASYPOST_ENDPOINTS[endpoint]
@@ -114,7 +115,11 @@ You can find your API keys in your [EasyPost account settings](https://www.easyp
         return schemas
 
     def validate_credentials(
-        self, config: EasypostSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: EasypostSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_easypost_credentials(config.api_key):
             return True, None

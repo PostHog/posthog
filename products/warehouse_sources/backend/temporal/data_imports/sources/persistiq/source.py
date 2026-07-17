@@ -96,6 +96,7 @@ You can find your API key under **Profile → Integrations → PersistIQ API** i
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — PersistIQ's list endpoints expose no server-side
         # timestamp filter, so there is no incremental cursor to advance.
@@ -114,7 +115,11 @@ You can find your API key under **Profile → Integrations → PersistIQ API** i
         return schemas
 
     def validate_credentials(
-        self, config: PersistIqSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PersistIqSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single probe validates access to every schema.
         return validate_credentials(config.api_key)

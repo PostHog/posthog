@@ -118,6 +118,7 @@ Your **API key** is on your Freshcaller profile settings page (click your profil
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -137,7 +138,11 @@ Your **API key** is on your Freshcaller profile settings page (click your profil
         return schemas
 
     def validate_credentials(
-        self, config: FreshcallerSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FreshcallerSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not _SUBDOMAIN_REGEX.match(normalize_subdomain(config.subdomain)):
             return False, "Freshcaller account name is invalid"

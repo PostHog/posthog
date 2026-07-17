@@ -96,6 +96,7 @@ Note: the `reporting_campaigns` table is served by Linkrunner's Reporting API, w
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "reporting_campaigns":
@@ -124,7 +125,11 @@ Note: the `reporting_campaigns` table is served by Linkrunner's Reporting API, w
         return schemas
 
     def validate_credentials(
-        self, config: LinkrunnerSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: LinkrunnerSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_linkrunner_credentials(config.api_key):
             return True, None

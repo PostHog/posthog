@@ -111,6 +111,7 @@ Create a Personal API token (or use a Grafana Stack API token) and find your sta
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = K6_CLOUD_ENDPOINTS[endpoint]
@@ -130,7 +131,11 @@ Create a Personal API token (or use a Grafana Stack API token) and find your sta
         return schemas
 
     def validate_credentials(
-        self, config: K6CloudSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: K6CloudSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         is_valid, is_forbidden = validate_k6_cloud_credentials(config.api_token, config.stack_id, schema_name)
         if is_valid:

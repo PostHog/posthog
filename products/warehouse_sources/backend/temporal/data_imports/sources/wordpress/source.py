@@ -119,6 +119,7 @@ To sync private content or authenticate, create an [Application Password](https:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -135,7 +136,11 @@ To sync private content or authenticate, create an [Application Password](https:
         return schemas
 
     def validate_credentials(
-        self, config: WordpressSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: WordpressSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_wordpress_credentials(config.site_url, config.username, config.application_password, team_id)
 

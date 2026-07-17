@@ -102,6 +102,7 @@ You can create a personal API token in your [CircleCI user settings](https://app
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -120,7 +121,11 @@ You can create a personal API token in your [CircleCI user settings](https://app
         return schemas
 
     def validate_credentials(
-        self, config: CircleCISourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CircleCISourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_circleci_credentials(config.api_token, config.org_slug)
 

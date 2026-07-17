@@ -109,6 +109,7 @@ CoinGecko enforces tight per-minute rate limits and monthly credit caps, especia
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every exposed endpoint is a catalog/snapshot with no server-side timestamp filter, so all
         # are full refresh only (no incremental/append).
@@ -129,7 +130,11 @@ CoinGecko enforces tight per-minute rate limits and monthly credit caps, especia
         return schemas
 
     def validate_credentials(
-        self, config: CoinGeckoSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CoinGeckoSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_coingecko_credentials(config.plan, config.api_key):
             return True, None

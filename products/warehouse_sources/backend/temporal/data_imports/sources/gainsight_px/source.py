@@ -69,6 +69,7 @@ class GainsightPxSource(ResumableSource[GainsightPxSourceConfig, GainsightPxResu
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every Gainsight PX list endpoint is full refresh — none exposes a server-side "updated
         # since" filter, so there's no reliable incremental cursor.
@@ -90,7 +91,11 @@ class GainsightPxSource(ResumableSource[GainsightPxSourceConfig, GainsightPxResu
         return schemas
 
     def validate_credentials(
-        self, config: GainsightPxSourceConfig, team_id: int, schema_name: str | None = None
+        self,
+        config: GainsightPxSourceConfig,
+        team_id: int,
+        schema_name: str | None = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_gainsight_px_credentials(config.api_key, config.region):
             return True, None

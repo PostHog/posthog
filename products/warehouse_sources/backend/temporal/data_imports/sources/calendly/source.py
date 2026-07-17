@@ -83,6 +83,7 @@ You can create a personal access token in Calendly under **Integrations → API 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -99,7 +100,11 @@ You can create a personal access token in Calendly under **Integrations → API 
         return schemas
 
     def validate_credentials(
-        self, config: CalendlySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CalendlySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_calendly_credentials(config.personal_access_token):
             return True, None

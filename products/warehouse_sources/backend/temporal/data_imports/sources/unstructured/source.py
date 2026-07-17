@@ -111,6 +111,7 @@ Leave **API host** blank unless Unstructured provisioned your account with a cus
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -130,7 +131,11 @@ Leave **API host** blank unless Unstructured provisioned your account with a cus
         return schemas
 
     def validate_credentials(
-        self, config: UnstructuredSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: UnstructuredSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_unstructured_credentials(config.base_url, config.api_key, team_id)
 

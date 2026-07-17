@@ -96,6 +96,7 @@ You can generate an API key in your Eventzilla account under **Settings > App Ma
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if EVENTZILLA_ENDPOINTS[endpoint].fan_out_over_events:
@@ -122,7 +123,11 @@ You can generate an API key in your Eventzilla account under **Settings > App Ma
         return schemas
 
     def validate_credentials(
-        self, config: EventzillaSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: EventzillaSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_eventzilla_credentials(config.api_key):
             return True, None

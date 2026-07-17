@@ -119,6 +119,7 @@ The API key needs the ACLs for the data you want to sync:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             return SourceSchema(
@@ -139,7 +140,11 @@ The API key needs the ACLs for the data you want to sync:
         return schemas
 
     def validate_credentials(
-        self, config: AlgoliaSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AlgoliaSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_algolia_credentials(
             application_id=config.application_id,

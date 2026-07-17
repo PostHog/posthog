@@ -94,6 +94,7 @@ Grant the key read access to the data you want to sync (Contacts, Campaigns, Tem
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = ELASTICEMAIL_ENDPOINTS[endpoint]
@@ -115,7 +116,11 @@ Grant the key read access to the data you want to sync (Contacts, Campaigns, Tem
         return schemas
 
     def validate_credentials(
-        self, config: ElasticemailSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ElasticemailSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # At source-create (schema_name=None) probe a cheap generic endpoint; for a specific schema, probe
         # that endpoint's path so we surface a per-endpoint permission problem early.

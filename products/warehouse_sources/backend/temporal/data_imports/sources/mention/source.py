@@ -93,6 +93,7 @@ You can create an access token by registering an API application at [dev.mention
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — mentions expose a `since_id` cursor, but it orders
         # by fetch recency rather than a timestamp, and it could not be verified against a live
@@ -112,7 +113,11 @@ You can create an access token by registering an API application at [dev.mention
         return schemas
 
     def validate_credentials(
-        self, config: MentionSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MentionSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The access token is account-wide, so a single probe validates access to every schema.
         return validate_credentials(config.access_token)

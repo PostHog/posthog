@@ -115,6 +115,7 @@ API keys are per environment (dev / staging / prod), so one connection syncs one
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             has_incremental = bool(INCREMENTAL_FIELDS.get(endpoint))
@@ -133,7 +134,11 @@ API keys are per environment (dev / staging / prod), so one connection syncs one
         return schemas
 
     def validate_credentials(
-        self, config: TriggerDevSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: TriggerDevSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         base_url = resolve_base_url(config.base_url)
         url_error = validate_base_url(base_url)

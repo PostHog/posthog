@@ -382,6 +382,7 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # One row per repo × endpoint. The legacy single-repo repo (pre-multi-repo sources)
         # keeps bare endpoint names so its existing rows, tables, and saved queries never
@@ -397,7 +398,7 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         return schemas
 
     def get_endpoint_permissions(
-        self, config: GithubSourceConfig, team_id: int, endpoints: list[str]
+        self, config: GithubSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         # Only the org-scoped tables (teams, team_members) can be denied by a missing org grant; the
         # repo-scoped tables are already covered by validate_credentials at create. Inputs may be
@@ -447,7 +448,11 @@ If automatic creation failed, your token needs webhook permissions — the **adm
     MAX_VALIDATED_REPOSITORIES = 20
 
     def validate_credentials(
-        self, config: GithubSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: GithubSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             access_token = self._get_access_token(config, team_id)
@@ -545,7 +550,9 @@ If automatic creation failed, your token needs webhook permissions — the **adm
                 failures.append(f"{repository}: {result.error}")
         return failures
 
-    def create_webhook(self, config: GithubSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
+    def create_webhook(
+        self, config: GithubSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookCreationResult:
         access_token = self._get_access_token(config, team_id)
         egress_identity = self._egress_identity(config, team_id)
         # GitHub's webhook secret is creator-supplied, so we mint one, hand it to GitHub as the
@@ -584,6 +591,7 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         webhook_url: str,
         team_id: int,
         eligible_schema_names: list[str],
+        api_version: str | None = None,
     ) -> WebhookSyncResult:
         access_token = self._get_access_token(config, team_id)
         egress_identity = self._egress_identity(config, team_id)
@@ -604,7 +612,9 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             return WebhookSyncResult(success=True)
         return WebhookSyncResult(success=False, error="; ".join(failures))
 
-    def delete_webhook(self, config: GithubSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+    def delete_webhook(
+        self, config: GithubSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookDeletionResult:
         access_token = self._get_access_token(config, team_id)
         egress_identity = self._egress_identity(config, team_id)
         failures: list[str] = []
@@ -617,7 +627,7 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         return WebhookDeletionResult(success=False, error="; ".join(failures))
 
     def get_external_webhook_info(
-        self, config: GithubSourceConfig, webhook_url: str, team_id: int
+        self, config: GithubSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo:
         access_token = self._get_access_token(config, team_id)
         egress_identity = self._egress_identity(config, team_id)

@@ -116,6 +116,7 @@ Note: NewsAPI's free Developer plan is limited to articles from the last month a
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "everything":
@@ -146,7 +147,11 @@ Note: NewsAPI's free Developer plan is limited to articles from the last month a
         return schemas
 
     def validate_credentials(
-        self, config: NewsApiSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: NewsApiSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_news_api_credentials(config.api_key):
             return True, None

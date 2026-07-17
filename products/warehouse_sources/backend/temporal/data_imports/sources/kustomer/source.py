@@ -103,6 +103,7 @@ Your organization name is the first part of your Kustomer URL — for `myorg.kus
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # GET list endpoints have no updated-since filter; full refresh only.
         schemas = [
@@ -122,7 +123,11 @@ Your organization name is the first part of your Kustomer URL — for `myorg.kus
         return schemas
 
     def validate_credentials(
-        self, config: KustomerSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: KustomerSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_kustomer_credentials(config.org_name, config.api_key):
             return True, None

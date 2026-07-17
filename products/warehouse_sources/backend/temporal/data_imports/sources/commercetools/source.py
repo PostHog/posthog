@@ -136,6 +136,7 @@ Create an API client in the Merchant Center under Settings > Developer settings 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -154,7 +155,11 @@ Create an API client in the Merchant Center under Settings > Developer settings 
         return schemas
 
     def validate_credentials(
-        self, config: CommercetoolsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CommercetoolsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_commercetools_credentials(
             config.region, config.project_key, config.client_id, config.client_secret

@@ -85,6 +85,7 @@ The secret key starts with `sk_live_`.
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Clerk only supports full refresh - the API doesn't support filtering by updated_at
         schemas = [
@@ -110,7 +111,7 @@ The secret key starts with `sk_live_`.
         }
 
     def validate_credentials(
-        self, config: ClerkSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: ClerkSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_clerk_credentials(config.secret_key)
 

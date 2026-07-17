@@ -101,6 +101,7 @@ You can find your **public key** and **private key** under **Settings → Integr
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — we don't ship incremental sync for PartnerStack, so
         # there is no cursor to advance across syncs.
@@ -119,7 +120,11 @@ You can find your **public key** and **private key** under **Settings → Integr
         return schemas
 
     def validate_credentials(
-        self, config: PartnerStackSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PartnerStackSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The key pair is account-wide, so a single probe validates access to every schema.
         return _validate_credentials(config.public_key, config.private_key)

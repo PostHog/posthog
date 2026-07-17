@@ -91,6 +91,7 @@ You can create an Admin API key in Split under **Admin settings â†’ API keys** â
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # The Split Admin API exposes no server-side timestamp filter on these resources,
         # so every endpoint is full-refresh only (no incremental/append support).
@@ -109,7 +110,11 @@ You can create an Admin API key in Split under **Admin settings â†’ API keys** â
         return schemas
 
     def validate_credentials(
-        self, config: SplitIoSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SplitIoSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if schema_name is not None and schema_name not in SPLIT_IO_ENDPOINTS:
             return False, f"Unknown Split schema '{schema_name}'"

@@ -65,6 +65,7 @@ class BuildBetterSource(ResumableSource[BuildBetterSourceConfig, BuildBetterResu
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -81,7 +82,11 @@ class BuildBetterSource(ResumableSource[BuildBetterSourceConfig, BuildBetterResu
         return schemas
 
     def validate_credentials(
-        self, config: BuildBetterSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BuildBetterSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_buildbetter_credentials(config.api_key)
 

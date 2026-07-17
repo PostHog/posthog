@@ -97,6 +97,7 @@ Create a personal access token under **User settings > Applications > Personal a
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Netlify exposes no server-side timestamp filter, so every table is full refresh.
         schemas = [
@@ -115,7 +116,11 @@ Create a personal access token under **User settings > Applications > Personal a
         return schemas
 
     def validate_credentials(
-        self, config: NetlifySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: NetlifySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_netlify_credentials(config.api_token):
             return True, None

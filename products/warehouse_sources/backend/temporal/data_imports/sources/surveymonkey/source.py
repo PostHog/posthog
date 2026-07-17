@@ -118,6 +118,7 @@ Make sure to grant the following read scopes:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -134,7 +135,11 @@ Make sure to grant the following read scopes:
         return schemas
 
     def validate_credentials(
-        self, config: SurveyMonkeySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SurveyMonkeySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_surveymonkey_credentials(config.access_token, _base_url_for(config))
 

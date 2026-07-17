@@ -119,6 +119,7 @@ Use the permanent token from **your profile → API Credentials** in Ubidots —
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only `values` filters server-side (`start`/`end` millisecond timestamps); the v2.0
         # metadata endpoints expose no monotonic update cursor, so they are full refresh only.
@@ -137,7 +138,11 @@ Use the permanent token from **your profile → API Credentials** in Ubidots —
         return schemas
 
     def validate_credentials(
-        self, config: UbidotsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: UbidotsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Ubidots tokens are account-wide, so a single probe validates access to every schema.
         return validate_credentials(config.api_token, config.api_base_url)

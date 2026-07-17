@@ -101,6 +101,7 @@ Your subdomain is the first part of your account host — for `acme.campayn.com`
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Campayn's API exposes no pagination, cursors, or timestamp filters, so every table is full
         # refresh only.
@@ -119,7 +120,11 @@ Your subdomain is the first part of your account host — for `acme.campayn.com`
         return schemas
 
     def validate_credentials(
-        self, config: CampaynSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CampaynSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not is_subdomain_valid(config.subdomain):
             return False, "Campayn subdomain is incorrect"

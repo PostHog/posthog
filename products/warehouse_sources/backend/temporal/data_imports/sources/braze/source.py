@@ -113,6 +113,7 @@ Your REST endpoint must match your Braze dashboard's region — see [Braze's API
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -129,7 +130,7 @@ Your REST endpoint must match your Braze dashboard's region — see [Braze's API
         return schemas
 
     def validate_credentials(
-        self, config: BrazeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: BrazeSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if schema_name is not None and schema_name not in BRAZE_ENDPOINTS:
             return False, f"Unknown Braze schema: {schema_name!r}"

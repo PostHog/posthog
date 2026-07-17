@@ -156,6 +156,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         mongo_schemas = get_mongo_schemas(config, team_id=team_id, names=names)
 
@@ -194,7 +195,11 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         ]
 
     def validate_credentials(
-        self, config: MongoDBSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MongoDBSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         from pymongo.errors import OperationFailure, ServerSelectionTimeoutError
 

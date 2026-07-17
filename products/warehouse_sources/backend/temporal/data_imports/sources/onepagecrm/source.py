@@ -102,6 +102,7 @@ You can find your User ID and API key in [OnePageCRM](https://app.onepagecrm.com
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -118,7 +119,11 @@ You can find your User ID and API key in [OnePageCRM](https://app.onepagecrm.com
         return schemas
 
     def validate_credentials(
-        self, config: OnepagecrmSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: OnepagecrmSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key grants account-wide read access, so a single probe validates every schema.
         return validate_credentials(config.user_id, config.api_key)

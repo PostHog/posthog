@@ -93,6 +93,7 @@ You can generate an API key in the [Tavus Developer Portal](https://platform.tav
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Tavus's list endpoints expose no server-side
         # timestamp filter, so there is no incremental cursor to advance.
@@ -111,7 +112,7 @@ You can generate an API key in the [Tavus Developer Portal](https://platform.tav
         return schemas
 
     def validate_credentials(
-        self, config: TavusSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: TavusSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single probe validates access to every schema; there is
         # no per-endpoint scope to check.

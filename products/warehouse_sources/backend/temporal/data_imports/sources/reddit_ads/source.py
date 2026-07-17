@@ -112,7 +112,11 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
         )
 
     def validate_credentials(
-        self, config: RedditAdsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RedditAdsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not config.account_id or not config.reddit_integration_id:
             return False, "Account ID and Reddit Ads integration are required"
@@ -136,6 +140,7 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(

@@ -107,6 +107,7 @@ Generate an API key in Baton under the **API** section of your account settings.
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = HELLOBATON_ENDPOINTS[endpoint]
@@ -126,7 +127,11 @@ Generate an API key in Baton under the **API** section of your account settings.
         return schemas
 
     def validate_credentials(
-        self, config: HellobatonSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: HellobatonSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             ok, status_code = validate_hellobaton_credentials(config.company, config.api_key)

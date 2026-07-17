@@ -95,6 +95,7 @@ Generate an API key in Katana under **Settings > API** (an active API access add
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             has_incremental = bool(INCREMENTAL_FIELDS.get(endpoint))
@@ -112,7 +113,11 @@ Generate an API key in Katana under **Settings > API** (an active API access add
         return schemas
 
     def validate_credentials(
-        self, config: KatanaSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: KatanaSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_katana_credentials(config.api_key):
             return True, None

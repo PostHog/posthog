@@ -51,6 +51,7 @@ class PgAnalyzeSource(SimpleSource[PgAnalyzeSourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -67,7 +68,11 @@ class PgAnalyzeSource(SimpleSource[PgAnalyzeSourceConfig]):
         return schemas
 
     def validate_credentials(
-        self, config: PgAnalyzeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PgAnalyzeSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_pganalyze_credentials(
             api_key=config.api_key,

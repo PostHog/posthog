@@ -116,6 +116,7 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -132,7 +133,11 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
         return schemas
 
     def validate_credentials(
-        self, config: LangfuseSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: LangfuseSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_langfuse_credentials(config.host, config.public_key, config.secret_key, team_id)
 

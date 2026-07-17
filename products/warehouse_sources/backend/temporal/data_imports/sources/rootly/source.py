@@ -87,6 +87,7 @@ You can create an API key in your [Rootly account settings](https://rootly.com/a
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = ROOTLY_ENDPOINTS[endpoint]
@@ -105,7 +106,11 @@ You can create an API key in your [Rootly account settings](https://rootly.com/a
         return schemas
 
     def validate_credentials(
-        self, config: RootlySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RootlySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         status = probe_credentials(config.api_key, schema_name)
 

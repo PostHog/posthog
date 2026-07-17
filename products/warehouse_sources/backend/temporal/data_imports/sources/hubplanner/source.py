@@ -92,6 +92,7 @@ Generate a **Read Only** API key in Hub Planner under **Settings → API** (admi
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = HUBPLANNER_ENDPOINTS[endpoint]
@@ -111,7 +112,11 @@ Generate a **Read Only** API key in Hub Planner under **Settings → API** (admi
         return schemas
 
     def validate_credentials(
-        self, config: HubplannerSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: HubplannerSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_hubplanner_credentials(config.api_key):
             return True, None

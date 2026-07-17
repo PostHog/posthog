@@ -90,6 +90,7 @@ You can create an API key in your [MailerLite integrations settings](https://das
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # MailerLite exposes no server-side timestamp filter, so every endpoint is full-refresh only.
         schemas = [
@@ -107,7 +108,11 @@ You can create an API key in your [MailerLite integrations settings](https://das
         return schemas
 
     def validate_credentials(
-        self, config: MailerLiteSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MailerLiteSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         endpoint_config = MAILERLITE_ENDPOINTS.get(schema_name) if schema_name else None
         path = endpoint_config.path if endpoint_config else "/subscribers"

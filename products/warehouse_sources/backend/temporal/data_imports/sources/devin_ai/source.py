@@ -116,6 +116,7 @@ Your organization ID is the `org-...` identifier shown in your Devin organizatio
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Devin's v3 list endpoints expose no verified server-side timestamp filter, so every table is
         # full refresh only (see settings.py). Cursor pagination still makes each sync resumable.
@@ -136,7 +137,11 @@ Your organization ID is the `org-...` identifier shown in your Devin organizatio
         return schemas
 
     def validate_credentials(
-        self, config: DevinAISourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: DevinAISourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Probe the specific table when checking a schema; otherwise probe Sessions as a cheap token check.
         endpoint = schema_name if schema_name in DEVIN_AI_ENDPOINTS else "sessions"

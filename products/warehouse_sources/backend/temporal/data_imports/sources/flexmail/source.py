@@ -99,6 +99,7 @@ You can create a personal access token under **Settings → API → Personal acc
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Flexmail's list endpoints expose no server-side
         # timestamp filter, so there is no incremental cursor to advance.
@@ -117,7 +118,11 @@ You can create a personal access token under **Settings → API → Personal acc
         return schemas
 
     def validate_credentials(
-        self, config: FlexmailSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FlexmailSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Personal access tokens are account-wide, so a single probe validates access to every schema.
         return validate_credentials(config.account_id, config.personal_access_token)

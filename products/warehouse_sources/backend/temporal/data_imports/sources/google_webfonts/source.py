@@ -92,6 +92,7 @@ Create an API key in the [Google Cloud Console](https://console.cloud.google.com
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # The catalog has no server-side timestamp filter, so it's full refresh only.
         schemas = [
@@ -111,7 +112,11 @@ Create an API key in the [Google Cloud Console](https://console.cloud.google.com
         return schemas
 
     def validate_credentials(
-        self, config: GoogleWebfontsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: GoogleWebfontsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             if validate_google_webfonts_credentials(config.api_key):

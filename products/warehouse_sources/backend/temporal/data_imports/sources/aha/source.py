@@ -109,6 +109,7 @@ Create an API key under **Settings → Personal → Developer → API keys** in 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = AHA_ENDPOINTS[endpoint]
@@ -127,7 +128,7 @@ Create an API key under **Settings → Personal → Developer → API keys** in 
         return schemas
 
     def validate_credentials(
-        self, config: AhaSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: AhaSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         try:
             ok, status_code = validate_aha_credentials(config.subdomain, config.api_key)

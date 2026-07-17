@@ -93,6 +93,7 @@ You can generate an API key in your lemlist **Settings > Integrations** page."""
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = LEMLIST_ENDPOINTS[endpoint]
@@ -111,7 +112,11 @@ You can generate an API key in your lemlist **Settings > Integrations** page."""
         return schemas
 
     def validate_credentials(
-        self, config: LemlistSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: LemlistSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_lemlist_credentials(config.api_key):
             return True, None

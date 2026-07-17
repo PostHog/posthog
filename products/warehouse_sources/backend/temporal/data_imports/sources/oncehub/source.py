@@ -93,6 +93,7 @@ You can generate an API key in [OnceHub](https://app.oncehub.com) under **Settin
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — OnceHub's `last_updated_time.gt` filters are
         # date-granular and cursor pagination returns newest-first, so there is no reliable
@@ -112,7 +113,11 @@ You can generate an API key in [OnceHub](https://app.oncehub.com) under **Settin
         return schemas
 
     def validate_credentials(
-        self, config: OncehubSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: OncehubSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single probe validates access to every schema.
         return validate_credentials(config.api_key)

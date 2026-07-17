@@ -106,6 +106,7 @@ Your organization is the first path segment of your Azure DevOps URL — for `de
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -124,7 +125,11 @@ Your organization is the first path segment of your Azure DevOps URL — for `de
         return schemas
 
     def validate_credentials(
-        self, config: AzureDevOpsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AzureDevOpsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_azure_devops_credentials(config.organization, config.personal_access_token):
             return True, None

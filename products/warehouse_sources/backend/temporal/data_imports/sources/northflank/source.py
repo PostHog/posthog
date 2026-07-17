@@ -62,6 +62,7 @@ class NorthflankSource(SimpleSource[NorthflankSourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # No Northflank list endpoint exposes a server-side timestamp filter, so every table is
         # full refresh only.
@@ -82,7 +83,11 @@ class NorthflankSource(SimpleSource[NorthflankSourceConfig]):
         return schemas
 
     def validate_credentials(
-        self, config: NorthflankSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: NorthflankSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_northflank_credentials(config.api_token)
 

@@ -109,6 +109,7 @@ You can create an API key under **Team settings → Developers** in [Tremendous]
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only /orders exposes a server-side timestamp filter (`created_at[gte]`); everything else
         # is full refresh (see settings.py).
@@ -127,7 +128,11 @@ You can create an API key under **Team settings → Developers** in [Tremendous]
         return schemas
 
     def validate_credentials(
-        self, config: TremendousSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: TremendousSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key is organization-wide, so a single probe validates access to every schema.
         return validate_tremendous_credentials(config.api_key, config.environment)

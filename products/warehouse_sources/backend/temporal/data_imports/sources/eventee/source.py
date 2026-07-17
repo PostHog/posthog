@@ -95,6 +95,7 @@ All Eventee tables are full refresh only — the API exposes no incremental sync
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is a snapshot with no server-side timestamp filter, so all are full refresh
         # only (no incremental/append).
@@ -116,7 +117,11 @@ All Eventee tables are full refresh only — the API exposes no incremental sync
         return schemas
 
     def validate_credentials(
-        self, config: EventeeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: EventeeSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_eventee_credentials(config.api_key):
             return True, None

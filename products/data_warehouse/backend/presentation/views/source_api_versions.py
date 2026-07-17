@@ -2,7 +2,7 @@ from typing import Any
 
 from rest_framework import serializers
 
-from products.warehouse_sources.backend.facade.source_management import AnySource, SourceRegistry
+from products.warehouse_sources.backend.facade.source_management import SourceRegistry
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
@@ -23,11 +23,6 @@ def api_version_deprecation_payload(source_type: str, pinned: str | None) -> dic
         source_impl = SourceRegistry.get_source(ExternalDataSourceType(source_type))
     except ValueError:
         return None
-    return api_version_deprecation_payload_for_source(source_impl, pinned)
-
-
-def api_version_deprecation_payload_for_source(source_impl: AnySource, pinned: str | None) -> dict[str, Any] | None:
-    """Same payload for a source implementation the caller already looked up."""
     deprecation = source_impl.get_version_deprecation(pinned)
     if deprecation is None:
         return None

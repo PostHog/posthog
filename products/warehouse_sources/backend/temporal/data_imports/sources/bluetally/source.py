@@ -110,6 +110,7 @@ If your account has multi-tenancy enabled, also enter the tenant ID the key shou
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # BlueTally exposes no server-side timestamp filter (only exact-match filters and sort), so
         # every endpoint is full refresh — incremental would re-fetch every page each sync anyway.
@@ -129,7 +130,11 @@ If your account has multi-tenancy enabled, also enter the tenant ID the key shou
         return schemas
 
     def validate_credentials(
-        self, config: BluetallySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BluetallySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         path = BLUETALLY_ENDPOINTS[schema_name].path if schema_name in BLUETALLY_ENDPOINTS else "/assets"
         if validate_bluetally_credentials(config.api_key, config.tenant_id, path):

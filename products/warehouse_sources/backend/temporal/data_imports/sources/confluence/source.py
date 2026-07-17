@@ -110,6 +110,7 @@ Only Confluence Cloud sites (`your-domain.atlassian.net`) are supported.""",
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -128,7 +129,11 @@ Only Confluence Cloud sites (`your-domain.atlassian.net`) are supported.""",
         return schemas
 
     def validate_credentials(
-        self, config: ConfluenceSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ConfluenceSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_confluence_credentials(
             subdomain=config.subdomain,

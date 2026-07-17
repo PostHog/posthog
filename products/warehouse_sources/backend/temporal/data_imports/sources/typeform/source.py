@@ -140,6 +140,7 @@ You can generate a personal access token in your [Typeform account settings](htt
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         include_partials = (config.response_types or RESPONSE_TYPE_COMPLETED_ONLY) != RESPONSE_TYPE_COMPLETED_ONLY
 
@@ -165,7 +166,11 @@ You can generate a personal access token in your [Typeform account settings](htt
         return schemas
 
     def validate_credentials(
-        self, config: TypeformSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: TypeformSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         api_base_url = config.api_base_url or DEFAULT_TYPEFORM_API_BASE_URL
         if api_base_url not in ALLOWED_TYPEFORM_API_BASE_URLS:

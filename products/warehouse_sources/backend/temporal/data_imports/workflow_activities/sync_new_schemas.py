@@ -69,7 +69,9 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             return
 
         try:
-            schemas = new_source.get_schemas(config, inputs.team_id)
+            schemas = new_source.get_schemas(
+                config, inputs.team_id, api_version=new_source.resolve_api_version(source.api_version)
+            )
         except Exception as e:
             # Schema discovery is best-effort and runs on its own ~6h cadence. If the source's
             # credentials are broken (expired/revoked tokens, permission denied, deleted account,

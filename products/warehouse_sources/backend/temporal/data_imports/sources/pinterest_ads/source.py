@@ -100,7 +100,11 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
         )
 
     def validate_credentials(
-        self, config: PinterestAdsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PinterestAdsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not config.ad_account_id or not config.pinterest_ads_integration_id:
             return False, "Ad Account ID and Pinterest Ads integration are required"
@@ -126,6 +130,7 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(

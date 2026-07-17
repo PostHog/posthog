@@ -801,6 +801,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         config: CustomSourceConfig,
         team_id: int,
         schema_name: Optional[str] = None,
+        api_version: str | None = None,
         *,
         source_id: Optional[str] = None,
         owner_user_id: Optional[int] = None,
@@ -1015,6 +1016,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         manifest = self._assemble_manifest(config)
 

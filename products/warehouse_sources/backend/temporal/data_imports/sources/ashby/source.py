@@ -85,6 +85,7 @@ You can create an API key under **Admin → API Keys** in Ashby. Grant read perm
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Ashby exposes incremental sync only via an opaque syncToken and an unordered
         # `createdAfter` filter — neither maps safely onto PostHog's timestamp-watermark
@@ -104,7 +105,7 @@ You can create an API key under **Admin → API Keys** in Ashby. Grant read perm
         return schemas
 
     def validate_credentials(
-        self, config: AshbySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: AshbySourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if schema_name is not None and schema_name not in ASHBY_ENDPOINTS:
             return False, f"Unknown Ashby schema '{schema_name}'"

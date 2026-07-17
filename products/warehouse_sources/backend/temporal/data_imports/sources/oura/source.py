@@ -95,6 +95,7 @@ You can create a personal access token in the [Oura developer portal](https://cl
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = OURA_ENDPOINTS[endpoint]
@@ -116,7 +117,7 @@ You can create a personal access token in the [Oura developer portal](https://cl
         return schemas
 
     def validate_credentials(
-        self, config: OuraSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: OuraSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         # Probe the requested endpoint when validating a specific schema, otherwise the cheap
         # single-document personal_info endpoint at source-create.

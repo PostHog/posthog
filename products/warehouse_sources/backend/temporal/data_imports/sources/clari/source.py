@@ -100,6 +100,7 @@ Generate an API key in Clari under your account's API settings. The forecast ID 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -118,7 +119,7 @@ Generate an API key in Clari under your account's API settings. The forecast ID 
         return schemas
 
     def validate_credentials(
-        self, config: ClariSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: ClariSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if validate_clari_credentials(config.api_key):
             return True, None

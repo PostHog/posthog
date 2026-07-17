@@ -78,6 +78,7 @@ class ProductboardSource(ResumableSource[ProductboardSourceConfig, ProductboardR
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -96,7 +97,11 @@ class ProductboardSource(ResumableSource[ProductboardSourceConfig, ProductboardR
         return schemas
 
     def validate_credentials(
-        self, config: ProductboardSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ProductboardSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         ok, status, message = validate_productboard_credentials(config.access_token, _probe_path(schema_name))
         if ok:

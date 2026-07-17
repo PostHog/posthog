@@ -101,6 +101,7 @@ Inngest retains event and run history for a plan-dependent window (from 24 hours
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Events are immutable once received — append-only is the only incremental-style mode.
         append_only_endpoints = {"events"}
@@ -142,7 +143,11 @@ Inngest retains event and run history for a plan-dependent window (from 24 hours
         return schemas
 
     def validate_credentials(
-        self, config: InngestSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: InngestSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_inngest_credentials(config.signing_key, config.environment or None):
             return True, None

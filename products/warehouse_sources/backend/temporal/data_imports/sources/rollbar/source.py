@@ -91,6 +91,7 @@ You can find or create a project access token in your Rollbar project under Sett
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -109,7 +110,11 @@ You can find or create a project access token in your Rollbar project under Sett
         return schemas
 
     def validate_credentials(
-        self, config: RollbarSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RollbarSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_rollbar_credentials(config.access_token):
             return True, None

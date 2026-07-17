@@ -115,6 +115,7 @@ Pick the region your DocuSeal account is hosted in. Self-hosted deployments are 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Full refresh only: DocuSeal has no server-side timestamp filter, and its records mutate
         # (submission status transitions), so neither incremental nor append-only sync would capture
@@ -135,7 +136,7 @@ Pick the region your DocuSeal account is hosted in. Self-hosted deployments are 
         return schemas
 
     def validate_credentials(
-        self, config: DocusealSourceConfig, team_id: int, schema_name: str | None = None
+        self, config: DocusealSourceConfig, team_id: int, schema_name: str | None = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_docuseal_credentials(config.api_key, config.region)
 

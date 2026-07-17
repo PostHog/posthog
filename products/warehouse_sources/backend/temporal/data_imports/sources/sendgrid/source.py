@@ -66,6 +66,7 @@ class SendGridSource(ResumableSource[SendGridSourceConfig, SendGridResumeConfig]
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -84,7 +85,11 @@ class SendGridSource(ResumableSource[SendGridSourceConfig, SendGridResumeConfig]
         return schemas
 
     def validate_credentials(
-        self, config: SendGridSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SendGridSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # `/scopes` is readable by any genuine key, so it's the cheapest probe at source-create.
         # For a specific schema we probe its own endpoint to confirm the key has that read scope.

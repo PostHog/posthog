@@ -89,6 +89,7 @@ Create an organization token in [Deel](https://app.deel.com/developer-center) un
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Core Deel objects have no updated-since filter, so every stream is an
         # honest full refresh.
@@ -109,7 +110,7 @@ Create an organization token in [Deel](https://app.deel.com/developer-center) un
         return schemas
 
     def validate_credentials(
-        self, config: DeelSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: DeelSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_deel_credentials(config.api_token)
 

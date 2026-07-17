@@ -62,6 +62,7 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas: list[SourceSchema] = [
             SourceSchema(
@@ -119,7 +120,11 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
         return schemas
 
     def validate_credentials(
-        self, config: VitallySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: VitallySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         subdomain_regex = re.compile("^[a-zA-Z-]+$")
         if config.region.selection == "US" and not subdomain_regex.match(config.region.subdomain):

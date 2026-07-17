@@ -96,6 +96,7 @@ Create a personal access token and an app in the [NextRoll developer console](ht
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Entity endpoints have no updated_at filter — full refresh. Metrics
         # are GraphQL-only and a follow-up.
@@ -116,7 +117,11 @@ Create a personal access token and an app in the [NextRoll developer console](ht
         return schemas
 
     def validate_credentials(
-        self, config: AdRollSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AdRollSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_adroll_credentials(config.client_id, config.personal_access_token):
             return True, None

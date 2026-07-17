@@ -185,7 +185,11 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
         ]
 
     def validate_credentials(
-        self, config: LinkedinAdsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: LinkedinAdsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not config.account_id or not config.linkedin_ads_integration_id:
             return False, "Account ID and LinkedIn Ads integration are required"
@@ -215,6 +219,7 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         linkedin_ads_schemas = get_linkedin_ads_schemas()
         ads_incremental_fields = get_linkedin_ads_incremental_fields()

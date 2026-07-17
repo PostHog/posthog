@@ -109,6 +109,7 @@ An account admin can generate API credentials in Culture Amp under Settings > In
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -127,7 +128,11 @@ An account admin can generate API credentials in Culture Amp under Settings > In
         return schemas
 
     def validate_credentials(
-        self, config: CultureAmpSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CultureAmpSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_culture_amp_credentials(config.client_id, config.client_secret, config.account_id):
             return True, None

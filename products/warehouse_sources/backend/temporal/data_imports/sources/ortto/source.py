@@ -103,6 +103,7 @@ Create a custom API key in Ortto under Settings > API keys, and pick the region 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -121,7 +122,7 @@ Create a custom API key in Ortto under Settings > API keys, and pick the region 
         return schemas
 
     def validate_credentials(
-        self, config: OrttoSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: OrttoSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if validate_ortto_credentials(config.region, config.api_key):
             return True, None

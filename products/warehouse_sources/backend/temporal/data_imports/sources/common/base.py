@@ -158,13 +158,6 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # in-product deprecation warning; no per-source UI work.
     deprecated_versions: tuple[VersionDeprecation, ...] = ()
 
-    # Schemas whose vendor availability diverges from `supported_versions`, keyed by schema
-    # name → the versions the schema is available on (subset of `supported_versions`; the
-    # FIRST entry is the fallback the schema syncs on when the source's effective version is
-    # not in the set). Schemas not listed follow the source pin exactly. Declare entries when
-    # a new vendor version adds or drops endpoints.
-    schema_supported_versions: Mapping[str, tuple[str, ...]] = {}
-
     @property
     @abstractmethod
     def source_type(self) -> ExternalDataSourceType:
@@ -192,27 +185,6 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """Deprecation metadata for the given pin (resolved through the default), if any."""
         effective = self.resolve_api_version(version)
         return next((d for d in self.deprecated_versions if d.version == effective), None)
-
-    def supported_versions_for_schema(self, schema_name: str) -> tuple[str, ...]:
-        """Versions a single schema is available on — `supported_versions` unless declared as diverging."""
-        return self.schema_supported_versions.get(schema_name, self.supported_versions)
-
-    def resolve_schema_api_version(self, schema_name: str, schema_override: str | None, source_pin: str | None) -> str:
-        """Effective vendor API version for one schema of a source instance.
-
-        A user override is honored verbatim (same rationale as `resolve_api_version`). Otherwise
-        the schema follows the source's effective version — unless the schema is declared as not
-        available on it, in which case it syncs on its declared fallback (first entry of its set).
-        Availability is only judged for declared schemas: an undeclared schema follows even a
-        retired pin verbatim, exactly like `resolve_api_version`.
-        """
-        if schema_override:
-            return schema_override
-        effective = self.resolve_api_version(source_pin)
-        declared = self.schema_supported_versions.get(schema_name)
-        if declared is None or effective in declared:
-            return effective
-        return declared[0]
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         """Returns the errors for which the source should be disabled on.
@@ -243,12 +215,18 @@ class _BaseSource(ABC, Generic[ConfigType]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         """Return the list of schemas available for this source.
 
         ``force_refresh=True`` instructs the source to bypass any internal cache
         of upstream schema discovery (e.g. paginated API listings). Sources
         without caches can ignore the flag.
+
+        ``api_version`` is the source instance's resolved vendor API version pin (``None``
+        means `default_version`) — callers with a source row pass it so a pinned source
+        discovers schemas on the version it actually syncs with. Sources whose discovery
+        doesn't vary by version can ignore it.
         """
         raise NotImplementedError()
 
@@ -306,13 +284,20 @@ class _BaseSource(ABC, Generic[ConfigType]):
         return None
 
     def validate_credentials(
-        self, config: ConfigType, team_id: int, schema_name: Optional[str] = None
+        self, config: ConfigType, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
-        """Check whether the provided credentials are valid for this source. Returns an optional error message"""
+        """Check whether the provided credentials are valid for this source. Returns an optional error message.
+
+        ``api_version`` follows the `get_schemas` contract: the resolved pin of the source
+        instance being validated, or ``None`` (→ `default_version`) before a row exists."""
         return True, None
 
-    def get_endpoint_permissions(self, config: ConfigType, team_id: int, endpoints: list[str]) -> dict[str, str | None]:
-        """Per-endpoint access check. ``{name: None}`` if reachable, ``{name: reason}`` if not. Default = all reachable."""
+    def get_endpoint_permissions(
+        self, config: ConfigType, team_id: int, endpoints: list[str], api_version: str | None = None
+    ) -> dict[str, str | None]:
+        """Per-endpoint access check. ``{name: None}`` if reachable, ``{name: reason}`` if not. Default = all reachable.
+
+        ``api_version`` follows the `get_schemas` contract."""
         return dict.fromkeys(endpoints)
 
     @property
@@ -402,11 +387,17 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         raise NotImplementedError()
 
-    def create_webhook(self, config: ConfigType, webhook_url: str, team_id: int) -> WebhookCreationResult:
+    def create_webhook(
+        self, config: ConfigType, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookCreationResult:
         """Create a webhook on the external source pointing to our webhook_url.
 
         Returns a WebhookCreationResult. If the source doesn't support automatic
         webhook creation, returns a failed result so the user can set it up manually.
+
+        ``api_version`` follows the `get_schemas` contract — webhook management talks to the
+        vendor outside sync time, so a pinned source must create/reconcile on its pin (vendor
+        webhook payload versions often key off it).
         """
         raise NotImplementedError()
 
@@ -421,13 +412,15 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         webhook_url: str,
         team_id: int,
         eligible_schema_names: list[str],
+        api_version: str | None = None,
     ) -> WebhookSyncResult:
         """Reconcile the provider's subscribed events with the selected schemas. No-op default
-        for sources without a provider-side subscription; override where one exists (Stripe)."""
+        for sources without a provider-side subscription; override where one exists (Stripe).
+        ``api_version`` follows the `create_webhook` contract."""
         return WebhookSyncResult(success=True)
 
     def webhook_inputs_updated(
-        self, config: ConfigType, webhook_url: str, team_id: int, inputs: dict[str, Any]
+        self, config: ConfigType, webhook_url: str, team_id: int, inputs: dict[str, Any], api_version: str | None = None
     ) -> tuple[bool, str | None]:
         """Called when webhook inputs have been set on the underlying hog function.
 
@@ -462,20 +455,24 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         return {}
 
     def get_external_webhook_info(
-        self, config: ConfigType, webhook_url: str, team_id: int
+        self, config: ConfigType, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo | None:
         """Check the external source for webhook status.
 
         Returns None if the source doesn't support checking webhook info.
         Sources should override this to query their API (e.g. list Stripe webhook endpoints).
+        ``api_version`` follows the `create_webhook` contract.
         """
         return None
 
-    def delete_webhook(self, config: ConfigType, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+    def delete_webhook(
+        self, config: ConfigType, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookDeletionResult:
         """Delete the webhook on the external source that matches webhook_url.
 
         Sources should override this to call their API (e.g. delete Stripe webhook endpoint).
         Returns a WebhookDeletionResult indicating success or failure.
+        ``api_version`` follows the `create_webhook` contract.
         """
         return WebhookDeletionResult(success=False, error="This source does not support automatic webhook deletion.")
 

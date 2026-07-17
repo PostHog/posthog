@@ -95,6 +95,7 @@ You can create an API key under **Settings → Integrations → API** in [Retent
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only feedback supports incremental sync — its `startDate` query param filters responses
         # server-side by creation date. See settings.py for why the other endpoints are full
@@ -114,7 +115,11 @@ You can create an API key under **Settings → Integrations → API** in [Retent
         return schemas
 
     def validate_credentials(
-        self, config: RetentlySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RetentlySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single /ping probe validates access to every schema.
         return validate_retently_credentials(config.api_key)

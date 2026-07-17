@@ -113,6 +113,7 @@ You can find your **user application key** and **user API key** under **Account 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Conversions and clicks reports accept a server-side start_date/end_date window, so they
         # sync incrementally; campaigns and the reference catalogs expose no timestamp filter and
@@ -132,7 +133,11 @@ You can find your **user application key** and **user API key** under **Account 
         return schemas
 
     def validate_credentials(
-        self, config: PartnerizeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PartnerizeSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # A single probe of the configured partner account validates the key pair and the
         # publisher ID for every endpoint at once.

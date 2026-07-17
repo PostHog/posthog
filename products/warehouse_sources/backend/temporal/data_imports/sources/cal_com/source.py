@@ -94,6 +94,7 @@ You can create an API key under **Settings → Security → API keys** in [Cal.c
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only bookings exposes server-side timestamp filters (afterUpdatedAt / afterCreatedAt), so
         # it is the only endpoint that supports incremental sync.
@@ -112,7 +113,11 @@ You can create an API key under **Settings → Security → API keys** in [Cal.c
         return schemas
 
     def validate_credentials(
-        self, config: CalComSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CalComSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single probe validates access to every schema.
         return validate_credentials(config.api_key)

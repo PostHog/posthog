@@ -102,7 +102,11 @@ class SupabaseSource(PostgresSource):
         )
 
     def validate_credentials(
-        self, config: PostgresSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PostgresSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         bare_host = _strip_host_scheme(config.host or "")
         project_host = _SUPABASE_PROJECT_HOST_RE.match(bare_host)

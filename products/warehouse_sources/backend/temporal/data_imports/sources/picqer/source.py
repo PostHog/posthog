@@ -73,6 +73,7 @@ class PicqerSource(ResumableSource[PicqerSourceConfig, PicqerResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = PICQER_ENDPOINTS[endpoint]
@@ -91,7 +92,11 @@ class PicqerSource(ResumableSource[PicqerSourceConfig, PicqerResumeConfig]):
         return schemas
 
     def validate_credentials(
-        self, config: PicqerSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PicqerSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             ok, status_code = validate_picqer_credentials(config.account_name, config.api_key)

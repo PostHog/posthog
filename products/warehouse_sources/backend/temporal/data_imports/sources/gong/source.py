@@ -101,6 +101,7 @@ To also sync the `calls_extensive` table (call participants and CRM associations
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -120,7 +121,7 @@ To also sync the `calls_extensive` table (call participants and CRM associations
         return schemas
 
     def validate_credentials(
-        self, config: GongSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: GongSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_gong_credentials(config.access_key, config.access_key_secret, schema_name)
 

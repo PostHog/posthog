@@ -106,6 +106,7 @@ Enter the URL where your Kubecost cost-model API is reachable (e.g. `https://kub
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -124,7 +125,11 @@ Enter the URL where your Kubecost cost-model API is reachable (e.g. `https://kub
         return schemas
 
     def validate_credentials(
-        self, config: KubecostSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: KubecostSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             host_valid, host_error = self.is_database_host_valid(hostname_of(config.host), team_id)

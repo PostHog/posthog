@@ -100,6 +100,7 @@ You can find both your API token and podcast ID in your [Buzzsprout API settings
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -121,7 +122,11 @@ You can find both your API token and podcast ID in your [Buzzsprout API settings
         return schemas
 
     def validate_credentials(
-        self, config: BuzzsproutSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BuzzsproutSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_buzzsprout_credentials(config.api_token, config.podcast_id)
 

@@ -93,6 +93,7 @@ Grant read scopes for the resources you want to sync (e.g. `shared_resources:rea
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -110,7 +111,7 @@ Grant read scopes for the resources you want to sync (e.g. `shared_resources:rea
         return schemas
 
     def validate_credentials(
-        self, config: FrontSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: FrontSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if schema_name is None:
             # Source-create probe: any non-401 response means the token is genuine. Accept 403 here

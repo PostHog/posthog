@@ -104,6 +104,7 @@ Create an organization-scoped token with `fly tokens create org` (or from the **
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -122,7 +123,7 @@ Create an organization-scoped token with `fly tokens create org` (or from the **
         return schemas
 
     def validate_credentials(
-        self, config: FlyIoSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: FlyIoSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_fly_io_credentials(config.api_token, config.organization_slug)
 

@@ -91,6 +91,7 @@ Only notes with a generated AI summary and transcript are returned by the API.
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -108,7 +109,11 @@ Only notes with a generated AI summary and transcript are returned by the API.
         return schemas
 
     def validate_credentials(
-        self, config: GranolaSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: GranolaSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_granola_credentials(config.api_key, schema_name)
 

@@ -87,6 +87,7 @@ Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/pr
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # v4 REST lists are small configuration tables with no updated-since
         # filters; the analytics datasets live in the GraphQL API (follow-up).
@@ -107,7 +108,11 @@ Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/pr
         return schemas
 
     def validate_credentials(
-        self, config: CloudflareSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CloudflareSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_cloudflare_credentials(config.api_token):
             return True, None

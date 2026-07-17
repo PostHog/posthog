@@ -128,6 +128,7 @@ How far back the initial sync can reach depends on your Konnect plan's Advanced 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             has_incremental = INCREMENTAL_FIELDS.get(endpoint) is not None
@@ -149,7 +150,11 @@ How far back the initial sync can reach depends on your Konnect plan's Advanced 
         return schemas
 
     def validate_credentials(
-        self, config: KongKonnectSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: KongKonnectSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # `region` is typed as a Literal with a default, but job_inputs come from user-supplied JSON,
         # so guard against values outside the known set at runtime.

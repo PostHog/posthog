@@ -77,6 +77,7 @@ class WebflowSource(ResumableSource[WebflowSourceConfig, WebflowResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Webflow has no verified server-side timestamp range filter on its list
         # endpoints (the createdOn/lastUpdated query params are exact-match, not
@@ -119,7 +120,11 @@ class WebflowSource(ResumableSource[WebflowSourceConfig, WebflowResumeConfig]):
         return schemas
 
     def validate_credentials(
-        self, config: WebflowSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: WebflowSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_webflow_credentials(config.api_token, config.site_id, schema_name)
 

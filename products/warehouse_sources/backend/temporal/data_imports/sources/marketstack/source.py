@@ -75,6 +75,7 @@ class MarketstackSource(ResumableSource[MarketstackSourceConfig, MarketstackResu
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -96,7 +97,11 @@ class MarketstackSource(ResumableSource[MarketstackSourceConfig, MarketstackResu
         return schemas
 
     def validate_credentials(
-        self, config: MarketstackSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MarketstackSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_marketstack_credentials(config.access_key):
             return True, None

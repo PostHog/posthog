@@ -100,6 +100,7 @@ Generate an API key and secret under **Account Settings → Developers (APIs and
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = []
         for endpoint in ENDPOINTS:
@@ -120,7 +121,11 @@ Generate an API key and secret under **Account Settings → Developers (APIs and
         return schemas
 
     def validate_credentials(
-        self, config: JustCallSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: JustCallSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_justcall_credentials(config.api_key, config.api_secret):
             return True, None

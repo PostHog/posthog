@@ -93,6 +93,7 @@ Create an API key in your BigMailer console under **Account Settings → API Key
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # BigMailer has no server-side timestamp filter on any list endpoint, and cursor pagination
         # doesn't accept a sort param — an "incremental" sync would still page through everything, so
@@ -114,7 +115,11 @@ Create an API key in your BigMailer console under **Account Settings → API Key
         return schemas
 
     def validate_credentials(
-        self, config: BigMailerSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BigMailerSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_bigmailer_credentials(config.api_key):
             return True, None

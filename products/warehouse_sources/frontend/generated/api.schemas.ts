@@ -235,12 +235,12 @@ export interface ExternalDataSchemaApi {
      */
     readonly source: ExternalDataSchemaApiSource
     /**
-     * Vendor API version override for this schema. `null` (default) syncs on the source's pinned version, unless the schema is not available on it — then it syncs on its declared fallback version. Must be one of the versions this schema is available on. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas.
+     * Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas.
      * @maxLength 128
      * @nullable
      */
     api_version?: string | null
-    /** Set when the version this schema syncs on diverges from the source's (a user override, or a schema not available on the source's version) and is deprecated by the vendor; null otherwise. The source-level field covers the source pin. */
+    /** Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin. */
     readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecationApi | null
 }
 
@@ -387,12 +387,12 @@ export interface PatchedExternalDataSchemaApi {
      */
     readonly source?: PatchedExternalDataSchemaApiSource
     /**
-     * Vendor API version override for this schema. `null` (default) syncs on the source's pinned version, unless the schema is not available on it — then it syncs on its declared fallback version. Must be one of the versions this schema is available on. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas.
+     * Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas.
      * @maxLength 128
      * @nullable
      */
     api_version?: string | null
-    /** Set when the version this schema syncs on diverges from the source's (a user override, or a schema not available on the source's version) and is deprecated by the vendor; null otherwise. The source-level field covers the source pin. */
+    /** Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin. */
     readonly api_version_deprecation?: ExternalDataSourceApiVersionDeprecationApi | null
 }
 

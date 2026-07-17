@@ -109,6 +109,7 @@ If your account manages multiple properties, enter the ID of the property you wa
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only for now - see the note in settings.py about the
         # unverified `modifiedSince` filter on getReservations.
@@ -127,7 +128,11 @@ If your account manages multiple properties, enter the ID of the property you wa
         return schemas
 
     def validate_credentials(
-        self, config: CloudbedsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CloudbedsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # One probe validates the token itself; per-endpoint OAuth scopes surface at sync time via
         # get_non_retryable_errors.

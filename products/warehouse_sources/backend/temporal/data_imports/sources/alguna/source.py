@@ -94,6 +94,7 @@ You can create an API key in your Alguna dashboard under Settings > Credentials.
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -110,7 +111,11 @@ You can create an API key in your Alguna dashboard under Settings > Credentials.
         return schemas
 
     def validate_credentials(
-        self, config: AlgunaSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AlgunaSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_alguna_credentials(config.api_key):
             return True, None

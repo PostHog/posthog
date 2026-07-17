@@ -89,6 +89,7 @@ The token grants read access to the following server-level resources:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Postmark's list endpoints accept fromdate/todate filters, but we have not verified
         # server-side filtering against a live token, so we sync full-refresh only. Within-sync
@@ -103,7 +104,11 @@ The token grants read access to the following server-level resources:
         return schemas
 
     def validate_credentials(
-        self, config: PostmarkSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PostmarkSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_postmark_credentials(config.server_token):
             return True, None

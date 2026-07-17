@@ -87,6 +87,7 @@ You can generate an API token in [Coda account settings](https://coda.io/account
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Coda's list endpoints have no updated-since filters; full refresh only.
         schemas = [
@@ -106,7 +107,7 @@ You can generate an API token in [Coda account settings](https://coda.io/account
         return schemas
 
     def validate_credentials(
-        self, config: CodaSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: CodaSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if validate_coda_credentials(config.api_token):
             return True, None

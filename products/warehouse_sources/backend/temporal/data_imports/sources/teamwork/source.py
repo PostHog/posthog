@@ -105,6 +105,7 @@ Find your API key under **Profile → Edit my details → API & Mobile** in Team
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -122,7 +123,11 @@ Find your API key under **Profile → Edit my details → API & Mobile** in Team
         return schemas
 
     def validate_credentials(
-        self, config: TeamworkSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: TeamworkSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         host = normalize_host(config.site)
 

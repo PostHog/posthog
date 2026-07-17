@@ -108,6 +108,7 @@ Your domain prefix is the first part of your store URL — for `mystore.retail.l
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -126,7 +127,11 @@ Your domain prefix is the first part of your store URL — for `mystore.retail.l
         return schemas
 
     def validate_credentials(
-        self, config: LightspeedRetailSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: LightspeedRetailSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_lightspeed_credentials(config.domain_prefix, config.api_token):
             return True, None

@@ -103,6 +103,7 @@ The Commerce APIs (orders, inventory) require the merchant to be on a Commerce p
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -121,7 +122,11 @@ The Commerce APIs (orders, inventory) require the merchant to be on a Commerce p
         return schemas
 
     def validate_credentials(
-        self, config: SquarespaceSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SquarespaceSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         is_valid, is_forbidden = validate_squarespace_credentials(config.api_key, schema_name)
         if is_valid:

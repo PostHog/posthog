@@ -96,6 +96,7 @@ You can create an API token under **Settings → API Integration** in [Tempo](ht
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -113,7 +114,7 @@ You can create an API token under **Settings → API Integration** in [Tempo](ht
         return schemas
 
     def validate_credentials(
-        self, config: TempoSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: TempoSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         # Tempo tokens carry granular scopes: at source-create we only confirm the token is genuine
         # (a 403 counts as valid); with a schema name we confirm the scope for that endpoint.
@@ -122,7 +123,7 @@ You can create an API token under **Settings → API Integration** in [Tempo](ht
         return validate_credentials(config.api_token, endpoint=schema_name)
 
     def get_endpoint_permissions(
-        self, config: TempoSourceConfig, team_id: int, endpoints: list[str]
+        self, config: TempoSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         permissions: dict[str, str | None] = {}
         for endpoint in endpoints:

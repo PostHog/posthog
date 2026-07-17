@@ -110,6 +110,7 @@ The **Workspace ID** is the numeric ID in your ClickUp URL: `https://app.clickup
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -126,7 +127,11 @@ The **Workspace ID** is the numeric ID in your ClickUp URL: `https://app.clickup
         return schemas
 
     def validate_credentials(
-        self, config: ClickUpSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ClickUpSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_clickup_credentials(config.api_key, config.workspace_id)
 

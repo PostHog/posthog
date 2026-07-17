@@ -94,6 +94,7 @@ You can request a free developer key from the [Guardian Open Platform](https://o
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = GUARDIAN_ENDPOINTS[endpoint]
@@ -112,7 +113,11 @@ You can request a free developer key from the [Guardian Open Platform](https://o
         return schemas
 
     def validate_credentials(
-        self, config: GuardianSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: GuardianSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_guardian_credentials(config.api_key):
             return True, None

@@ -75,6 +75,7 @@ class ChargifySource(ResumableSource[ChargifySourceConfig, ChargifyResumeConfig]
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -93,7 +94,11 @@ class ChargifySource(ResumableSource[ChargifySourceConfig, ChargifyResumeConfig]
         return schemas
 
     def validate_credentials(
-        self, config: ChargifySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ChargifySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not SUBDOMAIN_REGEX.match(config.subdomain):
             return False, "Chargify site subdomain is invalid"

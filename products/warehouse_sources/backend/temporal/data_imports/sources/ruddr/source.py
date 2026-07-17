@@ -88,6 +88,7 @@ You can create a workspace API key under **Settings → API Keys** in [Ruddr](ht
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Ruddr's list endpoints expose no reliably ordered
         # server-side update timestamp, so there is no incremental cursor to advance.
@@ -106,7 +107,7 @@ You can create a workspace API key under **Settings → API Keys** in [Ruddr](ht
         return schemas
 
     def validate_credentials(
-        self, config: RuddrSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: RuddrSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         # The API key is workspace-wide, so a single probe validates access to every schema.
         return validate_credentials(config.api_key)

@@ -106,6 +106,7 @@ Grant the following read permissions:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Mux exposes no server-side timestamp filter on its list endpoints, so every stream is
         # full refresh only — no incremental/append support.
@@ -125,7 +126,7 @@ Grant the following read permissions:
         return schemas
 
     def validate_credentials(
-        self, config: MuxSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: MuxSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         path = MUX_ENDPOINTS[schema_name].path if schema_name in MUX_ENDPOINTS else DEFAULT_VALIDATION_PATH
         status = get_validation_status(config.access_token_id, config.secret_key, path)

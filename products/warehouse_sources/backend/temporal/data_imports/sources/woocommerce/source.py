@@ -66,6 +66,7 @@ class WooCommerceSource(ResumableSource[WooCommerceSourceConfig, WooCommerceResu
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -84,7 +85,11 @@ class WooCommerceSource(ResumableSource[WooCommerceSourceConfig, WooCommerceResu
         return schemas
 
     def validate_credentials(
-        self, config: WooCommerceSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: WooCommerceSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not config.store_url or not config.consumer_key or not config.consumer_secret:
             return False, "Missing WooCommerce credentials"

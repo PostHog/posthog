@@ -103,6 +103,7 @@ The organization ID (or slug) is optional — it's detected automatically when y
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -119,7 +120,11 @@ The organization ID (or slug) is optional — it's detected automatically when y
         return schemas
 
     def validate_credentials(
-        self, config: ChartHopSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ChartHopSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if schema_name is not None and schema_name not in CHARTHOP_ENDPOINTS:
             return False, f"Unknown ChartHop schema '{schema_name}'"

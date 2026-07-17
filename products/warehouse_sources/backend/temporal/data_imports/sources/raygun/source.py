@@ -75,6 +75,7 @@ class RaygunSource(ResumableSource[RaygunSourceConfig, RaygunResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Raygun exposes no server-side "updated since" filter, so every endpoint is full refresh.
         schemas = [
@@ -94,7 +95,11 @@ class RaygunSource(ResumableSource[RaygunSourceConfig, RaygunResumeConfig]):
         return schemas
 
     def validate_credentials(
-        self, config: RaygunSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RaygunSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         is_valid, status_code = validate_token(config.personal_access_token)
         if is_valid:

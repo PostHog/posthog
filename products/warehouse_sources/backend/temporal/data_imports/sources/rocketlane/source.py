@@ -95,6 +95,7 @@ You can generate an API key under **Settings → API** in the [Rocketlane app](h
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Rocketlane's list endpoints expose per-field filters
         # but no single server-side `updated_after` cursor, so there is nothing to advance.
@@ -113,7 +114,11 @@ You can generate an API key under **Settings → API** in the [Rocketlane app](h
         return schemas
 
     def validate_credentials(
-        self, config: RocketlaneSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RocketlaneSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The api-key is account-wide, so a single probe validates access to every schema; there is
         # no per-endpoint scope to check.

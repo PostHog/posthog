@@ -92,6 +92,7 @@ API access requires a Pro, Premium, or Enterprise plan, and the token feature mu
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Goldcast exposes no server-side timestamp filter, so every endpoint is full refresh only
         # — incremental would re-fetch every record each sync anyway.
@@ -112,7 +113,11 @@ API access requires a Pro, Premium, or Enterprise plan, and the token feature mu
         return schemas
 
     def validate_credentials(
-        self, config: GoldcastSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: GoldcastSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_goldcast_credentials(config.access_key):
             return True, None

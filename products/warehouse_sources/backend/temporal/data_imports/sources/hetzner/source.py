@@ -98,6 +98,7 @@ Create a token under **Security > API tokens** in the [Hetzner Cloud Console](ht
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # The Hetzner Cloud API has no server-side timestamp filter on any list endpoint, so every
         # table is full refresh only — no incremental, no append (append would re-append the whole
@@ -119,7 +120,11 @@ Create a token under **Security > API tokens** in the [Hetzner Cloud Console](ht
         return schemas
 
     def validate_credentials(
-        self, config: HetznerSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: HetznerSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_hetzner_credentials(config.api_token)
 

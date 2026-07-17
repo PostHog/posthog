@@ -119,6 +119,7 @@ Create an API key under [API keys in your profile settings](https://app.prefect.
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint in ("flow_runs", "task_runs"):
@@ -148,7 +149,11 @@ Create an API key under [API keys in your profile settings](https://app.prefect.
         return schemas
 
     def validate_credentials(
-        self, config: PrefectCloudSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PrefectCloudSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             ok, status_code = validate_prefect_cloud_credentials(config.account_id, config.workspace_id, config.api_key)

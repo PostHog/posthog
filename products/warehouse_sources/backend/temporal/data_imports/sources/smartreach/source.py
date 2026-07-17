@@ -96,6 +96,7 @@ You can find your API key under **Settings → Integrations** in the [SmartReach
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — we deliberately do not use SmartReach's
         # newer_than/older_than filters, so there is no incremental cursor to advance.
@@ -114,7 +115,11 @@ You can find your API key under **Settings → Integrations** in the [SmartReach
         return schemas
 
     def validate_credentials(
-        self, config: SmartreachSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SmartreachSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The user key is account-wide, so a single probe validates access to every schema; there is
         # no per-endpoint scope to check.
