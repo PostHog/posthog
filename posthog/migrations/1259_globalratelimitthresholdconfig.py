@@ -31,7 +31,7 @@ class Migration(migrations.Migration):
                 (
                     "threshold",
                     models.PositiveBigIntegerField(
-                        help_text="Max events allowed per rate-limit window for this key. 0 is a kill switch: it blocks the key entirely."
+                        help_text="Max events allowed per rate-limit window for this key. 0 rate-limits the key to zero, but the limiter is cache-based so an isolated event may still pass on a cold cache miss; to block a key permanently use an EventRestriction in the Django admin."
                     ),
                 ),
                 (
