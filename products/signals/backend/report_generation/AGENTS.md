@@ -53,6 +53,12 @@ the safety judge first, then calls into this flow via a Temporal activity if the
   and the caller activity persists the new ones unconditionally; read the report's effective state
   via the `effective_*` accessors
 
+When a report was spawned because a signal would have grouped into an already-**resolved**
+report (resolved reports are terminal and never reopen — see `grouped_from_resolved_report` on
+`SignalReport`), the caller activity passes `resolved_report_title` / `resolved_report_summary`.
+The initial research prompt then includes a `## Previously resolved report` block so the agent can
+judge whether the recurrence is a regression, a new dimension of the same issue, or distinct.
+
 In production, the `update` path is triggered automatically when a `ready` report is
 re-promoted after accumulating enough new signals. The caller activity (`temporal/agentic/report.py`)
 reconstructs the previous `ReportResearchOutput` from stored artefacts and the report's

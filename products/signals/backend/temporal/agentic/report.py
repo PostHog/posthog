@@ -137,6 +137,25 @@ async def _load_previous_research(report_id: str) -> ReportResearchOutput | None
     )
 
 
+async def _load_resolved_report_context(report_id: str) -> tuple[str | None, str | None]:
+    """Title/summary of the resolved report this one was split from, if any.
+
+    A report gets a `grouped_from_resolved_report` when a signal that would have grouped into an
+    already-resolved report spawned a fresh report instead (resolved reports never reopen). Handing
+    that prior report to the research agent lets it judge regression vs. new dimension vs. distinct.
+    """
+    report = (
+        await SignalReport.objects.filter(id=report_id)
+        .select_related("grouped_from_resolved_report")
+        .only("grouped_from_resolved_report__title", "grouped_from_resolved_report__summary")
+        .afirst()
+    )
+    resolved = report.grouped_from_resolved_report if report else None
+    if resolved is None:
+        return None, None
+    return resolved.title, resolved.summary
+
+
 _AGENTIC_ARTEFACT_TYPES = [
     SignalReportArtefact.ArtefactType.REPO_SELECTION,
     SignalReportArtefact.ArtefactType.SIGNAL_FINDING,
@@ -351,6 +370,8 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             has_bk = await database_sync_to_async(_team_has_business_knowledge, thread_sensitive=False)(input.team_id)
             # 2. Load previous research if this is a re-promoted report
             previous_research = await _load_previous_research(input.report_id)
+            # 2b. Load the resolved report this one recurred from, if any, as extra research context
+            resolved_report_title, resolved_report_summary = await _load_resolved_report_context(input.report_id)
             # 3. Run the agentic research in the sandbox
             result = await run_multi_turn_research(
                 input.signals,
@@ -359,6 +380,8 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 previous_report_research=previous_research,
                 signal_report_id=input.report_id,
                 has_business_knowledge=has_bk,
+                resolved_report_title=resolved_report_title,
+                resolved_report_summary=resolved_report_summary,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
             await _persist_agentic_report_artefacts(

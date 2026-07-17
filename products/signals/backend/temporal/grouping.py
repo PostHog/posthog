@@ -725,13 +725,29 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         metadata=metadata,
                     )
                     return report_id, False, ts, True, report.run_count, False, report.status, report.signal_count
-                report.total_weight += input.weight
-                report.signal_count += 1
-                update_fields = ["total_weight", "signal_count", "updated_at"]
-                if input.updated_title:
-                    report.title = input.updated_title
-                    update_fields.append("title")
-                report.save(update_fields=update_fields)
+                # Resolved reports are terminal — never reopen them. When a signal would have grouped
+                # into an already-resolved report, the issue it fixed has recurred (or a related one
+                # has), so we start a fresh report and record which resolved report it matched. The
+                # research agent is later handed that resolved report as context (see report.py).
+                if report.status == SignalReport.Status.RESOLVED:
+                    report = SignalReport.objects.create(
+                        team_id=input.team_id,
+                        status=SignalReport.Status.POTENTIAL,
+                        total_weight=input.weight,
+                        signal_count=1,
+                        title=report.title,
+                        summary=report.summary,
+                        billing_exempt_reason=BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
+                        grouped_from_resolved_report=report,
+                    )
+                else:
+                    report.total_weight += input.weight
+                    report.signal_count += 1
+                    update_fields = ["total_weight", "signal_count", "updated_at"]
+                    if input.updated_title:
+                        report.title = input.updated_title
+                        update_fields.append("title")
+                    report.save(update_fields=update_fields)
             else:
                 report = SignalReport.objects.create(
                     team_id=input.team_id,
@@ -748,12 +764,13 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
 
             # Promotion rules by status:
             # - SUPPRESSED: never promoted.
+            # - RESOLVED: terminal — never receives new signals (a recurrence spawns a fresh report above).
             # - POTENTIAL: promote once total_weight >= WEIGHT_THRESHOLD and signal_count >= signals_at_run
             #   (snooze gate, defaults to 0). Uncapped — a report's first research always runs.
-            # - READY / RESOLVED: re-research on every new signal (resolved = issue recurred), but only
-            #   while signal_count <= RERESEARCH_MAX_SIGNALS; past the cap, signals are collected, not researched.
+            # - READY: re-research on every new signal, but only while signal_count <= RERESEARCH_MAX_SIGNALS;
+            #   past the cap, signals are collected, not researched.
             # - CANDIDATE: re-promote to self-heal failed spawns (uncapped; concurrent runs blocked by Temporal).
-            is_reresearch = report.status == SignalReport.Status.READY or report.status == SignalReport.Status.RESOLVED
+            is_reresearch = report.status == SignalReport.Status.READY
             reresearch_capped = is_reresearch and report.signal_count > RERESEARCH_MAX_SIGNALS
             if (
                 (is_reresearch and not reresearch_capped)
