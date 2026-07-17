@@ -7,6 +7,7 @@ pub mod batcher;
 pub mod cascade;
 pub mod kafka;
 pub mod merge;
+pub mod seed;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -16,6 +17,8 @@ use chrono::Utc;
 use common_kafka::kafka_producer::KafkaProduceError;
 use metrics::counter;
 use serde::{Deserialize, Serialize};
+
+use cohort_core::seed::RunId;
 
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::CohortId;
@@ -29,8 +32,12 @@ pub use merge::{
     CaptureStreamEventSink, CaptureTransferSink, KafkaStreamEventSink, KafkaTransferSink,
     StreamEventSink, TransferSink,
 };
+pub use seed::{CaptureSeedTileSink, KafkaSeedTileSink, NoopSeedTileSink, SeedTileSink};
 
 /// One per-cohort membership change on `cohort_membership_changed_shadow`.
+///
+/// `origin`/`run_id` are additive and absent on the live path, so live emissions stay
+/// byte-identical to the pre-field contract.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CohortMembershipChange {
     pub team_id: i32,
@@ -39,6 +46,20 @@ pub struct CohortMembershipChange {
     /// ClickHouse `DateTime64(6)` wire format.
     pub last_updated: String,
     pub status: MembershipStatus,
+    /// Backfill provenance; `None` on the live path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<ChangeOrigin>,
+    /// The backfill run that emitted this change; set iff `origin` is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<RunId>,
+}
+
+/// Non-live provenance of a membership change; new origins (e.g. a reconcile snapshot) land
+/// additively with their producers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangeOrigin {
+    Seed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -94,6 +115,8 @@ pub fn map_transition<'a>(
             person_id: person_id.clone(),
             last_updated: last_updated.to_string(),
             status,
+            origin: None,
+            run_id: None,
         })
 }
 
@@ -301,6 +324,8 @@ mod tests {
             person_id: "01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string(),
             last_updated: TS.to_string(),
             status: MembershipStatus::Entered,
+            origin: None,
+            run_id: None,
         };
         let value = serde_json::to_value(&change).unwrap();
         let object = value.as_object().unwrap();
@@ -329,6 +354,42 @@ mod tests {
     }
 
     #[test]
+    fn live_path_change_stays_byte_identical_and_a_seed_tag_adds_only_the_two_keys() {
+        let live = CohortMembershipChange {
+            team_id: 42,
+            cohort_id: 91204,
+            person_id: "01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string(),
+            last_updated: TS.to_string(),
+            status: MembershipStatus::Entered,
+            origin: None,
+            run_id: None,
+        };
+        // The exact pre-field wire string: downstream JSONEachRow must see no new keys on the
+        // live path.
+        assert_eq!(
+            serde_json::to_string(&live).unwrap(),
+            r#"{"team_id":42,"cohort_id":91204,"person_id":"01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee","last_updated":"2026-05-26 12:34:56.789123","status":"entered"}"#,
+        );
+        // And the pre-field payload still deserializes (defaulting both to None).
+        let decoded: CohortMembershipChange =
+            serde_json::from_str(&serde_json::to_string(&live).unwrap()).unwrap();
+        assert_eq!(decoded, live);
+
+        let tagged = CohortMembershipChange {
+            origin: Some(ChangeOrigin::Seed),
+            run_id: Some(RunId(uuid::Uuid::nil())),
+            ..live
+        };
+        let value = serde_json::to_value(&tagged).unwrap();
+        assert_eq!(value["origin"], json!("seed"));
+        assert_eq!(
+            value["run_id"],
+            json!("00000000-0000-0000-0000-000000000000")
+        );
+        assert_eq!(value.as_object().unwrap().len(), 7);
+    }
+
+    #[test]
     fn now_last_updated_is_microsecond_clickhouse_format() {
         let now = now_last_updated();
         let (date_time, fraction) = now.split_once('.').expect("has a fractional part");
@@ -350,6 +411,8 @@ mod tests {
             person_id: "p".to_string(),
             last_updated: TS.to_string(),
             status: MembershipStatus::Entered,
+            origin: None,
+            run_id: None,
         };
         let acks = sink.produce(vec![change.clone(), change.clone()]).await;
         assert_eq!(acks.len(), 2);
@@ -366,6 +429,8 @@ mod tests {
             person_id: "p".to_string(),
             last_updated: TS.to_string(),
             status: MembershipStatus::Left,
+            origin: None,
+            run_id: None,
         };
 
         let first = sink.produce(vec![change.clone()]).await;
