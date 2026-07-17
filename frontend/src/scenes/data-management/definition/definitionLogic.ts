@@ -1,15 +1,16 @@
 import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { tryDecodeURIComponent } from 'lib/utils/url'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { getFilterLabel, getFirstFilterTypeFor, getVirtualPropertyDefinition } from '~/taxonomy/helpers'
+import { getFilterLabel, getVirtualPropertyDefinition } from '~/taxonomy/helpers'
 import { Breadcrumb, Definition, EventDefinitionMetrics, ObjectMediaPreview, PropertyDefinition } from '~/types'
 
 import type { SchemaEnforcementMode, UserBasicType } from '../../../types'
@@ -271,6 +272,13 @@ export type definitionLogicType = MakeLogicType<
     definitionLogicMeta
 >
 
+// Route params arrive percent-encoded (virtual ids contain `$`); tryDecodeURIComponent keeps malformed ids
+// from throwing, letting them fall through to the API's graceful 404. Both the scenes' paramsToProps and the
+// component bodies must use this so the two definitionLogic build paths agree on one logic key.
+export function decodeDefinitionId(id: string | undefined): string | undefined {
+    return id ? tryDecodeURIComponent(id) : id
+}
+
 export const definitionLogic = kea<definitionLogicType>([
     path(['scenes', 'data-management', 'definition', 'definitionViewLogic']),
     props({} as DefinitionLogicProps),
@@ -305,9 +313,9 @@ export const definitionLogic = kea<definitionLogicType>([
                     let definition = { ...values.definition }
                     if (values.isProperty) {
                         // Virtual properties have no database row to fetch, so resolve them from the taxonomy
-                        const virtualDefinition = getVirtualPropertyDefinition(id)
-                        if (virtualDefinition) {
-                            return virtualDefinition
+                        const virtualProperty = getVirtualPropertyDefinition(id)
+                        if (virtualProperty) {
+                            return virtualProperty.definition
                         }
                     }
                     try {
@@ -398,11 +406,12 @@ export const definitionLogic = kea<definitionLogicType>([
         breadcrumbs: [
             (s) => [s.definition, s.isEvent],
             (definition: Definition, isEvent: boolean): Breadcrumb[] => {
-                // Virtual properties can live in the person or group taxonomy, so look up their label across groups
+                // Resolve virtual definitions' label from the same taxonomy group the definition came from
                 const propertyLabelGroup =
-                    'virtual' in definition && definition.virtual
-                        ? (getFirstFilterTypeFor(definition.name) ?? TaxonomicFilterGroupType.EventProperties)
-                        : TaxonomicFilterGroupType.EventProperties
+                    ('virtual' in definition &&
+                        definition.virtual &&
+                        getVirtualPropertyDefinition(definition.id)?.group) ||
+                    TaxonomicFilterGroupType.EventProperties
                 return [
                     {
                         key: Scene.DataManagement,
@@ -457,6 +466,20 @@ export const definitionLogic = kea<definitionLogicType>([
         },
         deleteMediaPreviewFailure: () => {
             lemonToast.error('Failed to delete image')
+        },
+    })),
+    // Covers client-side navigation to the edit URL while this logic is already mounted, where
+    // loadDefinition (and therefore the loadDefinitionSuccess bounce above) does not re-fire
+    urlToAction(({ values, props }) => ({
+        [urls.propertyDefinitionEdit(':id')]: ({ id }) => {
+            if (
+                id &&
+                decodeDefinitionId(id) === props.id &&
+                'virtual' in values.definition &&
+                values.definition.virtual
+            ) {
+                router.actions.replace(urls.propertyDefinition(values.definition.id))
+            }
         },
     })),
     afterMount(({ actions, values, props }) => {

@@ -42,10 +42,11 @@ export const urls = {
     eventDefinitionEdit: (id: string | number): string => `/data-management/events/${id}/edit`,
     propertyDefinitions: (type?: string): string => combineUrl('/data-management/properties', type ? { type } : {}).url,
     // Virtual property ids contain `$`, which kea-router's segment charset rejects, so encode real ids
+    // (`:param` placeholders pass through untouched for route registration)
     propertyDefinition: (id: string | number): string =>
-        `/data-management/properties/${id === ':id' ? id : encodeURIComponent(id)}`,
+        `/data-management/properties/${typeof id === 'string' && id.startsWith(':') ? id : encodeURIComponent(id)}`,
     propertyDefinitionEdit: (id: string | number): string =>
-        `/data-management/properties/${id === ':id' ? id : encodeURIComponent(id)}/edit`,
+        `/data-management/properties/${typeof id === 'string' && id.startsWith(':') ? id : encodeURIComponent(id)}/edit`,
     schemaManagement: (): string => '/data-management/schema',
     dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',

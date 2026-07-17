@@ -19,7 +19,11 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { getPrimaryPropertyForEvent } from 'lib/utils/events'
-import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
+import {
+    DefinitionLogicProps,
+    decodeDefinitionId,
+    definitionLogic,
+} from 'scenes/data-management/definition/definitionLogic'
 import { EventDefinitionExperiments } from 'scenes/data-management/events/EventDefinitionExperiments'
 import { EventDefinitionInsights } from 'scenes/data-management/events/EventDefinitionInsights'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
@@ -35,7 +39,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { getCoreFilterDefinition, getFilterLabel, getFirstFilterTypeFor } from '~/taxonomy/helpers'
+import { getCoreFilterDefinition, getFilterLabel, getVirtualPropertyDefinition } from '~/taxonomy/helpers'
 import {
     EventDefinition,
     FilterLogicalOperator,
@@ -48,7 +52,7 @@ import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/Def
 export const scene: SceneExport<DefinitionLogicProps> = {
     component: DefinitionView,
     logic: definitionLogic,
-    paramsToProps: ({ params: { id } }) => ({ id: id ? decodeURIComponent(id) : id }),
+    paramsToProps: ({ params: { id } }) => ({ id: decodeDefinitionId(id) }),
 }
 
 type StatusProps = {
@@ -124,7 +128,7 @@ function PrimaryPropertyDetail({ definition }: { definition: EventDefinition }):
 
 export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
     // The app renders scene components with raw route params, so decode the id like paramsToProps does
-    const props = { ...rawProps, id: rawProps.id ? decodeURIComponent(rawProps.id) : rawProps.id }
+    const props = { ...rawProps, id: decodeDefinitionId(rawProps.id) }
     const logic = definitionLogic(props)
     const { definition, definitionLoading, definitionMissing, singular, isEvent, isProperty, metrics, metricsLoading } =
         useValues(logic)
@@ -166,17 +170,16 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
     const statusProps = getStatusProps(isProperty)
 
     const isVirtual = 'virtual' in definition && !!definition.virtual
-    // Virtual properties can live in the person or group taxonomy, so look up their label across groups
-    const propertyLabelGroup = isVirtual
-        ? (getFirstFilterTypeFor(definition.name) ?? TaxonomicFilterGroupType.EventProperties)
-        : TaxonomicFilterGroupType.EventProperties
+    // Resolve label and description from the same taxonomy group the definition came from, so they can't disagree
+    const virtualProperty = isVirtual ? getVirtualPropertyDefinition(definition.id) : null
+    const propertyLabelGroup = virtualProperty?.group ?? TaxonomicFilterGroupType.EventProperties
     const formattedName = getFilterLabel(
         definition.name,
         isEvent ? TaxonomicFilterGroupType.Events : propertyLabelGroup
     )
     // Taxonomy descriptions can be rich (links, code), so render them directly for virtual definitions
-    const description = isVirtual
-        ? getCoreFilterDefinition(definition.name, propertyLabelGroup)?.description
+    const description = virtualProperty
+        ? getCoreFilterDefinition(definition.name, virtualProperty.group)?.description
         : definition.description
 
     return (
@@ -246,8 +249,8 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                                                         in the database.
                                                     </p>
                                                     <p>
-                                                        This definition will be recreated if the ${singular} is ever
-                                                        seen again in the event stream.
+                                                        This definition will be recreated if the {singular} is ever seen
+                                                        again in the event stream.
                                                     </p>
                                                 </>
                                             ),
@@ -308,7 +311,12 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                 )}
                 <h5>Description</h5>
                 <div className="definition-description my-2" data-attr="definition-description-view">
-                    {description || <span className="text-muted italic">Add a description for this {singular}</span>}
+                    {description ||
+                        (isVirtual ? (
+                            <span className="text-muted italic">No description</span>
+                        ) : (
+                            <span className="text-muted italic">Add a description for this {singular}</span>
+                        ))}
                 </div>
                 {definition.tags && definition.tags.length > 0 && (
                     <ObjectTags

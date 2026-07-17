@@ -1,7 +1,11 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { createNewDefinition, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
+import {
+    createNewDefinition,
+    decodeDefinitionId,
+    definitionLogic,
+} from 'scenes/data-management/definition/definitionLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -64,6 +68,12 @@ describe('definitionLogic', () => {
                 .toMatchValues({
                     definition: createNewDefinition(false),
                 })
+        })
+
+        it('decodes route ids without throwing on malformed percent sequences', () => {
+            expect(decodeDefinitionId('%24builtin_%24virt_bot_name')).toBe('$builtin_$virt_bot_name')
+            expect(decodeDefinitionId('100%off')).toBe('100%off')
+            expect(decodeDefinitionId(undefined)).toBeUndefined()
         })
 
         it('resolves virtual property definitions from the taxonomy instead of the API', async () => {

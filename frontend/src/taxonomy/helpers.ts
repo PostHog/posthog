@@ -128,8 +128,14 @@ const VIRTUAL_PROPERTY_DEFINITION_GROUPS = [
     TaxonomicFilterGroupType.GroupsPrefix,
 ]
 
+export interface VirtualPropertyDefinitionMatch {
+    definition: PropertyDefinition
+    /** The taxonomy group the definition was resolved from; use it for label/description lookups so they can't disagree. */
+    group: TaxonomicFilterGroupType
+}
+
 /** Virtual properties have no database row, so their definition is built from the taxonomy. */
-export function getVirtualPropertyDefinition(id: string): PropertyDefinition | null {
+export function getVirtualPropertyDefinition(id: string): VirtualPropertyDefinitionMatch | null {
     if (!id.startsWith(VIRTUAL_PROPERTY_DEFINITION_ID_PREFIX)) {
         return null
     }
@@ -138,14 +144,18 @@ export function getVirtualPropertyDefinition(id: string): PropertyDefinition | n
         const coreDefinition = getCoreFilterDefinition(name, group)
         if (coreDefinition?.virtual) {
             return {
-                id,
-                name,
-                description: typeof coreDefinition.description === 'string' ? coreDefinition.description : undefined,
-                is_numerical: coreDefinition.type === PropertyType.Numeric,
-                property_type: coreDefinition.type,
-                verified: false,
-                hidden: false,
-                virtual: true,
+                definition: {
+                    id,
+                    name,
+                    description:
+                        typeof coreDefinition.description === 'string' ? coreDefinition.description : undefined,
+                    is_numerical: coreDefinition.type === PropertyType.Numeric,
+                    property_type: coreDefinition.type,
+                    verified: false,
+                    hidden: false,
+                    virtual: true,
+                },
+                group,
             }
         }
     }
