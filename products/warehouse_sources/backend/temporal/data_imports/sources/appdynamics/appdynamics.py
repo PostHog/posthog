@@ -1,14 +1,16 @@
 import json
+import socket
 import threading
 import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
 from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -20,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamic
     AppdynamicsEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import TrackedHTTPAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
@@ -120,17 +123,121 @@ def _resolve_base_url(host: str, team_id: int) -> str:
     return base_url
 
 
+class _InflightTrackingPoolMixin:
+    """Connection pool that remembers the connection it most recently handed out.
+
+    ``requests.Session.close()`` only clears *idle* pooled connections; it cannot reach a
+    connection currently checked out and blocked inside ``getresponse()`` while ``requests``
+    parses response headers. Recording that in-flight connection lets a watchdog force-close its
+    socket, which unblocks the read so the request thread unwinds instead of leaking.
+    """
+
+    def _get_conn(self, timeout: Optional[float] = None) -> Any:
+        conn = super()._get_conn(timeout=timeout)  # type: ignore[misc]
+        self._inflight_conn = conn
+        return conn
+
+
+class _InflightHTTPConnectionPool(_InflightTrackingPoolMixin, HTTPConnectionPool):
+    pass
+
+
+class _InflightHTTPSConnectionPool(_InflightTrackingPoolMixin, HTTPSConnectionPool):
+    pass
+
+
+_INFLIGHT_POOL_CLASSES = {"http": _InflightHTTPConnectionPool, "https": _InflightHTTPSConnectionPool}
+
+
+class _AbortableTrackedAdapter(TrackedHTTPAdapter):
+    """Tracked adapter whose pools expose the in-flight connection so it can be force-closed.
+
+    Keeps the egress metering/capture of ``TrackedHTTPAdapter`` while swapping in pools that track
+    the connection ``requests`` is currently blocked on, so ``abort_inflight`` can close its socket
+    at the deadline — the connect/header phase that ``Session.close()`` can't interrupt.
+    """
+
+    def init_poolmanager(self, *args: Any, **kwargs: Any) -> None:
+        super().init_poolmanager(*args, **kwargs)
+        self.poolmanager.pool_classes_by_scheme = _INFLIGHT_POOL_CLASSES
+
+    def proxy_manager_for(self, *args: Any, **kwargs: Any) -> Any:
+        manager = super().proxy_manager_for(*args, **kwargs)
+        try:
+            manager.pool_classes_by_scheme = _INFLIGHT_POOL_CLASSES
+        except Exception:
+            pass
+        return manager
+
+    def abort_inflight(self) -> None:
+        managers = [self.poolmanager, *self.proxy_manager.values()]
+        for manager in managers:
+            try:
+                pools = list(manager.pools._container.values())
+            except Exception:
+                continue
+            for pool in pools:
+                conn = getattr(pool, "_inflight_conn", None)
+                if conn is None:
+                    continue
+                # Shut the socket down (not just close it): closing an fd another thread is
+                # blocked reading on doesn't wake that read, but a SHUT_RDWR sends FIN and makes
+                # the blocked recv return, so the worker unwinds instead of leaking.
+                sock = getattr(conn, "sock", None)
+                if sock is not None:
+                    try:
+                        sock.shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        pass
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+
+def _make_abortable_session(**kwargs: Any) -> requests.Session:
+    """A tracked session whose adapters can force-close the connection blocked parsing headers.
+
+    Mirrors ``make_tracked_session`` (SSRF-safe no-redirect session, egress metering) but mounts
+    ``_AbortableTrackedAdapter`` so ``_request_within_deadline`` can interrupt a trickled-header
+    request. ``kwargs`` are forwarded to ``make_tracked_session``.
+    """
+    session = make_tracked_session(**kwargs)
+    template = cast(TrackedHTTPAdapter, session.get_adapter("https://"))
+    adapter = _AbortableTrackedAdapter(
+        max_retries=template.max_retries,
+        redact_values=getattr(template, "_redact_values", ()),
+        capture=getattr(template, "_capture", True),
+    )
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+def _abort_inflight(session: requests.Session) -> None:
+    for adapter in getattr(session, "adapters", {}).values():
+        abort = getattr(adapter, "abort_inflight", None)
+        if callable(abort):
+            abort()
+    # Fall back to tearing down idle pools too; harmless once we're aborting the request.
+    try:
+        session.close()
+    except Exception:
+        pass
+
+
 def _request_within_deadline(session: requests.Session, send: Callable[[], requests.Response]) -> requests.Response:
     """Issue a request under a hard wall-clock deadline covering connect and response-header parsing.
 
     `requests`' read timeout only limits idle gaps between socket reads, so a controller that
     trickles the status line or headers just often enough to beat that timeout keeps
     ``session.get``/``session.post`` blocked before it ever returns a ``Response`` — so
-    ``_read_body_capped``'s body-level watchdog never engages. `requests` offers no total timeout
-    and the in-flight connection can't be reached to close it before headers arrive, so run the
-    blocking call in a daemon thread and abandon it if it overruns the budget: the import worker is
-    freed and the sync fails fast (non-retryably — a host that behaves this way won't recover on a
-    retry) instead of hanging. The body download stays bounded separately by ``_read_body_capped``.
+    ``_read_body_capped``'s body-level watchdog never engages. `requests` offers no total timeout,
+    so run the blocking call in a daemon thread; if it overruns the budget, force-close the
+    in-flight connection's socket (which ``_AbortableTrackedAdapter`` exposes). That unblocks the
+    read so the worker thread and its socket are reclaimed rather than leaked, frees the import
+    worker, and fails the sync non-retryably (a host behaving this way won't recover on a retry).
+    The body download stays bounded separately by ``_read_body_capped``.
     """
     result: dict[str, Any] = {}
 
@@ -144,9 +251,10 @@ def _request_within_deadline(session: requests.Session, send: Callable[[], reque
     worker.start()
     worker.join(timeout=MAX_DOWNLOAD_SECONDS)
     if worker.is_alive():
-        # Best-effort teardown of idle pooled connections; the abandoned daemon thread unblocks
-        # when its socket read finally errors or the process recycles.
-        session.close()
+        # Deadline hit before headers arrived: close the socket the worker is blocked on so it
+        # unwinds, then give it a moment to observe the closed connection and exit.
+        _abort_inflight(session)
+        worker.join(timeout=5)
         raise AppdynamicsError(f"AppDynamics did not send response headers within the {MAX_DOWNLOAD_SECONDS}s deadline")
     if "error" in result:
         raise result["error"]
@@ -265,8 +373,9 @@ class AppdynamicsClient:
         self._auth = auth
         self._logger = logger
         # One session for the whole sync so the TCP/TLS connection is reused. Disable
-        # urllib3-level retries — `tenacity` below is the single retry mechanism.
-        self._session = make_tracked_session(retry=Retry(total=0))
+        # urllib3-level retries — `tenacity` below is the single retry mechanism. The abortable
+        # session lets the deadline force-close a connection stuck parsing response headers.
+        self._session = _make_abortable_session(retry=Retry(total=0))
         self._token: str | None = None
         self._token_expires_at: datetime | None = None
 
@@ -359,7 +468,7 @@ def validate_credentials(
     except ValueError as exc:
         return False, str(exc)
 
-    session = make_tracked_session()
+    session = _make_abortable_session()
     headers = {"Accept": "application/json"}
     basic_auth: Optional[tuple[str, str]] = None
 

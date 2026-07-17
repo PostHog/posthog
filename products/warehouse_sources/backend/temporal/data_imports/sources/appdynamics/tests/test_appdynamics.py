@@ -1,5 +1,6 @@
 import json
 import time
+import socket
 import threading
 from typing import Any
 from urllib.parse import urlparse
@@ -95,23 +96,51 @@ class _TrickleResponse:
         return {}
 
 
-class _HeaderTrickleSession:
-    """A session whose GET never returns response headers, to exercise the pre-response deadline.
-
-    Models a controller trickling the status line/headers slower than any read-idle timeout: the
-    call blocks until the deadline tears the session down, so only the pre-response wall-clock
-    deadline can free the worker.
+class _PartialHeaderServer:
+    """A local HTTP server that sends a status line then trickles headers forever without ever
+    terminating them, holding the connection open — reproducing a controller that stalls in the
+    response-header phase faster than any read-idle timeout. Records when the client closes the
+    socket so a test can prove the in-flight connection was actually torn down (not leaked).
     """
 
     def __init__(self) -> None:
-        self._closed = threading.Event()
+        self._listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._listener.bind(("127.0.0.1", 0))
+        self._listener.listen(1)
+        self.port = self._listener.getsockname()[1]
+        self.client_closed = threading.Event()
+        self._thread = threading.Thread(target=self._serve, daemon=True)
 
-    def get(self, url: str, params: dict[str, Any], **kwargs: Any) -> Any:
-        self._closed.wait()
-        raise OSError("connection closed")
+    def _serve(self) -> None:
+        try:
+            conn, _ = self._listener.accept()
+        except OSError:
+            return
+        try:
+            conn.recv(4096)  # consume the request line/headers
+            conn.sendall(b"HTTP/1.1 200 OK\r\n")  # status line only — headers never terminated
+            while True:
+                conn.sendall(b"X-Trickle: 1\r\n")  # keep dribbling headers, never the blank line
+                time.sleep(0.02)
+        except OSError:
+            # sendall raises once the client force-closes its socket at the deadline.
+            self.client_closed.set()
+        finally:
+            try:
+                conn.close()
+            except OSError:
+                pass
 
-    def close(self) -> None:
-        self._closed.set()
+    def __enter__(self) -> "_PartialHeaderServer":
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        try:
+            self._listener.close()
+        except OSError:
+            pass
 
 
 class FakeResumeManager:
@@ -150,7 +179,7 @@ class FakeSession:
 
 
 def _patch_session(session: Any) -> Any:
-    return mock.patch.object(appdynamics_module, "make_tracked_session", return_value=session)
+    return mock.patch.object(appdynamics_module, "_make_abortable_session", return_value=session)
 
 
 class TestNormalizeHost:
@@ -330,17 +359,19 @@ class TestAppdynamicsClient:
                 client.get_json("/controller/rest/applications", {})
             assert time.monotonic() - started < 5
 
-    def test_header_deadline_interrupts_trickled_headers(self) -> None:
-        # Headers that never arrive keep `session.get` blocked before the body watchdog can run,
-        # so only the pre-response deadline can free the worker.
-        session = _HeaderTrickleSession()
-        with _patch_session(session):
-            client = AppdynamicsClient(BASE_URL, BASIC_AUTH, mock.MagicMock())
-        with mock.patch.object(appdynamics_module, "MAX_DOWNLOAD_SECONDS", 0.2):
-            started = time.monotonic()
-            with pytest.raises(AppdynamicsError, match="response headers"):
-                client.get_json("/controller/rest/applications", {})
-            assert time.monotonic() - started < 5
+    def test_header_deadline_closes_connection_stuck_parsing_headers(self) -> None:
+        # A real server that stalls mid-header keeps `requests` blocked before the body watchdog
+        # can run. The deadline must force-close the in-flight socket so the request unwinds and
+        # the connection is reclaimed — Session.close() alone can't reach an in-use connection.
+        with _PartialHeaderServer() as server:
+            client = AppdynamicsClient(f"http://127.0.0.1:{server.port}", BASIC_AUTH, mock.MagicMock())
+            with mock.patch.object(appdynamics_module, "MAX_DOWNLOAD_SECONDS", 0.3):
+                started = time.monotonic()
+                with pytest.raises(AppdynamicsError, match="response headers"):
+                    client.get_json("/controller/rest/applications", {})
+                assert time.monotonic() - started < 5
+            # The client must have actually torn down the connection, not merely abandoned it.
+            assert server.client_closed.wait(timeout=5)
 
 
 def _run_get_rows(
