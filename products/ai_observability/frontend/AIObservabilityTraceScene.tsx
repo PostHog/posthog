@@ -1503,7 +1503,7 @@ const EventContent = React.memo(
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
 
         const eventSpanId =
-            isLLMEvent(event) && typeof event.properties.$ai_span_id === 'string'
+            event && isLLMEvent(event) && typeof event.properties.$ai_span_id === 'string'
                 ? event.properties.$ai_span_id
                 : undefined
         const isTraceRoot = !!event && !isLLMEvent(event)
