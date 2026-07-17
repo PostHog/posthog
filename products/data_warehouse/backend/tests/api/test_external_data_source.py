@@ -75,6 +75,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
     PreviewResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsApiError
+from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads import (
+    MetaAdsRateLimitError,
+    MetaAdsTokenRefreshError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     PostgresDiscoveredSchema,
@@ -11292,6 +11296,7 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.BingAdsClient.list_accounts"
     )
     _LINKEDIN_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source"
+    _META_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.source"
 
     def setUp(self):
         super().setUp()
@@ -11336,6 +11341,16 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
             created_by=self.user,
         )
 
+    def _meta_ads_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="meta-ads",
+            config={},
+            sensitive_config={"access_token": "token"},
+            integration_id="meta_ads_test",
+            created_by=self.user,
+        )
+
     @staticmethod
     def _http_error(status_code: int) -> requests.HTTPError:
         response = requests.Response()
@@ -11370,6 +11385,78 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         # raises NotImplementedError — it must surface as a 400, not an unhandled 500.
         response = self.client.get(self._url("Salesforce", 1))
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_meta_ads_maps_ad_accounts_to_accounts(self):
+        integration = self._meta_ads_integration()
+        listed = [
+            {"account_id": "1234567890", "name": "Acme Ads", "account_status": 1},
+            {"account_id": "9876543210", "name": "Old Ads", "account_status": 101},
+        ]
+        with (
+            patch(f"{self._META_ADS_MODULE}.get_integration_by_id"),
+            patch(f"{self._META_ADS_MODULE}.list_ad_accounts", return_value=listed),
+        ):
+            response = self.client.get(self._url("MetaAds", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["accounts"] == [
+            {
+                "value": "1234567890",
+                "display_name": "Acme Ads",
+                "is_primary": False,
+                "badges": ["Active"],
+                "group": None,
+                "secondary_text": None,
+            },
+            {
+                "value": "9876543210",
+                "display_name": "Old Ads",
+                "is_primary": False,
+                "badges": ["Closed"],
+                "group": None,
+                "secondary_text": None,
+            },
+        ]
+
+    def test_meta_ads_token_refresh_error_returns_actionable_400(self):
+        # Meta refusing to refresh the stored token is a customer-side state (revoked access), so it
+        # must reach the user as an actionable 400 rather than an unhandled 500.
+        integration = self._meta_ads_integration()
+        error = MetaAdsTokenRefreshError(
+            "Failed to refresh token for Meta Ads integration. Please re-authorize the integration."
+        )
+        with patch(f"{self._META_ADS_MODULE}.get_integration_by_id", side_effect=error):
+            response = self.client.get(self._url("MetaAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "re-authorize" in str(response.json()).lower()
+
+    def test_meta_ads_rate_limit_returns_actionable_400(self):
+        # Meta throttling us is not a bug — it must not page us as a 500. The user just retries.
+        integration = self._meta_ads_integration()
+        with (
+            patch(f"{self._META_ADS_MODULE}.get_integration_by_id"),
+            patch(
+                f"{self._META_ADS_MODULE}.list_ad_accounts",
+                side_effect=MetaAdsRateLimitError("Meta is rate limiting requests for this connection."),
+            ),
+        ):
+            response = self.client.get(self._url("MetaAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "rate limiting" in str(response.json()).lower()
+
+    def test_meta_ads_unexpected_error_is_not_swallowed(self):
+        # Only the classified branches become a 400 — anything else is a genuine bug and must keep
+        # surfacing as a 500 instead of being reported to the user as bad input.
+        integration = self._meta_ads_integration()
+        with (
+            patch(f"{self._META_ADS_MODULE}.get_integration_by_id"),
+            patch(f"{self._META_ADS_MODULE}.list_ad_accounts", side_effect=RuntimeError("boom")),
+        ):
+            response = self.client.get(self._url("MetaAds", integration.id))
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
 
     def test_gsc_success_maps_sites_to_accounts(self):
         integration = self._gsc_integration()
