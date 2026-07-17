@@ -13,6 +13,9 @@
  * Faux net — wiring, not inference quality.
  */
 
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import { execFile } from 'node:child_process'
 import { cp, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -21,10 +24,11 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import request from 'supertest'
 
+import type { McpTransportFactory } from '@posthog/agent-runner'
 import { AgentSpecSchema } from '@posthog/agent-shared'
 import { listNativeTools } from '@posthog/agent-tools'
 
-import { buildCluster, closeSharedPool, Cluster, fakeAuthProvider } from '../harness'
+import { buildCluster, closeSharedPool, Cluster, fakeAuthProvider, fauxText } from '../harness'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const BUNDLE_ROOT = resolve(__dirname, '../examples/agent-builder')
@@ -143,11 +147,27 @@ describe('example: agent-builder bundle', () => {
         const userBearer = 'phx_builder_user'
         const internalSecret = 'builder-internal-secret'
         let cluster: Cluster
+        let mcpTargets: Array<{ url: string; headers: Record<string, string> }>
 
         beforeEach(async () => {
+            mcpTargets = []
+            const mcpTransportFactory: McpTransportFactory = (target): Transport => {
+                mcpTargets.push(target)
+                const server = new McpServer({ name: 'posthog', version: '1.0.0' })
+                server.registerTool(
+                    'agent-applications-list',
+                    { description: 'List agents', inputSchema: {} },
+                    async () => ({ content: [{ type: 'text' as const, text: JSON.stringify({ results: [] }) }] })
+                )
+                const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+                void server.server.connect(serverTransport)
+                return clientTransport
+            }
             cluster = await buildCluster({
                 authProvider: fakeAuthProvider({ posthog: userBearer, internal: internalSecret }),
+                mcpTransportFactory,
             })
+            cluster.setScript([fauxText('ready')])
         })
 
         afterEach(async () => {
@@ -160,7 +180,7 @@ describe('example: agent-builder bundle', () => {
             await closeSharedPool()
         })
 
-        it('rejects service-only auth and accepts the user bearer', async () => {
+        it('rejects service-only auth and forwards the accepted user bearer to the nested MCP', async () => {
             const { spec, files } = await loadBundle()
             await cluster.deployAgent({ slug: 'agent-builder-auth', spec, files })
 
@@ -176,6 +196,9 @@ describe('example: agent-builder bundle', () => {
                 .send({ message: 'create an agent' })
             expect(userChat.status).toBe(200)
             expect(userChat.body.principal.kind).toBe('posthog')
+            await cluster.drain()
+            expect(mcpTargets).toHaveLength(1)
+            expect(mcpTargets[0].headers.Authorization).toBe(`Bearer ${userBearer}`)
 
             const internalMcp = await request(cluster.ingress)
                 .post('/agents/agent-builder-auth/mcp')
