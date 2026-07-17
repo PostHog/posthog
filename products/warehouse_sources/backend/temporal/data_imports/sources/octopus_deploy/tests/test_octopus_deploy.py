@@ -458,7 +458,7 @@ class TestFetchPageErrorLogging:
         response.is_redirect = False
         response.is_permanent_redirect = False
         response.iter_content.return_value = [body]
-        response.raise_for_status.side_effect = requests.HTTPError("bad request")
+        response.raise_for_status.side_effect = requests.HTTPError("bad request", response=response)
 
         session = mock.MagicMock()
         session.get.return_value = response
