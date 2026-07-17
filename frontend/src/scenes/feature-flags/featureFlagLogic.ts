@@ -35,6 +35,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { stringifyWithBigInts } from 'lib/utils/json'
 import { objectsEqual } from 'lib/utils/objects'
 import { slugify } from 'lib/utils/strings'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
@@ -3666,7 +3667,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     eventUsageLogic.actions.reportFeatureFlagCopyFailure(failure.error_message ?? 'Approval pending')
                 } else {
                     const errorMessage =
-                        failure?.error_message ?? JSON.stringify(featureFlagCopy?.failed ?? featureFlagCopy)
+                        failure?.error_message ?? stringifyWithBigInts(featureFlagCopy?.failed ?? featureFlagCopy)
                     lemonToast.error(`Error while copying feature flag: ${errorMessage}`)
                     eventUsageLogic.actions.reportFeatureFlagCopyFailure(errorMessage)
                 }
