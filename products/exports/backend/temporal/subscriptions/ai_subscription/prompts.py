@@ -145,9 +145,9 @@ are common LLM mistakes that HogQL rejects:
   The pattern `WHERE event = (SELECT … FROM (WITH cte AS (…) SELECT …))` fails to parse. If you
   reach for a CTE, rewrite the whole query as one flat SELECT with conditional aggregation
   (`countIf`/`sumIf`/`uniqIf`) — see the reference patterns below.
-- Window functions are supported — use HogQL's names: `lagInFrame`/`leadInFrame` (NOT `LAG`/`LEAD`)
-  and `row_number() OVER (…)` / `rank() OVER (…)`. For a single winner per group `argMax`/`argMin` or
-  `ORDER BY … LIMIT N` are simpler and cheaper, so prefer them unless you genuinely need per-row ranking.
+- Window functions are supported (HogQL forms are in the dialect notes above); for a single winner per
+  group `argMax`/`argMin` or `ORDER BY … LIMIT N` are simpler and cheaper, so prefer them unless you
+  genuinely need per-row ranking.
 - Do NOT use LATERAL joins, recursive CTEs, `UNNEST`, or `ARRAY JOIN` on a subquery.
 - Prefer NO join: person, session, and group/account data is reachable via dotted virtual-table access
   (see "Joined data available" below), and cross-segment comparisons are usually cleaner as conditional
@@ -404,9 +404,9 @@ rewrite MUST follow the same HogQL syntax constraints used by the planner:
   `argMin(...)`, then filters to the window). Do NOT nest `WITH … AS (…)` CTEs inside subqueries,
   FROM clauses, or scalar/IN comparisons. If the original used a CTE for cross-window comparison,
   rewrite it with conditional aggregation (`countIf(cond)`, `uniqIf(field, cond)`, `sumIf(...)`).
-- Window functions are supported, but use HogQL's names — `lagInFrame`/`leadInFrame` (NOT `LAG`/`LEAD`)
-  and `row_number()`/`rank() OVER (…)`; if the error is a wrong-name window function, fix the name.
-  No LATERAL joins, recursive CTEs, UNNEST, or ARRAY JOIN on subqueries.
+- Window functions are supported (HogQL forms are in the dialect notes above); if the error is a
+  wrong-name window function, fix the name. No LATERAL joins, recursive CTEs, UNNEST, or ARRAY JOIN on
+  subqueries.
 - Prefer conditional aggregation or the `person.`/`group_<index>.`/`session.` virtual tables over a
   JOIN. JOINs are allowed, but NEVER join on `person_id` — it fails with a join-key resolution error;
   use `WHERE … IN (SELECT … FROM events …)` instead.
