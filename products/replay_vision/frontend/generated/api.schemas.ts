@@ -640,6 +640,14 @@ export interface PaginatedReplayObservationListApi {
 }
 
 /**
+ * The PostHog Task created from an observation.
+ */
+export interface CreateTaskFromObservationResponseApi {
+    /** ID of the newly created PostHog Task. */
+    task_id: string
+}
+
+/**
  * Async-accepted response for POST /vision/scanners/{id}/observations/{id}/retry/.
  */
 export interface RetryResponseApi {

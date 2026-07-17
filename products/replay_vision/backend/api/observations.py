@@ -1,3 +1,4 @@
+import json
 import uuid
 from typing import Any, cast, get_args
 
@@ -45,6 +46,8 @@ from products.replay_vision.backend.models.replay_observation_label import Repla
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
+from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.access import has_tasks_access
 
 logger = structlog.get_logger(__name__)
 
@@ -557,6 +560,34 @@ _ORDER_BY_PARAMETER = OpenApiParameter(
 )
 
 
+class CreateTaskFromObservationResponseSerializer(serializers.Serializer):
+    """The PostHog Task created from an observation."""
+
+    task_id = serializers.UUIDField(
+        help_text="ID of the newly created PostHog Task.",
+    )
+
+
+def _observation_task_content(observation: ReplayObservation, scanner: ReplayScanner) -> tuple[str, str]:
+    """Title and description for a Task created from an observation's finding."""
+    snapshot = observation.scanner_snapshot or {}
+    scanner_name = snapshot.get("name") or scanner.name or "Replay Vision scanner"
+    result = observation.scanner_result or {}
+    model_output = result.get("model_output")
+    # Bound the rendered finding so a large model output can't create an unwieldy task description.
+    finding = (
+        json.dumps(model_output, indent=2, ensure_ascii=False)[:4000] if model_output is not None else "(no result)"
+    )
+    title = f"Replay Vision: {scanner_name}"[:255]
+    description = (
+        f"Finding from the Replay Vision scanner '{scanner_name}' on session {observation.session_id}.\n\n"
+        f"Observation: {observation.id}\n"
+        f"Scanner: {scanner.id}\n\n"
+        f"Result:\n{finding}\n"
+    )
+    return title, description
+
+
 @extend_schema_view(
     list=extend_schema(parameters=[_ORDER_BY_PARAMETER]),
     retrieve=extend_schema(
@@ -700,6 +731,33 @@ class ReplayObservationViewSet(
             recent_days = 14
         payload = compute_observation_stats(scanner, queryset, recent_days=recent_days)
         return Response(payload)
+
+    @extend_schema(
+        request=None,
+        responses={201: CreateTaskFromObservationResponseSerializer},
+        description=(
+            "Create a PostHog Task from this observation's finding so it can be triaged and fixed. "
+            "Title and description are derived from the scanner and its result. Record-only: this does "
+            "not start the coding agent."
+        ),
+    )
+    @action(detail=True, methods=["post"], required_scopes=["replay_scanner:read", "session_recording:read"])
+    def create_task(self, request: Request, **kwargs: Any) -> Response:
+        observation = self.get_object()
+        # The nested route already resolved the scanner for RBAC; the session route pays one FK fetch.
+        scanner = getattr(self, "_scanner_for_url_cache", None) or observation.scanner
+        user = cast(User, request.user)
+        if not has_tasks_access(user):
+            raise PermissionDenied("Creating a task requires access to PostHog Code.")
+        title, description = _observation_task_content(observation, scanner)
+        task_id = tasks_facade.create_task_without_run(
+            team=self.team,
+            user_id=user.id,
+            origin_product=tasks_facade.TaskOriginProduct.USER_CREATED,
+            title=title,
+            description=description,
+        )
+        return Response({"task_id": task_id}, status=status.HTTP_201_CREATED)
 
     @extend_schema(request=None, responses={202: RetryResponseSerializer})
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])

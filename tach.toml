@@ -601,6 +601,7 @@ depends_on = [
     "products.cohorts",
     "products.exports",
     "products.signals",
+    "products.tasks",
 ]
 layer = "modules"
 

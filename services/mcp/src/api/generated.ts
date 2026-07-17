@@ -15404,6 +15404,14 @@ export namespace Schemas {
       uploads: UploadTarget[];
     }
 
+    /**
+     * The PostHog Task created from an observation.
+     */
+    export interface CreateTaskFromObservationResponse {
+      /** ID of the newly created PostHog Task. */
+      task_id: string;
+    }
+
     export interface CreateTextSource {
       /**
          * Short human label for the source. Shown in the settings list and in agent citations.
