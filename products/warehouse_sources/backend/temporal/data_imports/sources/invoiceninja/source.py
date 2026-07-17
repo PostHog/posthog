@@ -105,9 +105,10 @@ class InvoiceninjaSource(ResumableSource[InvoiceninjaSourceConfig, InvoiceNinjaR
             base_url=config.base_url,
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
-            resumable_source_manager=resumable_source_manager,
             team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Invoice Ninja endpoint is full refresh
         )
 
     @property
