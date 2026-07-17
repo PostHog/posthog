@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stytch.sty
     StytchResumeConfig,
     base_url_for_project,
     build_users_search_body,
+    check_endpoint_access,
     get_rows,
     stytch_source,
     validate_credentials,
@@ -264,3 +265,28 @@ class TestStytchSourceResponse:
     def test_partition_keys_are_stable_creation_fields(self, config):
         if config.partition_key:
             assert config.partition_key == "created_at"
+
+
+class TestHttpSampleCaptureDisabled:
+    """Stytch responses carry end-user PII, so every credentialed request path must build its
+    tracked session with capture disabled and the secret redacted — reverting either leaks PII
+    into the shared HTTP sample bucket."""
+
+    def _drive_validate(self, session: mock.MagicMock) -> None:
+        session.post.return_value = _response({}, 200)
+        validate_credentials("project-live-x", "secret")
+
+    def _drive_check_access(self, session: mock.MagicMock) -> None:
+        session.post.return_value = _response({}, 200)
+        check_endpoint_access("project-live-x", "secret", "/v1/users/search")
+
+    def _drive_get_rows(self, session: mock.MagicMock) -> None:
+        session.request.return_value = _response(_search_page("results", [], None))
+        list(get_rows("project-live-x", "secret", "users", mock.MagicMock(), _make_manager()))
+
+    @pytest.mark.parametrize("driver", ["_drive_validate", "_drive_check_access", "_drive_get_rows"])
+    @mock.patch(MOCK_PATH)
+    def test_credentialed_paths_disable_capture_and_redact_secret(self, mock_session, driver):
+        getattr(self, driver)(mock_session.return_value)
+
+        mock_session.assert_called_with(capture=False, redact_values=("secret",))

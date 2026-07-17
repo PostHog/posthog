@@ -52,6 +52,13 @@ def base_url_for_project(project_id: str) -> str:
     return LIVE_BASE_URL if project_id.startswith("project-live-") else TEST_BASE_URL
 
 
+def _make_stytch_session(secret: str) -> requests.Session:
+    # Stytch responses carry end-user PII (phone numbers, session IP/user-agent) plus arbitrary
+    # customer metadata the name-based scrubber can't anticipate, so keep every credentialed
+    # request out of the shared HTTP sample bucket. Redacting the secret guards logged URLs too.
+    return make_tracked_session(capture=False, redact_values=(secret,))
+
+
 def _format_timestamp(value: Any) -> str:
     """Format an incremental cursor as the RFC 3339 UTC timestamp Stytch's search filters expect."""
     if isinstance(value, datetime):
@@ -128,7 +135,7 @@ def validate_credentials(project_id: str, secret: str) -> bool:
     """One cheap authenticated probe. B2C and B2B projects have disjoint API surfaces, so accept
     either the consumer users search or the B2B organizations search succeeding."""
     base_url = base_url_for_project(project_id)
-    session = make_tracked_session()
+    session = _make_stytch_session(secret)
     for path in ("/v1/users/search", "/v1/b2b/organizations/search"):
         try:
             response = session.post(
@@ -149,7 +156,7 @@ def check_endpoint_access(project_id: str, secret: str, path: str) -> str | None
     must not mark a table unavailable), or a short reason on a real 4xx denial."""
     base_url = base_url_for_project(project_id)
     try:
-        response = make_tracked_session().post(
+        response = _make_stytch_session(secret).post(
             f"{base_url}{path}",
             auth=(project_id, secret),
             json={"limit": 1},
@@ -317,7 +324,7 @@ def get_rows(
     base_url = base_url_for_project(project_id)
     auth = (project_id, secret)
     # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    session = _make_stytch_session(secret)
 
     if config.fan_out == "users":
         yield from _get_session_rows(session, base_url, auth, config, logger, resumable_source_manager)
