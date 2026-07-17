@@ -156,7 +156,8 @@ jobs:
                       "personhog-router": 38,
                       "posthog-symbol-data": 19,
                       "property-defs-rs": 136,
-                      "replay-anonymizer-node": 20,
+                      "posthog-replay-anonymizer": 20,
+                      "replay-anonymizer-node": 10,
                       "property-vals-rs": 5,
                       "serve-metrics": 14,
                   }
@@ -566,6 +567,17 @@ jobs:
               run: |
                   ./target/debug/personhog-test-harness gate \
                     --leaders 2 --partitions 4 --persons 100 --concurrency 10 --duration 10s
+
+            # Regression gate for eviction under writer lag: the cache is
+            # sized far below the person count so dirty entries evict while
+            # the paused writer guarantees their PG rows are stale. Before
+            # the dirty-index recovery this run lost thousands of acked
+            # writes.
+            - name: Run the e2e gate under cache eviction pressure + writer lag
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 3 --partitions 8 --persons 50 --concurrency 10 --duration 15s \
+                    --cache-capacity 10 --writer-pause-after 3s --writer-pause-duration 8s
 
             - name: Run the e2e gate under chaos (kill + scale-up)
               run: |

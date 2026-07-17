@@ -27,6 +27,9 @@
 #   test job fails, downloads that shard's JUnit to list the actual failing tests. The shadow
 #   strips artifact uploads (above), so it has nothing to download and keeps the plain
 #   dependency-result table — depot-exempt for the same reason as the other uploads.
+# - report-test-timings: canonical emits per-test OTLP spans from the uploaded JUnit. The shadow
+#   strips artifact uploads (above) and posts no telemetry, so the whole job is depot-exempt —
+#   changes confined to it (script deps, the reporter's availability guard) need no depot bump.
 # - OpenAPI types: the check-openapi-types job is folded into check-migrations as a
 #   check-only step (drift still fails the run); only its auto-commit side effect is dropped
 # - actions/cache reads/writes route to Depot Cache, not GitHub Actions Cache,
@@ -917,6 +920,8 @@ jobs:
               run: python .github/scripts/check-version-specifiers.py
             - name: Check IDOR model coverage
               run: python .github/scripts/check-idor-model-coverage.py
+            - name: Check DWH presentation layer stays source-agnostic
+              run: python .github/scripts/check-dwh-source-agnostic.py
             - name: Check operator parity
               run: python .github/scripts/check-operator-parity.py
             - name: Check module boundaries (tach)
