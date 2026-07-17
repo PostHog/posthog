@@ -23,6 +23,7 @@ from posthog.models.organization import Organization
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.proxy_service import CreateManagedProxyInputs, DeleteManagedProxyInputs
+from posthog.temporal.proxy_service.common import is_cloudflare_proxy_by_cname, use_cloudflare_proxy
 
 
 def generate_target_cname(organization_id, domain) -> str:
@@ -324,9 +325,13 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         return Response(serializer.data)
 
     @extend_schema(
-        description="Retry provisioning a failed reverse proxy. "
-        "Only available for proxies in 'erroring' or 'timed_out' status. "
-        "Resets the proxy to 'waiting' status and restarts the provisioning workflow.",
+        description="Retry provisioning of a reverse proxy. "
+        "Available for any proxy that isn't currently being provisioned or deleted "
+        "(i.e. not in 'waiting', 'issuing', or 'deleting' status). This includes 'valid' "
+        "proxies whose diagnostics detected drift (e.g. the Cloudflare custom hostname went "
+        "missing). Resets the proxy to 'waiting' status and restarts the provisioning workflow. "
+        "A live proxy ('valid'/'warning') can't be retried when doing so would move it onto a "
+        "different provisioning path (legacy vs Cloudflare), since that would break a working setup.",
         request=None,
     )
     @action(methods=["POST"], detail=True)
@@ -336,12 +341,38 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         except ProxyRecord.DoesNotExist:
             raise NotFound()
 
-        if record.status not in (
-            ProxyRecord.Status.ERRORING,
-            ProxyRecord.Status.TIMED_OUT,
+        # Retry re-runs the idempotent create-proxy workflow to re-provision. Block only the
+        # transitional states where a re-run would race the in-flight provision/delete; every
+        # settled state (valid/warning/erroring/timed_out) can otherwise be re-provisioned to
+        # recover drift.
+        if record.status in (
+            ProxyRecord.Status.WAITING,
+            ProxyRecord.Status.ISSUING,
+            ProxyRecord.Status.DELETING,
         ):
             return Response(
                 {"detail": f"Cannot retry proxy in {record.status} state."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # The create-proxy workflow always provisions on the *currently active* path
+        # (use_cloudflare_proxy()), regardless of the path the proxy was originally built on.
+        # For a still-working proxy (valid/warning), re-running it on a different path would
+        # migrate a live proxy — e.g. a legacy proxy onto Cloudflare, whose validation can never
+        # pass while DNS still points at the legacy target — and knock a healthy proxy into
+        # 'erroring'. So refuse a retry that would switch a live proxy's path. (erroring/timed_out
+        # proxies are already broken, so re-provisioning them is fine even if the path changes.)
+        if record.status in (
+            ProxyRecord.Status.VALID,
+            ProxyRecord.Status.WARNING,
+        ) and use_cloudflare_proxy() != is_cloudflare_proxy_by_cname(record.target_cname):
+            return Response(
+                {
+                    "detail": (
+                        "Can't retry this proxy because it would re-provision it on a different "
+                        "path and break the live setup. Contact support if it needs re-provisioning."
+                    )
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
