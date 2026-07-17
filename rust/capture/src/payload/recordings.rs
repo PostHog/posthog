@@ -135,10 +135,6 @@ pub async fn handle_recording_payload(
         .quota_limiter
         .check_and_filter(&context.token, events)
         .await?;
-    state
-        .quota_limiter
-        .report_grace_period_admission(&context.token, &events)
-        .await;
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "processing complete");
     Ok((context, events))
 }

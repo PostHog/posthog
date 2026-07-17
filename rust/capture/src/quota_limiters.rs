@@ -167,18 +167,29 @@ impl CaptureQuotaLimiter {
         self
     }
 
-    /// Drops events over quota for `token` and returns the rest.
-    ///
-    /// This only enforces limits — it does not report grace-period
-    /// admissions. Callers on an admission path must separately call
-    /// `report_grace_period_admission` (or the `_for_event_infos` variant)
-    /// with the returned, still-admitted events so the billing-grace
-    /// measurement counter stays accurate; nothing enforces that pairing at
-    /// compile time.
+    /// Drops events over quota for `token`, reports the admitted events, and
+    /// returns the rest.
     pub async fn check_and_filter<T: HasEventName>(
         &self,
         token: &str,
         events: Vec<T>,
+    ) -> Result<Vec<T>, CaptureError> {
+        self.check_and_filter_impl(token, events, true).await
+    }
+
+    pub(crate) async fn check_and_filter_without_reporting<T: HasEventName>(
+        &self,
+        token: &str,
+        events: Vec<T>,
+    ) -> Result<Vec<T>, CaptureError> {
+        self.check_and_filter_impl(token, events, false).await
+    }
+
+    async fn check_and_filter_impl<T: HasEventName>(
+        &self,
+        token: &str,
+        events: Vec<T>,
+        report_admission: bool,
     ) -> Result<Vec<T>, CaptureError> {
         // avoid undue copying and allocations by caching event batch by index
         let mut indices_to_events: HashMap<usize, T> = HashMap::new();
@@ -249,6 +260,10 @@ impl CaptureQuotaLimiter {
                     .iter()
                     .map(|i| indices_to_events.remove(i).unwrap())
                     .collect();
+                if report_admission {
+                    self.report_grace_period_admission(token, &retained_events)
+                        .await;
+                }
                 return Ok(retained_events);
             }
         }
@@ -260,6 +275,10 @@ impl CaptureQuotaLimiter {
             .iter()
             .map(|i| indices_to_events.remove(i).unwrap())
             .collect();
+        if report_admission {
+            self.report_grace_period_admission(token, &filtered_events)
+                .await;
+        }
         Ok(filtered_events)
     }
 
