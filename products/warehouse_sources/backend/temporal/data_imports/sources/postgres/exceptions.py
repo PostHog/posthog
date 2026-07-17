@@ -42,3 +42,19 @@ class ForeignServerUnreachableError(Exception):
     `PostHogDatabaseConnectionError`: its message intentionally avoids those substrings so a transient
     foreign-server outage stays retryable.
     """
+
+
+class ConnectTimeoutAfterRetriesError(Exception):
+    """Raised when a connect-time timeout survives the read/sync path's in-process reconnect retries.
+
+    On the read/sync path a `psycopg.errors.ConnectionTimeout` ("connection timeout expired") is
+    transient — the source was reachable moments earlier in the same sync — so
+    `_connect_with_dropped_retry` retries the reconnect in-process. When those retries are exhausted,
+    the raw error's "connection timeout expired" wording collides with the connect-time substring in
+    `PostgresSource.get_non_retryable_errors`, which would misclassify it as non-retryable and
+    permanently stop a healthy sync on a momentary network blip. The read-path sibling of
+    `PostHogDatabaseConnectionError` / `ForeignServerUnreachableError`: its message intentionally
+    avoids those substrings so a whole-activity retry (from offset 0) stays possible. Kept distinct
+    from the schema-discovery path, which deliberately fails fast on a connect-time timeout because
+    there it usually means an unreachable host.
+    """

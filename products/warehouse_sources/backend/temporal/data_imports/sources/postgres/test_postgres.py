@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ValidatedRowFilter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
+    ConnectTimeoutAfterRetriesError,
     ForeignServerUnreachableError,
     PostHogDatabaseConnectionError,
     XminUnsupportedError,
@@ -351,6 +352,29 @@ class TestPostgresSourceForeignServerConnectionError:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"A foreign-server connection failure must stay retryable: {error_msg}"
         assert "Connection refused" not in error_msg
+
+
+class TestPostgresReadPathConnectTimeout:
+    def test_read_path_connect_timeout_after_retries_stays_retryable(self):
+        # On the read/sync path a connect-time ConnectionTimeout is transient — the source was
+        # reachable moments earlier in the same sync — so `_connect_with_dropped_retry` retries the
+        # reconnect in-process. Once those retries are exhausted the raw "connection timeout expired"
+        # message collides with the connect-time non-retryable rule in `get_non_retryable_errors`
+        # (meant for the schema-discovery fail-fast path), which would permanently stop a healthy
+        # sync. It must be re-raised as ConnectTimeoutAfterRetriesError, clear of that substring.
+        def _always_times_out() -> psycopg.Connection:
+            raise psycopg.errors.ConnectionTimeout("connection timeout expired")
+
+        logger = structlog.get_logger()
+        with patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            with pytest.raises(ConnectTimeoutAfterRetriesError) as exc_info:
+                _connect_with_dropped_retry(_always_times_out, logger, max_attempts=3)
+
+        error_msg = str(exc_info.value)
+        non_retryable = PostgresSource().get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"A read-path connect timeout must stay retryable: {error_msg}"
+        assert "connection timeout expired" not in error_msg
 
 
 class TestPostgresSourceNonRetryableErrors:
