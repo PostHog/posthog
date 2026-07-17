@@ -1,9 +1,9 @@
 import { ChartDisplayType } from '~/types'
 
 import { AxisSeries, AxisSeriesSettings } from '../../dataVisualizationLogic'
-import { LineGraphProps, sqlChartComponentFor } from './LineGraph'
+import { SqlChartProps, sqlChartComponentFor } from './SqlChart'
 
-const baseProps = (visualizationType: ChartDisplayType): LineGraphProps => ({
+const baseProps = (visualizationType: ChartDisplayType): SqlChartProps => ({
     xData: null,
     yData: [],
     visualizationType,

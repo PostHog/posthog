@@ -3,7 +3,7 @@ import { ChartDisplayType } from '~/types'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
-import { LineGraphProps } from './LineGraph'
+import { SqlChartProps } from './SqlChart'
 import { SqlPieGraph } from './SqlPieGraph'
 
 export interface PieChartProps {
@@ -15,7 +15,7 @@ export interface PieChartProps {
 }
 
 export function PieChart(props: PieChartProps): JSX.Element {
-    const sqlPieProps: LineGraphProps = {
+    const sqlPieProps: SqlChartProps = {
         xData: props.xData,
         yData: props.yData,
         visualizationType: ChartDisplayType.ActionsPie,
