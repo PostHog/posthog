@@ -107,7 +107,7 @@ function JobEditor({
                     Cancel
                 </LemonButton>
                 <AccessControlAction
-                    resourceType={AccessControlResourceType.LlmAnalytics}
+                    resourceType={AccessControlResourceType.LlmClusters}
                     minAccessLevel={AccessControlLevel.Editor}
                 >
                     {({ disabledReason: accessDisabledReason }) => (
@@ -177,7 +177,7 @@ export function ClusteringJobsPanel(): JSX.Element {
                             </div>
                             <div className="flex items-center gap-1">
                                 <AccessControlAction
-                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    resourceType={AccessControlResourceType.LlmClusters}
                                     minAccessLevel={AccessControlLevel.Editor}
                                 >
                                     <LemonButton
@@ -190,7 +190,7 @@ export function ClusteringJobsPanel(): JSX.Element {
                                     </LemonButton>
                                 </AccessControlAction>
                                 <AccessControlAction
-                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    resourceType={AccessControlResourceType.LlmClusters}
                                     minAccessLevel={AccessControlLevel.Editor}
                                 >
                                     <LemonButton
@@ -231,7 +231,7 @@ export function ClusteringJobsPanel(): JSX.Element {
                     </LemonBanner>
 
                     <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        resourceType={AccessControlResourceType.LlmClusters}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
                         {({ disabledReason: accessDisabledReason }) => (

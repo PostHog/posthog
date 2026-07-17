@@ -384,8 +384,8 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // AI observability
     [Scene.AIObservability]: AccessControlResourceType.LlmAnalytics,
-    [Scene.AIObservabilityCluster]: AccessControlResourceType.LlmAnalytics,
-    [Scene.AIObservabilityClusters]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityCluster]: AccessControlResourceType.LlmClusters,
+    [Scene.AIObservabilityClusters]: AccessControlResourceType.LlmClusters,
     [Scene.AIObservabilityDataset]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityDatasets]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityEvaluation]: AccessControlResourceType.LlmAnalytics,

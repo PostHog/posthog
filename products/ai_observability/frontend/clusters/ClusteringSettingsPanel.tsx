@@ -27,7 +27,7 @@ export function ClusteringSettingsPanel(): JSX.Element {
                         Cancel
                     </LemonButton>
                     <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        resourceType={AccessControlResourceType.LlmClusters}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
                         <LemonButton

@@ -71,6 +71,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "hog_flow",
     "insight",
     "llm_analytics",
+    "llm_clusters",
     "notebook",
     "revenue_analytics",
     "session_recording",
@@ -95,7 +96,6 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "llm_provider_key": "llm_analytics",
     "llm_prompt": "llm_analytics",
     "llm_skill": "llm_analytics",
-    "llm_clusters": "llm_analytics",
     "account": "customer_analytics",
     "customer_journey": "customer_analytics",
     "experiment_saved_metric": "experiment",
@@ -155,6 +155,8 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
         return "organization"  # singular
     if resource == "hog_flow":
         return "workflows"
+    if resource == "llm_clusters":
+        return "clusters"
     if resource == "external_data_source":
         return "data warehouse sources"
     if resource == "warehouse_objects":
