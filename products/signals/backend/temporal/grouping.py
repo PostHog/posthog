@@ -677,24 +677,6 @@ class AssignAndEmitSignalOutput:
     run_count: int
 
 
-def _link_related_reports(*, report_a: SignalReport, report_b: SignalReport) -> None:
-    """Symmetrically link two reports via `related_to` artefacts — one on each pointing at the other,
-    so the link is discoverable from either side (and the grouping dataset can be reconstructed
-    later) without a model change. See RelatedTo."""
-    SignalReportArtefact.add_log(
-        team_id=report_a.team_id,
-        report_id=str(report_a.id),
-        content=RelatedTo(report_id=str(report_b.id)),
-        attribution=ArtefactAttribution.system(),
-    )
-    SignalReportArtefact.add_log(
-        team_id=report_b.team_id,
-        report_id=str(report_b.id),
-        content=RelatedTo(report_id=str(report_a.id)),
-        attribution=ArtefactAttribution.system(),
-    )
-
-
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -747,9 +729,10 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     return report_id, False, ts, True, report.run_count, False, report.status, report.signal_count
                 # Resolved reports are terminal — never reopen them. When a signal would have grouped
                 # into an already-resolved report, the issue it fixed has recurred (or a related one
-                # has), so we start a fresh report and symmetrically link it to the resolved report via
-                # `related_to` artefacts. The research agent is later handed that resolved report as
-                # context (see report.py).
+                # has), so we start a fresh report and link it to the resolved report via a
+                # `related_to` artefact. add_log writes the symmetric back-link automatically, so the
+                # link is discoverable from either side. The research agent is later handed that
+                # resolved report as context (see report.py).
                 if report.status == SignalReport.Status.RESOLVED:
                     resolved_report = report
                     report = SignalReport.objects.create(
@@ -761,7 +744,12 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         summary=resolved_report.summary,
                         billing_exempt_reason=BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
                     )
-                    _link_related_reports(report_a=report, report_b=resolved_report)
+                    SignalReportArtefact.add_log(
+                        team_id=input.team_id,
+                        report_id=str(report.id),
+                        content=RelatedTo(report_id=str(resolved_report.id)),
+                        attribution=ArtefactAttribution.system(),
+                    )
                 else:
                     report.total_weight += input.weight
                     report.signal_count += 1

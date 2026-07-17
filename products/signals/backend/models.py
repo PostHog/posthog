@@ -23,6 +23,7 @@ from products.signals.backend.artefact_schemas import (
     ArtefactContentValidationError,
     Dismissal,
     LogArtefactContent,
+    RelatedTo,
     SignalFinding,
     StatusArtefactContent,
     TaskRunArtefact,
@@ -874,10 +875,24 @@ class SignalReportArtefact(UUIDModel):
         """Append a log artefact (see `LOG_ARTEFACT_TYPES`) to a report and return it.
 
         Log artefacts accumulate — each call creates a new row.
+
+        `related_to` links are symmetric: writing A→B here also records B→A on the other report, so
+        the link is maintained on the common write path and stays discoverable from either side. The
+        reverse row goes through `_create` (not `add_log`) so it doesn't recurse.
         """
         if artefact_type_for(content) not in cls.LOG_ARTEFACT_TYPES:
             raise ValueError(f"{type(content).__name__} is not a log artefact content model")
-        return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+        artefact = cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+        if isinstance(content, RelatedTo):
+            # Same team_id: reports link only within a team (grouping is per-team), so the reverse
+            # row belongs to the same tenant.
+            cls._create(
+                team_id=team_id,
+                report_id=content.report_id,
+                content=RelatedTo(report_id=str(report_id)),
+                attribution=attribution,
+            )
+        return artefact
 
     @classmethod
     def append(
@@ -897,6 +912,9 @@ class SignalReportArtefact(UUIDModel):
         an agent can append a new status version just like the pipeline, and the newest row of a
         status type is the report's canonical status. (The HTTP write API additionally refuses
         legacy read-only types such as `video_segment` — see `NON_WRITABLE_ARTEFACT_TYPES`.)
+
+        Log types route through `add_log` (not straight to `_create`) so its side effects — e.g. the
+        symmetric `related_to` back-link — are maintained no matter which write path is used.
         """
         artefact_type = artefact_type_for(content)
         if artefact_type in cls.STATUS_ARTEFACT_TYPES:
@@ -906,6 +924,10 @@ class SignalReportArtefact(UUIDModel):
                 content=cast(StatusArtefactContent, content),
                 attribution=attribution,
                 reevaluate_autostart=reevaluate_autostart,
+            )
+        if artefact_type in cls.LOG_ARTEFACT_TYPES:
+            return cls.add_log(
+                team_id=team_id, report_id=report_id, content=cast(LogArtefactContent, content), attribution=attribution
             )
         return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
 
