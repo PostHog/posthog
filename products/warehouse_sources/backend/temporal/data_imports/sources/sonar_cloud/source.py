@@ -47,9 +47,10 @@ class SonarCloudSource(ResumableSource[SonarCloudSourceConfig, SonarCloudResumeC
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # `region` decides which regional host the stored token is sent to; retargeting it must
-        # re-require the token so an editor can't redirect the preserved credential.
-        return ["region"]
+        # Both dimensions retarget the preserved token: `region` decides which regional host it is
+        # sent to, and `organization` decides which tenant it acts on. Changing either must re-require
+        # the token so an editor can't silently redirect the stored credential to another host or org.
+        return ["region", "organization"]
 
     @property
     def get_source_config(self) -> SourceConfig:

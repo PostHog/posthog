@@ -38,10 +38,10 @@ class TestSonarCloudSourceConfig:
         assert isinstance(region_field, SourceFieldSelectConfig)
         assert region_field.defaultValue == "eu"
 
-    def test_region_is_a_connection_host_field(self) -> None:
-        # `region` retargets where the stored token is sent; the update serializer must force
-        # re-entering the token when it changes.
-        assert SonarCloudSource().connection_host_fields == ["region"]
+    def test_region_and_organization_are_connection_host_fields(self) -> None:
+        # `region` retargets where the stored token is sent and `organization` retargets which tenant
+        # it acts on; the update serializer must force re-entering the token when either changes.
+        assert SonarCloudSource().connection_host_fields == ["region", "organization"]
 
 
 class TestGetSchemas:
