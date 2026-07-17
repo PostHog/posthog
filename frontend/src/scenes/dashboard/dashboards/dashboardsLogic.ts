@@ -5,6 +5,7 @@ import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectClean, objectsEqual } from 'lib/utils/objects'
@@ -160,6 +161,7 @@ export type dashboardsLogicType = MakeLogicType<
 
 export const dashboardsLogic = kea<dashboardsLogicType>([
     path(['scenes', 'dashboard', 'dashboardsLogic']),
+    tabAwareScene(),
     connect(() => ({
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags'], tagsModel, ['tags']],
     })),

@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -64,6 +65,7 @@ export type sessionReplaySceneLogicType = MakeLogicType<
 
 export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
     path(() => ['scenes', 'session-recordings', 'sessionReplaySceneLogic']),
+    tabAwareScene(),
     actions({
         setTab: (tab: ReplayTabs = ReplayTabs.Home) => ({ tab }),
         hideNewBadge: true,

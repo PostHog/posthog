@@ -1,6 +1,7 @@
 import { MakeLogicType, connect, kea, listeners, path, selectors } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -69,6 +70,7 @@ export type mcpAnalyticsSceneLogicType = MakeLogicType<
 
 export const mcpAnalyticsSceneLogic = kea<mcpAnalyticsSceneLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'mcpAnalyticsSceneLogic']),
+    tabAwareScene(),
     connect(() => ({
         values: [
             sceneLogic,
