@@ -27,8 +27,16 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # bytes (not total download time), so it stays safe for large sheets that stream in steadily.
 _REQUEST_TIMEOUT_SECONDS: tuple[float, float] = (30.0, 120.0)
 
+# Google Sheets exposes a single current stable REST API version — v4 — which gspread targets for
+# every request (its base URL is pinned in gspread.urls and is not per-client configurable); v3 and
+# earlier are retired. The version is therefore threaded purely as metadata recording which vendor
+# GA version a sync declares: every supported label resolves to the same v4 calls. The framework's
+# legacy UNVERSIONED default ("v1") predates this metadata and was never Google's v3, so sources
+# created before this change keep issuing identical requests.
+GOOGLE_SHEETS_API_VERSION_V4 = "v4"
 
-def google_sheets_client() -> gspread.Client:
+
+def google_sheets_client(api_version: str = GOOGLE_SHEETS_API_VERSION_V4) -> gspread.Client:
     credentials = service_account.Credentials.from_service_account_info(
         {
             "private_key": settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY,
@@ -149,9 +157,11 @@ def _retry_on_transient_api_error(execute: Callable[[], T]) -> T:
 
 
 @cached(cache)
-def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet:
+def _get_worksheet(
+    spreadsheet_url: str, worksheet_id: int, api_version: str = GOOGLE_SHEETS_API_VERSION_V4
+) -> gspread.Worksheet:
     def execute() -> gspread.Worksheet:
-        client = google_sheets_client()
+        client = google_sheets_client(api_version)
         try:
             spreadsheet = client.open_by_url(spreadsheet_url)
         except PermissionError as e:
@@ -163,14 +173,16 @@ def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet
     return _retry_on_transient_api_error(execute)
 
 
-def get_schemas(config: GoogleSheetsSourceConfig) -> list[tuple[str, int]]:
+def get_schemas(
+    config: GoogleSheetsSourceConfig, api_version: str = GOOGLE_SHEETS_API_VERSION_V4
+) -> list[tuple[str, int]]:
     """Returns a tuple of worksheets in the form of (title, id)"""
 
     # `open_by_url` and `worksheets()` hit the Sheets API and so are subject to the same
     # transient quota (429) and 5xx server errors as `_get_worksheet` — retry them with backoff
     # rather than letting a transient blip fail the whole sync during schema discovery.
     def execute():
-        client = google_sheets_client()
+        client = google_sheets_client(api_version)
         try:
             spreadsheet = client.open_by_url(config.spreadsheet_url)
         except PermissionError as e:
@@ -184,15 +196,17 @@ def get_schemas(config: GoogleSheetsSourceConfig) -> list[tuple[str, int]]:
     return [(NamingConvention.normalize_identifier(worksheet.title), worksheet.id) for worksheet in worksheets]
 
 
-def get_schema_incremental_fields(config: GoogleSheetsSourceConfig, worksheet_name: str) -> list[IncrementalField]:
-    worksheets = get_schemas(config)
+def get_schema_incremental_fields(
+    config: GoogleSheetsSourceConfig, worksheet_name: str, api_version: str = GOOGLE_SHEETS_API_VERSION_V4
+) -> list[IncrementalField]:
+    worksheets = get_schemas(config, api_version)
     selected_worksheet = [id for name, id in worksheets if name == worksheet_name]
     if len(selected_worksheet) == 0:
         raise Exception(f'Worksheet titled "{worksheet_name}" can\'t be found')
 
     worksheet_id = selected_worksheet[0]
 
-    worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
+    worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id, api_version)
 
     try:
         rows = _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:2"))  # Get the first two rows
@@ -228,16 +242,17 @@ def google_sheets_source(
     config: GoogleSheetsSourceConfig,
     worksheet_name: str,
     db_incremental_field_last_value: Optional[Any],
+    api_version: str,
     should_use_incremental_field: bool = False,
 ) -> SourceResponse:
-    worksheets = get_schemas(config)
+    worksheets = get_schemas(config, api_version)
     selected_worksheet = [id for name, id in worksheets if name == worksheet_name]
     if len(selected_worksheet) == 0:
         raise Exception(f'Worksheet titled "{worksheet_name}" can\'t be found')
 
     worksheet_id = selected_worksheet[0]
 
-    worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
+    worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id, api_version)
 
     headers = _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:1"))  # Get the first row
     primary_keys = None
@@ -255,7 +270,7 @@ def google_sheets_source(
     # range-based batching (e.g. A2:Z1001, A1002:Z2001, ...), which is a behavior change to
     # the sync itself and is out of scope for restart-safety alone.
     def get_rows():
-        worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
+        worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id, api_version)
 
         # default_blank defaults to "", which turns empty cells into strings and breaks numeric
         # columns that legitimately have gaps. None lets blank cells import as null instead.

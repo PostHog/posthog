@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets import (
     _PERMISSION_DENIED_MESSAGE,
     _REQUEST_TIMEOUT_SECONDS,
+    GOOGLE_SHEETS_API_VERSION_V4,
     _get_worksheet,
     _retry_on_transient_api_error,
     get_schema_incremental_fields,
@@ -395,7 +396,9 @@ def test_google_sheets_source_retries_transient_error_on_data_reads():
         ),
         mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.time"),
     ):
-        response = google_sheets_source(config, "sheet1", db_incremental_field_last_value=None)
+        response = google_sheets_source(
+            config, "sheet1", db_incremental_field_last_value=None, api_version=GOOGLE_SHEETS_API_VERSION_V4
+        )
         list(cast(Iterable[Any], response.items()))
 
     assert mock_worksheet.get_all_values.call_count == 2
@@ -422,7 +425,9 @@ def test_google_sheets_source_reads_blank_cells_as_null():
             return_value=mock_worksheet,
         ),
     ):
-        response = google_sheets_source(config, "sheet1", db_incremental_field_last_value=None)
+        response = google_sheets_source(
+            config, "sheet1", db_incremental_field_last_value=None, api_version=GOOGLE_SHEETS_API_VERSION_V4
+        )
         list(cast(Iterable[Any], response.items()))
 
     mock_worksheet.get_all_records.assert_called_once_with(default_blank=None)
@@ -607,3 +612,51 @@ def test_validate_credentials_maps_google_auth_error(auth_error, expect_retry_hi
         assert "try again in a moment" in (error_message or "").lower()
     else:
         assert "try again in a moment" not in (error_message or "").lower()
+
+
+@pytest.mark.parametrize(
+    "pinned_version,expected_version",
+    [
+        # No pin resolves to the source default — v4, Google's current stable Sheets REST API.
+        pytest.param(None, GOOGLE_SHEETS_API_VERSION_V4, id="unpinned_uses_default_v4"),
+        # A legacy "v1" pin is honored verbatim so sources created before the v4 label are unaffected.
+        pytest.param("v1", "v1", id="legacy_v1_pin_honored"),
+        pytest.param(GOOGLE_SHEETS_API_VERSION_V4, GOOGLE_SHEETS_API_VERSION_V4, id="v4_pin_honored"),
+    ],
+)
+def test_source_for_pipeline_threads_resolved_api_version_to_client(pinned_version, expected_version):
+    """The source resolves the instance's pin (falling back to the default) and threads the result
+    down to where the gspread client is built. Dropping the resolve or the threading would send the
+    wrong version — or none — to the request layer, breaking the seam every future Sheets version
+    relies on. Byte-for-byte behaviour is unchanged today because gspread pins the v4 base URL."""
+    # Distinct URL per case so the module-level worksheet TTLCache (keyed on url + id + version)
+    # can't serve one case's worksheet to another.
+    config = GoogleSheetsSourceConfig(
+        spreadsheet_url=f"https://docs.google.com/spreadsheets/d/fake-{expected_version}-{pinned_version}"
+    )
+
+    worksheet = mock.MagicMock()
+    worksheet.title = "sheet1"
+    worksheet.id = 123
+    worksheet.get_all_values.return_value = [["id"]]
+    worksheet.get_all_records.return_value = [{"id": 1}]
+
+    spreadsheet = mock.MagicMock()
+    spreadsheet.worksheets.return_value = [worksheet]
+    spreadsheet.get_worksheet_by_id.return_value = worksheet
+
+    inputs = mock.MagicMock()
+    inputs.schema_name = "sheet1"
+    inputs.should_use_incremental_field = False
+    inputs.api_version = pinned_version
+
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.google_sheets_client"
+    ) as mock_client:
+        mock_client.return_value.open_by_url.return_value = spreadsheet
+
+        response = GoogleSheetsSource().source_for_pipeline(config, inputs)
+        list(cast(Iterable[Any], response.items()))
+
+    assert mock_client.called
+    assert all(call == mock.call(expected_version) for call in mock_client.call_args_list)
