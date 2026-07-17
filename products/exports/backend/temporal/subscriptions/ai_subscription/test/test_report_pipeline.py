@@ -13,6 +13,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipe
     QueryStepDiagnostic,
     _all_queries_failed_notice,
     _arequest_hogql_fix,
+    _plan_to_freeze,
     _run_steps,
     _safe_error_message,
     generate_ai_report,
@@ -427,6 +428,40 @@ async def test_unfrozen_run_returns_plan_to_persist(
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
     assert result.plan_to_persist == {"version": AI_QUERY_PLAN_VERSION, "plan": spec.plan.model_dump()}
+
+
+@pytest.mark.parametrize(
+    "total_steps,failed_count,should_freeze",
+    [
+        (12, 0, True),  # all succeeded
+        (12, 5, True),  # minority failed — the working steps are still worth reusing
+        (12, 6, False),  # half failed — re-plan rather than replay
+        (12, 11, False),  # majority failed — don't freeze a plan that replays 11 broken queries every run
+        (1, 1, False),  # the single step failed
+    ],
+)
+def test_plan_to_freeze_requires_majority_success(total_steps: int, failed_count: int, should_freeze: bool) -> None:
+    # A frozen plan replays verbatim until AI_QUERY_PLAN_VERSION bumps, so a mostly-failed plan must NOT
+    # be frozen — otherwise a subscription whose generation was broken keeps re-sending broken queries
+    # instead of re-planning. Guards against the freeze bar regressing back to "only all-failed is skipped".
+    plan = QueryPlan(
+        overall_intent="i",
+        steps=[
+            QueryPlanStep(description=f"s{n}", hogql="SELECT count() FROM events WHERE {{date_range}}")
+            for n in range(total_steps)
+        ],
+    )
+    result = _plan_to_freeze(
+        plan,
+        freshly_planned=True,
+        failed_count=failed_count,
+        total_steps=total_steps,
+        trace_correlation_id=None,
+    )
+    if should_freeze:
+        assert result == {"version": AI_QUERY_PLAN_VERSION, "plan": plan.model_dump()}
+    else:
+        assert result is None
 
 
 @pytest.mark.parametrize(
