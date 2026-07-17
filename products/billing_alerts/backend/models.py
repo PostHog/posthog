@@ -11,8 +11,6 @@ from django.db.models import Q
 from posthog.models.organization import Organization
 from posthog.models.utils import UUIDModel
 
-MAX_FAILURES_BEFORE_BROKEN = 5
-
 
 class BillingAlertConfiguration(UUIDModel):
     class Metric(models.TextChoices):
