@@ -370,6 +370,15 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         ),
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    flag_cleanup_task_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "ID of the Code task opened to remove the experiment's feature-flag code, when one was "
+            "requested via open_cleanup_pr on end/ship_variant. Read its status via the "
+            "flag_cleanup_task action."
+        ),
+    )
 
     class Meta:
         model = Experiment
@@ -406,6 +415,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "_create_in_folder",
             "conclusion",
             "conclusion_comment",
+            "flag_cleanup_task_id",
             "primary_metrics_ordered_uuids",
             "secondary_metrics_ordered_uuids",
             "only_count_matured_users",
@@ -1012,6 +1022,21 @@ class EndExperimentSerializer(serializers.Serializer):
     )
 
 
+class ExperimentFlagCleanupTaskSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="ID of the flag-cleanup Code task.")
+    run_status = serializers.ChoiceField(
+        choices=["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
+        help_text="Status of the task's latest run.",
+    )
+    is_terminal = serializers.BooleanField(
+        help_text="Whether the run has finished (successfully or not). Stop polling once true."
+    )
+    pr_url = serializers.CharField(
+        allow_null=True,
+        help_text="URL of the pull request the task opened, when it opened one.",
+    )
+
+
 class ArchiveExperimentSerializer(serializers.Serializer):
     disable_feature_flag = serializers.BooleanField(
         default=False,
@@ -1394,8 +1419,9 @@ class ExperimentSessionContextItemSerializer(serializers.Serializer):
     flag_key = serializers.CharField(help_text="Key of the experiment's feature flag.")
     variant = serializers.CharField(
         help_text=(
-            "Variant the session saw. Taken from the earliest $feature_flag_called event in the session when one "
-            "exists, otherwise from the $feature/<key> property stamped on the session's events."
+            "Variant the session saw. Taken from the earliest event matching the experiment's exposure criteria "
+            "when one exists, otherwise from the earliest flag evaluation in the session, otherwise from the "
+            "$feature/<key> property stamped on the session's events."
         )
     )
     variants_seen = serializers.ListField(
@@ -1409,13 +1435,15 @@ class ExperimentSessionContextItemSerializer(serializers.Serializer):
     multiple_variants = serializers.BooleanField(
         help_text="True when the session saw more than one variant of this flag."
     )
-    first_flag_evaluation_timestamp = serializers.DateTimeField(
+    first_exposure_timestamp = serializers.DateTimeField(
         allow_null=True,
         help_text=(
-            "Timestamp of the first $feature_flag_called event for this flag in the session — the moment the flag "
-            "was evaluated to the variant. Null when the variant is only known from stamped $feature/<key> "
-            "properties (e.g. the assignment carried over from an earlier session). For experiments with custom "
-            "exposure criteria this is not the experiment's exposure moment."
+            "Timestamp of the first event in the session matching the experiment's exposure criteria — "
+            "the default exposure event ($feature_flag_called), or the configured custom event/action. Null when "
+            "no event in the session matched the criteria; the variant is then known from flag evaluations or "
+            "stamped $feature/<key> properties. "
+            "Session-scoped: the experiment analysis counts exposure per person across the whole run window, "
+            "so the person's counted first exposure may lie in an earlier session."
         ),
     )
     experiment_start_date = serializers.DateTimeField(allow_null=True, help_text="When the experiment was launched.")
