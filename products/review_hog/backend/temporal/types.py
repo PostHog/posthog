@@ -7,11 +7,13 @@ input without importing the workflow code (which pulls in the heavy activity dep
 from dataclasses import dataclass
 
 # How a review run was triggered. Gates are trigger-aware: label → `review_labeled_prs`,
-# inbox → `review_inbox_prs`, manual (CLI/eval) → ungated. Plain strings (not an Enum) so Temporal
-# payloads stay forward/backward-compatible across deploys.
+# inbox → `review_inbox_prs`, manual (CLI/eval) and ui (an explicit human ask from the Code review
+# scene) → ungated. Plain strings (not an Enum) so Temporal payloads stay forward/backward-compatible
+# across deploys.
 TRIGGER_LABEL = "label"
 TRIGGER_INBOX = "inbox"
 TRIGGER_MANUAL = "manual"
+TRIGGER_UI = "ui"
 
 
 @dataclass

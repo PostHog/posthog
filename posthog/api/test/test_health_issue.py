@@ -136,7 +136,7 @@ class TestHealthIssueAPI(APIBaseTest):
         # remediation is the static, kind-level constant (not interpolated per issue),
         # split into human/agent halves and normalized by cleandoc (no leading indent).
         self.assertTrue(data["remediation"]["human"].startswith("Open the SDK Health page"))
-        self.assertIn("bump the PostHog SDK dependency", data["remediation"]["agent"])
+        self.assertIn("update or replace the PostHog SDK dependency", data["remediation"]["agent"])
 
     def test_retrieve_unknown_kind_falls_back_to_generic_envelope(self):
         issue = self._create_issue(kind="not_a_registered_check", payload={})

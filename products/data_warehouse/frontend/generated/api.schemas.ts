@@ -2108,6 +2108,14 @@ export interface CredentialApi {
  * * `KongKonnect` - KongKonnect
  * * `Kandji` - Kandji
  * * `Automox` - Automox
+ * * `Autumn` - Autumn
+ * * `GetStream` - GetStream
+ * * `Octolens` - Octolens
+ * * `Kajabi` - Kajabi
+ * * `Shopware` - Shopware
+ * * `Dubsado` - Dubsado
+ * * `Campfire` - Campfire
+ * * `PromptWatch` - PromptWatch
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2963,6 +2971,14 @@ export const ExternalDataSourceTypeEnumApi = {
     KongKonnect: 'KongKonnect',
     Kandji: 'Kandji',
     Automox: 'Automox',
+    Autumn: 'Autumn',
+    GetStream: 'GetStream',
+    Octolens: 'Octolens',
+    Kajabi: 'Kajabi',
+    Shopware: 'Shopware',
+    Dubsado: 'Dubsado',
+    Campfire: 'Campfire',
+    PromptWatch: 'PromptWatch',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
