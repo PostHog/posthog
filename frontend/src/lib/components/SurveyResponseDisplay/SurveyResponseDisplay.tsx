@@ -7,14 +7,15 @@ import { LemonDivider, LemonTag, Link } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton, { ViewRecordingButtonVariant } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconLink } from 'lib/lemon-ui/icons'
-import { countryCodeToFlag } from 'lib/utils/geography/country'
+import { countryCodeToFlag } from 'lib/utils/country'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { NewSurvey } from 'scenes/surveys/constants'
 import { getThumbIcon } from 'scenes/surveys/hooks/useSurveyResponseColumns'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { getSurveyResponseValue, isScaleTwoRating } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
-import { SurveyEventProperties as SurveyEventPropertyNames, SurveyQuestion } from '~/types'
+import { Survey, SurveyEventProperties as SurveyEventPropertyNames, SurveyQuestion } from '~/types'
 
 interface SurveyResponseDisplayProps {
     eventProperties: Record<string, any>
@@ -68,19 +69,39 @@ function MetaItem({ icon, children }: { icon?: JSX.Element; children: React.Reac
     )
 }
 
-export function SurveyResponseDisplay({
+export function SurveyResponseDisplay(props: SurveyResponseDisplayProps): JSX.Element {
+    const surveyId = props.eventProperties[SurveyEventPropertyNames.SURVEY_ID]
+    if (!surveyId) {
+        return <SurveyResponseContent {...props} />
+    }
+    return <SurveyResponseDisplayWithLogic {...props} surveyId={surveyId} />
+}
+
+function SurveyResponseDisplayWithLogic({
+    surveyId,
+    ...props
+}: SurveyResponseDisplayProps & { surveyId: string }): JSX.Element {
+    const { survey, archivedResponseUuids } = useValues(surveyLogic({ id: surveyId }))
+    return <SurveyResponseContent {...props} survey={survey} archivedResponseUuids={archivedResponseUuids} />
+}
+
+function SurveyResponseContent({
     eventProperties,
     eventUuid,
     distinctId,
     timestamp,
     personProperties,
-}: SurveyResponseDisplayProps): JSX.Element {
+    survey,
+    archivedResponseUuids,
+}: SurveyResponseDisplayProps & {
+    survey?: NewSurvey | Survey
+    archivedResponseUuids?: Set<string>
+}): JSX.Element {
     const surveyId = eventProperties[SurveyEventPropertyNames.SURVEY_ID]
 
     const { location } = useValues(router)
     const isOnSurveyPage = surveyId && location.pathname.includes(`/surveys/${surveyId}`)
 
-    const { survey, archivedResponseUuids } = useValues(surveyLogic({ id: surveyId }))
     const isArchived = eventUuid ? (archivedResponseUuids?.has(eventUuid) ?? false) : false
 
     const surveyName = survey?.name || eventProperties['$survey_name']

@@ -1,0 +1,25 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "incremental": false
+    },
+    "files": [
+        "frontend/src/kea-disposables.test.ts",
+        "frontend/src/lib/lemon-ui/LemonField/LemonField.stories.tsx",
+        "frontend/src/lib/lemon-ui/LemonField/LemonField.test.tsx",
+        "frontend/src/lib/logic/bindModalToUrl.test.ts",
+        "frontend/src/lib/logic/scenes/useAttachedLogic.test.tsx",
+        "products/conversations/frontend/scenes/tickets/SupportTicketsScene.test.tsx"
+    ],
+    "include": ["frontend/src/**/*", "products/**/frontend/**/*", "products/**/manifest.tsx"],
+    "exclude": [
+        "frontend/dist/**/*",
+        "frontend/src/generated/**/*",
+        "products/**/frontend/generated/**/*",
+        "**/__tests__/**/*",
+        "**/*.test.*",
+        "**/*.spec.*",
+        "**/*.stories.*",
+        "**/*.mdx"
+    ]
+}

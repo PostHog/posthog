@@ -17,6 +17,7 @@
         "conclusion_comment": {
             "anyOf": [
                 {
+                    "maxLength": 4000,
                     "type": "string"
                 },
                 {
@@ -28,6 +29,11 @@
         "id": {
             "description": "A unique integer value identifying this experiment.",
             "type": "number"
+        },
+        "open_cleanup_pr": {
+            "default": false,
+            "description": "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise.",
+            "type": "boolean"
         }
     },
     "required": ["id"],

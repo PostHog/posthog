@@ -1,7 +1,9 @@
-import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
+import { expandRecentsForDisplay, hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { hasPinnedContext } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
     ExcludedOperators,
+    ExcludedProperties,
+    SelectingKeyOnly,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
@@ -23,7 +25,8 @@ export function filterRecentsForContext(
     recentFilterItems: TaxonomicDefinitionTypes[],
     taxonomicGroupTypes: TaxonomicFilterGroupType[],
     excludedOperators?: ExcludedOperators,
-    selectingKeyOnly?: boolean
+    selectingKeyOnly?: SelectingKeyOnly,
+    excludedProperties?: ExcludedProperties
 ): TaxonomicDefinitionTypes[] {
     if (!recentFilterItems?.length) {
         return []
@@ -31,6 +34,12 @@ export function filterRecentsForContext(
     const availableTypes = new Set(taxonomicGroupTypes)
     const inScope = recentFilterItems.filter((item) => {
         if (!hasRecentContext(item) || !availableTypes.has(item._recentContext.sourceGroupType)) {
+            return false
+        }
+        // A group's excluded values (e.g. `message` for the logs group-by picker) must be dropped
+        // from the Recent tab too, not just the group's own option list.
+        const excludedValues = excludedProperties?.[item._recentContext.sourceGroupType]
+        if (excludedValues?.length && excludedValues.includes(item._recentContext.sourceValue)) {
             return false
         }
         const excludedForGroup = excludedOperators?.[item._recentContext.sourceGroupType]
@@ -43,27 +52,7 @@ export function filterRecentsForContext(
         }
         return true
     })
-    if (!selectingKeyOnly) {
-        return inScope
-    }
-    const seen = new Set<string>()
-    const dedupedItems: TaxonomicDefinitionTypes[] = []
-    for (const item of inScope) {
-        if (!hasRecentContext(item)) {
-            continue
-        }
-        // Dedup by the persisted storage key (source group + value), not by
-        // item.name — for groups like Cohorts/Actions the name is a display
-        // label that can be unstable, while the stored value is canonical.
-        const dedupKey = `${item._recentContext.sourceGroupType}::${item._recentContext.sourceValue ?? ''}`
-        if (seen.has(dedupKey)) {
-            continue
-        }
-        seen.add(dedupKey)
-        const { propertyFilter: _propertyFilter, ...restContext } = item._recentContext
-        dedupedItems.push({ ...item, _recentContext: restContext } as unknown as TaxonomicDefinitionTypes)
-    }
-    return dedupedItems
+    return expandRecentsForDisplay(inScope, selectingKeyOnly)
 }
 
 /** Pinned items whose source group is one of the picker's groups. */

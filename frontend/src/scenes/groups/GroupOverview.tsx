@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { Group } from '~/types'
 

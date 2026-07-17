@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -5,8 +6,9 @@ import { initKeaTests } from '~/test/init'
 
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
-import { DEFAULT_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
-import { EvaluationConfig, EvaluationRun } from './types'
+import { evaluationReportLogic } from './evaluationReportLogic'
+import { DEFAULT_HOG_SOURCE, DEFAULT_TRACE_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
+import { EvaluationConfig, EvaluationReport, EvaluationRun } from './types'
 
 const mockProviderKeys: LLMProviderKey[] = [
     {
@@ -70,11 +72,14 @@ const mockEvaluation: EvaluationConfig = {
     enabled: true,
     status: 'active',
     status_reason: null,
+    status_reason_detail: null,
     evaluation_type: 'llm_judge',
     evaluation_config: { prompt: 'Is this response helpful?' },
     output_type: 'boolean',
     output_config: { allows_na: false },
     conditions: [{ id: 'cond-1', rollout_percentage: 50, properties: [] }],
+    target: 'generation',
+    target_config: {},
     model_configuration: {
         provider: 'openai',
         model: 'gpt-5-mini',
@@ -83,6 +88,27 @@ const mockEvaluation: EvaluationConfig = {
     total_runs: 10,
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
+}
+
+const mockEvaluationReport: EvaluationReport = {
+    id: 'report-123',
+    evaluation: 'eval-123',
+    frequency: 'scheduled',
+    rrule: 'FREQ=WEEKLY;BYDAY=FR',
+    starts_at: '2024-01-01T00:00:00Z',
+    timezone_name: 'UTC',
+    next_delivery_date: '2024-01-05T00:00:00Z',
+    delivery_targets: [{ type: 'email', value: 'alerts@example.com' }],
+    max_sample_size: 200,
+    enabled: true,
+    deleted: false,
+    last_delivered_at: null,
+    report_prompt_guidance: 'Focus on regressions.',
+    trigger_threshold: 500,
+    cooldown_minutes: 180,
+    daily_run_cap: 8,
+    created_by: null,
+    created_at: '2024-01-01T00:00:00Z',
 }
 
 const mockRuns: EvaluationRun[] = [
@@ -124,6 +150,78 @@ const mockRuns: EvaluationRun[] = [
     },
 ]
 
+const mockSentimentEvaluation: EvaluationConfig = {
+    ...mockEvaluation,
+    evaluation_type: 'sentiment',
+    evaluation_config: { source: 'user_messages' },
+    output_type: 'sentiment',
+    output_config: {},
+    model_configuration: null,
+}
+
+const mockSentimentRuns: EvaluationRun[] = [
+    {
+        id: 'run-negative',
+        evaluation_id: 'eval-123',
+        evaluation_name: 'Sentiment Evaluation',
+        generation_id: 'gen-negative',
+        trace_id: 'trace-negative',
+        timestamp: '2024-01-01T12:00:00Z',
+        evaluation_type: 'sentiment',
+        result_type: 'sentiment',
+        result: null,
+        sentiment_label: 'negative',
+        sentiment_score: -0.8,
+        reasoning: 'The message was frustrated',
+        status: 'completed',
+    },
+    {
+        id: 'run-positive',
+        evaluation_id: 'eval-123',
+        evaluation_name: 'Sentiment Evaluation',
+        generation_id: 'gen-positive',
+        trace_id: 'trace-positive',
+        timestamp: '2024-01-01T13:00:00Z',
+        evaluation_type: 'sentiment',
+        result_type: 'sentiment',
+        result: null,
+        sentiment_label: 'positive',
+        sentiment_score: 0.7,
+        reasoning: 'The message was happy',
+        status: 'completed',
+    },
+    {
+        id: 'run-neutral',
+        evaluation_id: 'eval-123',
+        evaluation_name: 'Sentiment Evaluation',
+        generation_id: 'gen-neutral',
+        trace_id: 'trace-neutral',
+        timestamp: '2024-01-01T14:00:00Z',
+        evaluation_type: 'sentiment',
+        result_type: 'sentiment',
+        result: null,
+        sentiment_label: 'neutral',
+        sentiment_score: 0.1,
+        reasoning: 'The message was neutral',
+        status: 'completed',
+    },
+    {
+        id: 'run-positive-failed',
+        evaluation_id: 'eval-123',
+        evaluation_name: 'Sentiment Evaluation',
+        generation_id: 'gen-positive-failed',
+        trace_id: 'trace-positive-failed',
+        timestamp: '2024-01-01T15:00:00Z',
+        evaluation_type: 'sentiment',
+        result_type: 'sentiment',
+        result: null,
+        sentiment_label: 'positive',
+        sentiment_score: 0.5,
+        reasoning: 'This run did not complete',
+        status: 'failed',
+    },
+]
+
 describe('llmEvaluationLogic', () => {
     let logic: ReturnType<typeof llmEvaluationLogic.build>
     let keysLogic: ReturnType<typeof llmProviderKeysLogic.build>
@@ -136,11 +234,13 @@ describe('llmEvaluationLogic', () => {
                     trial_eval_limit: 100,
                     trial_evals_used: 0,
                     trial_evals_remaining: 100,
+                    trial_grandfathered: false,
+                    trial_deprecation_date: '2026-07-15T00:00:00Z',
                     active_provider_key: null,
                     created_at: '2024-01-01T00:00:00Z',
                     updated_at: '2024-01-01T00:00:00Z',
                 },
-                '/api/environments/:teamId/evaluations/:id/': mockEvaluation,
+                '/api/projects/:teamId/evaluations/:id/': mockEvaluation,
                 '/api/environments/:teamId/llm_analytics/models/': {
                     models: [
                         { id: 'gpt-5-mini', posthog_available: true },
@@ -211,6 +311,16 @@ describe('llmEvaluationLogic', () => {
             })
         })
 
+        it('initializes new evaluations with 100% sampling', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    conditions: [expect.objectContaining({ rollout_percentage: 100 })],
+                }),
+            })
+        })
+
         it('setModelConfiguration updates model config', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
@@ -232,6 +342,47 @@ describe('llmEvaluationLogic', () => {
             logic.actions.saveEvaluationSuccess(mockEvaluation)
 
             await expectLogic(logic).toMatchValues({ hasUnsavedChanges: false })
+        })
+
+        it('seeds the trace Hog default when switching to hog with a trace target', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationTarget('trace')
+            logic.actions.setEvaluationType('hog')
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    evaluation_config: { source: DEFAULT_TRACE_HOG_SOURCE },
+                }),
+            })
+        })
+
+        it('swaps the untouched Hog default when the target changes', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('hog')
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({ evaluation_config: { source: DEFAULT_HOG_SOURCE } }),
+            })
+
+            logic.actions.setEvaluationTarget('trace')
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({ evaluation_config: { source: DEFAULT_TRACE_HOG_SOURCE } }),
+            })
+        })
+
+        it('does not clobber an edited Hog source when the target changes', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('hog')
+            logic.actions.setHogSource('return length(events) > 5')
+            logic.actions.setEvaluationTarget('trace')
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    evaluation_config: expect.objectContaining({ source: 'return length(events) > 5' }),
+                }),
+            })
         })
     })
 
@@ -260,10 +411,20 @@ describe('llmEvaluationLogic', () => {
                 await expectLogic(logic).toMatchValues({ formValid: false })
             })
 
+            it('returns false when an LLM judge has no selected model', async () => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.setEvaluationName('Valid Name')
+                logic.actions.setEvaluationPrompt('Valid prompt')
+                logic.actions.setTriggerConditions([{ id: 'c1', rollout_percentage: 50, properties: [] }])
+
+                await expectLogic(logic).toMatchValues({ formValid: false })
+            })
+
             it('returns false when no conditions have rollout > 0', async () => {
                 await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
                 logic.actions.setEvaluationName('Valid Name')
                 logic.actions.setEvaluationPrompt('Valid prompt')
+                logic.actions.setTriggerConditions([{ id: 'c1', rollout_percentage: 0, properties: [] }])
 
                 await expectLogic(logic).toMatchValues({ formValid: false })
             })
@@ -294,8 +455,64 @@ describe('llmEvaluationLogic', () => {
                 logic.actions.setEvaluationName('Valid Name')
                 logic.actions.setEvaluationPrompt('Valid prompt')
                 logic.actions.setTriggerConditions([{ id: 'c1', rollout_percentage: 50, properties: [] }])
+                logic.actions.setModelConfiguration({
+                    provider: 'openai',
+                    model: 'gpt-5-mini',
+                    provider_key_id: 'key-1',
+                })
 
                 await expectLogic(logic).toMatchValues({ formValid: true })
+            })
+
+            // A loaded evaluation whose stored shape doesn't match its type (e.g. an llm_judge
+            // record with no prompt) used to crash formValid with a TypeError on render.
+            it.each([
+                ['missing name', { ...mockEvaluation, name: undefined }],
+                ['missing conditions', { ...mockEvaluation, conditions: undefined }],
+                ['missing evaluation_config', { ...mockEvaluation, evaluation_config: undefined }],
+                ['llm_judge missing prompt', { ...mockEvaluation, evaluation_config: {} }],
+                ['hog missing source', { ...mockEvaluation, evaluation_type: 'hog' as const, evaluation_config: {} }],
+            ])('returns false without throwing when %s', async (_label, malformed) => {
+                logic.actions.loadEvaluationSuccess(malformed as unknown as EvaluationConfig)
+
+                await expectLogic(logic).toMatchValues({ formValid: false })
+            })
+        })
+
+        describe('modelSelectionRequired', () => {
+            beforeEach(() => {
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+            })
+
+            it('allows existing legacy evaluations without a model configuration to remain editable', async () => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+                logic.actions.loadEvaluationSuccess({ ...mockEvaluation, model_configuration: null })
+
+                await expectLogic(logic).toMatchValues({ modelSelectionRequired: false, formValid: true })
+            })
+
+            it('requires an existing configured evaluation to keep a selected model', async () => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+                logic.actions.setModelConfiguration(null)
+
+                await expectLogic(logic).toMatchValues({ modelSelectionRequired: true, formValid: false })
+            })
+
+            it('requires a model when converting an existing Hog evaluation to an LLM judge', async () => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    evaluation_type: 'hog',
+                    evaluation_config: { source: DEFAULT_HOG_SOURCE },
+                    model_configuration: null,
+                })
+
+                logic.actions.setEvaluationType('llm_judge')
+
+                await expectLogic(logic).toMatchValues({ modelSelectionRequired: true, formValid: false })
             })
         })
 
@@ -358,8 +575,8 @@ describe('llmEvaluationLogic', () => {
                 expect(logic.values.runsSummary).toBeNull()
             })
 
-            it('calculates summary correctly', async () => {
-                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+            it('calculates summary from server-side aggregate counts', async () => {
+                logic.actions.loadRunsStatsSuccess({ total: 3, applicable: 2, passed: 1 })
 
                 await expectLogic(logic).toMatchValues({
                     runsSummary: {
@@ -378,6 +595,18 @@ describe('llmEvaluationLogic', () => {
     describe('async flows', () => {
         describe('loadEvaluation', () => {
             it('initializes new evaluation with default values', async () => {
+                // Pin the team to a non-terminal state before mounting so the draft's enabled
+                // default doesn't depend on config-fetch timing.
+                keysLogic.actions.loadEvaluationConfigSuccess({
+                    trial_eval_limit: 100,
+                    trial_evals_used: 50,
+                    trial_evals_remaining: 50,
+                    trial_grandfathered: true,
+                    trial_deprecation_date: '2026-07-17T00:00:00Z',
+                    active_provider_key: null,
+                    created_at: '2024-01-01T00:00:00Z',
+                    updated_at: '2024-01-01T00:00:00Z',
+                })
                 logic = llmEvaluationLogic({ evaluationId: 'new' })
                 logic.mount()
 
@@ -392,6 +621,65 @@ describe('llmEvaluationLogic', () => {
                         evaluation_type: 'llm_judge',
                         output_type: 'boolean',
                     }),
+                })
+            })
+
+            it('initializes new evaluation disabled for terminal teams that require a provider key', async () => {
+                keysLogic.actions.loadEvaluationConfigSuccess({
+                    trial_eval_limit: 100,
+                    trial_evals_used: 100,
+                    trial_evals_remaining: 0,
+                    trial_grandfathered: false,
+                    trial_deprecation_date: '2026-07-17T00:00:00Z',
+                    active_provider_key: null,
+                    created_at: '2024-01-01T00:00:00Z',
+                    updated_at: '2024-01-01T00:00:00Z',
+                })
+                logic = llmEvaluationLogic({ evaluationId: 'new' })
+                logic.mount()
+
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+                await expectLogic(logic).toMatchValues({
+                    isNewEvaluation: true,
+                    evaluation: expect.objectContaining({ enabled: false }),
+                })
+            })
+
+            it('disables an enabled new draft when a late config load says the team requires a key', async () => {
+                // The draft's enabled default is read before the config fetch resolves — the
+                // listener must correct it when the config arrives late.
+                keysLogic.actions.loadEvaluationConfigSuccess({
+                    trial_eval_limit: 100,
+                    trial_evals_used: 50,
+                    trial_evals_remaining: 50,
+                    trial_grandfathered: true,
+                    trial_deprecation_date: '2026-07-17T00:00:00Z',
+                    active_provider_key: null,
+                    created_at: '2024-01-01T00:00:00Z',
+                    updated_at: '2024-01-01T00:00:00Z',
+                })
+                logic = llmEvaluationLogic({ evaluationId: 'new' })
+                logic.mount()
+
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                await expectLogic(logic).toMatchValues({
+                    evaluation: expect.objectContaining({ enabled: true }),
+                })
+
+                keysLogic.actions.loadEvaluationConfigSuccess({
+                    trial_eval_limit: 100,
+                    trial_evals_used: 100,
+                    trial_evals_remaining: 0,
+                    trial_grandfathered: false,
+                    trial_deprecation_date: '2026-07-17T00:00:00Z',
+                    active_provider_key: null,
+                    created_at: '2024-01-01T00:00:00Z',
+                    updated_at: '2024-01-01T00:00:00Z',
+                })
+
+                await expectLogic(logic).toMatchValues({
+                    evaluation: expect.objectContaining({ enabled: false }),
                 })
             })
 
@@ -438,7 +726,10 @@ describe('llmEvaluationLogic', () => {
                 logic.actions.resetEvaluation()
 
                 await expectLogic(logic).toMatchValues({
-                    evaluation: expect.objectContaining({ name: '' }),
+                    evaluation: expect.objectContaining({
+                        name: '',
+                        conditions: [expect.objectContaining({ rollout_percentage: 100 })],
+                    }),
                     hasUnsavedChanges: false,
                 })
             })
@@ -498,6 +789,20 @@ describe('llmEvaluationLogic', () => {
 
                 await expectLogic(logic).toMatchValues({
                     evaluationSummary: null,
+                })
+            })
+        })
+
+        describe('sentiment evaluation filters', () => {
+            it('defaults to all for boolean evaluations', async () => {
+                expect(logic.values.evaluationSummaryFilter).toBe('all')
+            })
+
+            it('defaults to negative for sentiment evaluations', async () => {
+                logic.actions.loadEvaluationSuccess(mockSentimentEvaluation)
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationSummaryFilter: 'negative',
                 })
             })
         })
@@ -653,6 +958,35 @@ describe('llmEvaluationLogic', () => {
                     filteredEvaluationRuns: [expect.objectContaining({ id: 'run-1' })],
                 })
             })
+
+            it('returns only negative sentiment runs by default for sentiment evaluations', async () => {
+                logic.actions.loadEvaluationSuccess(mockSentimentEvaluation)
+                logic.actions.loadEvaluationRunsSuccess(mockSentimentRuns)
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: [expect.objectContaining({ id: 'run-negative' })],
+                })
+            })
+
+            it('returns only completed sentiment runs matching the selected filter', async () => {
+                logic.actions.loadEvaluationSuccess(mockSentimentEvaluation)
+                logic.actions.loadEvaluationRunsSuccess(mockSentimentRuns)
+                logic.actions.setEvaluationSummaryFilter('positive', 'negative')
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: [expect.objectContaining({ id: 'run-positive' })],
+                })
+            })
+
+            it('returns all sentiment runs when the all filter is selected', async () => {
+                logic.actions.loadEvaluationSuccess(mockSentimentEvaluation)
+                logic.actions.loadEvaluationRunsSuccess(mockSentimentRuns)
+                logic.actions.setEvaluationSummaryFilter('all', 'negative')
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: mockSentimentRuns,
+                })
+            })
         })
 
         describe('runsLookup', () => {
@@ -704,6 +1038,67 @@ describe('llmEvaluationLogic', () => {
             })
         })
 
+        it('setEvaluationType switches to sentiment config shape', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('sentiment')
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    evaluation_type: 'sentiment',
+                    evaluation_config: { source: 'user_messages' },
+                    output_type: 'sentiment',
+                    output_config: {},
+                    model_configuration: null,
+                    conditions: [expect.objectContaining({ rollout_percentage: 100 })],
+                }),
+            })
+        })
+
+        it('switching to sentiment resets a trace target back to generation', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationTarget('trace')
+            logic.actions.setEvaluationType('sentiment')
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    evaluation_type: 'sentiment',
+                    target: 'generation',
+                    target_config: {},
+                }),
+            })
+        })
+
+        it('initializes new evaluations as sentiment when requested', async () => {
+            logic.unmount()
+            logic = llmEvaluationLogic({ evaluationId: 'new', evaluationType: 'sentiment' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    evaluation_type: 'sentiment',
+                    evaluation_config: { source: 'user_messages' },
+                    output_type: 'sentiment',
+                    output_config: {},
+                    model_configuration: null,
+                }),
+            })
+        })
+
+        it('switching to sentiment keeps the reports tab active', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setActiveTab('reports')
+            logic.actions.setEvaluationType('sentiment')
+
+            await expectLogic(logic).toMatchValues({
+                activeTab: 'reports',
+            })
+        })
+
         it('setHogSource updates source in hog config', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
@@ -747,6 +1142,30 @@ describe('llmEvaluationLogic', () => {
             logic.actions.setHogSource('   ')
 
             await expectLogic(logic).toMatchValues({ formValid: false })
+        })
+
+        it('formValid does not require prompt or code for sentiment type', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('sentiment')
+            logic.actions.setEvaluationName('Valid Name')
+            logic.actions.setTriggerConditions([{ id: 'c1', rollout_percentage: 50, properties: [] }])
+
+            await expectLogic(logic).toMatchValues({ formValid: true })
+        })
+
+        it('setAllowsNA does not mutate sentiment output config', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('sentiment')
+            logic.actions.setAllowsNA(true)
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    output_type: 'sentiment',
+                    output_config: {},
+                }),
+            })
         })
 
         it('setEvaluationType marks unsaved changes', async () => {
@@ -828,6 +1247,170 @@ describe('llmEvaluationLogic', () => {
         })
     })
 
+    describe('saveEvaluation report persistence', () => {
+        it('does not create an evaluation when the report threshold is invalid', async () => {
+            let evaluationCreateCount = 0
+            useMocks({
+                post: {
+                    '/api/projects/:teamId/evaluations/': () => {
+                        evaluationCreateCount += 1
+                        return mockEvaluation
+                    },
+                },
+            })
+
+            logic = llmEvaluationLogic({ evaluationId: 'new' })
+            const reportLogic = evaluationReportLogic({ evaluationId: 'new' })
+            logic.mount()
+            reportLogic.mount()
+
+            try {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.setEvaluationName('Valid Name')
+                logic.actions.setEvaluationPrompt('Valid prompt')
+                logic.actions.setModelConfiguration({
+                    provider: 'openai',
+                    model: 'gpt-5-mini',
+                    provider_key_id: 'key-1',
+                })
+                reportLogic.actions.setDraftTriggerThreshold(67)
+
+                expect(reportLogic.values.configErrors.triggerThreshold).toBe(
+                    'Evaluation count threshold must be a whole number between 100 and 10,000.'
+                )
+
+                logic.actions.saveEvaluation()
+
+                await expectLogic(logic)
+                    .toDispatchActions(['saveEvaluationFailure'])
+                    .toMatchValues({ evaluationFormSubmitting: false })
+                expect(evaluationCreateCount).toBe(0)
+            } finally {
+                reportLogic.unmount()
+            }
+        })
+
+        it('does not overwrite a saved report with defaults before the report load finishes', async () => {
+            let reportWriteCount = 0
+            let reportListRequestCount = 0
+            let resolveInitialReports: (value: { results: EvaluationReport[] }) => void = () => {}
+            const initialReportsPromise = new Promise<{ results: EvaluationReport[] }>((resolve) => {
+                resolveInitialReports = resolve
+            })
+            let resolveNavigation: () => void = () => {}
+            const navigationPromise = new Promise<void>((resolve) => {
+                resolveNavigation = resolve
+            })
+            const pushSpy = jest.spyOn(router.actions, 'push').mockImplementation(() => {
+                resolveNavigation()
+            })
+
+            useMocks({
+                get: {
+                    '/api/projects/:teamId/llm_analytics/evaluation_reports/': () => {
+                        reportListRequestCount += 1
+                        return reportListRequestCount === 1
+                            ? initialReportsPromise
+                            : { results: [mockEvaluationReport] }
+                    },
+                },
+                patch: {
+                    '/api/projects/:teamId/evaluations/:id/': () => mockEvaluation,
+                    '/api/projects/:teamId/llm_analytics/evaluation_reports/:id/': () => {
+                        reportWriteCount += 1
+                        return mockEvaluationReport
+                    },
+                },
+                post: {
+                    '/api/projects/:teamId/llm_analytics/evaluation_reports/': () => {
+                        reportWriteCount += 1
+                        return mockEvaluationReport
+                    },
+                },
+            })
+
+            logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+            const reportLogic = evaluationReportLogic({ evaluationId: 'eval-123' })
+            logic.mount()
+            reportLogic.mount()
+
+            try {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                expect(reportLogic.values.reportsLoading).toBe(true)
+                expect(reportLogic.values.activeReport).toBeNull()
+
+                logic.actions.setEvaluationName('Renamed evaluation')
+                logic.actions.saveEvaluation()
+
+                await navigationPromise
+
+                expect(reportListRequestCount).toBe(1)
+                expect(reportWriteCount).toBe(0)
+                resolveInitialReports({ results: [mockEvaluationReport] })
+                await expectLogic(reportLogic).toFinishAllListeners()
+            } finally {
+                pushSpy.mockRestore()
+                reportLogic.unmount()
+            }
+        })
+
+        it('updates the backend-created report when saving a new sentiment evaluation', async () => {
+            let evaluationCreateCount = 0
+            let reportListCount = 0
+            let reportCreateCount = 0
+            let reportUpdateCount = 0
+            const pushSpy = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+
+            useMocks({
+                get: {
+                    '/api/projects/:teamId/llm_analytics/evaluation_reports/': () => {
+                        reportListCount += 1
+                        return { results: [mockEvaluationReport] }
+                    },
+                },
+                post: {
+                    '/api/projects/:teamId/evaluations/': () => {
+                        evaluationCreateCount += 1
+                        return mockSentimentEvaluation
+                    },
+                    '/api/projects/:teamId/llm_analytics/evaluation_reports/': () => {
+                        reportCreateCount += 1
+                        return mockEvaluationReport
+                    },
+                },
+                patch: {
+                    '/api/projects/:teamId/llm_analytics/evaluation_reports/:id/': () => {
+                        reportUpdateCount += 1
+                        return mockEvaluationReport
+                    },
+                },
+            })
+
+            logic = llmEvaluationLogic({ evaluationId: 'new', evaluationType: 'sentiment' })
+            const reportLogic = evaluationReportLogic({ evaluationId: 'new' })
+            logic.mount()
+            reportLogic.mount()
+
+            try {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.setEvaluationName('Sentiment evaluation')
+                reportLogic.actions.setDraftTriggerThreshold(500)
+                reportLogic.actions.setDraftEmailValue('sentiment@example.com')
+
+                logic.actions.saveEvaluation()
+
+                await expectLogic(logic).toFinishAllListeners()
+                expect(evaluationCreateCount).toBe(1)
+                expect(reportListCount).toBe(1)
+                expect(reportUpdateCount).toBe(1)
+                expect(reportCreateCount).toBe(0)
+            } finally {
+                pushSpy.mockRestore()
+                reportLogic.unmount()
+            }
+        })
+    })
+
     describe('saveEvaluation failure handling', () => {
         beforeEach(() => {
             useMocks({
@@ -837,18 +1420,20 @@ describe('llmEvaluationLogic', () => {
                         trial_eval_limit: 100,
                         trial_evals_used: 100,
                         trial_evals_remaining: 0,
+                        trial_grandfathered: false,
+                        trial_deprecation_date: '2026-07-15T00:00:00Z',
                         active_provider_key: null,
                         created_at: '2024-01-01T00:00:00Z',
                         updated_at: '2024-01-01T00:00:00Z',
                     },
-                    '/api/environments/:teamId/evaluations/:id/': mockEvaluation,
+                    '/api/projects/:teamId/evaluations/:id/': mockEvaluation,
                 },
                 patch: {
-                    '/api/environments/:teamId/evaluations/:id/': (_, __, ctx) => [
-                        ctx.status(400),
-                        ctx.json({
+                    '/api/projects/:teamId/evaluations/:id/': () => [
+                        400,
+                        {
                             enabled: ['Trial evaluation limit reached. Add a provider API key to re-enable.'],
-                        }),
+                        },
                     ],
                 },
             })

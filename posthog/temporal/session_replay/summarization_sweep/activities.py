@@ -34,9 +34,8 @@ from posthog.temporal.session_replay.summarization_sweep.types import (
     UpsertTeamScheduleInput,
 )
 
+from products.replay.backend.models.session_summaries import SingleSessionSummary
 from products.signals.backend.models import SignalSourceConfig
-
-from ee.models.session_summaries import SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
 

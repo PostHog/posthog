@@ -28,7 +28,7 @@ from products.marketing_analytics.backend.hogql_queries.constants import DEFAULT
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
@@ -359,6 +359,53 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert len(warnings) == 1
         assert "Bad DW Goal" in warnings[0]
 
+    def test_duplicate_named_goals_deduped(self):
+        """Goals sharing a name collapse to the first with a warning, to avoid alias collisions"""
+        first = ConversionGoalFilter1(
+            kind=NodeKind.EVENTS_NODE,
+            event="purchase",
+            conversion_goal_id="goal_a",
+            conversion_goal_name="Signups",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+        second = ConversionGoalFilter1(
+            kind=NodeKind.EVENTS_NODE,
+            event="signup",
+            conversion_goal_id="goal_b",
+            conversion_goal_name="Signups",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        runner = self._create_query_runner()
+        valid_goals, warnings = runner._filter_invalid_conversion_goals([first, second])
+
+        assert len(valid_goals) == 1
+        assert valid_goals[0].conversion_goal_id == "goal_a"
+        assert len(warnings) == 1
+        assert "duplicate name" in warnings[0]
+        assert "Signups" in warnings[0]
+
+    def test_get_filtered_select_columns_dedupes_repeated_request(self):
+        """A column requested twice is emitted once, avoiding 'Cannot redefine an alias'"""
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            select=["Signups", "Signups", "Cost"],
+            properties=[],
+        )
+        runner = self._create_query_runner(query)
+        source = ast.SelectQuery(
+            select=[
+                ast.Alias(alias="Signups", expr=ast.Constant(value=1)),
+                ast.Alias(alias="Cost", expr=ast.Constant(value=2)),
+            ]
+        )
+
+        filtered = runner._get_filtered_select_columns(source)
+
+        assert [col.alias if isinstance(col, ast.Alias) else str(col) for col in filtered] == ["Signups", "Cost"]
+
     @parameterized.expand(
         [
             (MarketingAnalyticsDrillDownLevel.CHANNEL, "Channel"),
@@ -571,9 +618,9 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         ]
     )
     def test_ad_levels_compare_join_uses_id(self, level, expected_id_column):
-        """Compare mode at AD_GROUP / AD must join on the platform ID, not the name —
+        """Compare mode at AD_GROUP / AD must key the pivot on the platform ID, not the name —
         otherwise two rows with the same ad-group / ad name across different campaigns
-        would cross-product, and renames between periods would lose continuity.
+        would group together, and renames between periods would lose continuity.
         """
         query = MarketingAnalyticsTableQuery(
             dateRange=self.default_date_range,
@@ -591,30 +638,13 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
             # to config. Avoids binding the test to the internal `_apply_drill_down_level`
             # method name / call site.
             runner.to_query()
-            current = runner._build_main_select_query(conversion_aggregator=None)
-            previous = runner._build_main_select_query(conversion_aggregator=None)
-            join = runner._build_compare_join(current, previous)
+            pivot_keys = runner._get_compare_pivot_keys()
 
-        # Walk the join condition AST and collect every Field chain mentioned. The
-        # AD_GROUP_ID / AD_ID column must appear — that's how we know we're joining
-        # by the platform ID, not by the (ambiguous) name.
-        constraint = join.next_join.constraint if join.next_join else None
-        assert constraint is not None
-        referenced_fields: list[str] = []
-
-        def _collect_fields(node: ast.Expr) -> None:
-            if isinstance(node, ast.Field) and node.chain:
-                referenced_fields.append(str(node.chain[-1]))
-            elif isinstance(node, ast.CompareOperation):
-                _collect_fields(node.left)
-                _collect_fields(node.right)
-            elif isinstance(node, (ast.And, ast.Or)):
-                for child in node.exprs:
-                    _collect_fields(child)
-
-        _collect_fields(constraint.expr)
-        assert expected_id_column.value in referenced_fields, (
-            f"Expected compare join at {level} to reference {expected_id_column.value}, got fields: {referenced_fields}"
+        # The compare pivot groups current/previous rows by these keys. The AD_GROUP_ID /
+        # AD_ID column must be among them — that's how we know we key by the platform ID,
+        # not by the (ambiguous) name.
+        assert expected_id_column.value in pivot_keys, (
+            f"Expected compare pivot at {level} to key on {expected_id_column.value}, got keys: {pivot_keys}"
         )
 
     @parameterized.expand(

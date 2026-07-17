@@ -2,10 +2,10 @@ import './FeatureFlag.scss'
 
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 
-import { IconCopy, IconPlusSmall, IconRewind, IconTrash } from '@posthog/icons'
-import { LemonDialog, LemonSkeleton } from '@posthog/lemon-ui'
+import { IconArchive, IconCopy, IconPlusSmall, IconRewind, IconTrash } from '@posthog/icons'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessDenied } from 'lib/components/AccessDenied'
@@ -30,7 +30,9 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { retryImport } from 'lib/utils/retryImport'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
@@ -78,10 +80,11 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
+import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
+import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
 import { FeedbackTab } from './FeatureFlagFeedbackTab'
-import { FeatureFlagForm } from './FeatureFlagForm'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagOverview } from './FeatureFlagOverview'
 import FeatureFlagProjects from './FeatureFlagProjects'
@@ -90,6 +93,24 @@ import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { FeatureFlagTestingTab } from './FeatureFlagTestingTab'
 
 const RESOURCE_TYPE = 'feature_flag'
+
+// The edit/create form pulls in heavy deps (dnd-kit, JSON editors, sortable release conditions).
+// Lazy-mounting it lets the Edit click flip state and paint a loading skeleton before that render,
+// instead of the click blocking the main thread for seconds and reading as a dead click.
+const FeatureFlagForm = lazy(() =>
+    retryImport(() => import('./FeatureFlagForm').then((m) => ({ default: m.FeatureFlagForm })))
+)
+
+function FeatureFlagFormSkeleton(): JSX.Element {
+    return (
+        <div className="deprecated-space-y-2">
+            <LemonSkeleton active className="h-4 w-2/5" />
+            <LemonSkeleton active className="h-4 w-full" />
+            <LemonSkeleton active className="h-4 w-full" />
+            <LemonSkeleton active className="h-4 w-3/5" />
+        </div>
+    )
+}
 
 export const scene: SceneExport<FeatureFlagLogicProps> = {
     component: FeatureFlag,
@@ -109,6 +130,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         activeTab,
         accessDeniedToFeatureFlag,
         earlyAccessFeaturesList,
+        featureFlagActiveUpdateLoading,
+        dependentFlags,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
@@ -121,6 +144,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         saveFeatureFlag,
         saveDescriptionInline,
         saveTagsInline,
+        updateFeatureFlagArchived,
     } = useActions(featureFlagLogic)
 
     const { tags } = useValues(tagsModel)
@@ -155,6 +179,24 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
     const isNewFeatureFlag = id === 'new' || id === undefined
 
+    // Mounting the edit form is a multi-second render (Monaco editors + dnd-kit sortables). Mount it
+    // immediately when the scene first renders already in form mode (deep-link/new flag), but when the
+    // user clicks Edit on the readonly view, defer one frame so the click flips state and the loading
+    // skeleton paints before that render — otherwise the click blocks the thread and reads as dead.
+    const shouldShowForm = isNewFeatureFlag || isEditingFlag
+    const [isFormMounted, setIsFormMounted] = useState(shouldShowForm)
+    useEffect(() => {
+        if (!shouldShowForm) {
+            setIsFormMounted(false)
+            return
+        }
+        if (isFormMounted) {
+            return
+        }
+        const raf = requestAnimationFrame(() => setIsFormMounted(true))
+        return () => cancelAnimationFrame(raf)
+    }, [shouldShowForm, isFormMounted])
+
     useFileSystemLogView({
         type: 'feature_flag',
         ref: featureFlag?.id,
@@ -173,20 +215,22 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     }
 
     if (featureFlagLoading) {
-        return (
-            <div className="deprecated-space-y-2">
-                <LemonSkeleton active className="h-4 w-2/5" />
-                <LemonSkeleton active className="h-4 w-full" />
-                <LemonSkeleton active className="h-4 w-full" />
-                <LemonSkeleton active className="h-4 w-3/5" />
-            </div>
-        )
+        return <FeatureFlagFormSkeleton />
     }
 
     // Use the form UI for creating new flags or editing existing flags.
     // For viewing existing flags (readonly), use the tabbed UI below.
-    if (isNewFeatureFlag || isEditingFlag) {
-        return <FeatureFlagForm id={id} />
+    if (shouldShowForm) {
+        if (!isFormMounted) {
+            return <FeatureFlagFormSkeleton />
+        }
+        return (
+            <ChunkLoadErrorBoundary>
+                <Suspense fallback={<FeatureFlagFormSkeleton />}>
+                    <FeatureFlagForm id={id} />
+                </Suspense>
+            </ChunkLoadErrorBoundary>
+        )
     }
 
     if (accessDeniedToFeatureFlag) {
@@ -342,6 +386,39 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                     </ScenePanelActionsSection>
                     <ScenePanelDivider />
                     <ScenePanelActionsSection>
+                        {!featureFlag.deleted && (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.FeatureFlag}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                {({ disabledReason }) => (
+                                    <ButtonPrimitive
+                                        menuItem
+                                        disabled={!!disabledReason || featureFlagActiveUpdateLoading}
+                                        {...(disabledReason && { tooltip: disabledReason })}
+                                        data-attr={
+                                            featureFlag.archived ? 'unarchive-feature-flag' : 'archive-feature-flag'
+                                        }
+                                        onClick={() => {
+                                            if (featureFlag.archived) {
+                                                updateFeatureFlagArchived(false)
+                                            } else {
+                                                openFeatureFlagArchiveDialog(featureFlag, () =>
+                                                    updateFeatureFlagArchived(true)
+                                                )
+                                            }
+                                        }}
+                                        disabledReasons={{
+                                            "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator.":
+                                                !featureFlag.can_edit,
+                                        }}
+                                    >
+                                        {featureFlag.archived ? <IconRewind /> : <IconArchive />}
+                                        {featureFlag.archived ? 'Unarchive' : 'Archive'} feature flag
+                                    </ButtonPrimitive>
+                                )}
+                            </AccessControlAction>
+                        )}
                         <AccessControlAction
                             resourceType={AccessControlResourceType.FeatureFlag}
                             minAccessLevel={AccessControlLevel.Editor}
@@ -357,34 +434,16 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         if (featureFlag.deleted) {
                                             restoreFeatureFlag(featureFlag)
                                         } else {
-                                            LemonDialog.open({
-                                                title: 'Delete feature flag?',
-                                                description: `Are you sure you want to delete "${featureFlag.key}"?`,
-                                                primaryButton: {
-                                                    children: 'Delete',
-                                                    status: 'danger',
-                                                    onClick: () => deleteFeatureFlag(featureFlag),
-                                                    size: 'small',
-                                                },
-                                                secondaryButton: {
-                                                    children: 'Cancel',
-                                                    type: 'tertiary',
-                                                    size: 'small',
-                                                },
-                                            })
+                                            openFeatureFlagDeleteDialog(
+                                                featureFlag,
+                                                () => deleteFeatureFlag(featureFlag),
+                                                dependentFlags
+                                            )
                                         }
                                     }}
                                     disabledReasons={{
                                         "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator.":
                                             !featureFlag.can_edit,
-                                        'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag':
-                                            (featureFlag.features?.length || 0) > 0,
-                                        'This feature flag is linked to an experiment. Delete the experiment to delete this flag':
-                                            (featureFlag.experiment_set?.length || 0) > 0,
-                                        'This feature flag is linked to a survey. Delete the survey to delete this flag':
-                                            (featureFlag.surveys?.length || 0) > 0,
-                                        'This feature flag is used in session replay settings for recording conditions. Remove it from replay settings to delete this flag':
-                                            featureFlag.is_used_in_replay_settings || false,
                                     }}
                                 >
                                     {featureFlag.deleted ? <IconRewind /> : <IconTrash />}
@@ -399,6 +458,23 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         <PendingChangeRequestBanner resourceType="feature_flag" resourceId={featureFlag.id} />
                     )}
 
+                    {featureFlag.archived && (
+                        <LemonBanner
+                            type="warning"
+                            action={
+                                featureFlag.can_edit
+                                    ? {
+                                          children: 'Unarchive',
+                                          onClick: () => updateFeatureFlagArchived(false),
+                                          disabledReason: featureFlagActiveUpdateLoading ? 'Updating…' : undefined,
+                                      }
+                                    : undefined
+                            }
+                        >
+                            This feature flag is archived. It's hidden from the flag list and can't be enabled — linked
+                            experiments and surveys keep their data.
+                        </LemonBanner>
+                    )}
                     {earlyAccessFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && (
                         <LemonBanner type="info">
                             This feature flag is assigned to an early access feature in the{' '}
@@ -463,21 +539,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 if (featureFlag.deleted) {
                                                     restoreFeatureFlag(featureFlag)
                                                 } else {
-                                                    LemonDialog.open({
-                                                        title: 'Delete feature flag?',
-                                                        description: `Are you sure you want to delete "${featureFlag.key}"?`,
-                                                        primaryButton: {
-                                                            children: 'Delete',
-                                                            status: 'danger',
-                                                            onClick: () => deleteFeatureFlag(featureFlag),
-                                                            size: 'small',
-                                                        },
-                                                        secondaryButton: {
-                                                            children: 'Cancel',
-                                                            type: 'tertiary',
-                                                            size: 'small',
-                                                        },
-                                                    })
+                                                    openFeatureFlagDeleteDialog(
+                                                        featureFlag,
+                                                        () => deleteFeatureFlag(featureFlag),
+                                                        dependentFlags
+                                                    )
                                                 }
                                             }}
                                         >

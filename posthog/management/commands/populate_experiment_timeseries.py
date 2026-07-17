@@ -128,9 +128,10 @@ class Command(BaseCommand):
                     metric=metric_obj,
                 )
 
-                # Use query_to_utc as the override end date for the query runner
+                # Evaluate the experiment as of query_to_utc (clamped to end_date inside the runner).
+                # error_event_context=None: an ops backfill is not user-visible pain.
                 query_runner = ExperimentQueryRunner(
-                    query=experiment_query, team=experiment.team, override_end_date=query_to_utc
+                    query=experiment_query, team=experiment.team, as_of=query_to_utc, error_event_context=None
                 )
                 result = query_runner._calculate()
                 result_data = result.model_dump()

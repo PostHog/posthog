@@ -5,12 +5,11 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { Link } from 'lib/lemon-ui/Link'
+import { HeatmapAdvancedSettings } from 'scenes/heatmaps/components/HeatmapAdvancedSettings'
 import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
-import { HeatmapsForbiddenURL } from 'scenes/heatmaps/components/HeatmapsForbiddenURL'
 import { HeatmapsInvalidURL } from 'scenes/heatmaps/components/HeatmapsInvalidURL'
 import { urls } from 'scenes/urls'
 
@@ -26,7 +25,7 @@ export function HeatmapNewScene(): JSX.Element {
     const logic = heatmapLogic({ id: 'new' })
     const { loading, displayUrl, isDisplayUrlValid, type, name, dataUrl, isBrowserUrlAuthorized, displayUrlIsPattern } =
         useValues(logic)
-    const { setDisplayUrl, setType, setName, createHeatmap, setDataUrl, setDataUrlUserTouched } = useActions(logic)
+    const { setDisplayUrl, setType, setName, createHeatmap } = useActions(logic)
     const { topUrls, topUrlsLoading, noPageviews } = useValues(heatmapsBrowserLogic)
 
     const debouncedOnNameChange = useDebouncedCallback((name: string) => {
@@ -95,24 +94,6 @@ export function HeatmapNewScene(): JSX.Element {
                 ) : null}
             </SceneSection>
             <SceneDivider />
-            <SceneSection
-                title="Heatmap data URL"
-                description="An exact match or a pattern for heatmap data. For example, use a pattern if you have pages with dynamic IDs. E.g. https://www.example.com/users/* will aggregate data from all pages under /users/."
-            >
-                <LemonInput
-                    size="small"
-                    placeholder="https://www.example.com/*"
-                    value={dataUrl ?? ''}
-                    onChange={(value) => {
-                        setDataUrlUserTouched(true)
-                        setDataUrl(value || null)
-                    }}
-                    fullWidth={true}
-                />
-                <div className="text-xs text-muted mt-1">Add * for wildcards to aggregate data from multiple pages</div>
-                {dataUrl && !isBrowserUrlAuthorized ? <HeatmapsForbiddenURL /> : null}
-            </SceneSection>
-            <SceneDivider />
             <SceneSection title="Capture method" description="Choose how to display your page in the heatmap">
                 <LemonRadio
                     options={[
@@ -140,6 +121,13 @@ export function HeatmapNewScene(): JSX.Element {
                 </LemonBanner>
             </SceneSection>
             <SceneDivider />
+            <HeatmapAdvancedSettings
+                dataUrlPlaceholderFallback="https://www.example.com/*"
+                dataUrlHelp="Defaults to the page URL. Add * for wildcards to aggregate data from multiple pages — e.g. https://www.example.com/users/* aggregates all pages under /users/."
+                consentHelp="Ask the browser to close cookie/consent popups before capturing the screenshot. This can slow down or fail the render on some sites, so it's off by default."
+                showForbiddenUrl
+            />
+            <SceneDivider />
             <div className="flex gap-2">
                 <LemonButton
                     className="w-fit"
@@ -148,13 +136,11 @@ export function HeatmapNewScene(): JSX.Element {
                     onClick={createHeatmap}
                     loading={false}
                     disabledReason={
-                        !isDisplayUrlValid || !isBrowserUrlAuthorized
+                        !isDisplayUrlValid || (!!dataUrl && !isBrowserUrlAuthorized)
                             ? 'Invalid URL or forbidden URL'
                             : !displayUrl
                               ? 'URL is required'
-                              : !dataUrl
-                                ? 'Heatmap data URL is required'
-                                : null
+                              : null
                     }
                 >
                     Save

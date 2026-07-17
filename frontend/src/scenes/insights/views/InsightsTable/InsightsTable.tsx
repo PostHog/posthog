@@ -6,7 +6,7 @@ import { useCallback, useMemo, useState } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
+import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/country'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
@@ -30,7 +30,7 @@ import {
 import { BreakdownColumnItem, BreakdownColumnTitle, MultipleBreakdownColumnTitle } from './columns/BreakdownColumn'
 import { ColorCustomizationColumnItem, ColorCustomizationColumnTitle } from './columns/ColorCustomizationColumn'
 import { SeriesCheckColumnItem, SeriesCheckColumnTitle } from './columns/SeriesCheckColumn'
-import { SeriesColumnItem } from './columns/SeriesColumn'
+import { SeriesColumnItem, formatCompareLabel } from './columns/SeriesColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { WorldMapColumnItem, WorldMapColumnTitle } from './columns/WorldMapColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
@@ -138,6 +138,7 @@ export function InsightsTable({
         hasBreakdownFilter(breakdownFilter) &&
         !(breakdownFilter.breakdowns && breakdownFilter.breakdowns.length > 1)
 
+    // Untruncated — BreakdownColumnItem clips for display but needs the full value for hover and copy
     const formatItemBreakdownLabel = hasBreakdownFilter(breakdownFilter)
         ? (item: IndexedTrendResult): string =>
               formatBreakdownLabel(
@@ -145,13 +146,15 @@ export function InsightsTable({
                   breakdownFilter,
                   allCohorts?.results,
                   formatPropertyValueForDisplay,
-                  breakdownFilter.breakdowns ? 0 : undefined
+                  breakdownFilter.breakdowns ? 0 : undefined,
+                  undefined,
+                  false
               )
         : undefined
 
     columns.push({
         title: (
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 min-w-0">
                 {hasCheckboxes && (
                     <SeriesCheckColumnTitle
                         indexedResults={indexedResults}
@@ -182,6 +185,10 @@ export function InsightsTable({
                     item={item}
                     formatItemBreakdownLabel={formatItemBreakdownLabel!}
                     breakdownFilter={breakdownFilter}
+                    compareValue={
+                        // Formula results synthesized from filler rows can carry compare_label without compare
+                        (item.compare || item.compare_label) && !isCompareTable ? formatCompareLabel(item) : undefined
+                    }
                 />
             ) : (
                 <SeriesColumnItem
@@ -275,7 +282,9 @@ export function InsightsTable({
                     breakdownFilter,
                     allCohorts?.results,
                     formatPropertyValueForDisplay,
-                    index
+                    index,
+                    undefined,
+                    false
                 )
 
             const columnKey = `breakdown-${breakdown.property?.toString() || index}`

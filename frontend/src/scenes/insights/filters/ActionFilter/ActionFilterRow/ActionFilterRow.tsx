@@ -23,7 +23,7 @@ import {
 import { TaxonomicPopover, TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { getEventNamesForAction } from 'lib/utils'
+import { getEventNamesForAction } from 'lib/utils/events'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -340,9 +340,12 @@ export function ActionFilterRow({
         )
 
     const isDataWarehouseFilter = filter.type === EntityTypes.DATA_WAREHOUSE
-    const initialGroupType = isDataWarehouseFilter
-        ? TaxonomicFilterGroupType.DataWarehouse
-        : TaxonomicFilterGroupType.SuggestedFilters
+    // CDP destination/workflow filters (plugin-filters) restrict the picker to external-source tables.
+    const dataWarehouseGroupType =
+        typeKey === 'plugin-filters'
+            ? TaxonomicFilterGroupType.DataWarehouseSourceTables
+            : TaxonomicFilterGroupType.DataWarehouse
+    const initialGroupType = isDataWarehouseFilter ? dataWarehouseGroupType : TaxonomicFilterGroupType.SuggestedFilters
 
     // DWH events are not supported in inline events yet
     const canCombine = showCombine && !singleFilter && !isDataWarehouseFilter
@@ -700,6 +703,7 @@ export function ActionFilterRow({
                         excludedProperties={excludedProperties}
                         hogQLGlobals={hogQLGlobals}
                         operatorAllowlist={operatorAllowlist}
+                        triggerVariant="input"
                     />
                     <SaveAsActionBanner filter={filter} />
                 </div>

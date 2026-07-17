@@ -1,4 +1,4 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -15,13 +15,15 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
-from posthog.models import Cohort, Person
 from posthog.session_recordings.queries.test.listing_recordings.test_utils import (
     assert_query_matches_session_ids,
     create_event,
 )
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
+from posthog.test.persons import create_person
+
+from products.cohorts.backend.models.cohort import Cohort
 
 
 @freeze_time("2021-01-01T13:46:23")
@@ -53,8 +55,8 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                 session_id_one = "session_not_in_cohort"
                 session_id_two = "session_in_cohort"
 
-                Person.objects.create(team=self.team, distinct_ids=[user_one], properties={"email": "bla"})
-                Person.objects.create(
+                create_person(team=self.team, distinct_ids=[user_one], properties={"email": "bla"})
+                create_person(
                     team=self.team,
                     distinct_ids=[user_two],
                     properties={"email": "bla2", "$some_prop": "some_val"},
@@ -154,16 +156,23 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                     f"not-in-any-cohort-test_filter_with_static_and_dynamic_cohort_properties-4-{str(uuid4())}"
                 )
 
-                Person.objects.create(team=self.team, distinct_ids=[user_one], properties={"email": "in@static.cohort"})
-                Person.objects.create(
+                create_person(
+                    team=self.team,
+                    distinct_ids=[user_one],
+                    properties={"email": "in@static.cohort"},
+                    uuid=UUID("00000000-0000-0000-0000-000000000001"),
+                )
+                create_person(
                     team=self.team,
                     distinct_ids=[user_two],
                     properties={"email": "in@dynamic.cohort", "$some_prop": "some_val"},
+                    uuid=UUID("00000000-0000-0000-0000-000000000002"),
                 )
-                Person.objects.create(
+                create_person(
                     team=self.team,
                     distinct_ids=[user_three],
                     properties={"email": "in@both.cohorts", "$some_prop": "some_val"},
+                    uuid=UUID("00000000-0000-0000-0000-000000000003"),
                 )
 
                 dynamic_cohort = Cohort.objects.create(
@@ -285,9 +294,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
 
                 # and now with users not in any cohort
 
-                Person.objects.create(
-                    team=self.team, distinct_ids=[user_four], properties={"email": "not.in.any@cohorts.com"}
-                )
+                create_person(team=self.team, distinct_ids=[user_four], properties={"email": "not.in.any@cohorts.com"})
                 produce_replay_summary(
                     distinct_id=user_four,
                     session_id=session_id_four,
@@ -324,8 +331,8 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                 session_id_one = f"test_filter_with_events_and_cohorts-1-{str(uuid4())}"
                 session_id_two = f"test_filter_with_events_and_cohorts-2-{str(uuid4())}"
 
-                Person.objects.create(team=self.team, distinct_ids=[user_one], properties={"email": "bla"})
-                Person.objects.create(
+                create_person(team=self.team, distinct_ids=[user_one], properties={"email": "bla"})
+                create_person(
                     team=self.team,
                     distinct_ids=[user_two],
                     properties={"email": "bla2", "$some_prop": "some_val"},
@@ -442,8 +449,8 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                 session_id_one = "session_not_in_cohort"
                 session_id_two = "session_in_cohort"
 
-                Person.objects.create(team=self.team, distinct_ids=[user_one], properties={"email": "bla"})
-                Person.objects.create(
+                create_person(team=self.team, distinct_ids=[user_one], properties={"email": "bla"})
+                create_person(
                     team=self.team,
                     distinct_ids=[user_two],
                     properties={"email": "bla2", "$some_prop": "some_val"},
@@ -527,7 +534,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                 session_id = "session-should-not-be-filtered"
 
                 # Create person A (will be in cohort, then merged away)
-                person_a = Person.objects.create(
+                person_a = create_person(
                     team=self.team,
                     distinct_ids=[distinct_id],
                     properties={"$some_prop": "some_val"},
@@ -552,7 +559,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                 cohort.calculate_people_ch(pending_version=0)
 
                 # Create person B (not in cohort)
-                person_b = Person.objects.create(
+                person_b = create_person(
                     team=self.team,
                     distinct_ids=["another-distinct-id"],
                     properties={"other_prop": "other_val"},
@@ -643,7 +650,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                 external_sessions = [f"session-external-{i}" for i in range(5)]
 
                 # Create internal user (in cohort)
-                Person.objects.create(
+                create_person(
                     team=self.team,
                     distinct_ids=[internal_user],
                     properties={"email": internal_user, "is_internal": True},
@@ -651,7 +658,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
 
                 # Create external users (not in cohort)
                 for user in external_users:
-                    Person.objects.create(
+                    create_person(
                         team=self.team,
                         distinct_ids=[user],
                         properties={"email": user, "is_internal": False},
@@ -733,7 +740,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                 user = "test-user@example.com"
                 session_id = "session-with-empty-cohort"
 
-                Person.objects.create(
+                create_person(
                     team=self.team,
                     distinct_ids=[user],
                     properties={"email": user},
@@ -811,17 +818,17 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                 session_free = "session-free"
 
                 # Create users with different properties
-                Person.objects.create(
+                create_person(
                     team=self.team,
                     distinct_ids=[internal_user],
                     properties={"is_internal": True, "plan": "internal"},
                 )
-                Person.objects.create(
+                create_person(
                     team=self.team,
                     distinct_ids=[premium_external],
                     properties={"is_internal": False, "plan": "premium"},
                 )
-                Person.objects.create(
+                create_person(
                     team=self.team,
                     distinct_ids=[free_external],
                     properties={"is_internal": False, "plan": "free"},
@@ -897,17 +904,17 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                 session_regular = "session-regular"
 
                 # Create users
-                Person.objects.create(
+                create_person(
                     team=self.team,
                     distinct_ids=[internal_user],
                     properties={"is_internal": True, "is_beta": False},
                 )
-                Person.objects.create(
+                create_person(
                     team=self.team,
                     distinct_ids=[beta_user],
                     properties={"is_internal": False, "is_beta": True},
                 )
-                Person.objects.create(
+                create_person(
                     team=self.team,
                     distinct_ids=[regular_user],
                     properties={"is_internal": False, "is_beta": False},
@@ -978,17 +985,17 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                 session_beta = "session-beta-or"
                 session_regular = "session-regular-or"
 
-                Person.objects.create(
+                create_person(
                     team=self.team,
                     distinct_ids=[internal_user],
                     properties={"is_internal": True, "is_beta": False},
                 )
-                Person.objects.create(
+                create_person(
                     team=self.team,
                     distinct_ids=[beta_user],
                     properties={"is_internal": False, "is_beta": True},
                 )
-                Person.objects.create(
+                create_person(
                     team=self.team,
                     distinct_ids=[regular_user],
                     properties={"is_internal": False, "is_beta": False},
@@ -1093,12 +1100,12 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
             session_external = "session-external"
             session_anonymous = "session-anonymous"
 
-            Person.objects.create(
+            create_person(
                 team=self.team,
                 distinct_ids=[internal_user],
                 properties={"user_group": "internal"},
             )
-            Person.objects.create(
+            create_person(
                 team=self.team,
                 distinct_ids=[external_user],
                 properties={"user_group": "external"},

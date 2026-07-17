@@ -1,7 +1,13 @@
 from collections.abc import Iterator, Sequence
 from typing import Optional, TypeVar
 
-from posthog.schema import CachedWebGoalsQueryResponse, WebAnalyticsOrderByFields, WebGoalsQuery, WebGoalsQueryResponse
+from posthog.schema import (
+    CachedWebGoalsQueryResponse,
+    WebAnalyticsOrderByFields,
+    WebAnalyticsPreComputeStrategy,
+    WebGoalsQuery,
+    WebGoalsQueryResponse,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -194,7 +200,11 @@ WHERE {periods_expression}
         try:
             query = self.to_query()
         except NoActionsError:
-            return WebGoalsQueryResponse(results=[], samplingRate=self._sample_rate, modifiers=self.modifiers)
+            return WebGoalsQueryResponse(
+                results=[],
+                modifiers=self.modifiers,
+                preComputeStrategy=WebAnalyticsPreComputeStrategy.LIVE,
+            )
 
         response = execute_hogql_query(
             query_type="web_goals_query",
@@ -256,8 +266,8 @@ WHERE {periods_expression}
                 "context.columns.conversion_rate",
             ],
             results=results,
-            samplingRate=self._sample_rate,
             modifiers=self.modifiers,
+            preComputeStrategy=WebAnalyticsPreComputeStrategy.LIVE,
         )
 
     def _maybe_calculate_via_lazy_precompute(self) -> Optional[WebGoalsQueryResponse]:
@@ -332,10 +342,8 @@ WHERE {periods_expression}
                 "context.columns.conversion_rate",
             ],
             results=results,
-            samplingRate=self._sample_rate,
             modifiers=self.modifiers,
-            usedPreAggregatedTables=True,
-            usedLazyPrecompute=True,
+            preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
         )
 
     def event_properties(self) -> ast.Expr:

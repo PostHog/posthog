@@ -16,6 +16,18 @@ class SweepScannerInputs(BaseModel, frozen=True):
 class FindScannerCandidatesInputs(BaseModel, frozen=True):
     scanner_id: UUID
     team_id: int
+    # Caps how many candidates to fetch this sweep; None uses the default. Set to the in-flight headroom.
+    candidate_limit: int | None = None
+
+
+class CountInFlightAppliesInputs(BaseModel, frozen=True):
+    scanner_id: UUID
+    team_id: int
+
+
+class InFlightApplyCounts(BaseModel, frozen=True):
+    scanner: int
+    team: int
 
 
 class CandidateSessionPayload(BaseModel, frozen=True):
@@ -26,6 +38,11 @@ class CandidateSessionPayload(BaseModel, frozen=True):
 class FindScannerCandidatesOutput(BaseModel, frozen=True):
     candidates: list[CandidateSessionPayload]
     saturated: bool
+
+
+class RefreshPromptSuggestionInputs(BaseModel, frozen=True):
+    scanner_id: UUID
+    team_id: int
 
 
 class AdvanceScannerWatermarkInputs(BaseModel, frozen=True):

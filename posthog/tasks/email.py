@@ -5,15 +5,16 @@ from typing import Any, Literal, Optional, cast
 from urllib.parse import quote
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import OuterRef, Subquery
 from django.utils import timezone
 
 import structlog
 import posthoganalytics
-from celery import shared_task
+from celery import Task, shared_task
 from posthoganalytics import new_context, tag
+from prometheus_client import Counter, Histogram
 
-from posthog.api.two_factor_reset import TWO_FACTOR_RESET_TOKEN_TIMEOUT_HOURS
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, INVITE_DAYS_VALIDITY
@@ -21,13 +22,14 @@ from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, is_email_available
 from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_message_body
+from posthog.helpers.two_factor_session import CODE_TTL_SECONDS
 from posthog.models import Organization, OrganizationInvite, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.utils import UUIDT
-from posthog.ph_client import get_client
+from posthog.ph_client import feature_enabled_or_false, get_client, ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
@@ -36,6 +38,7 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.conversations.backend.models import Ticket
 from products.error_tracking.backend.facade import api as error_tracking_api
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -381,7 +384,7 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_provisioning_welcome(user_id: int, token: str, partner_name: str = "") -> None:
+def send_provisioning_welcome(user_id: int, token: str, partner_name: str = "", repository: str | None = None) -> None:
     user = User.objects.get(pk=user_id)
     message = EmailMessage(
         use_http=True,
@@ -394,6 +397,7 @@ def send_provisioning_welcome(user_id: int, token: str, partner_name: str = "") 
             "cloud": is_cloud(),
             "site_url": settings.SITE_URL,
             "partner_name": partner_name,
+            "repository": repository or "",
         },
     )
     message.add_user_recipient(user)
@@ -469,21 +473,19 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_email_mfa_link(user_id: int, token: str) -> None:
-    """Send email MFA verification link"""
+def send_code_based_verification(user_id: int, code: str) -> None:
+    """Send the 6-digit login verification code."""
     user: User = User.objects.get(pk=user_id)
-
-    verification_link = f"{settings.SITE_URL}/login/verify?email={quote(user.email)}&token={token}"
 
     message = EmailMessage(
         use_http=True,
-        campaign_key=f"email_mfa_{user.uuid}-{timezone.now().timestamp()}",
-        subject="Verify your PostHog login",
-        template_name="email_mfa_link",
+        campaign_key=f"code_based_verification_{user.uuid}-{timezone.now().timestamp()}",
+        subject="Your PostHog login code",
+        template_name="code_based_verification",
         template_context={
-            "preheader": "Please follow the link inside to verify your login.",
-            "url": verification_link,
-            "expiration_minutes": 10,
+            "preheader": "Enter this code to verify your login.",
+            "code": code,
+            "expiration_minutes": CODE_TTL_SECONDS // 60,
             "site_url": settings.SITE_URL,
         },
     )
@@ -491,7 +493,7 @@ def send_email_mfa_link(user_id: int, token: str) -> None:
     message.send(send_async=False)
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
-        event="email mfa link sent",
+        event="login verification code sent",
         groups={"organization": str(user.current_organization.id)},  # type: ignore
     )
 
@@ -609,11 +611,140 @@ def send_batch_export_run_failure(
     message.send()
 
 
+# The digest "day" rolls over at this hour UTC (not midnight) so the daily block
+# resets — and the catch-up email lands — during waking hours for US and EU.
+# The catch-up cron in scheduled.py is anchored to this constant.
+EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC = 10
+
+# Send-funnel counter: every call lands on exactly one outcome label, so the
+# delivered-vs-suppressed breakdown (and the "delivered" rate that feeds the
+# noise dashboard + alert) is recoverable from a single metric. Intentionally
+# unlabelled by team — per-team volume is read from MessagingRecord instead, to
+# keep Prometheus cardinality bounded.
+EXTERNAL_DATA_FAILURE_DIGEST_COUNTER = Counter(
+    "external_data_failure_digest_total",
+    "External data failure digest email send attempts, by funnel outcome.",
+    labelnames=["outcome"],
+)
+
+# Heaviness of delivered emails — the true failing-schema count (capped rows +
+# omitted), so a digest listing 200 failures is distinguishable from one listing 2.
+EXTERNAL_DATA_FAILURE_DIGEST_SCHEMAS_HISTOGRAM = Histogram(
+    "external_data_failure_digest_schemas",
+    "Failing schemas represented in a delivered failure digest email.",
+    buckets=(1, 2, 3, 5, 10, 20, 30, 50, 100, 250, float("inf")),
+)
+
+EXTERNAL_DATA_FAILURE_DIGEST_OMITTED_COUNTER = Counter(
+    "external_data_failure_digest_omitted_schemas_total",
+    "Failing schemas dropped from delivered digest emails beyond the per-email cap.",
+)
+
+
+def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]], omitted_count: int = 0) -> bool:
+    """Email a per-team digest of failing external data source syncs.
+
+    Runs inside the digest Celery task (products/data_warehouse/backend/tasks.py),
+    so the send is synchronous. The MessagingRecord campaign key embeds the digest
+    day, capping delivery at one email per team per digest day — repeat calls the
+    same day are no-ops.
+
+    Returns whether the email was actually delivered, so the caller can stamp the
+    included schemas as notified.
+    """
+    if not is_email_available(with_absolute_urls=True):
+        EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="email_unavailable").inc()
+        return False
+
+    # Shift the clock back so the date in the key changes at the boundary hour
+    # (UTC-anchored — date.today() would follow the OS timezone instead).
+    digest_day = (timezone.now() - datetime.timedelta(hours=EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC)).date()
+    campaign_key = f"external_data_failure_digest_{team_id}_{digest_day.strftime('%Y-%m-%d')}"
+
+    # Every job in a burst schedules its own delayed digest task; the first to send
+    # wins and the rest bail here, before the expensive recipient queries and render.
+    if MessagingRecord.objects.filter(campaign_key=campaign_key, sent_at__isnull=False).exists():
+        EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="deduped").inc()
+        return False
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="team_missing").inc()
+        logger.warning("Team %d not found for external data failure digest", team_id)
+        return False
+
+    # Rollout gate (absent flag = off). Gated teams are never stamped, so when the
+    # flag opens up the catch-up delivers their currently-failing schemas naturally.
+    # group_properties mirror the warehouse-pipelines-v3 gate (create_job_model.py):
+    # without them, release conditions on the project/organization group can't match,
+    # because the analytics group records are keyed by uuid rather than team_id/org_id.
+    if not settings.TEST and not posthoganalytics.feature_enabled(
+        key="external-data-failure-digest-email",
+        distinct_id=str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+        only_evaluate_locally=False,
+        # This gate fires once per failed-sync digest run; a $feature_flag_called
+        # event each time would be pure volume with no operational value (we monitor
+        # via the EXTERNAL_DATA_FAILURE_DIGEST_* metrics instead). Matches the v3 gate.
+        send_feature_flag_events=False,
+    ):
+        EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="flag_disabled").inc()
+        return False
+
+    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
+    if not memberships_to_email:
+        EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="no_recipients").inc()
+        return False
+
+    paused_count = sum(1 for schema in schemas if schema["paused"])
+    subject = (
+        f"[Alert] Data warehouse syncs paused in project '{team.name}'"
+        if paused_count == len(schemas) and omitted_count == 0
+        else f"[Alert] Data warehouse syncs failing in project '{team.name}'"
+    )
+
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject=subject,
+        template_name="external_data_failure_digest",
+        template_context={
+            "team": team,
+            "schemas": schemas,
+            "has_paused": paused_count > 0,
+            "omitted_count": omitted_count,
+            "sources_url": f"{settings.SITE_URL}/project/{team.id}/data-management/sources",
+        },
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    # _send_email swallows provider failures without retrying, so only
+    # MessagingRecord.sent_at proves delivery — stamping on enqueue would
+    # permanently silence paused schemas whenever a send failed.
+    message.send(send_async=False)
+    delivered = MessagingRecord.objects.filter(campaign_key=campaign_key, sent_at__isnull=False).exists()
+    if delivered:
+        EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="delivered").inc()
+        EXTERNAL_DATA_FAILURE_DIGEST_SCHEMAS_HISTOGRAM.observe(len(schemas) + omitted_count)
+        if omitted_count:
+            EXTERNAL_DATA_FAILURE_DIGEST_OMITTED_COUNTER.inc(omitted_count)
+    else:
+        EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="send_failed").inc()
+    return delivered
+
+
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def send_matview_failure_digest() -> None:
-    from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import (
+        DataModelingJob,
+        DataModelingJobEngine,
+        DataWarehouseSavedQuery,
+    )
 
     if not is_email_available(with_absolute_urls=True):
         logger.warning("Email service is not available for materialized view digest")
@@ -622,9 +753,12 @@ def send_matview_failure_digest() -> None:
     cutoff = timezone.now() - datetime.timedelta(hours=24)
 
     # Latest DataModelingJob is the failure source of truth — v2 MaterializeViewWorkflow doesn't update SavedQuery.status.
-    latest_job = DataModelingJob.objects.filter(
-        saved_query_id=OuterRef("id"),
-    ).order_by("-last_run_at")
+    # The duckgres shadow shares saved_query_id and finalizes after ClickHouse, so it must not stand in for the serving job.
+    latest_job = (
+        DataModelingJob.objects.filter(saved_query_id=OuterRef("id"))
+        .exclude(engine=DataModelingJobEngine.DUCKGRES)
+        .order_by("-last_run_at")
+    )
 
     failed_queries = (
         DataWarehouseSavedQuery.objects.filter(deleted=False, sync_frequency_interval__isnull=False)
@@ -681,8 +815,11 @@ def send_matview_failure_digest() -> None:
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], paused_query_ids: list[str]) -> None:
-    from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import (
+        DataModelingJob,
+        DataModelingJobEngine,
+        DataWarehouseSavedQuery,
+    )
 
     if not is_email_available(with_absolute_urls=True):
         return
@@ -703,6 +840,7 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
     latest_jobs: dict[str, DataModelingJob] = {}
     for latest_job in (
         DataModelingJob.objects.filter(saved_query_id__in=all_ids)
+        .exclude(engine=DataModelingJobEngine.DUCKGRES)
         .order_by("saved_query_id", "-last_run_at")
         .distinct("saved_query_id")
     ):
@@ -776,6 +914,83 @@ def send_canary_email(user_email: str) -> None:
     )
     message.add_recipient(email=user_email)
     message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit  # User/OrganizationMembership/MessagingRecord still on RootTeamManager; team access is checked explicitly below
+def send_wizard_pr_ready_email(run_id: str) -> None:
+    context = tasks_facade.get_wizard_pr_ready_email_context(run_id)
+    if context is None or context.created_by_id is None:
+        return
+    user = User.objects.filter(id=context.created_by_id).first()
+    team = Team.objects.select_related("organization").filter(id=context.team_id).first()
+    if user is None or not user.email or team is None:
+        return
+    membership = OrganizationMembership.objects.filter(organization_id=team.organization_id, user=user).first()
+    if not user.is_active or membership is None:
+        return
+    team_permissions = UserPermissions(user).team(team)
+    if team_permissions.effective_membership_level_for_parent_membership(team.organization, membership) is None:
+        return
+    if context.already_sent:
+        return
+
+    campaign_key = f"wizard_pr_ready_{context.task_id}"
+    recipient_email_hashes = get_email_hashes(user.email)
+    already_delivered = MessagingRecord.objects.filter(
+        campaign_key=campaign_key, email_hash__in=recipient_email_hashes, sent_at__isnull=False
+    ).exists()
+    if already_delivered:
+        tasks_facade.mark_task_pr_ready_email_sent(context.task_id, context.pr_url)
+        return
+
+    template_context = {
+        "pr_url": context.pr_url,
+        "repository": context.repository or "",
+        "first_name": user.first_name or "",
+        "organization_name": team.organization.name,
+        "project_name": team.name,
+        "branch_name": context.branch or "",
+        "task_id": str(context.task_id),
+        "run_id": str(context.run_id),
+        "site_url": settings.SITE_URL,
+    }
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=campaign_key,
+        subject="Your pull request is ready",
+        template_name="wizard_pr_ready",
+        template_context=template_context,
+    )
+    message.add_user_recipient(user)
+    message.send(send_async=False)
+    delivered = MessagingRecord.objects.filter(
+        campaign_key=campaign_key, email_hash__in=recipient_email_hashes, sent_at__isnull=False
+    ).exists()
+    if not delivered:
+        logger.warning(
+            "send_wizard_pr_ready_email.delivery_unconfirmed",
+            task_id=str(context.task_id),
+            run_id=str(context.run_id),
+            campaign_key=campaign_key,
+        )
+        return
+    tasks_facade.mark_task_pr_ready_email_sent(context.task_id, context.pr_url)
+
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=str(user.distinct_id),
+            event="wizard pr ready email sent",
+            properties={
+                "task_id": str(context.task_id),
+                "run_id": str(context.run_id),
+                "team_id": context.team_id,
+                "origin_product": context.origin_product,
+                "repository": context.repository,
+                "branch_name": context.branch,
+            },
+            groups=groups(team=team),
+        )
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -938,6 +1153,10 @@ def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
 @skip_team_scope_audit
 def send_two_factor_reset_email(user_id: int, token: str) -> None:
     """Send 2FA reset email to user when an admin initiates a reset."""
+    # Deferred: this constant lives in a DRF viewset module; email.py is eager-imported by
+    # posthog/tasks/__init__, so a module-level import drags that machinery onto startup.
+    from posthog.api.two_factor_reset import TWO_FACTOR_RESET_TOKEN_TIMEOUT_HOURS  # noqa: PLC0415
+
     user: User = User.objects.get(pk=user_id)
 
     reset_link = f"{settings.SITE_URL}/reset_2fa/{user.uuid}/{token}"
@@ -977,7 +1196,7 @@ def login_from_new_device_notification(
     elif user.current_organization is None:
         enabled = False
     else:
-        enabled = posthoganalytics.feature_enabled(
+        enabled = feature_enabled_or_false(
             key="login-from-new-device-notification",
             distinct_id=str(user.distinct_id),
             groups={"organization": str(user.current_organization.id)},
@@ -1729,15 +1948,11 @@ def send_error_tracking_weekly_digest() -> None:
     logger.info("Completed Error Tracking weekly digest fan-out")
 
 
-@shared_task(**EMAIL_TASK_KWARGS, rate_limit="10/s")
+@shared_task(**{**EMAIL_TASK_KWARGS, "max_retries": 5}, rate_limit="10/s", bind=True)
 @skip_team_scope_audit
-def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
-    """Send one combined weekly error tracking digest email per user in an org"""
+def send_error_tracking_weekly_digest_for_org(self: Task, org_id: str) -> None:
+    """Send one combined weekly error tracking digest per user in an org via the delivery workflow"""
     from posthog.models.organization import Organization
-    from posthog.tasks.email_utils import compute_week_over_week_change
-
-    if not is_email_available(with_absolute_urls=True):
-        return
 
     try:
         org = Organization.objects.get(id=org_id)
@@ -1749,104 +1964,323 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
     if not all_org_teams:
         return
 
-    # Use unfiltered counts only to determine which teams have any exceptions at all
+    # Which teams have any exceptions at all — one ClickHouse query for the whole org.
     unfiltered_counts = error_tracking_api.get_exception_counts(list(all_org_teams.keys()))
-    team_ids_with_exceptions = {row[0] for row in unfiltered_counts}
+    team_ids_with_exceptions = {row[0] for row in unfiltered_counts if row[0] in all_org_teams}
     if not team_ids_with_exceptions:
         return
-
-    # Pre-compute per-team digest data only for teams that have exceptions
-    team_digest_data: dict[int, dict] = {}
-    for team_id in team_ids_with_exceptions:
-        team = all_org_teams.get(team_id)
-        if not team:
-            continue
-
-        counts = error_tracking_api.get_exception_summary_for_team(team)
-        if not counts or counts["exception_count"] == 0:
-            continue
-
-        team_digest_data[team_id] = {
-            "team": team,
-            "exception_count": counts["exception_count"],
-            "exception_change": compute_week_over_week_change(
-                counts["exception_count"], counts["prev_exception_count"], higher_is_better=False
-            ),
-            "ingestion_failure_count": counts["ingestion_failure_count"],
-            "top_issues": error_tracking_api.get_top_issues_for_team(team),
-            "new_issues": error_tracking_api.get_new_issues_for_team(team),
-            "daily_counts": error_tracking_api.get_daily_exception_counts(team),
-            "crash_free": error_tracking_api.get_crash_free_sessions(team),
-            "error_tracking_url": f"{settings.SITE_URL}/project/{team_id}/error_tracking?utm_source=error_tracking_weekly_digest",
-            "ingestion_failures_url": error_tracking_api.build_ingestion_failures_url(team_id),
-        }
-
-    excluded_project_count = len(all_org_teams) - len(team_digest_data)
-
-    all_memberships = OrganizationMembership.objects.prefetch_related("user").filter(organization_id=org.id)
 
     allowed_emails = settings.ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS
     if not allowed_emails:
         logger.info(f"No allowed emails configured, skipping org {org_id}")
         return
+
+    all_memberships = OrganizationMembership.objects.prefetch_related("user").filter(organization_id=org.id)
     memberships: list[OrganizationMembership] = (
         [m for m in all_memberships if m.user.email in allowed_emails]
         if "*" not in allowed_emails
         else list(all_memberships)
     )
 
-    date_suffix = timezone.now().strftime("%Y-%W")
-    sent_count = 0
+    # First-time users are auto-enrolled onto their busiest project. Ranking must use test-account-filtered
+    # counts: unfiltered counts can permanently enroll a user onto a project whose digest builds empty
+    # (auto-select is a one-shot decision). Only computed when the org actually has a first-time user.
+    setting_key = _DIGEST_PROJECT_SETTING_KEYS[NotificationSetting.ERROR_TRACKING_WEEKLY_DIGEST.value]
+    autoselect_counts: dict[int, dict] = {}
+    if any(setting_key not in (m.user.partial_notification_settings or {}) for m in memberships):
+        autoselect_counts = {
+            tid: summary
+            for tid in team_ids_with_exceptions
+            if (summary := error_tracking_api.get_exception_summary_for_team(all_org_teams[tid]))
+            and summary["exception_count"] > 0
+        }
 
+    # Pass 1 — resolve each recipient's enabled teams from notification settings + project access only (no
+    # ClickHouse). This yields the set of teams at least one recipient will actually receive, so Pass 2 builds
+    # heavy digest data for those alone instead of for every team in the org that happens to have exceptions.
+    recipients: list[tuple[OrganizationMembership, list[int], list[str]]] = []
+    needed_team_ids: set[int] = set()
     for membership in memberships:
         user = membership.user
 
         if not should_send_notification(user, NotificationSetting.ERROR_TRACKING_WEEKLY_DIGEST.value):
             continue
 
-        # Auto-select busiest project for first-time users
-        if error_tracking_api.auto_select_project_for_user(user, org.id, team_digest_data):
+        if error_tracking_api.auto_select_project_for_user(user, org.id, autoselect_counts):
             user.refresh_from_db(fields=["partial_notification_settings"])
 
-        # Build per-user list of enabled teams
-        user_team_sections = []
-        disabled_team_names = []
-        for team_id, data in team_digest_data.items():
-            team = data["team"]
+        enabled_team_ids: list[int] = []
+        disabled_team_names: list[str] = []
+        for team_id in team_ids_with_exceptions:
+            team = all_org_teams[team_id]
             user_permissions = UserPermissions(user).team(team)
             if user_permissions.effective_membership_level_for_parent_membership(org, membership) is None:
                 continue
 
             if should_send_notification(user, NotificationSetting.ERROR_TRACKING_WEEKLY_DIGEST.value, team_id):
-                user_team_sections.append(data)
+                enabled_team_ids.append(team_id)
             else:
                 disabled_team_names.append(team.name)
 
+        if enabled_team_ids:
+            recipients.append((membership, enabled_team_ids, disabled_team_names))
+            needed_team_ids.update(enabled_team_ids)
+
+    date_suffix = timezone.now().strftime("%Y-%W")
+
+    if not needed_team_ids:
+        logger.info(f"Sent Error Tracking weekly digest to 0 members for org {org_id} (no subscribed recipients)")
+        return
+
+    # Pass 2 — build digest data only for teams a recipient has enabled. A team whose build fails is
+    # recorded in failed_team_ids; recipients not subscribed to it are unaffected, while those who are
+    # get held back for the retry (see is_final_attempt below). The task re-raises at the end to autoretry.
+    team_digest_data: dict[int, dict] = {}
+    failed_team_ids: list[int] = []
+    for team_id in needed_team_ids:
+        try:
+            data = error_tracking_api.build_team_digest_data(all_org_teams[team_id])
+        except Exception:
+            logger.exception("et_weekly_digest.team_build_failed", team_id=team_id, org_id=org_id)
+            failed_team_ids.append(team_id)
+            continue
+        if data:
+            team_digest_data[team_id] = data
+
+    # Org projects not represented as a section this week: no exceptions, no data after test-account
+    # filtering, or a failed build. Teams a recipient disabled are named in their disabled list instead,
+    # so they must not be counted here.
+    excluded_project_count = (
+        len(all_org_teams) - len(team_ids_with_exceptions) + (len(needed_team_ids) - len(team_digest_data))
+    )
+
+    # On non-final attempts, hold back a recipient whose digest is missing a team that failed to build
+    # this run. The retry re-runs the build, so a transient failure still delivers their full digest.
+    # Only once retries are exhausted do we fall back to sending the partial, so a permanently-broken
+    # team can't starve a recipient of their healthy teams. Recipients not subscribed to a failed team
+    # are unaffected and send immediately.
+    failed_team_id_set = set(failed_team_ids)
+    is_final_attempt = (getattr(self.request, "retries", 0) or 0) >= (self.max_retries or 0)
+
+    sent_count = 0
+    failed_count = 0
+    deferred_count = 0
+    lacking_sent_count = 0
+
+    for membership, enabled_team_ids, disabled_team_names in recipients:
+        user = membership.user
+
+        user_team_sections = [team_digest_data[team_id] for team_id in enabled_team_ids if team_id in team_digest_data]
         if not user_team_sections:
+            continue
+
+        # Teams the recipient subscribes to that failed to build this run: a non-empty list means their
+        # digest is "lacking" those sections. Defer them off the final attempt; on it, send the partial.
+        missing_failed_team_ids = [team_id for team_id in enabled_team_ids if team_id in failed_team_id_set]
+        if not is_final_attempt and missing_failed_team_ids:
+            deferred_count += 1
             continue
 
         user_team_sections.sort(key=lambda d: d["exception_count"], reverse=True)
 
-        campaign_key = f"error_tracking_weekly_digest_{org_id}_{user.uuid}_{date_suffix}"
-        message = EmailMessage(
-            campaign_key=campaign_key,
-            subject=f"Error tracking weekly digest for {org.name}",
-            template_name="error_tracking_weekly_digest",
-            template_context={
-                "organization": org,
-                "project_sections": user_team_sections,
-                "disabled_project_names": disabled_team_names,
-                "excluded_project_count": excluded_project_count,
-                "settings_url": f"{settings.SITE_URL}/settings/user-notifications?highlight=et-weekly-digest",
-                "contact_support_url": "https://posthog.com/support",
-                "feedback_survey_url": f"https://us.posthog.com/external_surveys/019c7fd6-7cfa-0000-2b03-a8e5d4c03743?distinct_id={user.distinct_id}",
-            },
-        )
-        message.add_user_recipient(user)
-        message.send()
-        sent_count += 1
+        distinct_id = user.distinct_id or str(user.uuid)
+        digest = {
+            "recipient_email": user.email,
+            "org_name": org.name,
+            "project_sections": [error_tracking_api.build_team_section_payload(d) for d in user_team_sections],
+            "disabled_project_names": disabled_team_names,
+            "excluded_project_count": excluded_project_count,
+            "settings_url": f"{settings.SITE_URL}/settings/user-notifications?highlight=et-weekly-digest",
+            "feedback_survey_url": f"https://us.posthog.com/external_surveys/019c7fd6-7cfa-0000-2b03-a8e5d4c03743?distinct_id={distinct_id}",
+        }
 
+        campaign_key = f"error_tracking_weekly_digest_{org_id}_{user.uuid}_{date_suffix}"
+        # Per-recipient transaction + sent_at guard so an autoretry after a mid-batch
+        # failure skips recipients whose digest was already accepted by the workflow.
+        with transaction.atomic():
+            record, _ = MessagingRecord.objects.get_or_create(raw_email=user.email, campaign_key=campaign_key)
+            record = MessagingRecord.objects.select_for_update().get(pk=record.pk)
+            if record.sent_at:
+                continue
+
+            try:
+                error_tracking_api.send_digest_to_workflow(digest, distinct_id)
+            except Exception:
+                logger.exception("et_weekly_digest.send_failed", user_id=str(user.uuid), org_id=org_id)
+                failed_count += 1
+                continue
+
+            record.sent_at = timezone.now()
+            record.save()
+            sent_count += 1
+            if missing_failed_team_ids:
+                # A lacking digest actually went out (final-attempt fallback): the recipient is missing
+                # these teams because their builds kept failing. Grep this event to audit lacking sends.
+                lacking_sent_count += 1
+                logger.warning(
+                    "et_weekly_digest.lacking_digest_sent",
+                    org_id=org_id,
+                    user_id=str(user.uuid),
+                    missing_team_ids=missing_failed_team_ids,
+                    teams_sent=len(user_team_sections),
+                )
+
+    # Per-org, per-attempt summary. Counts are per-attempt but don't double-count across retries: each
+    # recipient is sent (and counted) in exactly one attempt, then skipped via the sent_at guard. So
+    # summing a field across an org's attempts gives the true total.
     logger.info(
-        f"Sent Error Tracking weekly digest to {sent_count} members for org {org_id} "
-        f"({len(team_digest_data)} teams with exceptions)"
+        "et_weekly_digest.org_complete",
+        org_id=org_id,
+        retries=(getattr(self.request, "retries", 0) or 0),
+        is_final_attempt=is_final_attempt,
+        sent=sent_count,
+        lacking_sent=lacking_sent_count,
+        teams_built=len(team_digest_data),
+        team_builds_failed=len(failed_team_ids),
+        failed_team_ids=failed_team_ids,
+        send_failures=failed_count,
+        deferred=deferred_count,
     )
+
+    if failed_count or failed_team_ids:
+        # Trigger celery autoretry; already-sent recipients are skipped via MessagingRecord, and
+        # recipients missing a failed team were deferred above so the retry can complete them.
+        raise Exception(
+            f"Error Tracking weekly digest failed for {failed_count} recipients "
+            f"and {len(failed_team_ids)} team builds in org {org_id}"
+        )
+
+
+def get_integration_display_name(kind: str) -> str:
+    # Only kinds whose correct casing differs from the title-cased fallback need an override.
+    custom_casing = {"github": "GitHub", "gitlab": "GitLab"}
+    return custom_casing.get(kind, kind.replace("-", " ").title())
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_integration_access_request(team_id: int, requesting_user_id: int, kind: str, reason: str) -> None:
+    """Notify project admins that a member is requesting an integration be connected."""
+    team = Team.objects.select_related("organization").filter(id=team_id).first()
+    requester = User.objects.filter(id=requesting_user_id).first()
+    if team is None or requester is None:
+        return
+
+    log_context = {"team_id": team_id, "kind": kind, "requesting_user_id": requesting_user_id}
+    requester_name = sanitize_display_name(
+        requester.first_name,
+        fallback="A teammate",
+        context={"task": "send_integration_access_request", "field": "requester_first_name", **log_context},
+    )
+    org_name = sanitize_display_name(
+        team.organization.name,
+        fallback="your organization",
+        context={"task": "send_integration_access_request", "field": "organization_name", **log_context},
+    )
+    sanitized_reason = sanitize_message_body(
+        reason,
+        fallback="",
+        context={"task": "send_integration_access_request", "field": "reason", **log_context},
+    )
+    integration_name = get_integration_display_name(kind)
+
+    # Deterministic per requester + integration so re-clicking doesn't spam admins (MessagingRecord dedups).
+    campaign_key = f"integration_access_request_{team_id}_{kind}_{requesting_user_id}"
+    subject = f"{requester_name} requested the {integration_name} integration on PostHog"
+
+    # Org admins/owners always have access to every project, so the org-level filter is the access check.
+    memberships = (
+        OrganizationMembership.objects.select_related("user")
+        .filter(organization_id=team.organization_id, level__gte=OrganizationMembership.Level.ADMIN)
+        .exclude(user_id=requesting_user_id)
+    )
+    recipients = [membership.user for membership in memberships if membership.user.email]
+    if not recipients:
+        return
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=campaign_key,
+        subject=subject,
+        template_name="integration_access_requested",
+        template_context={
+            "requester_name": requester_name,
+            "requester_email": requester.email or "",
+            "integration_name": integration_name,
+            "integration_kind": kind,
+            "reason": sanitized_reason,
+            "org_name": org_name,
+            "team_name": team.name,
+            "connect_url": f"{settings.SITE_URL}/project/{team_id}/integrations/{kind}",
+        },
+        reply_to=requester.email or "",
+    )
+    for user in recipients:
+        message.add_user_recipient(user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_posthog_ai_access_request(organization_id: str, requesting_user_id: int) -> None:
+    """Notify org admins that a member is requesting PostHog AI be enabled."""
+    organization = Organization.objects.filter(id=organization_id).first()
+    requester = User.objects.filter(id=requesting_user_id).first()
+    if organization is None or requester is None:
+        return
+
+    log_context = {"organization_id": organization_id, "requesting_user_id": requesting_user_id}
+    requester_name = sanitize_display_name(
+        requester.first_name,
+        fallback="A teammate",
+        context={"task": "send_posthog_ai_access_request", "field": "requester_first_name", **log_context},
+    )
+    org_name = sanitize_display_name(
+        organization.name,
+        fallback="your organization",
+        context={"task": "send_posthog_ai_access_request", "field": "organization_name", **log_context},
+    )
+
+    # AI consent is an org-level setting reachable from any project; prefer the requester's
+    # current project so the link feels familiar, falling back to any project in the org.
+    current_team = requester.current_team
+    team = (
+        current_team
+        if current_team is not None and current_team.organization_id == organization.id
+        else organization.teams.first()
+    )
+    if team is None:
+        return
+    posthog_ai_url = (
+        f"{settings.SITE_URL}/project/{team.id}/settings/organization-details#setting=organization-ai-consent"
+    )
+
+    # Deterministic per requester so re-clicking doesn't spam admins (MessagingRecord dedups).
+    campaign_key = f"posthog_ai_access_request_{organization_id}_{requesting_user_id}"
+
+    # Org admins/owners can enable PostHog AI, so they're the recipients of the request.
+    memberships = (
+        OrganizationMembership.objects.select_related("user")
+        .filter(organization_id=organization.id, level__gte=OrganizationMembership.Level.ADMIN)
+        .exclude(user_id=requesting_user_id)
+    )
+    recipients = [membership.user for membership in memberships if membership.user.email]
+    if not recipients:
+        return
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=campaign_key,
+        subject=f"{requester_name} requested access to PostHog AI",
+        template_name="posthog_ai_access_requested",
+        template_context={
+            "requester_name": requester_name,
+            "requester_email": requester.email or "",
+            "organization_name": org_name,
+            "posthog_ai_url": posthog_ai_url,
+        },
+        reply_to=requester.email or "",
+    )
+    for user in recipients:
+        message.add_user_recipient(user)
+    message.send()

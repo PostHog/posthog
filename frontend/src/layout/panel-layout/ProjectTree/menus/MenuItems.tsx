@@ -31,15 +31,15 @@ import {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { openDeleteGroupTypeDialog } from 'scenes/settings/environment/GroupAnalyticsConfig'
 import { groupAnalyticsConfigLogic } from 'scenes/settings/environment/groupAnalyticsConfigLogic'
 
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
+import { editToolsLogic } from '../../ai-first/tabs/editToolsLogic'
 import { NewMenu } from '../../menus/NewMenu'
 import { panelLayoutLogic } from '../../panelLayoutLogic'
-import { editCustomProductsModalLogic } from '../../PinnedFolder/editCustomProductsModalLogic'
 import { projectTreeDataLogic } from '../projectTreeDataLogic'
 import { projectTreeLogic } from '../projectTreeLogic'
 import { joinPath, splitPath } from '../utils'
@@ -72,7 +72,7 @@ export function MenuItems({
     const { deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
     const { groupTypes } = useValues(groupAnalyticsConfigLogic)
     const { deleteGroupType } = useActions(groupAnalyticsConfigLogic)
-    const { selectedPaths: customProductsSelectedPaths } = useValues(editCustomProductsModalLogic)
+    const { selectedPaths: customProductsSelectedPaths } = useValues(editToolsLogic)
 
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
     const { checkedItems, checkedItemCountNumeric, checkedItemsArray } = useValues(
@@ -91,7 +91,7 @@ export function MenuItems({
     } = useActions(projectTreeLogic(projectTreeLogicProps))
     const { openMoveToModal } = useActions(moveToLogic)
     const { openLinkToModal } = useActions(linkToLogic)
-    const { toggleProduct } = useActions(editCustomProductsModalLogic)
+    const { toggleTool } = useActions(editToolsLogic)
 
     const { resetPanelLayout } = useActions(panelLayoutLogic)
 
@@ -284,7 +284,7 @@ export function MenuItems({
                     asChild
                     onClick={(e) => {
                         e.stopPropagation()
-                        toggleProduct(item.record?.path as string)
+                        toggleTool(item.record!.path as string)
                     }}
                 >
                     <ButtonPrimitive menuItem>Remove from sidebar panel</ButtonPrimitive>
@@ -296,7 +296,7 @@ export function MenuItems({
                     asChild
                     onClick={(e) => {
                         e.stopPropagation()
-                        toggleProduct(item.record?.path as string)
+                        toggleTool(item.record!.path as string)
                     }}
                 >
                     <ButtonPrimitive menuItem>Add to sidebar panel</ButtonPrimitive>

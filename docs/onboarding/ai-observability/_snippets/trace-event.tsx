@@ -1,4 +1,4 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { useMDXComponents } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 const propertyColumnStyle = { minWidth: '150px' }
 
@@ -51,6 +51,10 @@ export const TraceEvent = (): JSX.Element => {
                                     <em>(Optional)</em> Groups related traces together. Use this to organize traces by
                                     whatever grouping makes sense for your application (user sessions, workflows,
                                     conversations, or other logical boundaries).
+                                    <br />
+                                    Must contain only letters, numbers, and special characters: <code>-</code>,{' '}
+                                    <code>_</code>, <code>~</code>, <code>.</code>, <code>@</code>, <code>(</code>,{' '}
+                                    <code>)</code>, <code>!</code>, <code>'</code>, <code>:</code>, <code>|</code>
                                     <br />
                                     Example: <code>session-abc-123</code>, <code>conv-user-456</code>
                                 </p>

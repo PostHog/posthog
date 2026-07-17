@@ -7,6 +7,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { Experiment, ExperimentStatus, ExperimentsTabs, FeatureFlagType } from '~/types'
 
@@ -14,7 +15,9 @@ import {
     experimentsLogic,
     getExperimentStatus,
     getExperimentStatusColor,
+    getExperimentStatusLabel,
     hasEnded,
+    isExperimentExposureFrozen,
     isExperimentPaused,
 } from './experimentsLogic'
 
@@ -51,6 +54,7 @@ const mockDraftExperiment = createMockExperiment({
 const mkFlag = (id: number, key: string): FeatureFlagType => ({ ...NEW_FLAG, id, key })
 
 describe('experimentsLogic', () => {
+    afterEach(resumeKeaLoadersErrors)
     let logic: ReturnType<typeof experimentsLogic.build>
 
     beforeEach(() => {
@@ -126,9 +130,7 @@ describe('experimentsLogic', () => {
                 })
                 .toFinishAllListeners()
 
-            expect(api.get).toHaveBeenCalledWith(
-                expect.stringMatching(/api\/projects\/\d+\/experiments\/eligible_feature_flags\/\?/)
-            )
+            expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/api\/projects\/\d+\/feature_flags\/\?/))
         })
 
         it('hides pagination when insufficient results', () => {
@@ -273,6 +275,35 @@ describe('experimentsLogic', () => {
             expect(api.get).toHaveBeenCalledWith(expect.stringContaining('archived=true'))
         })
 
+        it('discards a stale search response that resolves after a newer one', async () => {
+            api.get.mockClear()
+
+            const staleExperiment = createMockExperiment({ id: 10, name: 'wat' })
+            const freshExperiment = createMockExperiment({ id: 20, name: 'watermark' })
+
+            let resolveStale: (value: unknown) => void = () => {}
+            api.get.mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolveStale = resolve
+                    })
+            )
+            api.get.mockResolvedValueOnce({ results: [freshExperiment], count: 1 })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadExperiments() // slow request, e.g. search for "wat"
+                logic.actions.loadExperiments() // fast request, e.g. search for "watermark"
+            }).toDispatchActions(['loadExperimentsSuccess'])
+
+            expect(logic.values.experiments.results).toEqual([freshExperiment])
+
+            // The slow, stale response arrives after the newer one — it must be discarded
+            resolveStale({ results: [staleExperiment], count: 1 })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.experiments.results).toEqual([freshExperiment])
+        })
+
         it('constructs correct params from filters', () => {
             logic.actions.setExperimentsFilters({
                 search: 'test',
@@ -303,7 +334,7 @@ describe('experimentsLogic', () => {
             api.create.mockResolvedValue({})
 
             await expectLogic(logic, () => {
-                logic.actions.archiveExperiment(mockExperiment.id as number)
+                logic.actions.archiveExperiment({ id: mockExperiment.id as number, disableFeatureFlag: false })
             })
                 .toFinishAllListeners()
                 .toMatchValues({
@@ -314,7 +345,8 @@ describe('experimentsLogic', () => {
                 })
 
             expect(api.create).toHaveBeenCalledWith(
-                expect.stringContaining(`/experiments/${mockExperiment.id}/archive`)
+                expect.stringContaining(`/experiments/${mockExperiment.id}/archive`),
+                { disable_feature_flag: false }
             )
         })
 
@@ -397,6 +429,7 @@ describe('experimentsLogic', () => {
         })
 
         it('does not run the copy success callback when the copy fails', async () => {
+            silenceKeaLoadersErrors()
             const onSuccess = jest.fn()
             api.create.mockRejectedValue(new Error('Permission denied'))
 
@@ -539,12 +572,32 @@ describe('utility functions', () => {
         })
     })
 
+    describe('getExperimentStatus', () => {
+        it('returns ExposureFrozen when the API status is exposure_frozen', () => {
+            const frozenExperiment = createMockExperiment({
+                start_date: '2024-01-01',
+                end_date: null,
+                status: ExperimentStatus.ExposureFrozen,
+                feature_flag: { active: true },
+            })
+            expect(getExperimentStatus(frozenExperiment)).toBe(ExperimentStatus.ExposureFrozen)
+            expect(isExperimentExposureFrozen(frozenExperiment)).toBe(true)
+        })
+    })
+
     describe('getExperimentStatusColor', () => {
         it('returns correct colors for each status', () => {
             expect(getExperimentStatusColor(ExperimentStatus.Draft)).toBe('default')
             expect(getExperimentStatusColor(ExperimentStatus.Running)).toBe('success')
             expect(getExperimentStatusColor(ExperimentStatus.Paused)).toBe('warning')
+            expect(getExperimentStatusColor(ExperimentStatus.ExposureFrozen)).toBe('highlight')
             expect(getExperimentStatusColor(ExperimentStatus.Stopped)).toBe('completion')
+        })
+    })
+
+    describe('getExperimentStatusLabel', () => {
+        it('labels exposure_frozen as Exposure frozen', () => {
+            expect(getExperimentStatusLabel(ExperimentStatus.ExposureFrozen)).toBe('Exposure frozen')
         })
     })
 

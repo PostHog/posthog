@@ -15,14 +15,25 @@ import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
+import { buildToolDomainsCompact } from '@/lib/instructions'
+import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
+import { getToolDefinition } from '@/tools/toolDefinitions'
+
+// A tool with a renderable (dispatchable) UI app — used to exercise the render-ui path.
+const uiAppTool = {
+    name: 'survey-get',
+    annotations: { readOnlyHint: true },
+    _meta: { ui: { resourceUri: URI_MAP['survey'] } },
+}
 
 function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> = {}): ResolvedState {
     return {
         reqCtx: {
             cache: { get: vi.fn(), set: vi.fn() },
-            getAnalyticsContextSafe: vi.fn().mockResolvedValue(undefined),
+            safelyGetAnalyticsContext: vi.fn().mockResolvedValue(undefined),
             trackEvent: vi.fn(),
             getSessionUuid: vi.fn().mockResolvedValue(undefined),
+            getEffectiveSessionUuid: vi.fn().mockResolvedValue(undefined),
         } as any,
         context: {
             api: {},
@@ -38,7 +49,10 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         apiKeyScopes: [],
         clientProfile: {
             capabilities: { supportsInstructions: true },
-            isCodingAgent: vi.fn(() => false),
+            isCliModeEnabled: vi.fn(() => false),
+            isClaudeUiHost: vi.fn(() => false),
+            isInlineExecUiHost: vi.fn(() => false),
+            isClaudeChatHost: vi.fn(() => false),
         } as any,
         requestContext: {
             sessionId: 'sess-1',
@@ -51,6 +65,9 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         allTools: tools as any,
         scopeGatedTools: [],
         distinctId: 'test-distinct-id',
+        renderUiEnabled: false,
+        metadata: undefined,
+        groupTypes: undefined,
         ...overrides,
     }
 }
@@ -167,6 +184,151 @@ describe('ToolExecutor', () => {
             const result = await executor.handleToolsList(state)
             expect(result.tools).toHaveLength(1)
             expect(result.tools[0]!.name).toBe('exec')
+        })
+
+        // Env-context (active project metadata + tool-domain index) must reach the model
+        // on the exec `command` for clients that don't otherwise receive the `instructions`
+        // payload: Codex reports `supportsInstructions: false` so never gets it, and Claude
+        // web/desktop report `true` but silently ignore it. Claude Code and Cowork strip
+        // it here because it arrives via `instructions` instead.
+        it.each([
+            {
+                label: 'Claude web/desktop (ignores instructions)',
+                supportsInstructions: true,
+                isClaudeChatHost: true,
+                expectEnv: true,
+            },
+            {
+                label: 'Codex (supportsInstructions: false)',
+                supportsInstructions: false,
+                isClaudeChatHost: false,
+                expectEnv: true,
+            },
+            {
+                label: 'Claude Code / Cowork (consume instructions)',
+                supportsInstructions: true,
+                isClaudeChatHost: false,
+                expectEnv: false,
+            },
+        ])(
+            'injects project metadata into the exec command for $label → $expectEnv',
+            async ({ supportsInstructions, isClaudeChatHost, expectEnv }) => {
+                const tools = catalog
+                    .getPreBuiltEntries()
+                    .slice(0, 5)
+                    .map((e) => ({ name: e.name }))
+                const metadataMarker = 'CURRENT PROJECT: Acme (timezone America/New_York)'
+
+                const state = makeState(tools, {
+                    useSingleExec: true,
+                    metadata: metadataMarker,
+                    clientProfile: {
+                        capabilities: { supportsInstructions },
+                        isCliModeEnabled: vi.fn(() => true),
+                        isClaudeUiHost: vi.fn(() => false),
+                        isInlineExecUiHost: vi.fn(() => false),
+                        isClaudeChatHost: vi.fn(() => isClaudeChatHost),
+                    } as any,
+                })
+
+                const result = await executor.handleToolsList(state)
+                const commandDesc = (result.tools[0]!.inputSchema.properties as any).command.description as string
+                const compactDomains = buildToolDomainsCompact(
+                    tools.map(({ name }) => ({ name, category: getToolDefinition(name).category }))
+                )
+
+                expect(commandDesc).toContain('PostHog tools have lowercase kebab-case naming')
+                expect(commandDesc.includes('**LEARN FIRST: HARD REQUIREMENT**')).toBe(isClaudeChatHost)
+                expect(commandDesc.includes('- analytics:')).toBe(isClaudeChatHost)
+                expect(commandDesc.includes('### Retrieving data')).toBe(!isClaudeChatHost)
+                expect(commandDesc.includes(compactDomains)).toBe(isClaudeChatHost)
+                if (expectEnv) {
+                    expect(commandDesc).toContain(metadataMarker)
+                } else {
+                    expect(commandDesc).not.toContain(metadataMarker)
+                }
+            }
+        )
+
+        it('serves multiple optional guidance topics through exec learn for Claude web/desktop', async () => {
+            const state = makeState(
+                catalog
+                    .getPreBuiltEntries()
+                    .slice(0, 5)
+                    .map(({ name }) => ({ name })),
+                {
+                    useSingleExec: true,
+                    renderUiEnabled: true,
+                    clientProfile: {
+                        capabilities: { supportsInstructions: true },
+                        isCliModeEnabled: vi.fn(() => true),
+                        isClaudeUiHost: vi.fn(() => false),
+                        isInlineExecUiHost: vi.fn(() => false),
+                        isClaudeChatHost: vi.fn(() => true),
+                    } as any,
+                }
+            )
+
+            const result = (await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'learn analytics visualizations' } },
+                state
+            )) as { content: { text: string }[] }
+
+            expect(result.content[0]!.text).toContain('## Analytics')
+            expect(result.content[0]!.text).toContain('### Retrieving data')
+            expect(result.content[0]!.text).toContain('### Examples')
+            expect(result.content[0]!.text).toContain('## Visualizations')
+            expect(result.content[0]!.text).toContain('### Rendering visualizations')
+        })
+
+        it('lists render-ui alongside exec when render-ui is enabled and a UI-app tool is available', async () => {
+            const state = makeState([uiAppTool], { useSingleExec: true, renderUiEnabled: true })
+
+            const result = await executor.handleToolsList(state)
+            expect(result.tools.map((t) => t.name)).toEqual(['exec', 'render-ui'])
+
+            // The advertised schema is derived from the zod validation schema —
+            // pin the contract the agent writes calls against.
+            const renderUiEntry = result.tools[1]!
+            const properties = renderUiEntry.inputSchema.properties as Record<string, Record<string, unknown>>
+            expect(properties.tool_name!.enum).toEqual(['survey-get'])
+            expect(properties.tool_name!.description).toBeTruthy()
+            expect(properties.tool_input!.description).toBeTruthy()
+            expect(renderUiEntry.inputSchema.required).toEqual(['tool_name'])
+        })
+
+        it('omits render-ui when render-ui is disabled, even with a UI-app tool available', async () => {
+            const state = makeState([uiAppTool], { useSingleExec: true, renderUiEnabled: false })
+
+            const result = await executor.handleToolsList(state)
+            expect(result.tools.map((t) => t.name)).toEqual(['exec'])
+        })
+    })
+
+    describe('render-ui', () => {
+        it('dispatches to the render-ui payload when render-ui is enabled', async () => {
+            const state = makeState([uiAppTool], { useSingleExec: true, renderUiEnabled: true })
+
+            const result = (await executor.handleToolCall(
+                { name: 'render-ui', arguments: { tool_name: 'survey-get', tool_input: { surveyId: 'abc' } } },
+                state
+            )) as any
+
+            expect(result._meta.ui.resourceUri).toBe(RENDER_UI_RESOURCE_URI)
+            expect(result.structuredContent.tool_name).toBe('survey-get')
+            expect(result.structuredContent.app_key).toBe('survey')
+        })
+
+        it('rejects a render-ui call when render-ui is disabled', async () => {
+            const state = makeState([uiAppTool], { useSingleExec: true, renderUiEnabled: false })
+
+            const result = (await executor.handleToolCall(
+                { name: 'render-ui', arguments: { tool_name: 'survey-get', tool_input: { surveyId: 'abc' } } },
+                state
+            )) as any
+
+            expect(result.isError).toBe(true)
+            expect(result.content[0].text).toContain('not found')
         })
     })
 })

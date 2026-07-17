@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useState } from 'react'
 
-import { IconArrowRight, IconBell, IconGithub, IconLinear } from '@posthog/icons'
+import { IconArrowRight, IconBell, IconGithub, IconGraph, IconHeartPlus, IconLinear } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { RecordingsUniversalFiltersDisplay } from 'lib/components/Cards/InsightCard/RecordingsUniversalFiltersDisplay'
@@ -12,6 +11,7 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import iconZendesk from 'public/services/zendesk.svg'
 
+import { captureSignalSourceInterest } from './inboxAnalytics'
 import { PgAnalyzeIcon as IconPgAnalyze } from './PgAnalyzeIcon'
 import { signalSourcesLogic } from './signalSourcesLogic'
 import { SignalSourceConfigStatus } from './types'
@@ -51,7 +51,7 @@ function NotifyMeButton({ source }: { source: string }): JSX.Element {
             size="xsmall"
             disabledReason={notified ? "We'll let you know!" : undefined}
             onClick={() => {
-                posthog.capture('signals source interest', { source })
+                captureSignalSourceInterest(source)
                 setNotified(true)
             }}
             icon={<IconBell />}
@@ -147,12 +147,16 @@ export function SourcesList(): JSX.Element {
         zendeskTicketsConfig,
         pgAnalyzeIssuesConfig,
         errorTrackingIsFullyEnabled,
+        healthChecksConfig,
+        anomalyInvestigationConfig,
         isSessionAnalysisToggling,
         isGithubIssuesToggling,
         isLinearIssuesToggling,
         isZendeskTicketsToggling,
         isPgAnalyzeIssuesToggling,
         isErrorTrackingToggling,
+        isHealthChecksToggling,
+        isAnomalyInvestigationToggling,
     } = useValues(signalSourcesLogic)
     const {
         toggleSessionAnalysis,
@@ -160,6 +164,8 @@ export function SourcesList(): JSX.Element {
         clearSessionAnalysisFilters,
         initiateDataWarehouseSourceToggle,
         toggleErrorTracking,
+        toggleHealthChecks,
+        toggleAnomalyInvestigation,
     } = useActions(signalSourcesLogic)
 
     const recordingFilters = sessionAnalysisConfig?.config?.recording_filters
@@ -206,6 +212,26 @@ export function SourcesList(): JSX.Element {
                 checked={errorTrackingIsFullyEnabled}
                 loading={isErrorTrackingToggling}
                 onToggle={() => toggleErrorTracking()}
+            />
+
+            <Source
+                icon={<IconHeartPlus className="size-5 text-danger" />}
+                title="PostHog Health checks"
+                description="Instrumentation issues – missing events, proxy gaps, outdated SDKs → Signals"
+                variant="available"
+                checked={!!healthChecksConfig?.enabled}
+                loading={isHealthChecksToggling}
+                onToggle={() => toggleHealthChecks()}
+            />
+
+            <Source
+                icon={<IconGraph className="size-5 text-accent" />}
+                title="PostHog Product Analytics"
+                description="Anomalies in your tracked metrics, investigated automatically → Signals"
+                variant="available"
+                checked={!!anomalyInvestigationConfig?.enabled}
+                loading={isAnomalyInvestigationToggling}
+                onToggle={() => toggleAnomalyInvestigation()}
             />
 
             <Source

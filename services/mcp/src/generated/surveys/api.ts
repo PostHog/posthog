@@ -18,13 +18,14 @@ export const SurveysListParams = /* @__PURE__ */ zod.object({
 
 export const SurveysListQueryParams = /* @__PURE__ */ zod.object({
     archived: zod.boolean().optional(),
+    ids: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod
         .string()
         .optional()
         .describe(
-            'Fuzzy match against survey `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.'
+            "Match against survey `name` and `description`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`."
         ),
     type: zod
         .enum(['api', 'external_survey', 'popover', 'widget'])
@@ -412,6 +413,12 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
         .array(
             zod.union([
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['open']).describe('* `open` - open'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -424,6 +431,12 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     buttonText: zod.string().optional().describe('Custom button label.'),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['link']).describe('* `link` - link'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -437,6 +450,12 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     link: zod.string().describe('HTTPS or mailto URL for link questions.'),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['rating']).describe('* `rating` - rating'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -521,6 +540,12 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                         .optional(),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['single_choice']).describe('* `single_choice` - single_choice'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -604,6 +629,12 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                         .optional(),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['multiple_choice']).describe('* `multiple_choice` - multiple_choice'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -725,6 +756,16 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                 placeholder: zod.string().optional(),
                 shuffleQuestions: zod.boolean().optional(),
                 surveyPopupDelaySeconds: zod.number().optional(),
+                allowGoBack: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether to show a 'Back' button on web surveys after the first question, letting respondents return to a previously visited question. Defaults to false."
+                    ),
+                backButtonText: zod
+                    .string()
+                    .optional()
+                    .describe("Optional override for the back button label. Defaults to 'Back'."),
                 widgetType: zod
                     .enum(['button', 'tab', 'selector'])
                     .optional()
@@ -1209,6 +1250,12 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
         .array(
             zod.union([
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['open']).describe('* `open` - open'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -1221,6 +1268,12 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     buttonText: zod.string().optional().describe('Custom button label.'),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['link']).describe('* `link` - link'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -1234,6 +1287,12 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     link: zod.string().describe('HTTPS or mailto URL for link questions.'),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['rating']).describe('* `rating` - rating'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -1318,6 +1377,12 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                         .optional(),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['single_choice']).describe('* `single_choice` - single_choice'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -1401,6 +1466,12 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                         .optional(),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['multiple_choice']).describe('* `multiple_choice` - multiple_choice'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -1522,6 +1593,16 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                 placeholder: zod.string().optional(),
                 shuffleQuestions: zod.boolean().optional(),
                 surveyPopupDelaySeconds: zod.number().optional(),
+                allowGoBack: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether to show a 'Back' button on web surveys after the first question, letting respondents return to a previously visited question. Defaults to false."
+                    ),
+                backButtonText: zod
+                    .string()
+                    .optional()
+                    .describe("Optional override for the back button label. Defaults to 'Back'."),
                 widgetType: zod
                     .enum(['button', 'tab', 'selector'])
                     .optional()
@@ -1702,15 +1783,15 @@ export const SurveysResponsesListQueryParams = /* @__PURE__ */ zod.object({
 
 /**
  * Get survey response statistics for a specific survey.
-
-Args:
-    date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
-    date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
-    exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
-    include_per_question_stats: Optional boolean to include per-question response counts and distributions
-
-Returns:
-    Survey statistics including event counts, unique respondents, and conversion rates
+ *
+ * Args:
+ *     date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+ *     date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+ *     exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
+ *     include_per_question_stats: Optional boolean to include per-question response counts and distributions
+ *
+ * Returns:
+ *     Survey statistics including event counts, unique respondents, and conversion rates
  */
 export const SurveysStatsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
@@ -1784,13 +1865,13 @@ export const SurveysSummarizeResponsesCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Get aggregated response statistics across all surveys.
-
-Args:
-    date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
-    date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
-
-Returns:
-    Aggregated statistics across all surveys including total counts and rates
+ *
+ * Args:
+ *     date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+ *     date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+ *
+ * Returns:
+ *     Aggregated statistics across all surveys including total counts and rates
  */
 export const SurveysGlobalStatsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod

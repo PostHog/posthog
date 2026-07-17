@@ -2,7 +2,7 @@ import { Meta, StoryObj } from '@storybook/react'
 
 import { Stage, useReactiveTheme } from '../../story-helpers'
 import { BoxPlot } from './BoxPlot'
-import type { BoxPlotSeries } from './computeBoxLayout'
+import type { BoxPlotSeries } from './types'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 

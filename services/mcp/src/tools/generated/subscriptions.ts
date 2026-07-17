@@ -38,6 +38,9 @@ const subscriptionsCreate = (): ToolBase<typeof SubscriptionsCreateSchema, Schem
         if (params.prompt !== undefined) {
             body['prompt'] = params.prompt
         }
+        if (params.ai_prompt_config !== undefined) {
+            body['ai_prompt_config'] = params.ai_prompt_config
+        }
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type
         }
@@ -73,6 +76,15 @@ const subscriptionsCreate = (): ToolBase<typeof SubscriptionsCreateSchema, Schem
         }
         if (params.integration_id !== undefined) {
             body['integration_id'] = params.integration_id
+        }
+        if (params.send_test_now !== undefined) {
+            body['send_test_now'] = params.send_test_now
+        }
+        if (params.summary_enabled !== undefined) {
+            body['summary_enabled'] = params.summary_enabled
+        }
+        if (params.summary_prompt_guide !== undefined) {
+            body['summary_prompt_guide'] = params.summary_prompt_guide
         }
         const result = await context.api.request<Schemas.Subscription>({
             method: 'POST',
@@ -116,7 +128,7 @@ const subscriptionsDeliveriesList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedSubscriptionDeliveryList>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/`,
             query: {
                 cursor: params.cursor,
                 status: params.status,
@@ -125,7 +137,13 @@ const subscriptionsDeliveriesList = (): ToolBase<
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                omitResponseFields(item, ['content_snapshot', 'recipient_results', 'error'])
+                omitResponseFields(item, [
+                    'content_snapshot',
+                    'recipient_results',
+                    'error',
+                    'ai_report',
+                    'ai_report_diagnostics',
+                ])
             ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/subscriptions')
@@ -144,9 +162,14 @@ const subscriptionsDeliveriesRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SubscriptionDelivery>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/${encodeURIComponent(String(params.id))}/`,
         })
-        const filtered = omitResponseFields(result, ['content_snapshot', 'recipient_results', 'error']) as typeof result
+        const filtered = omitResponseFields(result, [
+            'content_snapshot',
+            'recipient_results',
+            'error',
+            'ai_report_diagnostics',
+        ]) as typeof result
         return filtered
     },
 })
@@ -167,7 +190,9 @@ const subscriptionsList = (): ToolBase<
             query: {
                 created_by: params.created_by,
                 dashboard: params.dashboard,
+                dashboard_tiles: params.dashboard_tiles,
                 insight: params.insight,
+                insights: params.insights,
                 limit: params.limit,
                 offset: params.offset,
                 ordering: params.ordering,
@@ -206,6 +231,9 @@ const subscriptionsPartialUpdate = (): ToolBase<typeof SubscriptionsPartialUpdat
         if (params.prompt !== undefined) {
             body['prompt'] = params.prompt
         }
+        if (params.ai_prompt_config !== undefined) {
+            body['ai_prompt_config'] = params.ai_prompt_config
+        }
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type
         }
@@ -241,6 +269,12 @@ const subscriptionsPartialUpdate = (): ToolBase<typeof SubscriptionsPartialUpdat
         }
         if (params.integration_id !== undefined) {
             body['integration_id'] = params.integration_id
+        }
+        if (params.summary_enabled !== undefined) {
+            body['summary_enabled'] = params.summary_enabled
+        }
+        if (params.summary_prompt_guide !== undefined) {
+            body['summary_prompt_guide'] = params.summary_prompt_guide
         }
         const result = await context.api.request<Schemas.Subscription>({
             method: 'PATCH',

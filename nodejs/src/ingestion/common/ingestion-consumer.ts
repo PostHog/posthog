@@ -2,13 +2,13 @@ import { Message } from 'node-rdkafka'
 import { Gauge } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { logger } from '~/common/utils/logger'
+import { IngestionConsumerConfig } from '~/ingestion/config'
+import { BatchResult, FeedResult } from '~/ingestion/framework/batching-pipeline'
+import { createOkContext } from '~/ingestion/framework/helpers'
+import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
+import { HealthCheckResult, PluginServerService } from '~/types'
 
-import { HealthCheckResult, PluginServerService } from '../../types'
-import { logger } from '../../utils/logger'
-import { IngestionConsumerConfig } from '../config'
-import { BatchResult, FeedResult } from '../pipelines/batching-pipeline'
-import { createOkContext } from '../pipelines/helpers'
-import { OkResultWithContext } from '../pipelines/pipeline.interface'
 import { Scope, extend } from './scopes'
 import { KafkaConsumerComponent, KafkaConsumerInterface } from './utils/kafka-consumer'
 import { PromiseScheduler } from './utils/promise-scheduler'
@@ -31,9 +31,10 @@ export type PipelineFactory<S extends Record<string, object>> = (
 
 /**
  * Constraint on a scope's container: must expose a `promiseScheduler`.
- * The common consumer pulls it from the container to schedule pipeline
- * side effects. The scheduler is owned by the user-provided scope so its
- * lifetime spans the consumer's lifetime.
+ * The pipeline schedules its side effects there; the common consumer
+ * pulls it from the container to await them after each batch. The
+ * scheduler is owned by the user-provided scope so its lifetime spans
+ * the consumer's lifetime.
  */
 export type ContainerWithPromiseScheduler = Record<string, object> & { promiseScheduler: PromiseScheduler }
 
@@ -150,11 +151,10 @@ class KafkaBatchHandler {
             throw new Error(`Pipeline rejected batch: ${feedResult.reason}`)
         }
 
+        // The pipeline handles its own side effects (scheduling them on the
+        // promise scheduler), so draining results is all that's left to do.
         let result = await this.pipeline.next()
         while (result !== null) {
-            for (const sideEffect of result.sideEffects ?? []) {
-                void this.promiseScheduler.schedule(sideEffect)
-            }
             result = await this.pipeline.next()
         }
 

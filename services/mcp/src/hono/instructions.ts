@@ -1,14 +1,27 @@
+import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
-import { hasScope } from '@/lib/api'
+import { PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
 import type { QueryToolInfo } from '@/lib/instructions'
 import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
-import type { RequestProperties } from '@/lib/request-properties'
+import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { formatPrompt } from '@/lib/utils'
+import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
+import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
+import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
+import { ExecHelpCatalog } from '@/tools/exec-help'
+import {
+    getRenderableToolNames,
+    makeRenderUiSchema,
+    RENDER_UI_TOOL_DESCRIPTION,
+    RENDER_UI_TOOL_NAME,
+    RENDER_UI_TOOL_TITLE,
+} from '@/tools/render-ui'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 
 import type { ResolvedState } from './request-state-resolver'
+import { toMcpInputSchema } from './tool-catalog'
 
 export class InstructionsBuilder {
     private readonly formatter: InstructionsFormatter
@@ -19,27 +32,13 @@ export class InstructionsBuilder {
         this.formatter = formatter ?? new InstructionsFormatter()
     }
 
-    async build(props: RequestProperties, state: ResolvedState): Promise<string> {
+    build(state: ResolvedState): string {
         const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
         if (!supportsInstructions) {
             return ''
         }
 
-        const { projectId } = props
-        const resolvedProjectId = projectId || (await state.reqCtx.cache.get('projectId'))
-        const [groupTypes, metadata] = await Promise.all([
-            resolvedProjectId && hasScope(state.apiKeyScopes, 'group:read')
-                ? state.context.stateManager.getOrFetchGroupTypes(resolvedProjectId)
-                : undefined,
-            state.context.stateManager.getEnvironmentPrompt(),
-        ])
-
-        const ctx: InstructionsContext = {
-            ...this.buildContext(state),
-            groupTypes,
-            metadata,
-        }
-
+        const ctx = this.buildContext(state)
         if (state.useSingleExec) {
             return this.formatter.buildExecInstructions(ctx)
         }
@@ -63,16 +62,14 @@ export class InstructionsBuilder {
                         ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
                     } as QueryToolInfo
                 }),
-            featureFlags: state.toolFeatureFlags,
+            renderUiEnabled: state.renderUiEnabled,
+            metadata: state.metadata,
+            groupTypes: state.groupTypes,
         }
     }
 
     buildExecToolEntry(state: ResolvedState): McpTool {
-        const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
-        const ctx = this.buildContext(state)
-        const commandReference = this.formatter.buildExecCommandReference(ctx, {
-            stripEnvContext: supportsInstructions,
-        })
+        const commandReference = this.buildExecCommandReference(state)
         const ExecSchema = { command: { type: 'string', description: commandReference } }
 
         return {
@@ -83,12 +80,52 @@ export class InstructionsBuilder {
         }
     }
 
+    buildRenderUiToolEntry(state: ResolvedState): McpTool | null {
+        const toolNames = getRenderableToolNames(state.allTools)
+        if (toolNames.length === 0) {
+            return null
+        }
+        return {
+            name: RENDER_UI_TOOL_NAME,
+            title: RENDER_UI_TOOL_TITLE,
+            description: RENDER_UI_TOOL_DESCRIPTION,
+            // Derived from the same zod schema the executor validates with, so the
+            // advertised contract (enum, descriptions, required) cannot drift from it.
+            inputSchema: toMcpInputSchema(makeRenderUiSchema(toolNames as [string, ...string[]])),
+            // Advertise the umbrella UI resource so MCP Apps hosts (e.g. Claude) discover
+            // render-ui as renderable from `tools/list` and mount its iframe. Both the
+            // modern and legacy keys are emitted since this entry isn't normalized downstream.
+            _meta: {
+                ui: { resourceUri: RENDER_UI_RESOURCE_URI },
+                [RESOURCE_URI_META_KEY]: RENDER_UI_RESOURCE_URI,
+            },
+        }
+    }
+
     buildExecCommandReference(state: ResolvedState): string {
         const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
+        // Claude web/desktop report `supportsInstructions` but never surface the
+        // `instructions` payload to the model, so its env-context (tool domains,
+        // project metadata, group types) would be lost. Keep it on the exec command
+        // description for those chat hosts only — Cowork surfaces instructions
+        // normally and gets env-context through them. (Codex, which reports
+        // `supportsInstructions: false`, already gets the full env-context via the
+        // un-stripped path.)
+        const keepEnvContext = state.clientProfile.isClaudeChatHost()
         const ctx = this.buildContext(state)
+        if (keepEnvContext) {
+            return this.formatter.buildClaudeExecCommandReference(ctx)
+        }
         return this.formatter.buildExecCommandReference(ctx, {
             stripEnvContext: supportsInstructions,
         })
+    }
+
+    buildExecHelpCatalog(state: ResolvedState): ExecHelpCatalog | undefined {
+        if (!state.clientProfile.isClaudeChatHost()) {
+            return undefined
+        }
+        return new ExecHelpCatalog(this.formatter.buildClaudeExecHelpEntries(this.buildContext(state)))
     }
 
     buildExecToolDescription(): string {
@@ -99,7 +136,16 @@ export class InstructionsBuilder {
         return this.guidelines
     }
 
-    formatExecuteSqlDescription(): string {
-        return formatPrompt(EXECUTE_SQL_PROMPT, { guidelines: this.guidelines.trim() })
+    formatExecuteSqlDescription(toolFeatureFlags?: EvaluatedFlags): string {
+        // Metric discovery is spliced into the same section so a flag-off render stays
+        // byte-identical to the un-gated prompt (no stray placeholder gaps).
+        const metricDiscoveryEnabled = toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true
+        const schemaDiscovery = metricDiscoveryEnabled
+            ? `${SCHEMA_DISCOVERY.trim()}\n\n${METRIC_DISCOVERY.trim()}`
+            : SCHEMA_DISCOVERY.trim()
+        return formatPrompt(EXECUTE_SQL_PROMPT, {
+            guidelines: this.guidelines.trim(),
+            schema_discovery: schemaDiscovery,
+        })
     }
 }

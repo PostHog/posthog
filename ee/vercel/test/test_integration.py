@@ -20,7 +20,7 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.vercel.types import VercelUserClaims
-from ee.vercel.integration import VercelIntegration
+from ee.vercel.integration import VercelIntegration, _safe_vercel_sync
 
 
 class TestVercelIntegration(TestCase):
@@ -162,7 +162,7 @@ class TestVercelIntegration(TestCase):
     def test_update_installation_not_found(self):
         VercelIntegration.update_installation(self.NONEXISTENT_INSTALLATION_ID, "pro200")
 
-    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.billing.billing_manager.BillingManager")
     @patch("ee.vercel.integration.get_cached_instance_license")
     def test_delete_installation(self, mock_license, mock_billing_manager):
         mock_license.return_value = Mock()
@@ -182,7 +182,7 @@ class TestVercelIntegration(TestCase):
 
         assert OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
 
-    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.billing.billing_manager.BillingManager")
     @patch("ee.vercel.integration.get_cached_instance_license")
     def test_delete_installation_calls_billing_deauthorize(self, mock_license, mock_billing_manager):
         """Deleting installation should notify billing service to cancel subscription."""
@@ -200,7 +200,7 @@ class TestVercelIntegration(TestCase):
             self.organization, billing_provider=BillingProvider.VERCEL
         )
 
-    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.billing.billing_manager.BillingManager")
     @patch("ee.vercel.integration.get_cached_instance_license")
     def test_delete_installation_aborts_on_billing_failure(self, mock_license, mock_billing_manager):
         """Deletion should not proceed if billing deauthorization fails, so Vercel retries the webhook."""
@@ -215,7 +215,7 @@ class TestVercelIntegration(TestCase):
 
         assert OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
 
-    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.billing.billing_manager.BillingManager")
     @patch("ee.vercel.integration.get_cached_instance_license")
     def test_delete_installation_blocked_by_open_invoices(self, mock_license, mock_billing_manager):
         from ee.billing.billing_manager import BillingServiceOpenInvoicesError
@@ -413,7 +413,7 @@ class TestVercelIntegration(TestCase):
             self.fail("SSO should NOT require login for trusted Vercel user")
 
     @patch("ee.vercel.integration.report_user_signed_up")
-    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.billing.billing_manager.BillingManager")
     @patch("ee.vercel.integration.get_cached_instance_license")
     def test_billing_failure_does_not_delete_existing_user(self, mock_license, mock_billing, mock_report):
         """Billing failure should NOT delete existing users (only newly created ones)."""
@@ -869,6 +869,38 @@ class TestVercelIntegration(TestCase):
         experiment.save()
 
         mock_sync.assert_called_once_with(experiment, False)
+
+    @parameterized.expand(
+        [
+            ("delete_skips_autocreate", True, False, 0),
+            ("sync_autocreates", False, True, 1),
+        ]
+    )
+    def test_safe_vercel_sync_only_autocreates_resource_on_sync(
+        self, _name, is_delete, should_create, expected_sync_calls
+    ):
+        team = Team.objects.create(organization=self.organization, name="No Resource Team")
+        sync_func = Mock()
+
+        _safe_vercel_sync("op", "item_1", team, sync_func, is_delete=is_delete)
+
+        created = Integration.objects.filter(team=team, kind=Integration.IntegrationKind.VERCEL).exists()
+        assert created is should_create
+        assert sync_func.call_count == expected_sync_calls
+
+    @patch("ee.vercel.integration.VercelAPIClient")
+    def test_feature_flag_post_delete_does_not_recreate_vercel_resource(self, _mock_client):
+        # Regression: project deletion looped forever. During the team-deletion cascade the team's Vercel
+        # resource is deleted before its feature flags, so each flag's post_delete auto-created a connectable
+        # Integration row for the team being deleted in the same atomic transaction — orphaning it and failing
+        # COMMIT with an IntegrityError on the team FK. The delete path must never auto-create a resource.
+        team = Team.objects.create(organization=self.organization, name="Doomed Team")
+        flag = FeatureFlag.objects.create(team=team, key="doomed-flag")
+        Integration.objects.filter(team=team, kind=Integration.IntegrationKind.VERCEL).delete()
+
+        flag.delete()
+
+        assert not Integration.objects.filter(team=team, kind=Integration.IntegrationKind.VERCEL).exists()
 
 
 class TestVercelInstallationRegressions(TestCase):

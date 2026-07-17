@@ -2,13 +2,10 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 
-use aws_config::BehaviorVersion;
 use clap::Parser;
 use common_database::{get_pool, PostgresReader};
 use common_hypercache::writer::HyperCacheWriter;
-use common_hypercache::{HyperCacheConfig, KeyType};
 use common_redis::CompressionConfig;
-use common_s3::{S3Client, S3Impl};
 use common_types::TeamId;
 use envconfig::Envconfig;
 use rand::Rng;
@@ -17,19 +14,13 @@ use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 use feature_flags::flags::cache_builder::build_flags_cache;
+use feature_flags::flags::cache_writer::{build_writer, persist_flags_cache};
+use feature_flags::flags::warm_run_status::{
+    is_active, read_current_status, WarmRunReporter, WarmRunState,
+};
 use feature_flags::server::create_redis_client;
 
 common_alloc::used!();
-
-/// Redis sorted-set key used by Python's `FLAGS_CACHE_EXPIRY_SORTED_SET`. Keeping these
-/// in lockstep lets the existing refresh/verification workflows pick up entries this
-/// binary warms.
-const FLAGS_CACHE_EXPIRY_SORTED_SET: &str = "flags_cache_expiry";
-
-/// HyperCache namespace and object-name used by Python's flags warmer. Must match the
-/// feature-flags service's reader so entries written here are discoverable at request time.
-const HYPERCACHE_NAMESPACE: &str = "feature_flags";
-const HYPERCACHE_OBJECT_NAME: &str = "flags.json";
 
 /// Logging tag passed to `create_redis_client`; appears in connection-retry and failure logs.
 const REDIS_CLIENT_TYPE: &str = "flags-cache-warmer";
@@ -74,6 +65,19 @@ struct Cli {
     /// don't accidentally write flags-cache entries into the shared Redis tier.
     #[arg(long)]
     allow_default_redis: bool,
+
+    /// Disable publishing run status to the flags Redis. Status is published by
+    /// default for full-scan runs (no explicit team IDs) so the staff cache tools
+    /// page can show live progress; targeted `--team-ids` runs never publish, as
+    /// they shouldn't claim the global warm-all status slot.
+    #[arg(long)]
+    no_report_status: bool,
+
+    /// Start even when the status blob shows another warm-all run as active.
+    /// The guard is heartbeat-based (a run whose status stopped updating is
+    /// considered dead), so this is only needed to race a genuinely live run.
+    #[arg(long)]
+    force: bool,
 }
 
 #[derive(Envconfig)]
@@ -174,19 +178,15 @@ async fn main() {
     };
     let redis_client: Arc<dyn common_redis::Client + Send + Sync> = redis_client;
 
-    let s3_client = create_s3_client(&infra).await;
-
-    let mut cache_config = HyperCacheConfig::new(
-        HYPERCACHE_NAMESPACE.to_string(),
-        HYPERCACHE_OBJECT_NAME.to_string(),
-        infra.object_storage_region.clone(),
-        infra.object_storage_bucket.clone(),
+    let writer = Arc::new(
+        build_writer(
+            redis_client.clone(),
+            &infra.object_storage_region,
+            &infra.object_storage_bucket,
+            Some(infra.object_storage_endpoint.as_str()),
+        )
+        .await,
     );
-    if !infra.object_storage_endpoint.is_empty() {
-        cache_config.s3_endpoint = Some(infra.object_storage_endpoint.clone());
-    }
-    cache_config.expiry_sorted_set_key = Some(FLAGS_CACHE_EXPIRY_SORTED_SET.to_string());
-    let writer = Arc::new(HyperCacheWriter::new(redis_client, s3_client, cache_config));
 
     let plan = build_team_plan(&cli, &pg_reader).await;
     if plan.total == 0 {
@@ -194,13 +194,71 @@ async fn main() {
         return;
     }
 
+    let reporter = build_reporter(&cli, &plan, redis_client).await;
+
     tracing::info!(
         "Warming flags cache for {} teams (concurrency: {})",
         plan.total,
         cli.concurrency
     );
 
-    run_warm(plan, writer, pg_reader, &cli).await;
+    run_warm(plan, writer, pg_reader, &cli, reporter).await;
+}
+
+/// Build the status reporter for full-scan runs, guarding against a second
+/// concurrent warm-all. The guard is check-then-write over the status blob —
+/// two operators starting within one heartbeat of each other can both pass,
+/// which only wastes duplicate (idempotent) work, so a lock key isn't worth it.
+async fn build_reporter(
+    cli: &Cli,
+    plan: &TeamPlan,
+    redis: Arc<dyn common_redis::Client + Send + Sync>,
+) -> Option<WarmRunReporter> {
+    let TeamSource::DatabaseScan { all_teams } = &plan.source else {
+        return None;
+    };
+    if cli.no_report_status {
+        return None;
+    }
+
+    if let Some(current) = read_current_status(&redis)
+        .await
+        .filter(|status| is_active(status, chrono::Utc::now()))
+    {
+        if !cli.force {
+            tracing::error!(
+                run_id = current.run_id,
+                started_at = %current.started_at,
+                processed = current.processed,
+                total = current.total,
+                "Another warm-all run appears active (heartbeat is fresh). \
+                 Wait for it, cancel it from the staff cache tools page, or pass --force."
+            );
+            std::process::exit(1);
+        }
+        tracing::warn!(
+            run_id = current.run_id,
+            "Another warm-all run appears active; continuing due to --force"
+        );
+    }
+
+    let scope = if *all_teams {
+        "all_teams"
+    } else {
+        "teams_with_flags"
+    };
+    let run_id = uuid::Uuid::new_v4().to_string();
+    tracing::info!(
+        run_id,
+        scope,
+        "Publishing warm-run status to the flags Redis"
+    );
+    Some(WarmRunReporter::new(
+        redis,
+        run_id,
+        scope.to_string(),
+        plan.total,
+    ))
 }
 
 /// Coordinates the warm loop with bounded in-flight tasks and progress logging.
@@ -209,6 +267,7 @@ async fn run_warm(
     writer: Arc<HyperCacheWriter>,
     pg_reader: PostgresReader,
     cli: &Cli,
+    mut reporter: Option<WarmRunReporter>,
 ) {
     let total = plan.total;
     let start = Instant::now();
@@ -253,8 +312,28 @@ async fn run_warm(
             }
         };
 
+    if let Some(r) = reporter.as_mut() {
+        r.start().await;
+    }
+    let mut cancelled = false;
+    let mut last_dispatched: Option<TeamId> = None;
+
     let mut team_stream = TeamIdStream::new(plan, pg_reader.clone());
     while let Some(team_id) = team_stream.next().await {
+        // Status heartbeat + cancel poll. No-op (no Redis traffic) until the
+        // report interval elapses, so this stays off the per-team hot path.
+        if let Some(r) = reporter.as_mut() {
+            r.record(completed, successful, failed, last_dispatched);
+            if r.maybe_report().await {
+                cancelled = true;
+                tracing::warn!(
+                    run_id = r.run_id(),
+                    "Cancellation requested; draining in-flight tasks"
+                );
+                break;
+            }
+        }
+
         // Cap in-flight tasks at `concurrency`; combined with the seek-paged team-ID
         // stream, peak memory stays O(concurrency + page size) regardless of team count.
         if join_set.len() >= cli.concurrency {
@@ -274,6 +353,7 @@ async fn run_warm(
         let pg = pg_reader.clone();
         let writer = writer.clone();
         let ttl_seconds = compute_ttl(cli);
+        last_dispatched = Some(team_id);
         join_set.spawn(async move {
             warm_team(pg, &writer, team_id, ttl_seconds)
                 .await
@@ -291,14 +371,38 @@ async fn run_warm(
         );
     }
 
+    if let Some(r) = reporter.as_mut() {
+        r.record(completed, successful, failed, last_dispatched);
+        if !cancelled && r.cancel_requested().await {
+            cancelled = true;
+        }
+        let final_state = if cancelled {
+            WarmRunState::Cancelled
+        } else {
+            WarmRunState::Completed
+        };
+        r.finish(final_state).await;
+    }
+
     let duration = start.elapsed();
-    tracing::info!(
-        successful,
-        failed,
-        total,
-        duration_secs = duration.as_secs_f64(),
-        "Cache warming complete"
-    );
+    if cancelled {
+        tracing::warn!(
+            successful,
+            failed,
+            completed,
+            total,
+            duration_secs = duration.as_secs_f64(),
+            "Cache warming cancelled before completion"
+        );
+    } else {
+        tracing::info!(
+            successful,
+            failed,
+            total,
+            duration_secs = duration.as_secs_f64(),
+            "Cache warming complete"
+        );
+    }
 
     if failed > 0 {
         std::process::exit(1);
@@ -312,22 +416,7 @@ async fn warm_team(
     ttl_seconds: u64,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let cache = build_flags_cache(pg_reader, team_id).await?;
-    persist_flags_cache(writer, team_id, &cache, ttl_seconds).await
-}
-
-async fn persist_flags_cache(
-    writer: &HyperCacheWriter,
-    team_id: TeamId,
-    cache: &feature_flags::flags::flag_models::HypercacheFlagsWrapper,
-    ttl_seconds: u64,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let key = KeyType::int(team_id);
-    let json = serde_json::to_string(cache)?;
-
-    // Use set_with_etag (not set): set() unconditionally DELs the :etag key
-    // via delete_etag, and FlagDefinitionsCache keys on (team_id, etag), so
-    // a missing etag forces the in-memory cache bypass on every /flags request.
-    writer.set_with_etag(&key, &json, ttl_seconds).await?;
+    persist_flags_cache(writer, team_id, &cache, ttl_seconds).await?;
     Ok(())
 }
 
@@ -610,28 +699,10 @@ fn read_team_ids_from_stdin() -> Vec<TeamId> {
     ids
 }
 
-async fn create_s3_client(infra: &InfraConfig) -> Arc<dyn S3Client + Send + Sync> {
-    let mut aws_config_builder = aws_config::defaults(BehaviorVersion::latest())
-        .region(aws_config::Region::new(infra.object_storage_region.clone()));
-
-    if !infra.object_storage_endpoint.is_empty() {
-        aws_config_builder = aws_config_builder.endpoint_url(&infra.object_storage_endpoint);
-    }
-
-    let aws_config = aws_config_builder.load().await;
-
-    let mut s3_config_builder = aws_sdk_s3::config::Builder::from(&aws_config);
-    if !infra.object_storage_endpoint.is_empty() {
-        s3_config_builder = s3_config_builder.force_path_style(true);
-    }
-
-    let aws_s3_client = aws_sdk_s3::Client::from_conf(s3_config_builder.build());
-    Arc::new(S3Impl::new(aws_s3_client))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use feature_flags::flags::cache_writer::{HYPERCACHE_NAMESPACE, HYPERCACHE_OBJECT_NAME};
 
     fn cli(min: u64, max: u64, no_stagger: bool) -> Cli {
         Cli {
@@ -643,6 +714,8 @@ mod tests {
             no_stagger,
             all_teams: false,
             allow_default_redis: false,
+            no_report_status: false,
+            force: false,
         }
     }
 

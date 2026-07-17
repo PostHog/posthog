@@ -13,12 +13,16 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import Task, TaskArtifact, TaskRun
 from products.tasks.backend.temporal.slack_relay.activities import (
     SLACK_MESSAGE_TEXT_LIMIT,
     RelaySlackMessageInput,
+    _append_unconfirmed_attachment_notice,
     _markdown_to_slack_mrkdwn,
+    _neutralize_approx_tildes,
+    _repair_link_trailing_markers,
     _split_markdown_for_slack,
+    _wrap_bare_urls_in_emphasis,
     relay_slack_message,
 )
 
@@ -68,6 +72,12 @@ class TestRelaySlackMessage(TestCase):
             mentioning_slack_user_id="U123",
         )
 
+    def setUp(self):
+        self.task_run.artifacts = []
+        self.task_run.state = {}
+        self.task_run.save(update_fields=["artifacts", "state", "updated_at"])
+        SlackThreadTaskMapping.objects.filter(task_run=self.task_run).update(latest_actor_slack_user_id=None)
+
     @parameterized.expand(
         [
             ("no_reaction_emoji", "relay-1", "Which license should I use?", None),
@@ -107,6 +117,199 @@ class TestRelaySlackMessage(TestCase):
         self.task_run.refresh_from_db()
         assert relay_id in self.task_run.state.get("slack_sent_relay_ids", [])
 
+    @parameterized.expand(
+        [
+            # ``mentioning_slack_user_id`` is the immutable thread creator;
+            # ``latest_actor_slack_user_id`` is set by the follow-up handler
+            # when someone else (or the creator themselves) replies. The bot
+            # tags the latest actor when present, otherwise the creator.
+            ("no_actor_falls_back_to_mentioner", None, "<@U123> "),
+            ("actor_overrides_mentioner", "UBOB", "<@UBOB> "),
+        ]
+    )
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_mention_prefix_uses_latest_actor_then_mentioner(
+        self,
+        _name,
+        latest_actor,
+        expected_prefix,
+        _mock_delete_progress,
+        mock_post,
+        _mock_update,
+    ):
+        SlackThreadTaskMapping.objects.filter(task_run=self.task_run).update(latest_actor_slack_user_id=latest_actor)
+
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id=f"relay-mention-{_name}",
+                text="agent reply",
+            )
+        )
+
+        mock_post.assert_called_once()
+        assert mock_post.call_args.args[0].startswith(expected_prefix)
+
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_unconfirmed_attachment_claim_gets_notice(
+        self,
+        _mock_delete_progress,
+        mock_post,
+        _mock_update,
+    ):
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id="relay-unconfirmed-attachment",
+                text=(
+                    "Done. I generated **user_activity_report.pdf** "
+                    "at /tmp/workspace/user_activity_report.pdf and it's attached for you."
+                ),
+            )
+        )
+
+        mock_post.assert_called_once()
+        posted = mock_post.call_args.args[0]
+        assert "user_activity_report.pdf" in posted
+        assert "no file was attached to Slack for this run" in posted
+
+    @patch("products.slack_app.backend.feature_flags.is_slack_app_living_artifacts_enabled", return_value=True)
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_run_manifest_artifacts_never_surface_in_slack(
+        self,
+        _mock_delete_progress,
+        mock_post,
+        _mock_update,
+        _mock_flag,
+    ):
+        # Run-manifest artifacts are internal (checkpoints, inputs, raw agent outputs).
+        # Even with living artifacts enabled they must not leak into the posted text,
+        # and their presence must not suppress the unconfirmed-attachment notice.
+        self.task_run.artifacts = [
+            {
+                "id": "artifact-1",
+                "name": "report.pdf",
+                "type": "output",
+                "source": "agent_output",
+                "content_type": "application/pdf",
+                "storage_path": "tasks/artifacts/report.pdf",
+            }
+        ]
+        self.task_run.save(update_fields=["artifacts", "updated_at"])
+
+        text = "Done. report.pdf is attached."
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id="relay-manifest-artifacts",
+                text=text,
+            )
+        )
+
+        mock_post.assert_called_once()
+        posted = mock_post.call_args.args[0]
+        assert "Artifacts available in Slack" not in posted
+        assert "tasks/artifacts/report.pdf" not in posted
+        assert "no file was attached to Slack for this run" in posted
+
+    @patch(
+        "products.tasks.backend.logic.services.living_artifacts._living_artifacts_enabled_for_mapping",
+        return_value=True,
+    )
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
+    @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
+    @patch("products.tasks.backend.logic.services.living_artifacts.object_storage.read_bytes")
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_pending_slack_file_upload_uses_final_message(
+        self,
+        mock_delete_progress,
+        mock_post,
+        _mock_update,
+        mock_integration_for_mapping,
+        mock_read_bytes,
+        mock_requests_post,
+        _mock_canvas_file_flag,
+        _mock_living_artifacts_flag,
+    ):
+        storage_path = f"tasks/artifacts/team_{self.team.id}/task_{self.task.id}/run_{self.task_run.id}/report.v1.xlsx"
+        location = {
+            "kind": "slack_file",
+            "integration_id": self.integration.id,
+            "channel": "C123",
+            "thread_ts": "1111.1",
+            "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "storage_path": storage_path,
+            "delivery_status": "pending",
+        }
+        artifact = TaskArtifact.objects.for_team(self.team.id).create(
+            team=self.team,
+            task=self.task,
+            task_run=self.task_run,
+            created_by=self.user,
+            name="report.xlsx",
+            artifact_type=TaskArtifact.ArtifactType.SPREADSHEET,
+            adapter=TaskArtifact.Adapter.SLACK_FILE,
+            status=TaskArtifact.Status.ACTIVE,
+            location=location,
+            metadata={"delivery_status": "pending"},
+            versions=[
+                {
+                    "version": 1,
+                    "run_id": str(self.task_run.id),
+                    "adapter": TaskArtifact.Adapter.SLACK_FILE,
+                    "location": location,
+                    "content_type": location["content_type"],
+                    "size": 14,
+                    "delivery_status": "pending",
+                }
+            ],
+            current_version=1,
+        )
+        slack = unittest.mock.MagicMock()
+        slack.api_call.side_effect = [
+            {"upload_url": "https://files.slack.test/upload", "file_id": "F123"},
+            {"files": [{"id": "F123", "title": "report.xlsx", "permalink": "https://slack.test/files/F123"}]},
+        ]
+        slack_integration = unittest.mock.MagicMock()
+        slack_integration.client = slack
+        slack_integration.missing_scopes.return_value = set()
+        mock_integration_for_mapping.return_value = slack_integration
+        mock_read_bytes.return_value = b"workbook bytes"
+
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id="relay-with-file",
+                text="Done. report.xlsx is attached.",
+            )
+        )
+
+        mock_delete_progress.assert_called_once()
+        mock_post.assert_not_called()
+        mock_read_bytes.assert_called_once_with(storage_path, missing_ok=True)
+        self.assertEqual(mock_requests_post.call_args.kwargs["data"], b"workbook bytes")
+        complete_payload = slack.api_call.call_args_list[1].kwargs["data"]
+        self.assertEqual(complete_payload["channel_id"], "C123")
+        self.assertEqual(complete_payload["thread_ts"], "1111.1")
+        self.assertIn("<@U123> Done. report.xlsx is attached.", complete_payload["initial_comment"])
+        self.assertNotIn("no file was attached to Slack", complete_payload["initial_comment"])
+
+        artifact.refresh_from_db()
+        self.assertEqual(artifact.location["delivery_status"], "delivered")
+        self.assertEqual(artifact.location["file_id"], "F123")
+        self.assertEqual(artifact.metadata["slack_file_permalink"], "https://slack.test/files/F123")
+        self.assertEqual(artifact.versions[0]["delivery_status"], "delivered")
+        self.assertEqual(artifact.versions[0]["slack_file_id"], "F123")
+
 
 class TestMarkdownToSlackMrkdwn(unittest.TestCase):
     @parameterized.expand(
@@ -116,6 +319,14 @@ class TestMarkdownToSlackMrkdwn(unittest.TestCase):
             ("italic_underscore", "_italic_", "_italic_"),
             ("bold_italic", "***boldit***", "*_boldit_*"),
             ("strikethrough", "~~removed~~", "~removed~"),
+            # "Approximately" tildes in front of a quantity would otherwise pair up as
+            # Slack strikethrough delimiters and strike through the text between them.
+            # The tilde operator (∼) looks the same but carries no formatting meaning.
+            (
+                "approx_tildes_do_not_strike_through",
+                "**~$36.0k**, averaging **~$5.1k/day** by ~2pm",
+                "*∼$36.0k*, averaging *∼$5.1k/day* by ∼2pm",
+            ),
             ("link", "[Click here](https://example.com)", "<https://example.com|Click here>"),
             ("h1", "# Title", "*Title*"),
             ("h3", "### Section", "*Section*"),
@@ -125,6 +336,39 @@ class TestMarkdownToSlackMrkdwn(unittest.TestCase):
             ("horizontal_rule", "---", "──────────"),
             ("blockquote_preserved", "> quote", "> quote"),
             ("nested_bold_in_dash_list", "- **MIT** is permissive", "• *MIT* is permissive"),
+            (
+                "bold_markdown_link",
+                "**[pr-shepherd](https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd)**",
+                "*<https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd|pr-shepherd>*",
+            ),
+            # Agent emits double-asterisk closing markers inside the angle brackets
+            # (`**<url**>`). Without the repair pass the converter would halve those
+            # asterisks in place and produce `*<url*>`, which Slack renders as
+            # literal text with no link and no bold.
+            (
+                "agent_typo_double_asterisk_autolink",
+                "**<https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd**>",
+                "*<https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd>*",
+            ),
+            (
+                "agent_typo_double_asterisk_labeled_link",
+                "**<https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd|pr-shepherd**>",
+                "*<https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd|pr-shepherd>*",
+            ),
+            # Bare URL wrapped directly in markdown bold. Without the pre-wrap pass the
+            # converter halves the markers in place and emits ``*https://x.com*``, which
+            # Slack renders as literal asterisks around an auto-linked URL — the exact
+            # papercut on the PR-completion message that prompted this repair.
+            (
+                "agent_typo_bare_url_in_bold",
+                "Draft PR opened: **https://github.com/PostHog/posthog.com/pull/17450**",
+                "Draft PR opened: *<https://github.com/PostHog/posthog.com/pull/17450>*",
+            ),
+            (
+                "agent_typo_bare_url_in_italic_asterisk",
+                "see *https://example.com*",
+                "see _<https://example.com>_",
+            ),
             ("plain_text_unchanged", "Hello world", "Hello world"),
             ("inline_code_preserved", "Use `git commit`", "Use `git commit`"),
         ]
@@ -156,6 +400,134 @@ class TestMarkdownToSlackMrkdwn(unittest.TestCase):
         md = "| a | b |\n| c | d |"
         result = _markdown_to_slack_mrkdwn(md)
         assert "```" not in result
+
+
+class TestRepairLinkTrailingMarkers(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("autolink_double_asterisk", "**<https://x.com**>", "**<https://x.com>**"),
+            ("autolink_single_asterisk", "*<https://x.com*>", "*<https://x.com>*"),
+            ("autolink_underscore", "_<https://x.com_>", "_<https://x.com>_"),
+            ("autolink_strikethrough", "~<https://x.com~>", "~<https://x.com>~"),
+            (
+                "labeled_link_double_asterisk",
+                "**<https://x.com|label**>",
+                "**<https://x.com|label>**",
+            ),
+            (
+                "two_broken_links_in_one_line",
+                "**<https://a.com**> and **<https://b.com**>",
+                "**<https://a.com>** and **<https://b.com>**",
+            ),
+            ("well_formed_autolink_unchanged", "**<https://x.com>**", "**<https://x.com>**"),
+            ("plain_text_unchanged", "Hello world", "Hello world"),
+            # Mismatched openers/closers shouldn't be rewritten — leave alone so we
+            # don't silently corrupt content that looks vaguely link-shaped.
+            ("mismatched_markers_unchanged", "**<https://x.com*>", "**<https://x.com*>"),
+        ]
+    )
+    def test_repair(self, _name, text, expected):
+        assert _repair_link_trailing_markers(text) == expected
+
+
+class TestWrapBareUrlsInEmphasis(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("bold_bare_url", "**https://x.com**", "**<https://x.com>**"),
+            ("italic_bare_url", "*https://x.com*", "*<https://x.com>*"),
+            ("underscore_bare_url", "_https://x.com_", "_<https://x.com>_"),
+            ("strike_bare_url", "~~https://x.com~~", "~~<https://x.com>~~"),
+            (
+                "url_with_path_and_query",
+                "**https://github.com/PostHog/posthog.com/pull/17450?foo=bar**",
+                "**<https://github.com/PostHog/posthog.com/pull/17450?foo=bar>**",
+            ),
+            (
+                "two_bare_urls_in_one_line",
+                "**https://a.com** and *https://b.com*",
+                "**<https://a.com>** and *<https://b.com>*",
+            ),
+            # Surrounded by sentence text — only the wrapped URL should be touched.
+            (
+                "url_inside_sentence",
+                "Draft PR opened: **https://x.com/pr/1**",
+                "Draft PR opened: **<https://x.com/pr/1>**",
+            ),
+            # Already bracketed — leave alone so we don't double-wrap.
+            ("autolink_already_bracketed", "**<https://x.com>**", "**<https://x.com>**"),
+            # Standard markdown link — handled correctly by the converter as-is.
+            ("markdown_link_in_bold_unchanged", "**[label](https://x.com)**", "**[label](https://x.com)**"),
+            # Non-URL bold spans must not be rewritten.
+            ("plain_bold_unchanged", "**hello world**", "**hello world**"),
+            ("plain_text_unchanged", "Visit https://x.com without bolding", "Visit https://x.com without bolding"),
+            # A bare URL not directly adjacent to the marker shouldn't be wrapped — the
+            # surrounding text means the emphasis already flanks whitespace and Slack
+            # renders it correctly without help.
+            (
+                "url_inside_bold_span_with_surrounding_text",
+                "**check https://x.com later**",
+                "**check https://x.com later**",
+            ),
+        ]
+    )
+    def test_wrap(self, _name, text, expected):
+        assert _wrap_bare_urls_in_emphasis(text) == expected
+
+
+class TestNeutralizeApproxTildes(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("dollar", "~$36.0k", "∼$36.0k"),
+            ("bare_number", "~5.1k/day", "∼5.1k/day"),
+            ("time", "roughly ~2pm PT", "roughly ∼2pm PT"),
+            ("percent", "up ~10% MoM", "up ∼10% MoM"),
+            ("euro", "~€40", "∼€40"),
+            ("multiple_on_one_line", "~$5k then ~$9k", "∼$5k then ∼$9k"),
+            # A genuine ``~~strikethrough~~`` run must survive untouched — its tildes are
+            # adjacent to each other, not to a quantity.
+            ("strikethrough_run_preserved", "~~$5 off~~", "~~$5 off~~"),
+            # A tilde glued to a preceding word is a git ref or range, not "approximately".
+            ("git_ref_left_alone", "rebase onto HEAD~2", "rebase onto HEAD~2"),
+            ("numeric_range_left_alone", "5~10 items", "5~10 items"),
+            # Paths, standalone tildes, and non-quantity tildes are literal characters that
+            # never form an accidental strikethrough, so they are left alone.
+            ("path_left_alone", "see ~/notes/report.md", "see ~/notes/report.md"),
+            ("tilde_before_letter_left_alone", "~foo", "~foo"),
+            ("tilde_before_space_left_alone", "~ $5", "~ $5"),
+            ("plain_text_unchanged", "no tildes here", "no tildes here"),
+            # Code spans/fences hold literal content Slack never strikes through, so a tilde
+            # there stays ASCII even when it looks like an approximation.
+            ("inline_code_left_alone", "run `git reset HEAD~1` and `~$5`", "run `git reset HEAD~1` and `~$5`"),
+            (
+                "fenced_block_left_alone",
+                "```\ninstall foo@~1.2.0\ncost ~$5\n```",
+                "```\ninstall foo@~1.2.0\ncost ~$5\n```",
+            ),
+            ("approx_outside_code_still_converted", "about ~$5 for `~$9`", "about ∼$5 for `~$9`"),
+        ]
+    )
+    def test_neutralize(self, _name, text, expected):
+        assert _neutralize_approx_tildes(text) == expected
+
+
+class TestAppendUnconfirmedAttachmentNotice(unittest.TestCase):
+    def test_appends_notice_for_local_file_delivery_claim_without_artifacts(self):
+        text = "Generated /tmp/workspace/report.pdf and it is attached."
+        result = _append_unconfirmed_attachment_notice(text, origin_product="slack")
+
+        assert result.endswith("no file was attached to Slack for this run._")
+
+    def test_skips_notice_for_negated_claim(self):
+        text = "Generated /tmp/workspace/report.pdf, but it is not attached yet."
+        result = _append_unconfirmed_attachment_notice(text, origin_product="slack")
+
+        assert result == text
+
+    def test_skips_notice_for_non_slack_run(self):
+        text = "Generated /tmp/workspace/report.pdf and it is attached."
+        result = _append_unconfirmed_attachment_notice(text, origin_product="user_created")
+
+        assert result == text
 
 
 class TestSplitTextForSlack(TestCase):

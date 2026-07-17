@@ -1,7 +1,13 @@
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 
-from posthog.schema import CompareFilter, DateRange, HogQLQueryModifiers, WebNotableChangesQuery
+from posthog.schema import (
+    CompareFilter,
+    DateRange,
+    HogQLQueryModifiers,
+    WebAnalyticsPreComputeStrategy,
+    WebNotableChangesQuery,
+)
 
 from posthog.models.utils import uuid7
 
@@ -39,7 +45,7 @@ class TestWebNotableChangesQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
             response = runner.calculate()
             self.assertEqual(response.results, [])
-            self.assertFalse(response.usedPreAggregatedTables)
+            assert response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LIVE
 
     def test_scoring_high_traffic_high_change_ranks_above_low_traffic(self):
         runner = WebNotableChangesQueryRunner(
@@ -156,7 +162,7 @@ class TestWebNotableChangesQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
             response = runner.calculate()
 
-            self.assertFalse(response.usedPreAggregatedTables)
+            assert response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LIVE
             self.assertGreater(len(response.results), 0)
 
             # Results should be sorted by impact_score descending

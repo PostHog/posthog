@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -11,7 +11,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models.project import Project
-from posthog.models.remote_config import RemoteConfig
+from posthog.models.remote_config import REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET, RemoteConfig
 
 from products.actions.backend.models.action import Action
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -510,6 +510,48 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
         self.remote_config.sync()
         assert RemoteConfig.get_hypercache().get_from_cache(self.team.api_token) is not None
 
+    @patch("posthog.storage.hypercache.get_client")
+    def test_change_path_writes_s3_and_tracks_expiry_with_single_build(self, mock_get_client):
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+
+        # Force a content change so sync() takes the change path.
+        self.remote_config.config["token"] = "FORCE_CHANGE"
+
+        with (
+            patch("posthog.storage.object_storage.write") as mock_s3_write,
+            patch.object(RemoteConfig, "build_config", wraps=self.remote_config.build_config) as mock_build,
+        ):
+            self.remote_config.sync()
+
+        # The already-built config is reused — build_config() runs exactly once.
+        assert mock_build.call_count == 1
+        # Change path writes through to S3 and stamps expiry tracking.
+        mock_s3_write.assert_called()
+        mock_redis.zadd.assert_called_once()
+        assert mock_redis.zadd.call_args[0][0] == REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET
+
+    @patch("posthog.storage.hypercache.get_client")
+    def test_no_change_path_restamps_redis_and_expiry_without_s3_or_cdn(self, mock_get_client):
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+
+        with (
+            patch("posthog.storage.object_storage.write") as mock_s3_write,
+            patch.object(RemoteConfig, "_purge_cdn") as mock_purge,
+        ):
+            # No content change → self-heal path.
+            self.remote_config.sync()
+
+        # Self-heal must skip the content-dependent work (S3 PUT, CDN purge)...
+        mock_s3_write.assert_not_called()
+        mock_purge.assert_not_called()
+        # ...but still re-stamp the expiry sorted set so the entry stays tracked.
+        mock_redis.zadd.assert_called_once()
+        assert mock_redis.zadd.call_args[0][0] == REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET
+        # And the Redis tier is repopulated with the unchanged config.
+        assert RemoteConfig.get_hypercache().get_from_cache(self.team.api_token) is not None
+
     def test_hypercache_uses_dedicated_cache_when_alias_registered(self):
         from django.core.cache import caches
 
@@ -565,6 +607,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
                         {"url": "https://cdn2.posthog.com/array/phc_12345/config.js"},
                     ]
                 },
+                timeout=10,
             )
 
 

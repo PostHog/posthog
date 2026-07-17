@@ -19,7 +19,11 @@ from clickhouse_driver.errors import ServerException
 from prometheus_client import Counter
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLQuerySettings, get_default_hogql_global_settings
+from posthog.hogql.constants import (
+    MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
+    HogQLQuerySettings,
+    get_default_hogql_global_settings,
+)
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
@@ -74,6 +78,20 @@ DEFAULT_CH_START_GRACE_PERIOD_SECONDS = 60  # 1 minute
 # replica writes immediately but ClickHouse still blocks on the quorum protocol).
 PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST or DEBUG else "auto"
 
+# How long a quorum INSERT waits for replica acknowledgements before failing.
+# ClickHouse's default is 600s, which turns any quorum breakage (dead replica,
+# stale registration, ZK trouble) into ten-minute request hangs; the executor is
+# built to treat failed inserts as retryable and callers fall back to the live
+# query, so failing fast is strictly better. Part replication between two healthy
+# colocated replicas is sub-second; 2s keeps a spurious-timeout margin while making
+# a broken quorum cost two seconds instead of ten minutes. A false positive is
+# cheap: the part is already written, the retry re-insert is idempotent under
+# ReplacingMergeTree, and the caller falls back to the live query meanwhile.
+# A quorum-wait expiry raises code 319 UNKNOWN_STATUS_OF_INSERT ("client must
+# retry"), which is deliberately absent from NON_RETRYABLE_CLICKHOUSE_ERROR_CODES —
+# distinct from 159 TIMEOUT_EXCEEDED (max_execution_time), which stays non-retryable.
+PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS = 2 * 1000
+
 
 # Mirrors the `lazy_computation.executed` structured log so the same outcomes
 # (`success` / `timeout` / `non_retryable_error` / `max_retries_exceeded`) are
@@ -127,11 +145,16 @@ LAZY_COMPUTATION_JOBS_FINISHED_TOTAL = Counter(
 )
 
 
-def _get_insert_settings(team_id: int) -> dict:
+def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False) -> dict:
     """Build ClickHouse settings for preaggregation INSERT queries.
 
     Starts from the same HogQLGlobalSettings defaults that execute_hogql_query
     uses for regular queries, then applies INSERT-specific overrides.
+
+    `spill_to_disk` is opt-in per precompute kind: it only helps inserts whose
+    GROUP BY hash table can grow large (high-cardinality breakdowns), and most
+    kinds never approach the threshold, so callers enable it deliberately rather
+    than paying for it everywhere.
     """
     settings = get_default_hogql_global_settings(team_id=team_id).model_dump(exclude_none=True)
     settings.pop("readonly", None)  # INSERTs need write access
@@ -139,9 +162,25 @@ def _get_insert_settings(team_id: int) -> dict:
         {
             "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
             "insert_quorum": PREAGGREGATION_INSERT_QUORUM,
+            "insert_quorum_timeout": PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS,
+            # The executor marks a job READY as soon as the INSERT returns, so rows must be on the
+            # shards by then — not sitting in the initiator's async distribution queue, where they
+            # become visible to readers only minutes later. We set this per-insert rather than
+            # relying on the cluster's global default, which is not guaranteed to be synchronous.
+            # Uses the legacy name of `distributed_foreground_insert` (renamed in ClickHouse 23.x)
+            # for version compatibility.
+            "insert_distributed_sync": 1,
             **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
         }
     )
+    if spill_to_disk:
+        # Spill heavy GROUP BYs to disk instead of OOMing. This is a spill
+        # *threshold*, not a memory reservation — it lowers peak RAM (vs. holding
+        # the whole hash table in memory), so it never over-commits the cluster.
+        # High-traffic teams' breakdown inserts (e.g. frustration metrics) otherwise
+        # build hash tables past the cluster memory limit and fail with
+        # MEMORY_LIMIT_EXCEEDED.
+        settings["max_bytes_before_external_group_by"] = MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
     return settings
 
 
@@ -153,11 +192,28 @@ class TtlSchedule:
     A window matches the first rule where window_start >= cutoff. If no rule
     matches, default_ttl_seconds is used.
 
+    `max_window_days` optionally caps how wide `split_ranges_by_ttl` will merge a
+    single job, independent of TTL boundaries — so a caller bounds a high-cardinality
+    team's GROUP BY by handing in a schedule with a tight cap, regardless of how old
+    the requested window is. `None` leaves it uncapped.
+
+    `settling_period_seconds` marks how long after `time_range_end` a window's data can
+    still change (e.g. the 24h session pad in web analytics: sessions opened in the
+    window keep evolving until they close). A job *computed before* the window settled
+    (`time_range_end + settling_period`) captured in-motion data, so its freshness is
+    capped at the settling moment regardless of the band TTL — it recomputes right when
+    the data is complete instead of freezing an in-motion snapshot for a long band TTL.
+    Jobs computed after the window settled keep the full band TTL. This matters for
+    non-UTC teams, whose UTC-aligned edge windows can land in a long-TTL band while
+    still settling. `None` disables the check.
+
     Use parse_ttl_schedule() to create from user-facing dict format.
     """
 
     rules: list[tuple[datetime, int]]
     default_ttl_seconds: int
+    max_window_days: int | None = None
+    settling_period_seconds: int | None = None
 
     def get_ttl(self, window_start: datetime) -> int:
         for cutoff, ttl in self.rules:
@@ -176,6 +232,8 @@ DEFAULT_TTL_SCHEDULE = TtlSchedule.from_seconds(DEFAULT_TTL_SECONDS)
 def parse_ttl_schedule(
     ttl: int | dict[str, int],
     team_timezone: str = "UTC",
+    max_window_days: int | None = None,
+    settling_period_seconds: int | None = None,
 ) -> TtlSchedule:
     """Parse a TTL specification into a TtlSchedule.
 
@@ -189,12 +247,19 @@ def parse_ttl_schedule(
     example, {"0d": 900, "7d": 86400, "default": 604800} means today's data
     gets 15 min TTL, last week gets 1 day, everything else gets 7 days.
 
+    `max_window_days` is carried onto the resulting schedule to cap job width.
+
     Raises ValueError for unrecognized keys or non-positive TTL values.
     """
     if isinstance(ttl, int):
         if ttl <= 0:
             raise ValueError(f"TTL must be positive, got {ttl}")
-        return TtlSchedule.from_seconds(ttl)
+        return TtlSchedule(
+            rules=[],
+            default_ttl_seconds=ttl,
+            max_window_days=max_window_days,
+            settling_period_seconds=settling_period_seconds,
+        )
 
     tz = ZoneInfo(team_timezone)
     rules: list[tuple[datetime, int]] = []
@@ -217,7 +282,12 @@ def parse_ttl_schedule(
             rules.append((cutoff, value))
 
     rules.sort(key=lambda r: r[0], reverse=True)
-    return TtlSchedule(rules=rules, default_ttl_seconds=default_ttl)
+    return TtlSchedule(
+        rules=rules,
+        default_ttl_seconds=default_ttl,
+        max_window_days=max_window_days,
+        settling_period_seconds=settling_period_seconds,
+    )
 
 
 def split_ranges_by_ttl(
@@ -229,7 +299,13 @@ def split_ranges_by_ttl(
     Re-expands each range into daily windows, assigns a TTL per window, and
     merges consecutive windows with the same TTL. This prevents a single job
     from covering days with different TTL requirements.
+
+    `schedule.max_window_days` additionally caps the merged job width: a merge
+    also breaks when adding the next day would exceed it. This bounds a job's
+    GROUP BY (independent of TTL and of how old the window is) so its hash table
+    stays under the memory limit.
     """
+    max_window_days = schedule.max_window_days
     result: list[tuple[datetime, datetime, int]] = []
 
     for range_start, range_end in ranges:
@@ -242,7 +318,8 @@ def split_ranges_by_ttl(
 
         for window_start, window_end in windows[1:]:
             ttl = schedule.get_ttl(window_start)
-            if ttl == current_ttl:
+            exceeds_cap = max_window_days is not None and (window_end - current_start) > timedelta(days=max_window_days)
+            if ttl == current_ttl and not exceeds_cap:
                 current_end = window_end
             else:
                 result.append((current_start, current_end, current_ttl))
@@ -271,6 +348,15 @@ NON_RETRYABLE_CLICKHOUSE_ERROR_CODES = {
     # Too many simultaneous queries means the cluster is overloaded.
     # Rather than adding to the load with retries, surface the error.
     202,  # TOO_MANY_SIMULTANEOUS_QUERIES
+    # The rows/bytes-to-read cap is deterministic for a given window: the data
+    # won't shrink between attempts, so an immediate retry re-scans the same
+    # terabytes only to fail the same way. Fail fast so the caller can fall
+    # back or narrow the window.
+    307,  # TOO_MANY_ROWS_OR_BYTES
+    # An OOM won't succeed on an immediate retry with the same window — retrying just
+    # adds memory pressure to a cluster that already signaled it's out of memory. Fail
+    # fast so the caller can react (e.g. cap the team's window) and fall back.
+    241,  # MEMORY_LIMIT_EXCEEDED
 }
 
 
@@ -306,20 +392,40 @@ def is_non_retryable_error(error: Exception) -> bool:
     return False
 
 
+# ClickHouse MEMORY_LIMIT_EXCEEDED. Surfaced on the result so callers can react to an OOM
+# (e.g. cap a high-cardinality team's future inserts) instead of parsing error text.
+MEMORY_LIMIT_EXCEEDED_CODE = 241
+
+
+def is_memory_limit_error(error: Exception) -> bool:
+    """True if the error (or any wrapped cause) is a ClickHouse MEMORY_LIMIT_EXCEEDED."""
+    current: BaseException | None = error
+    while current is not None:
+        if isinstance(current, ServerException) and current.code == MEMORY_LIMIT_EXCEEDED_CODE:
+            return True
+        current = current.__cause__
+    return False
+
+
 class LazyComputationTable(StrEnum):
     """Allowed target tables for lazy-computed results."""
 
     PREAGGREGATION_RESULTS = "preaggregation_results"
     EXPERIMENT_EXPOSURES_PREAGGREGATED = "experiment_exposures_preaggregated"
     EXPERIMENT_METRIC_EVENTS_PREAGGREGATED = "experiment_metric_events_preaggregated"
-    CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED = "conversion_goal_attributed_preaggregated"
     MARKETING_TOUCHPOINTS_PREAGGREGATED = "marketing_touchpoints_preaggregated"
+    MARKETING_CONVERSIONS_PREAGGREGATED = "marketing_conversions_preaggregated"
+    MARKETING_COSTS_PREAGGREGATED = "marketing_costs_preaggregated"
     WEB_OVERVIEW_PREAGGREGATED = "web_overview_preaggregated"
     WEB_STATS_PREAGGREGATED = "web_stats_preaggregated"
     WEB_STATS_PATHS_PREAGGREGATED = "web_stats_paths_preaggregated"
     WEB_VITALS_PATHS_PREAGGREGATED = "web_vitals_paths_preaggregated"
     WEB_STATS_FRUSTRATION_PREAGGREGATED = "web_stats_frustration_preaggregated"
     WEB_GOALS_PREAGGREGATED = "web_goals_preaggregated"
+    # Fixed-dimension tables driven by the scheduled web_dimensional_precompute
+    # Dagster job (the precomputation-framework successor to v2 pre-aggregation).
+    WEB_STATS_DIMENSIONAL_PREAGGREGATED = "web_stats_dimensional_preaggregated"
+    WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED = "web_bounces_dimensional_preaggregated"
 
 
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
@@ -328,8 +434,9 @@ class LazyComputationTable(StrEnum):
 _DATE_EXPIRES_AT_TABLES: set[LazyComputationTable] = {
     LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
     LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
-    LazyComputationTable.CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED,
     LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
+    LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED,
+    LazyComputationTable.MARKETING_COSTS_PREAGGREGATED,
 }
 
 
@@ -357,6 +464,13 @@ class LazyComputationResult:
     ready: bool
     job_ids: list[uuid.UUID]
     errors: list[str] = field(default_factory=list)
+    # True if any insert failed with ClickHouse MEMORY_LIMIT_EXCEEDED. Lets callers react
+    # to an OOM (e.g. cap a high-cardinality team's future inserts) without parsing errors.
+    memory_exceeded: bool = False
+    # True when the returned job_ids include recently-expired jobs served under the
+    # executor's serve-stale grace instead of recomputing inline. The data is complete
+    # but up to (TTL + grace) old; the caller decides whether to surface that.
+    stale: bool = False
 
 
 def compute_query_hash(query_info: QueryInfo) -> str:
@@ -410,6 +524,7 @@ def find_existing_jobs(
     query_hash: str,
     start: datetime,
     end: datetime,
+    expired_grace_seconds: float = 0,
 ) -> list[PreaggregationJob]:
     """
     Find all existing lazy computation jobs for the given team and query hash
@@ -417,9 +532,11 @@ def find_existing_jobs(
 
     Excludes expired jobs. ClickHouse data outlives the PG job by
     EXPIRY_BUFFER_SECONDS, so queries in flight when a job expires still
-    find data.
+    find data. `expired_grace_seconds` relaxes the expiry cutoff to also return
+    recently-expired jobs (for serve-stale reads); it must stay well under
+    EXPIRY_BUFFER_SECONDS or the PG row may outlive its ClickHouse data.
     """
-    min_expires_at = django_timezone.now()
+    min_expires_at = django_timezone.now() - timedelta(seconds=expired_grace_seconds)
 
     return list(
         PreaggregationJob.objects.filter(
@@ -653,7 +770,12 @@ def run_lazy_computation_insert(
     )
 
     set_ch_query_started(job.id)
-    with tags_context(client_query_id=str(job.id), team_id=team.id):
+    with tags_context(
+        client_query_id=str(job.id),
+        team_id=team.id,
+        precompute_window_start=str(job.time_range_start),
+        precompute_window_end=str(job.time_range_end),
+    ):
         sync_execute(
             insert_sql,
             values,
@@ -680,6 +802,11 @@ class LazyComputationExecutor:
     - ttl_schedule: TtlSchedule controlling how long lazy-computed data persists per time range
     - stale_pending_threshold_seconds: How long before a PENDING job is considered stale
     - ch_start_grace_period_seconds: Grace period before declaring "not started" as stale
+    - stale_while_revalidate_seconds: When set, a request that would otherwise compute inline
+      (or block on another executor's pending jobs) is served from READY jobs that expired
+      within the last N seconds — complete-but-stale data, returned immediately with
+      `stale=True`. Must stay well under EXPIRY_BUFFER_SECONDS (48h) so the underlying
+      ClickHouse rows are guaranteed to still exist.
     """
 
     def __init__(
@@ -691,7 +818,10 @@ class LazyComputationExecutor:
         ttl_schedule: TtlSchedule = DEFAULT_TTL_SCHEDULE,
         stale_pending_threshold_seconds: float = DEFAULT_STALE_PENDING_THRESHOLD_SECONDS,
         ch_start_grace_period_seconds: float = DEFAULT_CH_START_GRACE_PERIOD_SECONDS,
+        stale_while_revalidate_seconds: float | None = None,
     ) -> None:
+        if stale_while_revalidate_seconds is not None and stale_while_revalidate_seconds >= EXPIRY_BUFFER_SECONDS:
+            raise ValueError("stale_while_revalidate_seconds must be below EXPIRY_BUFFER_SECONDS")
         self.wait_timeout_seconds = wait_timeout_seconds
         self.poll_interval_seconds = poll_interval_seconds
         self.max_poll_interval_seconds = max_poll_interval_seconds
@@ -699,6 +829,7 @@ class LazyComputationExecutor:
         self.ttl_schedule = ttl_schedule
         self.stale_pending_threshold_seconds = stale_pending_threshold_seconds
         self.ch_start_grace_period_seconds = ch_start_grace_period_seconds
+        self.stale_while_revalidate_seconds = stale_while_revalidate_seconds
 
     def execute(
         self,
@@ -727,6 +858,7 @@ class LazyComputationExecutor:
 
         errors: list[str] = []
         failures = 0
+        memory_exceeded = False
         start_time = time.monotonic()
         interval = self.poll_interval_seconds
         subscribed_ids: set[uuid.UUID] = set()
@@ -766,7 +898,9 @@ class LazyComputationExecutor:
             while True:
                 if time.monotonic() - start_time >= self.wait_timeout_seconds:
                     errors.append("Timeout waiting for computation jobs")
-                    result = LazyComputationResult(ready=False, job_ids=[], errors=errors)
+                    result = LazyComputationResult(
+                        ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                    )
                     _log_execution("timeout", result)
                     return result
 
@@ -782,10 +916,49 @@ class LazyComputationExecutor:
                 if had_ready_at_start is None:
                     had_ready_at_start = any(j.status == PreaggregationJob.Status.READY for j in fresh_jobs)
 
+                # Step 2.5: Serve stale. If this request would otherwise compute inline or
+                # block on another executor's pending jobs, and READY jobs within the grace
+                # fully cover the range, return them immediately — complete-but-stale beats
+                # blocking. Whoever refreshes (the warmer, or a request after the grace)
+                # replaces the data; `filter_overlapping_jobs` always prefers newer jobs.
+                if self.stale_while_revalidate_seconds is not None and (ttl_ranges or pending_jobs):
+                    graced = find_existing_jobs(
+                        team, query_hash, start, end, expired_grace_seconds=self.stale_while_revalidate_seconds
+                    )
+                    graced_ready = self._filter_by_freshness(
+                        [j for j in graced if j.status == PreaggregationJob.Status.READY],
+                        grace_seconds=self.stale_while_revalidate_seconds,
+                    )
+                    # Coverage must be checked on the overlap-filtered set that will actually
+                    # be returned: the filter prefers newer jobs, so a newer narrow job can
+                    # evict an older broad one and reopen a gap the unfiltered set covered.
+                    covering = filter_overlapping_jobs(graced_ready)
+                    if not find_missing_contiguous_windows(covering, start, end):
+                        result = LazyComputationResult(
+                            ready=True,
+                            job_ids=[j.id for j in covering],
+                            stale=True,
+                        )
+                        _log_execution("stale_hit", result)
+                        return result
+
                 # Step 3: Insert missing ranges
                 did_work = False
                 if ttl_ranges and failures <= self.max_retries:
                     for range_start, range_end, ttl in ttl_ranges:
+                        # Each insert runs inline and is bounded only by the ClickHouse
+                        # max_execution_time, which is larger than our wait budget. A capped
+                        # (narrow) window can produce many ranges; stop before starting another
+                        # insert once the budget is spent rather than running the whole set
+                        # back-to-back and blowing well past wait_timeout_seconds.
+                        if time.monotonic() - start_time >= self.wait_timeout_seconds:
+                            errors.append("Timeout waiting for computation jobs")
+                            result = LazyComputationResult(
+                                ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                            )
+                            _log_execution("timeout", result)
+                            return result
+
                         try:
                             with transaction.atomic():
                                 new_job = create_lazy_computation_job(team, query_hash, range_start, range_end, ttl)
@@ -827,6 +1000,7 @@ class LazyComputationExecutor:
                             )
                         except Exception as e:
                             insert_elapsed = time.monotonic() - insert_start
+                            memory_exceeded = memory_exceeded or is_memory_limit_error(e)
                             new_job.status = PreaggregationJob.Status.FAILED
                             new_job.error = str(e)
                             new_job.save()
@@ -851,20 +1025,26 @@ class LazyComputationExecutor:
                             )
                             if is_non_retryable_error(e):
                                 errors.append(str(e))
-                                result = LazyComputationResult(ready=False, job_ids=[], errors=errors)
+                                result = LazyComputationResult(
+                                    ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                                )
                                 _log_execution("non_retryable_error", result)
                                 return result
                             failures += 1
                             if failures > self.max_retries:
                                 errors.append(f"Max retries ({self.max_retries}) exceeded: {e}")
-                                result = LazyComputationResult(ready=False, job_ids=[], errors=errors)
+                                result = LazyComputationResult(
+                                    ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                                )
                                 _log_execution("max_retries_exceeded", result)
                                 return result
                         did_work = True
 
                 if ttl_ranges and failures > self.max_retries:
                     errors.append("Max retries exceeded for computation")
-                    result = LazyComputationResult(ready=False, job_ids=[], errors=errors)
+                    result = LazyComputationResult(
+                        ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                    )
                     _log_execution("max_retries_exceeded", result)
                     return result
 
@@ -961,24 +1141,38 @@ class LazyComputationExecutor:
         job_age = (django_timezone.now() - job.created_at).total_seconds()
         return job_age > self.stale_pending_threshold_seconds
 
-    def _filter_by_freshness(self, jobs: list[PreaggregationJob]) -> list[PreaggregationJob]:
+    def _filter_by_freshness(
+        self, jobs: list[PreaggregationJob], grace_seconds: float = 0.0
+    ) -> list[PreaggregationJob]:
         """Filter jobs by freshness according to the TTL schedule.
 
         PENDING jobs always pass (they were recently created and we should wait).
-        READY jobs must satisfy: created_at + desired_ttl >= now().
+        READY jobs must satisfy: created_at + desired_ttl + grace_seconds >= now(), and,
+        when the schedule carries a `settling_period_seconds`, a job computed *before* its
+        window settled (`created_at < time_range_end + settling_period`) captured
+        in-motion data and is only fresh until the settling moment (plus grace): it
+        recomputes once the data can no longer change instead of sitting on a long band
+        TTL. `grace_seconds` is only non-zero for the serve-stale path and relaxes both
+        caps uniformly.
 
         This is per-query: a job created by executor A with a long TTL may be
         rejected by executor B using a stricter schedule for the same hash.
         """
         now = django_timezone.now()
+        settling_period = self.ttl_schedule.settling_period_seconds
         result = []
         for job in jobs:
             if job.status == PreaggregationJob.Status.PENDING:
                 result.append(job)
-            else:
-                desired_ttl = self.ttl_schedule.get_ttl(job.time_range_start)
-                if job.created_at + timedelta(seconds=desired_ttl) >= now:
-                    result.append(job)
+                continue
+            desired_ttl = self.ttl_schedule.get_ttl(job.time_range_start)
+            fresh_until = job.created_at + timedelta(seconds=desired_ttl + grace_seconds)
+            if settling_period is not None:
+                settled_at = job.time_range_end + timedelta(seconds=settling_period)
+                if job.created_at < settled_at:
+                    fresh_until = min(fresh_until, settled_at + timedelta(seconds=grace_seconds))
+            if fresh_until >= now:
+                result.append(job)
         return result
 
     def _wait_for_notification(self, pubsub: redis_lib.client.PubSub, timeout: float) -> dict | None:
@@ -991,11 +1185,14 @@ def ensure_precomputed(
     insert_query: str | ast.SelectQuery,
     time_range_start: datetime,
     time_range_end: datetime,
-    ttl_seconds: int | dict[str, int] = DEFAULT_TTL_SECONDS,
+    ttl_seconds: int | dict[str, int] | TtlSchedule = DEFAULT_TTL_SECONDS,
     table: LazyComputationTable = LazyComputationTable.PREAGGREGATION_RESULTS,
     placeholders: dict[str, ast.Expr] | None = None,
     sentinel_placeholders: set[str] | None = None,
     query_type: str | None = None,
+    spill_to_disk: bool = False,
+    wait_timeout_seconds: float | None = None,
+    stale_while_revalidate_seconds: float | None = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1034,6 +1231,21 @@ def ensure_precomputed(
                       for hashing. Use this for placeholders whose values change between
                       requests (e.g. datetime.now()) but shouldn't invalidate the cache.
                       The real values are still used at INSERT time.
+        wait_timeout_seconds: Wall-clock budget for the executor's compute-and-wait
+                      loop (default DEFAULT_WAIT_TIMEOUT_SECONDS). The loop checks the
+                      budget before starting each inline INSERT and while polling for
+                      other requests' pending jobs, so a completed window always
+                      persists as a READY job even when the overall call times out,
+                      so repeated calls converge. Use a small value for user-facing
+                      requests that have a cheap fallback path.
+        stale_while_revalidate_seconds: Mirrors the HTTP `stale-while-revalidate`
+                      cache directive (RFC 5861): when set, requests that would
+                      otherwise compute inline or wait are served from READY jobs
+                      expired within the last N seconds (result comes back with
+                      `stale=True`), and the caller is expected to revalidate in the
+                      background. Only for user-facing callers with a refresh
+                      mechanism; background refreshers must leave this unset or they
+                      would serve stale to themselves and never recompute.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -1103,18 +1315,31 @@ def ensure_precomputed(
             base_placeholders=base_placeholders,
         )
         set_ch_query_started(job.id)
-        tag_kwargs: dict = {"client_query_id": str(job.id), "team_id": t.id}
+        tag_kwargs: dict = {
+            "client_query_id": str(job.id),
+            "team_id": t.id,
+            "precompute_window_start": str(job.time_range_start),
+            "precompute_window_end": str(job.time_range_end),
+        }
         if query_type:
             tag_kwargs["query_type"] = query_type
         with tags_context(**tag_kwargs):
             sync_execute(
                 insert_sql,
                 values,
-                settings=_get_insert_settings(t.id),
+                settings=_get_insert_settings(t.id, spill_to_disk=spill_to_disk),
             )
 
-    ttl_schedule = parse_ttl_schedule(ttl_seconds, team.timezone)
-    executor = LazyComputationExecutor(ttl_schedule=ttl_schedule)
+    # A caller can hand in a fully-built TtlSchedule (e.g. one carrying a max_window_days
+    # cap) to bound job width — "switch the schedule"; otherwise parse int/dict as usual.
+    ttl_schedule = (
+        ttl_seconds if isinstance(ttl_seconds, TtlSchedule) else parse_ttl_schedule(ttl_seconds, team.timezone)
+    )
+    executor = LazyComputationExecutor(
+        ttl_schedule=ttl_schedule,
+        wait_timeout_seconds=wait_timeout_seconds if wait_timeout_seconds is not None else DEFAULT_WAIT_TIMEOUT_SECONDS,
+        stale_while_revalidate_seconds=stale_while_revalidate_seconds,
+    )
     return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
 
 
@@ -1178,13 +1403,18 @@ def _build_manual_insert_sql(
     expires_at_expr = ast.Alias(alias="expires_at", expr=ast.Constant(value=ch_expires_at))
     query.select.append(expires_at_expr)
 
-    # Print to SQL
+    # Print to SQL. Materialization is a system, team-scoped process with no request user, so bypass
+    # warehouse access control to avoid failing closed in this userless context. Caveat: the native
+    # pre-agg table this writes is later read WITHOUT warehouse RBAC, so materialization does not enforce
+    # per-source access on reads — a user with dashboard access can see aggregates from warehouse sources
+    # they can't query directly. Whether the pre-agg read should re-check source access is an open question.
     context = HogQLContext(
         team_id=team.id,
         team=team,
         enable_select_queries=True,
         limit_top_select=False,
         modifiers=create_default_modifiers_for_team(team),
+        bypass_warehouse_access_control=True,
     )
     select_sql, _ = prepare_and_print_ast(
         query,

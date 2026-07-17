@@ -2,12 +2,14 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
+from parameterized import parameterized
+
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
-from posthog.temporal.ai.posthog_code_slack_mention import (
+from posthog.temporal.ai.slack_app import (
     PostHogCodeSlackMentionWorkflowInputs,
     block_posthog_code_task_if_no_personal_github_activity,
 )
@@ -28,7 +30,7 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
         self.user = User.objects.create(email="alice@test.com")
         self.integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
 
-    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.ai.slack_app.activities.messaging.SlackIntegration")
     def test_returns_true_and_posts_block_when_user_has_no_personal_github(self, mock_slack_cls):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
@@ -49,7 +51,7 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
         assert button["text"]["text"] == "Connect GitHub"
         assert button["url"].endswith(f"/project/{self.team.id}/settings/user-personal-integrations")
 
-    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.ai.slack_app.activities.messaging.SlackIntegration")
     def test_returns_false_and_posts_nothing_when_user_has_personal_github(self, mock_slack_cls):
         UserIntegration.objects.create(
             user=self.user,
@@ -68,7 +70,7 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
         assert blocked is False
         mock_slack.client.chat_postMessage.assert_not_called()
 
-    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.ai.slack_app.activities.messaging.SlackIntegration")
     def test_only_github_kind_counts_as_personal_integration(self, mock_slack_cls):
         UserIntegration.objects.create(
             user=self.user,
@@ -87,7 +89,37 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
         assert blocked is True
         mock_slack.client.chat_postMessage.assert_called_once()
 
-    @patch("posthog.models.integration.SlackIntegration")
+    @parameterized.expand(
+        [
+            ("flag_on_with_team_install_proceeds", True, True, False),
+            ("flag_off_with_team_install_blocks", False, True, True),
+            ("flag_on_without_team_install_blocks", True, False, True),
+        ]
+    )
+    @patch("products.slack_app.backend.feature_flags.posthoganalytics.feature_enabled")
+    @patch("posthog.temporal.ai.slack_app.activities.messaging.SlackIntegration")
+    def test_allow_bot_prs_gates_on_flag_and_team_install(
+        self, _name, flag_on, has_team_install, expect_blocked, mock_slack_cls, mock_flag
+    ):
+        mock_flag.return_value = flag_on
+        if has_team_install:
+            Integration.objects.create(
+                team=self.team,
+                kind="github",
+                config={"account": {"name": "posthog"}},
+                sensitive_config={"access_token": "ghp-test"},
+            )
+        mock_slack = MagicMock()
+        mock_slack_cls.return_value = mock_slack
+
+        blocked = block_posthog_code_task_if_no_personal_github_activity(
+            _make_inputs(self.integration.id), "C123", "1234.5678", self.user.id, True
+        )
+
+        assert blocked is expect_blocked
+        assert mock_slack.client.chat_postMessage.called is expect_blocked
+
+    @patch("posthog.temporal.ai.slack_app.activities.messaging.SlackIntegration")
     def test_another_users_github_integration_does_not_count(self, mock_slack_cls):
         other_user = User.objects.create(email="bob@test.com")
         UserIntegration.objects.create(

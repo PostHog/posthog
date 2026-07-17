@@ -107,6 +107,7 @@ function VerifiedDomainsTable(): JSX.Element {
         isSSOEnforcementAvailable,
         isSAMLAvailable,
         isSCIMAvailable,
+        isXAAAuthenticationAvailable,
     } = useValues(verifiedDomainsLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const {
@@ -121,7 +122,7 @@ function VerifiedDomainsTable(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const isXAAAuthenticationEnabled = !!featureFlags[FEATURE_FLAGS.XAA_AUTHENTICATION]
+    const showXAAControls = !!featureFlags[FEATURE_FLAGS.XAA_AUTHENTICATION] && isXAAAuthenticationAvailable
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -204,10 +205,7 @@ function VerifiedDomainsTable(): JSX.Element {
         {
             key: 'integrations',
             title: 'Integrations',
-            render: function Integrations(
-                _,
-                { has_saml, saml_acs_url, saml_entity_id, saml_x509_cert, scim_enabled, has_id_jag }
-            ) {
+            render: function Integrations(_, { has_saml, has_scim, has_id_jag }) {
                 const billingLink = urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])
                 const badges: JSX.Element[] = []
 
@@ -230,16 +228,6 @@ function VerifiedDomainsTable(): JSX.Element {
                             type="success"
                             icon={SAML_ICON}
                             tooltip="SAML is enabled"
-                        />
-                    )
-                } else if (saml_acs_url || saml_entity_id || saml_x509_cert) {
-                    badges.push(
-                        <IntegrationBadge
-                            key="saml"
-                            label="SAML"
-                            type="warning"
-                            icon={SAML_ICON}
-                            tooltip="SAML is partially configured"
                         />
                     )
                 } else {
@@ -265,7 +253,7 @@ function VerifiedDomainsTable(): JSX.Element {
                             to={billingLink}
                         />
                     )
-                } else if (scim_enabled) {
+                } else if (has_scim) {
                     badges.push(
                         <IntegrationBadge
                             key="scim"
@@ -287,7 +275,7 @@ function VerifiedDomainsTable(): JSX.Element {
                     )
                 }
 
-                if (isXAAAuthenticationEnabled && has_id_jag) {
+                if (showXAAControls && has_id_jag) {
                     badges.push(
                         <IntegrationBadge
                             key="xaa"
@@ -333,7 +321,7 @@ function VerifiedDomainsTable(): JSX.Element {
                                 >
                                     Configure SCIM
                                 </LemonButton>
-                                {isXAAAuthenticationEnabled && (
+                                {showXAAControls && (
                                     <LemonButton
                                         onClick={() => setConfigureIdJagModalId(id)}
                                         fullWidth
@@ -483,7 +471,7 @@ function VerifiedDomainsTable(): JSX.Element {
             <AddDomainModal />
             <ConfigureSAMLModal />
             <ConfigureSCIMModal />
-            {isXAAAuthenticationEnabled && <ConfigureIdJagModal />}
+            {showXAAControls && <ConfigureIdJagModal />}
             <ScimLogsModal />
             <VerifyDomainModal />
         </div>

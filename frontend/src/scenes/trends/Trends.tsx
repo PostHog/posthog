@@ -1,59 +1,66 @@
 import { useActions, useValues } from 'kea'
-import { Suspense, lazy } from 'react'
+import { Suspense } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
+import { MetricCard } from 'scenes/insights/views/Metric/Metric'
 
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, InsightType } from '~/types'
 
 import { trendsDataLogic } from './trendsDataLogic'
-import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from './viz'
 // Lazy-loaded viz types that are rarely used on dashboards
-const WorldMap = lazy(() => import('scenes/insights/views/WorldMap').then((m) => ({ default: m.WorldMap })))
-const RegionMap = lazy(() => import('scenes/insights/views/RegionMap').then((m) => ({ default: m.RegionMap })))
-const TrendsCalendarHeatMap = lazy(() =>
+const WorldMap = lazyWithRetry(() => import('scenes/insights/views/WorldMap').then((m) => ({ default: m.WorldMap })))
+const RegionMap = lazyWithRetry(() => import('scenes/insights/views/RegionMap').then((m) => ({ default: m.RegionMap })))
+const TrendsCalendarHeatMap = lazyWithRetry(() =>
     import('scenes/insights/views/CalendarHeatMap').then((m) => ({ default: m.TrendsCalendarHeatMap }))
 )
-const BoxPlotChart = lazy(() => import('scenes/insights/views/BoxPlot').then((m) => ({ default: m.BoxPlotChart })))
-// Flag-gated — keep full d3 out of the eager Trends/Dashboard bundle
-const TrendsLineChart = lazy(() =>
+const BoxPlotChart = lazyWithRetry(() =>
+    import('scenes/insights/views/BoxPlot').then((m) => ({ default: m.BoxPlotChart }))
+)
+// Lazy-loaded — keep the quill/d3 slope chart out of the eager Trends/Dashboard bundle
+const TrendsSlopeChart = lazyWithRetry(() =>
+    import('products/product_analytics/frontend/insights/trends/TrendsSlopeChart/TrendsSlopeChart').then((m) => ({
+        default: m.TrendsSlopeChart,
+    }))
+)
+// Lazy-loaded — keep full d3 out of the eager Trends/Dashboard bundle
+const TrendsLineChart = lazyWithRetry(() =>
     import('products/product_analytics/frontend/insights/trends/TrendsLineChart/TrendsLineChart').then((m) => ({
         default: m.TrendsLineChart,
     }))
 )
-const TrendsBarChart = lazy(() =>
+const TrendsBarChart = lazyWithRetry(() =>
     import('products/product_analytics/frontend/insights/trends/TrendsBarChart/TrendsBarChart').then((m) => ({
         default: m.TrendsBarChart,
     }))
 )
-const StickinessLineChart = lazy(() =>
+const StickinessLineChart = lazyWithRetry(() =>
     import('products/product_analytics/frontend/insights/stickiness/StickinessLineChart/StickinessLineChart').then(
         (m) => ({
             default: m.StickinessLineChart,
         })
     )
 )
-const StickinessBarChart = lazy(() =>
+const StickinessBarChart = lazyWithRetry(() =>
     import('products/product_analytics/frontend/insights/stickiness/StickinessBarChart/StickinessBarChart').then(
         (m) => ({
             default: m.StickinessBarChart,
         })
     )
 )
-const TrendsPieChart = lazy(() =>
+const TrendsPieChart = lazyWithRetry(() =>
     import('products/product_analytics/frontend/insights/trends/TrendsPieChart/TrendsPieChart').then((m) => ({
         default: m.TrendsPieChart,
     }))
 )
-const TrendsLifecycleChart = lazy(() =>
+const TrendsLifecycleChart = lazyWithRetry(() =>
     import('products/product_analytics/frontend/insights/trends/TrendsLifecycleChart/TrendsLifecycleChart').then(
         (m) => ({
             default: m.TrendsLifecycleChart,
@@ -72,7 +79,6 @@ interface Props {
 export function TrendInsight({ view, context, embedded, inSharedMode, editMode }: Props): JSX.Element {
     const { insightProps, showPersonsModal: insightLogicShowPersonsModal } = useValues(insightLogic)
     const showPersonsModal = insightLogicShowPersonsModal && !inSharedMode
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const { display, series, breakdownFilter, hasBreakdownMore, breakdownValuesLoading, isLifecycle, isStickiness } =
         useValues(trendsDataLogic(insightProps))
@@ -81,19 +87,14 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
     const commonProps = {
         showPersonsModal,
         context,
-        inCardView: embedded && !inSharedMode,
+        // Fill the card in every embedded surface (dashboard tiles and shared/exported insights alike) so the
+        // Metric sparkline stretches and hugs the bottom instead of collapsing to a fixed height mid-card.
+        inCardView: embedded,
         inSharedMode,
     }
 
-    const hogChartsTrendsEnabled =
-        featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS] && !isLifecycle && !isStickiness
-    const hogChartsStickinessEnabled =
-        !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_STICKINESS] && isStickiness
-    const hogChartsLifecycleEnabled =
-        !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_LIFECYCLE] && isLifecycle
-
     const renderViz = (): JSX.Element | undefined => {
-        if (hogChartsLifecycleEnabled) {
+        if (isLifecycle) {
             return <TrendsLifecycleChart context={context} inSharedMode={inSharedMode} />
         }
         if (
@@ -102,25 +103,22 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             display === ChartDisplayType.ActionsLineGraphCumulative ||
             display === ChartDisplayType.ActionsAreaGraph
         ) {
-            if (hogChartsTrendsEnabled) {
-                return <TrendsLineChart context={context} inSharedMode={inSharedMode} />
-            }
-            if (hogChartsStickinessEnabled) {
+            if (isStickiness) {
                 return <StickinessLineChart context={context} />
             }
-            return <ActionsLineGraph {...commonProps} />
+            return <TrendsLineChart context={context} inSharedMode={inSharedMode} />
         }
         if (display === ChartDisplayType.ActionsBar || display === ChartDisplayType.ActionsUnstackedBar) {
-            if (hogChartsTrendsEnabled) {
-                return <TrendsBarChart context={context} inSharedMode={inSharedMode} embedded={embedded} />
-            }
-            if (hogChartsStickinessEnabled) {
+            if (isStickiness) {
                 return <StickinessBarChart context={context} />
             }
-            return <ActionsLineGraph {...commonProps} />
+            return <TrendsBarChart context={context} inSharedMode={inSharedMode} embedded={embedded} />
         }
         if (display === ChartDisplayType.BoldNumber) {
             return <BoldNumber {...commonProps} />
+        }
+        if (display === ChartDisplayType.Metric) {
+            return <MetricCard {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsTable) {
             return (
@@ -134,18 +132,10 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             )
         }
         if (display === ChartDisplayType.ActionsPie) {
-            if (hogChartsTrendsEnabled) {
-                return (
-                    <TrendsPieChart context={context} inSharedMode={inSharedMode} showPersonsModal={showPersonsModal} />
-                )
-            }
-            return <ActionsPie {...commonProps} />
+            return <TrendsPieChart context={context} inSharedMode={inSharedMode} showPersonsModal={showPersonsModal} />
         }
         if (display === ChartDisplayType.ActionsBarValue) {
-            if (hogChartsTrendsEnabled) {
-                return <TrendsBarChart context={context} inSharedMode={inSharedMode} embedded={embedded} />
-            }
-            return <ActionsHorizontalBar {...commonProps} />
+            return <TrendsBarChart context={context} inSharedMode={inSharedMode} embedded={embedded} />
         }
         if (display === ChartDisplayType.WorldMap) {
             const hasSubdivisionBreakdown =
@@ -166,6 +156,9 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         }
         if (display === ChartDisplayType.BoxPlot) {
             return <BoxPlotChart {...commonProps} inCardView={embedded} />
+        }
+        if (display === ChartDisplayType.SlopeGraph) {
+            return <TrendsSlopeChart context={context} />
         }
     }
 

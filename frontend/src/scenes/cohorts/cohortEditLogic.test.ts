@@ -2,6 +2,7 @@ import { api } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -28,6 +29,8 @@ import {
     TimeUnitType,
 } from '~/types'
 
+import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
+
 jest.mock('uuid', () => ({
     v4: jest.fn().mockReturnValue('mocked-uuid'),
 }))
@@ -42,6 +45,16 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
         success: jest.fn(),
     },
 }))
+
+const mockUsedInResponse: CohortUsedInResponseApi = {
+    feature_flags: {
+        results: [{ id: 7, key: 'my-flag', name: 'My Flag' }],
+        total: 1,
+        has_more: false,
+    },
+    insights: { results: [], total: 0, has_more: false },
+    cohorts: { results: [], total: 0, has_more: false },
+}
 
 describe('cohortEditLogic', () => {
     let logic: ReturnType<typeof cohortEditLogic.build>
@@ -60,10 +73,14 @@ describe('cohortEditLogic', () => {
     }
 
     beforeEach(async () => {
+        // Persisted column selection lives in localStorage keyed by cohort id — clear it so
+        // column state doesn't leak between tests that reuse the same cohort id.
+        window.localStorage.clear()
         useMocks({
             get: {
                 '/api/projects/:team_id/cohorts/': toPaginatedResponse([mockCohort]),
                 '/api/projects/:team_id/cohorts/:id/': mockCohort,
+                '/api/projects/:team_id/cohorts/:id/used_in/': mockUsedInResponse,
             },
             post: {
                 '/api/projects/:team_id/cohorts/': mockCohort,
@@ -81,7 +98,61 @@ describe('cohortEditLogic', () => {
             await initCohortLogic({ id: 1 })
             await expectLogic(logic).toDispatchActions(['fetchCohort'])
 
-            expect(api.get).toHaveBeenCalledTimes(1)
+            // One call for the cohort itself, one for its used-in references
+            expect(api.get).toHaveBeenCalledTimes(2)
+        })
+
+        it('loads used-in references on mount before the cohort has resolved', async () => {
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
+
+            expect(logic.values.usedIn).toEqual(mockUsedInResponse)
+        })
+
+        it('swallows used-in 404s without reporting them', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/used_in/': () => [404, { detail: 'Not found.' }],
+                },
+            })
+            await initCohortLogic({ id: 1 })
+            // The loader swallows the error and returns a value, so Success (not Failure) fires.
+            await expectLogic(logic).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
+
+            expect(logic.values.usedIn).toEqual(null)
+            expect(posthog.captureException).not.toHaveBeenCalled()
+        })
+
+        it('reports non-404 used-in failures', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/used_in/': () => [500, { detail: 'Server error' }],
+                },
+            })
+            await initCohortLogic({ id: 1 })
+            // The loader still returns a value on non-404 errors, so Success (not Failure) fires.
+            await expectLogic(logic).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
+
+            expect(logic.values.usedIn).toEqual(null)
+            expect(posthog.captureException).toHaveBeenCalled()
+        })
+
+        it('keeps the previously loaded value when a refresh fails', async () => {
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
+            expect(logic.values.usedIn).toEqual(mockUsedInResponse)
+
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/used_in/': () => [500, { detail: 'Server error' }],
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.loadUsedIn()
+            }).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
+
+            // The failed refresh returns the prior value instead of blanking the banner.
+            expect(logic.values.usedIn).toEqual(mockUsedInResponse)
         })
 
         it('loads new cohort on mount', async () => {
@@ -158,7 +229,9 @@ describe('cohortEditLogic', () => {
                     },
                 })
                 logic.actions.submitCohort()
-            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess'])
+            })
+                .toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess', 'saveCohortSuccess'])
+                .toNotHaveDispatchedActions(['loadUsedIn'])
             expect(api.update).toHaveBeenCalledTimes(1)
         })
 
@@ -644,7 +717,13 @@ describe('cohortEditLogic', () => {
                 is_static: true,
             }
             const createSpy = jest.spyOn(api.cohorts, 'create').mockResolvedValue(createdCohort)
-            const setTimeoutSpy = jest.spyOn(window, 'setTimeout').mockImplementation(() => 0 as never)
+            // Suppress only the 1s calculation poll — kea breakpoints schedule shorter
+            // timers through setTimeout too, and those must still fire
+            const realSetTimeout = window.setTimeout.bind(window)
+            const setTimeoutSpy = jest
+                .spyOn(window, 'setTimeout')
+                .mockImplementation(((handler: TimerHandler, timeout?: number, ...args: any[]) =>
+                    timeout === 1000 ? (0 as any) : realSetTimeout(handler, timeout, ...args)) as any)
 
             await expectLogic(logic, async () => {
                 logic.actions.setCohort({
@@ -684,6 +763,8 @@ describe('cohortEditLogic', () => {
             expect(createPayload.get('filters')).toContain('"values"')
             expect(createPayload.get('filters')).not.toContain('"properties":{}')
 
+            // Let the post-submit refreshPersonsData debounce finish before the test ends
+            await expectLogic(logic).toFinishAllListeners()
             setTimeoutSpy.mockRestore()
         })
 
@@ -1014,6 +1095,50 @@ describe('cohortEditLogic', () => {
 
             // Custom columns should still be preserved after save
             expect((logic.values.query.source as ActorsQuery).select).toEqual(customColumns)
+        })
+
+        const defaultColumns = ['person_display_name -- Person', 'id', 'created_at']
+        const customColumns = [...defaultColumns, 'properties.$browser']
+
+        it.each([
+            ['the same cohort restores the persisted columns', 1, customColumns],
+            ["another cohort ignores the first cohort's columns and uses defaults", 2, defaultColumns],
+        ])('after a refresh (remount), %s', async (_name, remountId, expectedSelect) => {
+            await initCohortLogic({ id: 1 })
+
+            await expectLogic(logic, () => {
+                logic.actions.setQuery({
+                    ...logic.values.query,
+                    source: { ...(logic.values.query.source as ActorsQuery), select: customColumns },
+                } as DataTableNode)
+            }).toDispatchActions(['setQuery'])
+
+            // Simulate a refresh: tear down and rebuild the logic
+            logic.unmount()
+            logic = cohortEditLogic({ id: remountId })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect((logic.values.effectiveQuery.source as ActorsQuery).select).toEqual(expectedSelect)
+        })
+
+        it('does not carry columns from one unsaved draft cohort over to the next', async () => {
+            await initCohortLogic({ id: 'new' })
+
+            await expectLogic(logic, () => {
+                logic.actions.setQuery({
+                    ...logic.values.query,
+                    source: { ...(logic.values.query.source as ActorsQuery), select: customColumns },
+                } as DataTableNode)
+            }).toDispatchActions(['setQuery'])
+
+            // Abandon the draft and start a fresh one — both share the 'new' logic key
+            logic.unmount()
+            logic = cohortEditLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect((logic.values.effectiveQuery.source as ActorsQuery).select).toEqual(defaultColumns)
         })
     })
 

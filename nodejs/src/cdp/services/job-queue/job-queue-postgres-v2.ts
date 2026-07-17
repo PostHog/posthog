@@ -2,13 +2,14 @@ import { chunk } from 'lodash'
 import { Gauge } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { parseJSON } from '~/utils/json-parse'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '../../../types'
-import { logger } from '../../../utils/logger'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
+import { CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
 import { JobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
@@ -34,7 +35,10 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     private sanitizer: ReturnType<typeof createInvocationSanitizer>
 
     constructor(
-        private consumerBatchSize: number,
+        // protected — the rate-limited subclass needs this to cap its token
+        // claim at the actual batch size we can process (avoids deducting
+        // tokens we'd never use).
+        protected consumerBatchSize: number,
         private config: Pick<
             CdpConfig,
             | 'CYCLOTRON_NODE_DATABASE_URL'
@@ -63,6 +67,15 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
         await this.manager.connect()
     }
 
+    /**
+     * Factory hook for the worker. Subclasses override this to plug in a
+     * different worker class (e.g. CyclotronV2RateLimitedWorker) without
+     * having to reimplement `startAsConsumer`.
+     */
+    protected createWorker(workerConfig: CyclotronV2WorkerConfig): CyclotronV2Worker {
+        return new CyclotronV2Worker(workerConfig)
+    }
+
     public async startAsConsumer(
         queue: CyclotronJobQueueKind,
         consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
@@ -73,7 +86,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
 
         await this.startAsProducer()
 
-        this.worker = new CyclotronV2Worker({
+        this.worker = this.createWorker({
             pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL },
             queueName: queue,
             batchMaxSize: this.consumerBatchSize,
@@ -248,6 +261,32 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             })
         )
     }
+
+    public async heartbeatInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
+        await Promise.all(
+            invocations.map(async (inv) => {
+                const job = this.pendingJobs.get(inv.id)
+                if (!job) {
+                    return
+                }
+                try {
+                    await job.heartbeat()
+                } catch (err) {
+                    const message = err instanceof Error ? err.message : String(err)
+                    if (message.includes('already released')) {
+                        // Benign race with ack/fail/reschedule flipping `released` on the wrapper.
+                        logger.debug('CyclotronV2 heartbeat skipped for released job', { id: inv.id })
+                    } else {
+                        // Real failure (connection error, pool exhaustion, query timeout) —
+                        // surface it so we can act. Don't rethrow: the tick continues for
+                        // the other jobs and the interval keeps firing so a transient blip
+                        // doesn't kill the batch.
+                        logger.warn('CyclotronV2 heartbeat failed', { id: inv.id, error: message })
+                    }
+                }
+            })
+        )
+    }
 }
 
 function serializeState(invocation: CyclotronJobInvocation): Buffer {
@@ -259,7 +298,7 @@ function serializeState(invocation: CyclotronJobInvocation): Buffer {
     return Buffer.from(JSON.stringify(blob))
 }
 
-function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2JobInit {
+export function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2JobInit {
     const state = serializeState(invocation)
     cdpJobSizeKb.labels('postgres-v2').observe(state.length / 1024)
     cdpJobSizeCompressedKb.labels('postgres-v2').observe(state.length / 1024)
@@ -301,7 +340,7 @@ export function extractActionId(invocation: CyclotronJobInvocation): string | nu
     return (invocation as LookupColumnSource).state?.currentAction?.id || null
 }
 
-function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvocation {
+export function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvocation {
     let parsed: SerializedJobState = { state: null }
 
     if (job.state) {

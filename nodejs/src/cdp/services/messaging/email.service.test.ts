@@ -1,15 +1,26 @@
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
+import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
+
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
+import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
-import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { closeHub, createHub } from '~/utils/db/hub'
 
 import { Hub, Team } from '../../../types'
+import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailService, parseAddressList, sanitizeEmailSubject } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
+import { EmailTrackingCodeSigner } from './helpers/tracking-code'
+
+class ThrottlingException extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'ThrottlingException'
+    }
+}
 
 describe('sanitizeEmailSubject', () => {
     it.each([
@@ -80,8 +91,10 @@ describe('EmailService', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
             },
             hub.integrationManager,
+            new TeamWorkflowsConfigService(hub.postgres),
             hub.ENCRYPTION_SALT_KEYS,
-            hub.SITE_URL
+            hub.SITE_URL,
+            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
         )
         mockFetch.mockClear()
     })
@@ -93,8 +106,10 @@ describe('EmailService', () => {
             const serviceWithoutSES = new EmailService(
                 { sesAccessKeyId: '', sesSecretAccessKey: '', sesRegion: '', sesEndpoint: '' },
                 hub.integrationManager,
+                new TeamWorkflowsConfigService(hub.postgres),
                 hub.ENCRYPTION_SALT_KEYS,
-                hub.SITE_URL
+                hub.SITE_URL,
+                new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
             )
             expect(serviceWithoutSES.sesV2Client).toBeNull()
 
@@ -168,14 +183,18 @@ describe('EmailService', () => {
                     from: { integrationId: 100 },
                 })
                 const result = await service.executeSendEmail(invocation)
-                expect(result.error).toMatchInlineSnapshot(`"Email integration not found"`)
+                expect(result.error).toMatchInlineSnapshot(
+                    `"Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."`
+                )
             })
             it('should validate if the integration is not an email integration', async () => {
                 invocation.queueParameters = createEmailParams({
                     from: { integrationId: 3 },
                 })
                 const result = await service.executeSendEmail(invocation)
-                expect(result.error).toMatchInlineSnapshot(`"Email integration not found"`)
+                expect(result.error).toMatchInlineSnapshot(
+                    `"The integration configured for this step is not an email channel — select an email sender in the workflow's email step."`
+                )
             })
             it('should validate if the integration is not the correct team', async () => {
                 invocation.teamId = 100
@@ -183,7 +202,9 @@ describe('EmailService', () => {
                     from: { integrationId: 1 },
                 })
                 const result = await service.executeSendEmail(invocation)
-                expect(result.error).toMatchInlineSnapshot(`"Email integration not found"`)
+                expect(result.error).toMatchInlineSnapshot(
+                    `"Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."`
+                )
             })
             it('should validate if the email domain is not verified', async () => {
                 invocation.queueParameters = createEmailParams({
@@ -239,12 +260,79 @@ describe('EmailService', () => {
                 })
             })
         })
+        describe('SES throttle handling', () => {
+            // SES throttle responses become reschedule-with-backoff rather than
+            // permanent failures. The local Valkey bucket already gates dequeue;
+            // this path is the safety net for when SES disagrees with our estimate.
+            // Retryable: TooManyRequestsException (SES v2's rate-limit class) and
+            // ThrottlingException (generic AWS SDK throttle name surfaced from
+            // the transport layer). SendingPausedException is *not* retryable —
+            // it signals a reputation/account-state issue that needs operator
+            // attention, not a 500ms reschedule.
+            const throttleCases: Array<[string, () => Error]> = [
+                [
+                    'TooManyRequestsException',
+                    () => new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' }),
+                ],
+                ['ThrottlingException', () => new ThrottlingException('Rate exceeded')],
+            ]
+            it.each(throttleCases)('reschedules instead of failing when SES returns %s', async (_name, makeError) => {
+                sendEmailSpy.mockRejectedValueOnce(makeError())
+
+                const before = Date.now()
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(result.finished).toBe(false)
+                expect(result.invocation.queueScheduledAt).toBeDefined()
+                const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
+                // Jittered 500–1000ms retry: must land in the future but never further
+                // than the upper bound + scheduler overhead.
+                expect(scheduledMs).toBeGreaterThanOrEqual(before + 400)
+                expect(scheduledMs).toBeLessThan(before + 2000)
+                // No business metric emitted on throttle — the eventual retry
+                // will produce email_sent.
+                expect(result.metrics ?? []).toEqual([])
+            })
+
+            it('hard-fails (not retry) when SES returns SendingPausedException', async () => {
+                // Reputation/account-state pause won't recover in 500ms; retrying
+                // just burns reschedules. Hard-fail so the failure surfaces via
+                // email_failed and an operator can investigate.
+                sendEmailSpy.mockRejectedValueOnce(
+                    new SendingPausedException({ $metadata: {}, message: 'Sending paused' })
+                )
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.finished).toBe(true)
+                expect(result.error).toMatch(/Failed to send email via SES: Sending paused/)
+                expect(result.metrics).toEqual(
+                    expect.arrayContaining([expect.objectContaining({ metric_name: 'email_failed' })])
+                )
+            })
+
+            it('still fails the job for non-throttle SES errors', async () => {
+                sendEmailSpy.mockRejectedValueOnce(
+                    new MessageRejected({ $metadata: {}, message: 'something else broke' })
+                )
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.finished).toBe(true)
+                expect(result.error).toMatch(/Failed to send email via SES: something else broke/)
+                // Business metric should record the failure.
+                expect(result.metrics).toEqual(
+                    expect.arrayContaining([expect.objectContaining({ metric_name: 'email_failed' })])
+                )
+            })
+        })
     })
     describe('native email sending with maildev', () => {
         let invocation: CyclotronJobInvocationHogFunction
         const mailDevAPI = new MailDevAPI()
         beforeEach(async () => {
-            const actualFetch = jest.requireActual('~/utils/request').fetch as jest.Mock
+            const actualFetch = jest.requireActual('~/common/utils/request').fetch as jest.Mock
             mockFetch.mockImplementation((...args: any[]): Promise<any> => {
                 return actualFetch(...args) as any
             })
@@ -281,7 +369,7 @@ describe('EmailService', () => {
                 to: [{ address: 'test@example.com', name: 'Test User' }],
             })
         })
-        it('should include tracking code in the email', async () => {
+        it('should include tracking code in the email with distinct_id', async () => {
             invocation.queueParameters = createEmailParams({
                 html: '<body>Hi! <a href="https://example.com">Click me</a></body>',
             })
@@ -289,8 +377,10 @@ describe('EmailService', () => {
             await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
             const emails = await mailDevAPI.getEmails()
             expect(emails).toHaveLength(1)
-            expect(emails[0].html).toEqual(
-                `<body>Hi! <a href="http://localhost:8010/public/m/redirect?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo6&target=https%3A%2F%2Fexample.com">Click me</a><img src="http://localhost:8010/public/m/pixel?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo6" style="display: none;" /></body>`
+            // ph_id may be unsigned (base64url only) or signed (base64url + `.` + signature) depending on
+            // ENCRYPTION_SALT_KEYS. Match the structure, not the exact value.
+            expect(emails[0].html).toMatch(
+                /^<body>Hi! <a href="http:\/\/localhost:8010\/public\/m\/redirect\?ph_id=[A-Za-z0-9._-]+&target=https%3A%2F%2Fexample\.com">Click me<\/a><img src="http:\/\/localhost:8010\/public\/m\/pixel\?ph_id=[A-Za-z0-9._-]+" style="display: none;" \/><\/body>$/
             )
         })
     })
@@ -298,7 +388,7 @@ describe('EmailService', () => {
         let invocation: CyclotronJobInvocationHogFunction
         let sendEmailSpy: jest.SpyInstance
         beforeEach(async () => {
-            const actualFetch = jest.requireActual('~/utils/request').fetch as jest.Mock
+            const actualFetch = jest.requireActual('~/common/utils/request').fetch as jest.Mock
             mockFetch.mockImplementation((...args: any[]): Promise<any> => {
                 return actualFetch(...args) as any
             })
@@ -339,42 +429,34 @@ describe('EmailService', () => {
             expect(result.error).toBeUndefined()
             expect(sendEmailSpy).toHaveBeenCalledTimes(1)
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input).toMatchInlineSnapshot(`
-                {
-                  "ConfigurationSetName": "posthog-messaging",
-                  "Content": {
-                    "Simple": {
-                      "Body": {
-                        "Html": {
-                          "Charset": "UTF-8",
-                          "Data": "Test HTML",
+            // The SES tag carries the short unsigned code (no dot); the signed code (with distinct_id)
+            // rides in the header.
+            expect(sentCommand.input).toMatchObject({
+                ConfigurationSetName: 'posthog-messaging',
+                Content: {
+                    Simple: {
+                        Body: {
+                            Html: { Charset: 'UTF-8', Data: 'Test HTML' },
+                            Text: { Charset: 'UTF-8', Data: 'Test Text' },
                         },
-                        "Text": {
-                          "Charset": "UTF-8",
-                          "Data": "Test Text",
-                        },
-                      },
-                      "Subject": {
-                        "Charset": "UTF-8",
-                        "Data": "Test Subject",
-                      },
+                        Subject: { Charset: 'UTF-8', Data: 'Test Subject' },
                     },
-                  },
-                  "Destination": {
-                    "ToAddresses": [
-                      "\"Test User\" <test@example.com>",
-                    ],
-                  },
-                  "EmailTags": [
-                    {
-                      "Name": "ph_id",
-                      "Value": "ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo6",
-                    },
-                  ],
-                  "FeedbackForwardingEmailAddress": "test@posthog-test.com",
-                  "FromEmailAddress": "\"Test User\" <test@posthog-test.com>",
-                }
-            `)
+                },
+                Destination: { ToAddresses: ['"Test User" <test@example.com>'] },
+                EmailTags: [{ Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) }],
+                FeedbackForwardingEmailAddress: 'test@posthog-test.com',
+                FromEmailAddress: '"Test User" <test@posthog-test.com>',
+            })
+        })
+
+        it('records a send-time metric for normal sends but not for test sends', async () => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+            const normal = await service.executeSendEmail(invocation)
+            expect(normal.metrics.map((m) => m.metric_name)).toContain('email_sent')
+
+            const testSend = await service.executeSendEmail(invocation, true)
+            expect(testSend.metrics).toEqual([])
         })
 
         it('should include cc addresses in SES destination', async () => {
@@ -526,19 +608,86 @@ describe('EmailService', () => {
             )
         })
 
-        it('should not include unsubscribe headers for transactional emails', async () => {
+        it('should not include unsubscribe headers for transactional emails (but tracking-code header is still set)', async () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.hogFunction.metadata = { message_category_type: 'transactional' }
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input.Content.Simple.Headers).toBeUndefined()
+            const headerNames = (sentCommand.input.Content.Simple.Headers ?? []).map((h: { Name: string }) => h.Name)
+            expect(headerNames).not.toContain('List-Unsubscribe')
+            expect(headerNames).not.toContain('List-Unsubscribe-Post')
+            expect(headerNames).toContain('X-PostHog-Tracking-Code')
+        })
+
+        it('attaches the X-PostHog-Tracking-Code header carrying the full signed code', async () => {
+            // The header is the authoritative tracking-code carrier (the EmailTag is the
+            // bounded backwards-compat fallback). It rides on every outbound message,
+            // regardless of transactional vs. marketing category.
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+            const trackingHeader = sentCommand.input.Content.Simple.Headers.find(
+                (h: { Name: string }) => h.Name === 'X-PostHog-Tracking-Code'
+            )
+            expect(trackingHeader).toBeDefined()
+            expect(typeof trackingHeader.Value).toBe('string')
+            expect(trackingHeader.Value.length).toBeGreaterThan(0)
+            // The SES EmailTag carries a *different* (shorter, unsigned) code so it stays under the
+            // 256-char tag-value limit even when distinct_id is long.
+            expect(sentCommand.input.EmailTags[0].Value).not.toEqual(trackingHeader.Value)
         })
 
         it('should report a missing message id', async () => {
             sendEmailSpy.mockResolvedValue({})
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toMatchInlineSnapshot(`"Failed to send email via SES: No messageId returned from SES"`)
+        })
+
+        it('should capture a $workflows_email_sent PostHog event on success', async () => {
+            // Engagement capture is team-opt-in; enable it for this team so the captured event is emitted.
+            jest.spyOn((service as any).teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockResolvedValue(
+                true
+            )
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            expect(result.capturedPostHogEvents).toHaveLength(1)
+            expect(result.capturedPostHogEvents[0]).toMatchObject({
+                team_id: team.id,
+                distinct_id: 'distinct_id',
+                event: '$workflows_email_sent',
+                properties: {
+                    $workflow_id: invocation.functionId,
+                    $workflow_action_id: invocation.state.actionId,
+                    $email_to: 'test@example.com',
+                    $email_subject: 'Test Subject',
+                },
+            })
+        })
+
+        it('does not capture a PostHog event when engagement capture is disabled for the team', async () => {
+            // Default config has capture_workflows_engagement_events=false, so even on success no event is queued.
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            expect(result.capturedPostHogEvents).toHaveLength(0)
+        })
+
+        it('should capture a $workflows_email_failed PostHog event on failure', async () => {
+            jest.spyOn((service as any).teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockResolvedValue(
+                true
+            )
+            sendEmailSpy.mockRejectedValue(new Error('SES error'))
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeDefined()
+            expect(result.capturedPostHogEvents).toHaveLength(1)
+            expect(result.capturedPostHogEvents[0]).toMatchObject({
+                event: '$workflows_email_failed',
+                distinct_id: 'distinct_id',
+            })
         })
     })
 })

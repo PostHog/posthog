@@ -1,9 +1,5 @@
 import uuid
-import dataclasses
 from datetime import timedelta
-
-from django.db.models.signals import pre_delete
-from django.dispatch import receiver
 
 import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
@@ -16,17 +12,8 @@ from rest_framework.response import Response
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
-from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
-from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 
-from products.batch_exports.backend.api.batch_export import resolve_and_validate_url
-from products.managed_migrations.backend.models.batch_import_utils import (
-    extract_batch_import_info,
-    get_batch_import_created_by_info,
-    get_batch_import_detail_name,
-)
 from products.managed_migrations.backend.models.batch_imports import BatchImport, ContentType, DateRangeExportSource
 
 
@@ -62,6 +49,10 @@ class BatchImportSerializer(serializers.ModelSerializer):
     def validate_endpoint_url(self, value: str | None) -> str | None:
         if not value or not value.strip():
             return None
+        # Deferred: batch_export pulls the batch-export Temporal framework, which has no
+        # business on this module's import path.
+        from products.batch_exports.backend.api.batch_export import resolve_and_validate_url  # noqa: PLC0415
+
         try:
             resolve_and_validate_url(value)
         except ValueError:
@@ -302,8 +293,18 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
         write_only=True,
         required=True,
     )
-    access_key = serializers.CharField(write_only=True, required=True)
-    secret_key = serializers.CharField(write_only=True, required=True)
+    access_key = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Source access key / API key. Required for Amplitude; unused for Mixpanel, which authenticates with the project secret alone.",
+    )
+    secret_key = serializers.CharField(
+        write_only=True,
+        required=True,
+        help_text="Source secret. For Mixpanel this is the project API secret, found under Project settings → Access keys.",
+    )
     is_eu_region = serializers.BooleanField(write_only=True, required=False, default=False)
     import_events = serializers.BooleanField(write_only=True, required=False, default=True)
     generate_identify_events = serializers.BooleanField(write_only=True, required=False, default=True)
@@ -363,9 +364,12 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
             if source_type == "amplitude" and (end_date - start_date) < timedelta(hours=1):
                 raise serializers.ValidationError("Date range must be at least 1 hour for Amplitude migrations.")
 
-        # For Amplitude, ensure at least one of import_events or generate_identify_events is enabled
+        # For Amplitude, validate required fields and event-type selection
         source_type = data.get("source_type")
         if source_type == "amplitude":
+            if not data.get("access_key"):
+                raise serializers.ValidationError("Access key is required for Amplitude migrations.")
+
             import_events = data.get("import_events", True)
             generate_identify_events = data.get("generate_identify_events", True)
 
@@ -612,85 +616,3 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         return Response({"status": "resumed"})
-
-
-@dataclasses.dataclass(frozen=True)
-class BatchImportContext(ActivityContextBase):
-    source_type: str
-    content_type: str
-    start_date: str | None
-    end_date: str | None
-    created_by_user_id: str | None
-    created_by_user_email: str | None
-    created_by_user_name: str | None
-
-
-@mutable_receiver(model_activity_signal, sender=BatchImport)
-def handle_batch_import_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    # Use after_update for create/update, before_update for delete
-    batch_import = after_update or before_update
-
-    if not batch_import:
-        return
-
-    source_type, content_type, start_date, end_date = extract_batch_import_info(batch_import)
-    created_by_user_id, created_by_user_email, created_by_user_name = get_batch_import_created_by_info(batch_import)
-    detail_name = get_batch_import_detail_name(source_type, content_type)
-
-    context = BatchImportContext(
-        source_type=source_type,
-        content_type=content_type,
-        start_date=start_date,
-        end_date=end_date,
-        created_by_user_id=created_by_user_id,
-        created_by_user_email=created_by_user_email,
-        created_by_user_name=created_by_user_name,
-    )
-
-    log_activity(
-        organization_id=batch_import.team.organization_id,
-        team_id=batch_import.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=batch_import.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=detail_name,
-            context=context,
-        ),
-    )
-
-
-@receiver(pre_delete, sender=BatchImport)
-def handle_batch_import_delete(sender, instance, **kwargs):
-    user = get_current_user()
-    was_impersonated = get_was_impersonated()
-
-    source_type, content_type, start_date, end_date = extract_batch_import_info(instance)
-    created_by_user_id, created_by_user_email, created_by_user_name = get_batch_import_created_by_info(instance)
-    detail_name = get_batch_import_detail_name(source_type, content_type)
-
-    context = BatchImportContext(
-        source_type=source_type,
-        content_type=content_type,
-        start_date=start_date,
-        end_date=end_date,
-        created_by_user_id=created_by_user_id,
-        created_by_user_email=created_by_user_email,
-        created_by_user_name=created_by_user_name,
-    )
-
-    log_activity(
-        organization_id=instance.team.organization_id,
-        team_id=instance.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=instance.id,
-        scope="BatchImport",
-        activity="deleted",
-        detail=Detail(name=detail_name, context=context),
-    )

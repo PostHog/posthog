@@ -16,6 +16,9 @@ export class SqlInsight {
     async writeQuery(query: string): Promise<void> {
         const editorArea = this.page.getByTestId('hogql-query-editor')
         await editorArea.waitFor({ state: 'visible' })
+        // CodeEditor lazy-loads monaco, so the container renders before the editor
+        // mounts — clicking too early focuses nothing and insertText is lost.
+        await editorArea.locator('[data-editor-ready="true"]').first().waitFor({ state: 'visible' })
         await editorArea.click()
         await this.page.keyboard.press('ControlOrMeta+a')
         // Use insertText() to avoid Monaco autocomplete intercepting keystrokes

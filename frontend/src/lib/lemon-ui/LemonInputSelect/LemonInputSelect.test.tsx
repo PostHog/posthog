@@ -19,6 +19,45 @@ describe('LemonInputSelect', () => {
         return dropdownButtons.find((button) => button.textContent?.includes(text))
     }
 
+    it('disables the input and explains why when disabledReason is set', async () => {
+        render(
+            <LemonInputSelect
+                mode="multiple"
+                options={[]}
+                value={[]}
+                onChange={jest.fn()}
+                placeholder="Select values"
+                disabledReason="You don't have access to edit this field"
+            />
+        )
+
+        const input = screen.getByPlaceholderText('Select values')
+        expect(input).toBeDisabled()
+
+        await userEvent.hover(input.closest('.LemonInput') as HTMLElement)
+
+        expect(await screen.findByText("You don't have access to edit this field")).toBeInTheDocument()
+    })
+
+    it('does not allow removing selected values when disabledReason is set', () => {
+        const onChange = jest.fn()
+
+        const { container } = render(
+            <LemonInputSelect
+                mode="multiple"
+                options={[{ key: 'option-a', label: 'Option A' }]}
+                value={['option-a']}
+                onChange={onChange}
+                disabledReason="You don't have access to edit this field"
+            />
+        )
+
+        // The selected value still shows, but its remove (x) button must not render
+        expect(screen.getByText('Option A')).toBeInTheDocument()
+        expect(container.querySelector('.LemonSnack__close')).toBeNull()
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
     it('works with string values (backwards compatibility)', () => {
         const onChange = jest.fn()
 
@@ -245,6 +284,31 @@ describe('LemonInputSelect', () => {
 
         // Verify onChange was called with empty array (clearing the selection)
         expect(onChange).toHaveBeenCalledWith([])
+    })
+
+    it('single-select mode: focusing with a selected option still shows every option', async () => {
+        // Regression: for option-backed single selects the option key is an opaque id (e.g. a UUID).
+        // Focusing must not seed the input with that key, which would filter the dropdown down to the
+        // selected option alone and hide every other choice (the OAuth organization picker symptom).
+        const onChange = jest.fn()
+
+        const { container } = render(
+            <LemonInputSelect<string>
+                mode="single"
+                options={[
+                    { key: '019cd764-55e6-0000-67dc-7f9cb756d36e', label: 'Testbench' },
+                    { key: '4dc8564d-bd82-1065-2f40-97f7c50f67cf', label: 'PostHog Inc.' },
+                ]}
+                value={['019cd764-55e6-0000-67dc-7f9cb756d36e']}
+                onChange={onChange}
+            />
+        )
+
+        await openDropdown(container)
+
+        // Both the selected org and the other org must be selectable from the open dropdown.
+        expect(await findDropdownButtonByText('Testbench')).toBeInTheDocument()
+        expect(await findDropdownButtonByText('PostHog Inc.')).toBeInTheDocument()
     })
 
     it('custom values: typing prefix of existing option shows both entries, completing shows only one', async () => {

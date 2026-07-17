@@ -5,7 +5,7 @@ import { LemonLabel, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
 import { Sparkline } from 'lib/components/Sparkline'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { base64Encode } from 'lib/utils'
+import { base64Encode } from 'lib/utils/base64'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'

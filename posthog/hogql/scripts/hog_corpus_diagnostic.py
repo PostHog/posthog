@@ -57,10 +57,8 @@ import traceback
 import subprocess
 from pathlib import Path
 
-import django
-
+# Skip django.setup(): parser core only reads settings.TEST, so settings alone avoids ready()-hook DB/redis init.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
-django.setup()
 
 from posthog.hogql.scripts._diagnostic_common import (
     _probe_backend,
@@ -70,6 +68,7 @@ from posthog.hogql.scripts._diagnostic_common import (
     print_corpus_summary,
     repo_relative,
     run_corpus_parity,
+    shrink_failures,
     write_failures,
 )
 
@@ -186,6 +185,15 @@ def main() -> int:
         help="Output file for failing programs (default: <dump>.failures.hog alongside the dump)",
     )
     p.add_argument(
+        "--shrink-failures",
+        action="store_true",
+        help=(
+            "Reduce each failing program to a minimal repro via shrinkray before "
+            "writing it out. Needs the optional `hogql-parser-parity` group "
+            "(`uv sync --group hogql-parser-parity`)."
+        ),
+    )
+    p.add_argument(
         "--limit",
         type=int,
         default=None,
@@ -267,11 +275,16 @@ def main() -> int:
     print_corpus_summary(result, oracle=args.oracle, candidate=args.candidate)
 
     # 4. Failure dump.
-    if result.failures:
-        out_path = Path(args.write_failures) if args.write_failures else args.input.with_suffix(".failures.hog")
-        write_failures(out_path, result.failures, REPO_ROOT, title="hog_corpus_failures")
+    failures = result.failures
+    if failures and args.shrink_failures:
         print()
-        print(f"Wrote {len(result.failures)} failing programs to {repo_relative(out_path, REPO_ROOT)}")
+        print(f"Shrinking {len(failures)} failing programs via shrinkray…")
+        failures = shrink_failures(failures, rule="program", oracle=args.oracle, candidate=args.candidate)
+    if failures:
+        out_path = Path(args.write_failures) if args.write_failures else args.input.with_suffix(".failures.hog")
+        write_failures(out_path, failures, REPO_ROOT, title="hog_corpus_failures")
+        print()
+        print(f"Wrote {len(failures)} failing programs to {repo_relative(out_path, REPO_ROOT)}")
 
     return 130 if result.interrupted else 0
 

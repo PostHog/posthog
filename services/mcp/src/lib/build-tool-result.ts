@@ -1,8 +1,9 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 
+import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
-import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
+import { APP_DATA_META_KEY, type AnalyticsMetadata, type WithAnalytics } from '@/ui-apps/types'
 
 export interface ToolResultMeta {
     ui?: { resourceUri?: string }
@@ -20,6 +21,15 @@ export interface BuildToolResultOptions {
     params: unknown
     /** Whether formatted-result text should win over structuredContent for this client profile. */
     suppressStructuredContentForFormattedResults?: boolean | undefined
+    /**
+     * For inline-exec UI-app hosts (PostHog Code, Claude Code, Cowork): always drop
+     * top-level `structuredContent` toward the model and re-home the app payload onto
+     * `_meta` instead — even when there's no formatted table (the model then reads the
+     * TOON text). These hosts surface `structuredContent` to the model, so it must
+     * never carry the raw results; the UI app hydrates from `_meta` (see APP_DATA_META_KEY).
+     * Overridden by an explicit `output_format=json` from the caller.
+     */
+    forceUiDataToMeta?: boolean | undefined
     /** PostHog distinctId for analytics metadata (only read when a UI resource is present). */
     distinctId?: string | undefined
     /**
@@ -67,6 +77,17 @@ export function markExecPayload(payload: ToolResultPayload): ToolResultPayload {
 }
 
 /**
+ * Estimate output tokens from the text actually returned to the client — the
+ * serialized TOON/JSON/formatted string, not the raw handler object. TOON is
+ * materially smaller than JSON for tabular results, so measuring the raw object
+ * would over-count. `structuredContent` is deliberately excluded: it duplicates
+ * the text for UI tools, so counting it would double-bill those calls.
+ */
+export function estimateResponseTokens(response: ToolResultPayload): number {
+    return estimateTokens(response.content.map((part) => part.text).join(''))
+}
+
+/**
  * Assembles the MCP tool-call response payload.
  *
  * Two behaviors worth calling out:
@@ -86,6 +107,7 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         toolName,
         params,
         suppressStructuredContentForFormattedResults,
+        forceUiDataToMeta,
         distinctId,
         includeUiResponseMeta,
     } = opts
@@ -130,8 +152,12 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
 
     const text = formattedResults ?? (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult))
 
+    // Inline-exec UI-app hosts always drop top-level structuredContent (routed to
+    // `_meta` below); other coding-agent clients only drop it when a formatted table
+    // is available to take its place. An explicit `output_format=json` overrides both.
     const suppressStructuredContent =
-        formattedResults !== undefined && !callerWantsJson && !!suppressStructuredContentForFormattedResults
+        !callerWantsJson &&
+        (!!forceUiDataToMeta || (formattedResults !== undefined && !!suppressStructuredContentForFormattedResults))
 
     const payload: ToolResultPayload = {
         content: [{ type: 'text', text }],
@@ -143,6 +169,13 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         payload._meta = {
             ui: { resourceUri },
             [RESOURCE_URI_META_KEY]: resourceUri,
+        }
+        // `structuredContent` was dropped so the model reads the compact formatted
+        // table, but the UI app still needs the data to render. `_meta` is host-
+        // and app-only (never surfaced to the model), so carry the app payload here
+        // and let `useToolResult` hydrate from it. See APP_DATA_META_KEY.
+        if (suppressStructuredContent && hasUiResource) {
+            payload._meta[APP_DATA_META_KEY] = structuredContent as Record<string, unknown>
         }
     }
     return payload

@@ -19,11 +19,13 @@ function makeNotification(overrides: Partial<InAppNotification> = {}): InAppNoti
         source_url: '',
         source_type: null,
         source_id: null,
+        metadata: null,
         target_type: 'user',
         target_id: '42',
         created_at: '2026-05-07T12:00:00Z',
         read: false,
         read_at: null,
+        archivable: false,
         ...overrides,
     }
 }
@@ -194,6 +196,82 @@ describe('sidePanelNotificationsLogic.toggleGroupRead', () => {
     })
 })
 
+describe('sidePanelNotificationsLogic.archive', () => {
+    let logic: ReturnType<typeof sidePanelNotificationsLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            get: {
+                // refreshInAppUnreadCount reconciles against the server after each archive.
+                '/api/environments/:tid/notifications/unread_count/': () => [200, { count: 1 }],
+            },
+            post: {
+                '/api/projects/:tid/notifications/:id/archive/': () => [200, { status: 'ok' }],
+                '/api/projects/:tid/notifications/archive_bulk/': () => [200, { updated: 2 }],
+                '/api/projects/:tid/notifications/archive_all/': () => [200, { updated: 2 }],
+            },
+        })
+        initKeaTests()
+        logic = sidePanelNotificationsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => logic.unmount())
+
+    it('removes an archived notification and decrements unread count', async () => {
+        const a = makeNotification({ id: 'a', archivable: true, read: false })
+        const b = makeNotification({ id: 'b', resource_id: 'other' })
+        logic.actions.setInAppNotifications([a, b], false)
+        logic.actions.setInAppUnreadCount(2)
+        await logic.actions.archiveNotification('a')
+        expect(logic.values.inAppNotifications.map((n: InAppNotification) => n.id)).toEqual(['b'])
+        expect(logic.values.inAppUnreadCount).toBe(1)
+    })
+
+    it('does not archive a non-archivable notification', async () => {
+        const a = makeNotification({ id: 'a', archivable: false })
+        logic.actions.setInAppNotifications([a], false)
+        await logic.actions.archiveNotification('a')
+        expect(logic.values.inAppNotifications.map((n: InAppNotification) => n.id)).toEqual(['a'])
+    })
+
+    it('archiveAll removes only archivable notifications', async () => {
+        const a = makeNotification({ id: 'a', archivable: true, resource_id: 'a' })
+        const b = makeNotification({ id: 'b', archivable: false, resource_id: 'b' })
+        logic.actions.setInAppNotifications([a, b], false)
+        await logic.actions.archiveAll()
+        expect(logic.values.inAppNotifications.map((n: InAppNotification) => n.id)).toEqual(['b'])
+    })
+
+    it('archiveAll resyncs the unread count from the server (server value wins)', async () => {
+        // Optimistic decrement alone would land at 9, but the server is the source of truth.
+        const a = makeNotification({ id: 'a', archivable: true, read: false })
+        logic.actions.setInAppNotifications([a], false)
+        logic.actions.setInAppUnreadCount(10)
+        await expectLogic(logic, () => {
+            logic.actions.archiveAll()
+        }).toDispatchActions(['archiveAll', 'refreshInAppUnreadCount', 'setInAppUnreadCount'])
+        expect(logic.values.inAppUnreadCount).toBe(1)
+    })
+
+    it('hasArchivableNotifications reflects presence of an archivable notification', () => {
+        logic.actions.setInAppNotifications([makeNotification({ id: 'a', archivable: true })], false)
+        expect(logic.values.hasArchivableNotifications).toBe(true)
+        logic.actions.setInAppNotifications([makeNotification({ id: 'b', archivable: false })], false)
+        expect(logic.values.hasArchivableNotifications).toBe(false)
+    })
+
+    it('group.has_archivable is true when any child is archivable, even if the representative is not', () => {
+        // Newest (representative) is non-archivable; an older same-group child is archivable.
+        const rep = makeNotification({ id: 'rep', archivable: false, created_at: '2026-05-07T12:00:00Z' })
+        const older = makeNotification({ id: 'older', archivable: true, created_at: '2026-05-07T09:00:00Z' })
+        logic.actions.setInAppNotifications([rep, older], false)
+        const group = logic.values.groups.find((g) => g.count === 2)
+        expect(group?.representative.id).toBe('rep')
+        expect(group?.has_archivable).toBe(true)
+    })
+})
+
 describe('sidePanelNotificationsLogic.mainListOffset', () => {
     let logic: ReturnType<typeof sidePanelNotificationsLogic.build>
 
@@ -224,5 +302,38 @@ describe('sidePanelNotificationsLogic.mainListOffset', () => {
         logic.actions.setInAppNotifications(seed, true)
         logic.actions.loadMoreNotificationsSuccess(20)
         expect(logic.values.mainListOffset).toBe(40)
+    })
+})
+
+describe('sidePanelNotificationsLogic.manuallyToggledIds', () => {
+    let logic: ReturnType<typeof sidePanelNotificationsLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            post: {
+                '/api/projects/:tid/notifications/:id/mark_read/': () => [200, { status: 'ok' }],
+                '/api/projects/:tid/notifications/:id/mark_unread/': () => [200, { status: 'ok' }],
+                '/api/projects/:tid/notifications/mark_all_read/': () => [200, { updated: 0 }],
+            },
+        })
+        initKeaTests()
+        logic = sidePanelNotificationsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => logic.unmount())
+
+    // Guards bug fix: without this set, auto-mark-on-view would re-read a notification the user
+    // just manually toggled unread.
+    it('records ids the user manually toggles so auto-mark can skip them', () => {
+        logic.actions.toggleRead('a')
+        logic.actions.toggleRead('b')
+        expect(logic.values.manuallyToggledIds).toEqual(new Set(['a', 'b']))
+    })
+
+    it('clears the set when everything is marked read', () => {
+        logic.actions.toggleRead('a')
+        logic.actions.markAllAsRead()
+        expect(logic.values.manuallyToggledIds.size).toBe(0)
     })
 })

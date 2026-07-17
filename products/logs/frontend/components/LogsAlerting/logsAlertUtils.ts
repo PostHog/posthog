@@ -138,9 +138,11 @@ export const SNOOZE_DURATIONS = [
 
 export const LOGS_ALERT_NOTIFICATION_TYPE_SLACK = 'slack' as const
 export const LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK = 'webhook' as const
+export const LOGS_ALERT_NOTIFICATION_TYPE_TEAMS = 'teams' as const
 export type LogsAlertNotificationType =
     | typeof LOGS_ALERT_NOTIFICATION_TYPE_SLACK
     | typeof LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
+    | typeof LOGS_ALERT_NOTIFICATION_TYPE_TEAMS
 
 export type PendingLogsAlertNotification =
     | {
@@ -151,6 +153,10 @@ export type PendingLogsAlertNotification =
       }
     | {
           type: typeof LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
+          webhookUrl: string
+      }
+    | {
+          type: typeof LOGS_ALERT_NOTIFICATION_TYPE_TEAMS
           webhookUrl: string
       }
 
@@ -233,21 +239,27 @@ export function groupLogsAlertDestinations(
 ): LogsAlertDestinationGroup[] {
     const groups = new Map<string, LogsAlertDestinationGroup>()
     for (const hf of hogFunctions) {
-        const slackChannelValue = hf.inputs?.channel?.value
-        const webhookUrl = hf.inputs?.url?.value
+        const templateId = hf.template_id ?? hf.template?.id
+        const slackChannelValue = hf.inputs?.channel?.value as string | undefined
+        const destinationWebhookUrl = hf.inputs?.webhookUrl?.value as string | undefined
+        const webhookUrl = hf.inputs?.url?.value as string | undefined
         let key: string
         let type: LogsAlertNotificationType
         let label: string
 
-        if (typeof slackChannelValue === 'string') {
+        if (templateId === 'template-slack') {
             type = LOGS_ALERT_NOTIFICATION_TYPE_SLACK
-            key = `slack:${slackChannelValue}`
-            const channelName = resolveSlackLabel(slackChannelValue)
+            key = `slack:${slackChannelValue ?? hf.id}`
+            const channelName = slackChannelValue ? resolveSlackLabel(slackChannelValue) : null
             label = channelName ? `Slack #${channelName}` : 'Slack'
-        } else if (typeof webhookUrl === 'string') {
+        } else if (templateId === 'template-microsoft-teams') {
+            type = LOGS_ALERT_NOTIFICATION_TYPE_TEAMS
+            key = `teams:${destinationWebhookUrl ?? hf.id}`
+            label = destinationWebhookUrl ? `Microsoft Teams ${destinationWebhookUrl}` : 'Microsoft Teams'
+        } else if (templateId === 'template-webhook') {
             type = LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
-            key = `webhook:${webhookUrl}`
-            label = `Webhook ${webhookUrl}`
+            key = `webhook:${webhookUrl ?? hf.id}`
+            label = webhookUrl ? `Webhook ${webhookUrl}` : 'Webhook'
         } else {
             type = LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
             key = `unknown:${hf.id}`

@@ -869,26 +869,16 @@ class TestSecretAlertRegionTracking(APIBaseTest):
 
 class TestOAuthTokenSecretAlert(APIBaseTest):
     def _create_oauth_app(self):
-        from django.conf import settings
-
-        from posthog.models.test.test_oauth import generate_rsa_key
-
-        with self.settings(
-            OAUTH2_PROVIDER={
-                **settings.OAUTH2_PROVIDER,
-                "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-            }
-        ):
-            return OAuthApplication.objects.create(
-                name="Test OAuth App",
-                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                redirect_uris="https://example.com/callback",
-                algorithm="RS256",
-                skip_authorization=False,
-                organization=self.organization,
-                user=self.user,
-            )
+        return OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            skip_authorization=False,
+            organization=self.organization,
+            user=self.user,
+        )
 
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.github.send_oauth_token_exposed")

@@ -1,6 +1,7 @@
 import json
 import uuid
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -14,6 +15,8 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import (
     _PROJECT_ROOT_PREFIX,
     _SOURCE_SKIP_PREFIXES,
+    AccessMethod,
+    DagsterTags,
     Feature,
     HogQLFeatures,
     Product,
@@ -25,6 +28,7 @@ from posthog.clickhouse.query_tagging import (
     get_caller_source,
     get_query_tag_value,
     get_query_tags,
+    is_api_key_access_method,
     reset_query_tags,
     tag_contains_user_hogql,
     tag_queries,
@@ -136,6 +140,40 @@ def test_tags_context():
 
     # Verify tags are restored
     assert get_query_tags() == create_base_tags(team_id=123)
+
+
+def test_tags_context_snapshot_isolation():
+    # Shallow-copy invariant: mutations through public helpers must not corrupt the
+    # saved snapshot that tags_context restores. Regression guard for the switch from
+    # deep to shallow model_copy in update_tags/tag_queries.
+    #
+    # A nested tag object set *before* taking the snapshot inside tags_context exercises
+    # the shallow-copy hazard: if the copy is truly shallow and with_temporal were to
+    # mutate the nested object in place (rather than replace the attribute), the snapshot
+    # would be corrupted. Setting a sentinel value before the snapshot lets us assert
+    # the nested object is untouched after all the in-context mutations.
+    reset_query_tags()
+    tag_queries(team_id=1)
+
+    with tags_context(user_id=42):
+        # Set a nested tag before taking the snapshot, then snapshot.
+        get_query_tags().with_temporal(TemporalTags(workflow_type="wt-before"))
+        snapshot = get_query_tags()
+        # Drive every public mutation helper after the snapshot is taken.
+        tag_queries(team_id=2)
+        update_tags(create_base_tags(cohort_id=99))
+        clear_tag("user_id")
+        qt = get_query_tags()
+        qt.with_temporal(TemporalTags(workflow_type="wt"))
+        qt.with_dagster(DagsterTags(run_id="run-1"))
+
+    # The snapshot taken inside tags_context must be untouched by all mutations above,
+    # including the nested temporal object that was set before the snapshot was taken.
+    expected = create_base_tags(team_id=1, user_id=42)
+    expected.with_temporal(TemporalTags(workflow_type="wt-before"))
+    assert snapshot == expected
+    assert snapshot.temporal is not None
+    assert snapshot.temporal.workflow_type == "wt-before"
 
 
 @pytest.mark.asyncio
@@ -309,7 +347,7 @@ def test_tag_contains_user_hogql_is_idempotent():
 
 def test_tag_contains_user_hogql_short_circuits_after_first_call():
     # Repeated calls (recursive property_to_expr, breakdown loops, @property accessors)
-    # must skip the model_copy(deep=True) inside tag_queries after the first call.
+    # must skip the model_copy() inside tag_queries after the first call.
     reset_query_tags()
     tag_contains_user_hogql()
     first_tags = get_query_tags()
@@ -693,3 +731,79 @@ class TestAddFallbackQueryTags(BaseTest):
         )
         add_fallback_query_tags(tags)
         assert tags.product == Product.MCP
+
+    # --- query-structure fallback: wrapper / drill-down queries inherit the wrapped product ---
+
+    @parameterized.expand(
+        [("RetentionQuery",), ("TrendsQuery",), ("FunnelsQuery",), ("StickinessQuery",), ("LifecycleQuery",)]
+    )
+    def test_query_structure_resolves_actors_drilldowns(self, inner_kind):
+        # "Open as new insight" from an actors modal posts a DataTableNode wrapping an
+        # ActorsQuery → InsightActorsQuery → <insight>. Every outer kind maps to None, so the
+        # product is inherited from the wrapped insight via the query-structure walk.
+        query = {
+            "kind": "DataTableNode",
+            "source": {"kind": "ActorsQuery", "source": {"kind": "InsightActorsQuery", "source": {"kind": inner_kind}}},
+        }
+        tags = QueryTags(query_type="ActorsQuery", query=query)
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.PRODUCT_ANALYTICS
+
+    def test_query_structure_resolves_marketing_analytics_snakecase_query_type(self):
+        # Marketing analytics runners pass a non-NodeKind query_type label ("marketing_analytics_table_query"),
+        # so the query_type fallback can't map it — but tags.query carries the canonical kind.
+        tags = QueryTags(
+            query_type="marketing_analytics_table_query",
+            query={"kind": "MarketingAnalyticsTableQuery"},
+        )
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.MARKETING_ANALYTICS
+
+    def test_query_structure_does_not_override_set_product(self):
+        query = {"kind": "ActorsQuery", "source": {"kind": "InsightActorsQuery", "source": {"kind": "RetentionQuery"}}}
+        tags = QueryTags(product=Product.MCP, query_type="ActorsQuery", query=query)
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.MCP
+
+    def test_query_type_kind_takes_precedence_over_query_structure(self):
+        # query_type maps directly (LogsQuery → logs); the structure walk must not override it.
+        tags = QueryTags(query_type="LogsQuery", query={"kind": "TrendsQuery"})
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.LOGS
+
+    def test_query_structure_leaves_product_none_when_no_inner_kind_maps(self):
+        # A bare ActorsQuery (raw persons drill-down) has no wrapped insight to inherit from.
+        tags = QueryTags(query_type="ActorsQuery", query={"kind": "ActorsQuery", "source": None})
+        add_fallback_query_tags(tags)
+        assert tags.product is None
+
+    def test_query_structure_accepts_pydantic_like_objects(self):
+        # tags.query is usually the raw posted dict, but the walk also reads `.kind` / `.source` attributes.
+        query = SimpleNamespace(
+            kind="ActorsQuery",
+            source=SimpleNamespace(
+                kind="InsightActorsQuery", source=SimpleNamespace(kind="RetentionQuery", source=None)
+            ),
+        )
+        tags = QueryTags(query_type="ActorsQuery", query=query)
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.PRODUCT_ANALYTICS
+
+
+@pytest.mark.parametrize(
+    "access_method,expected",
+    [
+        # Programmatic key auth routes ClickHouse queries to the offline cluster as the API user
+        # (see sync_execute); user-facing auth stays online.
+        (AccessMethod.PERSONAL_API_KEY, True),
+        (AccessMethod.PROJECT_SECRET_API_KEY, True),
+        (AccessMethod.TEAM_SECRET_TOKEN, True),
+        (AccessMethod.OAUTH, False),
+        (AccessMethod.SHARING_TOKEN, False),
+        (AccessMethod.ID_JAG, False),
+        (None, False),
+        ("", False),
+    ],
+)
+def test_is_api_key_access_method(access_method, expected):
+    assert is_api_key_access_method(access_method) is expected

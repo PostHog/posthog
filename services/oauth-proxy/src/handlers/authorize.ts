@@ -3,6 +3,15 @@ import { type ClientMapping, getClientMapping, putCallbackRedirectUri, putRegion
 
 import REGION_PICKER_HTML from '../static/region-picker.html'
 
+const REGION_PICKER_HEADERS: Record<string, string> = {
+    'Content-Type': 'text/html; charset=utf-8',
+    // Bundled at deploy time; identical for all OAuth flows until the next deploy.
+    'Cache-Control': 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800',
+    'X-Frame-Options': 'DENY',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'no-referrer',
+}
+
 /**
  * OAuth Authorization — region picker + redirect.
  *
@@ -23,14 +32,7 @@ export async function handleAuthorize(request: Request, kv: KVNamespace): Promis
     }
 
     // Show the region picker page (JS reads query params from window.location.search)
-    return new Response(REGION_PICKER_HTML, {
-        headers: {
-            'Content-Type': 'text/html; charset=utf-8',
-            'X-Frame-Options': 'DENY',
-            'X-Content-Type-Options': 'nosniff',
-            'Referrer-Policy': 'no-referrer',
-        },
-    })
+    return new Response(REGION_PICKER_HTML, { headers: REGION_PICKER_HEADERS })
 }
 
 async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNamespace): Promise<Response> {

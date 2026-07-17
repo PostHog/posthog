@@ -42,6 +42,16 @@ describe('maxLogic', () => {
         logic?.unmount()
     })
 
+    it('passes panelId through thread logic props', () => {
+        logic = maxLogic({ panelId: 'notebook-inline-inline-chat-id', initialFrontendConversationId: 'chat-id' })
+        logic.mount()
+
+        expect(logic.values.threadLogicProps).toMatchObject({
+            panelId: 'notebook-inline-inline-chat-id',
+            conversationId: 'chat-id',
+        })
+    })
+
     it('sets the question when URL has hash param #panel=max:Foo', async () => {
         // Set up sidePanelStateLogic with the options before mounting maxLogic
         sidePanelStateLogic.mount()
@@ -75,6 +85,28 @@ describe('maxLogic', () => {
             autoRun: true,
             question: 'Foo',
         })
+    })
+
+    it('does not set autoRun for #panel=max:!Foo when the new panel view is active', async () => {
+        // In the new view the prompt is consumed by phaiSidePanelComposerSeedLogic; autoRun here too
+        // would make the hidden legacy thread fire askMax on top of the new composer's submit.
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
+
+        sidePanelStateLogic.mount()
+        await expectLogic(sidePanelStateLogic, () => {
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, '!Foo')
+        }).toDispatchActions(['openSidePanel'])
+
+        logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            autoRun: false,
+            question: 'Foo',
+        })
+
+        featureFlagLogic.unmount()
     })
 
     it('does not reset conversation when 404 occurs during active message generation', async () => {
@@ -212,6 +244,22 @@ describe('maxLogic', () => {
         await expectLogic(logic, () => act()).toFinishAllListeners()
 
         expect(router.values.location.pathname.endsWith(page)).toBe(true)
+    })
+
+    it.each(routeActions)('embedded chat keeps the current route on $name', async ({ act }) => {
+        useMocks({ get: { '/api/environments/:team_id/conversations/:id': MOCK_CONVERSATION } })
+        router.actions.push('/notebooks/notebook-short-id')
+
+        logic = maxLogic({
+            panelId: 'notebook-inline-inline-chat-id',
+            initialFrontendConversationId: 'chat-id',
+            syncUrl: false,
+        })
+        logic.mount()
+
+        await expectLogic(logic, () => act()).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toContain('/notebooks/notebook-short-id')
     })
 
     it.each(routeActions)('scene chat navigates to /ai on $name', async ({ act }) => {

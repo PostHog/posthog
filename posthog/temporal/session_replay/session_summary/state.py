@@ -9,8 +9,9 @@ from redis import asyncio as aioredis
 
 from posthog.redis import get_async_client
 
+from products.replay.backend.models.session_summaries import ExtraSummaryContext, SingleSessionSummary
+
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
-from ee.models.session_summaries import ExtraSummaryContext, SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
 

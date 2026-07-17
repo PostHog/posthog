@@ -2,10 +2,16 @@ import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
+import {
+    createInsightStory,
+    insightSceneMswDecorator,
+    insightSceneStoryParameters,
+} from 'scenes/insights/__mocks__/createInsightScene'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import funnelHistoricalTrendsFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'
+import funnelHistoricalTrendsCompareFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrendsCompare.json'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -103,9 +109,41 @@ export const ValueLabels: Story = {
     render: () => renderFunnelLineChart(funnelHistoricalTrendsFixture, { showValuesOnSeries: true }),
 }
 
+const funnelHistoricalTrendsBreakdownFixture = {
+    ...funnelHistoricalTrendsFixture,
+    result: [
+        { ...funnelHistoricalTrendsFixture.result[0], breakdown_value: ['Chrome'] },
+        {
+            ...funnelHistoricalTrendsFixture.result[0],
+            data: funnelHistoricalTrendsFixture.result[0].data.map((value: number) => value * 0.5),
+            breakdown_value: ['Firefox'],
+        },
+    ],
+}
+
+export const WithLegend: Story = {
+    render: () => renderFunnelLineChart(funnelHistoricalTrendsBreakdownFixture, { showLegend: true }),
+}
+
 export const GoalLine: Story = {
     render: () =>
         renderFunnelLineChart(funnelHistoricalTrendsFixture, {
             goalLines: [{ label: 'Target', value: 10, displayIfCrossed: true }],
         }),
+}
+
+// Compare to previous: current and previous period conversion rates render as separate series
+export const Compare: Story = {
+    render: () => renderFunnelLineChart(funnelHistoricalTrendsCompareFixture),
+}
+
+// Full insight scene in edit mode — the funnel trends editor
+export const EditScene: Story = createInsightStory(funnelHistoricalTrendsFixture as any, 'edit')
+EditScene.decorators = [insightSceneMswDecorator]
+EditScene.parameters = {
+    ...insightSceneStoryParameters,
+    testOptions: {
+        ...insightSceneStoryParameters.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph-funnel] > canvas',
+    },
 }

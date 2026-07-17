@@ -22,11 +22,14 @@ tools:
         description: >
             Create an annotation to mark an important change (for example, a deployment) on charts and trends. Provide a
             note in `content`, when it happened in `date_marker` (ISO 8601), and whether it is scoped to the current
-            `project` or the whole `organization`.
+            `project` or the whole `organization`. Optionally set an `emoji` to show in place of the default badge on
+            the chart.
         include_params:
             - content
             - date_marker
             - scope
+            - emoji
+            - hidden_in_user_interface
     annotation-delete:
         operation: annotations_destroy
         enabled: true
@@ -70,7 +73,22 @@ tools:
         title: List annotations
         description: >
             List annotations in the current project, newest first. Use this to review existing deployment markers and
-            analysis notes before adding new annotations.
+            analysis notes before adding new annotations. Results are paginated (default 100 per page) — use `limit` and
+            `offset` to page through, and `search` to filter by annotation content. Each row's `created_by` is trimmed
+            to `{id, email}`.
+        param_overrides:
+            limit:
+                description: Number of annotations to return per page (default 100).
+                default: 100
+        response:
+            exclude:
+                - created_by.uuid
+                - created_by.distinct_id
+                - created_by.first_name
+                - created_by.last_name
+                - created_by.is_email_verified
+                - created_by.hedgehog_config
+                - created_by.role_at_organization
     annotations-partial-update:
         operation: annotations_partial_update
         enabled: true
@@ -83,11 +101,14 @@ tools:
         title: Update annotation
         description: >
             Update an existing annotation by ID. You can change its text (`content`), when it happened (`date_marker`,
-            ISO 8601), or its visibility scope (`project` or `organization`). Only the fields you provide are updated.
+            ISO 8601), its visibility scope (`project` or `organization`), or its `emoji`. Only the fields you provide
+            are updated.
         include_params:
             - content
             - date_marker
             - scope
+            - emoji
+            - hidden_in_user_interface
     annotations-update:
         operation: annotations_update
         enabled: false

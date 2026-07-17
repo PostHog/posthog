@@ -9,7 +9,7 @@ from typing import Any
 import unittest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.template.loader import get_template
 from django.test import override_settings
@@ -17,7 +17,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import PermissionDenied
 
+from posthog.api.sharing import check_can_edit_sharing_configuration
 from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.models.sharing_configuration import SharingConfiguration
 
@@ -1131,6 +1133,54 @@ class TestSendInterviewInvites(_FeatureFlagEnabledMixin):
         assert "evil.com" not in kwargs["subject"]
         assert kwargs["template_context"]["invite_message"] == ""
 
+    def test_send_invites_rejects_over_recipient_cap(self):
+        topic = self._create_topic(
+            interviewee_emails=["alex@example.com", "jordan@example.com"], interviewee_distinct_ids=[]
+        )
+
+        with (
+            patch("products.user_interviews.backend.presentation.views.MAX_INVITE_RECIPIENTS_PER_SEND", 1),
+            patch("products.user_interviews.backend.presentation.views.is_email_available", return_value=True),
+        ):
+            response = self.client.post(self._url(str(topic.id)), data={}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "per-send limit" in response.json()["error"]
+
+    def test_send_invites_collapses_aliases_to_one_mailbox(self):
+        topic = self._create_topic(
+            interviewee_emails=["A1 <victim@example.com>", "A2 <victim@example.com>", "victim@example.com"],
+            interviewee_distinct_ids=[],
+        )
+
+        with (
+            patch("products.user_interviews.backend.presentation.views.EmailMessage") as mock_message_cls,
+            patch("products.user_interviews.backend.presentation.views.is_email_available", return_value=True),
+        ):
+            response = self.client.post(self._url(str(topic.id)), data={"send_async": False}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        results = response.json()
+        sent = [r for r in results if r["sent"]]
+        duplicates = [r for r in results if r.get("reason") == "duplicate_recipient"]
+        assert len(sent) == 1
+        assert len(duplicates) == 2
+        assert mock_message_cls.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("url", "chat about http://evil.com"),
+            ("brackets", "chat <b>now</b>"),
+            ("newline", "line one\nline two"),
+        ]
+    )
+    def test_send_invites_rejects_unsafe_subject_override(self, _name: str, subject: str):
+        topic = self._create_topic(interviewee_emails=["alex@example.com"], interviewee_distinct_ids=[])
+        with patch("products.user_interviews.backend.presentation.views.is_email_available", return_value=True):
+            response = self.client.post(self._url(str(topic.id)), data={"subject": subject}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "subject"
+
 
 class TestInviteFieldValidation(_FeatureFlagEnabledMixin):
     def _url(self) -> str:
@@ -1230,6 +1280,95 @@ class TestInterviewInviteTemplateRendering(unittest.TestCase):
         assert "AI interviewer" in html
 
 
+class TestPreviewInterviewInvite(_FeatureFlagEnabledMixin):
+    def _create_topic(self, **overrides) -> UserInterviewTopic:
+        defaults: dict = {
+            "team": self.team,
+            "created_by": self.user,
+            "interviewee_emails": ["Alex <alex@example.com>"],
+            "interviewee_distinct_ids": [],
+            "topic": "Session replay adoption",
+            "questions": ["q1"],
+        }
+        defaults.update(overrides)
+        return UserInterviewTopic.objects.create(**defaults)
+
+    def _url(self, topic_id: str) -> str:
+        return f"/api/environments/{self.team.id}/user_interview_topics/{topic_id}/preview_invite/"
+
+    def test_preview_renders_subject_and_html_for_default_identifier(self):
+        topic = self._create_topic(invite_subject="Quick chat about replay?", invite_message="Hey,\nGot a sec?")
+        response = self.client.post(self._url(str(topic.id)), data={}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert body["interviewee_identifier"] == "Alex <alex@example.com>"
+        assert body["user_name"] == "Alex"
+        assert body["email"] == "alex@example.com"
+        assert body["subject"] == "Quick chat about replay?"
+        assert body["emailable"] is True
+        assert "Got a sec?" in body["html"]
+
+    @parameterized.expand(
+        [
+            ("blank_message", ""),
+            ("unsafe_stored_brackets", "<script>alert(1)</script>"),
+        ]
+    )
+    def test_preview_falls_back_to_default_copy(self, _name: str, invite_message: str):
+        topic = self._create_topic(invite_message=invite_message)
+        body = self.client.post(self._url(str(topic.id)), data={}, format="json").json()
+        assert "AI interviewer" in body["html"]
+        assert "<script>" not in body["html"]
+        assert body["subject"] == "Got 5 minutes to talk about Session replay adoption?"
+
+    def test_preview_for_distinct_id_only_identifier_is_not_emailable(self):
+        topic = self._create_topic(interviewee_emails=[], interviewee_distinct_ids=["distinct-123"])
+        body = self.client.post(
+            self._url(str(topic.id)), data={"interviewee_identifier": "distinct-123"}, format="json"
+        ).json()
+        assert body["interviewee_identifier"] == "distinct-123"
+        assert body["email"] is None
+        assert body["emailable"] is False
+
+    def test_preview_creates_no_share_rows_and_uses_placeholder_link(self):
+        topic = self._create_topic()
+        before_ic = IntervieweeContext.objects.count()
+        before_sc = SharingConfiguration.objects.count()
+        body = self.client.post(self._url(str(topic.id)), data={}, format="json").json()
+        assert body["is_preview_link"] is True
+        assert "/interview/preview" in body["interview_url"]
+        assert IntervieweeContext.objects.count() == before_ic
+        assert SharingConfiguration.objects.count() == before_sc
+
+    def test_preview_never_exposes_live_share_token(self):
+        # A read-scoped preview must not leak a working interview link even when one exists.
+        topic = self._create_topic()
+        ic = IntervieweeContext.objects.create(
+            team=self.team,
+            topic=topic,
+            interviewee_identifier="Alex <alex@example.com>",
+            agent_context="",
+            created_by=self.user,
+        )
+        share = SharingConfiguration.objects.create(team=self.team, interviewee_context=ic, enabled=True)
+        body = self.client.post(self._url(str(topic.id)), data={}, format="json").json()
+        assert share.access_token not in body["interview_url"]
+        assert "/interview/preview" in body["interview_url"]
+        assert body["is_preview_link"] is True
+
+    def test_preview_400_when_topic_has_no_identifiers(self):
+        topic = self._create_topic(interviewee_emails=[], interviewee_distinct_ids=[])
+        response = self.client.post(self._url(str(topic.id)), data={}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_preview_400_for_non_targeted_identifier(self):
+        topic = self._create_topic(interviewee_emails=["alex@example.com"], interviewee_distinct_ids=[])
+        response = self.client.post(
+            self._url(str(topic.id)), data={"interviewee_identifier": "bob@example.com"}, format="json"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+
 class TestSharingConfigurationCanAccess(APIBaseTest):
     def test_can_access_interviewee_context(self):
         topic = UserInterviewTopic.objects.create(
@@ -1247,3 +1386,28 @@ class TestSharingConfigurationCanAccess(APIBaseTest):
         )
         share = SharingConfiguration.objects.create(team=self.team, interviewee_context=ic, enabled=True)
         self.assertTrue(share.can_access_object(ic))
+
+    def test_interviewee_context_config_fails_closed_through_sharing_gate(self):
+        topic = UserInterviewTopic.objects.create(
+            team=self.team,
+            created_by=self.user,
+            interviewee_emails=["alex@example.com"],
+            topic="t",
+        )
+        ic = IntervieweeContext.objects.create(
+            team=self.team,
+            topic=topic,
+            interviewee_identifier="alex@example.com",
+            agent_context="",
+            created_by=self.user,
+        )
+        share = SharingConfiguration.objects.create(team=self.team, interviewee_context=ic, enabled=True)
+
+        request = Mock(method="PATCH", data={"enabled": True})
+        request.user = self.user
+        view = Mock(team=self.team)
+
+        with self.assertRaises(PermissionDenied) as caught:
+            check_can_edit_sharing_configuration(view, request, share)
+
+        assert "cannot be shared through this endpoint" in str(caught.exception)

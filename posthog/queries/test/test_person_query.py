@@ -5,9 +5,10 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, 
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Filter
-from posthog.models.cohort import Cohort
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.person_query import PersonQuery
+
+from products.cohorts.backend.models.cohort import Cohort
 
 
 class TestPersonQuery(ClickhouseTestMixin, APIBaseTest):

@@ -29,6 +29,11 @@ jobs:
 
             - name: Install Flox
               uses: flox/install-flox-action@c94e7e1ab56ae14fe98bae4fd84384fd135f0c2a # v2.4.0
+              with:
+                  # This workflow only runs on pull_request, so the cache is never seeded on
+                  # master and every PR writes a branch-scoped copy nothing else can read.
+                  # Re-downloading the installer on a free runner is cheaper than the churn.
+                  use-cache: false
 
             - name: Activate Flox and verify dev setup
               run: |

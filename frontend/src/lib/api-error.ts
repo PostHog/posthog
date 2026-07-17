@@ -1,5 +1,10 @@
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
+
+/** A 403 with DRF's `permission_denied` code — the user lacks access to the resource itself. */
+export function isAccessDeniedError(error: { status?: number; code?: string | null }): boolean {
+    return error.status === 403 && error.code === 'permission_denied'
+}
 
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */

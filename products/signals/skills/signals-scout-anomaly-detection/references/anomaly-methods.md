@@ -1,13 +1,63 @@
 # Anomaly detection methods
 
-How to turn an insight into a clean time series, choose the right cadence, build a
-seasonality-matched baseline, and score the latest bucket. The goal is a method robust
-enough that you can trust a high z-score, and conservative enough that weekly seasonality and
-low-count noise don't generate false positives.
+How to score the latest bucket of an insight, choose the right cadence, and avoid the two
+false-positive traps (weekly seasonality and low-count noise). Two scorers: PostHog's own
+anomaly-detection **simulator** for saved time-series insights (primary), and a hand-rolled
+robust z-score for everything else (fallback).
 
-## The core score: robust z on the latest complete bucket
+## Primary scorer: the alert anomaly-detection simulator
 
-For a series of bucket values, the anomaly score of the latest **complete** bucket `x` is:
+For any watchlist item that is a **saved time-series insight**, score it with `alert-simulate`
+instead of hand-rolling stats. It runs PostHog's production anomaly detectors server-side over
+the insight's series and returns, per point, the anomaly score and the triggered dates. It's a
+stateless preview: it needs only a saved `insight` id, a `detector_config`, and a
+`series_index` — **no alert has to exist**, and nothing is written. This is the same engine
+behind PostHog's shipped anomaly alerts, so lean on it rather than reinvent z-scores in SQL.
+
+**Pick the detector that fits the series — don't be dogmatic.** The menu: `zscore`, `mad`,
+`iqr`, `copod`, `ecod`, `hbos`, `isolation_forest`, `knn`, `lof`, `ocsvm`, `pca`, and
+`ensemble` (combine several with `and`/`or`). Each takes a `threshold`, a `window` (rolling
+history length), and a `preprocessing` block (`diffs_n`, `lags_n`, `smooth_n`). The config
+proven across PostHog's own working alert inventories is an `or`-ensemble of `zscore`
+(`diffs_n: 1`, `smooth_n: 3`) + `isolation_forest` (`smooth_n: 3`) at `window` 336 hourly /
+~90 daily — a good starting point, not a mandate. For battle-tested, metric-shape-specific
+configs and a detector-selection guide, read the `anomaly-alerts`, `signals-alerts`, and
+`llma-alerts` skills (via `/phs`).
+
+**Gotchas that will bite (all learned in production):**
+
+- **Every sub-detector inside an `ensemble` needs an explicit `window`.** A null window on a
+  standalone detector defaults fine, but a null window inside an ensemble 500s the evaluation.
+- **`diffs_n` defaults to `0` (raw values), not `1`.** For `zscore`/`mad` on count or level
+  metrics with a diurnal cycle, set `diffs_n: 1` explicitly — differencing is what cancels the
+  daily/weekly rhythm. (`mad` on raw sparse/bursty integer counts over-fires; difference it or
+  use the ensemble.)
+- **Target a time-series insight.** A single-value / BoldNumber insight returns one point and
+  scores nothing — point the simulator at a trend displayed over time.
+- **`alert-simulate` only accepts `TrendsQuery` insights.** A SQL-backed saved insight
+  (`DataVisualizationNode` wrapping a `HogQLQuery` — most revenue, MRR/ARR, and LLM-cost
+  insights are this) is rejected outright with `Only TrendsQuery insights are supported`. Don't
+  burn a call discovering this: check the insight's `query.kind` first (via `insight-get`), and
+  if it's a `DataVisualizationNode`, score it with the SQL fallback below instead of the
+  simulator.
+- **Breakdown insights return a per-series block per breakdown value plus a meaningless
+  rolled-up total.** `series_index` does not cleanly isolate one breakdown value — read the
+  per-series sub-blocks, or prefer a non-breakdown insight for a clean read.
+- **Only points with ≥ `window` history get scored.** On a short series, simulate with a
+  smaller `window` (e.g. ≤ 168) to get scored points; `date_from` controls how far back to go.
+
+**When to still hand-roll (the fallback below).** `alert-simulate` requires a saved insight,
+and its detectors use rolling windows rather than explicit same-day-of-week / same-hour-of-week
+matching. Keep the SQL path for: series that aren't a saved insight (e.g. an hourly
+operational-pulse built in `execute-sql`), custom long baselines, or strict seasonality
+matching the detector doesn't do. The MAD-based z-score below is both that fallback and the
+concept the simulator automates.
+
+## Fallback scorer: robust z on the latest complete bucket
+
+Use this when `alert-simulate` doesn't apply (a non-saved series) or you need a custom
+baseline. For a series of bucket values, the anomaly score of the latest **complete** bucket
+`x` is:
 
 ```text
 median  = median(baseline buckets)
@@ -85,10 +135,11 @@ weeks.
 Exclude the latest complete bucket itself from its own baseline, and exclude the current
 partial bucket entirely.
 
-## execute-sql cookbook
+## execute-sql cookbook (fallback path)
 
-`execute-sql` is the most reliable path: it gives you the full series and the baseline in one
-query, with exact control over the bucket and the comparison window. Always
+When `alert-simulate` doesn't apply, `execute-sql` is the most reliable hand-rolled path: it
+gives you the full series and the baseline in one query, with exact control over the bucket and
+the comparison window. Always
 `read-data-schema` to confirm the event/properties first, and `insight-get` to learn which
 event(s)/filters the insight actually uses so your SQL matches it.
 
@@ -167,6 +218,85 @@ an internal product dialing up usage — is usually expected and belongs in a
 `noise:`/`addressed:` memory, whereas a move spread across many unrelated segments is a real
 broad regression. Put the driving segment and its share of the move in the evidence.
 
+## Distribution shift & changepoint (KS two-sample)
+
+A different lens from everything above. The simulator and the z-score answer _"is the **latest
+bucket** an outlier?"_ — point/level detection. They miss a metric whose **mean barely moves
+but whose distribution changes shape** (variance widens, a tail appears, a bimodal split, a
+mix shift), and they don't tell you _where_ a drift started. A two-sample
+**Kolmogorov-Smirnov** test does both: it compares two samples' whole empirical distributions
+(`D = max|F_a(x) − F_b(x)|`, with a p-value) and, swept across an ordered series, locates the
+**changepoint** that best separates it into two differently-distributed halves. Reach for it
+in the explore phase when a watched series looks fine on the mean but you suspect a shape/mix
+change, or to pin the onset of a drift a level detector already flagged.
+
+**Running it.** A scheduled run has `Bash` + `python3` but **no repo and no bundled file on
+disk** — skill files arrive via `llma-skill-file-get`, not the filesystem — so don't assume
+`scripts/ks2.py` is on a path. Two ways to run KS (no numpy/scipy needed; neither is in the
+sandbox):
+
+- **Inline** (zero dependencies) — paste a self-contained heredoc for a quick two-sample check:
+
+  ```bash
+  python3 - <<'PY'
+  import json, math
+  def ks(a, b):
+      a = sorted(a); b = sorted(b); n, m = len(a), len(b)
+      i = j = 0; d = 0.0
+      while i < n and j < m:
+          x = a[i] if a[i] <= b[j] else b[j]
+          while i < n and a[i] <= x: i += 1
+          while j < m and b[j] <= x: j += 1
+          d = max(d, abs(i/n - j/m))
+      en = math.sqrt(n*m/(n+m)); t = (en + 0.12 + 0.11/en)*d
+      p = sum(2*(-1)**(k-1)*math.exp(-2*k*k*t*t) for k in range(1, 101))
+      return d, max(0.0, min(1.0, p))
+  a = []   # window A (seasonality-matched to B)
+  b = []   # window B
+  d, p = ks(a, b); print(json.dumps({"d": round(d, 4), "p": p}))
+  PY
+  ```
+
+- **Full helper** — the tested implementation (raw + binned two-sample, and the changepoint
+  sweep with a multiple-comparisons `p_adj`) is bundled at `scripts/ks2.py`. Fetch it with
+  `llma-skill-file-get` (`file_path: scripts/ks2.py`), write it to `/tmp/ks2.py`, then pipe
+  JSON in: `echo '{"mode":"changepoint","series":[...]}' | python3 /tmp/ks2.py`. Request
+  shapes: `{"a": [...], "b": [...]}`; `{"a_hist": [[value, count], ...], "b_hist": [...]}`
+  (the cheap path); `{"mode": "changepoint", "series": [...ordered...], "min_seg": 24}`.
+
+**Pull histograms, not raw rows.** `execute-sql` caps at 500 rows, and raw samples are
+token-heavy. Instead `GROUP BY` a value-bucket expression (e.g.
+`round(rate, 4)` or `floor(value/10)*10`) so a whole window comes back as a few dozen
+`(value, count)` rows, and feed `a_hist`/`b_hist`. Binned KS reproduces the raw verdict
+closely (validated: D 0.76 raw vs 0.77 binned on the same windows) at a fraction of the
+payload. For a changepoint you do need the ordered series, but a daily series — or ≤ 500
+hourly buckets (~20 days) — fits under the cap.
+
+**Compare like with like — KS is not seasonality-aware.** Fed a weekend window against a
+weekday-heavy baseline, KS will correctly report the distributions differ — but that's the
+weekly rhythm, not an anomaly. Use seasonality-matched windows: same-day-of-week, full-week
+vs full-week (a whole week cancels its own diurnal+weekly shape), or difference the series
+first. The same discipline as the rest of this file; KS just makes the trap easy to fall into
+because it's so sensitive.
+
+**Calibration.** Emit only when **all three** hold: a small p (≲ ~0.01), a **meaningful effect
+size** `D` (the max CDF gap — a real separation, not a hair), and a move not explained by
+seasonality or a pipeline gap. On large samples p goes tiny on trivial differences, so `D` and
+the windows compared are the real evidence — put both in the finding, plus the changepoint
+timestamp when you have one. For a **changepoint**, the returned `p` is a **scan minimum**: the
+sweep picked the split that maximized `D` over many candidates, so `p` is biased low by
+multiple comparisons. Use `p_adj` (the Bonferroni-corrected value the helper returns), and
+confirm the chosen split with a direct two-sample KS on seasonality-matched windows before
+treating it as emit evidence — never emit on the raw scan `p` alone.
+
+**Worked example.** A high-volume hourly rate metric (~480 hourly buckets) with a genuine level
+shift partway through the window: the changepoint sweep located the break at the shift hour
+(`D ≈ 0.86`, corrected `p_adj` tiny); a clean prior week vs the shifted day gave `D ≈ 0.76`;
+two ordinary like-for-like weeks compared against each other gave `D ≈ 0.06`, `p ≈ 0.92`
+(silent — no false positive). The level detectors saw the drop in magnitude; KS additionally
+pinned _when_ it broke and confirmed a genuine distribution shift, not noise — while staying
+quiet on seasonality-matched windows.
+
 ## Per-insight-type recipes (all insight types are in scope)
 
 Most dashboard tiles are trends-style numeric series and the method above applies directly.
@@ -176,8 +306,8 @@ different metric.
 
 ### Trends (counts / sums / uniques over time) — primary
 
-The core method above. This is the bulk of dashboards. Pull the series via `insight-query`
-(json) or rebuild with `execute-sql`; score the latest complete bucket.
+This is the bulk of dashboards. Score it with `alert-simulate` on the saved insight; drop to
+the `insight-query` / `execute-sql` fallback only when the simulator doesn't apply.
 
 ### Funnels — overall conversion rate as the metric
 

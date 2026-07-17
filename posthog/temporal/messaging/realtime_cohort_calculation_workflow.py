@@ -20,7 +20,6 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.hogql_cohort_query import HogQLRealtimeCohortQuery
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_COHORT_MEMBERSHIP_CHANGED
-from posthog.models.cohort.cohort import Cohort, CohortType
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
@@ -28,12 +27,17 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.messaging.constants import get_percentile_bucket_label
 
+from products.cohorts.backend.models.cohort import Cohort, CohortType
+
 if TYPE_CHECKING:
     from posthog.kafka_client.client import _KafkaProducer
 
 # Configuration
 FLUSH_BATCH_SIZE = int(os.environ.get("COHORT_KAFKA_FLUSH_BATCH_SIZE", "1000"))
 DURATION_UPDATE_RELATIVE_THRESHOLD = 0.25  # Only update duration when change exceeds 25%
+# Spill the cohort-membership GROUP BY to disk once it exceeds this fraction of the query's
+# memory limit, instead of OOMing. See build_final_query.
+EXTERNAL_GROUP_BY_MEMORY_RATIO = 0.5
 
 # Cohort calculation timing histograms
 COHORT_CALCULATION_TOTAL_DURATION_HISTOGRAM = Histogram(
@@ -272,6 +276,49 @@ def _batch_update_cohort_metrics(cohort_durations: dict[int, int]) -> int:
     return duration_updates_count
 
 
+def build_final_query(current_members_sql: str) -> str:
+    """Build the membership diff query that compares current cohort matches against stored membership.
+
+    Uses a FULL OUTER JOIN between the current-match subquery and the latest cohort_membership
+    state.  Only rows where exactly one side is NULL (i.e. the person entered or left) pass
+    the WHERE filter; unchanged members are excluded without materialising the 'unchanged' string.
+
+    The returned SQL references the %(team_id)s and %(cohort_id)s bind params; the caller must
+    pass both in query_parameters when executing the query.
+    """
+    return f"""
+        SELECT
+            COALESCE(current_matches.id, previous_members.person_id) as person_id,
+            if(previous_members.person_id IS NULL, 'entered', 'left') as status
+        FROM
+        (
+            {current_members_sql}
+        ) AS current_matches
+        FULL OUTER JOIN
+        (
+            SELECT person_id, argMax(status, last_updated) as status
+            FROM cohort_membership
+            WHERE
+                team_id = %(team_id)s
+                AND cohort_id = %(cohort_id)s
+            GROUP BY person_id
+            HAVING status = 'entered'
+        ) previous_members ON current_matches.id = previous_members.person_id
+        WHERE (previous_members.person_id IS NULL) OR (current_matches.id IS NULL)
+        SETTINGS
+            join_use_nulls = 1,
+            -- Every GROUP BY here aggregates by person_id, which is in no source table's sort
+            -- key, so it builds a full in-memory hash table. On large cohorts — both the
+            -- single-scan path and the INTERSECT/UNION DISTINCT fall-through — this can exhaust
+            -- the query memory limit and OOM. Spill to disk past a fraction of that limit instead
+            -- of failing; this is an offline job, so slower-but-completes is the right trade-off.
+            -- memory_efficient bounds the distributed merge step too.
+            max_bytes_ratio_before_external_group_by = {EXTERNAL_GROUP_BY_MEMORY_RATIO},
+            distributed_aggregation_memory_efficient = 1
+        FORMAT JSONEachRow
+    """
+
+
 @temporalio.activity.defn
 async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCalculationWorkflowInputs) -> None:
     """Process a batch of realtime cohorts using HogQLRealtimeCohortQuery."""
@@ -327,6 +374,11 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
         def build_query(cohort_obj):
             realtime_query = HogQLRealtimeCohortQuery(cohort=cohort_obj, team=cohort_obj.team)
             current_members_query = realtime_query.get_query()
+            # Note: restricted_properties is not set here (defaults to None), so the printer
+            # will call get_restricted_properties_for_team and apply any property access-control
+            # rules configured for the team. This is intentionally different from the backfill
+            # path in hogql_compile.py, which bypasses restrictions to match raw-SQL semantics.
+            # Realtime cohort calculation should respect property restrictions.
             hogql_context = HogQLContext(
                 team_id=cohort_obj.team_id,
                 enable_select_queries=True,
@@ -355,32 +407,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     "cohort_id": cohort.pk,
                 }
 
-                final_query = f"""
-                    SELECT
-                        COALESCE(current_matches.id, previous_members.person_id) as person_id,
-                        CASE
-                            WHEN previous_members.person_id IS NULL THEN 'entered'
-                            WHEN current_matches.id IS NULL THEN 'left'
-                            ELSE 'unchanged'
-                        END as status
-                    FROM
-                    (
-                        {current_members_sql}
-                    ) AS current_matches
-                    FULL OUTER JOIN
-                    (
-                        SELECT team_id, person_id, argMax(status, last_updated) as status
-                        FROM cohort_membership
-                        WHERE
-                            team_id = %(team_id)s
-                            AND cohort_id = %(cohort_id)s
-                        GROUP BY team_id, person_id
-                        HAVING status = 'entered'
-                    ) previous_members ON current_matches.id = previous_members.person_id
-                    WHERE status IN ('entered', 'left')
-                    SETTINGS join_use_nulls = 1
-                    FORMAT JSONEachRow
-                """
+                final_query = build_final_query(current_members_sql)
 
                 heartbeater.details = (f"Executing query for cohort {idx}/{len(cohorts)} (cohort_id={cohort.pk})",)
 

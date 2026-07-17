@@ -1,4 +1,4 @@
-import { eventTypeToVerb } from 'lib/utils'
+import { eventTypeToVerb } from 'lib/utils/events'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 

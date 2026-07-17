@@ -274,7 +274,7 @@ def format_event_text_repr_from_ai_events_row(row: dict[str, Any], options: Form
     `properties`-shaped event dict that `format_event_text_repr` consumes.
 
     Use this from query callers that read `posthog.ai_events` directly (i.e.
-    that need the heavy columns post-strip-migration). Callers that already
+    that need the heavy columns, which live only there). Callers that already
     have an `events.properties` blob should keep using `format_event_text_repr`.
 
     Expected `row` keys: `uuid`, `event`, `timestamp`, plus any of the heavy /

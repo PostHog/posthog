@@ -9,19 +9,9 @@ from posthog.schema import DateRange, IntervalType
 
 from posthog.hogql.parser import ast
 
+from posthog.interval_specs import ORDERED_INTERVALS, PERIOD_MAP, IntervalLiteral, get_trunc_func, interval_spec
 from posthog.models.team import Team, WeekStartDay
-from posthog.queries.util import get_earliest_timestamp, get_trunc_func_ch
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
-
-IntervalLiteral = Literal["second", "minute", "hour", "day", "week", "month"]
-ORDERED_INTERVALS = [
-    IntervalType.SECOND,
-    IntervalType.MINUTE,
-    IntervalType.HOUR,
-    IntervalType.DAY,
-    IntervalType.WEEK,
-    IntervalType.MONTH,
-]
 
 
 def compare_interval_length(
@@ -110,7 +100,7 @@ class QueryDateRange:
                 team_week_start_day=self._team.week_start_day,
             )
         elif self._exact_timerange:
-            return date_to
+            return self._clip_incomplete_period(date_to)
 
         if not self._date_range or not self._date_range.explicitDate:
             is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
@@ -123,13 +113,39 @@ class QueryDateRange:
                     date_to = date_to.replace(second=59, microsecond=999999)
                 elif self.interval_type == IntervalType.SECOND:
                     date_to = (date_to - timedelta(seconds=1)).replace(microsecond=999999)
-        return date_to
+
+        return self._clip_incomplete_period(date_to)
+
+    def _clip_incomplete_period(self, date_to: datetime) -> datetime:
+        """Clip date_to to the end of the last complete interval when the range reaches into the
+        current, still-collecting one (DateRange.excludeIncompletePeriods)."""
+        if not (self._date_range and self._date_range.excludeIncompletePeriods):
+            return date_to
+        if self._interval_count != 1:
+            # Multi-unit buckets don't sit on single-interval boundaries, so a clip here would
+            # truncate the trailing bucket mid-bucket instead of excluding it.
+            return date_to
+        current_interval_start = self.align_with_interval(self.now_with_timezone)
+        if date_to < current_interval_start:
+            return date_to
+        clipped = current_interval_start - timedelta(microseconds=1)
+        # The base implementation is called explicitly: subclasses redefine date_from() in terms of
+        # date_to() (e.g. the previous-period range), which would recurse, and the clip must be
+        # evaluated against the current range's own start regardless.
+        if clipped < QueryDateRange.date_from(self):
+            # No complete interval in range: keep the partial current one rather than inverting the
+            # range (mirrors alerts never dropping the only data point).
+            return date_to
+        return clipped
 
     def get_earliest_timestamp(self) -> datetime:
         if self._earliest_timestamp_fallback:
             return self._earliest_timestamp_fallback
 
-        return get_earliest_timestamp(self._team.pk)
+        # Imported here to break the cycle: timestamp_utils imports QueryDateRange.
+        from posthog.hogql_queries.utils.timestamp_utils import get_earliest_timestamp_unfiltered  # noqa: PLC0415
+
+        return get_earliest_timestamp_unfiltered(self._team)
 
     def date_from(self) -> datetime:
         date_from: datetime
@@ -202,35 +218,12 @@ class QueryDateRange:
         return self._date_range.explicitDate
 
     def align_with_interval(self, start: datetime, *, interval_name: Optional[IntervalLiteral] = None) -> datetime:
-        interval_name = interval_name or self.interval_name
-
-        if interval_name == "second":
-            return start.replace(microsecond=0)
-        if interval_name == "minute":
-            return start.replace(second=0, microsecond=0)
-        if interval_name == "hour":
-            return start.replace(minute=0, second=0, microsecond=0)
-        elif interval_name == "day":
-            return start.replace(hour=0, minute=0, second=0, microsecond=0)
-        elif interval_name == "week":
-            start = start.replace(hour=0, minute=0, second=0, microsecond=0)
-            week_start_alignment_days = start.isoweekday() % 7
-            if self._team.week_start_day == WeekStartDay.MONDAY:
-                week_start_alignment_days = start.weekday()
-            start -= timedelta(days=week_start_alignment_days)
-            return start
-        elif interval_name == "month":
-            return start.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        spec = interval_spec(interval_name or self.interval_name)
+        return spec.align(start, self._team.week_start_day)
 
     def interval_relativedelta(self) -> relativedelta:
-        return relativedelta(
-            days=self.interval_count if self.interval_name == "day" else 0,
-            weeks=self.interval_count if self.interval_name == "week" else 0,
-            months=self.interval_count if self.interval_name == "month" else 0,
-            hours=self.interval_count if self.interval_name == "hour" else 0,
-            minutes=self.interval_count if self.interval_name == "minute" else 0,
-            seconds=self.interval_count if self.interval_name == "second" else 0,
-        )
+        spec = interval_spec(self.interval_name)
+        return relativedelta(**{spec.relativedelta_kwarg: self.interval_count * spec.relativedelta_multiplier})  # type: ignore[arg-type]
 
     def all_values(self, *, interval_name: Optional[IntervalLiteral] = None) -> list[datetime]:
         start = self.align_with_interval(self.date_from(), interval_name=interval_name)
@@ -242,6 +235,34 @@ class QueryDateRange:
             values.append(start)
             start += delta
         return values
+
+    def days_of_week(self) -> Optional[list[int]]:
+        # Returns None for unset, empty input, or all seven days; all three mean "no restriction".
+        # The schema constrains values to 1..7, so no range validation is needed here.
+        days = self._date_range.daysOfWeek if self._date_range else None
+        if not days:
+            return None
+        valid_days = sorted({int(day) for day in days})
+        if len(valid_days) == 7:
+            return None
+        return valid_days
+
+    def day_of_week_filter_expr(self, timestamp_field: ast.Expr) -> Optional[ast.Expr]:
+        """`toDayOfWeek(ts, 0) IN (...)`, where mode 0 is ISO (1=Mon...7=Sun).
+
+        No explicit timezone argument: the HogQL property-type transform wraps DateTime fields
+        in `toTimeZone(..., <project tz>)`, so the day boundary follows the project timezone and
+        stays consistent with interval bucketing, including when the convertToProjectTimezone
+        modifier switches everything to UTC.
+        """
+        days = self.days_of_week()
+        if days is None:
+            return None
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=ast.Call(name="toDayOfWeek", args=[timestamp_field, ast.Constant(value=0)]),
+            right=ast.Tuple(exprs=[ast.Constant(value=day) for day in days]),
+        )
 
     def date_to_as_hogql(self) -> ast.Expr:
         return ast.Call(
@@ -268,19 +289,20 @@ class QueryDateRange:
 
     def one_interval_period(self) -> ast.Expr:
         return ast.Call(
-            name=f"toInterval{self.interval_name.capitalize()}",
+            name=interval_spec(self.interval_name).interval_func,
             args=[ast.Constant(value=self.interval_count)],
         )
 
     def number_interval_periods_hogql(self) -> ast.Expr:
+        interval_func = interval_spec(self.interval_name).interval_func
         if self.interval_count == 1:
             return ast.Call(
-                name=f"toInterval{self.interval_name.capitalize()}",
+                name=interval_func,
                 args=[ast.Field(chain=["number"])],
             )
         else:
             return ast.Call(
-                name=f"toInterval{self.interval_name.capitalize()}",
+                name=interval_func,
                 args=[
                     ast.Call(
                         name="multiply", args=[ast.Field(chain=["number"]), ast.Constant(value=self.interval_count)]
@@ -386,16 +408,6 @@ class QueryDateRange:
         }
 
 
-PERIOD_MAP: dict[str, timedelta | relativedelta] = {
-    "second": timedelta(seconds=1),
-    "minute": timedelta(minutes=1),
-    "hour": timedelta(hours=1),
-    "day": timedelta(days=1),
-    "week": timedelta(weeks=1),
-    "month": relativedelta(months=1),
-}
-
-
 class QueryDateRangeWithIntervals(QueryDateRange):
     """
     Only used in retention queries where we need to figure out date_from
@@ -465,7 +477,7 @@ class QueryDateRangeWithIntervals(QueryDateRange):
         return date_to
 
     def get_start_of_interval_hogql(self, *, source: ast.Expr | None = None) -> ast.Expr:
-        trunc_func = get_trunc_func_ch(self.interval_type.name.lower())
+        trunc_func = get_trunc_func(self.interval_type)
         trunc_func_args: list[ast.Expr] = [source] if source else [ast.Constant(value=self.date_from())]
         if trunc_func == "toStartOfWeek":
             trunc_func_args.append(
@@ -475,18 +487,4 @@ class QueryDateRangeWithIntervals(QueryDateRange):
 
 
 def date_to_start_of_interval(date: datetime, interval: IntervalType, team: Team) -> datetime:
-    match interval:
-        case IntervalType.HOUR:
-            return date.replace(minute=0, second=0, microsecond=0)
-        case IntervalType.DAY:
-            return date.replace(hour=0, minute=0, second=0, microsecond=0)
-        case IntervalType.WEEK:
-            week_start_alignment_days = date.isoweekday() % 7
-            if team.week_start_day == WeekStartDay.MONDAY:
-                week_start_alignment_days = date.weekday()
-
-            return (date - timedelta(days=week_start_alignment_days)).replace(hour=0, minute=0, second=0, microsecond=0)
-        case IntervalType.MONTH:
-            return date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        case _:
-            raise ValueError(f"Unsupported interval {interval}")
+    return interval_spec(interval).align(date, team.week_start_day)

@@ -1,7 +1,7 @@
 import { Placement } from '@floating-ui/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { forwardRef, useRef, useState } from 'react'
+import { forwardRef, useEffect, useRef, useState } from 'react'
 
 import { IconCalendar, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonSwitch, Popover } from '@posthog/lemon-ui'
@@ -17,8 +17,9 @@ import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelect, LemonCalendarSelectProps } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { dateFilterToText, dateMapping, uuid } from 'lib/utils'
-import { formatResolvedDateRange } from 'lib/utils/dateTimeUtils'
+import { dateFilterToText, dateMapping } from 'lib/utils/dateFilters'
+import { formatResolvedDateRange } from 'lib/utils/datetime'
+import { uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
@@ -59,6 +60,8 @@ export interface DateFilterProps {
      * `showCustomRelativeRange` are ignored when this is set.
      */
     allowSingleAndRange?: boolean
+    /** Called when the dropdown opens (true) or closes (false). Used for interaction analytics. */
+    onOpenChange?: (open: boolean) => void
 }
 
 interface RawDateFilterProps extends DateFilterProps {
@@ -110,6 +113,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         showJumpToTimestamp = false,
         showCustomRelativeRange = false,
         allowSingleAndRange = false,
+        onOpenChange,
     },
     ref
 ) {
@@ -158,6 +162,20 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         dateFromHasTimePrecision,
         fixedRangeGranularity,
     } = useValues(dateFilterLogic(logicProps))
+
+    // Hold the callback in a ref so the visibility effect below depends only on `isVisible` —
+    // callers pass an inline function, which would otherwise re-run the effect every render.
+    const onOpenChangeRef = useRef(onOpenChange)
+    useEffect(() => {
+        onOpenChangeRef.current = onOpenChange
+    })
+    const wasVisibleRef = useRef(isVisible)
+    useEffect(() => {
+        if (isVisible !== wasVisibleRef.current) {
+            wasVisibleRef.current = isVisible
+            onOpenChangeRef.current?.(isVisible)
+        }
+    }, [isVisible])
 
     const { weekStartDay } = useValues(teamLogic)
     const optionsRef = useRef<HTMLDivElement | null>(null)

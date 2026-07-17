@@ -28,6 +28,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
+from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 from posthog.models.event.util import bulk_create_events
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling import run_workflow as run_workflow_module
@@ -53,12 +54,11 @@ from posthog.temporal.data_modeling.run_workflow import (
 from posthog.temporal.ducklake.types import DuckLakeCopyModelInput
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse, truncate_table
 
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
+from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
 TEST_TIME = dt.datetime.now(dt.UTC)
 
@@ -247,12 +247,14 @@ def mock_to_object_store_rs_credentials(class_self):
 
 @pytest_asyncio.fixture
 async def truncate_events_table(clickhouse_client):
-    await truncate_table(clickhouse_client, "sharded_events")
+    table = EVENTS_JSON_DATA_TABLE if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else EVENTS_DATA_TABLE()
+    await truncate_table(clickhouse_client, table)
 
 
 @pytest_asyncio.fixture
 async def pageview_events(clickhouse_client, ateam, truncate_events_table):
     start_time, end_time = dt.datetime.now(dt.UTC) - dt.timedelta(days=1), dt.datetime.now(dt.UTC)
+    table = EVENTS_JSON_DATA_TABLE if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else EVENTS_DATA_TABLE()
     events, _, events_from_other_team = await generate_test_events_in_clickhouse(
         clickhouse_client,
         ateam.pk,
@@ -262,7 +264,7 @@ async def pageview_events(clickhouse_client, ateam, truncate_events_table):
         count=50,
         count_outside_range=0,
         distinct_ids=["a", "b"],
-        table="sharded_events",
+        table=table,
     )
     return (events, events_from_other_team)
 
@@ -320,7 +322,7 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
         key=lambda d: (d["distinct_id"], d["timestamp"]),
     )
 
-    query_folder_pattern = re.compile(r"^.+?\_\_query\_\d+\/.+")
+    query_folder_pattern = re.compile(r"^.+?\_\_query\_\d+_[0-9a-f]{8}\/.+")
 
     assert any(query_folder_pattern.match(obj["Key"]) for obj in s3_objects["Contents"])
     assert any(f"{saved_query.normalized_name}__query" in obj["Key"] for obj in s3_objects["Contents"])
@@ -469,7 +471,7 @@ async def test_materialize_model_with_pascal_cased_name(ateam, bucket_name, mini
         key=lambda d: (d["distinct_id"], d["timestamp"]),
     )
 
-    query_folder_pattern = re.compile(r"^.+?\_\_query\_\d+\/.+")
+    query_folder_pattern = re.compile(r"^.+?\_\_query\_\d+_[0-9a-f]{8}\/.+")
 
     assert any(query_folder_pattern.match(obj["Key"]) for obj in s3_objects["Contents"])
     assert any(f"{saved_query.normalized_name}__query" in obj["Key"] for obj in s3_objects["Contents"])

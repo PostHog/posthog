@@ -16,7 +16,7 @@ import {
 } from '@/shared/test-utils'
 import { GENERATED_TOOLS } from '@/tools/generated/product_analytics'
 import queryInsightTool from '@/tools/insights/query'
-import type { Context } from '@/tools/types'
+import { type Context, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
 
 const insightGetTool = GENERATED_TOOLS['insight-get']!()
 const insightCreateTool = GENERATED_TOOLS['insight-create']!()
@@ -145,9 +145,11 @@ describe('Insights', { concurrent: false }, () => {
                 expect(Array.isArray(response.results.results)).toBe(true)
             })
 
-            it('HogQL query with output_format=optimized returns a formatted string', async () => {
-                // The API client always sends X-PostHog-Client: mcp, so the backend
-                // runs the SQLResultsFormatter and returns formatted_results as a string.
+            it('HogQL query with output_format=optimized keeps structured results and surfaces the formatted string', async () => {
+                // The API client always sends X-PostHog-Client: mcp, so the backend runs the
+                // SQLResultsFormatter and returns formatted_results. `results` stays structured so the
+                // UI app can render it; the formatted summary rides under the override key (which
+                // build-tool-result strips from structuredContent and uses as the model-facing text).
                 const insight = await createTestInsight(generateUniqueKey('HogQL Optimized Shape'))
 
                 const result = await queryTool.handler(context, {
@@ -157,7 +159,11 @@ describe('Insights', { concurrent: false }, () => {
                 const response = parseToolResponse(result)
 
                 expect(response).toHaveProperty('results')
-                expect(typeof response.results).toBe('string')
+                expect(response.results).toHaveProperty('columns')
+                expect(response.results).toHaveProperty('results')
+                expect(Array.isArray(response.results.columns)).toBe(true)
+                expect(Array.isArray(response.results.results)).toBe(true)
+                expect(typeof response[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('string')
             })
 
             it('TrendsQuery with output_format=json returns an array of series', async () => {
@@ -173,9 +179,11 @@ describe('Insights', { concurrent: false }, () => {
                 expect(Array.isArray(response.results)).toBe(true)
             })
 
-            it('TrendsQuery with output_format=optimized returns a formatted string', async () => {
-                // The API client always sends X-PostHog-Client: mcp, so the backend
-                // runs the TrendsResultsFormatter and returns formatted_results as a string.
+            it('TrendsQuery with output_format=optimized keeps the series array and surfaces the formatted string', async () => {
+                // The API client always sends X-PostHog-Client: mcp, so the backend runs the
+                // TrendsResultsFormatter and returns formatted_results. Trends visualizers consume the
+                // raw series array, so `results` stays an array; the formatted summary rides under the
+                // override key for the model-facing text.
                 const insight = await createTestTrendsInsight(generateUniqueKey('Trends Optimized Shape'))
 
                 const result = await queryTool.handler(context, {
@@ -185,7 +193,8 @@ describe('Insights', { concurrent: false }, () => {
                 const response = parseToolResponse(result)
 
                 expect(response).toHaveProperty('results')
-                expect(typeof response.results).toBe('string')
+                expect(Array.isArray(response.results)).toBe(true)
+                expect(typeof response[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('string')
             })
         })
     })

@@ -158,11 +158,14 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
                     clearActivePanelIdentifier()
                 }}
                 className={cn(
-                    'z-(--z-layout-panel-over-nav) md:z-(--z-layout-panel-under) fixed top-0 bottom-0 bg-fill-highlight-200 dark:bg-black/80 transition-opacity duration-200',
+                    // visibility joins the transition so the fade-out still plays, but once hidden the
+                    // full-viewport layer stops being rasterized — at opacity-0 alone the compositor
+                    // keeps a viewport-sized tile backing alive for this scrim for every app view that mounts the layout
+                    'z-(--z-layout-panel-over-nav) md:z-(--z-layout-panel-under) fixed top-0 bottom-0 bg-fill-highlight-200 dark:bg-black/80 transition-[opacity,visibility] duration-200',
                     isMobileLayout
                         ? 'left-0 w-[var(--panel-layout-mobile-offset)]'
                         : 'left-0 right-0 w-screen h-screen',
-                    !panelIsShown && 'pointer-events-none opacity-0'
+                    !panelIsShown && 'pointer-events-none opacity-0 invisible'
                 )}
                 aria-hidden={!panelIsShown}
             />
@@ -176,10 +179,11 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
                     clearActivePanelIdentifier()
                 }}
                 className={cn(
-                    'z-(--z-layout-navbar-under) md:z-(--z-layout-navbar) fixed top-0 bottom-0 right-0 bg-fill-highlight-200 dark:bg-black/80 transition-opacity duration-200',
+                    'z-(--z-layout-navbar-under) md:z-(--z-layout-navbar) fixed top-0 bottom-0 right-0 bg-fill-highlight-200 dark:bg-black/80 transition-[opacity,visibility] duration-200',
                     isMobileLayout ? 'left-(--project-navbar-width)' : 'left-0 w-screen h-screen',
-                    !(isMobileLayout && isLayoutNavbarVisibleForMobile) && 'pointer-events-none opacity-0'
+                    !(isMobileLayout && isLayoutNavbarVisibleForMobile) && 'pointer-events-none opacity-0 invisible'
                 )}
+                // visibility joins the transition here too — see the panel scrim comment above
                 aria-hidden={!(isMobileLayout && isLayoutNavbarVisibleForMobile)}
             />
         </>

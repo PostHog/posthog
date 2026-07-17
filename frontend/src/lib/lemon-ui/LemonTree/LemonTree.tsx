@@ -28,8 +28,8 @@ import { IconEllipsis, IconUpload } from '@posthog/icons'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { pluralize } from 'lib/utils/strings'
 
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
 import { SideAction } from '../LemonButton'
@@ -351,9 +351,10 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                                 isContextMenuOpenForItem === item.id,
                             'bg-fill-button-tertiary-active': getItemActiveState(item),
                             'group-hover/lemon-tree-button-group:bg-fill-button-tertiary-hover cursor-pointer':
-                                !isEmptyFolder,
+                                !isEmptyFolder && !item.disabledReason,
                             'hover:bg-transparent opacity-50 cursor-default':
                                 (selectMode === 'folder-only' && !isFolder) || isEmptyFolder,
+                            'opacity-50 cursor-not-allowed': !!item.disabledReason,
                             'rounded-l-[var(--radius)] justify-center [&_svg]:size-4': size === 'narrow',
                             'group-hover/lemon-tree-button-group:pr-[30px] group-has-data-[state=open]/lemon-tree-button-group:pr-[30px] group-has-focus-within/lemon-tree-button-group:pr-[30px]':
                                 size !== 'narrow',
@@ -369,7 +370,7 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                 aria-haspopup={!!contextMenuContent}
                 aria-roledescription="tree item"
                 aria-label={ariaLabel}
-                tooltip={isDragging || isEmptyFolder ? undefined : renderItemTooltip?.(item)}
+                tooltip={isDragging || isEmptyFolder ? undefined : (item.disabledReason ?? renderItemTooltip?.(item))}
                 tooltipPlacement="right"
             >
                 {size === 'default' && (

@@ -108,7 +108,7 @@ class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
                 "react_property_filters": self._get_react_property_filters_prompt(),
                 "react_human_in_the_loop": HUMAN_IN_THE_LOOP_PROMPT,
                 "groups": self._team_group_types,
-                "events": format_events_yaml(events_in_context, self._team),
+                "events": format_events_yaml(events_in_context, self._team, self._user),
                 "project_datetime": self.project_now,
                 "project_timezone": self.project_timezone,
                 "project_name": self._team.name,
@@ -244,7 +244,7 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
     """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        toolkit = TaxonomyAgentToolkit(self._team)
+        toolkit = TaxonomyAgentToolkit(self._team, self._user)
         intermediate_steps = state.intermediate_steps or []
         action, _output = intermediate_steps[-1]
 

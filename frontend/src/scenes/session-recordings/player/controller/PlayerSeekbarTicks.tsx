@@ -11,12 +11,13 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { RichContentPreview } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { autoCaptureEventToDescription } from 'lib/utils'
-import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
+import { autoCaptureEventToDescription } from 'lib/utils/events'
+import { getPrimaryPropertyForEvent } from 'lib/utils/events'
 import {
     InspectorListItem,
     InspectorListItemComment,
     InspectorListItemEvent,
+    InspectorListItemExperimentVariant,
     InspectorListItemNotebookComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { isSingleEmoji } from 'scenes/session-recordings/utils'
@@ -27,6 +28,10 @@ import { UserActivity } from './UserActivity'
 
 function isEventItem(x: InspectorListItem): x is InspectorListItemEvent {
     return 'data' in x && !!x.data && 'event' in x.data
+}
+
+function isExperimentVariantItem(x: InspectorListItem): x is InspectorListItemExperimentVariant {
+    return x.type === 'experiment-variant'
 }
 
 function isNotebookComment(x: InspectorListItem): x is InspectorListItemNotebookComment {
@@ -58,7 +63,11 @@ function PlayerSeekbarTick({
     onClick,
     primaryProperties,
 }: {
-    item: InspectorListItemComment | InspectorListItemNotebookComment | InspectorListItemEvent
+    item:
+        | InspectorListItemComment
+        | InspectorListItemNotebookComment
+        | InspectorListItemEvent
+        | InspectorListItemExperimentVariant
     endTimeMs: number
     zIndex: number
     onClick: (e: React.MouseEvent) => void
@@ -93,7 +102,11 @@ function PlayerSeekbarTick({
                     })
                 }}
                 title={
-                    isEventItem(item) ? (
+                    isExperimentVariantItem(item) ? (
+                        <>
+                            Saw variant "{item.data.variant}" of {item.data.experimentName}
+                        </>
+                    ) : isEventItem(item) ? (
                         <>
                             {item.data.event === '$autocapture' ? (
                                 <>{autoCaptureEventToDescription(item.data)}</>
@@ -150,7 +163,12 @@ const MemoisedPlayerSeekbarTicks = memo(
         hoverRef,
         primaryProperties,
     }: {
-        seekbarItems: (InspectorListItemEvent | InspectorListItemComment | InspectorListItemNotebookComment)[]
+        seekbarItems: (
+            | InspectorListItemEvent
+            | InspectorListItemComment
+            | InspectorListItemNotebookComment
+            | InspectorListItemExperimentVariant
+        )[]
         endTimeMs: number
         seekToTime: (timeInMilliseconds: number) => void
         hoverRef: MutableRefObject<HTMLDivElement | null>
@@ -197,7 +215,12 @@ export function PlayerSeekbarTicks({
     seekToTime,
     hoverRef,
 }: {
-    seekbarItems: (InspectorListItemEvent | InspectorListItemComment | InspectorListItemNotebookComment)[]
+    seekbarItems: (
+        | InspectorListItemEvent
+        | InspectorListItemComment
+        | InspectorListItemNotebookComment
+        | InspectorListItemExperimentVariant
+    )[]
     endTimeMs: number
     seekToTime: (timeInMilliseconds: number) => void
     hoverRef: MutableRefObject<HTMLDivElement | null>

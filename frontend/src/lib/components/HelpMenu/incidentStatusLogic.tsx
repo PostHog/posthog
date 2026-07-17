@@ -1,11 +1,16 @@
-import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 // eslint-disable-next-line import/no-cycle
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
-import type { incidentStatusLogicType } from './incidentStatusLogicType'
+import { Region } from '~/types'
+
+import type { PreflightStatus } from '../../../types'
+import type { FakeStatusOverride } from '../Superpowers/superpowersLogic'
+import { NormalizedStatus, STATUS_PAGE_BASE, setIncidentStatus } from './incidentStatus'
 
 // Raw status page API types
 export type ComponentStatus = 'operational' | 'degraded_performance' | 'partial_outage' | 'full_outage'
@@ -13,8 +18,9 @@ export type Impact = 'partial_outage' | 'degraded_performance' | 'full_outage'
 export type IncidentStatus = 'investigating' | 'identified' | 'monitoring'
 export type MaintenanceStatus = 'maintenance_in_progress' | 'maintenance_scheduled'
 
-// Normalized status for display
-export type NormalizedStatus = 'operational' | 'degraded_performance' | 'partial_outage' | 'major_outage'
+// The normalized display status and its shared read/write module live in ./incidentStatus, a
+// deliberate leaf so LemonToast can read the status without importing this logic's graph.
+export { getIncidentStatus, setIncidentStatus, STATUS_PAGE_BASE, type NormalizedStatus } from './incidentStatus'
 
 export interface AffectedComponent {
     id: string
@@ -56,27 +62,42 @@ export interface Summary {
     scheduled_maintenances: Maintenance[]
 }
 
-export const STATUS_PAGE_BASE = 'https://www.posthogstatus.com'
+// A user-facing warning derived from an ongoing incident that affects a specific component.
+export interface ComponentIncidentAlert {
+    title: string
+    description: string
+    severity: 'warning' | 'error'
+}
+
 const REFRESH_INTERVAL = 60 * 1000 * 5 // 5 minutes
 
-const DEFAULT_STATUS: NormalizedStatus = 'operational'
-
-let currentStatus: NormalizedStatus = DEFAULT_STATUS
-
-export function setIncidentStatus(status: NormalizedStatus): void {
-    currentStatus = status
+// A failed `fetch` to an external host throws a `TypeError` ("Failed to fetch", "NetworkError when
+// attempting to fetch resource", "Load failed", ...). These are expected and outside our control —
+// ad blockers, tracking-protection extensions, DNS hiccups, brief status-page outages — so they're
+// noise in error tracking rather than real defects. A genuine bug here would surface as a different
+// error type (e.g. a `SyntaxError` from `response.json()`), which we still want to capture.
+function isNetworkError(error: unknown): boolean {
+    return error instanceof TypeError
 }
 
-export function getIncidentStatus(): NormalizedStatus {
-    return currentStatus
+// incident.io component name for the PostHog AI service. An incident is treated as affecting AI only
+// when it tags a component with this exact name under the current region's group (see getRelevantGroupName).
+export const AI_COMPONENT_NAME = 'PostHog AI'
+
+// incident.io component group name (text only — the status page suffixes a region flag emoji we strip
+// on the API side via normalizeGroupName) for each cloud region.
+const GROUP_NAME_BY_REGION: Partial<Record<Region, string>> = {
+    [Region.US]: 'US Cloud',
+    [Region.EU]: 'EU Cloud',
 }
 
-// Map hostname to the group_name used in incident.io
-const RELEVANT_GROUP_NAME_MAP: Record<string, string> = {
-    'us.posthog.com': 'US Cloud 🇺🇸',
-    'eu.posthog.com': 'EU Cloud 🇪🇺',
-    localhost: 'US Cloud 🇺🇸', // Default to US for local dev
-    '127.0.0.1': 'US Cloud 🇺🇸', // Storybook CI runs at 127.0.0.1:6006
+// Resolve the incident.io component group from preflight. US and EU cloud each see their own region's
+// incidents; everything else (local dev, self-hosted, Storybook, unknown deployments) sees nothing.
+function getRelevantGroupName(region: Region | null | undefined): string | null {
+    if (!region) {
+        return null
+    }
+    return GROUP_NAME_BY_REGION[region] ?? null
 }
 
 // Map hostname to the region-specific status page path (incident.io sub-pages)
@@ -87,8 +108,10 @@ const REGION_PATH_MAP: Record<string, string> = {
     '127.0.0.1': '/us', // Storybook CI runs at 127.0.0.1:6006
 }
 
-function getRelevantGroupName(): string | null {
-    return RELEVANT_GROUP_NAME_MAP[window.location.hostname] || null
+// Reduce an incident.io group_name to its text, dropping the region flag emoji and surrounding
+// whitespace, so it can be compared against the emoji-free names in GROUP_NAME_BY_REGION.
+function normalizeGroupName(name: string): string {
+    return name.replace(/[^\p{L}\p{N}\s]/gu, '').trim()
 }
 
 // Region-specific status page URL, falling back to the root page for unknown (self-hosted) hosts
@@ -96,26 +119,25 @@ export function getStatusPageUrl(): string {
     return `${STATUS_PAGE_BASE}${REGION_PATH_MAP[window.location.hostname] ?? ''}`
 }
 
-function hasRelevantComponents(affectedComponents: AffectedComponent[]): boolean {
-    const relevantGroupName = getRelevantGroupName()
+function hasRelevantComponents(affectedComponents: AffectedComponent[], relevantGroupName: string | null): boolean {
     if (!relevantGroupName) {
-        // Unknown hostname (self-hosted) — cloud incidents aren't relevant
+        // No region (local dev, self-hosted, unknown) — cloud incidents aren't relevant
         return false
     }
     // If no affected components, show the incident (it's global)
     if (affectedComponents.length === 0) {
         return true
     }
-    return affectedComponents.some((component) => component.group_name === relevantGroupName)
+    return affectedComponents.some((component) => normalizeGroupName(component.group_name ?? '') === relevantGroupName)
 }
 
-function getWorstStatusForRegion(summary: Summary): NormalizedStatus {
+function getWorstStatusForRegion(summary: Summary, relevantGroupName: string | null): NormalizedStatus {
     // Filter incidents to only those affecting the current region
     const relevantIncidents = summary.ongoing_incidents.filter((incident) =>
-        hasRelevantComponents(incident.affected_components)
+        hasRelevantComponents(incident.affected_components, relevantGroupName)
     )
     const relevantMaintenances = summary.in_progress_maintenances.filter((maintenance) =>
-        hasRelevantComponents(maintenance.affected_components)
+        hasRelevantComponents(maintenance.affected_components, relevantGroupName)
     )
 
     const hasOngoingIncidents = relevantIncidents.length > 0
@@ -152,11 +174,107 @@ function getWorstStatusForRegion(summary: Summary): NormalizedStatus {
     return 'operational'
 }
 
+// The AI component tagged on this incident for the current region, if any.
+function matchedAiComponent(incident: Incident, relevantGroupName: string | null): AffectedComponent | undefined {
+    if (!relevantGroupName) {
+        // No region (local dev, self-hosted, unknown) — cloud AI incidents aren't relevant.
+        return undefined
+    }
+    return incident.affected_components.find(
+        (component) =>
+            component.name === AI_COMPONENT_NAME && normalizeGroupName(component.group_name ?? '') === relevantGroupName
+    )
+}
+
+function componentStatusToSeverity(status: ComponentStatus): ComponentIncidentAlert['severity'] {
+    return status === 'partial_outage' || status === 'full_outage' ? 'error' : 'warning'
+}
+
+function getAiIncidentAlerts(summary: Summary | null, relevantGroupName: string | null): ComponentIncidentAlert[] {
+    if (!summary) {
+        return []
+    }
+    return summary.ongoing_incidents.reduce<ComponentIncidentAlert[]>((alerts, incident) => {
+        const component = matchedAiComponent(incident, relevantGroupName)
+        if (component) {
+            alerts.push({
+                title: incident.name,
+                description: incident.last_update_message,
+                severity: componentStatusToSeverity(component.current_status),
+            })
+        }
+        return alerts
+    }, [])
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface incidentStatusLogicValues {
+    preflight: PreflightStatus | null // preflightLogic
+    fakeStatusOverride: FakeStatusOverride // superpowersLogic
+    superpowersEnabled: boolean | undefined // superpowersLogic
+    aiIncidentAlerts: ComponentIncidentAlert[]
+    rawStatus: NormalizedStatus
+    relevantGroupName: string | null
+    status: NormalizedStatus
+    statusDescription: string | null
+    statusPageUrl: string
+    summary: Summary | null
+    summaryLoading: boolean
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface incidentStatusLogicActions {
+    loadSummary: () => any
+    loadSummaryFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSummarySuccess: (
+        summary: Summary | null,
+        payload?: any
+    ) => {
+        summary: Summary | null
+        payload?: any
+    }
+    setPageVisibility: (visible: boolean) => {
+        visible: boolean
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface incidentStatusLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        relevantGroupName: (preflight: PreflightStatus | null) => string | null
+        rawStatus: (summary: Summary | null, relevantGroupName: string | null) => NormalizedStatus
+        status: (
+            rawStatus: NormalizedStatus,
+            fakeStatusOverride: FakeStatusOverride,
+            superpowersEnabled: boolean | undefined
+        ) => NormalizedStatus
+        aiIncidentAlerts: (summary: Summary | null, relevantGroupName: string | null) => ComponentIncidentAlert[]
+        statusDescription: (
+            summary: Summary | null,
+            status: NormalizedStatus,
+            relevantGroupName: string | null
+        ) => string | null
+    }
+}
+
+export type incidentStatusLogicType = MakeLogicType<
+    incidentStatusLogicValues,
+    incidentStatusLogicActions,
+    Record<string, any>,
+    incidentStatusLogicMeta
+>
+
 export const incidentStatusLogic = kea<incidentStatusLogicType>([
     path(['lib', 'components', 'HelpMenu', 'incidentStatusLogic']),
 
     connect(() => ({
-        values: [superpowersLogic, ['fakeStatusOverride', 'superpowersEnabled']],
+        values: [superpowersLogic, ['fakeStatusOverride', 'superpowersEnabled'], preflightLogic, ['preflight']],
     })),
 
     actions({
@@ -171,7 +289,9 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
                     // The incident.io status page is external (posthogstatus.com), so the fetch can fail
                     // for reasons outside our control: ad blockers, tracking-protection extensions, DNS
                     // hiccups, brief status-page outages. Swallow the failure (degrading to 'operational'
-                    // via the rawStatus selector) but still report to error tracking so we keep visibility.
+                    // via the rawStatus selector). We report a reachable-but-erroring status page (non-2xx)
+                    // and unexpected errors, but skip the expected network-level failures so they don't
+                    // pollute error tracking as a recurring issue.
                     try {
                         const response = await fetch(`${STATUS_PAGE_BASE}/api/v1/summary`)
                         if (!response.ok) {
@@ -184,7 +304,9 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
                         const data: Summary = await response.json()
                         return data
                     } catch (error) {
-                        posthog.captureException(error)
+                        if (!isNetworkError(error)) {
+                            posthog.captureException(error)
+                        }
                         return null
                     }
                 },
@@ -194,27 +316,41 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
 
     selectors({
         statusPageUrl: [() => [], (): string => getStatusPageUrl()],
+        relevantGroupName: [
+            (s) => [s.preflight],
+            (preflight: null | import('~/types').PreflightStatus): string | null =>
+                getRelevantGroupName(preflight?.region),
+        ],
         rawStatus: [
-            (s) => [s.summary],
-            (summary: Summary | null): NormalizedStatus => {
+            (s) => [s.summary, s.relevantGroupName],
+            (summary: Summary | null, relevantGroupName: string | null): NormalizedStatus => {
                 if (!summary) {
                     return 'operational'
                 }
-                return getWorstStatusForRegion(summary)
+                return getWorstStatusForRegion(summary, relevantGroupName)
             },
         ],
         status: [
             (s) => [s.rawStatus, s.fakeStatusOverride, s.superpowersEnabled],
-            (rawStatus, fakeStatusOverride, superpowersEnabled): NormalizedStatus => {
+            (
+                rawStatus: NormalizedStatus,
+                fakeStatusOverride: import('lib/components/Superpowers/superpowersLogic').FakeStatusOverride,
+                superpowersEnabled: boolean | undefined
+            ): NormalizedStatus => {
                 if (superpowersEnabled && fakeStatusOverride !== 'none') {
                     return fakeStatusOverride as NormalizedStatus
                 }
                 return rawStatus
             },
         ],
+        aiIncidentAlerts: [
+            (s) => [s.summary, s.relevantGroupName],
+            (summary: Summary | null, relevantGroupName: string | null): ComponentIncidentAlert[] =>
+                getAiIncidentAlerts(summary, relevantGroupName),
+        ],
         statusDescription: [
-            (s) => [s.summary, s.status],
-            (summary, status): string | null => {
+            (s) => [s.summary, s.status, s.relevantGroupName],
+            (summary: Summary | null, status: NormalizedStatus, relevantGroupName: string | null): string | null => {
                 if (!summary) {
                     return null
                 }
@@ -223,10 +359,10 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
                 }
                 // Filter to only count incidents/maintenances relevant to this region
                 const incidentCount = summary.ongoing_incidents.filter((incident: Incident) =>
-                    hasRelevantComponents(incident.affected_components)
+                    hasRelevantComponents(incident.affected_components, relevantGroupName)
                 ).length
                 const maintenanceCount = summary.in_progress_maintenances.filter((maintenance: Maintenance) =>
-                    hasRelevantComponents(maintenance.affected_components)
+                    hasRelevantComponents(maintenance.affected_components, relevantGroupName)
                 ).length
                 if (incidentCount > 0) {
                     return `${incidentCount} ongoing incident${incidentCount > 1 ? 's' : ''}`

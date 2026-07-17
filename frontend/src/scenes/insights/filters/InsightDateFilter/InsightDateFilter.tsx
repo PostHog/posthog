@@ -3,8 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconCalendar } from '@posthog/icons'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { dateMapping } from 'lib/utils'
-import { alignResolvedDateRangeToInterval } from 'lib/utils/dateTimeUtils'
+import { dateMapping } from 'lib/utils/dateFilters'
+import { alignResolvedDateRangeToInterval } from 'lib/utils/datetime'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -14,9 +15,10 @@ type InsightDateFilterProps = {
 
 export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
-    const { dateRange, interval } = useValues(insightVizDataLogic(insightProps))
+    const { dateRange, interval, querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateDateRange } = useActions(insightVizDataLogic(insightProps))
     const { insightData } = useValues(insightVizDataLogic(insightProps))
+    const { reportInsightDatePickerOpened } = useActions(eventUsageLogic)
 
     return (
         <DateFilter
@@ -28,6 +30,11 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
             allowFixedRangeWithTime
             disabled={disabled}
             disabledReason={editingDisabledReason}
+            onOpenChange={(open) => {
+                if (open) {
+                    reportInsightDatePickerOpened(querySource?.kind)
+                }
+            }}
             onChange={(date_from, date_to, explicit_date) => {
                 // Prevent debouncing when toggling the exact time range toggle as it glitches the animation
                 const ignoreDebounce = dateRange?.explicitDate !== explicit_date

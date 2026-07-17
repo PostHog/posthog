@@ -10,15 +10,23 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     GitHubBranchesResponseApi,
+    GitHubLinkExistingRequestApi,
+    GitHubOAuthAuthorizeRequestApi,
+    GitHubOAuthAuthorizeResponseApi,
+    GitHubPrepareCallbackRequestApi,
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
     GitHubTeamsResponseApi,
+    IntegrationAccessRequestApi,
+    IntegrationAccessRequestResponseApi,
     IntegrationConfigApi,
     IntegrationsChannelsRetrieveParams,
     IntegrationsGithubBranchesRetrieveParams,
     IntegrationsGithubReposRetrieveParams,
     IntegrationsGithubTeamsRetrieveParams,
     IntegrationsListParams,
+    JiraProjectsResponseApi,
+    LinearTeamsResponseApi,
     OrganizationIntegrationApi,
     PaginatedIntegrationConfigListApi,
     PaginatedRoleExternalReferenceListApi,
@@ -54,13 +62,13 @@ export const getIntegrationsEnvironmentMappingPartialUpdateUrl = (organizationId
 
 /**
  * ViewSet for organization-level integrations.
-
-Provides access to integrations that are scoped to the entire organization
-(vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
-
-Creation is handled by the integration installation flows
-(e.g., Vercel marketplace installation). Users can disconnect integrations
-via the DELETE endpoint.
+ *
+ * Provides access to integrations that are scoped to the entire organization
+ * (vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
+ *
+ * Creation is handled by the integration installation flows
+ * (e.g., Vercel marketplace installation). Users can disconnect integrations
+ * via the DELETE endpoint.
  */
 export const integrationsEnvironmentMappingPartialUpdate = async (
     organizationId: string,
@@ -84,7 +92,7 @@ export const getRoleExternalReferencesListUrl = (organizationId: string, params?
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -146,7 +154,7 @@ export const getRoleExternalReferencesLookupRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -173,7 +181,7 @@ export const getIntegrationsListUrl = (projectId: string, params?: IntegrationsL
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -292,7 +300,7 @@ export const getIntegrationsChannelsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -405,7 +413,7 @@ export const getIntegrationsGithubBranchesRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -437,7 +445,7 @@ export const getIntegrationsGithubReposRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -484,7 +492,7 @@ export const getIntegrationsGithubTeamsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -545,8 +553,8 @@ export const integrationsJiraProjectsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsJiraProjectsRetrieveUrl(projectId, id), {
+): Promise<JiraProjectsResponseApi> => {
+    return apiMutator<JiraProjectsResponseApi>(getIntegrationsJiraProjectsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -560,8 +568,8 @@ export const integrationsLinearTeamsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsLinearTeamsRetrieveUrl(projectId, id), {
+): Promise<LinearTeamsResponseApi> => {
+    return apiMutator<LinearTeamsResponseApi>(getIntegrationsLinearTeamsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -629,10 +637,10 @@ export const getIntegrationsDomainConnectApplyUrlCreateUrl = (projectId: string)
 
 /**
  * Unified endpoint for generating Domain Connect apply URLs.
-
-Accepts a context ("email" or "proxy") and the relevant resource ID.
-The backend resolves the domain, template variables, and service ID
-based on context, then builds the signed apply URL.
+ *
+ * Accepts a context ("email" or "proxy") and the relevant resource ID.
+ * The backend resolves the domain, template variables, and service ID
+ * based on context, then builds the signed apply URL.
  */
 export const integrationsDomainConnectApplyUrlCreate = async (
     projectId: string,
@@ -670,14 +678,14 @@ export const getIntegrationsGithubLinkExistingCreateUrl = (projectId: string) =>
  */
 export const integrationsGithubLinkExistingCreate = async (
     projectId: string,
-    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
+    gitHubLinkExistingRequestApi?: GitHubLinkExistingRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsGithubLinkExistingCreateUrl(projectId), {
+): Promise<IntegrationConfigApi> => {
+    return apiMutator<IntegrationConfigApi>(getIntegrationsGithubLinkExistingCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integrationConfigApi),
+        body: JSON.stringify(gitHubLinkExistingRequestApi),
     })
 }
 
@@ -690,13 +698,56 @@ export const getIntegrationsGithubOauthAuthorizeCreateUrl = (projectId: string) 
  */
 export const integrationsGithubOauthAuthorizeCreate = async (
     projectId: string,
-    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
+    gitHubOAuthAuthorizeRequestApi?: GitHubOAuthAuthorizeRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsGithubOauthAuthorizeCreateUrl(projectId), {
+): Promise<GitHubOAuthAuthorizeResponseApi> => {
+    return apiMutator<GitHubOAuthAuthorizeResponseApi>(getIntegrationsGithubOauthAuthorizeCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integrationConfigApi),
+        body: JSON.stringify(gitHubOAuthAuthorizeRequestApi),
+    })
+}
+
+export const getIntegrationsGithubPrepareCallbackCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/github/prepare_callback/`
+}
+
+/**
+ * Seed GitHub setup callback state without redirecting to GitHub.
+ *
+ * Used when the user opens an existing installation's settings on github.com (e.g. PostHog
+ * Code "Update in GitHub") so the subsequent Setup URL redirect can be validated.
+ */
+export const integrationsGithubPrepareCallbackCreate = async (
+    projectId: string,
+    gitHubPrepareCallbackRequestApi?: GitHubPrepareCallbackRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsGithubPrepareCallbackCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(gitHubPrepareCallbackRequestApi),
+    })
+}
+
+export const getIntegrationsRequestAccessCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/request_access/`
+}
+
+/**
+ * Notify project admins that a member is requesting an integration be connected.
+ */
+export const integrationsRequestAccessCreate = async (
+    projectId: string,
+    integrationAccessRequestApi: IntegrationAccessRequestApi,
+    options?: RequestInit
+): Promise<IntegrationAccessRequestResponseApi> => {
+    return apiMutator<IntegrationAccessRequestResponseApi>(getIntegrationsRequestAccessCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(integrationAccessRequestApi),
     })
 }

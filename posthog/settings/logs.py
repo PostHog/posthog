@@ -1,19 +1,44 @@
 import os
 import logging
+import warnings
 import threading
+from typing import Any
 
 import structlog
 
-from posthog.settings.base_variables import DEBUG, TEST
+from posthog.settings.base_variables import DEBUG, IS_INTERACTIVE_SHELL, TEST
 
 # Setup logging
 LOGGING_FORMATTER_NAME = os.getenv("LOGGING_FORMATTER_NAME", "default")
-DEFAULT_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "ERROR" if TEST else "INFO")
+
+# The level the interactive shell command restores once the REPL is ready — see
+# posthog/management/commands/shell.py. Startup is forced to ERROR below so app-ready
+# logs don't clutter the prompt; this is what logging looks like inside the session.
+SHELL_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "INFO")
+
+DEFAULT_LOG_LEVEL = "ERROR" if IS_INTERACTIVE_SHELL else os.getenv("DJANGO_LOG_LEVEL", "ERROR" if TEST else "INFO")
+
+# Third-party warnings that fire during `django.setup()`, before any command's handle()
+# runs. They are pure noise in a REPL, so drop them only for interactive shells.
+if IS_INTERACTIVE_SHELL:
+    warnings.filterwarnings("ignore", message=r"pkg_resources is deprecated.*", category=UserWarning)
+    warnings.filterwarnings(
+        "ignore", message=r"Accessing the database during app initialization.*", category=RuntimeWarning
+    )
 
 
 class FilterStatsd(logging.Filter):
-    def filter(self, record):
+    def filter(self, record: logging.LogRecord) -> bool:
         return not record.name.startswith("statsd.client")
+
+
+class MaxLevelFilter(logging.Filter):
+    def __init__(self, level: int) -> None:
+        super().__init__()
+        self.level = level
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.levelno <= self.level
 
 
 def add_pid_and_tid(
@@ -50,10 +75,9 @@ structlog.configure(
     cache_logger_on_first_use=True,
 )
 
-
 # Configure all logs to be handled by structlog `ProcessorFormatter` and
 # rendered either as pretty colored console lines or as single JSON lines.
-LOGGING = {
+LOGGING: dict[str, Any] = {
     "version": 1,
     "disable_existing_loggers": True,
     "formatters": {
@@ -71,13 +95,29 @@ LOGGING = {
     "filters": {
         "filter_statsd": {
             "()": "posthog.settings.logs.FilterStatsd",
-        }
+        },
+        "max_level_info": {
+            "()": "posthog.settings.logs.MaxLevelFilter",
+            "level": logging.INFO,
+        },
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
             "formatter": LOGGING_FORMATTER_NAME,
             "filters": ["filter_statsd"],
+        },
+        "console_stdout_info": {
+            "class": "logging.StreamHandler",
+            "formatter": LOGGING_FORMATTER_NAME,
+            "filters": ["filter_statsd", "max_level_info"],
+            "stream": "ext://sys.stdout",
+        },
+        "console_stderr_warning": {
+            "class": "logging.StreamHandler",
+            "formatter": LOGGING_FORMATTER_NAME,
+            "filters": ["filter_statsd"],
+            "level": "WARNING",
         },
         "null": {
             "class": "logging.NullHandler",
@@ -97,10 +137,21 @@ LOGGING = {
         "posthog.tasks.email": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "products.exports.backend.tasks": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.tasks.ai_observability_usage_report": {"level": "INFO", "handlers": ["console"], "propagate": False},
-        "posthog.tasks.hypercache_verification": {"level": "INFO", "handlers": ["console"], "propagate": False},
-        "posthog.storage.hypercache_verifier": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        # Hypercache verify-and-fix can emit expected high-volume INFO bursts.
+        # Keep those off stderr so stream-based collectors don't relabel them as errors.
+        "posthog.tasks.hypercache_verification": {
+            "level": "INFO",
+            "handlers": ["console_stdout_info", "console_stderr_warning"],
+            "propagate": False,
+        },
+        "posthog.storage.hypercache_verifier": {
+            "level": "INFO",
+            "handlers": ["console_stdout_info", "console_stderr_warning"],
+            "propagate": False,
+        },
         "posthog.auth.mfa": {"level": "INFO", "handlers": ["console"], "propagate": False},
-        "posthog.temporal.data_imports.pipelines.pipeline_v3.load": {
+        "posthog.security.command_exec_audit": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load": {
             "level": "DEBUG",
             "handlers": ["console"],
             "propagate": False,

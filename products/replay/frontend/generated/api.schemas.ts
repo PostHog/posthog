@@ -7,29 +7,15 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface SessionSummariesApi {
-    /**
-     * List of session IDs to summarize (max 300)
-     * @minItems 1
-     * @maxItems 300
-     */
-    session_ids: string[]
-    /**
-     * Optional focus area for the summarization
-     * @maxLength 500
-     */
-    focus_area?: string
-}
-
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -78,7 +64,7 @@ export interface UserBasicApi {
 
 /**
  * * `collection` - Collection
- * `filters` - Filters
+ * * `filters` - Filters
  */
 export type SessionRecordingPlaylistTypeEnumApi =
     (typeof SessionRecordingPlaylistTypeEnumApi)[keyof typeof SessionRecordingPlaylistTypeEnumApi]
@@ -118,9 +104,9 @@ export interface SessionRecordingPlaylistApi {
     readonly last_modified_by: UserBasicApi
     readonly recordings_counts: SessionRecordingPlaylistApiRecordingsCounts
     /** Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.
-
-  * `collection` - Collection
-  * `filters` - Filters */
+     *
+     * * `collection` - Collection
+     * * `filters` - Filters */
     type?: SessionRecordingPlaylistTypeEnumApi | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic: boolean
@@ -168,9 +154,9 @@ export interface PatchedSessionRecordingPlaylistApi {
     readonly last_modified_by?: UserBasicApi
     readonly recordings_counts?: PatchedSessionRecordingPlaylistApiRecordingsCounts
     /** Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.
-
-  * `collection` - Collection
-  * `filters` - Filters */
+     *
+     * * `collection` - Collection
+     * * `filters` - Filters */
     type?: SessionRecordingPlaylistTypeEnumApi | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic?: boolean
@@ -259,6 +245,8 @@ export interface SessionRecordingApi {
     readonly summary_outcome: OutcomeApi | null
     /** Load external references (linked issues) for this recording */
     readonly external_references: readonly SessionRecordingApiExternalReferencesItem[]
+    /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
+    readonly matches_filters: boolean
 }
 
 export interface PaginatedSessionRecordingListApi {
@@ -319,6 +307,47 @@ export interface PatchedSessionRecordingApi {
     readonly summary_outcome?: OutcomeApi | null
     /** Load external references (linked issues) for this recording */
     readonly external_references?: readonly PatchedSessionRecordingApiExternalReferencesItem[]
+    /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
+    readonly matches_filters?: boolean
+}
+
+export interface SessionRecordingBulkDeleteRequestApi {
+    /**
+     * Session IDs of the recordings to delete (max 100 per call).
+     * @minItems 1
+     * @maxItems 100
+     */
+    session_recording_ids: string[]
+    /**
+     * Earliest start time of the recordings, as an ISO date or a relative offset like '-30d'. Providing this narrows the lookup and speeds up the request; defaults to the project's recording retention period.
+     * @nullable
+     */
+    date_from?: string | null
+}
+
+export interface SessionRecordingBulkDeleteResponseApi {
+    /** True when no deletion attempt failed. IDs that were not found, or that the caller lacks edit access to, are skipped rather than failed — compare deleted_count to total_requested to detect skips. */
+    success: boolean
+    /** Number of recordings that were deleted. */
+    deleted_count: number
+    /** Number of session recording IDs in the request. */
+    total_requested: number
+    /** Session IDs that were found but could not be deleted. These can be retried. */
+    failed_ids: string[]
+}
+
+export interface SessionSummariesApi {
+    /**
+     * List of session IDs to summarize (max 300)
+     * @minItems 1
+     * @maxItems 300
+     */
+    session_ids: string[]
+    /**
+     * Optional focus area for the summarization
+     * @maxLength 500
+     */
+    focus_area?: string
 }
 
 /**

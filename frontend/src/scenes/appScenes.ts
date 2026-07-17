@@ -1,7 +1,7 @@
 import { preloadedScenes } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 
-import { productScenes } from '~/products'
+import { productScenes } from '~/productScenes'
 
 export const appScenes: Record<Scene | string, () => any> = {
     ...productScenes,
@@ -58,13 +58,13 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Insight]: () => import('./insights/InsightScene'),
     [Scene.InsightQuickStart]: () => import('./insights/InsightQuickStart/InsightQuickStart'),
     [Scene.IntegrationsRedirect]: () => import('./IntegrationsRedirect/IntegrationsRedirect'),
+    [Scene.IntegrationsLanding]: () => import('./integrations/IntegrationsLandingScene'),
     [Scene.StripeConfirmInstall]: () => import('./StripeConfirmInstall/StripeConfirmInstall'),
     [Scene.InviteSignup]: () => import('./authentication/invite-signup/InviteSignup'),
     [Scene.LegacyPlugin]: () => import('./data-pipelines/legacy-plugins/LegacyPluginScene'),
     [Scene.Coupons]: () => import('./coupons/Coupons'),
     [Scene.LiveEvents]: () => import('./activity/live/LiveEventsTable'),
     [Scene.Login2FA]: () => import('./authentication/login-2fa/Login2FA'),
-    [Scene.EmailMFAVerify]: () => import('./authentication/email-mfa-verify/EmailMFAVerify'),
     [Scene.Login]: () => import('./authentication/login/Login'),
     [Scene.MarketingAnalytics]: () => import('./marketing-analytics/MarketingAnalyticsScene'),
     [Scene.Max]: () => import('./max/Max'),
@@ -75,7 +75,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Notebooks]: () => import('./notebooks/NotebooksScene'),
     [Scene.OAuthAuthorize]: () => import('./oauth/OAuthAuthorize'),
     [Scene.Onboarding]: () => import('./onboarding/Onboarding'),
-    [Scene.OnboardingCoupon]: () => import('./onboarding/coupon/OnboardingCouponRedemption'),
+    [Scene.OnboardingCoupon]: () => import('./onboarding/legacy/coupon/OnboardingCouponRedemption'),
     [Scene.OrganizationCreateFirst]: () => import('./organization/Create'),
     [Scene.OrganizationCreationConfirm]: () => import('./organization/ConfirmOrganization/ConfirmOrganization'),
     [Scene.PasswordResetComplete]: () => import('./authentication/password-reset/PasswordResetComplete'),
@@ -107,10 +107,8 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.HealthCategoryDetail]: () => import('./health/categoryDetail/HealthCategoryDetailScene'),
     [Scene.HealthAlerts]: () => import('./health-alerts/HealthAlertsScene'),
     [Scene.PipelineStatus]: () => import('./health/pipelineStatus/PipelineStatusScene'),
-    [Scene.SdkHealth]: () => import('./onboarding/sdks/SdkHealthScene'),
+    [Scene.SdkHealth]: () => import('./onboarding/shared/sdkHealth/SdkHealthScene'),
     [Scene.Exports]: () => import('./exports/ExportsScene'),
-    [Scene.Subscriptions]: () => import('./subscriptions/SubscriptionsScene'),
-    [Scene.Subscription]: () => import('./subscriptions/SubscriptionScene'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
     [Scene.SessionProfile]: () => import('./sessions/SessionProfileScene'),
@@ -129,6 +127,8 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Transformations]: () => import('./data-pipelines/TransformationsScene'),
     [Scene.EventFiltering]: () => import('./data-pipelines/event-filtering/EventFilterScene'),
     [Scene.Unsubscribe]: () => import('./Unsubscribe/Unsubscribe'),
+    [Scene.CodeCanvasLink]: () => import('./code-canvas/CodeCanvasLink'),
+    [Scene.CodeChannelLink]: () => import('./code-canvas/CodeChannelLink'),
     [Scene.VercelConnect]: () => import('./authentication/vercel/VercelConnect'),
     [Scene.VercelLinkError]: () => import('./authentication/vercel/VercelLinkError'),
     [Scene.AgenticAccountMismatch]: () => import('./authentication/account/AgenticAccountMismatch'),
@@ -136,8 +136,10 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.WebAnalyticsWebVitals]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.WebAnalyticsHealth]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.WebAnalyticsLive]: () => import('./web-analytics/WebAnalyticsScene'),
+    [Scene.WebAnalyticsRecap]: () => import('./web-analytics/recap/WebAnalyticsRecapScene'),
     [Scene.WebAnalytics]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.Wizard]: () => import('./wizard/Wizard'),
     [Scene.OrganizationDeactivated]: () => import('./organization/Deactivated'),
     [Scene.OrganizationPendingDeletion]: () => import('./organization/PendingDeletion'),
+    [Scene.ProjectPendingDeletion]: () => import('./project/PendingDeletion'),
 }

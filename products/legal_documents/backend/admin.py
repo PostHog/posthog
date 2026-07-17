@@ -13,7 +13,9 @@ from django.utils.safestring import SafeString
 
 import structlog
 
+from posthog.admin.inline_registry import register_admin_inline
 from posthog.cloud_utils import is_cloud, is_dev_mode
+from posthog.models.organization import Organization
 from posthog.storage import object_storage
 
 from . import logic
@@ -328,3 +330,8 @@ class LegalDocumentInline(admin.TabularInline):
             return "—"
         url = f"/api/organizations/{document.organization_id}/legal_documents/{document.id}/download"
         return format_html('<a href="{}" target="_blank" rel="noopener">Download PDF</a>', url)
+
+
+# Surface this inline on core's Organization admin page without core importing the product.
+# OrganizationAdmin pulls it in via get_inlines() — see posthog.admin.inline_registry.
+register_admin_inline(Organization, LegalDocumentInline)

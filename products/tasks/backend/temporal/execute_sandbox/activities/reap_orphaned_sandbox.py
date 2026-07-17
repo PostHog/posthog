@@ -22,8 +22,8 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.logic.services.sandbox import Sandbox
 from products.tasks.backend.models import TaskRun
-from products.tasks.backend.services.sandbox import Sandbox
 from products.tasks.backend.temporal.execute_sandbox.activities.sandbox_state import SANDBOX_ID_STATE_KEY
 from products.tasks.backend.temporal.observability import log_activity_execution
 

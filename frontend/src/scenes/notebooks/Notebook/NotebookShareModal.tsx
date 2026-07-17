@@ -7,7 +7,7 @@ import { LemonBanner, LemonButton, LemonDivider, LemonModal } from '@posthog/lem
 
 import { SHARING_MODAL_WIDTH, SharingModalContent } from 'lib/components/Sharing/SharingModal'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { base64Encode } from 'lib/utils'
+import { base64Encode } from 'lib/utils/base64'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
@@ -21,14 +21,24 @@ export type NotebookShareModalProps = {
 }
 
 export function NotebookShareModal({ shortId }: NotebookShareModalProps): JSX.Element {
+    const { isShareModalOpen } = useValues(notebookLogic({ shortId }))
+
+    if (!isShareModalOpen) {
+        return <></>
+    }
+
+    return <OpenNotebookShareModal shortId={shortId} />
+}
+
+function OpenNotebookShareModal({ shortId }: NotebookShareModalProps): JSX.Element {
     const { content, isLocalOnly, isShareModalOpen } = useValues(notebookLogic({ shortId }))
     const { closeShareModal } = useActions(notebookLogic({ shortId }))
     const externalSharingEnabled = useFeatureFlag('NOTEBOOK_SHARING')
+    const [interestTracked, setInterestTracked] = useState(false)
 
     const notebookUrl = urls.absolute(urls.currentProject(urls.notebook(shortId)))
     const canvasUrl = urls.absolute(urls.canvas()) + `#🦔=${base64Encode(JSON.stringify(content))}`
 
-    const [interestTracked, setInterestTracked] = useState(false)
     const trackInterest = (): void => {
         posthog.capture('pressed interested in notebook sharing', { url: notebookUrl })
     }

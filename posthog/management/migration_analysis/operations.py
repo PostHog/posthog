@@ -429,9 +429,11 @@ class AddConstraintAnalyzer(OperationAnalyzer):
             score=3,
             reason="Adding constraint may lock table (use NOT VALID pattern)",
             details={"model": model_name},
-            guidance=f"""Add constraints in 2 phases without locking:
-1. Add constraint with NOT VALID (instant, validates new rows only)
-2. Validate constraint in separate migration (scans table with non-blocking lock)
+            guidance=f"""Add constraints in 2 phases without locking, using the PostHog helpers:
+1. AddConstraintNotValid (instant, validates new rows only, no table scan)
+2. ValidateConstraint in a separate migration (scans table with non-blocking lock)
+
+    from posthog.migration_helpers import AddConstraintNotValid, ValidateConstraint
 
 [See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#adding-constraints)""",
         )
@@ -898,6 +900,90 @@ Use RunSQL wrapped in SeparateDatabaseAndState:
     )
 
 [See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#adding-indexes)""",
+        )
+
+
+class _SafeConcurrentIndexAnalyzer(OperationAnalyzer):
+    """Base for the PostHog concurrent-index helpers.
+
+    All four (the raw-SQL CreateIndexConcurrently / DropIndexConcurrently and
+    the state-aware SafeAddIndexConcurrently / SafeRemoveIndexConcurrently)
+    encode the guarantees ConcurrentIndexIdempotencyPolicy enforces - timeout
+    disabling, invalid-leftover recovery, and skip-if-already-applied - so they
+    are safe by construction. Scoring them SAFE (vs the default "unknown
+    operation" needs-review fallback) keeps the per-operation report honest
+    about the recommended path.
+    """
+
+    default_score = 1
+    safe_reason = "PostHog concurrent-index helper: idempotent (timeout disabling + invalid-leftover recovery)"
+
+    @staticmethod
+    def _index_name(op) -> str | None:
+        index = getattr(op, "index", None)
+        return getattr(index, "name", None) or getattr(op, "index_name", None) or getattr(op, "name", None)
+
+    def analyze(self, op) -> OperationRisk:
+        return OperationRisk(
+            type=self.operation_type,
+            score=self.default_score,
+            reason=self.safe_reason,
+            details={"model": getattr(op, "model_name", None), "index": self._index_name(op)},
+        )
+
+
+class CreateIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
+    operation_type = "CreateIndexConcurrently"
+
+
+class DropIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
+    operation_type = "DropIndexConcurrently"
+
+
+class SafeAddIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
+    operation_type = "SafeAddIndexConcurrently"
+
+
+class SafeRemoveIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
+    operation_type = "SafeRemoveIndexConcurrently"
+
+
+class AddConstraintNotValidAnalyzer(OperationAnalyzer):
+    """Phase 1 of the NOT VALID pattern - mirrors the score the RunSQL analyzer
+    gives a hand-written `ADD CONSTRAINT ... NOT VALID` (safe: brief lock, no
+    table scan). Follow up with ValidateConstraint.
+    """
+
+    operation_type = "AddConstraintNotValid"
+    default_score = 1
+
+    def analyze(self, op) -> OperationRisk:
+        constraint = getattr(op, "constraint", None)
+        return OperationRisk(
+            type=self.operation_type,
+            score=1,
+            reason="ADD CONSTRAINT ... NOT VALID is safe (validates new rows only, no table scan)",
+            details={"model": getattr(op, "model_name", None), "constraint": getattr(constraint, "name", None)},
+            guidance="Follow up with ValidateConstraint in a later migration to check existing rows.",
+        )
+
+
+class ValidateConstraintAnalyzer(OperationAnalyzer):
+    """Phase 2 of the NOT VALID pattern - mirrors the score the RunSQL analyzer
+    gives a hand-written `VALIDATE CONSTRAINT` (slow on large tables but
+    non-blocking: SHARE UPDATE EXCLUSIVE allows reads and writes).
+    """
+
+    operation_type = "ValidateConstraint"
+    default_score = 2
+
+    def analyze(self, op) -> OperationRisk:
+        return OperationRisk(
+            type=self.operation_type,
+            score=2,
+            reason="VALIDATE CONSTRAINT can be slow but non-blocking (allows reads/writes)",
+            details={"model": getattr(op, "model_name", None), "constraint": getattr(op, "name", None)},
+            guidance="Long-running on large tables but uses SHARE UPDATE EXCLUSIVE lock (allows normal operations).",
         )
 
 

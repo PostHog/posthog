@@ -9,16 +9,96 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
+ *
+ * Rebuild/clear act on two logical targets: 'evaluation' (the /flags cache) and 'definitions'
+ * (the /flags/definitions local-eval cache), independently readable and mutable.
+ *
+ * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
+ * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
+ * router so it is not team-nested; staff act on teams they do not belong to.
+ */
+export const featureFlagsStaffCacheClearCreateBodyTeamIdsMax = 50
+
+export const FeatureFlagsStaffCacheClearCreateBody = /* @__PURE__ */ zod.object({
+    team_ids: zod
+        .array(zod.number())
+        .max(featureFlagsStaffCacheClearCreateBodyTeamIdsMax)
+        .describe('Team ids to act on (max 50 per request).'),
+    caches: zod
+        .array(
+            zod
+                .enum(['evaluation', 'definitions'])
+                .describe('\* `evaluation` - evaluation\n\* `definitions` - definitions')
+        )
+        .default([`evaluation`, `definitions`])
+        .describe(
+            "Which logical caches to act on: 'evaluation' (the \/flags cache) and\/or 'definitions' (the \/flags\/definitions local-eval cache). Defaults to both."
+        ),
+})
+
+/**
+ * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
+ *
+ * Rebuild/clear act on two logical targets: 'evaluation' (the /flags cache) and 'definitions'
+ * (the /flags/definitions local-eval cache), independently readable and mutable.
+ *
+ * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
+ * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
+ * router so it is not team-nested; staff act on teams they do not belong to.
+ */
+export const featureFlagsStaffCacheRebuildCreateBodyTeamIdsMax = 50
+
+export const FeatureFlagsStaffCacheRebuildCreateBody = /* @__PURE__ */ zod.object({
+    team_ids: zod
+        .array(zod.number())
+        .max(featureFlagsStaffCacheRebuildCreateBodyTeamIdsMax)
+        .describe('Team ids to act on (max 50 per request).'),
+    caches: zod
+        .array(
+            zod
+                .enum(['evaluation', 'definitions'])
+                .describe('\* `evaluation` - evaluation\n\* `definitions` - definitions')
+        )
+        .default([`evaluation`, `definitions`])
+        .describe(
+            "Which logical caches to act on: 'evaluation' (the \/flags cache) and\/or 'definitions' (the \/flags\/definitions local-eval cache). Defaults to both."
+        ),
+})
+
+/**
+ * Staff-only, unscoped read/write for TeamFeatureFlagsConfig (currently just
+ * minimal_flag_called_events).
+ *
+ * Single-team writes only, by design: this setting is meant to be flipped one team at a time
+ * after staff manually verify that team's SDK versions support the slim $feature_flag_called
+ * event shape, unlike the cache tools' bulk rebuild/clear.
+ *
+ * Registered on the root router so it is not team-nested; staff act on teams they do not
+ * belong to, same as staff_cache.py / staff_teams.py.
+ */
+export const FeatureFlagsStaffTeamConfigSetCreateBody = /* @__PURE__ */ zod.object({
+    team_id: zod.number().describe('Team id to update. Exactly one team per request.'),
+    minimal_flag_called_events: zod
+        .boolean()
+        .describe(
+            "New value for the team's minimal_flag_called_events setting. Only set true after confirming that team's SDK versions support the slim $feature_flag_called event shape."
+        ),
+})
+
 export const featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax = 50
 
 export const featureFlagsCopyFlagsCreateBodyCopyScheduleDefault = false
 export const featureFlagsCopyFlagsCreateBodyDisableCopiedFlagDefault = false
+export const featureFlagsCopyFlagsCreateBodyCopyDependenciesDefault = false
 
 export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
     feature_flag_key: zod.string().describe('Key of the feature flag to copy'),
     from_project: zod.number().describe('Source project ID to copy the flag from'),
     target_project_ids: zod
         .array(zod.number())
+        .min(1)
         .max(featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax)
         .describe('List of target project IDs to copy the flag to'),
     copy_schedule: zod
@@ -31,12 +111,62 @@ export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status"
         ),
+    copy_dependencies: zod
+        .boolean()
+        .default(featureFlagsCopyFlagsCreateBodyCopyDependenciesDefault)
+        .describe('Whether to also copy missing feature flags that this flag depends on'),
+})
+
+export const featureFlagsCopyFlagsDependencyRequirementsCreateBodyTargetProjectIdsMax = 50
+
+export const FeatureFlagsCopyFlagsDependencyRequirementsCreateBody = /* @__PURE__ */ zod.object({
+    feature_flag_key: zod.string().describe('Key of the feature flag to check'),
+    from_project: zod.number().describe('Source project ID to copy the flag from'),
+    target_project_ids: zod
+        .array(zod.number())
+        .min(1)
+        .max(featureFlagsCopyFlagsDependencyRequirementsCreateBodyTargetProjectIdsMax)
+        .describe('List of target project IDs to check dependency copy eligibility for'),
+})
+
+/**
+ * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
+ *
+ * POST hides the name; DELETE restores it. The underlying context row and any flags already
+ * using it are never modified — this only controls what gets suggested.
+ */
+export const organizationsProjectsEvaluationContextSuggestionsCreateBodyContextNameMax = 255
+
+export const OrganizationsProjectsEvaluationContextSuggestionsCreateBody = /* @__PURE__ */ zod.object({
+    context_name: zod
+        .string()
+        .max(organizationsProjectsEvaluationContextSuggestionsCreateBodyContextNameMax)
+        .describe(
+            "Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed."
+        ),
+})
+
+/**
+ * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
+ *
+ * POST hides the name; DELETE restores it. The underlying context row and any flags already
+ * using it are never modified — this only controls what gets suggested.
+ */
+export const environmentsEvaluationContextSuggestionsCreateBodyContextNameMax = 255
+
+export const EnvironmentsEvaluationContextSuggestionsCreateBody = /* @__PURE__ */ zod.object({
+    context_name: zod
+        .string()
+        .max(environmentsEvaluationContextSuggestionsCreateBodyContextNameMax)
+        .describe(
+            "Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed."
+        ),
 })
 
 /**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export const featureFlagsCreateBodyFiltersOneEarlyExitDefault = false
 
@@ -327,17 +457,57 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Feature flag targeting configuration.'),
     active: zod.boolean().optional().describe('Whether the feature flag is active.'),
+    archived: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+        ),
     tags: zod.array(zod.string()).optional().describe('Organizational tags for this feature flag.'),
     evaluation_contexts: zod
         .array(zod.string())
         .optional()
         .describe('Evaluation contexts that control where this flag evaluates at runtime.'),
+    is_remote_configuration: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.'
+        ),
+    ensure_experience_continuity: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing."
+        ),
+    evaluation_runtime: zod
+        .union([
+            zod
+                .enum(['server', 'client', 'all'])
+                .describe('\* `server` - Server\n\* `client` - Client\n\* `all` - All'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All"
+        ),
+    bucketing_identifier: zod
+        .union([
+            zod
+                .enum(['distinct_id', 'device_id'])
+                .describe('\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID"
+        ),
 })
 
 /**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export const featureFlagsUpdateBodyKeyMax = 400
 
@@ -354,11 +524,15 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
         filters: zod.record(zod.string(), zod.unknown()).optional(),
         deleted: zod.boolean().optional(),
         active: zod.boolean().optional(),
+        archived: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+            ),
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsUpdateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
-        rollback_conditions: zod.unknown().optional(),
-        performed_rollback: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
         analytics_dashboards: zod.array(zod.number()).optional(),
@@ -416,8 +590,8 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
 
 /**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export const featureFlagsPartialUpdateBodyFiltersOneEarlyExitDefault = false
 
@@ -708,17 +882,57 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Feature flag targeting configuration.'),
     active: zod.boolean().optional().describe('Whether the feature flag is active.'),
+    archived: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+        ),
     tags: zod.array(zod.string()).optional().describe('Organizational tags for this feature flag.'),
     evaluation_contexts: zod
         .array(zod.string())
         .optional()
         .describe('Evaluation contexts that control where this flag evaluates at runtime.'),
+    is_remote_configuration: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.'
+        ),
+    ensure_experience_continuity: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing."
+        ),
+    evaluation_runtime: zod
+        .union([
+            zod
+                .enum(['server', 'client', 'all'])
+                .describe('\* `server` - Server\n\* `client` - Client\n\* `all` - All'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All"
+        ),
+    bucketing_identifier: zod
+        .union([
+            zod
+                .enum(['distinct_id', 'device_id'])
+                .describe('\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID"
+        ),
 })
 
 /**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export const featureFlagsCreateStaticCohortForFlagCreateBodyKeyMax = 400
 
@@ -735,11 +949,15 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
         filters: zod.record(zod.string(), zod.unknown()).optional(),
         deleted: zod.boolean().optional(),
         active: zod.boolean().optional(),
+        archived: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+            ),
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsCreateStaticCohortForFlagCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
-        rollback_conditions: zod.unknown().optional(),
-        performed_rollback: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
         analytics_dashboards: zod.array(zod.number()).optional(),
@@ -799,8 +1017,8 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
 
 /**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export const featureFlagsDashboardCreateBodyKeyMax = 400
 
@@ -817,11 +1035,15 @@ export const FeatureFlagsDashboardCreateBody = /* @__PURE__ */ zod
         filters: zod.record(zod.string(), zod.unknown()).optional(),
         deleted: zod.boolean().optional(),
         active: zod.boolean().optional(),
+        archived: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+            ),
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsDashboardCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
-        rollback_conditions: zod.unknown().optional(),
-        performed_rollback: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
         analytics_dashboards: zod.array(zod.number()).optional(),
@@ -881,8 +1103,8 @@ export const FeatureFlagsDashboardCreateBody = /* @__PURE__ */ zod
 
 /**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export const featureFlagsEnrichUsageDashboardCreateBodyKeyMax = 400
 
@@ -899,11 +1121,15 @@ export const FeatureFlagsEnrichUsageDashboardCreateBody = /* @__PURE__ */ zod
         filters: zod.record(zod.string(), zod.unknown()).optional(),
         deleted: zod.boolean().optional(),
         active: zod.boolean().optional(),
+        archived: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+            ),
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsEnrichUsageDashboardCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
-        rollback_conditions: zod.unknown().optional(),
-        performed_rollback: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
         analytics_dashboards: zod.array(zod.number()).optional(),
@@ -963,10 +1189,10 @@ export const FeatureFlagsEnrichUsageDashboardCreateBody = /* @__PURE__ */ zod
 
 /**
  * Test feature flag evaluation against a specific user at an optional point in time.
-
-This endpoint allows testing how a feature flag would evaluate for a specific user,
-optionally at a historical timestamp. When a timestamp is provided, both the flag
-conditions and person properties are evaluated as they existed at that time.
+ *
+ * This endpoint allows testing how a feature flag would evaluate for a specific user,
+ * optionally at a historical timestamp. When a timestamp is provided, both the flag
+ * conditions and person properties are evaluated as they existed at that time.
  */
 export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
     distinct_id: zod
@@ -988,15 +1214,15 @@ export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Bulk delete feature flags by filter criteria or explicit IDs.
-
-Accepts either:
-- {"filters": {...}} - Same filter params as list endpoint (search, active, type, etc.)
-- {"ids": [...]} - Explicit list of flag IDs (no limit)
-
-Returns same format as bulk_delete for UI compatibility.
-
-Uses bulk operations for efficiency: database updates are batched and cache
-invalidation happens once at the end rather than per-flag.
+ *
+ * Accepts either:
+ * - {"filters": {...}} - Same filter params as list endpoint (search, active, type, etc.)
+ * - {"ids": [...]} - Explicit list of flag IDs (no limit)
+ *
+ * Returns same format as bulk_delete for UI compatibility.
+ *
+ * Uses bulk operations for efficiency: database updates are batched and cache
+ * invalidation happens once at the end rather than per-flag.
  */
 
 export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
@@ -1033,10 +1259,18 @@ export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
                 .array(zod.string())
                 .optional()
                 .describe('Tag names to filter by. Flags carrying at least one of these tags match.'),
+            excluded_tags: zod
+                .array(zod.string())
+                .optional()
+                .describe('Tag names to exclude. Flags carrying any of these tags are filtered out.'),
             has_evaluation_contexts: zod
                 .boolean()
                 .optional()
                 .describe('When true, only matches flags with at least one evaluation context.'),
+            archived: zod
+                .boolean()
+                .optional()
+                .describe('Filter by archived state. When omitted, archived flags are excluded.'),
         })
         .describe("Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.")
         .optional()
@@ -1051,7 +1285,7 @@ export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Get feature flag keys by IDs.
-Accepts a list of feature flag IDs and returns a mapping of ID to key.
+ * Accepts a list of feature flag IDs and returns a mapping of ID to key.
  */
 export const FeatureFlagsBulkKeysRetrieveBody = /* @__PURE__ */ zod.object({
     ids: zod
@@ -1064,22 +1298,22 @@ export const FeatureFlagsBulkKeysRetrieveBody = /* @__PURE__ */ zod.object({
 
 /**
  * Bulk update tags on multiple objects.
-
-PAT access: this action has no ``required_scopes=`` on the decorator —
-inheriting viewsets must add ``"bulk_update_tags"`` to their
-``scope_object_write_actions`` list to accept personal API keys.
-Without that opt-in, ``APIScopePermission`` rejects PAT requests with
-"This action does not support personal API key access". Done per-viewset
-so granting ``<scope>:write`` for one resource doesn't leak access to
-sibling resources that share this mixin.
-
-Accepts:
-- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
-
-Actions:
-- "add": Add tags to existing tags on each object
-- "remove": Remove specific tags from each object
-- "set": Replace all tags on each object with the provided list
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
  */
 export const featureFlagsBulkUpdateTagsCreateBodyIdsMax = 500
 
@@ -1099,8 +1333,8 @@ export const FeatureFlagsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export const FeatureFlagsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
     condition: zod.record(zod.string(), zod.unknown()).describe('The release condition to evaluate'),

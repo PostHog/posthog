@@ -358,6 +358,23 @@ describe('dataVisualizationLogic', () => {
             },
         })
     })
+    it('stamps labels onto the slices when a pie chart is newly picked', async () => {
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsPie)
+
+        await expectLogic(logic).toMatchValues({
+            chartSettings: expect.objectContaining({ pie: { sliceContent: 'labels' } }),
+        })
+    })
+
+    it('does not override existing pie slice content when re-picking pie', async () => {
+        logic.actions.updateChartSettings({ pie: { sliceContent: 'values' } })
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsPie)
+
+        await expectLogic(logic).toMatchValues({
+            chartSettings: expect.objectContaining({ pie: { sliceContent: 'values' } }),
+        })
+    })
+
     it('auto-fills 2d heatmap columns when selecting auto on heatmap data', async () => {
         dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
             columns: ['region', 'segment', 'count'],

@@ -4,19 +4,23 @@ import { cn } from 'lib/utils/css-classes'
 
 import { SCANNER_EDITOR_STEP_ORDER, ScannerEditorStep } from './scannerEditorSceneLogic'
 
-const STEPS: { key: ScannerEditorStep; label: string }[] = [
-    { key: 'configure', label: 'Configure' },
-    { key: 'triggers', label: 'Triggers' },
-]
+export const STEP_LABELS: Record<ScannerEditorStep, string> = {
+    template: 'Template',
+    configure: 'Configure',
+    triggers: 'Scan conditions',
+    self_driving: 'Self-driving',
+}
 
 interface ScannerEditorStepperProps {
     currentStep: ScannerEditorStep
+    steps: readonly ScannerEditorStep[]
     onStepClick: (step: ScannerEditorStep) => void
     stepErrors?: Partial<Record<ScannerEditorStep, boolean>>
 }
 
 export function ScannerEditorStepper({
     currentStep,
+    steps,
     onStepClick,
     stepErrors = {},
 }: ScannerEditorStepperProps): JSX.Element {
@@ -24,7 +28,8 @@ export function ScannerEditorStepper({
 
     return (
         <nav className="flex items-center justify-center" aria-label="Scanner editor progress">
-            {STEPS.map((step, index) => {
+            {steps.map((stepKey, index) => {
+                const step = { key: stepKey, label: STEP_LABELS[stepKey] }
                 const stepOrder = SCANNER_EDITOR_STEP_ORDER[step.key]
                 const isCompleted = currentOrder > stepOrder
                 const isCurrent = currentStep === step.key
@@ -47,6 +52,7 @@ export function ScannerEditorStepper({
                         <button
                             type="button"
                             onClick={() => onStepClick(step.key)}
+                            data-attr={`vision-editor-step-${step.key}`}
                             className={cn(
                                 'group flex items-center gap-1.5 px-2 py-1 rounded transition-all duration-150',
                                 'focus:outline-none focus-visible:ring-1 focus-visible:ring-accent',

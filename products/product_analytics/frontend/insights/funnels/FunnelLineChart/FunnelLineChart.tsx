@@ -1,33 +1,40 @@
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useMemo, type ErrorInfo } from 'react'
+import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
-import type { PointClickData, TimeSeriesLineChartConfig, TooltipConfig, TooltipContext } from '@posthog/quill-charts'
+import type {
+    ChartLegendConfig,
+    PointClickData,
+    TimeSeriesLineChartConfig,
+    TooltipContext,
+} from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartConfig, useChartTheme, useDateRangeZoom } from 'lib/charts/hooks'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
+import { hasBreakdown } from 'scenes/funnels/funnelUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import type { Noun } from '~/models/groupsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { isFunnelsQuery } from '~/queries/utils'
-import { ChartParams, type FunnelStepWithConversionMetrics } from '~/types'
+import { ChartParams, type FlattenedFunnelStepByBreakdown } from '~/types'
 
+import { chartStyleCurve } from '../../shared/chartStyleAdapter'
+import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
+import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../../trends/shared/AnnotationsLayer'
-import type { FunnelSeriesMeta } from '../shared/funnelSeriesMeta'
+import { buildBaseLegendConfig } from '../../trends/shared/buildBaseLegendConfig'
+import { FUNNEL_CONVERSION_SERIES_LABEL, type FunnelSeriesMeta } from '../shared/funnelSeriesMeta'
 import { buildFunnelLineSeries, buildFunnelLineTimeSeriesConfig, type IndexedFunnelStep } from './funnelChartTransforms'
-import { FunnelLineTooltip } from './FunnelLineTooltip'
 import { type FunnelLineChartClickDeps, handleFunnelLineChartClick } from './handleFunnelLineChartClick'
 
-const TOOLTIP_CONFIG: TooltipConfig = { pinnable: true, placement: 'top' }
 const EMPTY_STRINGS: string[] = []
 
 const handleChartError = (error: Error, info: ErrorInfo): void => {
@@ -51,12 +58,12 @@ function resolveGroupTypeLabel(
 }
 
 export function FunnelLineChart({
+    context,
     inSharedMode,
     showPersonsModal: showPersonsModalProp = true,
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
-    const { isDarkModeOn } = useValues(themeLogic)
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
-    const { insightProps, insight } = useValues(insightLogic)
+    const theme = useChartTheme()
+    const { insightProps, insight, canEditInsight } = useValues(insightLogic)
 
     const {
         indexedSteps,
@@ -66,6 +73,8 @@ export function FunnelLineChart({
         querySource,
         interval,
         insightData,
+        showLegend,
+        legendPosition,
         showValuesOnSeries,
         funnelsFilter,
         breakdownFilter,
@@ -81,20 +90,51 @@ export function FunnelLineChart({
     const showPersonsModal = canOpenPersonModal && showPersonsModalProp
     const steps = useMemo(() => (indexedSteps ?? []) as IndexedFunnelStep[], [indexedSteps])
 
-    const series = useMemo(
+    const seriesBase = useMemo(
         () =>
             buildFunnelLineSeries(steps, {
                 incompletenessOffsetFromEnd,
-                // getFunnelsColor is typed for the steps-viz datasets; for the trends viz it
-                // only reads `breakdown_value`, which IndexedFunnelStep carries.
-                getColor: (step) => getFunnelsColor(step as unknown as FunnelStepWithConversionMetrics),
+                getColor: (step) =>
+                    getFunnelsColor({
+                        ...step,
+                        breakdownIndex: step.colorIndex,
+                    } as unknown as FlattenedFunnelStepByBreakdown),
             }),
         [steps, incompletenessOffsetFromEnd, getFunnelsColor]
     )
 
-    const chartConfig: TimeSeriesLineChartConfig = useMemo(
+    // Apply formatted breakdown labels so the chart's internal legend picks them up directly.
+    const series = useMemo(
         () =>
-            buildFunnelLineTimeSeriesConfig({
+            seriesBase.map((s) => ({
+                ...s,
+                label:
+                    s.meta && hasBreakdown(s.meta.breakdown_value)
+                        ? formatBreakdownLabel(
+                              s.meta.breakdown_value,
+                              breakdownFilter ?? undefined,
+                              allCohorts.results,
+                              formatPropertyValueForDisplay
+                          )
+                        : FUNNEL_CONVERSION_SERIES_LABEL,
+            })),
+        [seriesBase, breakdownFilter, allCohorts.results, formatPropertyValueForDisplay]
+    )
+
+    const legendConfig = useMemo<ChartLegendConfig>(
+        () =>
+            buildBaseLegendConfig({
+                show: !!showLegend && series.length > 1,
+                legendPosition,
+                canEditInsight,
+                inSharedMode,
+            }),
+        [showLegend, series.length, legendPosition, canEditInsight, inSharedMode]
+    )
+
+    const chartConfig: TimeSeriesLineChartConfig = useChartConfig(
+        () => ({
+            ...buildFunnelLineTimeSeriesConfig({
                 indexedSteps: steps,
                 interval,
                 timezone,
@@ -104,8 +144,11 @@ export function FunnelLineChart({
                 showTrendLines: funnelsFilter?.showTrendLines ?? false,
                 valueLabels: showValuesOnSeries ? { formatter: (value) => `${value}%` } : false,
                 showCrosshair: true,
-                tooltip: TOOLTIP_CONFIG,
+                tooltip: INSIGHT_TOOLTIP_CONFIG,
             }),
+            curve: chartStyleCurve(funnelsFilter?.chartStyle),
+            legend: legendConfig,
+        }),
         [
             steps,
             interval,
@@ -113,58 +156,93 @@ export function FunnelLineChart({
             goalLines,
             incompletenessOffsetFromEnd,
             funnelsFilter?.showTrendLines,
+            funnelsFilter?.chartStyle,
             showValuesOnSeries,
+            legendConfig,
+        ]
+    )
+
+    const resolvedGroupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel)
+    const labels = steps[0]?.labels ?? EMPTY_STRINGS
+    const annotationDates = steps[0]?.days ?? EMPTY_STRINGS
+    const showAnnotations = !inSharedMode && funnelsFilter?.showAnnotations !== false
+
+    const clickDeps = useMemo<FunnelLineChartClickDeps>(
+        () => ({
+            hasPersonsModal: showPersonsModal,
+            querySource,
+            interval,
+            timezone,
+            weekStartDay,
+            resolvedDateRange: insightData?.resolved_date_range ?? null,
+            breakdownFilter,
+            aggregationTargetLabel,
+            cohorts: allCohorts.results,
+            formatPropertyValueForDisplay,
+            openPersonsModal,
+        }),
+        [
+            showPersonsModal,
+            querySource,
+            interval,
+            timezone,
+            weekStartDay,
+            insightData?.resolved_date_range,
+            breakdownFilter,
+            aggregationTargetLabel,
+            allCohorts.results,
+            formatPropertyValueForDisplay,
+        ]
+    )
+
+    const onPointClick = useCallback(
+        (clickData: PointClickData<FunnelSeriesMeta>): void => {
+            if (clickData.series.meta) {
+                handleFunnelLineChartClick(clickData.series.meta, clickData.dataIndex, clickDeps)
+            }
+        },
+        [clickDeps]
+    )
+
+    const onDateRangeZoom = useDateRangeZoom(annotationDates, context?.onDateRangeZoom)
+
+    const renderTooltip = useCallback(
+        (ctx: TooltipContext<FunnelSeriesMeta>): JSX.Element => (
+            <InsightSeriesTooltip
+                context={ctx}
+                timezone={timezone}
+                interval={interval ?? undefined}
+                breakdownFilter={breakdownFilter ?? undefined}
+                dateRange={insightData?.resolved_date_range ?? undefined}
+                groupTypeLabel={resolvedGroupTypeLabel}
+                renderSeriesOverride={(datum) => datum.label ?? ''}
+                renderCount={(value) => `${value}%`}
+                onRowClick={
+                    showPersonsModal
+                        ? (datum) => {
+                              const meta = ctx.seriesData[datum.datasetIndex]?.series.meta
+                              if (meta) {
+                                  handleFunnelLineChartClick(meta, datum.dataIndex, clickDeps)
+                              }
+                          }
+                        : undefined
+                }
+            />
+        ),
+        [
+            timezone,
+            interval,
+            breakdownFilter,
+            insightData?.resolved_date_range,
+            resolvedGroupTypeLabel,
+            showPersonsModal,
+            clickDeps,
         ]
     )
 
     if (!isFunnelsQuery(querySource)) {
         return null
     }
-
-    const resolvedGroupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel)
-    const labels = steps[0]?.labels ?? EMPTY_STRINGS
-    const annotationDates = steps[0]?.days ?? EMPTY_STRINGS
-
-    const clickDeps: FunnelLineChartClickDeps = {
-        hasPersonsModal: showPersonsModal,
-        querySource,
-        interval,
-        timezone,
-        weekStartDay,
-        resolvedDateRange: insightData?.resolved_date_range ?? null,
-        breakdownFilter,
-        aggregationTargetLabel,
-        cohorts: allCohorts.results,
-        formatPropertyValueForDisplay,
-        openPersonsModal,
-    }
-
-    const onPointClick = (clickData: PointClickData<FunnelSeriesMeta>): void => {
-        if (clickData.series.meta) {
-            handleFunnelLineChartClick(clickData.series.meta, clickData.dataIndex, clickDeps)
-        }
-    }
-
-    const renderTooltip = (ctx: TooltipContext<FunnelSeriesMeta>): JSX.Element => (
-        <FunnelLineTooltip
-            context={ctx}
-            timezone={timezone}
-            interval={interval ?? undefined}
-            breakdownFilter={breakdownFilter ?? undefined}
-            dateRange={insightData?.resolved_date_range ?? undefined}
-            groupTypeLabel={resolvedGroupTypeLabel}
-            onRowClick={
-                showPersonsModal
-                    ? (datum: SeriesDatum) => {
-                          const meta = ctx.seriesData[datum.datasetIndex]?.series.meta
-                          if (meta) {
-                              handleFunnelLineChartClick(meta, datum.dataIndex, clickDeps)
-                          }
-                      }
-                    : undefined
-            }
-        />
-    )
 
     return (
         <TimeSeriesLineChart<FunnelSeriesMeta>
@@ -174,11 +252,12 @@ export function FunnelLineChart({
             config={chartConfig}
             tooltip={renderTooltip}
             onPointClick={showPersonsModal ? onPointClick : undefined}
+            onDateRangeZoom={onDateRangeZoom}
             className="LineGraph"
             dataAttr="trend-line-graph-funnel"
             onError={handleChartError}
         >
-            {!inSharedMode && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationDates} />}
+            {showAnnotations && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationDates} />}
         </TimeSeriesLineChart>
     )
 }

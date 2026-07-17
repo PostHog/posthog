@@ -89,8 +89,8 @@ def render_hogql_example(query_dict: dict[str, Any]) -> str:
 
     from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 
-    from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
-    from products.logs.backend.logs_query_runner import LogsQueryRunner
+    from products.error_tracking.backend.facade.queries import ErrorTrackingQueryRunner
+    from products.logs.backend.facade.queries import LogsQueryRunner
 
     hogql_filters = HogQLFilters()
     if isinstance(runner, ErrorTrackingQueryRunner):

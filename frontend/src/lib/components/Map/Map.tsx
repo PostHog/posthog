@@ -8,9 +8,8 @@ import { Protocol } from 'pmtiles'
 import { useEffect, useRef } from 'react'
 import useResizeObserver from 'use-resize-observer'
 
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
+import { themeLogic } from 'lib/logic/themeLogic'
 
 const protocol = new Protocol()
 maplibregl.addProtocol('pmtiles', protocol.tile)
@@ -75,6 +74,10 @@ export function MapComponent({ center, markers, className }: MapProps): JSX.Elem
             for (const marker of markers) {
                 marker.addTo(map.current)
             }
+        }
+        return () => {
+            map.current?.remove()
+            map.current = null
         }
     }, [isDarkModeOn]) // oxlint-disable-line react-hooks/exhaustive-deps
 

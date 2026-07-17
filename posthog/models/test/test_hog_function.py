@@ -6,7 +6,6 @@ from unittest.mock import Mock, patch
 
 from django.test import TestCase
 
-from posthog.models.cohort import Cohort
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -14,6 +13,7 @@ from posthog.models.user import User
 from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions
+from products.cohorts.backend.models.cohort import Cohort
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
@@ -283,9 +283,9 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
             {"key": "$host", "operator": "regex", "value": "^(localhost|127\\.0\\.0\\.1)($|:)"},
             {"key": "$pageview", "operator": "regex", "value": "test"},
         ]
-        # 1 read old secret tokens (pre_save), 1 update team, 1 load hog flows, 1 load hog functions, 1 update hog functions
+        # 1 read old secret tokens (pre_save), 1 update team, 1 load hog flows, 1 load hog functions, 1 update hog functions, 1 sync_autocapture_opt_in
         # Note: RemoteConfig refresh queries are now deferred via async signals
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(6):
             self.team.save()
         hog_function_1.refresh_from_db()
         hog_function_2.refresh_from_db()

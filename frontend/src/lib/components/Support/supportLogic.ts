@@ -1,17 +1,18 @@
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { urlToAction } from 'kea-router'
+import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import posthog from 'posthog-js'
 
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { uuid } from 'lib/utils'
-import { parseExceptionEvent } from 'lib/utils/exceptionUtils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
+import { uuid } from 'lib/utils/dom'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -27,7 +28,9 @@ import {
     UserType,
 } from '~/types'
 
-import type { supportLogicType } from './supportLogicType'
+import type { BillingType, PreflightStatus } from '../../../types'
+import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
+import { parseExceptionEvent } from './exceptionUtils'
 import { openSupportModal } from './SupportModal'
 
 export function getPublicSupportSnippet(
@@ -122,6 +125,31 @@ const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
     bug: 'Report a bug',
 }
 
+// The conversations extension loads lazily; poll briefly before deciding how to route so a fast
+// submit right after page load doesn't miss it and fall back to Zendesk. Resolves as soon as it's
+// available, or after the timeout.
+async function waitForConversations(timeoutMs = 5000): Promise<boolean> {
+    const intervalMs = 250
+    for (let waited = 0; waited < timeoutMs; waited += intervalMs) {
+        if (posthog.conversations?.isAvailable()) {
+            return true
+        }
+        await new Promise((resolve) => setTimeout(resolve, intervalMs))
+    }
+    return !!posthog.conversations?.isAvailable()
+}
+
+// Conversations tickets carry just the user's message (like the side panel composer), but for bug
+// reports we still fold the exception in so it survives on email-channel tickets and when the
+// agent's session-scoped exceptions panel can't resolve it. Mirrors how feature-preview feedback
+// names its feature in the message body.
+export function appendExceptionToMessage(message: string, exception_event?: SupportTicketExceptionEvent): string {
+    if (!exception_event) {
+        return message
+    }
+    return `${message}\n\n-----\nException: ${parseExceptionEvent(exception_event)}`
+}
+
 const TARGET_AREA_TO_NAME_GENERAL = [
     {
         value: 'login',
@@ -192,6 +220,16 @@ const TARGET_AREA_TO_NAME_GENERAL = [
 
 const TARGET_AREA_TO_NAME_PRODUCTS = [
     {
+        value: 'ai_gateway',
+        'data-attr': `support-form-target-area-ai_gateway`,
+        label: 'AI gateway',
+    },
+    {
+        value: 'llm-analytics',
+        'data-attr': `support-form-target-area-llm-analytics`,
+        label: 'AI observability',
+    },
+    {
         value: 'apps',
         'data-attr': `support-form-target-area-apps`,
         label: 'Apps (incl. integrations, plugins, webhooks, and custom apps)',
@@ -247,11 +285,6 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
         label: 'Heatmaps',
     },
     {
-        value: 'llm-analytics',
-        'data-attr': `support-form-target-area-llm-analytics`,
-        label: 'AI observability',
-    },
-    {
         value: 'logs',
         'data-attr': `support-form-target-area-logs`,
         label: 'Logs',
@@ -284,7 +317,7 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
     {
         value: 'signals',
         'data-attr': `support-form-target-area-signals`,
-        label: 'Signals',
+        label: 'Inbox',
     },
     {
         value: 'slack',
@@ -356,6 +389,7 @@ export const getLabelBasedOnTargetArea = (target_area: SupportTicketTargetArea):
 }
 
 export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = {
+    'ai-gateway': 'ai_gateway',
     insights: 'analytics',
     recordings: 'session_replay',
     replay: 'session_replay',
@@ -383,6 +417,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     workflows: 'workflows',
     billing: 'billing',
     logs: 'logs',
+    inbox: 'signals',
 }
 
 export const SUPPORT_TICKET_TEMPLATES = {
@@ -392,6 +427,16 @@ export const SUPPORT_TICKET_TEMPLATES = {
     support:
         "Please explain as fully as possible what you're aiming to do, and what you'd like help with.\n\nIf your question involves an existing insight or dashboard, please include a link to it.",
 }
+
+const SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS = {
+    severity: 22084126888475,
+    distinct_id: 22129191462555,
+    target_area: 27242745654043,
+    organization_id: 27031528411291,
+    support_type: 26073267652251,
+    account_owner: 37742340880411,
+    exception_event: 39967113285659,
+} as const
 
 export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {
     const pathParts = pathname.split('/')
@@ -425,6 +470,141 @@ export type SupportFormFields = {
     tags?: string[]
 }
 
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface supportLogicValues {
+    billing: BillingType | null // billingLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
+    isCurrentOrganizationNew: boolean // organizationLogic
+    preflight: PreflightStatus | null // preflightLogic
+    sidePanelAvailable: boolean // sidePanelStateLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    user: UserType | null // userLogic
+    conversationsFlagEnabled: boolean
+    isEmailFormOpen: boolean
+    isSendSupportRequestSubmitting: boolean
+    isSendSupportRequestValid: boolean
+    isSupportFormOpen: boolean
+    lastSubmittedTicketId: string | null
+    pendingViewTicket: {
+        created_at: string
+        id: string
+        status: string
+    } | null
+    sendSupportRequest: SupportFormFields
+    sendSupportRequestAllErrors: Record<string, any>
+    sendSupportRequestChanged: boolean
+    sendSupportRequestErrors: DeepPartialMap<SupportFormFields, ValidationErrorType>
+    sendSupportRequestHasErrors: boolean
+    sendSupportRequestManualErrors: Record<string, any>
+    sendSupportRequestTouched: boolean
+    sendSupportRequestTouches: Record<string, boolean>
+    sendSupportRequestValidationErrors: DeepPartialMap<SupportFormFields, ValidationErrorType>
+    showSendSupportRequestErrors: boolean
+    targetArea: SupportTicketTargetArea | null
+    title: string
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface supportLogicActions {
+    openSidePanel: (
+        tab: SidePanelTab,
+        options?: string | undefined
+    ) => {
+        options: string | undefined
+        tab: SidePanelTab
+    } // sidePanelStateLogic
+    setSidePanelOptions: (options: string | null) => {
+        options: string | null
+    } // sidePanelStateLogic
+    clearPendingViewTicket: () => {
+        value: true
+    }
+    closeEmailForm: () => {
+        value: true
+    }
+    closeSupportForm: () => {
+        value: true
+    }
+    ensureZendeskOrganization: () => {
+        value: true
+    }
+    openEmailForm: () => {
+        value: true
+    }
+    openSupportForm: (
+        values: Partial<SupportFormFields> & {
+            target?: 'modal' | 'sidePanel'
+        }
+    ) => Partial<SupportFormFields> & {
+        target?: 'modal' | 'sidePanel' | undefined
+    }
+    resetSendSupportRequest: (values?: SupportFormFields) => {
+        values?: SupportFormFields
+    }
+    setLastSubmittedTicketId: (ticketId: string | null) => {
+        ticketId: string | null
+    }
+    setSendSupportRequestManualErrors: (errors: Record<string, any>) => {
+        errors: Record<string, any>
+    }
+    setSendSupportRequestValue: (
+        key: FieldName,
+        value: any
+    ) => {
+        name: FieldName
+        value: any
+    }
+    setSendSupportRequestValues: (values: DeepPartial<SupportFormFields>) => {
+        values: DeepPartial<SupportFormFields>
+    }
+    submitSendSupportRequest: () => {
+        value: boolean
+    }
+    submitSendSupportRequestFailure: (
+        error: Error,
+        errors: Record<string, any>
+    ) => {
+        error: Error
+        errors: Record<string, any>
+    }
+    submitSendSupportRequestRequest: (sendSupportRequest: SupportFormFields) => {
+        sendSupportRequest: SupportFormFields
+    }
+    submitSendSupportRequestSuccess: (sendSupportRequest: SupportFormFields) => {
+        sendSupportRequest: SupportFormFields
+    }
+    submitSupportTicket: (form: SupportFormFields) => SupportFormFields
+    touchSendSupportRequestField: (key: string) => {
+        key: string
+    }
+    updateUrlParams: () => {
+        value: true
+    }
+    viewConversationsTicket: (ticket: { created_at: string; id: string; status: string }) => {
+        ticket: {
+            created_at: string
+            id: string
+            status: string
+        }
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface supportLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        title: (arg: SupportFormFields) => string
+        targetArea: (sendSupportRequest: SupportFormFields) => SupportTicketTargetArea | null
+        conversationsFlagEnabled: (featureFlags: FeatureFlagsSet) => boolean
+    }
+}
+
+export type supportLogicType = MakeLogicType<
+    supportLogicValues,
+    supportLogicActions,
+    SupportFormLogicProps,
+    supportLogicMeta
+>
+
 export const supportLogic = kea<supportLogicType>([
     props({} as SupportFormLogicProps),
     path(['lib', 'components', 'support', 'supportLogic']),
@@ -442,18 +622,22 @@ export const supportLogic = kea<supportLogicType>([
             ['isCurrentOrganizationNew'],
             sidePanelStateLogic,
             ['sidePanelAvailable'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
     actions(() => ({
         closeSupportForm: true,
-        openSupportForm: (values: Partial<SupportFormFields>) => values,
-        submitZendeskTicket: (form: SupportFormFields) => form,
+        openSupportForm: (values: Partial<SupportFormFields> & { target?: 'modal' | 'sidePanel' }) => values,
+        submitSupportTicket: (form: SupportFormFields) => form,
         ensureZendeskOrganization: true,
         updateUrlParams: true,
         openEmailForm: true,
         closeEmailForm: true,
         setLastSubmittedTicketId: (ticketId: string | null) => ({ ticketId }),
+        viewConversationsTicket: (ticket: { id: string; status: string; created_at: string }) => ({ ticket }),
+        clearPendingViewTicket: true,
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -477,6 +661,15 @@ export const supportLogic = kea<supportLogicType>([
                 openSupportForm: () => null, // Reset when opening a new form
             },
         ],
+        // A conversations ticket the side panel should open on when it next renders — set when the
+        // user clicks "View" on a submission toast, consumed by sidepanelTicketsLogic
+        pendingViewTicket: [
+            null as { id: string; status: string; created_at: string } | null,
+            {
+                viewConversationsTicket: (_, { ticket }) => ticket,
+                clearPendingViewTicket: () => null,
+            },
+        ],
     })),
     forms(({ values }) => ({
         sendSupportRequest: {
@@ -489,27 +682,30 @@ export const supportLogic = kea<supportLogicType>([
                 message: '',
             } as SupportFormFields,
             errors: ({ name, email, message, kind, target_area, severity_level }) => {
+                // Conversations tickets are just a message, like the side panel composer — the
+                // triage fields only exist on the Zendesk form
+                const requiresTriageFields = !values.conversationsFlagEnabled
                 return {
                     name: !values.user && !name ? 'Please enter your name' : undefined,
                     email: !values.user && !email ? 'Please enter your email' : undefined,
                     message: !message ? 'Please enter a message' : undefined,
-                    kind: !kind ? 'Please choose' : undefined,
-                    severity_level: !severity_level ? 'Please choose' : undefined,
-                    target_area: !target_area ? 'Please choose' : undefined,
+                    kind: requiresTriageFields && !kind ? 'Please choose' : undefined,
+                    severity_level: requiresTriageFields && !severity_level ? 'Please choose' : undefined,
+                    target_area: requiresTriageFields && !target_area ? 'Please choose' : undefined,
                 }
             },
             submit: async (formValues) => {
                 // name must be present for zendesk to accept the ticket
                 formValues.name = values.user?.first_name ?? formValues.name ?? 'name not set'
                 formValues.email = values.user?.email ?? formValues.email ?? ''
-                await supportLogic.asyncActions.submitZendeskTicket(formValues)
+                await supportLogic.asyncActions.submitSupportTicket(formValues)
             },
         },
     })),
     selectors({
         title: [
             (s) => [s.sendSupportRequest ?? null],
-            (sendSupportRequest) =>
+            (sendSupportRequest: SupportFormFields) =>
                 sendSupportRequest.kind
                     ? SUPPORT_TICKET_KIND_TO_TITLE[sendSupportRequest.kind]
                     : 'Leave a message with PostHog',
@@ -517,6 +713,11 @@ export const supportLogic = kea<supportLogicType>([
         targetArea: [
             (s) => [s.sendSupportRequest],
             (sendSupportRequest: SupportFormFields) => sendSupportRequest.target_area,
+        ],
+        conversationsFlagEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL],
         ],
     }),
     listeners(({ actions, props, values }) => ({
@@ -543,7 +744,8 @@ export const supportLogic = kea<supportLogicType>([
             severity_level,
             message,
             exception_event,
-        }: Partial<SupportFormFields>) => {
+            target,
+        }: Partial<SupportFormFields> & { target?: 'modal' | 'sidePanel' }) => {
             let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
             if (!userLogic.values.user) {
                 area = 'login'
@@ -565,7 +767,8 @@ export const supportLogic = kea<supportLogicType>([
                 actions.closeEmailForm()
             }
 
-            if (values.sidePanelAvailable) {
+            const useSidePanel = target ? target === 'sidePanel' : values.sidePanelAvailable
+            if (useSidePanel) {
                 const panelOptions = [kind ?? '', area ?? ''].join(':')
                 actions.openSidePanel(SidePanelTab.Support, panelOptions === ':' ? undefined : panelOptions)
             } else {
@@ -574,16 +777,61 @@ export const supportLogic = kea<supportLogicType>([
 
             actions.updateUrlParams()
         },
-        submitZendeskTicket: async ({
-            name,
-            email,
-            kind,
-            target_area,
-            severity_level,
-            message,
-            exception_event,
-            tags,
-        }: SupportFormFields) => {
+        submitSupportTicket: async (formValues: SupportFormFields) => {
+            const { name, email, kind, target_area, severity_level, message, exception_event, tags } = formValues
+
+            // Conversations is where support is headed, so wait for the extension rather than racing
+            // it to the (temporary) Zendesk fallback
+            if (values.conversationsFlagEnabled && (await waitForConversations())) {
+                try {
+                    const response = await posthog.conversations!.sendMessage(
+                        appendExceptionToMessage(message, exception_event),
+                        { name: name || undefined, email: email || undefined },
+                        true // every form submission starts a new ticket
+                    )
+                    if (response) {
+                        // No support_ticket capture here: the backend fires $conversation_ticket_created
+                        // for every new ticket, so a client-side event would double-count
+                        actions.setLastSubmittedTicketId(response.ticket_id)
+                        lemonToast.success(
+                            values.sidePanelAvailable
+                                ? 'Got the message! You can view replies from our support engineers in the support panel.'
+                                : "Got the message! Our support engineers will follow up by email if there's more to share.",
+                            values.sidePanelAvailable
+                                ? {
+                                      button: {
+                                          label: 'View',
+                                          action: () =>
+                                              actions.viewConversationsTicket({
+                                                  id: response.ticket_id,
+                                                  status: response.ticket_status,
+                                                  created_at: response.created_at,
+                                              }),
+                                      },
+                                  }
+                                : undefined
+                        )
+                        actions.closeEmailForm()
+                        actions.closeSupportForm()
+                        actions.resetSendSupportRequest()
+                        return
+                    }
+                    // null means the extension declined to send (not available) — nothing left the
+                    // browser, so falling through to Zendesk cannot double-file the ticket
+                } catch (e) {
+                    // The request may have reached the server even though the response failed, so
+                    // don't fall back to Zendesk here — that could file the ticket twice
+                    posthog.captureException(e)
+                    lemonToast.error("Oops, the message couldn't be sent. Please try again in a moment.", {
+                        hideButton: true,
+                    })
+                    return
+                }
+            }
+
+            // Fallback path: conversations flag off, or the extension never loaded. Tag flag-on
+            // fallbacks so the (rare) volume is visible while Zendesk is being retired.
+            const conversationsFallback = values.conversationsFlagEnabled
             const zendesk_ticket_uuid = uuid()
             const subject =
                 SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
@@ -657,26 +905,31 @@ export const supportLogic = kea<supportLogicType>([
                 request: {
                     requester: { name: name, email: email },
                     subject: subject,
-                    tags: [planLevelTag, accountOwnerTag, ...(tags || [])],
+                    tags: [
+                        planLevelTag,
+                        accountOwnerTag,
+                        ...(conversationsFallback ? ['conversations_fallback'] : []),
+                        ...(tags || []),
+                    ],
                     custom_fields: [
                         {
-                            id: 22084126888475,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.severity,
                             value: severity_level,
                         },
                         {
-                            id: 22129191462555,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.distinct_id,
                             value: posthog.get_distinct_id(),
                         },
                         {
-                            id: 27242745654043,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.target_area,
                             value: target_area ?? '',
                         },
                         {
-                            id: 27031528411291,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.organization_id,
                             value: userLogic?.values?.user?.organization?.id ?? '',
                         },
                         {
-                            id: 26073267652251,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.support_type,
                             value: values.hasAvailableFeature(AvailableFeature.PRIORITY_SUPPORT)
                                 ? 'priority_support'
                                 : values.hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT)
@@ -684,11 +937,11 @@ export const supportLogic = kea<supportLogicType>([
                                   : 'free_support',
                         },
                         {
-                            id: 37742340880411,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.account_owner,
                             value: accountOwner?.name || 'unassigned',
                         },
                         {
-                            id: 39967113285659,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.exception_event,
                             value: exception_event ? parseExceptionEvent(exception_event) : '',
                         },
                     ],
@@ -696,8 +949,8 @@ export const supportLogic = kea<supportLogicType>([
                         body:
                             message +
                             `\n\n-----` +
-                            `\nKind: ${kind}` +
-                            `\nTarget area: ${target_area}` +
+                            `\nKind: ${kind ?? 'support'}` +
+                            `\nTarget area: ${target_area ?? 'General'}` +
                             `\nReport event: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
                             getSessionReplayLink() +
                             getErrorTrackingLink(exception_event?.uuid) +
@@ -824,6 +1077,10 @@ export const supportLogic = kea<supportLogicType>([
             }
         },
 
+        viewConversationsTicket: () => {
+            actions.openSidePanel(SidePanelTab.Support)
+        },
+
         closeSupportForm: () => {
             // Form is only reset by explicit Cancel button or successful submission
             props.onClose?.()
@@ -855,39 +1112,6 @@ export const supportLogic = kea<supportLogicType>([
                     organization_name: organizationLogic.values.currentOrganization?.name,
                     error_message: error instanceof Error ? error.message : String(error),
                     error_status: error && typeof error === 'object' && 'status' in error ? error.status : undefined,
-                })
-            }
-        },
-    })),
-
-    urlToAction(({ actions, values }) => ({
-        '*': (_, _search, hashParams) => {
-            if (values.isSupportFormOpen) {
-                return
-            }
-
-            const [panel, ...panelOptions] = (hashParams['panel'] ?? '').split(':')
-
-            if (panel === SidePanelTab.Support) {
-                const [kind, area, severity, isEmailFormOpen] = panelOptions
-
-                actions.openSupportForm({
-                    kind: Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
-                    target_area: getLabelBasedOnTargetArea(area) ? area : null,
-                    severity_level: Object.keys(SEVERITY_LEVEL_TO_NAME).includes(severity) ? severity : null,
-                    isEmailFormOpen: isEmailFormOpen ?? 'false',
-                })
-                return
-            }
-
-            // Legacy supportModal param
-            if ('supportModal' in hashParams) {
-                const [kind, area, severity] = (hashParams['supportModal'] || '').split(':')
-
-                actions.openSupportForm({
-                    kind: Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
-                    target_area: Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null,
-                    severity_level: Object.keys(SEVERITY_LEVEL_TO_NAME).includes(severity) ? severity : null,
                 })
             }
         },

@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
 import { SuggestionGroup, SuggestionItem, maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'

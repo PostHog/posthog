@@ -26,6 +26,8 @@ from posthog.temporal.session_replay.session_summary_group.types import (
     SessionGroupSummaryInputs,
 )
 
+from products.replay.backend.models.session_summaries import SingleSessionSummary
+
 from ee.hogai.session_summaries.constants import MIN_SESSION_DURATION_FOR_SUMMARY_MS
 from ee.hogai.session_summaries.session.input_data import add_context_and_filter_events
 from ee.hogai.session_summaries.session.summarize_session import (
@@ -34,7 +36,6 @@ from ee.hogai.session_summaries.session.summarize_session import (
     prepare_single_session_summary_input,
 )
 from ee.hogai.session_summaries.utils import logging_session_ids
-from ee.models.session_summaries import SingleSessionSummary
 
 
 def _get_db_events_per_page(

@@ -3,7 +3,7 @@ import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
-import { FeatureFlagsFilters, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -62,29 +62,29 @@ describe('relatedFeatureFlagsLogic', () => {
     })
 
     describe('server-side filtering', () => {
-        const setupMocks = (filters?: FeatureFlagsFilters): void => {
-            const queryParams = filters ? `?${new URLSearchParams(filters as any).toString()}` : ''
-
-            // Filter flags based on provided filters
-            let filteredFlags = [...MOCK_FLAGS]
-            if (filters?.active !== undefined) {
-                const isActive = filters.active === 'true'
-                filteredFlags = filteredFlags.filter((flag) => flag.active === isActive)
-            }
-            if (filters?.type) {
-                if (filters.type === 'boolean') {
-                    filteredFlags = filteredFlags.filter((flag) => !flag.filters.multivariate?.variants?.length)
-                } else if (filters.type === 'multivariant') {
-                    filteredFlags = filteredFlags.filter((flag) => !!flag.filters.multivariate?.variants?.length)
-                }
-            }
-
+        // One handler that filters by the request's actual query params — MSW ignores
+        // query strings in handler URLs, so pre-baked per-filter handlers never keyed
+        // off the params anyway.
+        const setupMocks = (): void => {
             // oxlint-disable-next-line react-hooks/rules-of-hooks
             useMocks({
                 get: {
-                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${queryParams}`]: {
-                        results: filteredFlags,
-                        count: filteredFlags.length,
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/`]: ({ request }) => {
+                        const params = new URL(request.url).searchParams
+                        const active = params.get('active')
+                        const type = params.get('type')
+                        let filteredFlags = [...MOCK_FLAGS]
+                        if (active !== null) {
+                            filteredFlags = filteredFlags.filter((flag) => flag.active === (active === 'true'))
+                        }
+                        if (type === 'boolean') {
+                            filteredFlags = filteredFlags.filter((flag) => !flag.filters.multivariate?.variants?.length)
+                        } else if (type === 'multivariant') {
+                            filteredFlags = filteredFlags.filter(
+                                (flag) => !!flag.filters.multivariate?.variants?.length
+                            )
+                        }
+                        return [200, { results: filteredFlags, count: filteredFlags.length }]
                     },
                     [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/evaluation_reasons`]:
                         MOCK_EVALUATION_REASONS,
@@ -101,8 +101,6 @@ describe('relatedFeatureFlagsLogic', () => {
         })
 
         it('should filter flags by type=boolean on server side', async () => {
-            setupMocks({ type: 'boolean', page: 1 })
-
             await expectLogic(logic, () => {
                 logic.actions.setFilters({ type: FeatureFlagReleaseType.ReleaseToggle })
             }).toFinishAllListeners()
@@ -117,8 +115,6 @@ describe('relatedFeatureFlagsLogic', () => {
         })
 
         it('should filter flags by type=multivariant on server side', async () => {
-            setupMocks({ type: 'multivariant', page: 1 })
-
             await expectLogic(logic, () => {
                 logic.actions.setFilters({ type: FeatureFlagReleaseType.Variants })
             }).toFinishAllListeners()
@@ -133,8 +129,6 @@ describe('relatedFeatureFlagsLogic', () => {
         })
 
         it('should filter flags by active=true on server side', async () => {
-            setupMocks({ active: 'true', page: 1 })
-
             await expectLogic(logic, () => {
                 logic.actions.setFilters({ active: 'true' })
             }).toFinishAllListeners()
@@ -148,8 +142,6 @@ describe('relatedFeatureFlagsLogic', () => {
         })
 
         it('should filter flags by active=false on server side', async () => {
-            setupMocks({ active: 'false', page: 1 })
-
             await expectLogic(logic, () => {
                 logic.actions.setFilters({ active: 'false' })
             }).toFinishAllListeners()
@@ -162,8 +154,6 @@ describe('relatedFeatureFlagsLogic', () => {
         })
 
         it('should combine multiple filters', async () => {
-            setupMocks({ type: 'boolean', active: 'true', page: 1 })
-
             await expectLogic(logic, () => {
                 logic.actions.setFilters({ type: FeatureFlagReleaseType.ReleaseToggle, active: 'true' })
             }).toFinishAllListeners()
@@ -175,12 +165,10 @@ describe('relatedFeatureFlagsLogic', () => {
         })
 
         it('should clear type filter when replace=true and type not in new filters', async () => {
-            setupMocks({ type: 'boolean', active: 'true', page: 1 })
             await expectLogic(logic, () => {
                 logic.actions.setFilters({ type: FeatureFlagReleaseType.ReleaseToggle, active: 'true' })
             }).toFinishAllListeners()
 
-            setupMocks({ active: 'true', page: 1 })
             await expectLogic(logic, () => {
                 logic.actions.setFilters({ active: 'true' }, true)
             }).toFinishAllListeners()

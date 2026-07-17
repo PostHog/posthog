@@ -42,6 +42,29 @@ export const CyclotronV2RescheduleOptionsSchema = z.object({
 
 export type CyclotronV2RescheduleOptions = z.infer<typeof CyclotronV2RescheduleOptionsSchema>
 
+/**
+ * Atomic enqueue-and-check-in primitive for fan-out workflows.
+ *
+ * Produces N new jobs AND re-queues (or terminates) the current worker's job
+ * in a single Postgres transaction. Used by the batch resolver: each page
+ * inserts ~500 child workflow invocations AND advances its own cursor state
+ * atomically — so a worker crash between the two writes can't leak partial
+ * progress (children enqueued but cursor not advanced).
+ *
+ * `selfDisposition`:
+ *   - `{ kind: 'reschedule', scheduledAt?, state? }` → re-queue self (status
+ *     back to 'available') for the next page.
+ *   - `{ kind: 'ack' }` → terminal success (completed).
+ *   - `{ kind: 'fail' }` → terminal failure.
+ */
+export interface CyclotronV2BulkCreateAndCheckInInput {
+    newJobs: CyclotronV2JobInit[]
+    selfDisposition:
+        | { kind: 'reschedule'; scheduledAt?: Date; state?: Buffer | null }
+        | { kind: 'ack' }
+        | { kind: 'fail' }
+}
+
 export interface CyclotronV2DequeuedJob {
     readonly id: string
     readonly teamId: number
@@ -62,13 +85,65 @@ export interface CyclotronV2DequeuedJob {
     reschedule(options?: CyclotronV2RescheduleOptions): Promise<void>
     cancel(): Promise<void>
     heartbeat(): Promise<void>
+    bulkCreateAndCheckIn(input: CyclotronV2BulkCreateAndCheckInInput): Promise<{ newJobIds: string[] }>
 }
 
 export type CyclotronV2ManagerConfig = {
     pool: CyclotronV2PoolConfig
     depthLimit?: number
     depthCheckIntervalMs?: number
+    // Knobs for rescheduleParkedJobs — see that method for semantics.
+    rescheduleFloorSeconds?: number
+    rescheduleWakeRatePerSecond?: number
+    rescheduleMinWindowSeconds?: number
+    rescheduleMaxWindowSeconds?: number
+    rescheduleChunkSize?: number
+    rescheduleMaxChunksPerCall?: number
+    rescheduleChunkSleepMs?: number
 }
+
+export type CyclotronV2RescheduleParkedOptions = {
+    teamId: number
+    functionId: string
+    // Steps whose timing config changed: only jobs parked on one of these
+    // (matched via the action_id column) are swept.
+    actionIds: string[]
+    // Absolute sweep bounds returned by a previous slice. Omit on the first
+    // call — the manager sizes the window from the parked count and returns
+    // the bounds so callers can thread them through subsequent slices.
+    // Recomputing the window per slice would re-compress the tail of the
+    // spread on every call.
+    sweepFloor?: Date
+    sweepUntil?: Date
+}
+
+export type CyclotronV2RescheduleParkedResult = {
+    swept: number
+    remaining: number
+    done: boolean
+    sweepFloor: Date
+    sweepUntil: Date
+}
+
+/**
+ * Producer-side surface of `CyclotronV2Manager`. Lets API entrypoints depend
+ * on the interface (testable, mockable) without pulling the full manager
+ * implementation. Add methods here as new producers need them.
+ */
+export interface CyclotronV2JobProducer {
+    createJob(input: CyclotronV2JobInit): Promise<string>
+    countInFlightJobs(teamId: number, functionId: string): Promise<number>
+    rescheduleParkedJobs(options: CyclotronV2RescheduleParkedOptions): Promise<CyclotronV2RescheduleParkedResult>
+    disconnect(): Promise<void>
+}
+
+/**
+ * Per-poll decision returned by a rate-limited worker's hook.
+ *   `{ limit: 0, sleepMs }` → skip the dequeue and sleep.
+ *   `{ limit: N }`          → dequeue up to `min(N, batchMaxSize)` rows.
+ *   `undefined`             → fall back to the static `batchMaxSize`.
+ */
+export type CyclotronV2BatchLimit = { limit: number; sleepMs?: number }
 
 export type CyclotronV2WorkerConfig = {
     pool: CyclotronV2PoolConfig
@@ -86,11 +161,17 @@ export type CyclotronV2JanitorConfig = {
     stallTimeoutMs?: number
     maxTouchCount?: number
     cleanupGraceMs?: number
+    // Kill-switch. When false the janitor reverts to master's legacy path — mark
+    // poison pills failed with no replay record (a give-up is lost). Defaults to true.
+    poisonRecoveryEnabled?: boolean
 }
 
 export type CyclotronV2CleanupResult = {
     deleted: number
     stalled: number
+    // Jobs the janitor gave up on this cycle (recorded as failed, replayable
+    // invocation results before deletion).
     poisoned: number
+    poisonedIds: string[]
     depths: Map<string, number>
 }

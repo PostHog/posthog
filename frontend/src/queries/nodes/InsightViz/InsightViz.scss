@@ -145,6 +145,10 @@
     .InsightVizDisplay {
         --insight-viz-min-height: 25rem;
     }
+
+    .WebTile--short-chart .InsightVizDisplay {
+        --insight-viz-min-height: 18rem;
+    }
 }
 
 .RevenueAnalyticsDashboard {
@@ -198,21 +202,40 @@
     display: flex;
     flex: 1;
     flex-direction: column;
+    height: var(--insight-viz-min-height);
+
+    // Explicit height (not just min/max) so a top/bottom in-chart legend's max-height: 40% cap resolves —
+    // a flex-derived used size does not count, and without it the legend stretches the chart taller.
     min-height: var(--insight-viz-min-height);
+    max-height: var(--insight-viz-min-height);
     margin: 0.5rem;
 
     .NotebookNode &,
     .InsightCard &,
     .ExportedInsight &,
     .WebAnalyticsDashboard & {
+        height: auto;
         min-height: auto;
+        max-height: none;
     }
 
     &--ActionsTable,
     &--WorldMap,
-    &--BoldNumber {
+    &--BoldNumber,
+    &--Metric {
+        height: auto;
         min-height: auto;
+        max-height: none;
         margin: 0;
+    }
+
+    &--ActionsBarValue {
+        // Keep the standard height as a floor so a few-row chart still fills it (a single bar
+        // shouldn't shrink), but drop the height/max-height cap so many breakdown rows grow the
+        // container instead of being clipped.
+        height: auto;
+        min-height: var(--insight-viz-min-height);
+        max-height: none;
     }
 
     &--BoldNumber {
@@ -220,6 +243,11 @@
         align-items: center;
         justify-content: center;
     }
+}
+
+// Drop the viz padding so the Metric sparkline can bleed to the card edges.
+.InsightVizDisplay__content:has(.Metric) {
+    padding: 0;
 }
 
 .FunnelInsight {

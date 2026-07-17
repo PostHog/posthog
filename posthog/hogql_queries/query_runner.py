@@ -2,11 +2,12 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from functools import cache
 from time import perf_counter
 from types import UnionType
-from typing import Any, Generic, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
+from typing import Any, Generic, NamedTuple, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
 
-import structlog
+import orjson
 import posthoganalytics
 from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ConfigDict
@@ -43,6 +44,15 @@ from posthog.schema import (
     LifecycleQuery,
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
+    MCPHarnessBreakdownQuery,
+    MCPToolDailyStatsQuery,
+    MCPToolDescriptionsQuery,
+    MCPToolFailuresQuery,
+    MCPToolNeighborsQuery,
+    MCPToolSampleIntentsQuery,
+    MCPToolStatsQuery,
+    MCPToolTopUsersQuery,
+    MetricsQuery,
     NodeKind,
     PathsQuery,
     PropertyGroupFilter,
@@ -54,6 +64,7 @@ from posthog.schema import (
     SamplingRate,
     SessionAttributionExplorerQuery,
     SessionBatchEventsQuery,
+    SessionQuery,
     SessionsQuery,
     SessionsTimelineQuery,
     StickinessQuery,
@@ -92,10 +103,12 @@ from posthog.clickhouse.client.limit import (
     get_materialized_endpoints_rate_limiter,
     get_org_app_concurrency_limit,
 )
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_queries
+from posthog.constants import AvailableFeature
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
 from posthog.hogql_queries.insights.utils.breakdowns import has_multi_breakdown, has_single_breakdown
 from posthog.hogql_queries.insights.utils.entities import has_data_warehouse_node
 from posthog.hogql_queries.insights.utils.properties import has_any_property_filters
@@ -111,13 +124,15 @@ from posthog.hogql_queries.validation.validation import (
 )
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
-from posthog.rbac.user_access_control import UserAccessControlError
+from posthog.models.team.event_retention import events_retention_months_for_team
+from posthog.rbac.user_access_control import WAREHOUSE_ACCESS_SCOPES, UserAccessControl, UserAccessControlError
 from posthog.schema_helpers import to_dict
+from posthog.scopes import APIScopeObject
+from posthog.shared_link_user import SharedLinkUser
 from posthog.slo.context import JsonValue, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
+from posthog.synthetic_user import SyntheticUser
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
-
-logger = structlog.get_logger(__name__)
 
 QUERY_EXECUTION_TOTAL = Counter(
     "posthog_query_execution_total",
@@ -199,6 +214,28 @@ def get_survey_query_metric_labels(query: Any) -> dict[str, str] | None:
     }
 
 
+def _annotation_mentions_base_model(annotation: Any) -> bool:
+    if annotation is None:
+        return False
+    if isinstance(annotation, type):
+        return issubclass(annotation, BaseModel)
+    return any(_annotation_mentions_base_model(arg) for arg in get_args(annotation))
+
+
+@cache
+def response_results_contain_models(response_class: type[BaseModel]) -> bool:
+    """Whether the class's `results` annotation can hold pydantic models (e.g. list[RetentionResult]).
+
+    Responses are only ever built by validating plain data (a cached JSON blob, or the dict a fresh
+    calculation was dumped to), so model instances can appear in `results` exactly where the
+    annotation declares a model type — `Any`/`dict[str, Any]` positions stay plain data.
+    """
+    field = response_class.model_fields.get("results")
+    if field is None:
+        return False
+    return _annotation_mentions_base_model(field.annotation)
+
+
 def execution_mode_from_refresh(refresh_requested: bool | str | None) -> ExecutionMode:
     if refresh_requested:
         if execution_mode := _REFRESH_TO_EXECUTION_MODE.get(refresh_requested):
@@ -206,29 +243,21 @@ def execution_mode_from_refresh(refresh_requested: bool | str | None) -> Executi
     return ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
 
 
-# Minimum age before a shared insight may honor `?refresh=force_blocking`.
-# Sourced from the same generated schema as the frontend's auto-refresh interval so the
-# two cannot drift. Best-effort throttle, not a hard rate limit.
-SHARED_FORCE_BLOCKING_MIN_AGE = timedelta(seconds=DashboardAutoRefreshInterval().root)
+# Staleness threshold for `?refresh=force_blocking` on shared insights: the request runs as
+# blocking-if-stale with this cache age, so the cached result's own `last_refresh` is the
+# throttle clock. Sourced from the same generated schema as the frontend's auto-refresh
+# interval so the two cannot drift. Best-effort throttle, not a hard rate limit.
+SHARED_FORCE_BLOCKING_STALENESS_WINDOW = timedelta(seconds=DashboardAutoRefreshInterval().root)
 
 
 _SHARED_MODE_WHITELIST = {
     ExecutionMode.CACHE_ONLY_NEVER_CALCULATE: ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
-    # force_blocking is gated by `shared_insights_execution_mode`; downgrades to IF_STALE
-    # when the throttle clock is younger than `SHARED_FORCE_BLOCKING_MIN_AGE`.
-    ExecutionMode.CALCULATE_BLOCKING_ALWAYS: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
     ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
     # Used by the shared-notebook inline query payload builder. Without this entry the
     # request silently falls through to EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE, which causes
     # the frontend to incorrectly render a "unsupported node" placeholder until the async calc finishes and a later reload picks up the warm cache.
     ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
 }
-
-
-def _is_force_blocking_eligible_for_shared(last_refresh: datetime | None) -> bool:
-    if last_refresh is None:
-        return False
-    return datetime.now(UTC) - last_refresh >= SHARED_FORCE_BLOCKING_MIN_AGE
 
 
 def _classify_error_for_slo(exc: Exception) -> tuple[QueryErrorCategory, SloOutcome]:
@@ -257,21 +286,35 @@ def _classify_error_for_slo(exc: Exception) -> tuple[QueryErrorCategory, SloOutc
     return category, SloOutcome.FAILURE
 
 
-def shared_insights_execution_mode(
-    execution_mode: ExecutionMode,
-    *,
-    last_refresh: datetime | None = None,
-) -> ExecutionMode:
-    if execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS and not _is_force_blocking_eligible_for_shared(
-        last_refresh
-    ):
-        logger.info(
-            "shared_force_blocking_throttled",
-            last_refresh=last_refresh.isoformat() if last_refresh else None,
-            min_age_seconds=int(SHARED_FORCE_BLOCKING_MIN_AGE.total_seconds()),
+class SharedExecutionSettings(NamedTuple):
+    """Execution mode plus the staleness override that makes it a throttle.
+
+    `cache_age_seconds` is not optional garnish: dropping it when threading the mode into
+    `calculate_for_query_based_insight`/`process_query_dict` silently disables the shared
+    force-refresh throttle. Named so call sites that discard it have to do so visibly.
+    """
+
+    execution_mode: ExecutionMode
+    cache_age_seconds: int | None
+
+
+def shared_insights_execution_mode(execution_mode: ExecutionMode) -> SharedExecutionSettings:
+    """Map a requested execution mode to the one allowed on shared/embedded resources.
+
+    Returns the mode plus an optional `cache_age_seconds` override for the query runner.
+    force_blocking runs as blocking-if-stale with `SHARED_FORCE_BLOCKING_STALENESS_WINDOW` as the
+    staleness threshold: a cached result younger than the window is served as-is, anything
+    older (or missing) recomputes synchronously — throttling forced recomputes without a
+    separate clock.
+    """
+    if execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
+        return SharedExecutionSettings(
+            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
         )
-        return ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-    return _SHARED_MODE_WHITELIST.get(execution_mode, ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
+    return SharedExecutionSettings(
+        _SHARED_MODE_WHITELIST.get(execution_mode, ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE), None
+    )
 
 
 RunnableQueryNode = Union[
@@ -284,6 +327,7 @@ RunnableQueryNode = Union[
     ActorsQuery,
     EventsQuery,
     SessionBatchEventsQuery,
+    SessionQuery,
     HogQLQuery,
     InsightActorsQuery,
     FunnelsActorsQuery,
@@ -304,6 +348,15 @@ RunnableQueryNode = Union[
     EndpointsUsageOverviewQuery,
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
+    MetricsQuery,
+    MCPHarnessBreakdownQuery,
+    MCPToolTopUsersQuery,
+    MCPToolFailuresQuery,
+    MCPToolStatsQuery,
+    MCPToolDailyStatsQuery,
+    MCPToolDescriptionsQuery,
+    MCPToolSampleIntentsQuery,
+    MCPToolNeighborsQuery,
 ]
 
 
@@ -353,6 +406,18 @@ def get_query_runner(
             from .insights.trends.boxplot_trends_query_runner import BoxPlotTrendsQueryRunner
 
             return BoxPlotTrendsQueryRunner(
+                query=query_obj,
+                team=team,
+                timings=timings,
+                limit_context=limit_context,
+                modifiers=modifiers,
+                user=user,
+            )
+
+        if display_type == ChartDisplayType.SLOPE_GRAPH:
+            from .insights.trends.slope_graph_trends_query_runner import SlopeGraphTrendsQueryRunner
+
+            return SlopeGraphTrendsQueryRunner(
                 query=query_obj,
                 team=team,
                 timings=timings,
@@ -467,6 +532,17 @@ def get_query_runner(
 
         return SessionBatchEventsQueryRunner(
             query=cast(SessionBatchEventsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "SessionQuery":
+        from .ai.session_query_runner import SessionQueryRunner
+
+        return SessionQueryRunner(
+            query=cast(SessionQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -753,7 +829,7 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingQuery":
-        from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
+        from products.error_tracking.backend.facade.queries import ErrorTrackingQueryRunner
 
         return ErrorTrackingQueryRunner(
             query=query,
@@ -777,9 +853,7 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingIssueCorrelationQuery":
-        from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner import (
-            ErrorTrackingIssueCorrelationQueryRunner,
-        )
+        from products.error_tracking.backend.facade.queries import ErrorTrackingIssueCorrelationQueryRunner
 
         return ErrorTrackingIssueCorrelationQueryRunner(
             query=query,
@@ -791,9 +865,7 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingSimilarIssuesQuery":
-        from products.error_tracking.backend.hogql_queries.error_tracking_similar_issues_query_runner import (
-            ErrorTrackingSimilarIssuesQueryRunner,
-        )
+        from products.error_tracking.backend.facade.queries import ErrorTrackingSimilarIssuesQueryRunner
 
         return ErrorTrackingSimilarIssuesQueryRunner(
             query=query,
@@ -805,9 +877,7 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingBreakdownsQuery":
-        from products.error_tracking.backend.hogql_queries.error_tracking_breakdowns_query_runner import (
-            ErrorTrackingBreakdownsQueryRunner,
-        )
+        from products.error_tracking.backend.facade.queries import ErrorTrackingBreakdownsQueryRunner
 
         return ErrorTrackingBreakdownsQueryRunner(
             query=query,
@@ -927,6 +997,94 @@ def get_query_runner(
             modifiers=modifiers,
             user=user,
         )
+    if kind == "MCPHarnessBreakdownQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPHarnessBreakdownQueryRunner
+
+        return MCPHarnessBreakdownQueryRunner(
+            query=cast(MCPHarnessBreakdownQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolTopUsersQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolTopUsersQueryRunner
+
+        return MCPToolTopUsersQueryRunner(
+            query=cast(MCPToolTopUsersQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolFailuresQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolFailuresQueryRunner
+
+        return MCPToolFailuresQueryRunner(
+            query=cast(MCPToolFailuresQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolStatsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolStatsQueryRunner
+
+        return MCPToolStatsQueryRunner(
+            query=cast(MCPToolStatsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolDailyStatsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolDailyStatsQueryRunner
+
+        return MCPToolDailyStatsQueryRunner(
+            query=cast(MCPToolDailyStatsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolDescriptionsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolDescriptionsQueryRunner
+
+        return MCPToolDescriptionsQueryRunner(
+            query=cast(MCPToolDescriptionsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolSampleIntentsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolSampleIntentsQueryRunner
+
+        return MCPToolSampleIntentsQueryRunner(
+            query=cast(MCPToolSampleIntentsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolNeighborsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolNeighborsQueryRunner
+
+        return MCPToolNeighborsQueryRunner(
+            query=cast(MCPToolNeighborsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
     if kind == "TraceQuery":
         from .ai.trace_query_runner import TraceQueryRunner
 
@@ -1004,7 +1162,7 @@ def get_query_runner(
         )
 
     if kind == "UsageMetricsQuery":
-        from products.customer_analytics.backend.hogql_queries.usage_metrics_query_runner import UsageMetricsQueryRunner
+        from products.customer_analytics.backend.facade.queries import UsageMetricsQueryRunner
 
         return UsageMetricsQueryRunner(
             query=query,
@@ -1016,7 +1174,7 @@ def get_query_runner(
         )
 
     if kind == "AccountsQuery":
-        from products.customer_analytics.backend.hogql_queries.accounts_query_runner import AccountsQueryRunner
+        from products.customer_analytics.backend.facade.queries import AccountsQueryRunner
 
         return AccountsQueryRunner(
             query=query,
@@ -1075,10 +1233,22 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "MetricsQuery":
+        from products.metrics.backend.facade.queries import MetricsQueryRunner
+
+        return MetricsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     # Registered here for server-side CSV export only (ExportedAsset + Celery).
     # Direct queries are blocked by LogsQueryRunner.validate_query_runner_access.
     if kind == "LogsQuery":
-        from products.logs.backend.logs_query_runner import LogsQueryRunner
+        from products.logs.backend.facade.queries import LogsQueryRunner
 
         return LogsQueryRunner(
             query=query,
@@ -1125,9 +1295,10 @@ def get_query_runner_or_none(
     limit_context: Optional[LimitContext] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
     user: Optional[User] = None,
+    user_access_control: Optional[UserAccessControl] = None,
 ) -> Optional["QueryRunner"]:
     try:
-        return get_query_runner(
+        runner = get_query_runner(
             query=query,
             team=team,
             timings=timings,
@@ -1139,6 +1310,11 @@ def get_query_runner_or_none(
         if "Can't get a runner for an unknown" in str(e):
             return None
         raise
+    # Reuse the caller's preloaded snapshot (e.g. one per request shared across a dashboard's
+    # insight runners) so the cache fingerprint doesn't bulk-load access control once per runner.
+    if user_access_control is not None and isinstance(runner, AnalyticsQueryRunner):
+        runner._user_access_control = user_access_control
+    return runner
 
 
 Q = TypeVar("Q", bound=RunnableQueryNode)
@@ -1164,6 +1340,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     # query service means programmatic access and /query endpoint
     is_query_service: bool = False
     workload: Workload
+    # Opt-in (set by process_query_model): on a cache hit, keep the results segment of the
+    # cached response as raw JSON bytes in raw_cached_results_bytes instead of parsing it,
+    # leaving a `results=[]` placeholder on the returned model.
+    serve_raw_cached_results: bool = False
+    raw_cached_results_bytes: Optional[bytes] = None
 
     def __init__(
         self,
@@ -1236,6 +1417,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return hasattr(data, "is_cached") or (  # Duck typing for backwards compatibility with `CachedQueryResponse`
             isinstance(data, dict) and "is_cached" in data
         )
+
+    def _query_has_series_custom_names(self) -> bool:
+        series = getattr(self.query, "series", None)
+        if not series:
+            return False
+        return any(getattr(s, "custom_name", None) is not None for s in series)
 
     @property
     def _limit_context_aliased_for_cache(self) -> LimitContext:
@@ -1310,14 +1497,45 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     ) -> Optional[CR | CacheMissResponse]:
         CachedResponse: type[CR] = self.cached_response_type
         cached_response: CR | CacheMissResponse
-        cached_response_candidate = cache_manager.get_cache_data()
+        cached_response_candidate: Optional[dict]
+        self.raw_cached_results_bytes = None
+        raw_results: Optional[bytes] = None
+        if self.serve_raw_cached_results:
+            # Serving results as raw bytes skips parsing (and later re-serializing) the results
+            # payload. Only safe when the caller opted in AND validation of the parsed results
+            # wouldn't add protection (the response class types them as plain data — for
+            # model-typed results, e.g. retention, validating a `[]` placeholder would bypass
+            # the schema-drift check that triggers recomputation) AND neither the query nor
+            # the cached results carry custom series names — otherwise
+            # apply_series_custom_names below must be able to patch the parsed results.
+            split_candidate = cache_manager.get_cache_data_split()
+            if split_candidate is None:
+                cached_response_candidate = None
+            else:
+                cached_response_candidate = split_candidate.header
+                if split_candidate.results_bytes is not None:
+                    if (
+                        response_results_contain_models(CachedResponse)
+                        or split_candidate.results_have_custom_names
+                        or self._query_has_series_custom_names()
+                    ):
+                        cached_response_candidate["results"] = orjson.loads(split_candidate.results_bytes)
+                    else:
+                        raw_results = split_candidate.results_bytes
+        else:
+            cached_response_candidate = cache_manager.get_cache_data()
 
         if self.is_cached_response(cached_response_candidate):
+            assert cached_response_candidate is not None
+            if raw_results is not None:
+                cached_response_candidate["results"] = []
             cached_response_candidate["is_cached"] = True
             # When rolling out schema changes, cached responses may not match the new schema.
             # Trigger recomputation in this case.
             try:
                 cached_response = CachedResponse(**cached_response_candidate)
+                if raw_results is not None:
+                    self.raw_cached_results_bytes = raw_results
             except Exception as e:
                 capture_exception(Exception(f"Error parsing cached response: {e}"))
                 cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
@@ -1343,7 +1561,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     target_age=cached_response.cache_target_age,
                 )
 
-            if not self._is_stale(last_refresh=last_refresh_from_cached_result(cached_response)):
+            if not self._is_stale_for_request(last_refresh=last_refresh_from_cached_result(cached_response)):
                 count_query_cache_hit(self.team.pk, hit="hit", trigger=cached_response.calculation_trigger or "")
                 # We have a valid result that's fresh enough, let's return it
                 cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
@@ -1367,7 +1585,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             elif execution_mode == ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE:
                 # We're allowed to calculate if the lazy check fails, but we'll do it asynchronously
                 assert isinstance(cached_response, CachedResponse)
-                if self._is_stale(last_refresh=last_refresh_from_cached_result(cached_response), lazy=True):
+                if self._is_stale_for_request(last_refresh=last_refresh_from_cached_result(cached_response), lazy=True):
                     cached_response.query_status = self.enqueue_async_calculation(
                         cache_manager=cache_manager, user=user, analytics_props=analytics_props
                     )
@@ -1390,7 +1608,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 )
                 return cached_response
 
-        # Nothing useful out of cache, nor async query status
+        # Nothing useful out of cache, nor async query status. A recomputation follows, so the
+        # cached raw results (if any) must not leak onto the fresh response.
+        self.raw_cached_results_bytes = None
         return None
 
     def _call_with_rate_limits(self, *, dashboard_id: Optional[int]) -> tuple[R, float]:
@@ -1401,7 +1621,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         concurrency_limit = self.get_api_queries_concurrency_limit()
         is_materialized_endpoint = get_query_tag_value("workload") == Workload.ENDPOINTS
-        is_api_key_access = get_query_tag_value("access_method") == "personal_api_key"
+        is_api_key_access = is_api_key_access_method(get_query_tag_value("access_method"))
 
         if self.is_query_service:
             tag_queries(chargeable=1)
@@ -1450,8 +1670,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         # Set user for access control during query execution. Some subclasses
         # (e.g. QueryRunnerWithHogQLContext) construct user-dependent state in
-        # __init__; let them refresh it now that we know the real user.
-        if user is not None:
+        # __init__; let them refresh it now that we know the real user. Only on an
+        # actual change - re-running for the same user would needlessly rebuild that
+        # state and drop a preloaded access-control snapshot.
+        if user is not None and user is not self.user:
             self.user = user
             self._on_user_changed()
         start_time = perf_counter()
@@ -1460,7 +1682,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.query_id = query_id or self.query_id
         self._cache_age_override = cache_age_seconds
 
-        with posthoganalytics.new_context():
+        # capture_exceptions=False: we capture explicitly at the except boundary below, so benign
+        # user-input query errors (USER_ERROR / cancelled / rate-limited) are returned to the user
+        # as 4xx without also polluting error tracking with server-side exception noise.
+        with posthoganalytics.new_context(capture_exceptions=False):
             query_type = getattr(self.query, "kind", "Other")
             distinct_id = str(user.distinct_id) if user else str(self.team.uuid)
 
@@ -1498,6 +1723,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 slo_properties["dashboard_id"] = dashboard_id
             if product_key is not None:
                 slo_properties["product_key"] = product_key
+            if cache_age_seconds is not None:
+                # Makes the staleness override observable: override set + execution_path=cache_hit
+                # + is_cache_stale=false means the shared force-refresh throttle (or an endpoint's
+                # data freshness window) served cache instead of recomputing.
+                slo_properties["cache_age_override"] = cache_age_seconds
 
             with slo_operation(
                 spec=SloSpec(
@@ -1511,10 +1741,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 properties=slo_properties,
             ) as slo:
                 try:
-                    # Abort early if the user doesn't have access to the query runner
-                    # We'll proceed as usual if there's no user connected to this request
+                    # Abort early if the user doesn't have access to the query runner.
+                    # We'll proceed as usual if there's no user connected to this request, or for an
+                    # anonymous principal (SharedLinkUser) - the share link is its authorization.
                     # We're capturing the error for analytics purposes, but we reraise the same one
-                    if user is not None:
+                    if user is not None and not user.is_anonymous:
                         try:
                             self.validate_query_runner_access(user)
                         except UserAccessControlError as error:
@@ -1579,7 +1810,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
                                 last_refresh = last_refresh_from_cached_result(results)
                                 cache_tracking_props = {
-                                    "is_cache_stale": self._is_stale(last_refresh=last_refresh),
+                                    "is_cache_stale": self._is_stale_for_request(last_refresh=last_refresh),
                                     "calculation_trigger": results.calculation_trigger,
                                     "cache_age_seconds": round((datetime.now(UTC) - last_refresh).total_seconds(), 2)
                                     if last_refresh
@@ -1601,6 +1832,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                                 "query_type": query_type,
                                 "cache_key": cache_key,
                                 "cache_hit": isinstance(results, CachedResponse),
+                                "cache_age_override": cache_age_seconds,
                                 "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
                                 **cache_tracking_props,
                             }
@@ -1639,6 +1871,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         slo.succeed(error_category=category.value)
                     else:
                         slo.fail(error_category=category.value)
+                        # Capture only what classifies as a FAILURE outcome. User-input query errors
+                        # (USER_ERROR / cancelled / rate-limited) classify as SUCCESS above and are
+                        # deliberately not captured — they're returned to the user as 4xx. Note this
+                        # gate is the SLO outcome, not a strict platform-vs-user split:
+                        # QUERY_PERFORMANCE_ERROR is FAILURE (so captured) even though a minority of
+                        # those are user-input limits — see _classify_error_for_slo.
+                        capture_exception(exc)
                     raise
 
     def _execute_and_cache_blocking(
@@ -1741,7 +1980,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # pydantic validation on the extra key (and poison the cache, which set_cache_data has
             # already written by the time CachedResponse(**dict) raises).
             if warnings_accumulator and "warnings" in CachedResponse.model_fields:
-                fresh_response_dict["warnings"] = [w.model_dump() for w in warnings_accumulator.values()]
+                # The accumulator is authoritative for sync warnings (it collects across every inner
+                # execution), but the shared warnings field also carries other kinds — e.g. access
+                # control warnings attached by HogQLQueryExecutor — which must survive the replace.
+                other_warnings = [
+                    w
+                    for w in (fresh_response_dict.get("warnings") or [])
+                    if (w.get("type") if isinstance(w, dict) else getattr(w, "type", None)) != "warehouse_sync"
+                ]
+                fresh_response_dict["warnings"] = [
+                    w.model_dump() for w in warnings_accumulator.values()
+                ] + other_warnings
 
             # Don't cache debug queries with errors and export queries
             errors: Optional[list[Any]] = fresh_response_dict.get("error", None)
@@ -1759,6 +2008,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "insight_id": insight_id,
                 "dashboard_id": dashboard_id,
                 "cache_hit": False,
+                "cache_age_override": getattr(self, "_cache_age_override", None),
                 "cache_key": cache_key,
                 "calculation_trigger": trigger,
                 "execution_mode": execution_mode.value,
@@ -1852,6 +2102,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if restricted:
             payload["restricted_properties"] = restricted
 
+        # Vary the cache key by the events-retention floor: a cache hit returns before the printer applies the floor,
+        # so without this a result cached pre-enforcement (or at a longer period) would keep surfacing events past
+        # retention. Only set when enforced, so non-cohort teams' keys are unchanged.
+        retention_months = events_retention_months_for_team(self.team, self.team.pk)
+        if retention_months is not None:
+            payload["events_retention_floor_months"] = retention_months
+
         return payload
 
     def _get_property_access_restrictions(self) -> list[tuple[str, int]] | None:
@@ -1863,7 +2120,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 
-        restricted = get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
+        restricted = get_restricted_properties_for_team(user=self.user, team=self.team)
         if not restricted:
             return None
         return sorted(restricted)
@@ -1969,31 +2226,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         return cached_response, was_modified
 
-    def _get_cache_age_override(self, last_refresh: Optional[datetime]) -> Optional[datetime]:
-        """
-        Helper method for subclasses that override cache_target_age().
-        Returns the custom cache target age if _cache_age_override is set, otherwise None.
-
-        Subclasses can call this first in their cache_target_age() implementation:
-        ```
-        override = self._get_cache_age_override(last_refresh)
-        if override is not None:
-            return override
-        # ... custom logic
-        ```
-        """
-        if hasattr(self, "_cache_age_override") and self._cache_age_override is not None and last_refresh is not None:
-            return last_refresh + timedelta(seconds=self._cache_age_override)
-        return None
-
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:
             return None
-
-        # Check for custom cache age override (e.g., from Endpoint)
-        override_target_age = self._get_cache_age_override(last_refresh)
-        if override_target_age is not None:
-            return override_target_age
 
         query_date_range = getattr(self, "query_date_range", None)
         interval = query_date_range.interval_name if query_date_range else "minute"
@@ -2045,21 +2280,28 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """Overridden by subclasses to add validation rules."""
         return ()
 
-    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
-        # If a custom cache age was provided (e.g., from Endpoint), use our override logic
-        target_age = None
-        if hasattr(self, "_cache_age_override") and self._cache_age_override is not None:
-            target_age = self.cache_target_age(last_refresh, lazy=lazy)
-            if not target_age:
-                return False
+    def _is_stale_for_request(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+        """Staleness decision for this request, honoring `_cache_age_override` when set.
 
+        The override (shared force refresh, endpoint data freshness) replaces the runner's
+        own staleness policy. It is applied here, at the call site, rather than inside the
+        polymorphic `_is_stale`/`cache_target_age` hooks, so subclasses overriding those
+        cannot silently weaken or tighten the requested window — and it governs this one
+        staleness decision only, never the target age persisted on a cache write.
+        """
+        override = getattr(self, "_cache_age_override", None)
+        if override is None:
+            return self._is_stale(last_refresh, lazy=lazy)
+        if last_refresh is None:
+            return True
+        return datetime.now(UTC) > last_refresh + timedelta(seconds=override)
+
+    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         query_date_range = getattr(self, "query_date_range", None)
         date_to = query_date_range.date_to() if query_date_range else None
         interval = query_date_range.interval_name if query_date_range else "minute"
         mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
-        return is_stale(
-            self.team, date_to=date_to, interval=interval, last_refresh=last_refresh, mode=mode, target_age=target_age
-        )
+        return is_stale(self.team, date_to=date_to, interval=interval, last_refresh=last_refresh, mode=mode)
 
     def _refresh_frequency(self) -> timedelta:
         return timedelta(minutes=1)
@@ -2100,7 +2342,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         dashboard_breakdown_filter = dashboard_filter.breakdown_filter
 
-        should_ignore_dashboard_breakdown = (
+        should_ignore_dashboard_breakdown = not hasattr(self.query, "breakdownFilter") or (
             isinstance(self.query, TrendsQuery)
             and has_data_warehouse_series
             and (
@@ -2151,14 +2393,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 date_range.explicitDate = dashboard_filter.explicitDate
 
         if dashboard_filter.breakdown_filter and not should_ignore_dashboard_breakdown:
-            if hasattr(self.query, "breakdownFilter"):
+            if hasattr(self.query, "breakdownFilter"):  # redundant, but required for mypy
                 self.query.breakdownFilter = dashboard_filter.breakdown_filter
-            else:
-                capture_exception(
-                    NotImplementedError(
-                        f"{self.query.__class__.__name__} does not support breakdown filters out of the box"
-                    )
-                )
+
+        # Interval and test-account overrides apply only to query types that carry the field.
+        # Types without it (retention, paths) are silently skipped rather than mutated.
+        if dashboard_filter.interval is not None and hasattr(self.query, "interval"):
+            self.query.interval = dashboard_filter.interval
+
+        if dashboard_filter.filterTestAccounts is not None and hasattr(self.query, "filterTestAccounts"):
+            self.query.filterTestAccounts = dashboard_filter.filterTestAccounts
+
         self.__post_init__()
 
 
@@ -2177,11 +2422,101 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
     e.g. class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxonomyQueryResponse]):
     """
 
+    _user_access_control: Optional[UserAccessControl] = None
+
     def calculate(self) -> AR:
         response = super().calculate()
         if not self.modifiers.timings:
             response.timings = None
         return response
+
+    def _on_user_changed(self) -> None:
+        super()._on_user_changed()
+        self._user_access_control = None
+
+    @property
+    def user_access_control(self) -> Optional[UserAccessControl]:
+        """Access-control snapshot for the cache fingerprint. Built lazily - the fingerprint runs
+        before any database exists, which a cache hit never reaches. None if the principal is not a
+        real User (service tokens and shared-link viewers have no RBAC)."""
+        user = self.user
+        if not isinstance(user, User):
+            return None
+        if self._user_access_control is None:
+            self._user_access_control = UserAccessControl(user=user, team=self.team)
+        return self._user_access_control
+
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+
+        # Don't include restricted resources/objects in cache_payload if the ACCESS_CONTROL is unavailable
+        if isinstance(self.user, User) and not self.team.organization.is_feature_available(
+            AvailableFeature.ACCESS_CONTROL
+        ):
+            return payload
+
+        # Partition only by the access-controlled tables this query reads that the user is restricted
+        # from - so queries on events, persons and other non-access-controlled tables share one cache
+        # entry (incl. userless cache warming).
+        queried_resources = queried_access_controlled_resources(self.query, self.team)
+
+        # Reads no access-controlled table -> skip the access-control preload
+        if queried_resources == set():
+            return payload
+
+        if restricted_objects := self._get_object_access_restrictions(queried_resources):
+            payload["restricted_objects"] = restricted_objects
+        if restricted_resources := self._get_resource_access_restrictions(queried_resources):
+            payload["restricted_resources"] = restricted_resources
+
+        return payload
+
+    def _get_object_access_restrictions(self, queried_resources: Optional[set[str]]) -> dict[str, list[str]] | None:
+        """Per-resource object IDs the user is denied, scoped to the resources this query reads.
+        None for admins / no restrictions."""
+        user_access_control = self.user_access_control
+        if user_access_control is None:
+            return None
+        blocked = user_access_control.blocked_resource_ids_by_scope
+        if queried_resources is not None:
+            blocked = {resource: ids for resource, ids in blocked.items() if resource in queried_resources}
+        if not blocked:
+            return None
+        return {resource: sorted(ids) for resource, ids in sorted(blocked.items())}
+
+    def _get_resource_access_restrictions(self, queried_resources: Optional[set[str]]) -> list[str] | None:
+        """Resources the user has no resource-level access to, scoped to the resources this query reads."""
+        # user is typed Optional[User] but runtime also passes SyntheticUser (project secret keys)
+        # and SharedLinkUser (shared renders); broaden for isinstance.
+        user = cast("Optional[User | SyntheticUser | SharedLinkUser]", self.user)
+
+        # Userless runs fail-closed - every access-controlled table is denied.
+        if user is None:
+            return ["*"] if queried_resources is None else sorted(queried_resources) or None
+
+        # Non-real principals (service tokens, shared-link viewers) are scope-gated on system tables;
+        # partition on the readable scopes so a narrower token can't be served a broader principal's
+        # cached result. Warehouse scopes are excluded: these principals bypass warehouse access
+        # control (see Database.create_for), so warehouse tables are readable for them and listing
+        # them as restricted would collide with users who are genuinely denied those resources.
+        if not isinstance(user, User):
+            if queried_resources is None:
+                return ["*"]
+            restricted = queried_resources - user.readable_system_table_access_scopes() - WAREHOUSE_ACCESS_SCOPES
+            return sorted(restricted) or None
+
+        user_access_control = self.user_access_control
+        if user_access_control is None:
+            return None
+        if queried_resources is None:
+            return user_access_control.blocked_resources or None
+        # has_resource_access resolves RESOURCE_INHERITANCE_MAP (same predicate the schema filter uses),
+        # so a deny on a parent (e.g. customer_analytics) still partitions a child-scoped table (account).
+        # Intersecting the raw blocked_resources list would miss inherited denies and leak the cache.
+        return (
+            sorted(s for s in queried_resources if not user_access_control.has_resource_access(cast(APIScopeObject, s)))
+            or None
+        )
 
 
 class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
@@ -2207,6 +2542,12 @@ class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
         if self.hogql_context.user is self.user:
             return
         self._build_hogql_context_for_user(self.user)
+
+    @property
+    def user_access_control(self) -> Optional[UserAccessControl]:
+        # Reuse the instance create_for already preloaded on the database, so the cache fingerprint
+        # and schema filtering resolve access from the same rows.
+        return self.database.user_access_control
 
 
 ### START OF BACKWARDS COMPATIBILITY CODE

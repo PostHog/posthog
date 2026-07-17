@@ -3,16 +3,16 @@ use inquire::{
     validator::{ErrorMessage, Validation},
     CustomUserError,
 };
-use posthog_rs::Event;
+use posthog_rs::{ErrorTrackingOptionsBuilder, Event};
 use reqwest::blocking::Client;
-use serde_json::json;
 use std::{
     io::{self, IsTerminal},
     path::PathBuf,
     sync::{Mutex, OnceLock},
     thread::JoinHandle,
 };
-use tracing::{debug, info, warn};
+use tracing::debug;
+use uuid::Uuid;
 
 use crate::{
     api::client::PHClient,
@@ -30,8 +30,121 @@ pub struct InvocationContext {
     handles: Mutex<Vec<JoinHandle<()>>>,
 }
 
+struct TelemetryContext {
+    invocation_id: String,
+    command_name: Option<String>,
+    env_id: Option<String>,
+    is_terminal: bool,
+}
+
+static TELEMETRY_CONTEXT: OnceLock<Mutex<TelemetryContext>> = OnceLock::new();
+
+fn telemetry_context() -> &'static Mutex<TelemetryContext> {
+    TELEMETRY_CONTEXT.get_or_init(|| {
+        Mutex::new(TelemetryContext {
+            invocation_id: Uuid::now_v7().to_string(),
+            command_name: None,
+            env_id: None,
+            is_terminal: io::stdout().is_terminal(),
+        })
+    })
+}
+
+pub fn set_telemetry_command_name(command_name: &str) {
+    if let Ok(mut context) = telemetry_context().lock() {
+        context.command_name = Some(command_name.to_string());
+    }
+}
+
+fn set_telemetry_env_id(env_id: &str) {
+    if let Ok(mut context) = telemetry_context().lock() {
+        context.env_id = Some(env_id.to_string());
+    }
+}
+
+fn apply_telemetry_properties(event: &mut Event) {
+    let _ = event.insert_prop("cli_version", env!("CARGO_PKG_VERSION"));
+    let _ = event.insert_prop("invocation_id", telemetry_invocation_id());
+    let _ = event.insert_prop("is_ci", std::env::var_os("CI").is_some());
+    let _ = event.insert_prop("is_terminal", telemetry_is_terminal());
+    let _ = event.insert_prop("os", std::env::consts::OS);
+    let _ = event.insert_prop("arch", std::env::consts::ARCH);
+
+    if let Some(command_name) = telemetry_command_name() {
+        let _ = event.insert_prop("command_name", command_name);
+    }
+
+    if let Some(env_id) = telemetry_env_id() {
+        let _ = event.insert_prop("env_id", env_id);
+    }
+}
+
+fn telemetry_invocation_id() -> String {
+    telemetry_context()
+        .lock()
+        .map(|context| context.invocation_id.clone())
+        .unwrap_or_else(|_| "unknown".to_string())
+}
+
+fn telemetry_command_name() -> Option<String> {
+    telemetry_context()
+        .lock()
+        .ok()
+        .and_then(|context| context.command_name.clone())
+}
+
+pub fn current_telemetry_command_name() -> Option<String> {
+    telemetry_command_name()
+}
+
+fn telemetry_env_id() -> Option<String> {
+    telemetry_context()
+        .lock()
+        .ok()
+        .and_then(|context| context.env_id.clone())
+}
+
+fn telemetry_is_terminal() -> bool {
+    telemetry_context()
+        .lock()
+        .map(|context| context.is_terminal)
+        .unwrap_or_else(|_| io::stdout().is_terminal())
+}
+
 pub fn context() -> &'static InvocationContext {
     INVOCATION_CONTEXT.get().expect("Context has been set up")
+}
+
+pub fn init_posthog_telemetry() {
+    let Some(token) = option_env!("POSTHOG_API_TOKEN") else {
+        debug!("Posthog api token not set at build time - is this a debug build?");
+        return;
+    };
+
+    let error_tracking = ErrorTrackingOptionsBuilder::default()
+        .capture_panics(true)
+        .build()
+        .expect("Building error tracking config succeeds");
+    let ph_config = posthog_rs::ClientOptionsBuilder::default()
+        .api_key(token.to_string())
+        .request_timeout_seconds(5) // It's a CLI, 5 seconds is an eternity
+        .error_tracking(error_tracking)
+        .before_send(|mut event| {
+            apply_telemetry_properties(&mut event);
+            Some(event)
+        })
+        .build()
+        .expect("Building PH config succeeds");
+
+    match posthog_rs::init_global(ph_config) {
+        Ok(()) => {}
+        Err(posthog_rs::Error::AlreadyInitialized) => {
+            debug!("PostHog client already initialized");
+        }
+        Err(err) => {
+            debug!("PostHog client unavailable: {err:?}");
+        }
+    }
 }
 
 pub fn init_context(
@@ -50,22 +163,11 @@ pub fn init_context(
     };
 
     config.validate()?;
+    set_telemetry_env_id(&config.env_id);
 
     let client: PHClient = PHClient::from_config(config.clone())?;
 
     INVOCATION_CONTEXT.get_or_init(|| InvocationContext::new(config, client));
-
-    // This is pulled at compile time, not runtime - we set it at build.
-    if let Some(token) = option_env!("POSTHOG_API_TOKEN") {
-        let ph_config = posthog_rs::ClientOptionsBuilder::default()
-            .api_key(token.to_string())
-            .request_timeout_seconds(5) // It's a CLI, 5 seconds is an eternity
-            .build()
-            .expect("Building PH config succeeds");
-        posthog_rs::init_global(ph_config).expect("Initializing PostHog client");
-    } else {
-        warn!("Posthog api token not set at build time - is this a debug build?");
-    };
 
     Ok(())
 }
@@ -117,14 +219,11 @@ impl InvocationContext {
     }
 
     pub fn capture_command_invoked(&self, command: &str) {
-        self.capture_event(
-            "posthog cli command run",
-            vec![("command_name", json!(command))],
-        );
+        set_telemetry_command_name(command);
+        self.capture_event("posthog cli command run", Vec::new());
     }
 
     pub fn capture_event(&self, event_name: &str, props: Vec<(&str, serde_json::Value)>) {
-        let env_id = self.client.get_env_id().clone();
         let event_name = event_name.to_string();
         let props: Vec<(String, serde_json::Value)> =
             props.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
@@ -138,31 +237,20 @@ impl InvocationContext {
                     .expect("Inserting prop succeeds");
             }
 
-            event
-                .insert_prop("env_id", env_id)
-                .expect("Inserting env_id prop succeeds");
-
             debug!("Capturing event");
-            let res = posthog_rs::capture(event); // Purposefully ignore errors here
-            if let Err(err) = res {
-                debug!("Failed to capture event: {:?}", err);
-            } else {
-                debug!("Event captured successfully");
-            }
+            posthog_rs::capture(event);
+            debug!("Event queued successfully");
         });
 
         self.handles.lock().unwrap().push(handle);
     }
 
     pub fn finish(&self) {
-        info!("Finishing up....");
-
         self.handles
             .lock()
             .unwrap()
             .drain(..)
             .for_each(|handle| handle.join().unwrap());
-
-        info!("Finished!")
+        posthog_rs::flush();
     }
 }

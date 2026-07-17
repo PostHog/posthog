@@ -12,6 +12,8 @@ from posthog.test.base import (
 )
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -20,10 +22,14 @@ from posthog.schema import (
     CompareFilter,
     CustomEventConversionGoal,
     DateRange,
+    EventPropertyFilter,
     HogQLQueryModifiers,
     IntervalType,
+    PropertyOperator,
+    SamplingRate,
     SessionPropertyFilter,
     SessionTableVersion,
+    WebAnalyticsSampling,
     WebOverviewQuery,
     WebOverviewQueryResponse,
 )
@@ -33,11 +39,12 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models import Cohort, Element
+from posthog.models import Element
 from posthog.models.utils import uuid7
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 from products.web_analytics.backend.hogql_queries.web_overview_pre_aggregated import (
     WebOverviewPreAggregatedQueryBuilder,
@@ -1035,3 +1042,146 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         builder = WebOverviewPreAggregatedQueryBuilder(runner)
         self.assertFalse(builder.can_use_preaggregated_tables())
+
+
+class TestWebOverviewNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
+    QUERY_TIMESTAMP = "2025-01-29"
+
+    def _create_pageviews(self):
+        s1, s2, s3 = str(uuid7("2025-01-10")), str(uuid7("2025-01-11")), str(uuid7("2025-01-12"))
+        for distinct_id, session_id, timestamps in [
+            ("user_a", s1, ["2025-01-10T10:00:00Z", "2025-01-10T10:05:00Z", "2025-01-10T10:20:00Z"]),
+            ("user_a", s2, ["2025-01-11T09:00:00Z"]),
+            ("user_b", s3, ["2025-01-12T12:00:00Z", "2025-01-12T12:00:30Z"]),
+        ]:
+            with freeze_time(timestamps[0]):
+                _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+            for ts in timestamps:
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=distinct_id,
+                    timestamp=ts,
+                    properties={"$session_id": session_id, "$current_url": "https://example.com/"},
+                )
+        # Sessionless (server-side) pageview: the join path drops it via the session
+        # start HAVING, so the no-join events side must exclude it explicitly.
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_b",
+            timestamp="2025-01-12T13:00:00Z",
+            properties={"$current_url": "https://example.com/"},
+        )
+
+    def _make_runner(self, **query_kwargs) -> WebOverviewQueryRunner:
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2025-01-08", date_to="2025-01-15"),
+            properties=query_kwargs.pop("properties", []),
+            **query_kwargs,
+        )
+        return WebOverviewQueryRunner(team=self.team, query=query)
+
+    @parameterized.expand([(True,), (False,)])
+    def test_no_join_results_match_join_path(self, compare: bool):
+        self._create_pageviews()
+
+        kwargs = {"compareFilter": CompareFilter(compare=True)} if compare else {}
+        with freeze_time(self.QUERY_TIMESTAMP):
+            with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk]):
+                fast_runner = self._make_runner(**kwargs)
+                assert fast_runner.should_skip_session_join
+                fast_results = fast_runner.calculate().results
+
+            join_runner = self._make_runner(**kwargs)
+            assert not join_runner.should_skip_session_join
+            join_results = join_runner.calculate().results
+
+        assert [item.key for item in fast_results] == [item.key for item in join_results]
+        for fast, join in zip(fast_results, join_results):
+            assert fast.value == join.value, f"{fast.key}: {fast.value} != {join.value}"
+            assert fast.previous == join.previous, f"{fast.key} previous: {fast.previous} != {join.previous}"
+
+    @parameterized.expand(
+        [
+            ("clean_query", {}, True),
+            (
+                "event_property_filter",
+                {"properties": [EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/")]},
+                False,
+            ),
+            ("conversion_goal", {"conversionGoal": CustomEventConversionGoal(customEventName="purchase")}, False),
+            # Sampling is not applied by web analytics runners, so a sampling
+            # object on the query — the frontend historically attached a dormant
+            # {enabled: false, forceSamplingRate: 1/10} to every tile — must not
+            # kick eligible queries off the fast path.
+            (
+                "dormant_sampling_object_ignored",
+                {
+                    "sampling": WebAnalyticsSampling(
+                        enabled=False, forceSamplingRate=SamplingRate(numerator=1, denominator=10)
+                    )
+                },
+                True,
+            ),
+            ("sampling_enabled_ignored", {"sampling": WebAnalyticsSampling(enabled=True)}, True),
+            ("sampling_factor_ignored", {"samplingFactor": 0.1}, True),
+        ]
+    )
+    def test_no_join_eligibility(self, _name: str, query_kwargs: dict, expected: bool):
+        with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk]):
+            runner = self._make_runner(**query_kwargs)
+            assert runner.should_skip_session_join == expected
+
+    def test_no_join_ineligible_when_team_not_allowlisted_or_test_filters_apply(self):
+        runner = self._make_runner()
+        assert not runner.should_skip_session_join
+
+        self.team.test_account_filters = [
+            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+        ]
+        self.team.save()
+        with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk]):
+            runner = self._make_runner(filterTestAccounts=True)
+            assert not runner.should_skip_session_join
+
+
+class TestWebOverviewNoJoinRolloutPercent(ClickhouseTestMixin, APIBaseTest):
+    def _runner(self) -> WebOverviewQueryRunner:
+        query = WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[])
+        return WebOverviewQueryRunner(team=self.team, query=query)
+
+    def test_percent_rollout_buckets_deterministically_by_team(self):
+        bucket = self.team.pk % 100
+        cases = [
+            (0, False),
+            (bucket, False),
+            (bucket + 1, True),
+            (100, True),
+        ]
+        for percent, expected in cases:
+            with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[], WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT=percent):
+                assert self._runner().should_skip_session_join == expected, f"percent={percent}"
+
+    def test_allowlist_wins_regardless_of_percent(self):
+        with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk], WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT=0):
+            assert self._runner().should_skip_session_join
+
+    def test_no_join_executions_emit_their_own_query_type_tag(self):
+        from posthog.hogql import query as hogql_query_module
+
+        with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk], WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT=0):
+            with patch(
+                "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
+                wraps=hogql_query_module.execute_hogql_query,
+            ) as spy:
+                self._runner().calculate()
+        assert spy.call_args.kwargs["query_type"] == "web_overview_no_join_query"
+
+        with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[], WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT=0):
+            with patch(
+                "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
+                wraps=hogql_query_module.execute_hogql_query,
+            ) as spy:
+                self._runner().calculate()
+        assert spy.call_args.kwargs["query_type"] == "web_overview_query"

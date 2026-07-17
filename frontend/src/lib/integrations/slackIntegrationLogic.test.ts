@@ -40,8 +40,8 @@ describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', (
         ]
         useMocks({
             get: {
-                '/api/environments/:team_id/integrations/:id/channels': (req) => {
-                    lastChannelsQuery = Object.fromEntries(req.url.searchParams.entries())
+                '/api/environments/:team_id/integrations/:id/channels': ({ request }) => {
+                    lastChannelsQuery = Object.fromEntries(new URL(request.url).searchParams.entries())
                     return [
                         200,
                         {
@@ -84,6 +84,31 @@ describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', (
         expect(lastChannelsQuery.limit).toBeUndefined()
     })
 
+    it('loadSlackChannelByIdSuccess pins a channel into slackChannels so a subsequent bulk reload cannot drop it', async () => {
+        // First, load a bulk page that does NOT include the channel we're about to pin.
+        nextChannelsResponse = [{ id: 'C_BULK', name: 'bulk-channel' }]
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels()
+        }).toFinishAllListeners()
+        expect(logic.values.slackChannels.map((c) => c.id)).toEqual(['C_BULK'])
+
+        // Now pin an off-page channel via the loader's auto-generated success action — this is
+        // exactly what the picker does on selection to keep the channel resolvable through any
+        // subsequent bulk reload triggered by LemonInputSelect's setInputValue('') side-effect.
+        logic.actions.loadSlackChannelByIdSuccess(buildChannel('C_OFFPAGE', 'off-page-channel'))
+        expect(logic.values.slackChannels.map((c) => c.id).sort()).toEqual(['C_BULK', 'C_OFFPAGE'])
+
+        // Trigger a bulk reload that returns a fresh page still not including the pinned channel.
+        nextChannelsResponse = [{ id: 'C_BULK2', name: 'bulk-channel-2' }]
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels()
+        }).toFinishAllListeners()
+
+        // Without pinning, slackChannels would be ['C_BULK2']. With the pin held in
+        // _fetchedSlackChannelById, the channel survives the reload.
+        expect(logic.values.slackChannels.map((c) => c.id).sort()).toEqual(['C_BULK2', 'C_OFFPAGE'])
+    })
+
     it('reloads the full list when a search-then-clear sequence runs', async () => {
         // First, narrow the cache with a search — server returns only the matching subset.
         nextChannelsResponse = [{ id: 'C2', name: 'engineering' }]
@@ -105,6 +130,28 @@ describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', (
 
         expect(lastChannelsQuery.search).toBe('')
         expect(logic.values.slackChannels.map((c) => c.id)).toEqual(['C1', 'C2'])
+    })
+
+    it('isMemberOfSlackChannel returns null when the channel has not been loaded yet', () => {
+        // Default selector state: no channels fetched, no by-id lookup landed. The picker uses
+        // === false strict comparison to decide whether to show the "not in channel" warning, so
+        // returning null here is what keeps that warning hidden until membership is actually known.
+        expect(logic.values.isMemberOfSlackChannel('C_UNKNOWN')).toBeNull()
+    })
+
+    it('isMemberOfSlackChannel returns true/false once the channel is in slackChannels', async () => {
+        nextChannelsResponse = [
+            { id: 'CMEMBER', name: 'i-am-a-member' },
+            // Override the helper's default by patching is_member after the fact.
+        ]
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels()
+        }).toFinishAllListeners()
+
+        // The fixture builds channels with is_member: true by default.
+        expect(logic.values.isMemberOfSlackChannel('CMEMBER')).toBe(true)
+        // Unrelated id still reads as not-yet-loaded.
+        expect(logic.values.isMemberOfSlackChannel('CMISSING')).toBeNull()
     })
 })
 
@@ -285,5 +332,26 @@ describe('slackIntegrationLogic — slackChannelsForPicker', () => {
             logic.actions.loadAllSlackChannels()
         }).toFinishAllListeners()
         expect(logic.values.slackChannelsForPicker.map((c) => c.id)).toEqual(['C2', 'C1', 'C3'])
+    })
+
+    it('sorts channels without a name (inaccessible private channels) without throwing', () => {
+        // Slack returns private channels the bot can't access with no `name`; the picker sort
+        // must not blow up on them (regression: crashed the whole workflow step config panel).
+        logic.actions.loadAllSlackChannelsSuccess({
+            channels: [
+                fixtureChannel('C1', 'alerts'),
+                {
+                    id: 'C_PRIV',
+                    is_private: true,
+                    is_ext_shared: false,
+                    is_member: false,
+                    is_private_without_access: true,
+                },
+                fixtureChannel('C2', 'general'),
+            ] as SlackChannelType[],
+            lastRefreshedAt: '2026-01-01T00:00:00Z',
+        })
+
+        expect(logic.values.slackChannelsForPicker.map((c) => c.id)).toEqual(['C_PRIV', 'C1', 'C2'])
     })
 })

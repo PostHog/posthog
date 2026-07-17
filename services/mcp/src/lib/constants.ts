@@ -11,7 +11,6 @@ export {
     isCloudApi,
     isLocalApi,
     MCP_DOCS_URL,
-    OAUTH_PROXY_URL,
     OAUTH_SCOPES_SUPPORTED,
 } from './oauth-constants'
 
@@ -22,3 +21,7 @@ export const getAuthorizationServerUrl = (): string => resolveAuthorizationServe
 export const MCP_SERVER_NAME = 'PostHog'
 export const MCP_SERVER_VERSION = '1.0.0'
 export const MCP_ANALYTICS_SOURCE = 'posthog_mcp_analytics'
+
+// Gates the semantic layer (governed-metrics catalog) — no tool declares it, so it must be
+// joined into the evaluated flag set explicitly; instructions content branches on it.
+export const PRODUCT_DATA_CATALOG_FLAG = 'product-data-catalog'

@@ -41,10 +41,9 @@ export function Navigation({
     const { mobileLayout } = useValues(navigationLogic)
     const { mode } = useValues(navigation3000Logic)
     const mainRef = useRef<HTMLElement>(null)
-    const { mainContentRect, isLayoutNavCollapsed, isLayoutPanelVisible } = useValues(panelLayoutLogic)
+    const { mainContentRect, isLayoutNavCollapsed, isLayoutPanelVisible, navbarWidth } = useValues(panelLayoutLogic)
     const { setMainContentRef, setMainContentRect } = useActions(panelLayoutLogic)
-    const { setTabScrollDepth } = useActions(sceneLogic)
-    const { activeTabId, activeSceneId } = useValues(sceneLogic)
+    const { activeSceneId } = useValues(sceneLogic)
     const { registerScenePanelElement } = useActions(sceneLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpenManual } = useValues(sceneLayoutLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
@@ -103,10 +102,23 @@ export function Navigation({
     const noPaddingScene = sceneConfig?.layout === 'app-raw-no-header' || sceneConfig?.layout === 'app-raw'
 
     if (mode !== 'full') {
+        const showMinimalNavigation = mode === 'minimal' || mode === 'zen'
         return (
             // eslint-disable-next-line react/forbid-dom-props
-            <div className="Navigation3000 flex-col" style={theme?.mainStyle}>
-                {(mode === 'minimal' || mode === 'zen') && <MinimalNavigation />}
+            <div
+                className="Navigation3000 flex-col"
+                style={
+                    {
+                        ...theme?.mainStyle,
+                        // The MinimalNavigation bar sits above the scene, so push the
+                        // settings scene's viewport-fixed nav down to clear it.
+                        ...(showMinimalNavigation && {
+                            '--settings-nav-top': 'calc(var(--minimal-navigation-height) + var(--scene-padding))',
+                        }),
+                    } as React.CSSProperties
+                }
+            >
+                {showMinimalNavigation && <MinimalNavigation />}
                 <main className={mode === 'zen' ? 'p-4' : undefined}>{children}</main>
             </div>
         )
@@ -139,6 +151,11 @@ export function Navigation({
                             ? 'var(--color-bg-surface-primary)'
                             : 'var(--color-bg-primary)',
                         '--side-panel-width': sidePanelWidth + 'px',
+                        // Live navbar width from the resizer drives both the grid's left column
+                        // (via --left-nav-width below) and the nav element itself, which reads
+                        // --project-navbar-width. Collapsed/mobile fall back to the base default.
+                        '--project-navbar-width':
+                            !mobileLayout && !isLayoutNavCollapsed ? `${navbarWidth}px` : undefined,
                         '--left-nav-width': isLayoutNavCollapsed
                             ? 'var(--project-navbar-width-collapsed)'
                             : 'var(--project-navbar-width)',
@@ -168,11 +185,6 @@ export function Navigation({
                                     'lg:max-w-[calc(100%-var(--side-panel-width))] rounded-r-none': sidePanelOpen,
                                 }
                             )}
-                            onScroll={(e) => {
-                                if (activeTabId) {
-                                    setTabScrollDepth(activeTabId, e.currentTarget.scrollTop)
-                                }
-                            }}
                         >
                             <SceneLayout sceneConfig={sceneConfig}>
                                 {!sceneMenuBarEnabled && !sceneConfig?.hideProjectNotice && (

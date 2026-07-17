@@ -1,21 +1,17 @@
+import { dayjs } from 'lib/dayjs'
+
+import { NodeKind } from '~/queries/schema/schema-general'
+
 import type {
     ClassifierScannerConfig,
     MonitorScannerConfig,
+    ReplayScanner,
     ScorerScannerConfig,
     SummarizerScannerConfig,
 } from './types'
+import { DEFAULT_MODEL, DEFAULT_PROVIDER, OBSERVATION_CREDITS_BY_MODEL } from './types'
 
-export type ScannerTemplateIcon =
-    | 'bolt'
-    | 'warning'
-    | 'notebook'
-    | 'target'
-    | 'thumbs-down'
-    | 'star'
-    | 'search'
-    | 'magic'
-    | 'bug'
-    | 'check'
+export type ScannerTemplateIcon = 'warning' | 'notebook' | 'target' | 'thumbs-down' | 'check'
 
 interface BaseTemplate {
     key: string
@@ -122,4 +118,46 @@ export function findScannerTemplate(key: string | undefined): ScannerTemplate | 
         return undefined
     }
     return defaultScannerTemplates.find((t) => t.key === key)
+}
+
+export function newScanner(templateKey?: string | null): ReplayScanner {
+    const base = {
+        id: 'new',
+        enabled: true,
+        sampling_rate: 1,
+        sampling_mode: 'comprehensive' as const,
+        query: { kind: NodeKind.RecordingsQuery },
+        provider: DEFAULT_PROVIDER,
+        model: DEFAULT_MODEL,
+        emits_signals: false,
+        scanner_version: 1,
+        last_swept_at: dayjs().toISOString(),
+        created_at: dayjs().toISOString(),
+        updated_at: dayjs().toISOString(),
+        created_by: null,
+        estimated_monthly_observations: null,
+        feedback_themes: null,
+        estimated_monthly_credits: null,
+        // Seed price for the unsaved scanner; the server-computed value takes over after the first save.
+        credits_per_observation: OBSERVATION_CREDITS_BY_MODEL[DEFAULT_MODEL],
+    } as const
+
+    const template = findScannerTemplate(templateKey ?? undefined)
+    if (template) {
+        return {
+            ...base,
+            name: template.scanner_name,
+            description: template.scanner_description,
+            scanner_type: template.scanner_type,
+            // Cloned so an in-place form mutation can never corrupt the module-level template.
+            scanner_config: structuredClone(template.scanner_config),
+        } as ReplayScanner
+    }
+    return {
+        ...base,
+        name: '',
+        description: '',
+        scanner_type: 'monitor',
+        scanner_config: { prompt: '' },
+    }
 }

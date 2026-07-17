@@ -7,6 +7,7 @@ export type DiagnosisVerdict =
     | 'trigger_pending'
     | 'sampled_out'
     | 'buffering_empty'
+    | 'recorder_error'
     | 'unknown'
 
 export interface SuggestedAction {
@@ -29,20 +30,37 @@ const DIAGNOSTIC_KEYS = [
     '$session_recording_url_trigger_activated_session',
     '$session_recording_url_trigger_status',
     '$session_recording_remote_config',
+    '$session_recording_event_trigger_activated_session',
     '$sdk_debug_replay_url_trigger_status',
     '$sdk_debug_replay_event_trigger_status',
     '$sdk_debug_replay_linked_flag_trigger_status',
+    '$sdk_debug_replay_trigger_groups_count',
+    '$sdk_debug_replay_matched_recording_trigger_groups',
     '$sdk_debug_replay_internal_buffer_length',
     '$sdk_debug_replay_internal_buffer_size',
     '$sdk_debug_replay_flushed_size',
     '$sdk_debug_replay_remote_trigger_matching_config',
     '$sdk_debug_recording_script_not_loaded',
+    '$sdk_debug_rrweb_start_attempted',
+    '$sdk_debug_rrweb_attached',
+    '$sdk_debug_replay_rrweb_error',
     '$sdk_debug_session_start',
     '$replay_sample_rate',
     '$replay_minimum_duration',
+    '$replay_override_sampling',
+    '$replay_override_linked_flag',
+    '$replay_override_url_trigger',
+    '$replay_override_event_trigger',
 ] as const
 
 const TROUBLESHOOTING_URL = 'https://posthog.com/docs/session-replay/troubleshooting'
+
+export function hasReplayDiagnosticSignals(properties: Record<string, any> | null | undefined): boolean {
+    if (!properties) {
+        return false
+    }
+    return DIAGNOSTIC_KEYS.some((key) => properties[key] !== undefined)
+}
 
 const pickSignals = (properties: Record<string, any>): Record<string, unknown> => {
     const out: Record<string, unknown> = {}
@@ -77,6 +95,7 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
     const bufferLength = toNumber(properties['$sdk_debug_replay_internal_buffer_length'])
     const flushedSize = toNumber(properties['$sdk_debug_replay_flushed_size'])
     const scriptNotLoaded = properties['$sdk_debug_recording_script_not_loaded']
+    const rrwebError = properties['$sdk_debug_replay_rrweb_error']
 
     const settingsAction: SuggestedAction = {
         label: 'Open replay settings',
@@ -123,6 +142,22 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
             ],
             rawSignals,
             suggestedActions: [settingsAction, troubleshootingAction],
+        }
+    }
+
+    // A reported rrweb error is the unambiguous signal that the recorder failed. The recorder is
+    // started during buffering — before sampling/triggers resolve — so the attach flags alone
+    // can't tell a real failure apart from a normal sampled-out or torn-down session.
+    if (rrwebError) {
+        return {
+            verdict: 'recorder_error',
+            headline: 'The recorder failed to start',
+            reasons: [
+                'The SDK started the rrweb recorder for this session but it reported an error, so no snapshots were produced.',
+                `rrweb reported: ${typeof rrwebError === 'string' ? rrwebError : JSON.stringify(rrwebError)}.`,
+            ],
+            rawSignals,
+            suggestedActions: [troubleshootingAction],
         }
     }
 

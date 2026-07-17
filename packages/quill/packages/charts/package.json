@@ -1,6 +1,6 @@
 {
     "name": "@posthog/quill-charts",
-    "version": "0.3.0-beta.15",
+    "version": "0.3.0-beta.16",
     "description": "Canvas-based charting library for trends, dashboards, and any chart that needs to render thousands of points smoothly. D3 (scale/shape/color/array sub-packages) powers the scales; the canvas does the drawing; React handles overlays.",
     "license": "MIT",
     "repository": {
@@ -52,10 +52,10 @@
         "@types/jest": "catalog:",
         "@types/react": "^18.3.27",
         "@types/react-dom": "^18.3.7",
-        "@vitejs/plugin-react": "^5.1.1",
+        "@vitejs/plugin-react": "catalog:",
         "jest": "^29.7.0",
         "typescript": "catalog:",
-        "vite": "^6.3.5",
+        "vite": "catalog:",
         "vite-plugin-dts": "^4.5.4"
     },
     "peerDependencies": {

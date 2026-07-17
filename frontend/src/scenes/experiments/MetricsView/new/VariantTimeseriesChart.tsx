@@ -1,7 +1,9 @@
 import { useChart } from 'lib/hooks/useChart'
+import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 
 import { ProcessedChartData } from '../../experimentTimeseriesLogic'
 import { useChartColors } from '../shared/colors'
+import { VariantTimeseriesTooltip } from './VariantTimeseriesTooltip'
 
 interface VariantTimeseriesChartProps {
     chartData: ProcessedChartData
@@ -13,14 +15,15 @@ export function VariantTimeseriesChart({
     isRatioMetric = false,
 }: VariantTimeseriesChartProps): JSX.Element {
     const colors = useChartColors()
+    const { getTooltip, showTooltip, hideTooltip, positionTooltip } = useInsightTooltip()
 
-    const { canvasRef } = useChart({
+    const { canvasRef } = useChart<'line'>({
         getConfig: () => {
             if (!data) {
                 return null
             }
 
-            const { labels, datasets, processedData } = data
+            const { labels, datasets, processedData, computedAt } = data
 
             return {
                 type: 'line' as const,
@@ -85,57 +88,46 @@ export function VariantTimeseriesChart({
                             display: false,
                         },
                         tooltip: {
-                            callbacks: {
-                                label: function (context) {
-                                    const value = context.parsed.y
-                                    if (value === null) {
-                                        return ''
-                                    }
-                                    const formattedValue = `${(value * 100).toFixed(2)}%`
-                                    return `${context.dataset.label}: ${formattedValue}`
-                                },
-                                labelPointStyle: function () {
-                                    return {
-                                        pointStyle: 'circle',
-                                        rotation: 0,
-                                    }
-                                },
-                                afterBody: function (context) {
-                                    if (context.length > 0) {
-                                        const dataIndex = context[0].dataIndex
-                                        const dataPoint = processedData[dataIndex]
-                                        const lines = []
+                            enabled: false,
+                            external: ({ chart, tooltip }) => {
+                                const canvas = chart.canvas
+                                if (!canvas) {
+                                    return
+                                }
 
-                                        if (dataPoint && !dataPoint.hasRealData) {
-                                            lines.push('⚠️ Data pending - showing last known value')
-                                        }
+                                const [tooltipRoot, tooltipEl] = getTooltip()
 
-                                        if (dataPoint) {
-                                            if (isRatioMetric) {
-                                                if (dataPoint.denominator_sum) {
-                                                    lines.push(
-                                                        `Denominator: ${dataPoint.denominator_sum.toLocaleString()}`
-                                                    )
-                                                }
-                                            } else {
-                                                if (dataPoint.number_of_samples) {
-                                                    lines.push(
-                                                        `Exposures: ${dataPoint.number_of_samples.toLocaleString()}`
-                                                    )
-                                                }
-                                            }
-                                        }
-                                        if (dataPoint && dataPoint.significant !== undefined) {
-                                            lines.push(`Significant: ${dataPoint.significant ? 'Yes' : 'No'}`)
-                                        }
-                                        return lines
-                                    }
-                                    return []
-                                },
+                                if (tooltip.opacity === 0 || !tooltip.dataPoints?.length) {
+                                    hideTooltip()
+                                    return
+                                }
+
+                                const dataIndex = tooltip.dataPoints[0].dataIndex
+                                const dataPoint = processedData[dataIndex]
+                                if (!dataPoint) {
+                                    hideTooltip()
+                                    return
+                                }
+
+                                showTooltip()
+                                tooltipRoot.render(
+                                    <VariantTimeseriesTooltip
+                                        date={dataPoint.date}
+                                        delta={dataPoint.value}
+                                        lowerBound={dataPoint.lower_bound}
+                                        upperBound={dataPoint.upper_bound}
+                                        isRatioMetric={isRatioMetric}
+                                        exposures={dataPoint.number_of_samples}
+                                        denominator={dataPoint.denominator_sum}
+                                        significant={dataPoint.significant}
+                                        hasRealData={dataPoint.hasRealData}
+                                        computedAt={computedAt}
+                                    />
+                                )
+
+                                const bounds = canvas.getBoundingClientRect()
+                                positionTooltip(tooltipEl, bounds, tooltip.caretX, 0, false)
                             },
-                            usePointStyle: true,
-                            boxWidth: 16,
-                            boxHeight: 1,
                         },
                         crosshair: false,
                     },

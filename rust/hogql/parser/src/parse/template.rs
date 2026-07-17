@@ -252,16 +252,22 @@ pub(super) fn parse_template_body<E: Emitter + Clone>(
         ));
     }
     if chunks.is_empty() {
-        // Empty body — cpp spans the empty-string Constant over the WHOLE
-        // `f'…'` token (there is no interior text to span), not the zero-width
-        // gap between the quotes. The token runs from `body_offset - 2` (`f'`)
-        // through `body_end + 1` (past the closing `'`).
+        // Empty body — cpp spans the empty-string Constant over the WHOLE `f'…'`
+        // token (no interior text), from `body_offset - 2` (`f'`) through the
+        // closing `'`. Inline `f'…'` has that quote at `body_end` (span ends
+        // `body_end + 1`); the standalone `parse_full_template_string` entry has
+        // no trailing quote (`body_end == full_src.len()`), so it ends at `body_end`.
+        let token_end = if body_end < full_src.len() {
+            body_end + 1
+        } else {
+            body_end
+        };
         return Ok(wrap_literal_chunk(
             emit,
             full_src,
             String::new(),
-            body_offset - 2,
-            body_end + 1,
+            body_offset.saturating_sub(2),
+            token_end,
         ));
     }
     // A single-chunk template IS that chunk — whether a literal

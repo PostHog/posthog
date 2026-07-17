@@ -12,18 +12,12 @@ import {
     wrapError,
 } from '@/lib/errors'
 
-vi.mock('@/api/rate-limiter', () => ({
-    globalRateLimiter: {
-        throttle: vi.fn().mockResolvedValue(undefined),
-    },
-}))
-
 const captureException = vi.fn()
 vi.mock('@/lib/posthog', () => ({
     getPostHogClient: () => ({ captureException }),
 }))
 vi.mock('@/lib/posthog/analytics', () => ({
-    AnalyticsEvent: { MCP_INIT: 'mcp init' },
+    AnalyticsEvent: { MCP_TOOL_CALL: '$mcp_tool_call' },
 }))
 vi.mock('@/lib/posthog/flags', () => ({
     isFeatureFlagEnabled: vi.fn().mockResolvedValue(false),

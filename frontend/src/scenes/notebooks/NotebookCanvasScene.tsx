@@ -4,8 +4,8 @@ import { useMemo } from 'react'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, lemonToast } from '@posthog/lemon-ui'
 
-import { uuid } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { uuid } from 'lib/utils/dom'
 import { getTextFromFile, selectFiles } from 'lib/utils/file-utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -48,7 +48,7 @@ export function NotebookCanvas(): JSX.Element {
                             items={[
                                 {
                                     label: 'Clear canvas',
-                                    onClick: () => setLocalContent({ type: 'doc', content: [] }, true),
+                                    onClick: () => setLocalContent({ type: 'doc', content: [] }),
                                 },
                                 {
                                     label: 'Export as JSON',
@@ -71,7 +71,7 @@ export function NotebookCanvas(): JSX.Element {
                                                     throw new Error('Not a notebook')
                                                 }
                                                 // Looks like a notebook
-                                                setLocalContent(data, true)
+                                                setLocalContent(data)
                                             })
                                             .catch((e) => {
                                                 lemonToast.error(e.message)

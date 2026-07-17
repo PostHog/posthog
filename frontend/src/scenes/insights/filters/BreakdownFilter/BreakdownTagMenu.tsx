@@ -80,6 +80,7 @@ export const BreakdownTagMenu = (): JSX.Element => {
                         <div className="flex flex-row items-center">
                             Path cleaning
                             <Tooltip
+                                interactive
                                 title={
                                     hasPathCleaningFilters ? (
                                         <>

@@ -26,6 +26,18 @@ import {
     getQuery,
 } from './metricQueryUtils'
 
+// getQuery builds date_from/date_to from dayjs() at call time, formatted to the minute.
+// The expected values below recompute dayjs() independently, so a minute rollover between
+// the two reads makes the strings differ and toEqual flakes. Freeze the clock (no
+// advanceTimers, so it cannot move) to make both reads resolve to the same instant.
+beforeAll(() => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-01-15T12:00:00'))
+})
+
+afterAll(() => {
+    jest.useRealTimers()
+})
+
 describe('getFilter', () => {
     it('returns the correct filter for an event', () => {
         const metric: ExperimentMetric = {
@@ -196,6 +208,22 @@ describe('filterToMetricSource', () => {
         const result = filterToMetricSource(undefined, events, undefined)
 
         expect(result?.math).toBe(ExperimentMetricMathType.TotalCount)
+    })
+
+    // Regression: an empty/null `id` must fall back to `name` so the event isn't dropped.
+    it.each([
+        ['empty string id (numerator path)', ''],
+        ['null id (denominator path)', null],
+    ])('recovers event from name when id is %s', (_label, id) => {
+        const events = [{ id, name: 'purchase', math: ExperimentMetricMathType.Sum, math_property: 'value' }]
+
+        const result = filterToMetricSource(undefined, events, undefined)
+
+        expect(result).toMatchObject({
+            kind: NodeKind.EventsNode,
+            event: 'purchase',
+            name: 'purchase',
+        })
     })
 })
 

@@ -54,12 +54,13 @@ class TestResaveHogFunctions(BaseTest):
 
         call_command("resave_hog_functions")
 
-        # Verify that reload_hog_functions_on_workers was called for each function
+        # any_order: the command applies no ORDER BY, so reload order isn't deterministic.
         mock_reload.assert_has_calls(
             [
                 call(team_id=self.team.id, hog_function_ids=[str(self.hog_function1.id)]),
                 call(team_id=self.team.id, hog_function_ids=[str(self.hog_function2.id)]),
-            ]
+            ],
+            any_order=True,
         )
         assert mock_reload.call_count == 2
 
@@ -90,11 +91,12 @@ class TestResaveHogFunctions(BaseTest):
 
         call_command("resave_hog_functions")
 
-        # Verify only the original enabled, non-deleted functions were reloaded
+        # any_order: the command applies no ORDER BY, so reload order isn't deterministic.
         mock_reload.assert_has_calls(
             [
                 call(team_id=self.team.id, hog_function_ids=[str(self.hog_function1.id)]),
                 call(team_id=self.team.id, hog_function_ids=[str(self.hog_function2.id)]),
-            ]
+            ],
+            any_order=True,
         )
         assert mock_reload.call_count == 2

@@ -7,7 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from optimize_test_durations import JUnitShard, MigrationTaxCorrector, _pick_outlier, outlier_merge_durations
+from optimize_test_durations import (
+    JUnitShard,
+    MigrationTaxCorrector,
+    _pick_outlier,
+    average_durations,
+    outlier_merge_durations,
+    run_average_files,
+)
 
 # Minimal valid JUnit XML — one testcase with a CamelCase classname so
 # _junit_to_pytest_id resolves cleanly.
@@ -72,6 +79,56 @@ class TestOutlierMergeDurations:
             {"test_a": 1.0},
         ]
         assert outlier_merge_durations(sources) == {"test_a": 1.0}
+
+
+class TestAverageDurations:
+    def test_empty_input(self):
+        assert average_durations([]) == {}
+
+    def test_single_source_passthrough(self):
+        source = {"test_a": 1.5, "test_b": 2.5}
+        assert average_durations([source]) == source
+
+    def test_mean_across_runs(self):
+        sources = [
+            {"test_a": 2.0, "test_b": 10.0},
+            {"test_a": 4.0, "test_b": 20.0},
+        ]
+        assert average_durations(sources) == {"test_a": 3.0, "test_b": 15.0}
+
+    def test_median_resists_a_stray_run(self):
+        # test_a spikes in one run (e.g. residual contamination); median ignores
+        # it where mean would drag toward the spike.
+        sources = [{"test_a": 2.0}, {"test_a": 2.0}, {"test_a": 100.0}]
+        assert average_durations(sources, strategy="median") == {"test_a": 2.0}
+
+    def test_membership_anchored_to_first_source(self):
+        # 'deleted' only appears in an older (non-first) run -> dropped.
+        # 'added' only appears in the first (latest) run -> kept.
+        sources = [
+            {"test_a": 1.0, "added": 3.0},
+            {"test_a": 1.0, "deleted": 9.0},
+        ]
+        result = average_durations(sources)
+        assert "deleted" not in result
+        assert result["added"] == 3.0
+
+    def test_average_over_present_runs_only(self):
+        # test_a measured in 2 of 3 runs; average over just those two.
+        sources = [{"test_a": 2.0}, {"test_b": 5.0}, {"test_a": 6.0}]
+        assert average_durations(sources)["test_a"] == 4.0
+
+    def test_run_average_files_refuses_empty_result(self, tmp_path):
+        # Newest (anchor) run scoped to nothing must not silently wipe the plan,
+        # even when older runs still carry data — refuse to write, don't emit {}.
+        newest = tmp_path / "core_newest"
+        newest.write_text("{}")
+        older = tmp_path / "core_older"
+        older.write_text('{"test_a": 1.0}')
+        out = tmp_path / "out.core"
+        with pytest.raises(SystemExit):
+            run_average_files([newest, older], out)
+        assert not out.exists()
 
 
 class TestJUnitShardSegmentFilter:

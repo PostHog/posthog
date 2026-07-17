@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import cast
 
 from django.db.models import Exists, OuterRef, QuerySet, Subquery
+from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_datetime
 
 import posthoganalytics
@@ -21,7 +22,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 
 from products.notifications.backend.cache import get_unread_count, invalidate_unread_count, set_unread_count
 from products.notifications.backend.facade.enums import AC_RESOURCE_TYPES
-from products.notifications.backend.models import NotificationEvent, NotificationReadState
+from products.notifications.backend.models import NotificationArchiveState, NotificationEvent, NotificationReadState
 from products.notifications.backend.presentation.serializers import NotificationEventSerializer
 
 _BULK_NOTIFICATION_IDS_MAX = 500
@@ -88,6 +89,12 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                         notification_event_id=OuterRef("id"),
                         user_id=user.id,
                     ).values("created_at")[:1]
+                ),
+                archived=Exists(
+                    NotificationArchiveState.objects.filter(
+                        notification_event_id=OuterRef("id"),
+                        user_id=user.id,
+                    )
                 ),
             )
             .order_by("-created_at")
@@ -198,13 +205,22 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 required=False,
                 description="ISO 8601 timestamp; only events strictly before this time",
             ),
+            OpenApiParameter(
+                name="archived",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="When true, return only notifications the recipient has archived; "
+                "otherwise return only non-archived notifications (the default)",
+            ),
         ]
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
         if not self._is_feature_enabled():
             return Response({"results": [], "next": None, "previous": None, "count": 0})
 
-        queryset = self._get_base_queryset()
+        archived = request.query_params.get("archived", "").lower() in ("true", "1")
+        queryset = self._get_base_queryset().filter(archived=archived)
         queryset = self._apply_filters(queryset, request)
         queryset = self._filter_by_access_control(queryset)
         page = self.paginate_queryset(queryset)
@@ -223,7 +239,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         org_id = self.team.organization_id
         count = get_unread_count(user.id, org_id)
         if count is None:
-            queryset = self._get_base_queryset()
+            queryset = self._get_base_queryset().filter(archived=False)
             queryset = self._filter_by_access_control(queryset)
             count = queryset.filter(read=False).count()
             set_unread_count(user.id, org_id, count)
@@ -236,13 +252,27 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return Response({"status": "ok"})
 
         user = self._get_user()
-        queryset = self._get_base_queryset().filter(read=False)
+        queryset = self._get_base_queryset().filter(read=False, archived=False)
         event_ids = list(queryset.values_list("id", flat=True))
         if event_ids:
             read_states = [NotificationReadState(notification_event_id=eid, user=user) for eid in event_ids]
             NotificationReadState.objects.bulk_create(read_states, ignore_conflicts=True)
         set_unread_count(user.id, self.team.organization_id, 0)
         return Response({"updated": len(event_ids)})
+
+    def _get_recipient_event_or_404(self) -> NotificationEvent:
+        # NotificationEvent is org-scoped + user-targeted, not team-scoped. self.get_object() applies
+        # the team_id URL filter from TeamAndOrgViewSetMixin and 404s on org-level notifications
+        # (team_id=NULL). (organization_id, resolved_user_ids__contains=[user.id]) is the real
+        # authorization boundary — the same pair the bulk mark endpoints use.
+        user = self._get_user()
+        return get_object_or_404(
+            NotificationEvent.objects.filter(  # nosemgrep: idor-lookup-without-team
+                organization_id=self.team.organization_id,
+                resolved_user_ids__contains=[user.id],
+            ),
+            pk=self.kwargs["pk"],  # nosemgrep: idor-taint-user-input-to-model-get
+        )
 
     @extend_schema(request=None)
     @action(methods=["POST"], detail=True, url_path="mark_read")
@@ -251,8 +281,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return Response({"status": "ok"})
 
         user = self._get_user()
-        event = self.get_object()
-        # nosemgrep: idor-lookup-without-team -- event is already authorized via get_object()
+        event = self._get_recipient_event_or_404()
         NotificationReadState.objects.get_or_create(notification_event=event, user=user)
         invalidate_unread_count(user.id, self.team.organization_id)
         return Response({"status": "ok"})
@@ -264,8 +293,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return Response({"status": "ok"})
 
         user = self._get_user()
-        event = self.get_object()
-        # nosemgrep: idor-lookup-without-team -- event is already authorized via get_object()
+        event = self._get_recipient_event_or_404()
         NotificationReadState.objects.filter(notification_event=event, user=user).delete()
         invalidate_unread_count(user.id, self.team.organization_id)
         return Response({"status": "ok"})
@@ -327,3 +355,56 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             ).delete()
             invalidate_unread_count(user.id, self.team.organization_id)
         return Response({"updated": len(eligible_ids)})
+
+    @extend_schema(request=None)
+    @action(methods=["POST"], detail=True, url_path="archive")
+    def archive(self, request: Request, **kwargs) -> Response:
+        if not self._is_feature_enabled():
+            return Response({"status": "ok"})
+
+        user = self._get_user()
+        event = self._get_recipient_event_or_404()
+        if event.archivable:
+            NotificationArchiveState.objects.get_or_create(notification_event=event, user=user)
+            invalidate_unread_count(user.id, self.team.organization_id)
+        return Response({"status": "ok"})
+
+    @validated_request(request_serializer=BulkNotificationIdsRequestSerializer)
+    @action(methods=["POST"], detail=False, url_path="archive_bulk")
+    def archive_bulk(self, request: ValidatedRequest, **kwargs) -> Response:
+        if not self._is_feature_enabled():
+            return Response({"updated": 0})
+
+        user = self._get_user()
+        ids = request.validated_data["notification_ids"]
+        if not ids:
+            return Response({"updated": 0})
+
+        eligible_ids = list(
+            NotificationEvent.objects.filter(  # nosemgrep: idor-lookup-without-team
+                id__in=ids,  # nosemgrep: idor-taint-user-input-to-model-get
+                organization_id=self.team.organization_id,
+                resolved_user_ids__contains=[user.id],
+                archivable=True,
+            ).values_list("id", flat=True)
+        )
+        if eligible_ids:
+            archive_states = [NotificationArchiveState(notification_event_id=eid, user=user) for eid in eligible_ids]
+            NotificationArchiveState.objects.bulk_create(archive_states, ignore_conflicts=True)
+            invalidate_unread_count(user.id, self.team.organization_id)
+        return Response({"updated": len(eligible_ids)})
+
+    @extend_schema(request=None)
+    @action(methods=["POST"], detail=False, url_path="archive_all")
+    def archive_all(self, request: Request, **kwargs) -> Response:
+        if not self._is_feature_enabled():
+            return Response({"updated": 0})
+
+        user = self._get_user()
+        queryset = self._get_base_queryset().filter(archivable=True, archived=False)
+        event_ids = list(queryset.values_list("id", flat=True))
+        if event_ids:
+            archive_states = [NotificationArchiveState(notification_event_id=eid, user=user) for eid in event_ids]
+            NotificationArchiveState.objects.bulk_create(archive_states, ignore_conflicts=True)
+            invalidate_unread_count(user.id, self.team.organization_id)
+        return Response({"updated": len(event_ids)})

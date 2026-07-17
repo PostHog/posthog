@@ -1,110 +1,58 @@
 # MCP Integration Architecture
 
-This directory contains the Cloudflare Workers implementation of PostHog's MCP (Model Context Protocol) server.
+This directory contains PostHog's MCP (Model Context Protocol) server. The protocol is served by the **Hono runtime** (Node, deployed to our k8s clusters). A thin **Cloudflare Worker** sits in front of it as a stateless edge router that terminates OAuth, validates tokens, and proxies `/mcp` traffic to the regional Hono deployment.
 
 ## Overview
-
-The implementation uses two Cloudflare primitives:
-
-1. **Worker** (`index.ts`) - Stateless request router
-2. **Durable Object** (`mcp.ts`) - Stateful MCP protocol handler
 
 ```mermaid
 flowchart TB
     subgraph Worker["Cloudflare Worker (index.ts)"]
         W1["Stateless - new instance per request"]
         W2["Handles OAuth metadata endpoints (RFC 8414, RFC 9728)"]
-        W3["Validates tokens and routes to Durable Object"]
+        W3["Validates tokens and resolves the user's region"]
         W4["Wide logging via middleware"]
     end
 
-    subgraph DO["Durable Object (mcp.ts)"]
-        D1["Stateful - one instance per user (keyed by token hash)"]
-        D2["SQLite storage for persistence (region, distinctId)"]
-        D3["Handles MCP protocol (tools, prompts, resources)"]
-        D4["Tracks analytics events to PostHog"]
+    subgraph Hono["Hono runtime (Node / k8s)"]
+        H1["Serves the MCP protocol (tools, prompts, resources)"]
+        H2["Per-user session state in Redis (keyed by token hash)"]
+        H3["Tracks analytics events to PostHog"]
     end
 
-    Worker -->|"MCP.serve() / MCP.serveSSE()<br/>passes ctx.props with token, userHash, etc."| DO
+    Worker -->|"proxyToHono(): forwards /mcp to<br/>mcp.{us,eu}.posthog.com"| Hono
 ```
+
+The Worker no longer serves the protocol itself — an earlier iteration ran a stateful Cloudflare Durable Object (`mcp.ts`) for this, but that has been removed in favor of always proxying to Hono.
 
 ## File Structure
 
 ```txt
-src/integrations/mcp/
-├── index.ts          # Worker entry point and request router
-├── mcp.ts            # Durable Object class (MCP protocol handler)
-├── README.md         # This file
-└── utils/
-    ├── client.ts     # PostHog analytics client
-    ├── formatResponse.ts
-    ├── handleToolError.ts
-    └── logging.ts    # Wide logging middleware
+src/
+├── index.ts          # Worker entry point: OAuth, routing, /mcp proxy
+├── proxy.ts          # Region resolution + reverse proxy to the Hono runtime
+├── hono/             # The Hono runtime that actually serves the MCP protocol
+└── lib/              # Shared helpers (caching, analytics, logging, …)
 ```
 
 ## Key Concepts
 
-### Worker → Durable Object Communication
+### Worker → Hono communication
 
-The Worker passes request context to the Durable Object via `ctx.props`:
+The Worker resolves the caller's region (from cache/KV or by probing both regions) and reverse-proxies the request to the matching Hono deployment:
 
 ```typescript
 // In Worker (index.ts)
-Object.assign(ctx.props, {
-  apiToken: token,
-  userHash: hash(token),
-  sessionId: sessionId,
-  features: features,
-  region: regionParam,
-})
-
-// Then route to Durable Object
-MCP.serve('/mcp').fetch(request, env, ctx)
-```
-
-The Durable Object accesses this via `this.props`:
-
-```typescript
-// In Durable Object (mcp.ts)
-get requestProperties(): RequestProperties {
-    return this.props as RequestProperties
+if (url.pathname.startsWith('/mcp')) {
+  const region = await resolveProxyRegion(token, ctx.props.userHash, env.MCP_KV)
+  return proxyToHono(request, region)
 }
 ```
 
-### Per-User State via Durable Objects
+`RequestProperties` (the parsed headers and query params for a request) is defined in `src/lib/request-properties.ts` and shared by both runtimes.
 
-Durable Objects provide a single shared SQLite storage instance (`this.ctx.storage`). To achieve per-user isolation within this shared storage, we use a **namespaced key pattern**:
+### Per-User State
 
-```mermaid
-flowchart LR
-    subgraph Storage["Durable Object Storage (shared SQLite)"]
-        subgraph UserA["User A (hash: abc123)"]
-            A1["user:abc123:region = 'us'"]
-            A2["user:abc123:distinctId = 'user_1'"]
-        end
-        subgraph UserB["User B (hash: def456)"]
-            B1["user:def456:region = 'eu'"]
-            B2["user:def456:distinctId = 'user_2'"]
-        end
-    end
-```
-
-The `DurableObjectCache` handles this namespacing automatically:
-
-```typescript
-// In DurableObjectCache (src/lib/cache/DurableObjectCache.ts)
-private getScopedKey(key: string): string {
-    return `user:${this.userHash}:${key}`
-}
-
-// When mcp.ts calls:
-await this.cache.set('region', 'us')
-
-// It actually stores:
-await this.storage.put('user:abc123:region', 'us')
-```
-
-The `userHash` is a PBKDF2 hash of the API token (see `src/lib/utils/helper-functions.ts`), ensuring:
+The Hono runtime keeps per-user session state (active project/organization, region, distinctId) in Redis, namespaced by `userHash` — a PBKDF2 hash of the API token (see `src/lib/utils`), ensuring:
 
 - **Isolation**: Users can't access each other's cached data (different prefix)
 - **Persistence**: Region and distinctId survive across requests
@@ -129,15 +77,17 @@ This produces one structured JSON log per request, making it easier to query in 
 
 There are three independent layers that emit signals about each MCP request:
 
-1. **PostHog analytics events** — `mcp_tool_call` and friends, captured for product analytics.
+1. **PostHog analytics events** — `$mcp_tool_call` and friends, captured for product analytics.
 2. **Outbound API headers** — propagated when the MCP server calls PostHog's Django backend, so backend log lines and OTLP spans can correlate with the originating MCP request.
 3. **Wide structured logs** — single JSON record per request from the Worker itself (see [Wide Logging Pattern](#wide-logging-pattern) above).
 
-#### `mcp_tool_call` event paths
+#### `$mcp_tool_call` event paths
 
-Three distinct code paths emit `mcp_tool_call` events; which one fires depends on the server mode and on the `mcp-posthog-analytics-sdk` feature flag:
+The canonical event is `$mcp_tool_call`.
+The legacy unprefixed `mcp_tool_call` alias is no longer emitted — the transition shim that dual-emitted it through the cutover has been removed (only pre-2026-06-16 history remains under that name).
+The path that fires depends on the server mode and on the `mcp-posthog-analytics-sdk` feature flag:
 
-- **`mcp.ts:trackEvent`** — homegrown PostHog capture. Used by the exec-mode wrapper to emit events for inner tool calls. Properties use the bare form: `mcp_session_id`, `mcp_conversation_id`, `mcp_client_name`, etc.
+- **`hono/analytics.ts`** — homegrown PostHog capture. Used by the exec-mode wrapper to emit events for inner tool calls. Properties use the bare form: `mcp_session_id`, `mcp_conversation_id`, `mcp_client_name`, etc.
 - **`lib/mcpcat.ts`** — legacy MCPcat SDK path. Same bare property names.
 - **`lib/posthog-mcp-analytics.ts`** — the [`@posthog/mcp-analytics`](https://github.com/PostHog/mcp-analytics) SDK. Property names are `$`-prefixed (`$mcp_session_id`, `$mcp_conversation_id`, …). This is the path most live traffic flows through today.
 
@@ -168,20 +118,6 @@ The headers are caller-asserted — anyone can spoof them on a request — so ba
 
 This is **attribute-based correlation, not distributed-trace span linkage** — the Worker emits no OTLP itself and forwards no `traceparent`, so the Django-rooted span is not a child of any Worker-side span. Tracing backends can correlate after the fact by querying on the attribute, but won't render a cross-service trace tree until Worker-side OTLP export ships.
 
-### Durable Object cold vs warm
-
-Cloudflare Durable Objects have two lifecycle states that matter when reasoning about cached state in this codebase:
-
-- **Cold start.** A request arrives, no live DO instance exists. The Cloudflare runtime constructs a fresh instance and calls `init()`. `_api`, `_cache`, and any other lazily-initialized fields are built from scratch. The DO is now "warm".
-- **Warm.** Subsequent requests reuse the same in-memory DO instance. `init()` does **not** re-run; cached fields (`_api`, `_cache`) keep the values captured on the cold start. Per-request props arrive via the framework's `updateProps` / `setName` ingress (which `McpAgent` overrides).
-- **Hibernation.** After ~10 s of inactivity, the runtime tears the DO down. The next request triggers a fresh cold start. DO storage (`this.ctx.storage`) persists across hibernation; in-memory caches do not.
-
-This matters for any value that's per-request but ends up snapshotted onto a long-lived cached object:
-
-- The cached `_api` is built once in `api()`, during `init()` on the cold start. The cold start's request is almost always an **initialize** call, which by spec does **not** carry the `Mcp-Session-Id` header (the server is about to mint it in the response). So `_api.config.mcpSessionId` is `undefined` at construction and stays that way for the warm DO's lifetime.
-- For values that need to refresh per request, mutate `_api.config` in place from `updateProps` / `setName` (the per-request ingress hooks). That's what `rotateCachedApiToken` does for `apiToken`.
-- Event emission is unaffected by this caching: `trackEvent` reads `this.requestProperties.mcpSessionId` directly per emission, and the `posthog-mcp-analytics` SDK reads `extra.sessionId` from the transport per event. So `mcp_session_id` lands on events even when `_api`'s copy is stale.
-
 ## OAuth Flow
 
 The server implements RFC 9728 (OAuth Protected Resource Metadata) and RFC 8414 (OAuth Authorization Server Metadata):
@@ -204,23 +140,14 @@ sequenceDiagram
 
 ## Wrangler Configuration
 
-The Durable Object binding is configured in `wrangler.jsonc`:
+The Worker no longer binds a Durable Object — `/mcp` is proxied to the Hono runtime. The historical DO migrations remain in `wrangler.jsonc` as tombstones, with a final `deleted_classes` migration that retires the class (and its per-user SQLite storage) in Cloudflare:
 
 ```jsonc
 {
-  "durable_objects": {
-    "bindings": [
-      {
-        "class_name": "MCP",
-        "name": "MCP_OBJECT",
-      },
-    ],
-  },
   "migrations": [
     { "new_sqlite_classes": ["MyMCP"], "tag": "v1" },
     { "renamed_classes": [{ "from": "MyMCP", "to": "MCP" }], "tag": "v2" },
+    { "deleted_classes": ["MCP"], "tag": "v3" },
   ],
 }
 ```
-
-The `MCP` class must be exported from the Worker entry point for Wrangler to find it.

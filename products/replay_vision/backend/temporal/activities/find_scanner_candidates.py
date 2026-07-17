@@ -2,8 +2,6 @@ from pydantic import ValidationError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from posthog.schema import RecordingsQuery
-
 from posthog.rbac.user_access_control import UserAccessControl
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
@@ -12,6 +10,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     ScannerCandidateQuery,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
+from products.replay_vision.backend.temporal.metrics import record_sweep_outcome
 from products.replay_vision.backend.temporal.sweep_types import (
     CandidateSessionPayload,
     FindScannerCandidatesInputs,
@@ -38,22 +37,28 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
 
     try:
-        query = RecordingsQuery.model_validate(scanner.query or {"kind": "RecordingsQuery"})
+        query = scanner.recordings_query()
     except ValidationError as exc:
         raise ApplicationError(
             f"ReplayScanner {inputs.scanner_id} has malformed query: {exc}", non_retryable=True
         ) from exc
 
+    limit = inputs.candidate_limit if inputs.candidate_limit is not None else DEFAULT_CANDIDATE_LIMIT
     candidate_query = ScannerCandidateQuery(
         team=scanner.team,
         query=query,
         last_swept_at=scanner.last_swept_at,
         sampling_rate=scanner.sampling_rate,
+        sampling_salt=str(scanner.id),
+        sampling_mode=scanner.sampling_mode,
         last_seen_session_id=scanner.last_seen_session_id or None,
+        candidate_limit=limit,
     )
     candidates = candidate_query.run()
 
+    record_sweep_outcome("candidates_found" if candidates else "no_candidates", candidates=len(candidates))
     return FindScannerCandidatesOutput(
         candidates=[CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in candidates],
-        saturated=len(candidates) == DEFAULT_CANDIDATE_LIMIT,
+        # A full batch means there may be more past the keyset; the next sweep resumes from the last candidate.
+        saturated=len(candidates) == limit,
     )

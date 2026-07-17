@@ -4,19 +4,21 @@ import { useState } from 'react'
 import { IconClock } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
 
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter, colonDelimitedDuration, shortTimeZone } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
-import { formatLocalizedDate } from 'lib/utils/dateTimeUtils'
+import { formatLocalizedDate } from 'lib/utils/datetime'
+import { colonDelimitedDuration } from 'lib/utils/durations'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { shortTimeZone } from 'lib/utils/timezones'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
 import {
     ONE_SECOND_MS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { HotKeyOrModifier } from '~/types'
 
 import { TimestampFormat, playerSettingsLogic } from '../playerSettingsLogic'

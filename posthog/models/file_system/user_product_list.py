@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from django.conf import settings
 from django.db import models, transaction
@@ -8,17 +8,72 @@ from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 
-from posthog.schema import ProductIntentContext, ProductItemCategory, ProductKey
-
 from posthog.models.utils import UpdatedMetaFields, UUIDModel, uuid7
 from posthog.products import Products
+from posthog.schema_enums import ProductIntentContext, ProductItemCategory, ProductKey
 
 from products.growth.backend.cross_sell_candidate_selector import DEFAULT_IGNORED_CATEGORIES, CrossSellCandidateSelector
 
 if TYPE_CHECKING:
+    from posthog.models.organization import Organization
     from posthog.models.product_intent.product_intent import ProductIntent
     from posthog.models.team import Team
     from posthog.models.user import User
+
+# The baseline sidebar: every user gets these whenever they gain access to a project.
+# Paths must match `path` values in frontend/src/products.json.
+DEFAULT_PRODUCT_PATHS = [
+    "Product analytics",
+    "Dashboards",
+    "Web analytics",
+    "Error tracking",
+    "Session replay",
+]
+
+
+def add_default_products_for_user(user: "User", team: "Team") -> "list[UserProductList]":
+    """
+    Add the default set of products to a user's sidebar for a team.
+
+    Called whenever a user/project connection is created (project creation, invite
+    acceptance, access grants). Rows the user already has - enabled or intentionally
+    disabled - are left untouched.
+    """
+    existing_paths = set(
+        UserProductList.objects.filter(user=user, team=team, product_path__in=DEFAULT_PRODUCT_PATHS).values_list(
+            "product_path", flat=True
+        )
+    )
+    missing_paths = [path for path in DEFAULT_PRODUCT_PATHS if path not in existing_paths]
+    if not missing_paths:
+        return []
+
+    # `ignore_conflicts` + `unique_together` on (team, user, product_path) keep this
+    # idempotent under concurrent seeding.
+    return UserProductList.objects.bulk_create(
+        [
+            UserProductList(
+                user=user, team=team, product_path=path, enabled=True, reason=UserProductList.Reason.DEFAULT
+            )
+            for path in missing_paths
+        ],
+        ignore_conflicts=True,
+    )
+
+
+def add_default_products_for_accessible_teams(user: "User", organization: "Organization") -> None:
+    """
+    Add the default products to the user's sidebar for every team in the organization
+    they have access to. Called when a user/organization connection is created (invite
+    acceptance, domain/SSO auto-join).
+    """
+    from posthog.rbac.user_access_control import UserAccessControl
+
+    uac = UserAccessControl(user=user, organization_id=str(organization.id))
+    accessible_teams = uac.filter_queryset_by_access_level(organization.teams.all(), include_all_if_admin=True)
+
+    for team in accessible_teams:
+        add_default_products_for_user(user, team)
 
 
 def get_user_product_list_count(team: "Team") -> list[dict[str, Any]]:
@@ -43,6 +98,10 @@ def backfill_user_product_list_for_new_user(user: "User", team: "Team") -> None:
     """
     Backfill UserProductList entries for a new user in a new team based on what
     they have enabled in other teams they belong to.
+
+    Not called from any active flow - connection-time seeding uses
+    `add_default_products_for_user` instead - but kept alongside the colleague-sync
+    Dagster job in case we bring inheritance-based suggestions back.
     """
     UserProductList.backfill_from_other_teams(user, team)
     UserProductList.sync_from_team_colleagues(user, team, count=3)
@@ -54,6 +113,13 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
     Products are identified by their path from the static products list.
     """
 
+    # django-stubs normally injects the default `objects` manager during mypy's semantic pass,
+    # but this module sits in an import cycle (it imports `user_access_control`/`organization`,
+    # which loop back through `posthog.models`). When the plugin analyzes the model mid-cycle it
+    # skips the injection, so every `UserProductList.objects` use trips `attr-defined`. Declaring
+    # the manager explicitly is order-independent and keeps the type stable regardless of the cycle.
+    objects: ClassVar[models.Manager["UserProductList"]]
+
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     user = models.ForeignKey("User", on_delete=models.CASCADE)
@@ -63,6 +129,9 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Reason(models.TextChoices):
+        # Part of the default product set added whenever a user gains access to a project
+        DEFAULT = "default", "Default"
+
         # User chose this product during onboarding
         ONBOARDING = "onboarding", "Onboarding"
 
@@ -252,7 +321,7 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         other_teams = Team.objects.filter(organization_id__in=user_organizations).exclude(id=team.id)
 
         # Get all product paths the user has enabled in other teams. Skip rows seeded by
-        # onboarding-delegation — those represent a one-off "explore everything" state for
+        # onboarding-delegation - those represent a one-off "explore everything" state for
         # the delegator and shouldn't propagate when they later join another team.
         user_product_paths = set(
             UserProductList.objects.filter(user=user, team__in=other_teams, enabled=True)
@@ -331,16 +400,16 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
 @receiver(post_save, sender="ee.AccessControl")
 def access_control_created(sender, instance, created, **kwargs):
     """
-    Handle AccessControl creation to backfill UserProductList for users gaining access to a team.
+    Handle AccessControl creation to seed UserProductList for users gaining access to a team.
 
-    When a user is granted access to a team via AccessControl, we backfill their UserProductList
-    based on what they have enabled in other teams they belong to.
+    When a user is granted access to a team via AccessControl, we add the default set of
+    products to their sidebar for that team.
     """
     if created and instance.organization_member and instance.resource == "project":
         user = instance.organization_member.user
         team = instance.team
 
         if settings.TEST:
-            backfill_user_product_list_for_new_user(user, team)
+            add_default_products_for_user(user, team)
         else:
-            transaction.on_commit(lambda: backfill_user_product_list_for_new_user(user, team))
+            transaction.on_commit(lambda: add_default_products_for_user(user, team))

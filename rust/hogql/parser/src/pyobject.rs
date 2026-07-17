@@ -9,12 +9,45 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 use serde_json::Value;
 
-/// Cached refs: AST module, two error classes, two StrEnum types from `_ENUM_FIELDS` in `json_ast.py`, and the `int` builtin for big-int parsing. Built once per call and reused across the walk; cheaper than `import` + `getattr` per node.
+/// Raise the matching `posthog.hogql.errors` exception for a parser error envelope, importing ONLY the errors module — error paths don't pay for the success-path converter's AST/enum imports. Mirrors `json_ast.py`'s `SyntaxError`/`ParsingError`/else mapping; shared by `Converter::build_error` and the standalone `parse_string_literal_text` entry point.
+pub(crate) fn raise_error_envelope(
+    py: Python<'_>,
+    error_type: &str,
+    message: &str,
+    start: Option<u64>,
+    end: Option<u64>,
+) -> PyErr {
+    let errors_module = match py.import_bound("posthog.hogql.errors") {
+        Ok(m) => m,
+        Err(e) => return e,
+    };
+    let cls_name = match error_type {
+        "SyntaxError" => "SyntaxError",
+        "ParsingError" => "ParsingError",
+        _ => "ExposedHogQLError",
+    };
+    let cls = match errors_module.getattr(cls_name) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+    let kwargs = PyDict::new_bound(py);
+    if let Err(e) = kwargs.set_item("start", start) {
+        return e;
+    }
+    if let Err(e) = kwargs.set_item("end", end) {
+        return e;
+    }
+    let args = PyTuple::new_bound(py, [message]);
+    match cls.call(&args, Some(&kwargs)) {
+        Ok(exc) => PyErr::from_value_bound(exc),
+        Err(e) => e,
+    }
+}
+
+/// Cached refs: AST module, two StrEnum types from `_ENUM_FIELDS` in `json_ast.py`, and the `int` builtin for big-int parsing. Built once per call and reused across the walk; cheaper than `import` + `getattr` per node.
 pub struct Converter<'py> {
     py: Python<'py>,
     ast_module: Bound<'py, PyModule>,
-    exposed_error: Bound<'py, PyAny>,
-    syntax_error: Bound<'py, PyAny>,
     arith_op_enum: Bound<'py, PyAny>,
     compare_op_enum: Bound<'py, PyAny>,
     /// Python builtin `int` class. Mirrors `PyEmitter::cls_int`; cached so big-int literals don't pay `py.eval_bound("int", ...)` per call.
@@ -24,24 +57,19 @@ pub struct Converter<'py> {
 impl<'py> Converter<'py> {
     pub fn new(py: Python<'py>) -> PyResult<Self> {
         let ast_module = py.import_bound("posthog.hogql.ast")?;
-        let errors_module = py.import_bound("posthog.hogql.errors")?;
-        let exposed_error = errors_module.getattr("ExposedHogQLError")?;
-        let syntax_error = errors_module.getattr("SyntaxError")?;
         let arith_op_enum = ast_module.getattr("ArithmeticOperationOp")?;
         let compare_op_enum = ast_module.getattr("CompareOperationOp")?;
         let cls_int = py.import_bound("builtins")?.getattr("int")?;
         Ok(Self {
             py,
             ast_module,
-            exposed_error,
-            syntax_error,
             arith_op_enum,
             compare_op_enum,
             cls_int,
         })
     }
 
-    /// Top-level entry: convert the root `Value` to a Python AST instance. Raises `ExposedHogQLError` / `SyntaxError` if the parser returned an error envelope.
+    /// Top-level entry: convert the root `Value` to a Python AST instance. Raises `ExposedHogQLError` / `SyntaxError` / `ParsingError` if the parser returned an error envelope.
     pub fn convert_root(&self, value: &Value) -> PyResult<PyObject> {
         self.convert(value)
     }
@@ -208,24 +236,7 @@ impl<'py> Converter<'py> {
             .get("end")
             .and_then(|v| v.get("offset"))
             .and_then(Value::as_u64);
-
-        let cls = match error_type {
-            "SyntaxError" => &self.syntax_error,
-            _ => &self.exposed_error,
-        };
-
-        let kwargs = PyDict::new_bound(self.py);
-        if let Err(e) = kwargs.set_item("start", start) {
-            return e;
-        }
-        if let Err(e) = kwargs.set_item("end", end) {
-            return e;
-        }
-        let args = PyTuple::new_bound(self.py, [message]);
-        match cls.call(&args, Some(&kwargs)) {
-            Ok(exc) => PyErr::from_value_bound(exc),
-            Err(e) => e,
-        }
+        raise_error_envelope(self.py, error_type, message, start, end)
     }
 
     /// Build a Python `int` from an integer literal in the lossless-string envelope (decimal or `0x…` hex, optional leading `-`). Rust can't natively represent arbitrary-precision ints, so we hand the raw digits to Python's `int(text, base)` constructor via the cached `cls_int`.

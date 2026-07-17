@@ -92,6 +92,9 @@ const NAVIGATION_BAR_PARENT_ID = 7
 const KEYBOARD_PARENT_ID = 9
 export const STATUS_BAR_PARENT_ID = 11
 
+// upper bound on rendered rating stars, guards against absurd `max` values in wireframe data
+const MAX_RATING_STARS = 100
+
 function isKeyboardEvent(x: unknown): x is keyboardEvent {
     return isObject(x) && 'data' in x && isObject(x.data) && 'tag' in x.data && x.data.tag === 'keyboard'
 }
@@ -536,9 +539,16 @@ function makeRatingBar(
         return makePlaceholderElement(wireframe, children, context)
     }
 
-    const numberOfFilledStars = Math.floor(wireframe.value)
-    const numberOfHalfStars = wireframe.value - numberOfFilledStars > 0 ? 1 : 0
-    const numberOfEmptyStars = wireframe.max - numberOfFilledStars - numberOfHalfStars
+    // wireframe.value/max are untrusted SDK data: negative, fractional, or out-of-range
+    // values would otherwise feed a negative length into Array() and throw RangeError.
+    // Clamp every star count to a non-negative integer (and cap the total against max).
+    const safeStarCount = (n: number): number => Math.max(0, Math.min(MAX_RATING_STARS, Math.floor(n)))
+
+    const flooredValue = Math.floor(wireframe.value)
+    const numberOfFilledStars = safeStarCount(flooredValue)
+    // only a positive fractional value yields a half star; negative values clamp to zero filled stars
+    const numberOfHalfStars = wireframe.value > 0 && wireframe.value > flooredValue ? 1 : 0
+    const numberOfEmptyStars = safeStarCount(wireframe.max - numberOfFilledStars - numberOfHalfStars)
 
     const filledStars = Array(numberOfFilledStars)
         .fill(undefined)

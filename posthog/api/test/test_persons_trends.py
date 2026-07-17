@@ -13,8 +13,10 @@ from posthog.test.base import (
 )
 
 from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE, TRENDS_CUMULATIVE
-from posthog.models import Cohort, Organization
+from posthog.models import Organization
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+
+from products.cohorts.backend.models.cohort import Cohort
 
 
 def _create_cohort(**kwargs):

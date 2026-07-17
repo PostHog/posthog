@@ -15,6 +15,7 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsNode,
     FilterLogicalOperator,
+    FunnelMathType,
     FunnelsDataWarehouseNode,
     FunnelsQuery,
     GroupNode,
@@ -26,13 +27,17 @@ from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEven
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 
 from products.actions.backend.models.action import Action
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 
 def format_query(query: ast.SelectQuery):
-    sql = str(query)[4:-1]
-    return sqlparse.format(sql, keyword_case="upper", reindent=True)
+    return sqlparse.format(query.to_hogql(), keyword_case="upper", reindent=True)
+
+
+def raw_query(query: ast.SelectQuery) -> str:
+    # The single-line HogQL string, without sqlparse reindentation, so substring
+    # assertions don't break on line wrapping.
+    return query.to_hogql()
 
 
 class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
@@ -270,6 +275,159 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
             WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999'))), equals(step_2, 1))
         """).strip()
         self.assertEqual(select_3, expected_3)
+
+    @freeze_time("2025-11-12")
+    def test_dwh_first_time_for_user(self):
+        dwh_node = FunnelsDataWarehouseNode(
+            aggregation_target_field="user_id",
+            timestamp_field="created_at",
+            table_name="payments",
+            id="payments",
+            id_field="id",
+            math=FunnelMathType.FIRST_TIME_FOR_USER,
+        )
+        query = FunnelsQuery(series=[dwh_node, dwh_node])
+        context = FunnelQueryContext(query=query, team=self.team)
+
+        sql = raw_query(FunnelEventQuery(context=context).to_query())
+
+        # The first-time subquery must target the data warehouse table/timestamp/aggregation
+        # target/id field — not the events table, person_id, or uuid.
+        self.assertIn("FROM payments AS e", sql)
+        self.assertIn("globalIn(e.id,", sql)
+        self.assertIn("argMin(id, e.created_at) AS uuid", sql)
+        self.assertIn("min(e.created_at) AS min_timestamp", sql)
+        self.assertIn("GROUP BY user_id", sql)
+        # the events-table concepts must NOT leak into the data warehouse subquery
+        self.assertNotIn("FROM events", sql)
+        self.assertNotIn("person_id", sql)
+
+    @freeze_time("2025-11-12")
+    def test_dwh_first_time_for_user_string_timestamp(self):
+        dwh_node = FunnelsDataWarehouseNode(
+            aggregation_target_field="user_id",
+            timestamp_field="created_at_str",
+            table_name="payments_string_timestamp",
+            id="payments_string_timestamp",
+            id_field="id",
+            math=FunnelMathType.FIRST_TIME_FOR_USER,
+        )
+        query = FunnelsQuery(series=[dwh_node, dwh_node])
+        context = FunnelQueryContext(query=query, team=self.team)
+
+        sql = raw_query(FunnelEventQuery(context=context).to_query())
+
+        # String timestamp columns are wrapped in toDateTime() everywhere they're referenced.
+        self.assertIn("FROM payments_string_timestamp AS e", sql)
+        self.assertIn("argMin(id, toDateTime(e.created_at_str)) AS uuid", sql)
+        self.assertIn("min(toDateTime(e.created_at_str)) AS min_timestamp", sql)
+        self.assertIn("globalIn(e.id,", sql)
+
+    @freeze_time("2025-11-12")
+    def test_dwh_first_time_for_user_with_filters(self):
+        dwh_node = FunnelsDataWarehouseNode(
+            id="table_one",
+            table_name="table_one",
+            id_field="id",
+            aggregation_target_field="user_id",
+            timestamp_field="created_at",
+            properties=[DataWarehousePropertyFilter(key="some_prop", value="some_value", operator="exact")],
+            math=FunnelMathType.FIRST_TIME_FOR_USER_WITH_FILTERS,
+        )
+        query = FunnelsQuery(series=[dwh_node, dwh_node])
+        context = FunnelQueryContext(query=query, team=self.team)
+
+        sql = raw_query(FunnelEventQuery(context=context).to_query())
+
+        self.assertIn("FROM table_one AS e", sql)
+        self.assertIn("globalIn(e.id,", sql)
+        # the step's property filter resolves against the data warehouse table inside the subquery
+        self.assertIn("equals(some_prop, 'some_value')", sql)
+
+    @freeze_time("2025-11-12")
+    def test_dwh_first_time_for_user_non_uuid_id_field(self):
+        dwh_node = FunnelsDataWarehouseNode(
+            id="table_two",
+            table_name="table_two",
+            id_field="some_id",
+            aggregation_target_field="some_user_id",
+            timestamp_field="ts",
+            math=FunnelMathType.FIRST_TIME_FOR_USER,
+        )
+        query = FunnelsQuery(series=[dwh_node, dwh_node])
+        context = FunnelQueryContext(query=query, team=self.team)
+
+        sql = raw_query(FunnelEventQuery(context=context).to_query())
+
+        self.assertIn("FROM table_two AS e", sql)
+        self.assertIn("globalIn(e.some_id,", sql)
+        self.assertIn("argMin(some_id, e.ts) AS uuid", sql)
+        self.assertIn("GROUP BY some_user_id", sql)
+
+    @freeze_time("2025-11-12")
+    def test_dwh_first_time_for_user_two_different_tables(self):
+        query = FunnelsQuery(
+            kind="FunnelsQuery",
+            series=[
+                FunnelsDataWarehouseNode(
+                    id="table_one",
+                    table_name="table_one",
+                    id_field="id",
+                    aggregation_target_field="user_id",
+                    timestamp_field="created_at",
+                    math=FunnelMathType.FIRST_TIME_FOR_USER,
+                ),
+                FunnelsDataWarehouseNode(
+                    id="table_two",
+                    table_name="table_two",
+                    id_field="some_id",
+                    aggregation_target_field="some_user_id",
+                    timestamp_field="ts",
+                    math=FunnelMathType.FIRST_TIME_FOR_USER,
+                ),
+            ],
+        )
+        context = FunnelQueryContext(query=query, team=self.team)
+
+        sql = raw_query(FunnelEventQuery(context=context).to_query())
+
+        # Each table's first-time subquery is built independently against its own
+        # table / aggregation target / id field — no cross-bleed between configs.
+        self.assertIn("globalIn(e.id,", sql)
+        self.assertIn("argMin(id, e.created_at) AS uuid", sql)
+        self.assertIn("globalIn(e.some_id,", sql)
+        self.assertIn("argMin(some_id, e.ts) AS uuid", sql)
+        self.assertIn("GROUP BY user_id", sql)
+        self.assertIn("GROUP BY some_user_id", sql)
+
+    @freeze_time("2025-11-12")
+    def test_mixed_events_and_dwh_first_time_for_user(self):
+        query = FunnelsQuery(
+            kind="FunnelsQuery",
+            series=[
+                EventsNode(event="$pageview", math=FunnelMathType.FIRST_TIME_FOR_USER),
+                FunnelsDataWarehouseNode(
+                    id="payments",
+                    table_name="payments",
+                    id_field="id",
+                    aggregation_target_field="user_id",
+                    timestamp_field="created_at",
+                    math=FunnelMathType.FIRST_TIME_FOR_USER,
+                ),
+            ],
+        )
+        context = FunnelQueryContext(query=query, team=self.team)
+
+        sql = raw_query(FunnelEventQuery(context=context).to_query())
+
+        # The events-table branch keeps its original first-time shape (events / person_id / uuid)…
+        self.assertIn("globalIn(e.uuid,", sql)
+        self.assertIn("argMin(uuid, timestamp) AS uuid", sql)
+        self.assertIn("GROUP BY person_id", sql)
+        # …while the data warehouse branch targets the warehouse table.
+        self.assertIn("globalIn(e.id,", sql)
+        self.assertIn("argMin(id, e.created_at) AS uuid", sql)
+        self.assertIn("GROUP BY user_id", sql)
 
     @freeze_time("2025-11-12")
     def test_group_node_two_events(self):

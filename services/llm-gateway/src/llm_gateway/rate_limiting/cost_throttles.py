@@ -10,13 +10,20 @@ from redis.asyncio import Redis
 from llm_gateway.config import (
     DEFAULT_USER_COST_LIMIT,
     FREE_PLAN_COST_LIMIT,
+    ORG_BILLED_USER_COST_LIMIT,
     get_settings,
 )
 
 if TYPE_CHECKING:
     from llm_gateway.config import UserCostLimit
 from llm_gateway.rate_limiting.redis_limiter import CostRateLimiter
-from llm_gateway.rate_limiting.throttles import Throttle, ThrottleContext, ThrottleResult, get_team_multiplier
+from llm_gateway.rate_limiting.throttles import (
+    Throttle,
+    ThrottleContext,
+    ThrottleResult,
+    get_rate_limit_multiplier,
+    is_usage_unlimited,
+)
 from llm_gateway.services.plan_resolver import POSTHOG_CODE_PRODUCT, get_billing_period_number, is_pro_plan
 
 logger = structlog.get_logger(__name__)
@@ -35,8 +42,12 @@ def _is_free_plan_throttled(context: ThrottleContext) -> bool:
     return (
         context.product == POSTHOG_CODE_PRODUCT
         and not is_pro_plan(context.plan_key)
-        and context.seat_created_at is not None
+        and (context.seat_created_at is not None or context.seat_missing)
     )
+
+
+def _is_org_billed_seatless(context: ThrottleContext) -> bool:
+    return context.product == POSTHOG_CODE_PRODUCT and context.seat_missing and context.code_usage_billed
 
 
 class CostThrottle(Throttle):
@@ -46,8 +57,8 @@ class CostThrottle(Throttle):
         self._redis = redis
         self._limiters: dict[str, CostRateLimiter] = {}
 
-    def _get_team_multiplier(self, context: ThrottleContext) -> int:
-        return get_team_multiplier(context.user.team_id)
+    def _get_multiplier(self, context: ThrottleContext) -> int:
+        return get_rate_limit_multiplier(context.user)
 
     @abstractmethod
     def _get_cache_key(self, context: ThrottleContext) -> str: ...
@@ -165,11 +176,11 @@ class ProductCostThrottle(CostThrottle):
         return "Product rate limit exceeded"
 
     def _get_cache_key(self, context: ThrottleContext) -> str:
-        team_mult = self._get_team_multiplier(context)
+        mult = self._get_multiplier(context)
         base = f"cost:product:{context.product}"
-        if team_mult == 1:
+        if mult == 1:
             return base
-        return f"{base}:tm{team_mult}"
+        return f"{base}:m{mult}"
 
     def _get_limit_and_window(self, context: ThrottleContext) -> tuple[float, int]:
         settings = get_settings()
@@ -180,14 +191,14 @@ class ProductCostThrottle(CostThrottle):
         else:
             base_limit = 1000.0
             window = 86400
-        team_mult = self._get_team_multiplier(context)
-        return base_limit * team_mult, window
+        mult = self._get_multiplier(context)
+        return base_limit * mult, window
 
     async def get_status_for_product(self, product: str) -> CostStatus | None:
-        """Return CostStatus for a product using the shared (team multiplier = 1) pool.
+        """Return CostStatus for a product using the shared (multiplier = 1) pool.
 
         Intended for monitoring/gauges, not throttling decisions — throttling needs
-        a full ThrottleContext to apply team multipliers. Returns None when the
+        a full ThrottleContext to apply the rate-limit multiplier. Returns None when the
         product has no configured cost limit.
         """
         settings = get_settings()
@@ -232,13 +243,17 @@ class _UserCostThrottleBase(CostThrottle):
     def _get_cache_key(self, context: ThrottleContext) -> str:
         if not context.end_user_id:
             return ""
-        team_mult = self._get_team_multiplier(context)
+        mult = self._get_multiplier(context)
         base = f"cost:user:{self.scope}:{context.product}:{context.end_user_id}"
-        if team_mult == 1:
+        if mult == 1:
             return base
-        return f"{base}:tm{team_mult}"
+        return f"{base}:m{mult}"
 
     def _get_config(self, context: ThrottleContext) -> UserCostLimit:
+        # Precedence matters: an org-billed seatless user is uncapped even though
+        # seat_missing would otherwise select the free-plan cap below.
+        if _is_org_billed_seatless(context):
+            return ORG_BILLED_USER_COST_LIMIT
         if _is_free_plan_throttled(context):
             return FREE_PLAN_COST_LIMIT
 
@@ -257,11 +272,29 @@ class _UserCostThrottleBase(CostThrottle):
     async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
         if not context.end_user_id:
             return ThrottleResult.allow()
+        if is_usage_unlimited(context.user):
+            return ThrottleResult.allow()
         settings = get_settings()
         if settings.user_cost_limits_disabled:
             await super().allow_request(context)
             return ThrottleResult.allow()
         return await super().allow_request(context)
+
+    async def get_status(self, context: ThrottleContext) -> CostStatus:
+        if is_usage_unlimited(context.user):
+            # Staff have no per-user cap: report an effectively unlimited budget
+            # so the usage endpoint computes 0% used and never flags the user as
+            # rate limited. `float("inf")` never crosses the wire — only
+            # `used_percent`/`exceeded` are serialized to the client.
+            _, window = self._get_limit_and_window(context)
+            return CostStatus(
+                used_usd=0.0,
+                limit_usd=float("inf"),
+                remaining_usd=float("inf"),
+                resets_in_seconds=window,
+                exceeded=False,
+            )
+        return await super().get_status(context)
 
     async def record_cost(self, context: ThrottleContext, cost: float) -> None:
         if not context.end_user_id:
@@ -277,8 +310,8 @@ class UserCostBurstThrottle(_UserCostThrottleBase):
 
     def _get_limit_and_window(self, context: ThrottleContext) -> tuple[float, int]:
         config = self._get_config(context)
-        team_mult = self._get_team_multiplier(context)
-        return config.burst_limit_usd * team_mult, config.burst_window_seconds
+        mult = self._get_multiplier(context)
+        return config.burst_limit_usd * mult, config.burst_window_seconds
 
 
 class UserCostSustainedThrottle(_UserCostThrottleBase):
@@ -302,5 +335,5 @@ class UserCostSustainedThrottle(_UserCostThrottleBase):
 
     def _get_limit_and_window(self, context: ThrottleContext) -> tuple[float, int]:
         config = self._get_config(context)
-        team_mult = self._get_team_multiplier(context)
-        return config.sustained_limit_usd * team_mult, config.sustained_window_seconds
+        mult = self._get_multiplier(context)
+        return config.sustained_limit_usd * mult, config.sustained_window_seconds

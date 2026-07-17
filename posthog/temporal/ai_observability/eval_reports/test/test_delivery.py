@@ -2,7 +2,10 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from posthog.temporal.ai_observability.eval_reports.delivery import (
+    _build_citation_map,
     _format_period_for_display,
     _inline_email_styles,
     _linkify_citations,
@@ -11,6 +14,7 @@ from posthog.temporal.ai_observability.eval_reports.delivery import (
     _render_section_mrkdwn,
     _strip_redundant_leading_heading,
     deliver_report,
+    deliver_slack_report,
 )
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     Citation,
@@ -20,10 +24,14 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
 )
 
 
+def _generation_citation_map(generation_id: str, trace_id: str) -> dict[str, tuple[str, str | None]]:
+    return _build_citation_map([Citation(generation_id=generation_id, trace_id=trace_id, reason="example")])
+
+
 class TestLinkifyCitations(SimpleTestCase):
     def test_links_cited_generation_id_in_backticks(self):
         text = "See `12345678-1234-1234-1234-123456789abc` here."
-        citation_map = {"12345678-1234-1234-1234-123456789abc": "trace-abc"}
+        citation_map = _generation_citation_map("12345678-1234-1234-1234-123456789abc", "trace-abc")
         result = _linkify_citations(text, project_id=42, citation_map=citation_map)
         self.assertIn("[12345678...]", result)
         self.assertIn(
@@ -33,14 +41,14 @@ class TestLinkifyCitations(SimpleTestCase):
 
     def test_links_cited_generation_id_in_double_backticks(self):
         text = "See `` `12345678-1234-1234-1234-123456789abc` `` here."
-        citation_map = {"12345678-1234-1234-1234-123456789abc": "trace-abc"}
+        citation_map = _generation_citation_map("12345678-1234-1234-1234-123456789abc", "trace-abc")
         result = _linkify_citations(text, project_id=1, citation_map=citation_map)
         self.assertIn("[12345678...]", result)
         self.assertNotIn("``", result)
 
     def test_links_cited_generation_id_bare(self):
         text = "See 12345678-1234-1234-1234-123456789abc here."
-        citation_map = {"12345678-1234-1234-1234-123456789abc": "trace-abc"}
+        citation_map = _generation_citation_map("12345678-1234-1234-1234-123456789abc", "trace-abc")
         result = _linkify_citations(text, project_id=1, citation_map=citation_map)
         self.assertIn("[12345678...]", result)
 
@@ -51,13 +59,13 @@ class TestLinkifyCitations(SimpleTestCase):
 
     def test_leaves_non_id_backticks_alone(self):
         text = "Use `some_function()` here."
-        citation_map = {"12345678-1234-1234-1234-123456789abc": "trace-abc"}
+        citation_map = _generation_citation_map("12345678-1234-1234-1234-123456789abc", "trace-abc")
         result = _linkify_citations(text, project_id=1, citation_map=citation_map)
         self.assertEqual(text, result)
 
     def test_no_double_replacement_when_id_appears_multiple_times(self):
         gen_id = "639a38ba-6cc6-4e0c-b5ff-ad269f6f9cf6"
-        citation_map = {gen_id: "trace-abc"}
+        citation_map = _generation_citation_map(gen_id, "trace-abc")
         text = f"- `{gen_id}`: satisfied\n1. {gen_id} — reason"
         result = _linkify_citations(text, project_id=1, citation_map=citation_map)
         self.assertNotIn(f"?event=[", result)
@@ -66,8 +74,8 @@ class TestLinkifyCitations(SimpleTestCase):
 
     def test_multiple_citations_no_cross_contamination(self):
         citation_map = {
-            "aaaa1111-1111-1111-1111-111111111111": "trace-a",
-            "bbbb2222-2222-2222-2222-222222222222": "trace-b",
+            **_generation_citation_map("aaaa1111-1111-1111-1111-111111111111", "trace-a"),
+            **_generation_citation_map("bbbb2222-2222-2222-2222-222222222222", "trace-b"),
         }
         text = "First: `aaaa1111-1111-1111-1111-111111111111`, second: `bbbb2222-2222-2222-2222-222222222222`."
         result = _linkify_citations(text, project_id=1, citation_map=citation_map)
@@ -77,9 +85,68 @@ class TestLinkifyCitations(SimpleTestCase):
 
     def test_handles_non_uuid_trace_id(self):
         text = "See `gen-123` here."
-        citation_map = {"gen-123": "my-custom-trace-id"}
+        citation_map = _generation_citation_map("gen-123", "my-custom-trace-id")
         result = _linkify_citations(text, project_id=1, citation_map=citation_map)
         self.assertIn("/traces/my-custom-trace-id?event=gen-123", result)
+
+    @parameterized.expand(
+        [
+            (
+                "generation",
+                Citation(generation_id="generation/id ?#", trace_id="trace/id ?#", reason="example"),
+                "generation/id ?#",
+                "/traces/trace%252Fid%2520%253F%2523?event=generation%2Fid+%3F%23",
+                True,
+            ),
+            (
+                "trace",
+                Citation(generation_id="", trace_id="trace/id ?#", reason="example"),
+                "trace/id ?#",
+                "/traces/trace%252Fid%2520%253F%2523",
+                False,
+            ),
+        ]
+    )
+    def test_links_structured_citation_for_target(
+        self,
+        _name: str,
+        citation: Citation,
+        cited_id: str,
+        expected_url: str,
+        expects_event_focus: bool,
+    ) -> None:
+        result = _linkify_citations(
+            f"See `{cited_id}` here.",
+            project_id=1,
+            citation_map=_build_citation_map([citation]),
+        )
+
+        self.assertIn(expected_url, result)
+        self.assertEqual("?event=" in result, expects_event_focus)
+
+    def test_trace_citation_does_not_link_bare_common_id(self) -> None:
+        citation = Citation(generation_id="", trace_id="foo", reason="example")
+
+        result = _linkify_citations(
+            "See `foo`, but foobar and foo stay plain.",
+            project_id=1,
+            citation_map=_build_citation_map([citation]),
+        )
+
+        self.assertEqual(result.count("[foo...]"), 1)
+        self.assertIn("foobar and foo stay plain", result)
+
+    def test_opaque_trace_id_cannot_break_markdown_link(self) -> None:
+        citation = Citation(generation_id="", trace_id="trace](id", reason="example")
+
+        result = _linkify_citations(
+            "See `trace](id`.",
+            project_id=1,
+            citation_map=_build_citation_map([citation]),
+        )
+
+        self.assertIn("[trace](", result)
+        self.assertIn("/traces/trace%255D%2528id", result)
 
 
 class TestRenderSectionHtml(SimpleTestCase):
@@ -98,7 +165,7 @@ class TestRenderSectionHtml(SimpleTestCase):
         self.assertIn("<strong>Pass rate</strong>", html)
 
     def test_converts_cited_id_to_link(self):
-        citation_map = {"12345678-1234-1234-1234-123456789abc": "trace-abc"}
+        citation_map = _generation_citation_map("12345678-1234-1234-1234-123456789abc", "trace-abc")
         html = _render_section_html(
             "Failures",
             "Failed: `12345678-1234-1234-1234-123456789abc`",
@@ -232,10 +299,7 @@ class TestMetricsBlockHtml(SimpleTestCase):
     def test_renders_all_counts(self):
         metrics = EvalReportMetrics(
             total_runs=100,
-            pass_count=80,
-            fail_count=18,
-            na_count=2,
-            pass_rate=81.63,
+            result_counts={"pass": 80, "fail": 18, "na": 2},
             period_start="2026-04-08T14:00:00+00:00",
             period_end="2026-04-08T15:00:00+00:00",
         )
@@ -248,23 +312,49 @@ class TestMetricsBlockHtml(SimpleTestCase):
         self.assertIn("Apr 08, 2026 14:00 UTC", html)
 
     def test_renders_delta_up(self):
-        metrics = EvalReportMetrics(total_runs=10, pass_count=9, pass_rate=90.0, previous_pass_rate=80.0)
+        metrics = EvalReportMetrics(
+            total_runs=10,
+            result_counts={"pass": 9, "fail": 1, "na": 0},
+            previous_pass_rate=80.0,
+        )
         html = _render_metrics_block_html(metrics)
         self.assertIn("▲", html)
         self.assertIn("10.00pp", html)
 
     def test_renders_delta_down(self):
-        metrics = EvalReportMetrics(total_runs=10, pass_count=5, pass_rate=50.0, previous_pass_rate=80.0)
+        metrics = EvalReportMetrics(
+            total_runs=10,
+            result_counts={"pass": 5, "fail": 5, "na": 0},
+            previous_pass_rate=80.0,
+        )
         html = _render_metrics_block_html(metrics)
         self.assertIn("▼", html)
         self.assertIn("30.00pp", html)
 
     def test_no_delta_when_previous_is_none(self):
-        metrics = EvalReportMetrics(total_runs=10, pass_count=9, pass_rate=90.0, previous_pass_rate=None)
+        metrics = EvalReportMetrics(total_runs=10, result_counts={"pass": 9, "fail": 1, "na": 0})
         html = _render_metrics_block_html(metrics)
         self.assertNotIn("▲", html)
         self.assertNotIn("▼", html)
         self.assertNotIn("pp vs previous", html)
+
+    def test_renders_sentiment_distribution_without_boolean_labels(self):
+        metrics = EvalReportMetrics(
+            output_type="sentiment",
+            total_runs=10,
+            result_counts={"positive": 4, "neutral": 1, "negative": 5},
+            result_rates={"positive": 40.0, "neutral": 10.0, "negative": 50.0},
+            previous_result_rates={"positive": 60.0, "neutral": 10.0, "negative": 30.0},
+        )
+
+        html = _render_metrics_block_html(metrics)
+
+        self.assertIn("Positive", html)
+        self.assertIn("Neutral", html)
+        self.assertIn("Negative", html)
+        self.assertIn("50.00%", html)
+        self.assertNotIn("Pass", html)
+        self.assertNotIn("Fail", html)
 
 
 class TestDeliverReport(SimpleTestCase):
@@ -276,7 +366,7 @@ class TestDeliverReport(SimpleTestCase):
             title=title,
             sections=[ReportSection(title="Summary", content="All good.")],
             citations=[Citation(generation_id="g", trace_id="t", reason="example")],
-            metrics=EvalReportMetrics(total_runs=10, pass_count=9, pass_rate=90.0),
+            metrics=EvalReportMetrics(total_runs=10, result_counts={"pass": 9, "fail": 1, "na": 0}),
         ).to_dict()
 
     def _make_report_run(self):
@@ -314,6 +404,24 @@ class TestDeliverReport(SimpleTestCase):
 
         mock_email.assert_called_once()
         self.assertEqual(run.delivery_status, "delivered")
+
+    @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_email_report")
+    @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_slack_report")
+    @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReportRun.objects")
+    @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReport.objects")
+    def test_deliver_report_without_targets_marks_generated(self, mock_report_qs, mock_run_qs, mock_slack, mock_email):
+        report = self._make_report([])
+        run = self._make_report_run()
+
+        mock_report_qs.select_related.return_value.get.return_value = report
+        mock_run_qs.get.return_value = run
+
+        deliver_report("report-id", "run-id")
+
+        mock_email.assert_not_called()
+        mock_slack.assert_not_called()
+        self.assertEqual(run.delivery_status, "generated")
+        self.assertEqual(run.delivery_errors, [])
 
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_email_report")
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_slack_report")
@@ -393,3 +501,85 @@ class TestDeliverReport(SimpleTestCase):
         deliver_report("report-id", "run-id")
 
         self.assertEqual(run.delivery_status, "partial_failure")
+
+
+class TestDeliverSlackReport(SimpleTestCase):
+    """Tests for the Slack delivery path, with the Slack client mocked."""
+
+    def _make_report_run(self, sections=None):
+        if sections is None:
+            sections = [ReportSection(title="Summary", content="All good.")]
+        run = MagicMock()
+        run.content = EvalReportContent(
+            title="A nice punchline",
+            sections=sections,
+            citations=[],
+            metrics=EvalReportMetrics(total_runs=10, result_counts={"pass": 9, "fail": 1, "na": 0}),
+        ).to_dict()
+        run.report_id = "report-id"
+        run.id = "run-id"
+        return run
+
+    @parameterized.expand(
+        [
+            ("one_section_no_thread", [ReportSection(title="Summary", content="All good.")], 1),
+            (
+                "two_sections_with_thread_reply",
+                [
+                    ReportSection(title="Summary", content="All good."),
+                    ReportSection(title="Details", content="More detail."),
+                ],
+                2,
+            ),
+        ]
+    )
+    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.models.integration.Integration")
+    def test_channel_id_is_used(self, _name, sections, expected_call_count, mock_integration, mock_slack_integration):
+        # Regression: the channel picker stores "<id>|#<name>" (e.g. "C0B5CHB0JQH|#tech-devops-cron").
+        # chat.postMessage only accepts the channel ID, so the "|#name" suffix must be stripped or
+        # Slack returns channel_not_found. Covers both the single-section (no thread) and
+        # multi-section (thread replies) paths.
+        client = MagicMock()
+        client.chat_postMessage.return_value = {"ts": "123.456"}
+        mock_slack_integration.return_value.client = client
+
+        targets = [{"type": "slack", "integration_id": 1, "channel": "C0B5CHB0JQH|#tech-devops-cron"}]
+        errors = deliver_slack_report(
+            self._make_report_run(sections=sections),
+            targets,
+            evaluation_name="Test Eval",
+            team_id=1,
+            project_id=1,
+            period_start="2026-03-01T00:00:00+00:00",
+            period_end="2026-03-02T00:00:00+00:00",
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(client.chat_postMessage.call_count, expected_call_count)
+        for call in client.chat_postMessage.call_args_list:
+            self.assertEqual(call.kwargs["channel"], "C0B5CHB0JQH")
+
+    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.models.integration.Integration")
+    def test_empty_channel_id_fails_gracefully(self, mock_integration, mock_slack_integration):
+        # A malformed target like "|#name" passes the non-empty channel check but splits to an
+        # empty channel ID, which Slack rejects with channel_not_found. Skip the send, record an
+        # error, and never call chat.postMessage.
+        client = MagicMock()
+        mock_slack_integration.return_value.client = client
+
+        targets = [{"type": "slack", "integration_id": 1, "channel": "|#tech-devops-cron"}]
+        errors = deliver_slack_report(
+            self._make_report_run(),
+            targets,
+            evaluation_name="Test Eval",
+            team_id=1,
+            project_id=1,
+            period_start="2026-03-01T00:00:00+00:00",
+            period_end="2026-03-02T00:00:00+00:00",
+        )
+
+        self.assertEqual(len(errors), 1)
+        self.assertIn("|#tech-devops-cron", errors[0])
+        client.chat_postMessage.assert_not_called()

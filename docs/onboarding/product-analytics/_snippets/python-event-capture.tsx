@@ -1,4 +1,4 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { useMDXComponents } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 export const PythonEventCapture = (): JSX.Element => {
     const { Markdown, CodeBlock, dedent } = useMDXComponents()
@@ -15,7 +15,7 @@ export const PythonEventCapture = (): JSX.Element => {
                         file: 'Python',
                         code: dedent`
                             import posthog
-                            posthog.capture('user_123', 'user_signed_up', properties={'example_property': 'example_value'})
+                            posthog.capture('user_signed_up', distinct_id='user_123', properties={'example_property': 'example_value'})
                         `,
                     },
                 ]}

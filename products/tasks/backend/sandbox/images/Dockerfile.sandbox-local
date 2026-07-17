@@ -9,10 +9,14 @@ COPY local-git /local-git
 COPY local-enricher /local-enricher
 COPY local-agent /local-agent
 
-# Pack shared and enricher first (no workspace deps), then git (depends on shared),
-# then agent (depends on shared, git, and enricher).
+# Pack shared first (no workspace deps), then enricher and git (both depend on
+# shared), then agent (depends on shared, git, and enricher). Every package with
+# a "workspace:*" dependency must have it rewritten to the packed tgz before
+# `pnpm pack`, otherwise pnpm fails with ERR_PNPM_CANNOT_RESOLVE_WORKSPACE_PROTOCOL.
 RUN cd /local-shared && pnpm pack && \
-    cd /local-enricher && pnpm pack && \
+    cd /local-enricher && \
+    sed -i 's/"@posthog\/shared": "workspace:\*"/"@posthog\/shared": "file:\/local-shared\/posthog-shared-1.0.0.tgz"/' package.json && \
+    pnpm pack && \
     cd /local-git && \
     sed -i 's/"@posthog\/shared": "workspace:\*"/"@posthog\/shared": "file:\/local-shared\/posthog-shared-1.0.0.tgz"/' package.json && \
     pnpm pack && \

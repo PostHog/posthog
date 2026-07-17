@@ -28,10 +28,10 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.endpoints.backend.insight_transformers import _transform_trends
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 pytestmark = [pytest.mark.django_db]
 
@@ -61,10 +61,10 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         self.sync_workflow_patcher = mock.patch(
-            "products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"
+            "products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"
         )
         self.workflow_exists_patcher = mock.patch(
-            "products.data_warehouse.backend.data_load.saved_query_service.saved_query_workflow_exists",
+            "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
             return_value=False,
         )
         self.sync_workflow_patcher.start()
@@ -148,7 +148,7 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         )
 
         with mock.patch(
-            "products.endpoints.backend.api.process_query_model",
+            "products.endpoints.backend.logic.execution.process_query_model",
             return_value=flat_response,
         ):
             mat_resp = self._run_endpoint(endpoint)
@@ -205,7 +205,7 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         )
 
         with mock.patch(
-            "products.endpoints.backend.api.process_query_model",
+            "products.endpoints.backend.logic.execution.process_query_model",
             return_value=flat_response,
         ):
             mat_resp = self._run_endpoint(endpoint, variables={"$browser": "Chrome"})
@@ -360,7 +360,7 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         )
 
         with mock.patch(
-            "products.endpoints.backend.api.process_query_model",
+            "products.endpoints.backend.logic.execution.process_query_model",
             return_value=flat_response,
         ):
             mat_resp = self._run_endpoint(endpoint)
@@ -430,7 +430,7 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         )
 
         with mock.patch(
-            "products.endpoints.backend.api.process_query_model",
+            "products.endpoints.backend.logic.execution.process_query_model",
             return_value=flat_response,
         ):
             mat_resp = self._run_endpoint(endpoint)
@@ -494,7 +494,7 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         )
 
         with mock.patch(
-            "products.endpoints.backend.api.process_query_model",
+            "products.endpoints.backend.logic.execution.process_query_model",
             return_value=flat_response,
         ):
             mat_resp = self._run_endpoint(endpoint)
@@ -549,7 +549,7 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         )
 
         with mock.patch(
-            "products.endpoints.backend.api.process_query_model",
+            "products.endpoints.backend.logic.execution.process_query_model",
             return_value=flat_response,
         ):
             mat_resp = self._run_endpoint(endpoint)
@@ -650,7 +650,7 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         )
 
         with mock.patch(
-            "products.endpoints.backend.api.process_query_model",
+            "products.endpoints.backend.logic.execution.process_query_model",
             return_value=flat_response,
         ):
             mat_resp = self._run_endpoint(endpoint)
@@ -700,3 +700,65 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
                 endpoint.get_version().query,
                 self.team,
             )
+
+    def test_materialized_trends_optional_breakdown_returns_all_values(self):
+        """PR 2 verification: with `$browser` marked optional and the caller passing no variables,
+        the materialized read skips the WHERE filter and returns rows for every browser value.
+        The insight transformer must group those rows into per-breakdown-value series without
+        tripping MaterializedSeriesMismatchError.
+
+        This is the "all values back from API" path the plan flags as unverified — the materialized
+        rows look identical to a filtered read, but no variable filter has narrowed the set first.
+        """
+        endpoint = create_endpoint_with_version(
+            name="trends_optional_breakdown_all_values",
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser", type=BreakdownType.EVENT)]),
+                dateRange={"date_from": "2026-01-01", "date_to": "2026-01-10"},
+            ).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+
+        self._materialize_endpoint(endpoint)
+        version = endpoint.versions.first()
+        version.optional_breakdown_properties = ["$browser"]
+        version.save(update_fields=["optional_breakdown_properties"])
+
+        dates = [date(2026, 1, d) for d in range(1, 11)]
+        # The materialized table emits one row per (series_index, breakdown_value).
+        # No variable filter ⇒ rows for every breakdown value flow back unfiltered.
+        flat_response = HogQLQueryResponse(
+            results=[
+                (dates, [1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0], ["Chrome"]),
+                (dates, [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0], ["Safari"]),
+                (dates, [0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0], ["Firefox"]),
+            ],
+            columns=["date", "total", "breakdown_value"],
+            types=["Array(Date)", "Array(Float64)", "Array(String)"],
+            hasMore=False,
+        )
+
+        # Caller passes no variables — relies on $browser being optional.
+        with mock.patch(
+            "products.endpoints.backend.logic.execution.process_query_model",
+            return_value=flat_response,
+        ):
+            mat_resp = self._run_endpoint(endpoint)
+
+        # Must NOT 400 (optional was respected) and must NOT raise MaterializedSeriesMismatchError.
+        assert mat_resp.status_code == status.HTTP_200_OK, mat_resp.json()
+        mat_results = mat_resp.json()["results"]
+
+        # One result entry per breakdown value the table emitted.
+        assert len(mat_results) == 3, f"Expected one series per browser value, got {len(mat_results)}"
+        # breakdown_value is a list (multi-breakdown shape, single element here).
+        browsers = {(bv[0] if isinstance(bv := r.get("breakdown_value"), list) else bv) for r in mat_results}
+        assert browsers == {"Chrome", "Safari", "Firefox"}, browsers
+
+        # Shape parity with the inline path.
+        for r in mat_results:
+            for field in TRENDS_REQUIRED_FIELDS:
+                assert field in r, f"Materialized response missing '{field}': {r}"

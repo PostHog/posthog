@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { IconWarning } from '@posthog/icons'
 import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import {
     COUNT_PER_ACTOR_MATH_DEFINITIONS,
@@ -82,8 +82,13 @@ export function useMathSelectorOptions({
     } = useValues(mathsLogic)
 
     const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(
-        getDefaultPropertyMathType(math, allowedMathTypes)
+        getDefaultPropertyMathType(math, allowedMathTypes, !!isHistogramBreakdown)
     )
+    // state initializes once at mount, so clamp at render in case a histogram breakdown was enabled afterwards
+    const effectivePropertyMathTypeShown =
+        isHistogramBreakdown && !SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN.has(propertyMathTypeShown)
+            ? getDefaultPropertyMathType(undefined, allowedMathTypes, true)
+            : propertyMathTypeShown
 
     const [countPerActorMathTypeShown, setCountPerActorMathTypeShown] = useState<CountPerActorMathType>(
         isCountPerActorMath(math) ? math : CountPerActorMathType.Average
@@ -215,13 +220,13 @@ export function useMathSelectorOptions({
 
         if (shouldShowPropertyValue) {
             options.push({
-                value: propertyMathTypeShown,
-                label: `Property value ${PROPERTY_MATH_DEFINITIONS[propertyMathTypeShown].shortName}`,
+                value: effectivePropertyMathTypeShown,
+                label: `Property value ${PROPERTY_MATH_DEFINITIONS[effectivePropertyMathTypeShown].shortName}`,
                 labelInMenu: (
                     <div className="flex items-center gap-2">
                         <span>Property value</span>
                         <LemonSelect
-                            value={propertyMathTypeShown}
+                            value={effectivePropertyMathTypeShown}
                             onSelect={(value) => {
                                 setPropertyMathTypeShown(value as PropertyMathType)
                                 onMathSelect(index, value)

@@ -9,8 +9,9 @@ from asgiref.sync import async_to_sync
 from posthoganalytics.client import Client
 
 from posthog.git import get_git_branch, get_git_commit_short
-from posthog.tasks.tasks import sync_all_organization_available_product_features
+from posthog.ph_client import enable_dedicated_ai_endpoint_for_default_client
 from posthog.utils import (
+    _build_flag_provider,
     get_available_timezones_with_offsets,
     get_instance_region,
     get_machine_id,
@@ -26,10 +27,34 @@ class PostHogConfig(AppConfig):
     verbose_name = "PostHog"
 
     def ready(self):
+        # Route all JSONField (jsonb) decode through orjson before any query runs.
+        if settings.JSONFIELD_ORJSON_DECODE:
+            from posthog.helpers.orjson_jsonfield import apply as apply_orjson_jsonfield  # noqa: PLC0415
+
+            apply_orjson_jsonfield()
+
         import posthog.storage.team_access_cache_signal_handlers  # noqa: F401
+        from posthog.storage.gateway_credential_signal_handlers import (
+            connect_signal_handlers as connect_gateway_credential_signal_handlers,
+        )
         from posthog.storage.team_llm_gateway_policy_signal_handlers import connect_signal_handlers
 
         connect_signal_handlers()
+        connect_gateway_credential_signal_handlers()
+
+        # Connect core signal receivers at app-population. They used to wire in as an import
+        # side effect of viewset modules; with the lazy API router those no longer load at
+        # django.setup(), so a process that never builds the router (celery, temporal, migrate,
+        # shell) would lose them. They live in dedicated import-light modules — never wire
+        # ready() through an API module, even one that looks light today.
+        import posthog.storage.checks  # noqa: F401, PLC0415
+        import posthog.caching.organization_serializer_cache  # noqa: F401, PLC0415
+        import posthog.models.activity_logging.signal_handlers  # noqa: F401, PLC0415
+
+        if settings.COMMAND_EXEC_AUDIT_ENABLED:
+            from posthog.security.command_exec_audit import install as install_command_exec_audit  # noqa: PLC0415
+
+            install_command_exec_audit()
 
         self._setup_lazy_admin()
         self._prewarm_timezone_offsets_cache()
@@ -75,6 +100,11 @@ class PostHogConfig(AppConfig):
 
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":
+                # posthog.tasks.__init__ is a celery autoimport aggregator: importing any
+                # submodule loads every task module. Keep that off django.setup() for all
+                # processes; celery workers get it via autodiscover_tasks().
+                from posthog.tasks.tasks import sync_all_organization_available_product_features  # noqa: PLC0415
+
                 # Sync all organization.available_product_features once on launch, in case plans changed
                 sync_all_organization_available_product_features()
 
@@ -91,15 +121,15 @@ class PostHogConfig(AppConfig):
         # the cache is cold. In E2E testing personal_api_key is None, so a cold cache
         # will result in no flag definitions being loaded — which is acceptable there.
         if not posthoganalytics.disabled:
-            from products.feature_flags.backend.sdk_cache_provider import HyperCacheFlagProvider
-
-            posthoganalytics.flag_definition_cache_provider = HyperCacheFlagProvider(  # ty: ignore[invalid-assignment]
-                team_id=int(os.environ.get("POSTHOG_SELF_TEAM_ID", "2"))
-            )
+            posthoganalytics.flag_definition_cache_provider = _build_flag_provider()  # ty: ignore[invalid-assignment]
 
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:
             posthoganalytics.load_feature_flags()
+
+        # The feature_flag_definitions() call above constructs the default client, so
+        # the dedicated-AI-endpoint flag can only be applied from this point on.
+        enable_dedicated_ai_endpoint_for_default_client()
 
         from posthog.async_migrations.setup import setup_async_migrations
 

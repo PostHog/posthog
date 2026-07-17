@@ -71,6 +71,12 @@ export function MoveProjectModal({
     )
 }
 
+const NOT_ADMIN_OF_TARGET_REASON = 'You need to be an admin or owner of this organization to move a project into it'
+
+function notAdminOfOrg(organization: OrganizationBasicType): boolean {
+    return (organization.membership_level ?? OrganizationMembershipLevel.Member) < OrganizationMembershipLevel.Admin
+}
+
 export function ProjectMove(): JSX.Element {
     const { currentProject } = useValues(projectLogic)
     const { otherOrganizations } = useValues(userLogic)
@@ -84,6 +90,12 @@ export function ProjectMove(): JSX.Element {
     })
     const { moveProjectDisabledReason } = useValues(projectLogic)
 
+    // Moving a project requires admin (or owner) on BOTH organizations — the API enforces this. The source org is
+    // covered by `restrictedReason` above; guard the target org here so a member of the target org gets a clear
+    // message instead of a failed request.
+    const targetOrgRestrictionReason =
+        targetOrganization && notAdminOfOrg(targetOrganization) ? NOT_ADMIN_OF_TARGET_REASON : null
+
     return (
         <>
             <p>
@@ -95,6 +107,7 @@ export function ProjectMove(): JSX.Element {
                     options={otherOrganizations.map((o) => ({
                         label: o.name,
                         value: o.id,
+                        disabledReason: notAdminOfOrg(o) ? NOT_ADMIN_OF_TARGET_REASON : undefined,
                     }))}
                     placeholder="Select target organization"
                     onChange={(value) => {
@@ -114,7 +127,9 @@ export function ProjectMove(): JSX.Element {
                     disabledReason={
                         restrictedReason ??
                         moveProjectDisabledReason ??
-                        (targetOrganization === null && 'Please select the target organization')
+                        (targetOrganization === null
+                            ? 'Please select the target organization'
+                            : (targetOrgRestrictionReason ?? undefined))
                     }
                 >
                     Move {currentProject?.name || 'the current project'}

@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 import posthoganalytics
 
 from posthog.hogql.ast import SelectQuery
@@ -14,7 +16,8 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.errors import ResolutionError
 
-from posthog.models.organization import Organization
+if TYPE_CHECKING:
+    from posthog.models.organization import Organization
 
 
 # :NOTE: We already have person_distinct_ids.py, which most tables link to. This persons_pdi.py is a hack to
@@ -86,10 +89,22 @@ def persons_pdi_join(
 # :NOTE: We already have person_distinct_ids.py, which most tables link to. This persons_pdi.py is a hack to
 # make "select persons.pdi.distinct_id from persons" work while avoiding circular imports. Don't use directly.
 class PersonsPDITable(LazyTable):
+    description: str = (
+        "Internal helper mapping distinct IDs to person IDs, used only to resolve `persons.pdi.distinct_id`. "
+        "Don't query directly; use `person_distinct_ids` instead."
+    )
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
-        "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
-        "person_id": StringDatabaseField(name="person_id", nullable=False),
+        "distinct_id": StringDatabaseField(
+            name="distinct_id",
+            nullable=False,
+            description="Client-side distinct_id sent with events; maps to a single person_id.",
+        ),
+        "person_id": StringDatabaseField(
+            name="person_id",
+            nullable=False,
+            description="Resolved person this distinct_id belongs to; matches `persons.id`.",
+        ),
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):

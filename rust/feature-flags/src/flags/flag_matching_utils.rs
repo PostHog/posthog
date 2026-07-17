@@ -148,6 +148,33 @@ pub fn populate_missing_initial_properties(properties: &mut HashMap<String, Valu
     }
 }
 
+/// Mirrors `$os` and `$os_name` so a flag condition keyed on either property
+/// matches when the person row carries only one of them.
+///
+/// Web SDKs (posthog-js) report the OS as `$os`; mobile SDKs report it as
+/// `$os_name`. Ingestion normalizes `$os_name` -> `$os` at write time
+/// (`personInitialAndUTMProperties` in nodejs/src/utils/db/utils.ts), but that
+/// only covers newly-written rows — historical and un-normalized person rows can
+/// carry only one of the two keys. Flag matching does exact-key lookups, so
+/// without this a mobile person whose row has only `$os_name` never matches an
+/// `$os` filter (and vice versa). The mirror is bidirectional so either filter
+/// key works regardless of which key the person row happens to carry.
+///
+/// Only the missing key is filled — an already-present value is never
+/// overwritten, so request overrides keep precedence over their own key.
+pub fn populate_os_aliases(properties: &mut HashMap<String, Value>) {
+    match (properties.get("$os"), properties.get("$os_name")) {
+        (Some(os), None) => {
+            properties.insert("$os_name".to_string(), os.clone());
+        }
+        (None, Some(os_name)) => {
+            properties.insert("$os".to_string(), os_name.clone());
+        }
+        // Both present or both absent: nothing to mirror.
+        _ => {}
+    }
+}
+
 /// Result from the person + static cohort query branch.
 struct PersonCohortResult {
     person: Option<Person>,
@@ -474,7 +501,7 @@ fn apply_person_cohort_to_state(state: &mut FlagEvaluationState, result: PersonC
         state.set_cohort_matches(cohort_matches);
     }
 
-    let person_properties: HashMap<String, Value> = if let Some(ref person) = result.person {
+    let mut person_properties: HashMap<String, Value> = if let Some(ref person) = result.person {
         match person.properties.as_object() {
             Some(obj) => obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             None => HashMap::new(),
@@ -482,6 +509,26 @@ fn apply_person_cohort_to_state(state: &mut FlagEvaluationState, result: PersonC
     } else {
         HashMap::new()
     };
+
+    // PersonMetadata fields (top-level columns on the persons table) are written under a
+    // sentinel prefix to avoid colliding with user-set properties of the same name (e.g.
+    // a customer setting `properties.created_at` for their own analytics). The matcher
+    // applies the prefix when `filter.prop_type == PersonMetadata` — see `match_property`.
+    // The field list lives in `PERSON_METADATA_FIELDS`; each field needs a match arm below
+    // mapping it to the persons-table column to read. A field added to that list without an arm
+    // here falls through `_ => continue` and is silently never injected, so keep the two in sync.
+    if let Some(ref person) = result.person {
+        for field in crate::properties::property_matching::PERSON_METADATA_FIELDS {
+            let value = match *field {
+                "created_at" => Value::String(person.created_at.to_rfc3339()),
+                _ => continue,
+            };
+            person_properties.insert(
+                crate::properties::property_matching::person_metadata_key(field),
+                value,
+            );
+        }
+    }
 
     state.set_person_properties(person_properties);
     person_processing_timer.fin();
@@ -584,10 +631,13 @@ fn are_overrides_useful_for_flag(
         return false;
     }
 
-    // Check if overrides contain at least one property the flag needs
-    property_filters
-        .iter()
-        .any(|filter| overrides.contains_key(&filter.key))
+    // Check if overrides contain at least one property the flag needs.
+    // Use `lookup_key_for` so PersonMetadata filters match on the sentinel-prefixed key rather
+    // than the raw key — see the note on `requires_db_property`.
+    property_filters.iter().any(|filter| {
+        overrides
+            .contains_key(crate::properties::property_matching::lookup_key_for(filter).as_ref())
+    })
 }
 
 /// Determines if a FlagError should trigger a retry
@@ -1633,6 +1683,7 @@ mod tests {
                 evaluation_runtime: None,
                 evaluation_tags: None,
                 bucketing_identifier: None,
+                has_experiment: false,
             };
             context
                 .insert_flag(team.id, Some(flag_row))
@@ -1749,6 +1800,7 @@ mod tests {
                 evaluation_runtime: None,
                 evaluation_tags: None,
                 bucketing_identifier: None,
+                has_experiment: false,
             };
             context
                 .insert_flag(team.id, Some(flag_row))
@@ -1870,6 +1922,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         };
 
         let inactive_flag = FeatureFlagRow {
@@ -1885,6 +1938,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         };
 
         let deleted_flag = FeatureFlagRow {
@@ -1900,6 +1954,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         };
 
         let no_continuity_flag = FeatureFlagRow {
@@ -1915,6 +1970,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         };
 
         context
@@ -2007,6 +2063,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         };
         context
             .insert_flag(team.id, Some(flag_row))
@@ -2089,6 +2146,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         };
         context
             .insert_flag(team.id, Some(flag_row))
@@ -2459,6 +2517,64 @@ mod tests {
     }
 
     #[test]
+    fn test_populate_os_aliases_fills_os_from_os_name() {
+        let mut properties = HashMap::from([("$os_name".to_string(), json!("Android"))]);
+
+        populate_os_aliases(&mut properties);
+
+        assert_eq!(properties.get("$os"), Some(&json!("Android")));
+        assert_eq!(properties.get("$os_name"), Some(&json!("Android")));
+    }
+
+    #[test]
+    fn test_populate_os_aliases_fills_os_name_from_os() {
+        let mut properties = HashMap::from([("$os".to_string(), json!("iOS"))]);
+
+        populate_os_aliases(&mut properties);
+
+        assert_eq!(properties.get("$os_name"), Some(&json!("iOS")));
+        assert_eq!(properties.get("$os"), Some(&json!("iOS")));
+    }
+
+    #[test]
+    fn test_populate_os_aliases_preserves_both_when_present() {
+        let mut properties = HashMap::from([
+            ("$os".to_string(), json!("iOS")),
+            ("$os_name".to_string(), json!("iPadOS")),
+        ]);
+
+        populate_os_aliases(&mut properties);
+
+        // Neither value is overwritten when both keys already exist.
+        assert_eq!(properties.get("$os"), Some(&json!("iOS")));
+        assert_eq!(properties.get("$os_name"), Some(&json!("iPadOS")));
+    }
+
+    #[test]
+    fn test_populate_os_aliases_noop_when_neither_present() {
+        let mut properties = HashMap::from([("$browser".to_string(), json!("Chrome"))]);
+
+        populate_os_aliases(&mut properties);
+
+        assert!(!properties.contains_key("$os"));
+        assert!(!properties.contains_key("$os_name"));
+        assert_eq!(properties.len(), 1);
+    }
+
+    #[test]
+    fn test_populate_os_aliases_then_initial_backfills_initial_os() {
+        // Mobile person row carries only $os_name; the alias should let $initial_os
+        // get backfilled by populate_missing_initial_properties.
+        let mut properties = HashMap::from([("$os_name".to_string(), json!("Android"))]);
+
+        populate_os_aliases(&mut properties);
+        populate_missing_initial_properties(&mut properties);
+
+        assert_eq!(properties.get("$os"), Some(&json!("Android")));
+        assert_eq!(properties.get("$initial_os"), Some(&json!("Android")));
+    }
+
+    #[test]
     fn test_populate_missing_initial_properties_handles_campaign_properties() {
         let mut properties = HashMap::from([
             ("utm_source".to_string(), json!("newsletter")),
@@ -2501,5 +2617,46 @@ mod tests {
         assert_eq!(properties.len(), 3);
         assert!(!properties.contains_key("$initial_email"));
         assert!(!properties.contains_key("$initial_name"));
+    }
+
+    #[test]
+    fn test_apply_person_cohort_to_state_injects_person_metadata_sentinel_key() {
+        use crate::properties::property_matching::person_metadata_key;
+        use chrono::{TimeZone, Utc};
+        use uuid::Uuid;
+
+        let created_at = Utc.with_ymd_and_hms(2024, 1, 15, 9, 30, 0).unwrap();
+        // Capture the expected RFC3339 value before `person` is moved into the result.
+        let expected = created_at.to_rfc3339();
+
+        let person = Person {
+            id: 1,
+            created_at,
+            team_id: 1,
+            uuid: Uuid::new_v4(),
+            properties: json!({}),
+            is_identified: true,
+            is_user_id: None,
+            version: Some(0),
+        };
+
+        let mut state = FlagEvaluationState::default();
+        let result = PersonCohortResult {
+            person: Some(person),
+            cohort_matches: None,
+        };
+
+        apply_person_cohort_to_state(&mut state, result);
+
+        // The injection arm writes Person.created_at under the sentinel prefix so that
+        // person_metadata filters resolve against it (see match_property). If this arm
+        // regresses, the filter silently matches nobody.
+        let props = state
+            .get_person_properties()
+            .expect("person properties should be set");
+        assert_eq!(
+            props.get(&person_metadata_key("created_at")),
+            Some(&Value::String(expected))
+        );
     }
 }

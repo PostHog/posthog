@@ -1,7 +1,15 @@
 """Extract user messages from $ai_input for sentiment classification."""
 
 from posthog.temporal.ai_observability.message_utils import _extract_content_text
-from posthog.temporal.ai_observability.sentiment.constants import MAX_MESSAGE_CHARS, MAX_USER_MESSAGES
+from posthog.temporal.ai_observability.sentiment.constants import (
+    MAX_MESSAGE_CHARS,
+    MAX_USER_MESSAGES,
+    SENTIMENT_EVAL_MAX_MESSAGE_CHARS,
+    SENTIMENT_EVAL_MAX_USER_MESSAGES,
+    SENTIMENT_EVAL_MESSAGE_HEAD_CHARS,
+)
+
+HEAD_TAIL_SEPARATOR = "\n...\n"
 
 
 def _is_tool_result_message(content: object) -> bool:
@@ -67,3 +75,35 @@ def truncate_to_token_limit(text: str, max_chars: int = MAX_MESSAGE_CHARS) -> st
     if len(text) <= max_chars:
         return text
     return text[-max_chars:]
+
+
+def truncate_to_head_tail(
+    text: str,
+    max_chars: int = SENTIMENT_EVAL_MAX_MESSAGE_CHARS,
+    head_chars: int = SENTIMENT_EVAL_MESSAGE_HEAD_CHARS,
+) -> str:
+    """Keep the opening and ending context while bounding classifier input."""
+    if len(text) <= max_chars:
+        return text
+
+    if head_chars <= 0:
+        return text[-max_chars:]
+
+    if max_chars <= len(HEAD_TAIL_SEPARATOR):
+        return text[:max_chars]
+
+    head_count = min(head_chars, max_chars - len(HEAD_TAIL_SEPARATOR))
+    tail_count = max_chars - len(HEAD_TAIL_SEPARATOR) - head_count
+    if tail_count <= 0:
+        return text[:max_chars]
+
+    return f"{text[:head_count]}{HEAD_TAIL_SEPARATOR}{text[-tail_count:]}"
+
+
+def extract_sentiment_eval_messages(ai_input: object) -> list[tuple[int, str]]:
+    """Extract and bound the last user message for sentiment evals."""
+    user_messages = extract_user_messages_individually(ai_input)
+    return [
+        (message_index, truncate_to_head_tail(text))
+        for message_index, text in user_messages[-SENTIMENT_EVAL_MAX_USER_MESSAGES:]
+    ]

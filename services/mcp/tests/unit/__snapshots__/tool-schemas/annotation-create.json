@@ -26,6 +26,29 @@
             ],
             "description": "When this annotation happened (ISO 8601 timestamp). Used to position it on charts."
         },
+        "emoji": {
+            "anyOf": [
+                {
+                    "maxLength": 16,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional emoji shown in place of the default badge when this annotation is surfaced on a chart."
+        },
+        "hidden_in_user_interface": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "When true, the annotation is hidden from the PostHog UI (charts and the annotations list) but still readable over the API and MCP. Use for high-frequency markers like deployments that would otherwise crowd the UI. Null (the default) means the annotation is shown."
+        },
         "scope": {
             "description": "Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording",
             "enum": ["dashboard_item", "dashboard", "project", "organization", "recording"],

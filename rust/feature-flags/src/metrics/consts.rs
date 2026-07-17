@@ -20,6 +20,16 @@ pub const COHORT_CACHE_HIT_COUNTER: &str = "flags_cohort_cache_hit_total";
 pub const COHORT_CACHE_MISS_COUNTER: &str = "flags_cohort_cache_miss_total";
 pub const COHORT_CACHE_SIZE_BYTES_GAUGE: &str = "flags_cohort_cache_size_bytes";
 pub const COHORT_CACHE_ENTRIES_GAUGE: &str = "flags_cohort_cache_entries";
+// Realtime cohort membership cache (CachedCohortMembershipProvider, keyed on
+// (team_id, person_uuid)). hit = lookup fully served from cache; miss = a
+// behavioral cohorts DB query was issued (no cache entry, or the entry was
+// missing some of the requested cohort IDs).
+pub const COHORT_MEMBERSHIP_CACHE_HIT_COUNTER: &str = "flags_cohort_membership_cache_hit_total";
+pub const COHORT_MEMBERSHIP_CACHE_MISS_COUNTER: &str = "flags_cohort_membership_cache_miss_total";
+pub const COHORT_MEMBERSHIP_CACHE_ENTRIES_GAUGE: &str = "flags_cohort_membership_cache_entries";
+// Behavioral cohorts DB reads for realtime cohort membership (RealtimeCohortMembershipProvider)
+pub const DB_COHORT_MEMBERSHIP_READS_COUNTER: &str = "flags_db_cohort_membership_reads_total";
+pub const DB_COHORT_MEMBERSHIP_ERRORS_COUNTER: &str = "flags_db_cohort_membership_errors_total";
 // In-memory flag definitions cache (deserialized + regex-compiled).
 // Keyed on `(team_id, etag)` where `etag` is the version tag Django writes
 // alongside the hypercache payload (`enable_etag=True`). Cache hits avoid the
@@ -49,6 +59,14 @@ pub const DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER: &str =
     "flags_db_person_and_group_properties_reads_total";
 pub const FLAG_REQUESTS_COUNTER: &str = "flags_requests_total";
 pub const FLAG_REQUESTS_LATENCY: &str = "flags_requests_duration_ms";
+
+// Internal batch flag evaluation endpoint (static cohort generation). Dedicated
+// `flags_batch_eval_*` names keep batch traffic separable from live `/flags` metrics.
+// Not to be confused with the pre-existing `flags_batch_evaluation_*` family below
+// (per-request sequential/parallel strategy metrics emitted from flag_matching.rs).
+pub const FLAG_BATCH_EVAL_REQUESTS_COUNTER: &str = "flags_batch_eval_requests_total";
+pub const FLAG_BATCH_EVAL_PERSONS_COUNTER: &str = "flags_batch_eval_persons_total";
+pub const FLAG_BATCH_EVAL_TIME: &str = "flags_batch_eval_duration_ms";
 pub const FLAG_QUEUE_TIME_MS: &str = "flags_queue_time_ms";
 pub const FLAG_REQUEST_FAULTS_COUNTER: &str = "flags_request_faults_total";
 
@@ -264,6 +282,11 @@ pub const FLAG_COHORT_PROCESSING_TIME: &str = "flags_cohort_processing_time";
 pub const FLAG_REALTIME_COHORT_QUERY_TIME: &str = "flags_realtime_cohort_query_time";
 pub const FLAG_REALTIME_COHORT_QUERY_ERROR_COUNTER: &str =
     "flags_realtime_cohort_query_error_total";
+// Behavioral cohorts DB query latency alone (inside RealtimeCohortMembershipProvider),
+// as opposed to FLAG_REALTIME_COHORT_QUERY_TIME above which wraps the whole provider
+// call at the evaluation site and so mixes cache hits with DB round trips.
+// Labels: outcome="success" | "error" | "timeout". Recorded with sub-ms precision.
+pub const FLAG_REALTIME_COHORT_DB_QUERY_TIME: &str = "flags_realtime_cohort_db_query_time";
 pub const FLAG_GROUP_QUERY_TIME: &str = "flags_group_query_time";
 pub const FLAG_GROUP_PROCESSING_TIME: &str = "flags_group_processing_time";
 pub const FLAG_DB_CONNECTION_TIME: &str = "flags_db_connection_time";
@@ -295,6 +318,17 @@ pub const FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER: &str =
     "flags_flag_definitions_rate_limit_bypassed_total";
 pub const FLAG_DEFINITIONS_REQUESTS_COUNTER: &str = "flags_flag_definitions_requests_total";
 
+// Remote config rate limiting
+pub const REMOTE_CONFIG_RATE_LIMITED_COUNTER: &str = "flags_remote_config_rate_limited_total";
+pub const REMOTE_CONFIG_RATE_LIMIT_BYPASSED_COUNTER: &str =
+    "flags_remote_config_rate_limit_bypassed_total";
+pub const REMOTE_CONFIG_REQUESTS_COUNTER: &str = "flags_remote_config_requests_total";
+
+// Remote config auth method
+// Labels: method (project_secret_api_key, secret_api_key, personal_api_key). The secret-vs-personal
+// split decides redact-vs-decrypt, so the mix is worth watching during the phase 2/3 cutover.
+pub const REMOTE_CONFIG_AUTH_COUNTER: &str = "flags_remote_config_auth_total";
+
 // Flag definitions cache metrics
 // Labels: source (redis, s3, fallback)
 pub const FLAG_DEFINITIONS_CACHE_HIT_COUNTER: &str = "flags_flag_definitions_cache_hit_total";
@@ -304,6 +338,11 @@ pub const FLAG_DEFINITIONS_CACHE_MISS_COUNTER: &str = "flags_flag_definitions_ca
 // Flag definitions ETag metrics
 // Labels: result (hit = 304, miss = 200 with stale etag, none = 200 without etag, redis_error = etag read failed)
 pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_total";
+
+// Flag definitions self-heal: a cache miss enqueued a rebuild request for a Celery
+// worker to drain. Labels: result (ok = enqueued, error = redis zadd failed).
+pub const FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER: &str =
+    "flags_flag_definitions_rebuild_requested_total";
 
 // Flag definitions auth method
 // Labels: method (secret_api_key, personal_api_key) — Rust only supports these two; Python also tracks oauth, jwt, session, other

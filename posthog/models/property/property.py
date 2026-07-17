@@ -25,6 +25,7 @@ PropertyType = Literal[
     "event_metadata",
     "feature",
     "person",
+    "person_metadata",
     "cohort",
     "element",
     "static-cohort",
@@ -42,6 +43,7 @@ PropertyType = Literal[
     "log",
     "log_attribute",
     "log_resource_attribute",
+    "metric_attribute",
     "span",
     "span_attribute",
     "span_resource_attribute",
@@ -95,6 +97,7 @@ VALIDATE_PROP_TYPES = {
     "event": ["key", "value"],
     "event_metadata": ["key", "value"],
     "person": ["key", "value"],
+    "person_metadata": ["key", "value"],
     "data_warehouse": ["key", "value"],
     "data_warehouse_person_property": ["key", "value"],
     "error_tracking_issue": ["key", "value"],
@@ -109,6 +112,7 @@ VALIDATE_PROP_TYPES = {
     "log": ["key", "value"],
     "log_attribute": ["key", "value"],
     "log_resource_attribute": ["key", "value"],
+    "metric_attribute": ["key", "value"],
     "span": ["key", "value"],
     "span_attribute": ["key", "value"],
     "span_resource_attribute": ["key", "value"],
@@ -131,6 +135,10 @@ VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES = {
         {"time_value", "time_interval"},
         {"explicit_datetime"},
     ],
+    BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME: [
+        {"time_value", "time_interval"},
+        {"explicit_datetime"},
+    ],
 }
 
 VALIDATE_BEHAVIORAL_PROP_TYPES = {
@@ -149,8 +157,6 @@ VALIDATE_BEHAVIORAL_PROP_TYPES = {
         "key",
         "value",
         "event_type",
-        "time_value",
-        "time_interval",
     ],
     BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE: [
         "key",

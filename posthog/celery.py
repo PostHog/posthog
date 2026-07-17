@@ -19,6 +19,7 @@ from celery.signals import (
 )
 from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
+from opentelemetry import trace
 from prometheus_client import Counter, Histogram, start_http_server
 
 # When PROMETHEUS_MULTIPROC_DIR is set (by bin/docker-worker-celery),
@@ -161,11 +162,44 @@ def on_celeryd_init(**kwargs) -> None:
     logger.info("prometheus_multiproc_cleanup_done", removed=removed)
 
 
+def _tag_celery_span_with_team_id(task_kwargs: dict | None) -> None:
+    """Tag the active Celery task span (created by CeleryInstrumentor) with team_id, read
+    best-effort from the task's keyword arguments. Coverage is partial by design: only tasks
+    invoked with an explicit ``team_id=`` keyword are tagged. No-op when the span isn't recording."""
+    try:
+        team_id = (task_kwargs or {}).get("team_id")
+        if not isinstance(team_id, int) or isinstance(team_id, bool):
+            return
+        span = trace.get_current_span()
+        if span.is_recording():
+            span.set_attribute("team_id", team_id)
+    except Exception:
+        pass
+
+
+def _celery_team_id_prerun_receiver(task_id=None, task=None, args=None, kwargs=None, **_) -> None:
+    _tag_celery_span_with_team_id(kwargs)
+
+
 @worker_process_init.connect
 def on_worker_start(**kwargs) -> None:
     from posthoganalytics import setup
 
+    from posthog.otel_instrumentation import (
+        initialize_otel,  # noqa: PLC0415 — keep the OTel stack off the celery import path; only the worker child loads it
+    )
+
     setup()  # makes sure things like exception autocapture are initialised
+
+    # Initialize tracing in the forked worker child (not at import / pre-fork): the
+    # BatchSpanProcessor's export thread and gRPC channel do not survive fork(), so the
+    # provider must be created per child. This also enables CeleryInstrumentor, which starts
+    # a span per task. No-op when OTEL_SDK_DISABLED is set.
+    initialize_otel()
+    # Connect the team_id tagger AFTER initialize_otel (which instruments Celery) so Celery
+    # dispatches it after CeleryInstrumentor's own prerun receiver — the task span is the
+    # active span by then. Degrades to a no-op if that ordering ever changes.
+    task_prerun.connect(_celery_team_id_prerun_receiver, weak=False)
 
     port = int(os.getenv("CELERY_METRICS_PORT", "8001"))
     try:

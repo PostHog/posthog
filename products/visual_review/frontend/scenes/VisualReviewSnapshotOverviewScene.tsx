@@ -151,7 +151,7 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
                 </span>
             </div>
 
-            <div className="flex gap-6 items-start">
+            <div className="flex flex-col sm:flex-row gap-6 items-start">
                 <SnapshotFacetSidebar
                     groups={facetGroups}
                     selection={facetSelection}

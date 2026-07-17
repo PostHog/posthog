@@ -1,0 +1,131 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "content": {
+            "description": "Template content keyed by channel. Replaced as a whole on update, not merged.",
+            "properties": {
+                "email": {
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "design": {
+                                    "description": "Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill.",
+                                    "properties": {
+                                        "body": {
+                                            "properties": {
+                                                "footers": {
+                                                    "items": {
+                                                        "additionalProperties": {},
+                                                        "properties": {},
+                                                        "type": "object"
+                                                    },
+                                                    "type": "array"
+                                                },
+                                                "headers": {
+                                                    "items": {
+                                                        "additionalProperties": {},
+                                                        "properties": {},
+                                                        "type": "object"
+                                                    },
+                                                    "type": "array"
+                                                },
+                                                "id": {
+                                                    "description": "Any unique string.",
+                                                    "type": "string"
+                                                },
+                                                "rows": {
+                                                    "description": "Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}.",
+                                                    "items": {
+                                                        "additionalProperties": {},
+                                                        "properties": {},
+                                                        "type": "object"
+                                                    },
+                                                    "type": "array"
+                                                },
+                                                "values": {
+                                                    "additionalProperties": {},
+                                                    "description": "Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor.",
+                                                    "properties": {},
+                                                    "type": "object"
+                                                }
+                                            },
+                                            "required": ["rows"],
+                                            "type": "object"
+                                        },
+                                        "counters": {
+                                            "additionalProperties": {},
+                                            "description": "Highest htmlID suffix per element type, e.g. {\"u_row\": 1, \"u_content_text\": 2}.",
+                                            "properties": {},
+                                            "type": "object"
+                                        },
+                                        "schemaVersion": {
+                                            "description": "Design schema version, e.g. 16.",
+                                            "type": "number"
+                                        }
+                                    },
+                                    "required": ["schemaVersion", "body"],
+                                    "type": "object"
+                                },
+                                "html": {
+                                    "description": "Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise.",
+                                    "type": "string"
+                                },
+                                "subject": {
+                                    "description": "Email subject line. Supports Liquid templating. Required for email-type templates.",
+                                    "type": "string"
+                                },
+                                "text": {
+                                    "description": "Plain-text fallback body for clients that can't render the email.",
+                                    "type": "string"
+                                }
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Email message content. Replaced as a whole on update — send the complete object."
+                },
+                "templating": {
+                    "default": "liquid",
+                    "description": "Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.\n\n* `liquid` - liquid",
+                    "enum": ["liquid"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "deleted": {
+            "description": "Soft-delete flag. Set true to remove the template from the library.",
+            "type": "boolean"
+        },
+        "description": {
+            "description": "What the template is for and when to use it.",
+            "type": "string"
+        },
+        "message_category": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Message category ID to file the template under. Must belong to the same project."
+        },
+        "name": {
+            "description": "Human-readable template name shown in the library.",
+            "maxLength": 400,
+            "type": "string"
+        },
+        "type": {
+            "description": "Message channel of the template. Currently 'email'.",
+            "maxLength": 24,
+            "type": "string"
+        }
+    },
+    "required": ["name"],
+    "type": "object"
+}

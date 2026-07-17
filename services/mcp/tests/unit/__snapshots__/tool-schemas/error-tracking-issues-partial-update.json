@@ -1,27 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-        "assignee": {
-            "properties": {
-                "id": {
-                    "anyOf": [
-                        {
-                            "type": "number"
-                        },
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "type": {
-                    "type": "string"
-                }
-            },
-            "type": "object"
-        },
         "description": {
             "anyOf": [
                 {
@@ -30,51 +9,10 @@
                 {
                     "type": "null"
                 }
-            ]
-        },
-        "external_issues": {
-            "items": {
-                "properties": {
-                    "config": {},
-                    "external_url": {
-                        "type": "string"
-                    },
-                    "id": {
-                        "type": "string"
-                    },
-                    "integration": {
-                        "properties": {
-                            "display_name": {
-                                "type": "string"
-                            },
-                            "id": {
-                                "type": "number"
-                            },
-                            "kind": {
-                                "type": "string"
-                            }
-                        },
-                        "type": "object"
-                    },
-                    "integration_id": {
-                        "type": "number"
-                    },
-                    "issue": {
-                        "type": "string"
-                    }
-                },
-                "required": ["integration_id", "config", "issue"],
-                "type": "object"
-            },
-            "type": "array"
-        },
-        "first_seen": {
-            "format": "date-time",
-            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
-            "type": "string"
+            ],
+            "description": "Optional issue description."
         },
         "id": {
-            "description": "A UUID string identifying this error tracking issue.",
             "type": "string"
         },
         "name": {
@@ -85,11 +23,12 @@
                 {
                     "type": "null"
                 }
-            ]
+            ],
+            "description": "Optional issue display name."
         },
         "status": {
-            "description": "* `archived` - Archived\n* `active` - Active\n* `resolved` - Resolved\n* `pending_release` - Pending release\n* `suppressed` - Suppressed",
-            "enum": ["archived", "active", "resolved", "pending_release", "suppressed"],
+            "description": "Issue status to set. Deprecated archived and pending_release values are rejected.\n\n* `active` - active\n* `resolved` - resolved\n* `suppressed` - suppressed",
+            "enum": ["active", "resolved", "suppressed"],
             "type": "string"
         }
     },

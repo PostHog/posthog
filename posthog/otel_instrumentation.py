@@ -1,12 +1,16 @@
 import os
+import atexit
 import typing
 import logging
+
+from django.http import HttpRequest, HttpResponse
 
 import structlog
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.aiohttp_client import AioHttpClientInstrumentor
 from opentelemetry.instrumentation.aiokafka import AIOKafkaInstrumentor
+from opentelemetry.instrumentation.celery import CeleryInstrumentor
 from opentelemetry.instrumentation.django import DjangoInstrumentor
 from opentelemetry.instrumentation.kafka import KafkaInstrumentor
 from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
@@ -15,26 +19,47 @@ from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.trace import Span
+from opentelemetry.util.http import sanitize_method
 
 # Get a structlog logger for this module's own messages
 logger = structlog.get_logger(__name__)
 
 
-def _otel_django_request_hook(span, request):
+def _otel_django_request_hook(span: Span, request: HttpRequest) -> None:
     if span and span.is_recording():
         actual_path = request.path
-        http_method = request.method
+        http_method = request.method or ""
         span.set_attribute("http.method", http_method)
         span.set_attribute("http.url", actual_path)
         # span.update_name(f"{http_method} {actual_path}") # Use with caution - high cardinality
 
 
-def _otel_django_response_hook(span, request, response):
-    if span and span.is_recording():
-        span.set_attribute("http.status_code", response.status_code)
+def _otel_django_response_hook(span: Span, request: HttpRequest, response: HttpResponse) -> None:
+    if not span or not span.is_recording():
+        return
+
+    span.set_attribute("http.status_code", response.status_code)
+    route = getattr(getattr(request, "resolver_match", None), "route", None)
+    if not route:
+        return
+
+    http_method = sanitize_method((request.method or "").strip())
+    span.update_name("HTTP" if http_method == "_OTHER" else f"{http_method} {route}")
 
 
 def initialize_otel():
+    # App tracing targets a real OTLP collector (dev/prod). In tests, booting the app
+    # (e.g. posthog/test/test_asgi_lifespan.py imports posthog.asgi) would otherwise arm a
+    # process-wide span exporter to the SDK default localhost:4317 with no collector there,
+    # so the flush at pytest shutdown retries with exponential backoff and stalls the run by
+    # minutes. Skip app instrumentation in tests WITHOUT touching OTEL_SDK_DISABLED, so tests
+    # that build their own in-memory TracerProvider still record spans (test_auth_spans,
+    # test_celery_span_team_id, test_routing). TEST is forced on by settings/overrides.py
+    # before any app import runs.
+    if os.environ.get("TEST") == "1":
+        return
+
     # --- BEGIN FORCED OTEL DEBUG LOGGING ---
     otel_python_log_level_env = os.environ.get("OTEL_PYTHON_LOG_LEVEL", "info").lower()
     effective_log_level = logging.DEBUG if otel_python_log_level_env == "debug" else logging.INFO
@@ -77,11 +102,21 @@ def initialize_otel():
             source_module="otel_instrumentation",
         )
 
-        provider = TracerProvider(resource=resource)
+        # shutdown_on_exit=False: the SDK's own atexit hook calls provider.shutdown(),
+        # which joins the BatchSpanProcessor export thread WITHOUT a timeout. If the
+        # OTLP collector is unreachable, that thread sits in the gRPC exporter's
+        # retry/backoff loop (~63s of sleeps per batch, and the exporter's shutdown
+        # flag is only set after the join returns), so every process exit hangs until
+        # SIGKILL — under granian this turns each worker stop into a
+        # "refused to gracefully stop" hard kill. A bounded force_flush gives spans
+        # their best shot at export and then lets the process exit; the export thread
+        # is a daemon, so skipping shutdown() leaks nothing at exit.
+        provider = TracerProvider(resource=resource, shutdown_on_exit=False)
         otlp_exporter = OTLPSpanExporter()  # Assumes OTLP endpoint is configured via env vars
         processor = BatchSpanProcessor(otlp_exporter)
         provider.add_span_processor(processor)
         trace.set_tracer_provider(provider)
+        atexit.register(lambda: provider.force_flush(timeout_millis=5_000))
         logger.info(
             "otel_core_components_initialized_successfully",
             service_name=service_name,
@@ -89,6 +124,7 @@ def initialize_otel():
         )
 
         instrument_django(provider)
+        instrument_celery(provider)
         instrument_redis(provider)
         instrument_psycopg(provider)
         instrument_kafka(provider)
@@ -117,6 +153,14 @@ def instrument_django(provider: trace.TracerProvider):
         logger.info("otel_instrumentation_attempt", instrumentor="DjangoInstrumentor", status="success")
     except Exception as e:
         logger.exception("otel_instrumentation_attempt", instrumentor="DjangoInstrumentor", status="error", exc_info=e)
+
+
+def instrument_celery(provider: trace.TracerProvider):
+    try:
+        CeleryInstrumentor().instrument(tracer_provider=provider)
+        logger.info("otel_instrumentation_attempt", instrumentor="CeleryInstrumentor", status="success")
+    except Exception as e:
+        logger.exception("otel_instrumentation_attempt", instrumentor="CeleryInstrumentor", status="error", exc_info=e)
 
 
 def instrument_redis(provider: trace.TracerProvider):

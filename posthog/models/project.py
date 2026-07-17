@@ -50,6 +50,12 @@ class Project(UpdatedMetaFields):
     created_at = models.DateTimeField(auto_now_add=True)
     # Deprecated in favor of CoreMemory
     product_description = models.TextField(null=True, blank=True, max_length=1000)
+    is_pending_deletion = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="Set to True when project deletion has been initiated. Blocks UI access to this project until the async task completes.",
+    )
 
     objects: ProjectManager = ProjectManager()
 

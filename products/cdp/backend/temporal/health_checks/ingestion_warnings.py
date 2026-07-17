@@ -3,7 +3,14 @@ import structlog
 from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
-from posthog.temporal.health_checks.framework import AlertContent, HealthCheck
+from posthog.temporal.health_checks.framework import (
+    _SEVERITY_WEIGHT,
+    AlertContent,
+    HealthCheck,
+    Remediation,
+    SignalContent,
+    build_signal_extra,
+)
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
@@ -45,13 +52,51 @@ class IngestionWarningsCheck(HealthCheck):
     policy = CLICKHOUSE_BATCH_EXECUTION_POLICY
     schedule = "0 7 * * *"
     active_since_days = 30
+    remediation = Remediation(
+        human="""
+            Open the Ingestion warnings page. It groups warnings by type and shows examples of the affected
+            events. Use the type and the examples to trace the warning back to the instrumentation that
+            produced it, then fix how those events are sent.
+        """,
+        agent="""
+            Read this issue with `health-issues-get` to get the `warning_type` and `affected_count` from
+            the payload, and use `execute-sql` to pull example offending events for that warning type so
+            you can see the exact properties involved. Then fix it in the user's codebase at the
+            `posthog.capture` (or autocapture) call sites that emit those events — for example stop sending
+            oversized or malformed properties, correct the event timestamp, or align the event name — and
+            redeploy. Use `docs-search` for the specific warning type. The issue clears once the warning
+            stops firing.
+        """,
+    )
 
     @classmethod
     def render_alert(cls, issue: HealthIssue) -> AlertContent:
         warning_type = issue.payload.get("warning_type", "ingestion warning")
         count = issue.payload.get("affected_count")
         summary = f"{warning_type} fired {count} times" if count is not None else f"{warning_type} detected"
-        return AlertContent(title="Ingestion warning detected", summary=summary, link="/health/ingestion")
+        return AlertContent(
+            title="Ingestion warning detected",
+            summary=summary,
+            link="/health/ingestion",
+        )
+
+    @classmethod
+    def render_signal(cls, issue: HealthIssue) -> SignalContent | None:
+        warning_type = issue.payload.get("warning_type", "ingestion warning")
+        count = issue.payload.get("affected_count")
+        count_clause = f"{count:,} times" if isinstance(count, int) else "repeatedly"
+        title = "Ingestion warning detected"
+        summary = f"{warning_type} fired {count} times" if count is not None else f"{warning_type} detected"
+        return SignalContent(
+            description=(
+                f"PostHog raised the ingestion warning `{warning_type}` {count_clause} for this project in the last "
+                "week. Ingestion warnings mean events are being dropped, mis-merged, or degraded on the way in — so "
+                "the affected data is incomplete or inaccurate. Recommend reviewing the ingestion warnings page to "
+                "find the source and fix the instrumentation producing them."
+            ),
+            weight=_SEVERITY_WEIGHT[issue.severity],
+            extra=build_signal_extra(issue, title=title, summary=summary, link="/health/ingestion"),
+        )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         rows = execute_clickhouse_health_team_query(

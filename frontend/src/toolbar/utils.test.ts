@@ -1,4 +1,11 @@
-import { asNonEmptyString, joinWithUiHost, slashDotDataAttrUnescape } from './utils'
+import {
+    asNonEmptyString,
+    containsUnstableGeneratedId,
+    elementToQuery,
+    joinWithUiHost,
+    safeFetch,
+    unescapeCssSelector,
+} from './utils'
 
 describe('utils', () => {
     describe('asNonEmptyString', () => {
@@ -66,7 +73,7 @@ describe('utils', () => {
         })
     })
 
-    describe('slashDotDataAttrUnescape', () => {
+    describe('unescapeCssSelector', () => {
         const testCases = [
             {
                 input: 'div[data-attr="test"]',
@@ -88,12 +95,110 @@ describe('utils', () => {
                 input: '\\.tomato div[data-something="test\\.test\\.test"]',
                 expected: '.tomato div[data-something="test.test.test"]',
             },
+            {
+                // escaped characters other than dots must round-trip, not be mangled into dots
+                input: '[data-id="base-ui-\\:rg\\:-viewport"] > [data-has-overflow-y=""]',
+                expected: '[data-id="base-ui-:rg:-viewport"] > [data-has-overflow-y=""]',
+            },
+            {
+                // CSS.escape emits hex code-point escapes for leading digits, e.g. CSS.escape('123-foo')
+                input: '[data-id="\\31 23-foo"]',
+                expected: '[data-id="123-foo"]',
+            },
+            {
+                // code point 0 is invalid per the CSS spec — fall back to U+FFFD
+                input: '[data-id="\\0 foo"]',
+                expected: '[data-id="�foo"]',
+            },
+            {
+                // code point above U+10FFFF is invalid — fall back to U+FFFD
+                input: '[data-id="\\ffffff foo"]',
+                expected: '[data-id="�foo"]',
+            },
         ]
         testCases.forEach(({ input, expected }) => {
             it(`should unescape "${input}" to "${expected}"`, () => {
-                const result = slashDotDataAttrUnescape(input)
+                const result = unescapeCssSelector(input)
                 expect(result).toBe(expected)
             })
         })
+    })
+
+    describe('containsUnstableGeneratedId', () => {
+        const testCases: Array<{ value: string; expected: boolean }> = [
+            { value: 'base-ui-:rg:-viewport', expected: true },
+            { value: ':r5:', expected: true },
+            { value: 'radix-:R1d6:', expected: true },
+            { value: 'base-ui-«r5»-viewport', expected: true },
+            { value: 'sidebar-viewport', expected: false },
+            { value: 'session.recording.preview', expected: false },
+        ]
+        it.each(testCases)('$value -> $expected', ({ value, expected }) => {
+            expect(containsUnstableGeneratedId(value)).toBe(expected)
+        })
+    })
+
+    describe('elementToQuery', () => {
+        it('does not build selectors from useId-derived data attributes', () => {
+            document.body.innerHTML = `
+                <div data-id="base-ui-:rg:-viewport">
+                    <div data-has-overflow-y=""><button>hi</button></div>
+                </div>
+            `
+            const element = document.querySelector('[data-has-overflow-y]') as HTMLElement
+            const selector = elementToQuery(element, [])
+            expect(selector).toBeTruthy()
+            expect(selector).not.toContain('base-ui-')
+        })
+
+        it('uses stable data attributes via finder', () => {
+            document.body.innerHTML = `
+                <div data-id="sidebar-viewport">
+                    <div data-has-overflow-y=""><button>hi</button></div>
+                </div>
+            `
+            const element = document.querySelector('[data-id="sidebar-viewport"]') as HTMLElement
+            const selector = elementToQuery(element, [])
+            expect(selector).toContain('[data-id="sidebar-viewport"]')
+        })
+    })
+
+    describe('safeFetch', () => {
+        const originalFetch = global.fetch
+
+        afterEach(() => {
+            global.fetch = originalFetch
+        })
+
+        it('passes a real Response through unchanged', async () => {
+            const realResponse = new Response('{}', { status: 200 })
+            global.fetch = jest.fn(() => Promise.resolve(realResponse)) as jest.Mock
+
+            const result = await safeFetch('https://example.com/api')
+
+            expect(result).toBe(realResponse)
+        })
+
+        it('passes a response-like object through unchanged', async () => {
+            const responseLike = { status: 200, ok: true, json: () => Promise.resolve({}) }
+            global.fetch = jest.fn(() => Promise.resolve(responseLike)) as jest.Mock
+
+            const result = await safeFetch('https://example.com/api')
+
+            expect(result).toBe(responseLike)
+        })
+
+        it.each([undefined, null, 'not-a-response'])(
+            'normalizes a non-object value (%p) into a synthetic failed response',
+            async (resolved) => {
+                global.fetch = jest.fn(() => Promise.resolve(resolved)) as jest.Mock
+
+                const result = await safeFetch('https://example.com/api')
+
+                expect(result).toBeInstanceOf(Response)
+                expect(result.ok).toBe(false)
+                expect(result.status).toBe(502)
+            }
+        )
     })
 })

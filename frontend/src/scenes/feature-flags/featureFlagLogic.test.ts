@@ -1,15 +1,27 @@
-import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+import {
+    MOCK_DEFAULT_BASIC_USER,
+    MOCK_DEFAULT_PROJECT,
+    MOCK_DEFAULT_TEAM,
+    MOCK_ORGANIZATION_ID,
+    MOCK_TEAM_ID,
+} from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
+    CohortType,
+    FeatureFlagGroupType,
     FeatureFlagType,
+    OrganizationFeatureFlag,
     PropertyFilterType,
     PropertyOperator,
     ScheduledChangeModels,
@@ -19,13 +31,24 @@ import {
 import { FeatureFlagFilters } from '~/types'
 
 import { TemplateKey } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
+import type { CopyFlagsDependencyRequirementsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
+import * as defaultReleaseConditionsModule from './defaultReleaseConditionsLogic'
+import {
+    DefaultReleaseConditionsResponse,
+    defaultReleaseConditionsLogic,
+    resolveDefaultReleaseConditions,
+} from './defaultReleaseConditionsLogic'
 import { detectFeatureFlagChanges } from './featureFlagConfirmationLogic'
 import {
     NEW_FLAG,
     convertIndexBasedPayloadsToVariantKeys,
+    dependencyActionLabel,
+    dependencyDisabledReason,
     featureFlagLogic,
+    hasDirectFlagDependency,
     hasMultipleVariantsActive,
+    hasStaticCohortDependency,
     hasZeroRollout,
     indexToVariantKeyFeatureFlagPayloads,
     scheduleDateFromStoredISO,
@@ -33,6 +56,16 @@ import {
     slugifyFeatureFlagKey,
     validateFeatureFlagKey,
 } from './featureFlagLogic'
+import { featureFlagsLogic } from './featureFlagsLogic'
+
+// jest.config.ts sets clearMocks: true, so these mock.fn() call histories reset before every test.
+jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
+    lemonToast: {
+        success: jest.fn(),
+        error: jest.fn(),
+        warning: jest.fn(),
+    },
+}))
 
 const MOCK_FEATURE_FLAG = {
     ...NEW_FLAG,
@@ -166,10 +199,6 @@ describe('featureFlagLogic', () => {
     let logic: ReturnType<typeof featureFlagLogic.build>
 
     beforeEach(async () => {
-        initKeaTests()
-        logic = featureFlagLogic({ id: 1 })
-        logic.mount()
-
         useMocks({
             get: {
                 [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
@@ -183,12 +212,101 @@ describe('featureFlagLogic', () => {
             },
         })
 
+        initKeaTests()
+        logic = featureFlagLogic({ id: 1 })
+        logic.mount()
+
         await expectLogic(logic).toFinishAllListeners()
     })
 
     afterEach(() => {
         logic.unmount()
         jest.useRealTimers()
+    })
+
+    describe('stale list-cache reconciliation on mount', () => {
+        it('refreshes a cache-painted flag so active reflects the server, not the stale list cache', async () => {
+            logic.unmount()
+
+            useMocks({
+                get: {
+                    '/api/projects/:projectId/feature_flags/': () => [
+                        200,
+                        { results: [{ ...MOCK_FEATURE_FLAG, active: false }], count: 1 },
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                        200,
+                        { ...MOCK_FEATURE_FLAG, active: true },
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/status`]: () => [
+                        200,
+                        MOCK_FEATURE_FLAG_STATUS,
+                    ],
+                },
+            })
+
+            featureFlagsLogic.mount()
+            featureFlagsLogic.actions.loadFeatureFlags()
+            await expectLogic(featureFlagsLogic).toFinishAllListeners()
+            expect(featureFlagsLogic.values.featureFlags.results[0].active).toBe(false)
+
+            logic = featureFlagLogic({ id: 1 })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions(['setFeatureFlag', 'refreshFeatureFlag', 'refreshFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(logic.values.featureFlag.active).toBe(true)
+            expect(featureFlagsLogic.values.featureFlags.results[0].active).toBe(true)
+
+            featureFlagsLogic.unmount()
+        })
+    })
+
+    describe('saveFeatureFlag error handling', () => {
+        it('shows the friendly permission toast on a save-time 403', async () => {
+            useMocks({
+                patch: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                        403,
+                        { type: 'authentication_error', code: 'permission_denied', detail: 'Nope' },
+                    ],
+                },
+            })
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.saveFeatureFlag(logic.values.featureFlag)
+                }).toDispatchActions(['saveFeatureFlagFailure'])
+
+                expect(toastSpy).toHaveBeenCalledWith('Nope')
+            } finally {
+                toastSpy.mockRestore()
+            }
+        })
+
+        it('does not show the permission toast for other save errors', async () => {
+            useMocks({
+                patch: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                        500,
+                        { type: 'server_error', detail: 'boom' },
+                    ],
+                },
+            })
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.saveFeatureFlag(logic.values.featureFlag)
+                }).toDispatchActions(['saveFeatureFlagFailure'])
+
+                // The permission-specific branch must not fire; the generic loaders toast owns this case.
+                expect(toastSpy).not.toHaveBeenCalledWith('Nope')
+            } finally {
+                toastSpy.mockRestore()
+            }
+        })
     })
 
     describe('setMultivariateEnabled functionality', () => {
@@ -347,6 +465,24 @@ describe('featureFlagLogic', () => {
             }
         )
 
+        it('prepends org default groups ahead of template groups when default conditions are enabled', async () => {
+            const DEFAULT_GROUP = { properties: [], rollout_percentage: 10, variant: null }
+            // The shared singleton is warmed to a disabled value on mount, so seed its cache with
+            // enabled defaults before applyTemplate reads it.
+            defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess({
+                enabled: true,
+                default_groups: [DEFAULT_GROUP],
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.applyTemplate('targeted')
+            }).toDispatchActions(['applyTemplate', 'setFeatureFlag'])
+
+            const groups = logic.values.featureFlag.filters.groups
+            expect(groups[0]).toMatchObject(DEFAULT_GROUP)
+            expect(groups.length).toBeGreaterThan(1)
+        })
+
         it('preserves variant payloads when applying a template to a non-encrypted flag', async () => {
             const MOCK_NON_ENCRYPTED_FLAG: FeatureFlagType = {
                 ...logic.values.featureFlag,
@@ -375,6 +511,42 @@ describe('featureFlagLogic', () => {
                         }),
                     }),
                 })
+        })
+
+        it('does not access the store after unmounting mid-apply', async () => {
+            // applyTemplate awaits release conditions before reading values again. Unmounting during
+            // that await (navigating away, or the auto-apply from a ?template= param racing a fast
+            // unmount) must not touch a store path that no longer exists — that used to throw
+            // "Can not find path ... in the store" and surface as an unhandled rejection.
+            let resolveRelease: (value: DefaultReleaseConditionsResponse | null) => void = () => {}
+            const pendingRelease = new Promise<DefaultReleaseConditionsResponse | null>((resolve) => {
+                resolveRelease = resolve
+            })
+            const spy = jest
+                .spyOn(defaultReleaseConditionsModule, 'resolveDefaultReleaseConditions')
+                .mockReturnValue(pendingRelease)
+
+            const rejections: unknown[] = []
+            const onRejection = (error: unknown): void => {
+                rejections.push(error)
+            }
+            process.on('unhandledRejection', onRejection)
+
+            try {
+                // Listener parks on the pending release conditions, then we navigate away.
+                logic.actions.applyTemplate('targeted')
+                logic.unmount()
+
+                // Resuming after unmount must bail instead of reading values.featureFlag.
+                resolveRelease(null)
+                await pendingRelease
+                await new Promise((resolve) => setTimeout(resolve, 0))
+            } finally {
+                process.off('unhandledRejection', onRejection)
+                spy.mockRestore()
+            }
+
+            expect(rejections).toEqual([])
         })
     })
 
@@ -444,6 +616,58 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('setFeatureFlagFilters', () => {
+        it.each([
+            ['an empty payload snapshot', {}],
+            ['a stale payload snapshot', { true: '{"enabled":false}' }],
+        ])('preserves boolean payloads when release conditions update from %s', async (_, incomingPayloads) => {
+            const payload = '{"enabled":true}'
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('filters', {
+                    ...logic.values.featureFlag.filters,
+                    payloads: { true: payload },
+                })
+            }).toMatchValues({
+                featureFlag: partial({
+                    filters: partial({
+                        payloads: { true: payload },
+                    }),
+                }),
+            })
+
+            const updatedConditionFilters: FeatureFlagFilters = {
+                ...logic.values.featureFlag.filters,
+                groups: [
+                    {
+                        properties: [
+                            {
+                                key: '$browser',
+                                value: 'Chrome',
+                                type: PropertyFilterType.Person,
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                        rollout_percentage: 42,
+                        variant: null,
+                    },
+                ],
+                payloads: incomingPayloads,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagFilters(updatedConditionFilters, {})
+            }).toMatchValues({
+                featureFlag: partial({
+                    filters: partial({
+                        groups: updatedConditionFilters.groups,
+                        payloads: { true: payload },
+                    }),
+                }),
+            })
+        })
+    })
+
     describe('change detection', () => {
         it('detects active status changes', () => {
             const originalFlag = { ...MOCK_FEATURE_FLAG, active: false }
@@ -469,6 +693,29 @@ describe('featureFlagLogic', () => {
 
             const changes = detectFeatureFlagChanges(originalFlag, changedFlag)
             expect(changes).toContain('Release condition rollout percentage changed')
+        })
+
+        it('does not throw and detects changes when a filter value is a bigint', () => {
+            // Property values can be bigint (PropertyFilterBaseValue); raw JSON.stringify throws on them.
+            const filtersWithBigIntId = (value: bigint): FeatureFlagFilters => ({
+                groups: [
+                    {
+                        properties: [
+                            { key: 'id', value, type: PropertyFilterType.Person, operator: PropertyOperator.Exact },
+                        ],
+                        rollout_percentage: 100,
+                        variant: null,
+                    },
+                ],
+            })
+            const originalFlag = { ...MOCK_FEATURE_FLAG, filters: filtersWithBigIntId(BigInt('9007199254740993')) }
+            const changedFlag = { ...MOCK_FEATURE_FLAG, filters: filtersWithBigIntId(BigInt('9007199254740994')) }
+
+            let changes: string[] = []
+            expect(() => {
+                changes = detectFeatureFlagChanges(originalFlag, changedFlag)
+            }).not.toThrow()
+            expect(changes).toContain('Release conditions changed')
         })
 
         it('returns no changes for new flags', () => {
@@ -618,17 +865,64 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('default release conditions on new flags', () => {
+        const groupDefault: FeatureFlagGroupType = {
+            properties: [
+                {
+                    key: 'is_dev',
+                    type: PropertyFilterType.Group,
+                    value: ['true'],
+                    operator: PropertyOperator.Exact,
+                    group_type_index: 1,
+                },
+            ],
+            rollout_percentage: 100,
+            variant: null,
+            aggregation_group_type_index: 1,
+        }
+
+        async function mountNewFlag(defaultConditions: {
+            enabled: boolean
+            default_groups: FeatureFlagGroupType[]
+        }): Promise<ReturnType<typeof featureFlagLogic.build>> {
+            // Seed the shared singleton's cache before the new-flag loader reads it; useMocks lands
+            // too late since the logic is warmed to a disabled value on mount in beforeEach.
+            defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess(defaultConditions)
+            // Park at a non-matching path so the `new`-keyed logic doesn't prefetch off stale params.
+            router.actions.push('/')
+            const newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+            await expectLogic(newLogic).toFinishAllListeners()
+            return newLogic
+        }
+
+        it('applies an enabled group-targeted default and mirrors the aggregation onto the new flag', async () => {
+            const newLogic = await mountNewFlag({ enabled: true, default_groups: [groupDefault] })
+
+            expect(newLogic.values.featureFlag.filters.groups).toEqual([groupDefault])
+            expect(newLogic.values.featureFlag.filters.aggregation_group_type_index).toBe(1)
+            newLogic.unmount()
+        })
+
+        it('leaves a new flag on user targeting when the default config is disabled', async () => {
+            const newLogic = await mountNewFlag({ enabled: false, default_groups: [groupDefault] })
+
+            expect(newLogic.values.featureFlag.filters.groups).toEqual([
+                { properties: [], rollout_percentage: 0, variant: null },
+            ])
+            expect(newLogic.values.featureFlag.filters.aggregation_group_type_index).toBeUndefined()
+            newLogic.unmount()
+        })
+    })
+
     describe('experiment loading', () => {
         it('loads experiment data when feature flag has an experiment linked', async () => {
             const flagWithExperiment = {
                 ...MOCK_FEATURE_FLAG,
                 id: 2,
                 experiment_set: [MOCK_EXPERIMENT.id],
-                experiment_set_metadata: [{ id: MOCK_EXPERIMENT.id, name: MOCK_EXPERIMENT.name }],
+                experiment_set_metadata: [{ id: MOCK_EXPERIMENT.id, name: MOCK_EXPERIMENT.name, is_running: true }],
             }
-
-            const experimentLogic = featureFlagLogic({ id: 2 })
-            experimentLogic.mount()
 
             useMocks({
                 get: {
@@ -647,10 +941,13 @@ describe('featureFlagLogic', () => {
                 },
             })
 
-            await expectLogic(experimentLogic, () => {
-                experimentLogic.actions.loadFeatureFlag()
-            })
-                .toDispatchActions(['loadFeatureFlagSuccess', 'loadExperimentSuccess'])
+            const experimentLogic = featureFlagLogic({ id: 2 })
+            experimentLogic.mount()
+
+            // The loader awaits the experiment inline before returning the flag,
+            // so loadExperimentSuccess lands before loadFeatureFlagSuccess.
+            await expectLogic(experimentLogic)
+                .toDispatchActions(['loadFeatureFlag', 'loadExperimentSuccess', 'loadFeatureFlagSuccess'])
                 .toMatchValues({
                     featureFlag: partial({
                         id: flagWithExperiment.id,
@@ -670,9 +967,6 @@ describe('featureFlagLogic', () => {
                 experiment_set_metadata: null,
             }
 
-            const noExperimentLogic = featureFlagLogic({ id: 3 })
-            noExperimentLogic.mount()
-
             useMocks({
                 get: {
                     [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flagWithoutExperiment.id}/`]: () => [
@@ -683,6 +977,9 @@ describe('featureFlagLogic', () => {
                         () => [200, MOCK_FEATURE_FLAG_STATUS],
                 },
             })
+
+            const noExperimentLogic = featureFlagLogic({ id: 3 })
+            noExperimentLogic.mount()
 
             await expectLogic(noExperimentLogic, () => {
                 noExperimentLogic.actions.loadFeatureFlag()
@@ -706,7 +1003,6 @@ describe('featureFlagLogic', () => {
             const flag = { ...MOCK_FEATURE_FLAG, id: 6, active: true }
 
             const testLogic = featureFlagLogic({ id: 6 })
-            testLogic.mount()
 
             useMocks({
                 get: {
@@ -721,6 +1017,8 @@ describe('featureFlagLogic', () => {
                     ],
                 },
             })
+
+            testLogic.mount()
 
             await expectLogic(testLogic, () => {
                 testLogic.actions.loadFeatureFlag()
@@ -738,7 +1036,6 @@ describe('featureFlagLogic', () => {
             const flag = { ...MOCK_FEATURE_FLAG, id: 4 }
 
             const testLogic = featureFlagLogic({ id: 4 })
-            testLogic.mount()
 
             useMocks({
                 get: {
@@ -754,6 +1051,8 @@ describe('featureFlagLogic', () => {
                 },
             })
 
+            testLogic.mount()
+
             await expectLogic(testLogic, () => {
                 testLogic.actions.loadFeatureFlag()
             })
@@ -767,7 +1066,6 @@ describe('featureFlagLogic', () => {
             const flag = { ...MOCK_FEATURE_FLAG, id: 5 }
 
             const testLogic = featureFlagLogic({ id: 5 })
-            testLogic.mount()
 
             useMocks({
                 get: {
@@ -783,6 +1081,8 @@ describe('featureFlagLogic', () => {
                 },
             })
 
+            testLogic.mount()
+
             await expectLogic(testLogic, () => {
                 testLogic.actions.loadFeatureFlag()
             })
@@ -793,10 +1093,10 @@ describe('featureFlagLogic', () => {
         })
 
         it('handles API failure gracefully and returns empty array', async () => {
+            silenceKeaLoadersErrors()
             const flag = { ...MOCK_FEATURE_FLAG, id: 14 }
 
             const testLogic = featureFlagLogic({ id: 14 })
-            testLogic.mount()
 
             useMocks({
                 get: {
@@ -812,6 +1112,8 @@ describe('featureFlagLogic', () => {
                 },
             })
 
+            testLogic.mount()
+
             await expectLogic(testLogic, () => {
                 testLogic.actions.loadFeatureFlag()
             })
@@ -819,6 +1121,405 @@ describe('featureFlagLogic', () => {
                 .toMatchValues({ dependentFlags: [], dependentFlagsLoading: false })
 
             testLogic.unmount()
+            resumeKeaLoadersErrors()
+        })
+    })
+
+    describe('copying flags', () => {
+        it('sends dependency copy options and resets them after success', async () => {
+            const targetProjectId = MOCK_DEFAULT_PROJECT.id + 1
+            let capturedCopyBody: Record<string, unknown> | null = null
+            let capturedRequirementsBody: Record<string, unknown> | null = null
+
+            useMocks({
+                get: {
+                    '/api/organizations/:organization_id/feature_flags/:feature_flag_key': () => [200, []],
+                },
+                post: {
+                    '/api/organizations/:organization_id/feature_flags/copy_flags/dependency_requirements': async ({
+                        request,
+                    }) => {
+                        capturedRequirementsBody = (await request.json()) as Record<string, unknown>
+                        return [
+                            200,
+                            {
+                                can_copy_dependencies: true,
+                                dependency_count: 1,
+                                copied_dependency_keys: ['parent-flag'],
+                                reused_dependency_keys: [],
+                                warnings: [],
+                                reason: '1 dependency flag can be copied.',
+                            },
+                        ]
+                    },
+                    '/api/organizations/:organization_id/feature_flags/copy_flags': async ({ request }) => {
+                        capturedCopyBody = (await request.json()) as Record<string, unknown>
+                        return [
+                            200,
+                            {
+                                success: [
+                                    {
+                                        id: MOCK_FEATURE_FLAG.id,
+                                        key: MOCK_FEATURE_FLAG.key,
+                                        name: MOCK_FEATURE_FLAG.name,
+                                        active: true,
+                                        team_id: targetProjectId,
+                                        copied_dependency_keys: ['parent-flag'],
+                                    },
+                                ],
+                                failed: [],
+                            },
+                        ]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlag({
+                    ...MOCK_FEATURE_FLAG,
+                    filters: {
+                        ...MOCK_FEATURE_FLAG.filters,
+                        groups: [
+                            {
+                                rollout_percentage: 100,
+                                properties: [
+                                    {
+                                        key: '123',
+                                        type: PropertyFilterType.Flag,
+                                        value: 'true',
+                                        operator: PropertyOperator.FlagEvaluatesTo,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                })
+                logic.actions.setCopyDestinationProject(targetProjectId)
+            }).toDispatchActions(['loadCopyDependencyRequirementsSuccess'])
+
+            expect(capturedRequirementsBody).toMatchObject({
+                feature_flag_key: MOCK_FEATURE_FLAG.key,
+                from_project: MOCK_DEFAULT_PROJECT.id,
+                target_project_ids: [targetProjectId],
+            })
+
+            logic.actions.setCopySchedule(true)
+            logic.actions.setDisableCopiedFlag(true)
+            logic.actions.setCopyDependencies(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.copyFlag()
+            }).toDispatchActions(['copyFlagSuccess'])
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.copyDependencies).toBe(false)
+
+            expect(capturedCopyBody).toMatchObject({
+                feature_flag_key: MOCK_FEATURE_FLAG.key,
+                from_project: MOCK_DEFAULT_PROJECT.id,
+                target_project_ids: [targetProjectId],
+                copy_schedule: true,
+                disable_copied_flag: true,
+                copy_dependencies: true,
+            })
+        })
+
+        it('clears dependency requirements when the availability check fails', async () => {
+            const targetProjectId = MOCK_DEFAULT_PROJECT.id + 1
+            let requirementsCallCount = 0
+
+            useMocks({
+                post: {
+                    '/api/organizations/:organization_id/feature_flags/copy_flags/dependency_requirements': () => {
+                        requirementsCallCount += 1
+
+                        if (requirementsCallCount === 1) {
+                            return [
+                                200,
+                                {
+                                    can_copy_dependencies: true,
+                                    dependency_count: 1,
+                                    copied_dependency_keys: ['parent-flag'],
+                                    reused_dependency_keys: [],
+                                    warnings: [],
+                                    reason: '1 dependency flag can be copied.',
+                                },
+                            ]
+                        }
+
+                        return [500, { error: 'Unable to check dependency availability' }]
+                    },
+                },
+            })
+
+            logic.actions.setFeatureFlag({
+                ...MOCK_FEATURE_FLAG,
+                filters: {
+                    ...MOCK_FEATURE_FLAG.filters,
+                    groups: [
+                        {
+                            rollout_percentage: 100,
+                            properties: [
+                                {
+                                    key: '123',
+                                    type: PropertyFilterType.Flag,
+                                    value: 'true',
+                                    operator: PropertyOperator.FlagEvaluatesTo,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setCopyDestinationProject(targetProjectId)
+            }).toDispatchActions(['loadCopyDependencyRequirementsSuccess'])
+            logic.actions.setCopyDependencies(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.setCopyDestinationProject(targetProjectId + 1)
+            }).toDispatchActions(['loadCopyDependencyRequirementsFailure'])
+
+            expect(logic.values.copyDependencies).toBe(false)
+            expect(logic.values.copyDependencyRequirements?.can_copy_dependencies).toBe(false)
+            expect(logic.values.copyDependencyRequirements?.reason).toContain('Unable to check dependency availability')
+        })
+
+        it('refreshes dependency requirements and clears opt-in when the source flag changes', async () => {
+            const targetProjectId = MOCK_DEFAULT_PROJECT.id + 1
+            let requirementsCallCount = 0
+
+            const flagWithDependency = (dependencyId: string): FeatureFlagType => ({
+                ...MOCK_FEATURE_FLAG,
+                filters: {
+                    ...MOCK_FEATURE_FLAG.filters,
+                    groups: [
+                        {
+                            rollout_percentage: 100,
+                            properties: [
+                                {
+                                    key: dependencyId,
+                                    type: PropertyFilterType.Flag,
+                                    value: 'true',
+                                    operator: PropertyOperator.FlagEvaluatesTo,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+
+            useMocks({
+                get: {
+                    '/api/organizations/:organization_id/feature_flags/:feature_flag_key': () => [200, []],
+                },
+                post: {
+                    '/api/organizations/:organization_id/feature_flags/copy_flags/dependency_requirements': () => {
+                        requirementsCallCount += 1
+
+                        return [
+                            200,
+                            {
+                                can_copy_dependencies: true,
+                                dependency_count: 1,
+                                copied_dependency_keys: [`parent-flag-${requirementsCallCount}`],
+                                reused_dependency_keys: [],
+                                warnings: [],
+                                reason: '1 dependency flag can be copied.',
+                            },
+                        ]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlag(flagWithDependency('123'))
+                logic.actions.setCopyDestinationProject(targetProjectId)
+            }).toDispatchActions(['loadCopyDependencyRequirementsSuccess'])
+
+            logic.actions.setCopyDependencies(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlag(flagWithDependency('456'))
+            }).toDispatchActions(['loadCopyDependencyRequirementsSuccess'])
+
+            expect(requirementsCallCount).toBe(2)
+            expect(logic.values.copyDependencies).toBe(false)
+            expect(logic.values.copyDependencyRequirements?.copied_dependency_keys).toEqual(['parent-flag-2'])
+        })
+
+        it('ignores stale dependency requirements when the destination changes before the first request resolves', async () => {
+            jest.useFakeTimers()
+            const firstTargetProjectId = MOCK_DEFAULT_PROJECT.id + 1
+            const secondTargetProjectId = MOCK_DEFAULT_PROJECT.id + 2
+            type DependencyRequirementsMockResponse = [number, Record<string, unknown>]
+            const pendingRequests = new Map<number, (response: DependencyRequirementsMockResponse) => void>()
+            const waitForPendingRequest = async (projectId: number): Promise<void> => {
+                for (let attempt = 0; attempt < 10; attempt++) {
+                    if (pendingRequests.has(projectId)) {
+                        return
+                    }
+                    await Promise.resolve()
+                }
+                throw new Error(`Missing dependency requirements request for project ${projectId}`)
+            }
+
+            useMocks({
+                post: {
+                    '/api/organizations/:organization_id/feature_flags/copy_flags/dependency_requirements': async ({
+                        request,
+                    }) => {
+                        const body = (await request.json()) as { target_project_ids: number[] }
+                        const projectId = body.target_project_ids[0]
+
+                        return await new Promise<DependencyRequirementsMockResponse>((resolve) => {
+                            pendingRequests.set(projectId, resolve)
+                        })
+                    },
+                },
+            })
+
+            logic.actions.setFeatureFlag({
+                ...MOCK_FEATURE_FLAG,
+                filters: {
+                    ...MOCK_FEATURE_FLAG.filters,
+                    groups: [
+                        {
+                            rollout_percentage: 100,
+                            properties: [
+                                {
+                                    key: '123',
+                                    type: PropertyFilterType.Flag,
+                                    value: 'true',
+                                    operator: PropertyOperator.FlagEvaluatesTo,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+
+            logic.actions.setCopyDestinationProject(firstTargetProjectId)
+            await jest.advanceTimersByTimeAsync(300)
+            await waitForPendingRequest(firstTargetProjectId)
+
+            logic.actions.setCopyDestinationProject(secondTargetProjectId)
+            await jest.advanceTimersByTimeAsync(300)
+            await waitForPendingRequest(secondTargetProjectId)
+
+            pendingRequests.get(secondTargetProjectId)?.([
+                200,
+                {
+                    can_copy_dependencies: true,
+                    dependency_count: 1,
+                    copied_dependency_keys: ['second-parent-flag'],
+                    reused_dependency_keys: [],
+                    warnings: [],
+                    reason: '1 dependency flag can be copied.',
+                },
+            ])
+
+            await expectLogic(logic).toDispatchActions(['loadCopyDependencyRequirementsSuccess'])
+            expect(logic.values.copyDependencyRequirements?.copied_dependency_keys).toEqual(['second-parent-flag'])
+
+            pendingRequests.get(firstTargetProjectId)?.([
+                200,
+                {
+                    can_copy_dependencies: true,
+                    dependency_count: 1,
+                    copied_dependency_keys: ['first-parent-flag'],
+                    reused_dependency_keys: [],
+                    warnings: [],
+                    reason: '1 dependency flag can be copied.',
+                },
+            ])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.copyDestinationProject).toBe(secondTargetProjectId)
+            expect(logic.values.copyDependencyRequirements?.copied_dependency_keys).toEqual(['second-parent-flag'])
+        })
+
+        it('ignores stale dependency requirement failures after the destination changes', async () => {
+            jest.useFakeTimers()
+            const firstTargetProjectId = MOCK_DEFAULT_PROJECT.id + 1
+            const secondTargetProjectId = MOCK_DEFAULT_PROJECT.id + 2
+            type DependencyRequirementsMockResponse = [number, Record<string, unknown>]
+            const pendingRequests = new Map<number, (response: DependencyRequirementsMockResponse) => void>()
+            const waitForPendingRequest = async (projectId: number): Promise<void> => {
+                for (let attempt = 0; attempt < 10; attempt++) {
+                    if (pendingRequests.has(projectId)) {
+                        return
+                    }
+                    await Promise.resolve()
+                }
+                throw new Error(`Missing dependency requirements request for project ${projectId}`)
+            }
+
+            useMocks({
+                post: {
+                    '/api/organizations/:organization_id/feature_flags/copy_flags/dependency_requirements': async ({
+                        request,
+                    }) => {
+                        const body = (await request.json()) as { target_project_ids: number[] }
+                        const projectId = body.target_project_ids[0]
+
+                        return await new Promise<DependencyRequirementsMockResponse>((resolve) => {
+                            pendingRequests.set(projectId, resolve)
+                        })
+                    },
+                },
+            })
+
+            logic.actions.setFeatureFlag({
+                ...MOCK_FEATURE_FLAG,
+                filters: {
+                    ...MOCK_FEATURE_FLAG.filters,
+                    groups: [
+                        {
+                            rollout_percentage: 100,
+                            properties: [
+                                {
+                                    key: '123',
+                                    type: PropertyFilterType.Flag,
+                                    value: 'true',
+                                    operator: PropertyOperator.FlagEvaluatesTo,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+
+            logic.actions.setCopyDestinationProject(firstTargetProjectId)
+            await jest.advanceTimersByTimeAsync(300)
+            await waitForPendingRequest(firstTargetProjectId)
+
+            logic.actions.setCopyDestinationProject(secondTargetProjectId)
+            await jest.advanceTimersByTimeAsync(300)
+            await waitForPendingRequest(secondTargetProjectId)
+
+            pendingRequests.get(secondTargetProjectId)?.([
+                200,
+                {
+                    can_copy_dependencies: true,
+                    dependency_count: 1,
+                    copied_dependency_keys: ['second-parent-flag'],
+                    reused_dependency_keys: [],
+                    warnings: [],
+                    reason: '1 dependency flag can be copied.',
+                },
+            ])
+
+            await expectLogic(logic).toDispatchActions(['loadCopyDependencyRequirementsSuccess'])
+            expect(logic.values.copyDependencyRequirements?.copied_dependency_keys).toEqual(['second-parent-flag'])
+
+            pendingRequests.get(firstTargetProjectId)?.([500, { error: 'Unable to check dependency availability' }])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.copyDestinationProject).toBe(secondTargetProjectId)
+            expect(logic.values.copyDependencyRequirements?.copied_dependency_keys).toEqual(['second-parent-flag'])
         })
     })
 
@@ -956,6 +1657,215 @@ describe('featureFlagLogic', () => {
             })
         })
     })
+
+    describe('default release conditions', () => {
+        const conditionsUrl = `/api/environments/${MOCK_DEFAULT_PROJECT.id}/default_release_conditions/`
+
+        it('applies org default groups to a new flag when default conditions are enabled', async () => {
+            const DEFAULT_GROUP = { properties: [], rollout_percentage: 30, variant: null }
+            // Seed the shared singleton's cache with enabled defaults before the new-flag loader reads it
+            // (it's warmed to a disabled value on mount).
+            defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess({
+                enabled: true,
+                default_groups: [DEFAULT_GROUP],
+            })
+
+            const newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+            await expectLogic(newLogic).toDispatchActions(['loadFeatureFlagSuccess'])
+
+            const groups = newLogic.values.featureFlag.filters.groups
+            expect(groups[0]).toMatchObject(DEFAULT_GROUP)
+            expect(groups.length).toBe(1)
+
+            newLogic.unmount()
+        })
+
+        describe('resolveDefaultReleaseConditions', () => {
+            it('returns the cached value without fetching when one is already loaded', async () => {
+                const cached = {
+                    enabled: true,
+                    default_groups: [{ properties: [], rollout_percentage: 25, variant: null }],
+                }
+                // toBe asserts the same object reference, so a fetched copy would fail the assertion.
+                await expect(resolveDefaultReleaseConditions(cached, MOCK_DEFAULT_PROJECT.id)).resolves.toBe(cached)
+            })
+
+            it('fetches directly when the cache is empty', async () => {
+                const fetched = {
+                    enabled: true,
+                    default_groups: [{ properties: [], rollout_percentage: 10, variant: null }],
+                }
+                useMocks({ get: { [conditionsUrl]: () => [200, fetched] } })
+                await expect(resolveDefaultReleaseConditions(null, MOCK_DEFAULT_PROJECT.id)).resolves.toEqual(fetched)
+            })
+
+            it('returns null without fetching when no team is available', async () => {
+                await expect(resolveDefaultReleaseConditions(null, undefined)).resolves.toBeNull()
+            })
+
+            it('returns null when the fetch fails so new flag creation is not blocked', async () => {
+                // The graceful-failure path warns to the console by design.
+                const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+                useMocks({ get: { [conditionsUrl]: () => [500, {}] } })
+                await expect(resolveDefaultReleaseConditions(null, MOCK_DEFAULT_PROJECT.id)).resolves.toBeNull()
+                warnSpy.mockRestore()
+            })
+        })
+    })
+
+    describe('toggleProjectFlagActive', () => {
+        const projectRow = (teamId: number, flagId: number): OrganizationFeatureFlag => ({
+            flag_id: flagId,
+            team_id: teamId,
+            filters: { groups: [] },
+            active: true,
+            created_by: null,
+            created_at: '',
+        })
+
+        beforeEach(() => {
+            useMocks({
+                patch: {
+                    '/api/projects/:team_id/feature_flags/:id/': async ({ request, params }) => {
+                        const body = (await request.json()) as { active: boolean }
+                        return [200, { id: Number(params.id), active: body.active }]
+                    },
+                },
+            })
+        })
+
+        it.each([false, true])(
+            'updates the toggled project row without touching the current flag (active → %s)',
+            async (active) => {
+                logic.actions.loadProjectsWithCurrentFlagSuccess([
+                    projectRow(MOCK_TEAM_ID, 1),
+                    { ...projectRow(555, 42), active: !active },
+                ])
+
+                logic.actions.toggleProjectFlagActive(555, 42, active)
+                expect(logic.values.projectFlagsToggling).toEqual({ '555:42': true })
+
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.projectsWithCurrentFlag).toMatchObject([
+                    { team_id: MOCK_TEAM_ID, active: true },
+                    { team_id: 555, active },
+                ])
+                expect(logic.values.featureFlag.active).toBe(true)
+                expect(logic.values.projectFlagsToggling).toEqual({})
+            }
+        )
+
+        it('syncs featureFlag.active when the current project row is toggled', async () => {
+            logic.actions.loadProjectsWithCurrentFlagSuccess([projectRow(MOCK_TEAM_ID, 1)])
+
+            logic.actions.toggleProjectFlagActive(MOCK_TEAM_ID, 1, false)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.projectsWithCurrentFlag).toMatchObject([{ team_id: MOCK_TEAM_ID, active: false }])
+            expect(logic.values.featureFlag.active).toBe(false)
+        })
+
+        it('clears the in-flight marker and keeps state when the update fails', async () => {
+            useMocks({
+                patch: {
+                    '/api/projects/:team_id/feature_flags/:id/': () => [403, { detail: 'No edit access' }],
+                },
+            })
+            logic.actions.loadProjectsWithCurrentFlagSuccess([projectRow(MOCK_TEAM_ID, 1), projectRow(555, 42)])
+
+            logic.actions.toggleProjectFlagActive(555, 42, false)
+            await expectLogic(logic).toDispatchActions(['projectFlagActiveUpdateFailed']).toFinishAllListeners()
+
+            expect(logic.values.projectsWithCurrentFlag).toMatchObject([
+                { team_id: MOCK_TEAM_ID, active: true },
+                { team_id: 555, active: true },
+            ])
+            expect(logic.values.featureFlag.active).toBe(true)
+            expect(logic.values.projectFlagsToggling).toEqual({})
+        })
+    })
+
+    describe('toggleFeatureFlagActive', () => {
+        it('opens one confirmation with matching disable copy', async () => {
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            logic.actions.setFeatureFlag({ ...MOCK_FEATURE_FLAG, active: true })
+
+            await expectLogic(logic, () => logic.actions.toggleFeatureFlagActive(false)).toFinishAllListeners()
+
+            expect(dialogOpenSpy).toHaveBeenCalledTimes(1)
+            const dialogProps = dialogOpenSpy.mock.calls[0][0]
+            expect(dialogProps.title).toBe('Disable feature flag "test-flag"?')
+            expect(dialogProps.primaryButton?.children).toBe('Disable flag')
+            dialogOpenSpy.mockRestore()
+        })
+    })
+
+    describe('copyFlagSuccess', () => {
+        const copyFlagsUrl = `/api/organizations/${MOCK_ORGANIZATION_ID}/feature_flags/copy_flags/`
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    // Hit by the loadProjectsWithCurrentFlag() the listener always triggers afterward.
+                    [`/api/organizations/${MOCK_ORGANIZATION_ID}/feature_flags/${MOCK_FEATURE_FLAG.key}/`]: () => [
+                        200,
+                        [],
+                    ],
+                },
+            })
+            logic.actions.setCopyDestinationProject(MOCK_TEAM_ID)
+        })
+
+        it('shows a pending-approval warning, not a raw error, when the target project gates the write', async () => {
+            useMocks({
+                post: {
+                    [copyFlagsUrl]: () => [
+                        200,
+                        {
+                            success: [],
+                            failed: [
+                                {
+                                    project_id: MOCK_TEAM_ID,
+                                    error_message: 'Approval required',
+                                    approval_pending: true,
+                                    change_request_id: 'cr-1',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+
+            logic.actions.copyFlag()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lemonToast.warning).toHaveBeenCalledWith(
+                `A change request was created for ${MOCK_DEFAULT_TEAM.name}; the copy will apply once approved.`
+            )
+            expect(lemonToast.error).not.toHaveBeenCalled()
+        })
+
+        it('shows a plain error toast for a hard failure', async () => {
+            useMocks({
+                post: {
+                    [copyFlagsUrl]: () => [
+                        200,
+                        {
+                            success: [],
+                            failed: [{ project_id: MOCK_TEAM_ID, error_message: 'Project not found.' }],
+                        },
+                    ],
+                },
+            })
+
+            logic.actions.copyFlag()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith('Error while copying feature flag: Project not found.')
+            expect(lemonToast.warning).not.toHaveBeenCalled()
+        })
+    })
 })
 
 const createFilters = (overrides: Partial<FeatureFlagFilters> = {}): FeatureFlagFilters => ({
@@ -1000,6 +1910,230 @@ describe('hasZeroRollout', () => {
         },
     ])('returns $expected when $desc', ({ filters, expected }) => {
         expect(hasZeroRollout(filters)).toBe(expected)
+    })
+})
+
+describe('hasDirectFlagDependency', () => {
+    it.each([
+        {
+            filters: { groups: { properties: [] } },
+            expected: false,
+            desc: 'groups is not an array',
+        },
+        {
+            filters: { groups: [null] },
+            expected: false,
+            desc: 'group is null',
+        },
+        {
+            filters: { groups: [{ properties: { type: PropertyFilterType.Flag } }] },
+            expected: false,
+            desc: 'properties is not an array',
+        },
+        {
+            filters: { groups: [{ properties: [null] }] },
+            expected: false,
+            desc: 'property is null',
+        },
+        {
+            filters: createFilters({
+                groups: [
+                    {
+                        properties: [
+                            {
+                                key: '123',
+                                type: PropertyFilterType.Flag,
+                                value: 'true',
+                                operator: PropertyOperator.FlagEvaluatesTo,
+                            },
+                        ],
+                    },
+                ],
+            }),
+            expected: true,
+            desc: 'group has a flag property',
+        },
+    ])('returns $expected when $desc', ({ filters, expected }) => {
+        expect(hasDirectFlagDependency({ ...MOCK_FEATURE_FLAG, filters: filters as FeatureFlagFilters })).toBe(expected)
+    })
+})
+
+describe('dependency copy labels', () => {
+    const dependencyRequirements = (
+        overrides: Partial<CopyFlagsDependencyRequirementsResponseApi> = {}
+    ): CopyFlagsDependencyRequirementsResponseApi => ({
+        can_copy_dependencies: true,
+        dependency_count: 1,
+        copied_dependency_keys: ['parent-flag'],
+        reused_dependency_keys: [],
+        warnings: [],
+        reason: '1 dependency flag can be copied.',
+        ...overrides,
+    })
+
+    const actionLabelCases: {
+        desc: string
+        loading: boolean
+        req: CopyFlagsDependencyRequirementsResponseApi | null
+        expected: string
+    }[] = [
+        {
+            desc: 'requirements are loading',
+            loading: true,
+            req: dependencyRequirements({ can_copy_dependencies: false, reason: 'Dependency copying is disabled.' }),
+            expected: 'Copy dependencies: Checking',
+        },
+        {
+            desc: 'requirements are missing',
+            loading: false,
+            req: null,
+            expected: 'Copy dependencies: Checking',
+        },
+        {
+            desc: 'dependencies can be copied',
+            loading: false,
+            req: dependencyRequirements({ copied_dependency_keys: ['parent-flag', 'grandparent-flag'] }),
+            expected: 'Copy dependencies: 2 missing',
+        },
+        {
+            desc: 'dependency copying has warnings',
+            loading: false,
+            req: dependencyRequirements({
+                can_copy_dependencies: false,
+                copied_dependency_keys: [],
+                warnings: ['Dependency copying is unavailable.'],
+                reason: 'Dependency copying is unavailable.',
+            }),
+            expected: 'Copy dependencies: Unavailable',
+        },
+        {
+            desc: 'all dependencies already exist',
+            loading: false,
+            req: dependencyRequirements({
+                can_copy_dependencies: false,
+                copied_dependency_keys: [],
+                reused_dependency_keys: ['parent-flag'],
+                warnings: [],
+                reason: 'All dependencies already exist in the destination project.',
+            }),
+            expected: 'Copy dependencies: Already satisfied',
+        },
+    ]
+
+    const disabledReasonCases: {
+        desc: string
+        loading: boolean
+        req: CopyFlagsDependencyRequirementsResponseApi | null
+        expected: string | undefined
+    }[] = [
+        {
+            desc: 'requirements are loading',
+            loading: true,
+            req: dependencyRequirements({ can_copy_dependencies: false, reason: 'Dependency copying is disabled.' }),
+            expected: 'Checking dependency availability',
+        },
+        {
+            desc: 'requirements are missing',
+            loading: false,
+            req: null,
+            expected: 'Checking dependency availability',
+        },
+        {
+            desc: 'dependencies can be copied',
+            loading: false,
+            req: dependencyRequirements(),
+            expected: undefined,
+        },
+        {
+            desc: 'dependency copying is unavailable',
+            loading: false,
+            req: dependencyRequirements({
+                can_copy_dependencies: false,
+                reason: 'Dependency copying is unavailable.',
+            }),
+            expected: 'Dependency copying is unavailable.',
+        },
+    ]
+
+    it.each(actionLabelCases)('returns "$expected" as the action label when $desc', ({ loading, req, expected }) => {
+        expect(dependencyActionLabel(loading, req)).toBe(expected)
+    })
+
+    it.each(disabledReasonCases)(
+        'returns "$expected" as the disabled reason when $desc',
+        ({ loading, req, expected }) => {
+            expect(dependencyDisabledReason(loading, req)).toBe(expected)
+        }
+    )
+})
+
+describe('hasStaticCohortDependency', () => {
+    const cohorts = [
+        { id: 12, is_static: true },
+        { id: 13, is_static: false },
+    ] as CohortType[]
+
+    it.each([
+        {
+            filters: { groups: { properties: [] } },
+            expected: false,
+            desc: 'groups is not an array',
+        },
+        {
+            filters: { groups: [null] },
+            expected: false,
+            desc: 'group is null',
+        },
+        {
+            filters: { groups: [{ properties: { type: PropertyFilterType.Cohort, value: 12 } }] },
+            expected: false,
+            desc: 'properties is not an array',
+        },
+        {
+            filters: { groups: [{ properties: [null] }] },
+            expected: false,
+            desc: 'property is null',
+        },
+        {
+            filters: createFilters({
+                groups: [
+                    {
+                        properties: [
+                            {
+                                key: 'id',
+                                type: PropertyFilterType.Cohort,
+                                value: 13,
+                                operator: PropertyOperator.In,
+                            },
+                        ],
+                    },
+                ],
+            }),
+            expected: false,
+            desc: 'cohort is behavioral',
+        },
+        {
+            filters: createFilters({
+                groups: [
+                    {
+                        properties: [
+                            {
+                                key: 'id',
+                                type: PropertyFilterType.Cohort,
+                                value: 12,
+                                operator: PropertyOperator.In,
+                            },
+                        ],
+                    },
+                ],
+            }),
+            expected: true,
+            desc: 'cohort is static',
+        },
+    ])('returns $expected when $desc', ({ filters, expected }) => {
+        expect(
+            hasStaticCohortDependency({ ...MOCK_FEATURE_FLAG, filters: filters as FeatureFlagFilters }, cohorts)
+        ).toBe(expected)
     })
 })
 
@@ -1141,6 +2275,18 @@ describe('variant reordering', () => {
     let logic: ReturnType<typeof featureFlagLogic.build>
 
     beforeEach(() => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                    200,
+                    MOCK_FEATURE_FLAG,
+                ],
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/status`]: () => [
+                    200,
+                    MOCK_FEATURE_FLAG_STATUS,
+                ],
+            },
+        })
         initKeaTests()
         logic = featureFlagLogic({ id: 1 })
         logic.mount()

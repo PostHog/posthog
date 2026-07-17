@@ -8,7 +8,7 @@ import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/Vie
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
-import { alphabet } from 'lib/utils'
+import { alphabet } from 'lib/utils/strings'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { PercentageInput } from 'scenes/feature-flags/PercentageInput'
 import { getSurveyForFeatureFlagVariant } from 'scenes/surveys/utils'

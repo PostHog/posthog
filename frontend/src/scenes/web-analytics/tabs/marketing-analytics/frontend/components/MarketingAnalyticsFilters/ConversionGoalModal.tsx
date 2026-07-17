@@ -5,7 +5,7 @@ import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
 import { ConversionGoalFilter } from '~/queries/schema/schema-general'

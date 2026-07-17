@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from posthog.schema import RecordingsQuery
 
@@ -40,8 +40,8 @@ class PersonsIdCompareOperation(SessionRecordingsListingBaseQuery):
         if not self._query.person_uuid:
             return None
 
-        # anchor to python now so that tests can freeze time
-        now = datetime.utcnow()
+        # anchor to python now so that tests can freeze time; keep naive to match HogQL placeholder serialization
+        now = datetime.now(UTC).replace(tzinfo=None)
 
         if poe_is_active(self._team):
             return parse_select(

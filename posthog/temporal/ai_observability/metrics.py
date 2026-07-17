@@ -1,11 +1,9 @@
-import time
 import typing
 import datetime as dt
 
 from django.conf import settings
 
 from temporalio import activity, workflow
-from temporalio.common import MetricMeter
 from temporalio.worker import (
     ActivityInboundInterceptor,
     ExecuteActivityInput,
@@ -17,12 +15,19 @@ from temporalio.worker import (
 
 from posthog.temporal.common.logger import get_write_only_logger
 
+# Generic temporal metric helpers live in common so other subsystems (e.g. session-replay
+# delete-recordings) can import them without pulling this package's eager worker registration.
+from posthog.temporal.common.metrics import Attributes, ExecutionTimeRecorder, get_metric_meter
+
+__all__ = ["Attributes", "ExecutionTimeRecorder", "get_metric_meter"]
+
 LOGGER = get_write_only_logger(__name__)
 
 EVAL_ACTIVITY_TYPES = {
     "fetch_evaluation_activity",
     "execute_llm_judge_activity",
     "execute_hog_eval_activity",
+    "execute_sentiment_eval_activity",
     "emit_evaluation_event_activity",
     "emit_internal_telemetry_activity",
     "increment_trial_eval_count_activity",
@@ -34,23 +39,6 @@ EVAL_ACTIVITY_TYPES = {
 EVAL_WORKFLOW_TYPES = {
     "run-evaluation",
 }
-
-Attributes = dict[str, str | int | float | bool]
-
-
-def get_metric_meter(additional_attributes: Attributes | None = None) -> MetricMeter:
-    """Return a meter depending on in which context we are."""
-    if activity.in_activity():
-        meter = activity.metric_meter()
-    elif workflow.in_workflow():
-        meter = workflow.metric_meter()
-    else:
-        raise RuntimeError("Not within workflow or activity context")
-
-    if additional_attributes:
-        meter = meter.with_additional_attributes(additional_attributes)
-
-    return meter
 
 
 def increment_workflow_started() -> None:
@@ -104,6 +92,18 @@ def increment_errors(error_type: str, *, provider: str | None = None) -> None:
     counter.add(1)
 
 
+def increment_user_errors(error_type: str, *, provider: str | None = None) -> None:
+    """Track terminal user-actionable eval errors separately from system failures."""
+    if not activity.in_activity() and not workflow.in_workflow():
+        return
+    attrs: dict[str, str | int | float | bool] = {"error_type": error_type}
+    if provider is not None:
+        attrs["provider"] = provider
+    meter = get_metric_meter(attrs)
+    counter = meter.create_counter("llma_eval_user_errors", "Terminal user-actionable evaluation errors")
+    counter.add(1)
+
+
 def increment_eval_signal_outcome(outcome: str) -> None:
     """Track eval signal activity outcomes (skipped_config_disabled, skipped_org_not_approved, skipped_low_significance, emitted, summarization_failed)."""
     meter = get_metric_meter({"outcome": outcome})
@@ -143,70 +143,6 @@ def record_schedule_to_start_latency(activity_type: str, latency_ms: int) -> Non
         unit="ms",
     )
     hist.record(dt.timedelta(milliseconds=latency_ms))
-
-
-class ExecutionTimeRecorder:
-    """Context manager to record execution time to a histogram metric."""
-
-    def __init__(
-        self,
-        histogram_name: str,
-        /,
-        description: str | None = None,
-        histogram_attributes: Attributes | None = None,
-        log: bool = False,
-    ) -> None:
-        self.histogram_name = histogram_name
-        self.description = description
-        self.histogram_attributes = histogram_attributes or {}
-        self.log = log
-        self._start_counter: float | None = None
-        self._status_override: str | None = None
-
-    def set_status(self, status: str) -> None:
-        """Override the status that will be recorded. Use for non-exception outcomes like SKIPPED."""
-        self._status_override = status
-
-    def __enter__(self) -> typing.Self:
-        self._start_counter = time.perf_counter()
-        return self
-
-    def __exit__(self, exc_type: type[BaseException] | None, exc_value: BaseException | None, traceback) -> None:
-        if not self._start_counter:
-            raise RuntimeError("Start counter not initialized, did you call `__enter__`?")
-
-        end_counter = time.perf_counter()
-        delta_milli_seconds = int((end_counter - self._start_counter) * 1000)
-        delta = dt.timedelta(milliseconds=delta_milli_seconds)
-
-        attributes = dict(self.histogram_attributes)
-
-        if exc_value is not None:
-            attributes["status"] = "FAILED"
-            attributes["exception"] = str(exc_value)
-        elif self._status_override is not None:
-            attributes["status"] = self._status_override
-            attributes["exception"] = ""
-        else:
-            attributes["status"] = "COMPLETED"
-            attributes["exception"] = ""
-
-        meter = get_metric_meter(attributes)
-        hist = meter.create_histogram_timedelta(name=self.histogram_name, description=self.description, unit="ms")
-        try:
-            hist.record(value=delta)
-        except Exception:
-            LOGGER.exception("Failed to record execution time to histogram '%s'", self.histogram_name)
-
-        if self.log:
-            LOGGER.info(
-                "Finished %s with status '%s' in %dms",
-                self.histogram_name,
-                attributes["status"],
-                delta_milli_seconds,
-            )
-
-        self._start_counter = None
 
 
 class EvalsMetricsInterceptor(Interceptor):
@@ -278,8 +214,8 @@ class _EvalsMetricsWorkflowInterceptor(WorkflowInboundInterceptor):
                     increment_workflow_finished(status, evaluation_type)
                     return result
 
-                # Record verdict
-                if isinstance(result, dict):
+                # Record verdict for boolean-output evaluations. Sentiment emits no boolean verdict.
+                if isinstance(result, dict) and "verdict" in result:
                     verdict = result.get("verdict")
                     if verdict is True:
                         increment_verdict("true", evaluation_type)

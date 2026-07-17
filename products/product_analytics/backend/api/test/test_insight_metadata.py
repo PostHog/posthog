@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+import httpx
+import openai
 from parameterized import parameterized
 from rest_framework import status
 
@@ -31,6 +33,20 @@ class TestGenerateInsightMetadata(APIBaseTest):
         assert response.json()["name"] == "Daily Pageviews"
         assert response.json()["description"] == "Tracks daily page views."
 
+    @patch("posthog.event_usage.SITE_URL", "https://us.posthog.com")
+    @patch(MOCK_PATH)
+    def test_generation_is_tagged_billable(self, mock_openai):
+        mock_openai.return_value = ('{"name": "Daily Pageviews", "description": "Tracks daily page views."}', 10, 20)
+        response = self.client.post(self.url, {"query": _trends_query()}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        properties = mock_openai.call_args.kwargs["posthog_properties"]
+        assert properties["$ai_billable"] is True
+        assert properties["team_id"] == self.team.id
+        assert properties["ai_product"] == "product_analytics"
+        assert properties["ai_feature"] == "insight-ai-metadata-generation"
+        assert mock_openai.call_args.kwargs["posthog_groups"] == {"instance": "https://us.posthog.com"}
+
     def test_missing_query_returns_400(self):
         response = self.client.post(self.url, {}, format="json")
 
@@ -43,6 +59,43 @@ class TestGenerateInsightMetadata(APIBaseTest):
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert "Failed" in response.json()["detail"]
+
+    @patch(
+        MOCK_PATH,
+        side_effect=openai.APITimeoutError(request=httpx.Request("POST", "https://api.openai.com")),
+    )
+    def test_llm_timeout_returns_distinct_error(self, mock_openai):
+        response = self.client.post(self.url, {"query": _trends_query()}, format="json")
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        # Timeouts are surfaced distinctly from the generic parse/failure path so they can be told apart.
+        assert "too long" in response.json()["detail"]
+
+    @patch(MOCK_PATH, return_value=("not valid json at all", 10, 20))
+    def test_unparseable_response_retries_then_returns_500(self, mock_openai):
+        response = self.client.post(self.url, {"query": _trends_query()}, format="json")
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert "Failed" in response.json()["detail"]
+        assert mock_openai.call_count == 2
+
+    @patch(MOCK_PATH)
+    def test_missing_description_is_tolerated(self, mock_openai):
+        mock_openai.return_value = ('{"name": "Daily Pageviews"}', 10, 20)
+        response = self.client.post(self.url, {"query": _trends_query()}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "Daily Pageviews"
+        assert response.json()["description"] == ""
+
+    @patch(MOCK_PATH)
+    def test_forwards_json_mode_and_timeout(self, mock_openai):
+        mock_openai.return_value = ('{"name": "Daily Pageviews", "description": "Tracks daily page views."}', 10, 20)
+        response = self.client.post(self.url, {"query": _trends_query()}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_openai.call_args.kwargs["response_format"] == {"type": "json_object"}
+        assert mock_openai.call_args.kwargs["timeout"] is not None
 
     def test_ai_not_approved_returns_403(self):
         self.organization.is_ai_data_processing_approved = False

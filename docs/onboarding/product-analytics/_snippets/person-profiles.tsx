@@ -1,6 +1,6 @@
 import { memo } from 'react'
 
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { useMDXComponents } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 interface PersonProfilesProps {
     language?: string
@@ -10,7 +10,7 @@ interface PersonProfilesProps {
 export const PersonProfiles = memo(({ language = 'javascript', file }: PersonProfilesProps): JSX.Element => {
     const { Markdown, CodeBlock, dedent } = useMDXComponents()
 
-    const getCodeAndFile = () => {
+    const getCodeAndFile = (): { code: string; file: string } => {
         switch (language) {
             case 'python':
                 return { code: '"$process_person_profile": False', file: file || 'Python' }

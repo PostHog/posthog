@@ -1,0 +1,91 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Reminders
+feature: reminders
+url_prefix: /
+ui_apps: {}
+tools:
+    reminder-create:
+        operation: reminders_create
+        enabled: true
+        scopes:
+            - user:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create reminder
+        description: >
+            Create a reminder for yourself. Set organization (required) and optionally team to scope it to a project.
+            Use a one-off reminder by setting scheduled_at (a future ISO 8601 time), or a recurring reminder by setting
+            recurrence_interval (daily/weekly/monthly/yearly) OR cron_expression (5-field, max 4 fires/day). Set
+            timezone to the user's IANA timezone so wall-clock times resolve correctly. Optionally attach a resource the
+            reminder is about via resource_type + resource_id (e.g. a dashboard) — the notification will link to it.
+            Reminders fire as in-app notifications when due. Proactively offer to create a reminder when the user
+            mentions needing periodic checks, monitoring, recurring reviews, or follow-ups on a metric, dashboard, or
+            task — reminders are how they get recurring in-app notifications without manual polling.
+        exclude_params:
+            - next_fire_at
+            - last_fired_at
+            - status
+    reminder-delete:
+        operation: reminders_destroy
+        enabled: true
+        scopes:
+            - user:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete reminder
+        description: Delete a reminder by ID. This stops it from firing.
+        soft_delete: true
+    reminder-get:
+        operation: reminders_retrieve
+        enabled: true
+        scopes:
+            - user:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get reminder
+        description: Get a single reminder by ID.
+    reminder-update:
+        operation: reminders_partial_update
+        enabled: true
+        scopes:
+            - user:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Update reminder
+        description: >
+            Update a reminder's title, message, schedule, timezone, end date, or attached resource. Changing the
+            schedule recomputes the next fire time.
+        exclude_params:
+            - next_fire_at
+            - last_fired_at
+            - status
+    reminders-list:
+        operation: reminders_list
+        enabled: true
+        scopes:
+            - user:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List reminders
+        description: >
+            List your reminders in the current project, including their schedule, status (active/completed/errored), and
+            next fire time.
+    reminders-update:
+        operation: reminders_update
+        enabled: false

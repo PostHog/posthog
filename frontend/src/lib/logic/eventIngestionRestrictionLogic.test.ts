@@ -3,7 +3,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { delay } from 'lib/utils'
+import { delay } from 'lib/utils/async'
 
 import { initKeaTests } from '~/test/init'
 

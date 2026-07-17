@@ -6,7 +6,7 @@ import { LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
-import { toParams } from 'lib/utils'
+import { toParams } from 'lib/utils/url'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { slugifyFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 import { FLAGS_PER_PAGE, FeatureFlagsFilters } from 'scenes/feature-flags/featureFlagsLogic'
@@ -71,10 +71,9 @@ export function CopyExperimentToProjectModal({
                 ...filters,
                 limit: FLAGS_PER_PAGE,
                 offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
+                eligible_for_experiment: true,
             }
-            const data = await api.get(
-                `api/projects/${projectId}/experiments/eligible_feature_flags/?${toParams(params)}`
-            )
+            const data = await api.get(`api/projects/${projectId}/feature_flags/?${toParams(params)}`)
             setTargetFeatureFlags(data)
         } finally {
             setTargetFlagsLoading(false)

@@ -3,24 +3,126 @@ use personhog_proto::personhog::{
     types::v1::{ConsistencyLevel, GetGroupTypeMappingsByTeamIdsRequest, ReadOptions},
 };
 use quick_cache::sync::Cache;
+use rand::Rng;
 use std::collections::HashMap;
+use std::future::Future;
+use std::time::{Duration, Instant};
+use tokio::time::sleep;
 use tonic::transport::Channel;
+use tonic::{Code, Status};
 use tracing::{info, warn};
 
 use crate::{
     config::Config,
-    metrics_consts::{GROUP_TYPE_CACHE, PERSONHOG_RESOLVE_DURATION, PERSONHOG_RESOLVE_ERRORS},
+    metrics_consts::{
+        GROUP_TYPE_CACHE, PERSONHOG_ERRORS_TOTAL, PERSONHOG_RESOLVE_DURATION,
+        PERSONHOG_RESOLVE_ERRORS, PERSONHOG_RETRIES_TOTAL, PERSONHOG_TERMINAL_ERRORS_TOTAL,
+    },
     types::{GroupType, Update},
 };
 
+const METHOD: &str = "GetGroupTypeMappingsByTeamIds";
+const CLIENT: &str = "property-defs-rs";
+
+fn is_retryable(code: Code) -> bool {
+    matches!(
+        code,
+        Code::Unavailable
+            | Code::DeadlineExceeded
+            | Code::ResourceExhausted
+            | Code::Aborted
+            | Code::Internal
+            | Code::Unknown
+    )
+}
+
+/// Retry a gRPC call with exponential backoff and jitter on transient errors.
+///
+/// Emits `personhog_errors_total` on every failed attempt, `personhog_retries_total`
+/// on each retry, and `personhog_terminal_errors_total` when giving up.
+async fn with_retry<F, Fut, T>(
+    max_retries: u32,
+    initial_backoff_ms: u64,
+    max_backoff_ms: u64,
+    method: &'static str,
+    client: &'static str,
+    mut make_call: F,
+) -> Result<T, Status>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, Status>>,
+{
+    let mut attempt = 0;
+    let mut delay_ms = initial_backoff_ms;
+
+    loop {
+        match make_call().await {
+            Ok(value) => return Ok(value),
+            Err(status) => {
+                let error_type = format!("{:?}", status.code());
+
+                metrics::counter!(
+                    PERSONHOG_ERRORS_TOTAL,
+                    "method" => method,
+                    "client" => client,
+                    "error_type" => error_type.clone(),
+                )
+                .increment(1);
+
+                if !is_retryable(status.code()) || attempt == max_retries {
+                    metrics::counter!(
+                        PERSONHOG_TERMINAL_ERRORS_TOTAL,
+                        "method" => method,
+                        "client" => client,
+                        "error_type" => error_type,
+                    )
+                    .increment(1);
+                    return Err(status);
+                }
+
+                metrics::counter!(
+                    PERSONHOG_RETRIES_TOTAL,
+                    "method" => method,
+                    "client" => client,
+                    "error_type" => error_type,
+                )
+                .increment(1);
+
+                warn!(
+                    method = method,
+                    attempt = attempt + 1,
+                    max_retries = max_retries,
+                    error = %status,
+                    "Retrying after transient personhog error"
+                );
+
+                let base = delay_ms / 2;
+                let jittered_ms = base + rand::thread_rng().gen_range(0..=base);
+                sleep(Duration::from_millis(jittered_ms)).await;
+                delay_ms = (delay_ms * 2).min(max_backoff_ms);
+                attempt += 1;
+            }
+        }
+    }
+}
+
 pub struct GroupTypeResolver {
     cache: Cache<String, i32>,
+    // Stores the expiry Instant for a resolution miss. quick_cache has no native TTL, so we
+    // check the stored expiry on read and treat the entry as live only while unexpired.
+    negative_cache: Cache<String, Instant>,
+    negative_ttl: Duration,
     personhog_client: Option<PersonHogServiceClient<Channel>>,
+    max_retries: u32,
+    initial_backoff_ms: u64,
+    max_backoff_ms: u64,
 }
 
 impl GroupTypeResolver {
     pub fn new(config: &Config) -> Self {
         let cache = Cache::new(config.group_type_cache_size);
+        let negative_cache = Cache::new(config.group_type_negative_cache_size);
+        let negative_ttl = Duration::from_secs(config.group_type_negative_ttl_secs);
 
         let personhog_client = if !config.personhog_addr.is_empty() {
             let timeout = std::time::Duration::from_millis(config.personhog_timeout_ms);
@@ -36,6 +138,7 @@ impl GroupTypeResolver {
                         addr = %config.personhog_addr,
                         timeout_ms = config.personhog_timeout_ms,
                         connect_timeout_ms = config.personhog_connect_timeout_ms,
+                        max_retries = config.personhog_max_retries,
                         "Created personhog gRPC client"
                     );
                     Some(PersonHogServiceClient::new(channel))
@@ -55,7 +158,25 @@ impl GroupTypeResolver {
 
         Self {
             cache,
+            negative_cache,
+            negative_ttl,
             personhog_client,
+            max_retries: config.personhog_max_retries,
+            initial_backoff_ms: config.personhog_initial_backoff_ms,
+            max_backoff_ms: config.personhog_max_backoff_ms,
+        }
+    }
+
+    /// Returns true if `cache_key` has a live (unexpired) resolution-miss entry. Expired
+    /// entries are removed so the next lookup re-attempts resolution via personhog.
+    fn is_negatively_cached(&self, cache_key: &str) -> bool {
+        match self.negative_cache.get(cache_key) {
+            Some(expiry) if Instant::now() < expiry => true,
+            Some(_) => {
+                self.negative_cache.remove(cache_key);
+                false
+            }
+            None => false,
         }
     }
 
@@ -78,6 +199,11 @@ impl GroupTypeResolver {
                 metrics::counter!(GROUP_TYPE_CACHE, &[("action", "hit")]).increment(1);
                 update.group_type_index =
                     update.group_type_index.take().map(|gti| gti.resolve(index));
+            } else if self.is_negatively_cached(&cache_key) {
+                // Known-unresolvable within the TTL window: skip the personhog lookup and
+                // leave the update Unresolved so batch_ingestion drops it and evicts it from
+                // the shared dedup cache, letting a later event retry once the TTL lapses.
+                metrics::counter!(GROUP_TYPE_CACHE, &[("action", "negative_hit")]).increment(1);
             } else {
                 to_resolve.push((idx, group_name.clone(), update.team_id));
             }
@@ -88,7 +214,11 @@ impl GroupTypeResolver {
             let resolved_map = match self.resolve_via_personhog(&to_resolve).await {
                 Ok(map) => map,
                 Err(e) => {
-                    warn!(error = %e, "personhog group type resolution failed");
+                    let error_type = e
+                        .downcast_ref::<Status>()
+                        .map(|s| format!("{:?}", s.code()))
+                        .unwrap_or_else(|| "unknown".to_string());
+                    warn!(error = %e, error_type = %error_type, "personhog group type resolution failed");
                     metrics::counter!(PERSONHOG_RESOLVE_ERRORS).increment(1);
                     return Err(e);
                 }
@@ -112,9 +242,13 @@ impl GroupTypeResolver {
                         "Failed to resolve group type index for group name: {group_name} and team id: {team_id}"
                     );
 
-                    if let Update::Property(update) = &mut updates[idx] {
-                        update.group_type_index = None;
-                    }
+                    // Record the miss so repeated unresolvable keys don't re-hit personhog for
+                    // the TTL window. We deliberately leave update.group_type_index as
+                    // Some(Unresolved(name)) (rather than None): batch_ingestion drops it either
+                    // way, but preserving the name keeps the shared-cache key recoverable so the
+                    // dropped entry can be evicted and retried instead of poisoning the cache.
+                    self.negative_cache
+                        .insert(cache_key, Instant::now() + self.negative_ttl);
                 }
             }
         }
@@ -128,7 +262,7 @@ impl GroupTypeResolver {
     ) -> Result<HashMap<(String, i32), i32>, anyhow::Error> {
         let start = std::time::Instant::now();
 
-        let mut client = self
+        let client = self
             .personhog_client
             .clone()
             .ok_or_else(|| anyhow::anyhow!("personhog client not configured"))?;
@@ -140,31 +274,46 @@ impl GroupTypeResolver {
             ids.into_iter().map(|id| id as i64).collect()
         };
 
-        let consistency = ConsistencyLevel::Eventual;
-        let mut request = tonic::Request::new(GetGroupTypeMappingsByTeamIdsRequest {
-            team_ids: unique_team_ids,
-            read_options: Some(ReadOptions {
-                consistency: consistency.into(),
-                ..Default::default()
-            }),
-        });
-        let metadata = request.metadata_mut();
-        metadata.insert("x-client-name", "property-defs-rs".parse().unwrap());
-        metadata.insert(
-            "x-caller-tag",
-            "property-defs/group-type-resolution".parse().unwrap(),
-        );
-        metadata.insert(
-            "x-read-consistency",
-            match consistency {
-                ConsistencyLevel::Strong => "strong",
-                _ => "eventual",
-            }
-            .parse()
-            .unwrap(),
-        );
+        let build_request = || {
+            let consistency = ConsistencyLevel::Eventual;
+            let mut request = tonic::Request::new(GetGroupTypeMappingsByTeamIdsRequest {
+                team_ids: unique_team_ids.clone(),
+                read_options: Some(ReadOptions {
+                    consistency: consistency.into(),
+                    ..Default::default()
+                }),
+            });
+            let metadata = request.metadata_mut();
+            metadata.insert("x-client-name", CLIENT.parse().unwrap());
+            metadata.insert(
+                "x-caller-tag",
+                "property-defs/group-type-resolution".parse().unwrap(),
+            );
+            metadata.insert(
+                "x-read-consistency",
+                match consistency {
+                    ConsistencyLevel::Strong => "strong",
+                    _ => "eventual",
+                }
+                .parse()
+                .unwrap(),
+            );
+            request
+        };
 
-        let response = client.get_group_type_mappings_by_team_ids(request).await?;
+        let response = with_retry(
+            self.max_retries,
+            self.initial_backoff_ms,
+            self.max_backoff_ms,
+            METHOD,
+            CLIENT,
+            || {
+                let request = build_request();
+                let mut c = client.clone();
+                async move { c.get_group_type_mappings_by_team_ids(request).await }
+            },
+        )
+        .await?;
 
         let elapsed_ms = start.elapsed().as_millis() as f64;
         metrics::histogram!(PERSONHOG_RESOLVE_DURATION).record(elapsed_ms);

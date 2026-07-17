@@ -47,12 +47,17 @@ def update_team_metadata_cache_task(team_id: int) -> None:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
         logger.debug("Team does not exist for metadata cache update", team_id=team_id)
-        HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(namespace="team_metadata", operation="update", result="failure").inc()
+        HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
+            namespace="team_metadata", cache_name="team_metadata", operation="update", result="failure"
+        ).inc()
         return
 
     success = update_team_metadata_cache(team)
     HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
-        namespace="team_metadata", operation="update", result="success" if success else "failure"
+        namespace="team_metadata",
+        cache_name="team_metadata",
+        operation="update",
+        result="success" if success else "failure",
     ).inc()
 
 
@@ -67,15 +72,24 @@ def update_related_teams_metadata_cache_task(organization_id: int | None = None,
     the signal enqueues a single task no matter how many teams the org or project owns, and each
     per-team update runs as its own task so the work spreads across workers.
     """
-    if organization_id is not None:
-        team_ids = Team.objects.filter(organization_id=organization_id).values_list("id", flat=True)
-    elif project_id is not None:
-        team_ids = Team.objects.filter(project_id=project_id).values_list("id", flat=True)
-    else:
-        return
+    try:
+        if organization_id is not None:
+            team_ids = Team.objects.filter(organization_id=organization_id).values_list("id", flat=True)
+        elif project_id is not None:
+            team_ids = Team.objects.filter(project_id=project_id).values_list("id", flat=True)
+        else:
+            return
 
-    for team_id in team_ids:
-        update_team_metadata_cache_task.delay(team_id)
+        for team_id in team_ids:
+            update_team_metadata_cache_task.delay(team_id)
+    except Exception as e:
+        logger.exception(
+            "Failed to fan out related team metadata cache refresh",
+            organization_id=organization_id,
+            project_id=project_id,
+            error=str(e),
+        )
+        raise
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
@@ -165,7 +179,9 @@ def clear_team_metadata_cache_on_delete(sender: type[Team], instance: Team, **kw
 
 
 def _record_enqueue_failure() -> None:
-    HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(namespace="team_metadata", operation="enqueue", result="failure").inc()
+    HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
+        namespace="team_metadata", cache_name="team_metadata", operation="enqueue", result="failure"
+    ).inc()
 
 
 def _name_may_have_changed(update_fields: frozenset[str] | None) -> bool:

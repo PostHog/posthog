@@ -152,6 +152,8 @@ Use this tool when the user wants to:
 
             if not task:
                 return None
+            if task.runtime == Task.Runtime.PI:
+                return {"error": "unsupported_runtime"}
 
             task_run = task.create_run()
             task_url = f"/project/{task.team.project.id}/tasks/{task.id}?runId={task_run.id}"
@@ -168,6 +170,8 @@ Use this tool when the user wants to:
 
         if not result:
             return f"Task with ID {task_id} not found", {"error": "not_found"}
+        if result.get("error") == "unsupported_runtime":
+            return "Pi tasks cannot be run through the ACP task workflow.", result
 
         # Extract slack thread context from config if available
         slack_thread_context = (self._config.get("configurable") or {}).get("slack_thread_context")
@@ -525,7 +529,7 @@ Use this tool when the user wants to:
         if not repos:
             if search:
                 return f"No repositories found matching '{search}'", {"repositories": []}
-            settings_url = "/settings/project-integrations"
+            settings_url = "/integrations/github"
             return (
                 f"No GitHub repositories available. Please connect a GitHub integration in Settings: {settings_url}",
                 {"repositories": [], "settings_url": settings_url},

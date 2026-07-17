@@ -28,9 +28,7 @@ from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
-from products.warehouse_sources.backend.models.external_data_source import (
-    get_direct_external_data_source_for_connection,
-)
+from products.warehouse_sources.backend.facade.models import get_direct_external_data_source_for_connection
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -51,11 +49,6 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:
             return None
-
-        override = self._get_cache_age_override(last_refresh)
-        if override is not None:
-            return override
-
         return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -119,6 +112,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 modifiers=self.query.modifiers or self.modifiers,
                 team=self.team,
                 user=self.user,
+                user_access_control=self.user_access_control,
                 timings=self.timings,
                 variables=self.query.variables,
                 connection_id=self.query.connectionId,
@@ -148,6 +142,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             modifiers=self.query.modifiers or self.modifiers,
             team=self.team,
             user=self.user,
+            user_access_control=self.user_access_control,
             timings=self.timings,
             variables=self.query.variables,
             connection_id=self.query.connectionId,

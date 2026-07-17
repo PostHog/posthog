@@ -6,8 +6,7 @@ import { LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { colonDelimitedDuration } from 'lib/utils'
-import { parseTimestampToMs } from 'lib/utils/timestamps'
+import { colonDelimitedDuration } from 'lib/utils/durations'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
@@ -29,7 +28,6 @@ import { SessionRecordingId } from '~/types'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { UUID_REGEX_MATCH_GROUPS } from './utils'
 
 const HEIGHT = 500
 const MIN_HEIGHT = '20rem'
@@ -46,7 +44,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
     }
 
     const { expanded } = useValues(notebookNodeLogic)
-    const { setActions, insertAfter, setMessageListeners, setExpanded, scrollIntoView } = useActions(notebookNodeLogic)
+    const { setActions, insertAfter, setMessageListeners, setExpanded } = useActions(notebookNodeLogic)
 
     const { sessionPlayerMetaData, sessionPlayerMetaDataLoading, sessionPlayerData } = useValues(
         sessionRecordingDataCoordinatorLogic(recordingLogicProps)
@@ -87,7 +85,6 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
                 }
                 setPlay()
                 seekToTimestamp(time)
-                scrollIntoView()
             },
         })
     })
@@ -172,16 +169,6 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
             default: undefined,
         },
     },
-    pasteOptions: {
-        find: urls.replaySingle(UUID_REGEX_MATCH_GROUPS),
-        getAttributes: async (match) => {
-            const id = match[1]
-            const remainder = match[2] || ''
-            const tMatch = /[?&#]t=(\d+)/.exec(remainder)
-            const timestampMs = tMatch ? Number(tMatch[1]) * 1000 : undefined
-            return { id, noInspector: false, timestampMs }
-        },
-    },
     Settings,
     serializedText: (attrs) => {
         return attrs.id
@@ -193,4 +180,34 @@ export function sessionRecordingPlayerProps(id: SessionRecordingId): SessionReco
         sessionRecordingId: id,
         playerKey: `notebook-${id}`,
     }
+}
+
+/**
+ * Parse timestamp strings of form "1:23" or "00:01:23" into milliseconds
+ * @param input - Timestamp string
+ * @returns Number of milliseconds, or undefined if invalid
+ */
+export function parseTimestampToMs(input?: string | null): number | undefined {
+    if (input == null) {
+        return undefined
+    }
+    const value = String(input).trim()
+    if (!value.length) {
+        return undefined
+    }
+
+    // Handle mm:ss or hh:mm:ss format
+    const parts = value.split(':').map((p) => Number(p))
+    if (parts.length > 1 && parts.length <= 3 && parts.every((n) => Number.isSafeInteger(n) && n >= 0)) {
+        let seconds = 0
+        if (parts.length === 2) {
+            const [mm, ss] = parts
+            seconds = mm * 60 + ss
+        } else if (parts.length === 3) {
+            const [hh, mm, ss] = parts
+            seconds = hh * 3600 + mm * 60 + ss
+        }
+        return seconds * 1000
+    }
+    return undefined
 }

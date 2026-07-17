@@ -4,8 +4,7 @@ import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 
 import { dimensions, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
+import { ExportType } from '~/exporter/types'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
@@ -26,9 +25,6 @@ afterEach(() => {
     cleanup()
 })
 
-const HOG_CHARTS_FLAG = {
-    [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS]: true,
-}
 const trendsBar = (extra?: Parameters<typeof buildTrendsQuery>[0]): ReturnType<typeof buildTrendsQuery> =>
     buildTrendsQuery({
         trendsFilter: { display: ChartDisplayType.ActionsBar },
@@ -60,26 +56,23 @@ describe('TrendsBarChart (ActionsBar)', () => {
             expected: 5,
         },
     ])('renders $name', async ({ query, expected }) => {
-        renderInsight({ query, featureFlags: HOG_CHARTS_FLAG })
+        renderInsight({ query })
 
         await waitFor(
             () => {
-                expect(
-                    screen.getByRole('img', {
-                        name: new RegExp(`chart with ${expected} data series`, 'i'),
-                    })
-                ).toBeInTheDocument()
+                expect(screen.getByLabelText(new RegExp(`chart with ${expected} data series`, 'i'))).toBeInTheDocument()
             },
             { timeout: 5000 }
         )
     })
 
-    it('shows the series value in the tooltip on hover', async () => {
-        renderInsight({ query: trendsBar(), featureFlags: HOG_CHARTS_FLAG })
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+    it('shows the series value and a date header in the tooltip on hover', async () => {
+        renderInsight({ query: trendsBar() })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
         const tooltip = await chart.hoverTooltip(2)
         expect(tooltip.row('Pageview')).toContain('134')
+        expect(tooltip.title()).toMatch(/Jun/)
     })
 
     it('stacked tooltip shows each series own value, not the cumulative stack total', async () => {
@@ -100,9 +93,8 @@ describe('TrendsBarChart (ActionsBar)', () => {
                     },
                 ],
             }),
-            featureFlags: HOG_CHARTS_FLAG,
         })
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
         const tooltip = await chart.hoverTooltip(2)
 
@@ -111,17 +103,9 @@ describe('TrendsBarChart (ActionsBar)', () => {
         expect(tooltip.row('Napped')).not.toContain('139')
     })
 
-    it('shows a date header in the tooltip', async () => {
-        renderInsight({ query: trendsBar(), featureFlags: HOG_CHARTS_FLAG })
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
-
-        const tooltip = await chart.hoverTooltip(2)
-        expect(tooltip.title()).toMatch(/Jun/)
-    })
-
     it('opens the persons modal on click for a single series', async () => {
-        renderInsight({ query: trendsBar(), featureFlags: HOG_CHARTS_FLAG })
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        renderInsight({ query: trendsBar() })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
         await chart.clickAtIndex(2)
 
@@ -134,42 +118,61 @@ describe('TrendsBarChart (ActionsBar)', () => {
         expect(personsModal.title()).toMatch(/12 Jun/)
     })
 
-    it('renders InsightEmptyState when all series are zero', async () => {
-        renderInsight({
-            query: trendsBar({
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        event: 'NoActivity',
-                        name: 'NoActivity',
-                    },
-                ],
-            }),
-            featureFlags: HOG_CHARTS_FLAG,
+    describe('shared mode', () => {
+        beforeEach(() => {
+            // Shared/exported pages set this global before React mounts; trendsDataLogic.hasPersonsModal reads it.
+            window.POSTHOG_EXPORTED_DATA = { type: ExportType.Embed }
         })
 
-        await waitFor(
-            () => {
-                expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
-            },
-            { timeout: 5000 }
-        )
-        expect(screen.queryByRole('img', { name: /chart with/i })).not.toBeInTheDocument()
+        afterEach(() => {
+            delete (window as { POSTHOG_EXPORTED_DATA?: unknown }).POSTHOG_EXPORTED_DATA
+        })
+
+        it('clicking a bar does not open the persons modal', async () => {
+            renderInsight({ query: trendsBar(), inSharedMode: true })
+            await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
+
+            await chart.clickAtIndex(2)
+
+            // Sharing-token auth can't run person-level queries, so shared views must not offer the drill-down.
+            expect(personsModal.get()).not.toBeInTheDocument()
+        })
     })
+
+    it.each([ChartDisplayType.ActionsBar, ChartDisplayType.ActionsBarValue])(
+        'renders InsightEmptyState when all values are zero for %s',
+        async (display) => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    trendsFilter: { display },
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: 'NoActivity',
+                            name: 'NoActivity',
+                        },
+                    ],
+                }),
+            })
+
+            await waitFor(
+                () => {
+                    expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
+                },
+                { timeout: 5000 }
+            )
+            expect(screen.queryByLabelText(/chart with/i)).not.toBeInTheDocument()
+        }
+    )
 
     it('shows current and previous period rows in compare mode', async () => {
         renderInsight({
             query: trendsBar({ compareFilter: { compare: true } }),
-            featureFlags: HOG_CHARTS_FLAG,
         })
 
         await waitFor(
             () => {
-                expect(
-                    screen.getByRole('img', {
-                        name: /chart with 2 data series/i,
-                    })
-                ).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             },
             { timeout: 5000 }
         )
@@ -200,9 +203,8 @@ describe('TrendsBarChart (ActionsBar)', () => {
                     showPercentStackView: true,
                 },
             }),
-            featureFlags: HOG_CHARTS_FLAG,
         })
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
         const tooltip = await chart.hoverTooltip(2)
 
@@ -217,20 +219,6 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
             ...extra,
         })
 
-    it('renders without crashing for a single event', async () => {
-        renderInsight({
-            query: aggregatedBar(),
-            featureFlags: HOG_CHARTS_FLAG,
-        })
-
-        await waitFor(
-            () => {
-                expect(screen.getByRole('img', { name: /chart with/i })).toBeInTheDocument()
-            },
-            { timeout: 5000 }
-        )
-    })
-
     it('renders custom axis titles in horizontal aggregated mode', async () => {
         renderInsight({
             query: aggregatedBar({
@@ -240,10 +228,9 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
                     yAxisLabel: 'Series',
                 },
             }),
-            featureFlags: HOG_CHARTS_FLAG,
         })
 
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
         expect(getHogChart().xAxisLabel()).toBe('Total events')
         expect(getHogChart().yAxisLabel()).toBe('Series')
         expect(
@@ -253,29 +240,42 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         ).toContain('rotate(-90')
     })
 
-    it('emits one series with a colored bar per breakdown value', async () => {
+    // Five hedgehog breakdowns → by default one series carrying five per-bar colors across five
+    // bands, labeled by breakdown value; with stackBreakdownValues they collapse onto one band.
+    it.each([
+        {
+            name: 'one band per breakdown value, labeled by breakdown value, by default',
+            stackBreakdownValues: undefined,
+            expectedSeries: 1,
+            expectedTicks: 5,
+            containsTick: 'Spike',
+        },
+        {
+            name: 'collapses breakdown bars onto one band when stackBreakdownValues is set',
+            stackBreakdownValues: true,
+            expectedSeries: 5,
+            expectedTicks: 1,
+            containsTick: undefined,
+        },
+    ])('$name', async ({ stackBreakdownValues, expectedSeries, expectedTicks, containsTick }) => {
         renderInsight({
             query: aggregatedBar({
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        event: 'Napped',
-                        name: 'Napped',
-                    },
-                ],
-                breakdownFilter: {
-                    breakdown: 'hedgehog',
-                    breakdown_type: 'event',
-                },
+                series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                trendsFilter: { display: ChartDisplayType.ActionsBarValue, stackBreakdownValues },
             }),
-            featureFlags: HOG_CHARTS_FLAG,
+        })
+        await screen.findByLabelText(new RegExp(`chart with ${expectedSeries} data series`, 'i'), undefined, {
+            timeout: 5000,
         })
 
-        // Five hedgehog breakdowns → one series carrying five per-bar colors across five bands.
-        await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 5000 })
         await waitFor(
             () => {
-                expect(getHogChart().yTicks()).toHaveLength(5)
+                const ticks = getHogChart().yTicks()
+                expect(ticks).toHaveLength(expectedTicks)
+                if (containsTick) {
+                    expect(ticks).toEqual(expect.arrayContaining([containsTick]))
+                }
             },
             { timeout: 5000 }
         )
@@ -290,9 +290,8 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
                 breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
                 trendsFilter: { display: ChartDisplayType.ActionsBarValue, showValuesOnSeries: true },
             }),
-            featureFlags: HOG_CHARTS_FLAG,
         })
-        await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with 1 data series/i, undefined, { timeout: 5000 })
 
         await waitFor(
             () => {
@@ -304,45 +303,6 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
             .valueLabels()
             .map((l) => l.color)
         expect(new Set(pillColors).size).toBeGreaterThan(1)
-    })
-
-    it('labels each aggregated breakdown bar by its breakdown value, one band per value by default', async () => {
-        renderInsight({
-            query: aggregatedBar({
-                series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
-                breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
-            }),
-            featureFlags: HOG_CHARTS_FLAG,
-        })
-        await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 5000 })
-
-        await waitFor(
-            () => {
-                const ticks = getHogChart().yTicks()
-                expect(ticks).toEqual(expect.arrayContaining(['Spike']))
-                expect(ticks).toHaveLength(5)
-            },
-            { timeout: 5000 }
-        )
-    })
-
-    it('collapses breakdown bars onto one band when stackBreakdownValues is set', async () => {
-        renderInsight({
-            query: aggregatedBar({
-                series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
-                breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
-                trendsFilter: { display: ChartDisplayType.ActionsBarValue, stackBreakdownValues: true },
-            }),
-            featureFlags: HOG_CHARTS_FLAG,
-        })
-        await screen.findByRole('img', { name: /chart with 5 data series/i }, { timeout: 5000 })
-
-        await waitFor(
-            () => {
-                expect(getHogChart().yTicks()).toHaveLength(1)
-            },
-            { timeout: 5000 }
-        )
     })
 
     // A dashboard/card tile is a fixed height, so the chart caps the breakdown rows to those that
@@ -375,12 +335,11 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
                 breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
             }),
             embedded,
-            featureFlags: HOG_CHARTS_FLAG,
             mocks: {
                 additionalMockResponses: [{ match: (q) => q.kind === NodeKind.TrendsQuery, response: manyBreakdowns }],
             },
         })
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
         await waitFor(
             () => {
@@ -399,9 +358,8 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
     it('omits the header from the tooltip', async () => {
         renderInsight({
             query: aggregatedBar(),
-            featureFlags: HOG_CHARTS_FLAG,
         })
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
         const tooltip = await chart.hoverTooltip(0)
         expect(tooltip.title()).toBe('')
@@ -410,9 +368,8 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
     it('opens the persons modal on click without resolving a day', async () => {
         renderInsight({
             query: aggregatedBar(),
-            featureFlags: HOG_CHARTS_FLAG,
         })
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
         await chart.clickAtIndex(0)
 
@@ -426,23 +383,6 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         expect(personsModal.title()).not.toMatch(/Wednesday/)
     })
 
-    it('opens the persons modal on click in compare mode instead of pinning the tooltip', async () => {
-        renderInsight({
-            query: aggregatedBar({ compareFilter: { compare: true } }),
-            featureFlags: HOG_CHARTS_FLAG,
-        })
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
-
-        await chart.clickAtIndex(0)
-
-        await waitFor(
-            () => {
-                expect(personsModal.get()).toBeInTheDocument()
-            },
-            { timeout: 5000 }
-        )
-    })
-
     it('fires context.onDataPointClick without a day argument', async () => {
         // Per-band breakdown resolution is covered at the unit-handler level — the
         // hog-charts hover/click helpers don't yet handle horizontal axis-orientation, so
@@ -451,9 +391,8 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         renderInsight({
             query: aggregatedBar(),
             context: { onDataPointClick },
-            featureFlags: HOG_CHARTS_FLAG,
         })
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
         await chart.clickAtIndex(0)
 
@@ -475,12 +414,11 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
                 series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
                 breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
             }),
-            featureFlags: HOG_CHARTS_FLAG,
         })
-        await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with 1 data series/i, undefined, { timeout: 5000 })
 
         // Spike has aggregated_value 11 — largest, so it's the topmost row in DESC layout.
-        const canvas = screen.getByRole('img', { name: /chart with/i })
+        const canvas = screen.getByLabelText(/chart with/i)
         const wrapper = canvas.parentElement!
         fireEvent.mouseMove(wrapper, {
             clientX: dimensions.plotLeft + 10,
@@ -493,28 +431,6 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         expect(rowText).toContain('Spike')
         expect(rowText).toContain('11')
     })
-
-    it('renders InsightEmptyState when every aggregated_value is zero', async () => {
-        renderInsight({
-            query: aggregatedBar({
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        event: 'NoActivity',
-                        name: 'NoActivity',
-                    },
-                ],
-            }),
-            featureFlags: HOG_CHARTS_FLAG,
-        })
-
-        await waitFor(
-            () => {
-                expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
-            },
-            { timeout: 5000 }
-        )
-    })
 })
 
 describe('TrendsBarChart (ActionsUnstackedBar)', () => {
@@ -523,17 +439,6 @@ describe('TrendsBarChart (ActionsUnstackedBar)', () => {
             trendsFilter: { display: ChartDisplayType.ActionsUnstackedBar },
             ...extra,
         })
-
-    it('routes grouped bar insights through the hog-charts adapter', async () => {
-        renderInsight({ query: groupedBar(), featureFlags: HOG_CHARTS_FLAG })
-
-        await waitFor(
-            () => {
-                expect(screen.getByTestId('trend-bar-graph')).toBeInTheDocument()
-            },
-            { timeout: 5000 }
-        )
-    })
 
     it('renders one band per series in grouped layout', async () => {
         renderInsight({
@@ -551,16 +456,11 @@ describe('TrendsBarChart (ActionsUnstackedBar)', () => {
                     },
                 ],
             }),
-            featureFlags: HOG_CHARTS_FLAG,
         })
 
         await waitFor(
             () => {
-                expect(
-                    screen.getByRole('img', {
-                        name: /chart with 2 data series/i,
-                    })
-                ).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             },
             { timeout: 5000 }
         )
@@ -576,10 +476,9 @@ describe('TrendsBarChart overlays', () => {
                     showValuesOnSeries: true,
                 },
             }),
-            featureFlags: HOG_CHARTS_FLAG,
         })
 
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
         await waitFor(
             () => {
                 expect(getHogChart().valueLabels().length).toBeGreaterThan(0)
@@ -607,10 +506,9 @@ describe('TrendsBarChart overlays', () => {
                     }),
                 ],
             },
-            featureFlags: HOG_CHARTS_FLAG,
         })
 
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
         await waitFor(
             () => {
                 expect(getHogChart().annotationBadges().length).toBeGreaterThan(0)
@@ -646,13 +544,42 @@ describe('TrendsBarChart overlays', () => {
                         goalLines: [{ label: 'Target', value, displayIfCrossed: true }],
                     },
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
-            await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
-            const lines = getHogChart().referenceLines()
-            expect(lines.map((l) => l.label)).toEqual(['Target'])
-            expect(lines[0].orientation).toBe(expectedOrientation)
+            await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
+            await waitFor(
+                () => {
+                    const lines = getHogChart().referenceLines()
+                    expect(lines.map((l) => l.label)).toEqual(['Target'])
+                    expect(lines[0].orientation).toBe(expectedOrientation)
+                },
+                { timeout: 5000 }
+            )
         }
     )
+
+    describe('quill in-chart legend', () => {
+        const twoSeriesBar = trendsBar({
+            series: [
+                { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+            ],
+            trendsFilter: { display: ChartDisplayType.ActionsBar, showLegend: true },
+        })
+
+        const getInChartLegend = (container: HTMLElement): HTMLElement =>
+            container.querySelector<HTMLElement>('[data-attr="hog-chart-timeseries-bar-legend"]')!
+
+        it('renders the in-chart legend with a row per series', async () => {
+            const { container } = renderInsight({ query: twoSeriesBar })
+
+            await waitFor(() => {
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
+            })
+
+            const legendEl = getInChartLegend(container)
+            expect(legendEl.textContent).toContain('Pageview')
+            expect(legendEl.textContent).toContain('Napped')
+        })
+    })
 })

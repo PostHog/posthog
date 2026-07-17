@@ -6,11 +6,17 @@ import { WidgetAvailabilitySetupPrompt } from '../WidgetAvailabilitySetupPrompt/
 
 export type WidgetUnavailableContentFallbackProps = {
     availability: WidgetAvailabilityConfig
+    widgetType?: string
+    widgetId?: string
+    dashboardId?: number | null
 }
 
 type WidgetRuntimeAvailabilityGuardProps = {
     availability: WidgetAvailabilityConfig | undefined
     unavailableContentFallback?: ComponentType<WidgetUnavailableContentFallbackProps>
+    widgetType?: string
+    widgetId?: string
+    dashboardId?: number | null
     children: ReactNode
 }
 
@@ -18,6 +24,9 @@ type WidgetRuntimeAvailabilityGuardProps = {
 export function WidgetRuntimeAvailabilityGuard({
     availability,
     unavailableContentFallback,
+    widgetType,
+    widgetId,
+    dashboardId,
     children,
 }: WidgetRuntimeAvailabilityGuardProps): JSX.Element {
     const { isAvailable, config } = useWidgetAvailability(availability)
@@ -27,5 +36,5 @@ export function WidgetRuntimeAvailabilityGuard({
     }
 
     const Fallback = unavailableContentFallback ?? WidgetAvailabilitySetupPrompt
-    return <Fallback availability={config} />
+    return <Fallback availability={config} widgetType={widgetType} widgetId={widgetId} dashboardId={dashboardId} />
 }

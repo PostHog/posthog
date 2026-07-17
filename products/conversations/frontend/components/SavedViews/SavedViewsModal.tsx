@@ -4,6 +4,7 @@ import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTabl
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 
 import type { SavedTicketView, TicketViewFilters } from '../../types'
@@ -25,7 +26,13 @@ function FiltersSummary({ filters }: { filters: TicketViewFilters }): JSX.Elemen
         lines.push({ label: 'SLA', value: filters.sla })
     }
     if (filters.tags?.length) {
-        lines.push({ label: 'Tags', value: filters.tags.join(', ') })
+        lines.push({
+            label: filters.tagsMatch === 'all' ? 'Tags (all)' : 'Tags (any)',
+            value: filters.tags.join(', '),
+        })
+    }
+    if (filters.tagsExclude?.length) {
+        lines.push({ label: 'Exclude tags', value: filters.tagsExclude.join(', ') })
     }
     if (filters.assignee && filters.assignee !== 'all') {
         const val =
@@ -93,8 +100,8 @@ function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
 }
 
 export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
-    const { isModalOpen, views, viewsLoading } = useValues(ticketViewsLogic({ id }))
-    const { closeModal, openSaveModal, deleteView, loadView } = useActions(ticketViewsLogic({ id }))
+    const { isModalOpen, views, viewsLoading, currentFilters } = useValues(ticketViewsLogic({ id }))
+    const { closeModal, openSaveModal, deleteView, loadView, updateView } = useActions(ticketViewsLogic({ id }))
 
     const columns: LemonTableColumns<SavedTicketView> = [
         {
@@ -131,6 +138,54 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
                         overlay={
                             <LemonMenuOverlay
                                 items={[
+                                    {
+                                        label: 'Rename',
+                                        onClick: () => {
+                                            LemonDialog.openForm({
+                                                title: 'Rename view',
+                                                initialValues: { name: view.name },
+                                                content: (
+                                                    <LemonField name="name">
+                                                        <LemonInput autoFocus placeholder="View name" />
+                                                    </LemonField>
+                                                ),
+                                                errors: {
+                                                    name: (name) => (!name?.trim() ? 'Enter a name' : undefined),
+                                                },
+                                                onSubmit: ({ name }) =>
+                                                    updateView(view.short_id, { name: name.trim() }),
+                                            })
+                                        },
+                                    },
+                                    {
+                                        label: 'Update with current filters',
+                                        onClick: () => {
+                                            LemonDialog.open({
+                                                title: `Update "${view.name}"?`,
+                                                description: (
+                                                    <div className="space-y-2">
+                                                        <div>
+                                                            Replace the saved filters on this view with the filters
+                                                            currently applied to the ticket list. The view keeps its
+                                                            name and link.
+                                                        </div>
+                                                        <FiltersSummary filters={currentFilters} />
+                                                    </div>
+                                                ),
+                                                primaryButton: {
+                                                    children: 'Update view',
+                                                    type: 'primary',
+                                                    onClick: () =>
+                                                        updateView(view.short_id, {
+                                                            filters: { ...currentFilters },
+                                                        }),
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                },
+                                            })
+                                        },
+                                    },
                                     {
                                         label: 'Delete',
                                         status: 'danger',

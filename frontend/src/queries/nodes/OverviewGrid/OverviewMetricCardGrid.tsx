@@ -8,8 +8,10 @@ import { MetricCard, type MetricChange } from '@posthog/quill-charts'
 
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { range } from 'lib/utils'
+import { range } from 'lib/utils/arrays'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { WebAnalyticsPreComputeStrategy } from '~/queries/schema/schema-general'
 
 import { formatItem, NO_BASELINE_CHANGE_SENTINEL, OverviewItem, SamplingNotice, SamplingRate } from './OverviewGrid'
 
@@ -23,8 +25,8 @@ interface OverviewMetricCardGridProps {
     loading: boolean
     numSkeletons: number
     samplingRate?: SamplingRate
-    usedPreAggregatedTables?: boolean
-    usedLazyPrecompute?: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
+    onDisablePrecompute?: () => void
     labelFromKey: (key: string) => string
 }
 
@@ -33,8 +35,8 @@ export function OverviewMetricCardGrid({
     loading,
     numSkeletons,
     samplingRate,
-    usedPreAggregatedTables = false,
-    usedLazyPrecompute = false,
+    preComputeStrategy,
+    onDisablePrecompute,
     labelFromKey,
 }: OverviewMetricCardGridProps): JSX.Element {
     return (
@@ -46,8 +48,8 @@ export function OverviewMetricCardGrid({
                           <MetricCardCell
                               key={item.key}
                               item={item}
-                              usedPreAggregatedTables={usedPreAggregatedTables}
-                              usedLazyPrecompute={usedLazyPrecompute}
+                              preComputeStrategy={preComputeStrategy}
+                              onDisablePrecompute={onDisablePrecompute}
                               labelFromKey={labelFromKey}
                           />
                       ))}
@@ -59,13 +61,13 @@ export function OverviewMetricCardGrid({
 
 function MetricCardCell({
     item,
-    usedPreAggregatedTables,
-    usedLazyPrecompute,
+    preComputeStrategy,
+    onDisablePrecompute,
     labelFromKey,
 }: {
     item: OverviewMetricCardItem
-    usedPreAggregatedTables: boolean
-    usedLazyPrecompute: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
+    onDisablePrecompute?: () => void
     labelFromKey: (key: string) => string
 }): JSX.Element {
     const { baseCurrency } = useValues(teamLogic)
@@ -102,10 +104,10 @@ function MetricCardCell({
             tabIndex={clickable ? 0 : undefined}
             aria-pressed={clickable ? !!item.selected : undefined}
         >
-            {usedLazyPrecompute ? (
-                <PreAggregatedBadge variant="precomputed" />
-            ) : usedPreAggregatedTables ? (
-                <PreAggregatedBadge variant="preagg" />
+            {preComputeStrategy === WebAnalyticsPreComputeStrategy.LazyPrecompute ? (
+                <PreAggregatedBadge variant="precomputed" position="bottom-right" onDisable={onDisablePrecompute} />
+            ) : preComputeStrategy === WebAnalyticsPreComputeStrategy.PreAggregated ? (
+                <PreAggregatedBadge variant="preagg" position="bottom-right" />
             ) : null}
             <MetricCard
                 title={<MetricCardTitle label={labelFromKey(item.key)} item={item} />}

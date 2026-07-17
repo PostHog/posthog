@@ -1,4 +1,4 @@
-from posthog.schema import CurrencyCode
+from posthog.schema_enums import CurrencyCode
 
 # This is a list with all the currencies we support
 #

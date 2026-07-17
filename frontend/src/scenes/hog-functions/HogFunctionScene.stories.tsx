@@ -100,9 +100,29 @@ const MOCK_BACKFILLS: RawBatchExportBackfill[] = [
     },
 ]
 
+const MOCK_HOG_FUNCTION_TEMPLATING_WARNING_ID = '0196b144-1f82-0000-0d0d-a01de54d6750'
+
+// A destination whose `identifier` input is authored without braces, so the value would be
+// sent literally instead of evaluated — this is what surfaces the templating-mismatch warning.
+const MOCK_HOG_FUNCTION_TEMPLATING_WARNING = {
+    ...MOCK_HOG_FUNCTION,
+    id: MOCK_HOG_FUNCTION_TEMPLATING_WARNING_ID,
+    batch_export_id: null,
+    inputs_schema: [
+        { key: 'url', type: 'string', label: 'Webhook URL', secret: false, required: true },
+        { key: 'identifier', type: 'string', label: 'Identifier', secret: false, required: false },
+    ],
+    inputs: {
+        url: { value: 'https://example.com/webhook' },
+        identifier: { value: 'person.properties.email' },
+    },
+}
+
 const commonMocks = {
     get: {
         [`/api/environments/:team_id/hog_functions/${MOCK_HOG_FUNCTION_ID}/`]: MOCK_HOG_FUNCTION,
+        [`/api/environments/:team_id/hog_functions/${MOCK_HOG_FUNCTION_TEMPLATING_WARNING_ID}/`]:
+            MOCK_HOG_FUNCTION_TEMPLATING_WARNING,
         '/api/environments/:team_id/hog_functions/': { count: 1, results: [MOCK_HOG_FUNCTION], next: null },
         [`/api/environments/:team_id/batch_exports/${MOCK_BATCH_EXPORT_ID}/`]: MOCK_BATCH_EXPORT,
         [`/api/environments/:team_id/batch_exports/${MOCK_BATCH_EXPORT_ID}/runs/`]: { results: [], next: null },
@@ -224,80 +244,8 @@ export const Configuration: Story = {
     },
 }
 
-const MOCK_HOG_FUNCTION_LOG_RESULTS = {
-    results: [
-        [
-            'invocation-aaa-bbb-ccc',
-            '2024-01-15 10:00:00.000001',
-            'DEBUG',
-            "Executing function on event 'https://example.com/events/abc123'",
-        ],
-        ['invocation-aaa-bbb-ccc', '2024-01-15 10:00:00.050002', 'INFO', 'fetch(POST, https://example.com/webhook)'],
-        [
-            'invocation-aaa-bbb-ccc',
-            '2024-01-15 10:00:00.250003',
-            'DEBUG',
-            "Function completed in 250ms. Sync: 2ms. Mem: 128kb. Ops: 42. Event: 'https://example.com/events/abc123'",
-        ],
-        [
-            'invocation-ddd-eee-fff',
-            '2024-01-15 10:01:00.000001',
-            'DEBUG',
-            "Executing function on event 'https://example.com/events/def456'",
-        ],
-        ['invocation-ddd-eee-fff', '2024-01-15 10:01:00.050002', 'INFO', 'fetch(POST, https://example.com/webhook)'],
-        [
-            'invocation-ddd-eee-fff',
-            '2024-01-15 10:01:00.350003',
-            'ERROR',
-            'HTTP fetch failed on attempt 1 with status code 500. Retrying in 1000ms.',
-        ],
-        [
-            'invocation-ddd-eee-fff',
-            '2024-01-15 10:01:01.400004',
-            'ERROR',
-            'HTTP fetch failed on attempt 2 with status code 500. Retrying in 2000ms.',
-        ],
-        [
-            'invocation-ddd-eee-fff',
-            '2024-01-15 10:01:03.500005',
-            'ERROR',
-            'HTTP fetch failed on attempt 3 with status code 500.',
-        ],
-        [
-            'invocation-ggg-hhh-iii',
-            '2024-01-15 10:02:00.000001',
-            'DEBUG',
-            "Executing function on event 'https://example.com/events/ghi789'",
-        ],
-        ['invocation-ggg-hhh-iii', '2024-01-15 10:02:00.050002', 'INFO', 'fetch(POST, https://example.com/webhook)'],
-        [
-            'invocation-ggg-hhh-iii',
-            '2024-01-15 10:02:00.150003',
-            'DEBUG',
-            "Function completed in 150ms. Sync: 1ms. Mem: 96kb. Ops: 38. Event: 'https://example.com/events/ghi789'",
-        ],
-    ],
-}
-
-export const Logs: Story = {
+export const ConfigurationWithTemplatingWarning: Story = {
     parameters: {
-        pageUrl: urls.hogFunction(MOCK_HOG_FUNCTION_ID, 'logs'),
+        pageUrl: urls.hogFunction(MOCK_HOG_FUNCTION_TEMPLATING_WARNING_ID),
     },
-    decorators: [
-        mswDecorator({
-            ...commonMocks,
-            get: {
-                ...commonMocks.get,
-                [`/api/environments/:team_id/batch_exports/${MOCK_BATCH_EXPORT_ID}/backfills/`]: {
-                    results: [],
-                    next: null,
-                },
-            },
-            post: {
-                ...commonMocks.post,
-                '/api/environments/:team_id/query/HogQLQuery/': MOCK_HOG_FUNCTION_LOG_RESULTS,
-            },
-        }),
-    ],
 }

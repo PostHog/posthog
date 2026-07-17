@@ -19,12 +19,6 @@ PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", ""))
 # so a key is always present.
 FLAGS_SECRET_KEYS: list[str] = get_list(os.getenv("FLAGS_SECRET_KEYS", "")) or [SECRET_KEY]
 
-# Per-team local evaluation rate limits, e.g. {"123": "1200/minute", "456": "2400/hour"}
-LOCAL_EVAL_RATE_LIMITS: dict[int, str] = {}
-with suppress(Exception):
-    as_json = json.loads(os.getenv("LOCAL_EVAL_RATE_LIMITS", "{}"))
-    LOCAL_EVAL_RATE_LIMITS = {int(k): str(v) for k, v in as_json.items()}
-
 # Per-team remote config rate limits, e.g. {"123": "1200/minute", "456": "2400/hour"}
 REMOTE_CONFIG_RATE_LIMITS: dict[int, str] = {}
 with suppress(Exception):
@@ -113,3 +107,10 @@ MAX_FEATURE_FLAG_FILTER_SIZE_BYTES: int = get_from_env(
 
 # Team ID for the local-evaluation canary. Unset disables the canary task.
 FEATURE_FLAGS_CANARY_TEAM_ID: int | None = get_from_env("FEATURE_FLAGS_CANARY_TEAM_ID", optional=True, type_cast=int)
+
+# Project secret API key (PSAK) scoped to team 2, used only by the EU cross-region
+# dogfood flags sync (products/feature_flags/backend/cross_region_flag_sync.py) to
+# poll team 2's flag definitions from the US region, since team 2 lives only in the
+# US Postgres. Unset disables the sync. Not needed on US, where team 2's HyperCache
+# entry is built locally via the normal signal-driven path.
+POSTHOG_FLAGS_PROJECT_SECRET_TOKEN: str = get_from_env("POSTHOG_FLAGS_PROJECT_SECRET_TOKEN", "")

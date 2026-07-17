@@ -82,21 +82,39 @@ class EventFilterConfig(UUIDTModel):
 
 
 def prune_filter_tree(node: dict) -> dict | None:
-    """Remove empty groups and collapse single-child groups."""
+    """
+    Remove empty groups and collapse single-child groups, keeping an and/or
+    group at the root.
+
+    The tree editor can only add conditions or groups inside a group node, so a
+    bare condition (or NOT) at the root leaves the user with no "Add condition"
+    button. We prune freely, then wrap a non-group root in an OR as a final pass.
+    """
+    pruned = _prune_node(node)
+    if pruned is not None and pruned.get("type") not in ("and", "or"):
+        return {"type": "or", "children": [pruned]}
+    return pruned
+
+
+def _prune_node(node: dict) -> dict | None:
+    """Remove empty groups and collapse single-child groups, depth-first."""
     node_type = node.get("type")
 
     if node_type == "condition":
         return node
 
     if node_type == "not":
-        child = prune_filter_tree(node.get("child", {}))
+        child = _prune_node(node.get("child", {}))
         if child is None:
             return None
         return {**node, "child": child}
 
     if node_type in ("and", "or"):
-        children = [prune_filter_tree(c) for c in node.get("children", [])]
-        children = [c for c in children if c is not None]
+        children: list[dict] = []
+        for child in node.get("children", []):
+            pruned_child = _prune_node(child)
+            if pruned_child is not None:
+                children.append(pruned_child)
         if len(children) == 0:
             return None
         if len(children) == 1:

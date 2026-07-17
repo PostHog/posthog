@@ -1,29 +1,50 @@
+import json
+
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.schema import TrendsQuery, VisualizationMessage
 
+from products.notebooks.backend.facade.collab import apply_utf16_text_changes, markdown_crc
 from products.notebooks.backend.models import Notebook
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 
 from ee.hogai.artifacts.types import StoredBlock, VisualizationRefBlock
-from ee.hogai.tools.create_notebook.helpers import save_notebook_to_db
+from ee.hogai.tools.create_notebook.helpers import NotebookEditNotAllowedError, save_notebook_to_db
 
 
-def _find_ph_query_nodes(doc: dict) -> list[dict]:
-    found: list[dict] = []
+def _get_notebook_markdown(notebook: Notebook) -> str:
+    nodes = notebook.content["content"]
+    assert len(nodes) == 1 and nodes[0]["type"] == "ph-markdown-notebook"
+    return nodes[0]["attrs"]["markdown"]
 
-    def walk(node: dict) -> None:
-        if isinstance(node, dict):
-            if node.get("type") == "ph-query":
-                found.append(node)
-            for child in node.get("content", []) or []:
-                walk(child)
 
-    walk(doc)
-    return found
+def _extract_query_props(markdown: str) -> list[dict]:
+    """Pull the JSON `query={...}` props out of serialized `<Query ... />` tags."""
+    queries: list[dict] = []
+    search_from = 0
+    while (start := markdown.find("query={", search_from)) != -1:
+        json_start = start + len("query={")
+        depth = 1
+        i = json_start
+        while i < len(markdown) and depth:
+            char = markdown[i]
+            if char == '"':
+                # Skip over JSON strings so braces inside them don't affect depth
+                i += 1
+                while i < len(markdown) and (markdown[i] != '"' or markdown[i - 1] == "\\"):
+                    i += 1
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+            i += 1
+        queries.append(json.loads(markdown[json_start : i - 1]))
+        search_from = i
+    return queries
 
 
 class TestSaveNotebookToDb(BaseTest):
@@ -114,11 +135,10 @@ class TestSaveNotebookToDb(BaseTest):
 
         notebook = self._save_and_get_notebook(viz_short_id, parent_short_id)
 
-        ph_queries = _find_ph_query_nodes(notebook.content)
-        self.assertEqual(len(ph_queries), 1)
-        stored_query = ph_queries[0]["attrs"]["query"]
-        self.assertEqual(stored_query["kind"], expected_kind)
-        self.assertEqual(stored_query["source"]["kind"], expected_source_kind)
+        queries = _extract_query_props(_get_notebook_markdown(notebook))
+        self.assertEqual(len(queries), 1)
+        self.assertEqual(queries[0]["kind"], expected_kind)
+        self.assertEqual(queries[0]["source"]["kind"], expected_source_kind)
 
     def test_save_notebook_resolves_state_only_visualization(self):
         # Reproduces the "[Visualization not found: <id>]" bug: viz exists only in
@@ -135,11 +155,10 @@ class TestSaveNotebookToDb(BaseTest):
             state_messages=[viz_message],
         )
 
-        ph_queries = _find_ph_query_nodes(notebook.content)
-        self.assertEqual(len(ph_queries), 1, "state-only viz should resolve to a ph-query node")
-        stored_query = ph_queries[0]["attrs"]["query"]
-        self.assertEqual(stored_query["kind"], "InsightVizNode")
-        self.assertEqual(stored_query["source"]["kind"], "TrendsQuery")
+        queries = _extract_query_props(_get_notebook_markdown(notebook))
+        self.assertEqual(len(queries), 1, "state-only viz should resolve to a query block")
+        self.assertEqual(queries[0]["kind"], "InsightVizNode")
+        self.assertEqual(queries[0]["source"]["kind"], "TrendsQuery")
 
     def test_save_notebook_emits_placeholder_when_artifact_missing(self):
         # Sanity: when the ref can't be resolved from any source, we still get the
@@ -149,5 +168,187 @@ class TestSaveNotebookToDb(BaseTest):
             parent_short_id="nmis",
         )
 
-        ph_queries = _find_ph_query_nodes(notebook.content)
-        self.assertEqual(len(ph_queries), 0)
+        markdown = _get_notebook_markdown(notebook)
+        self.assertEqual(len(_extract_query_props(markdown)), 0)
+        self.assertIn("Visualization not found", markdown)
+
+    def test_save_notebook_creates_markdown_notebook(self):
+        self._create_visualization_artifact(query={"kind": "TrendsQuery", "series": []}, short_id="vmkd")
+        parent = self._create_notebook_parent("nmkd")
+        blocks: list[StoredBlock] = [VisualizationRefBlock(artifact_id="vmkd", title="Chart")]
+
+        async_to_sync(save_notebook_to_db)(
+            team=self.team,
+            user=self.user,
+            artifact=parent,
+            blocks=blocks,
+            title="Test Notebook",
+            state_messages=[],
+        )
+
+        notebook = Notebook.objects.get(team=self.team, short_id=parent.short_id)
+        nodes = notebook.content["content"]
+        self.assertEqual(len(nodes), 1)
+        self.assertEqual(nodes[0]["type"], "ph-markdown-notebook")
+        markdown = nodes[0]["attrs"]["markdown"]
+        self.assertIn("Test Notebook", markdown)
+        self.assertIn("<Query", markdown)
+        self.assertIn("InsightVizNode", markdown)
+        self.assertEqual(notebook.text_content, markdown)
+
+    def test_save_notebook_keeps_tiptap_format_for_existing_notebook(self):
+        parent = self._create_notebook_parent("ntfm")
+        notebook = Notebook.objects.create(
+            team=self.team,
+            short_id=parent.short_id,
+            title="Original title",
+            created_by=self.user,
+            last_modified_by=self.user,
+            content={"type": "doc", "content": [{"type": "paragraph"}]},
+        )
+
+        with patch("ee.hogai.tools.create_notebook.helpers.collab.apublish_notebook_update"):
+            async_to_sync(save_notebook_to_db)(
+                team=self.team,
+                user=self.user,
+                artifact=parent,
+                blocks=[],
+                title="Updated title",
+                state_messages=[],
+                markdown_content="# Updated",
+            )
+
+        notebook.refresh_from_db()
+        self.assertEqual(notebook.title, "Updated title")
+        self.assertNotEqual(notebook.content["content"][0]["type"], "ph-markdown-notebook")
+
+    def test_save_notebook_preserves_existing_markdown_v2_wrapper(self):
+        parent = self._create_notebook_parent("nv2m")
+        notebook = Notebook.objects.create(
+            team=self.team,
+            short_id=parent.short_id,
+            title="Original title",
+            created_by=self.user,
+            last_modified_by=self.user,
+            content={
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "ph-markdown-notebook",
+                        "attrs": {
+                            "nodeId": "custom-node-id",
+                            "markdown": "# Original",
+                        },
+                    }
+                ],
+            },
+        )
+        original_version = notebook.version
+        original_last_modified_at = notebook.last_modified_at
+
+        with patch("ee.hogai.tools.create_notebook.helpers.collab.apublish_notebook_update") as mock_publish:
+            async_to_sync(save_notebook_to_db)(
+                team=self.team,
+                user=self.user,
+                artifact=parent,
+                blocks=[],
+                title="Updated title",
+                state_messages=[],
+                markdown_content="# Updated\n\nAdd this here.",
+            )
+
+        notebook.refresh_from_db()
+        mock_publish.assert_awaited_once()
+        assert mock_publish.await_args is not None
+        publish_args, publish_kwargs = mock_publish.await_args
+        self.assertEqual(publish_args, (self.team.id, str(parent.short_id), original_version + 1))
+        # Receivers replay the diff instead of refetching; it must transform the old markdown exactly
+        diff = publish_kwargs["diff"]
+        self.assertEqual(diff.base_crc, markdown_crc("# Original"))
+        self.assertEqual(apply_utf16_text_changes("# Original", diff.changes), "# Updated\n\nAdd this here.")
+        self.assertEqual(notebook.title, "Updated title")
+        self.assertEqual(notebook.text_content, "# Updated\n\nAdd this here.")
+        self.assertEqual(notebook.version, original_version + 1)
+        self.assertGreater(notebook.last_modified_at, original_last_modified_at)
+        self.assertEqual(
+            notebook.content,
+            {
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "ph-markdown-notebook",
+                        "attrs": {
+                            "nodeId": "custom-node-id",
+                            "markdown": "# Updated\n\nAdd this here.",
+                        },
+                    }
+                ],
+            },
+        )
+
+    def test_save_notebook_update_advances_version_and_publishes_update(self):
+        parent = self._create_notebook_parent("nvrs")
+        notebook = Notebook.objects.create(
+            team=self.team,
+            short_id=parent.short_id,
+            title="Original title",
+            created_by=self.user,
+            last_modified_by=self.user,
+            content={"type": "doc", "content": [{"type": "paragraph"}]},
+        )
+        original_version = notebook.version
+
+        with patch("ee.hogai.tools.create_notebook.helpers.collab.apublish_notebook_update") as mock_publish:
+            async_to_sync(save_notebook_to_db)(
+                team=self.team,
+                user=self.user,
+                artifact=parent,
+                blocks=[],
+                title="Updated title",
+                state_messages=[],
+            )
+
+        notebook.refresh_from_db()
+        self.assertEqual(notebook.version, original_version + 1)
+        mock_publish.assert_awaited_once_with(self.team.id, str(parent.short_id), original_version + 1)
+
+    def test_save_rejected_without_editor_access_on_existing_notebook(self):
+        from posthog.constants import AvailableFeature
+        from posthog.models import OrganizationMembership, User
+
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        creator = User.objects.create_and_join(self.organization, "notebook-owner@posthog.com", None)
+        parent = self._create_notebook_parent("nacc")
+        notebook = Notebook.objects.create(
+            team=self.team,
+            short_id=parent.short_id,
+            title="Protected title",
+            created_by=creator,
+            last_modified_by=creator,
+            content={"type": "doc", "content": [{"type": "paragraph"}]},
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="notebook", resource_id=str(notebook.id), access_level="viewer"
+        )
+
+        with self.assertRaises(NotebookEditNotAllowedError):
+            async_to_sync(save_notebook_to_db)(
+                team=self.team,
+                user=self.user,
+                artifact=parent,
+                blocks=[],
+                title="Overwritten title",
+                state_messages=[],
+            )
+
+        notebook.refresh_from_db()
+        self.assertEqual(notebook.title, "Protected title")

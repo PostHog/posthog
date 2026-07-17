@@ -1,0 +1,29 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A unique integer value identifying this integration.",
+            "type": "number"
+        },
+        "limit": {
+            "default": 100,
+            "description": "Maximum number of repositories to return per request (max 500).",
+            "maximum": 500,
+            "minimum": 1,
+            "type": "number"
+        },
+        "offset": {
+            "default": 0,
+            "description": "Number of repositories to skip before returning results.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "search": {
+            "default": "",
+            "description": "Optional case-insensitive repository name search query.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

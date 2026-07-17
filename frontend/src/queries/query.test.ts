@@ -4,7 +4,7 @@ import api, { ApiError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
 import { performQuery, pollForResults, queryExportContext, waitForPageVisible } from '~/queries/query'
-import { EventsQuery, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { EventsQuery, HogQLQuery, NodeKind, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -14,12 +14,23 @@ describe('query', () => {
     beforeEach(() => {
         useMocks({
             post: {
-                '/api/environments/:team_id/query/:kind': (req) => {
-                    const data = req.body as any
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const data = (await request.json()) as any
                     if (data.query?.kind === 'HogQLQuery') {
                         return [
                             200,
                             { results: [], clickhouse: 'clickhouse string', hogql: 'hogql string', is_cached: false },
+                        ]
+                    }
+                    if (data.query?.kind === 'WebStatsTableQuery') {
+                        return [
+                            200,
+                            {
+                                results: [],
+                                is_cached: false,
+                                preComputeStrategy: 'lazy_precompute',
+                                preComputeStale: true,
+                            },
                         ]
                     }
                     if (data.query?.kind === 'EventsQuery' && data.query.select[0] === 'error') {
@@ -110,6 +121,23 @@ describe('query', () => {
         })
     })
 
+    it('captures precompute strategy and staleness from web analytics responses', async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        const q = setLatestVersionsOnQuery({
+            kind: NodeKind.WebStatsTableQuery,
+            breakdownBy: WebStatsBreakdown.Page,
+            properties: [],
+        }) as any
+        captureSpy.mockClear()
+        await performQuery(q)
+        const queryCompletedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query completed')
+        expect(queryCompletedCalls).toHaveLength(1)
+        expect(queryCompletedCalls[0][1]).toMatchObject({
+            precompute_strategy: 'lazy_precompute',
+            precompute_stale: true,
+        })
+    })
+
     it('emits an event when a query errors', async () => {
         const captureSpy = jest.spyOn(posthog, 'capture')
         const q: EventsQuery = setLatestVersionsOnQuery({
@@ -124,7 +152,14 @@ describe('query', () => {
 
         const queryFailedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query failed')
         expect(queryFailedCalls).toHaveLength(1)
-        expect(queryFailedCalls[0][1]).toMatchObject({ query: q, duration: expect.any(Number) })
+        expect(queryFailedCalls[0][1]).toMatchObject({
+            query: q,
+            duration: expect.any(Number),
+            error_status: 500,
+            error_code: null,
+        })
+        // Raw error text must stay out of telemetry
+        expect(queryFailedCalls[0][1]).not.toHaveProperty('error_message')
     })
 
     describe('waitForPageVisible', () => {
@@ -199,6 +234,22 @@ describe('query', () => {
     })
 
     describe('pollForResults error message parsing', () => {
+        it('prefers the structured error_code from the query status over one parsed from the message', async () => {
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({
+                data: {
+                    query_status: {
+                        error_message: 'This query ran out of memory before it could finish',
+                        error_code: 'clickhouse_memory_limit_exceeded',
+                    },
+                },
+            })
+
+            await expect(pollForResults('test-query-id')).rejects.toMatchObject({
+                detail: 'This query ran out of memory before it could finish',
+                code: 'clickhouse_memory_limit_exceeded',
+            })
+        })
+
         it('parses ErrorDetail list format and extracts message and code', async () => {
             jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({
                 data: {

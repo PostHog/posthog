@@ -322,13 +322,21 @@ class Manifest:
                 return category[command_name]
         return None
 
+    def command_flag(self, command_name: str, key: str) -> bool:
+        """Read a boolean flag from a command's manifest entry.
+
+        Single home for the per-command flag lookup (``hidden``,
+        ``needs_secrets``, ``untracked``). Missing command or key -> False.
+        """
+        config = self.get_command_config(command_name) or {}
+        return bool(config.get(key, False))
+
     def is_command_hidden(self, command_name: str) -> bool:
         """Whether a command should be hidden from help. Manifest is the only source of truth.
 
         Set ``hidden: true`` on the manifest entry; do not use ``@click.command(hidden=True)``.
         """
-        config = self.get_command_config(command_name) or {}
-        return bool(config.get("hidden", False))
+        return self.command_flag(command_name, "hidden")
 
     def get_children_for_command(self, command_name: str) -> list[str]:
         """Get child commands that extend this command."""

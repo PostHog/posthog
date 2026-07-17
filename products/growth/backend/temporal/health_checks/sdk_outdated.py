@@ -8,7 +8,14 @@ from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.redis import get_client
 from posthog.temporal.health_checks.detectors import HealthExecutionPolicy
-from posthog.temporal.health_checks.framework import AlertContent, HealthCheck
+from posthog.temporal.health_checks.framework import (
+    _SEVERITY_WEIGHT,
+    AlertContent,
+    HealthCheck,
+    Remediation,
+    SignalContent,
+    build_signal_extra,
+)
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
@@ -17,9 +24,14 @@ from products.growth.backend.constants import (
     TEAM_SDK_CACHE_EXPIRY,
     SdkVersionEntry,
     github_sdk_versions_key,
-    team_sdk_versions_key,
+    team_sdk_versions_v2_key,
 )
-from products.growth.backend.sdk_health import SdkAssessment, _is_safe_for_interpolation, compute_sdk_health
+from products.growth.backend.sdk_health import (
+    SdkAssessment,
+    _is_safe_for_interpolation,
+    compute_sdk_health,
+    sort_sdk_version_entries,
+)
 
 # Issue severity follows the SDK Health assessment severity: a single outdated SDK is a warning,
 # but when the bulk of a team's SDKs are outdated the assessment escalates to "danger".
@@ -43,13 +55,14 @@ WHERE
     AND timestamp >= now() - INTERVAL %(lookback_days)s DAY
     AND `mat_$lib` IS NOT NULL
     AND `mat_$lib` != ''
-    AND `mat_$lib_version` IS NOT NULL
-    AND `mat_$lib_version` != ''
+    AND (
+        `mat_$lib` = 'posthog-java'
+        OR (`mat_$lib_version` IS NOT NULL AND `mat_$lib_version` != '')
+    )
 GROUP BY team_id, lib, lib_version
 ORDER BY
     team_id,
     lib,
-    arrayMap(x -> toInt64OrZero(x), splitByChar('.', extract(assumeNotNull(lib_version), '(\\d+(\\.\\d+)+)'))) DESC,
     event_count DESC
 """
 
@@ -82,7 +95,7 @@ def _cache_team_sdk_data(team_sdk_data: dict[int, dict[str, list[SdkVersionEntry
     redis_client = get_client()
     pipe = redis_client.pipeline()
     for team_id, sdk_data in team_sdk_data.items():
-        cache_key = team_sdk_versions_key(team_id)
+        cache_key = team_sdk_versions_v2_key(team_id)
         pipe.setex(cache_key, TEAM_SDK_CACHE_EXPIRY, json.dumps(sdk_data))
     pipe.execute()
 
@@ -94,6 +107,25 @@ class SdkOutdatedCheck(HealthCheck):
     policy = HealthExecutionPolicy(batch_size=10, max_concurrent=3)
     schedule = "0 8 * * *"
     active_since_days = 30
+    remediation = Remediation(
+        human="""
+            Open the SDK Health page (the Health section of the app). It lists every SDK you're sending
+            events from, the versions in use, the latest available version, and how far behind each one is.
+            Follow each affected SDK's upgrade or migration guide, usually updating the dependency in your
+            package manager (npm/yarn/pnpm, pip/poetry, gem, go get, etc.) and redeploying. For browser-snippet
+            installs, make sure you're loading the latest snippet.
+        """,
+        agent="""
+            Read this issue with `health-issues-get` to get the affected SDK and the latest version from
+            the payload, and use `execute-sql` to see which `properties.$lib` / `properties.$lib_version`
+            values still send events (`SELECT properties.$lib, properties.$lib_version, count() FROM events
+            WHERE timestamp > now() - INTERVAL 7 DAY GROUP BY 1, 2 ORDER BY 3 DESC`). Then fix it in the
+            user's codebase: update or replace the PostHog SDK dependency in the relevant manifest
+            (package.json, requirements.txt / pyproject.toml, Gemfile, go.mod, etc.), update the lockfile,
+            and check the SDK's documentation and changelog for required code changes. The issue clears on
+            a later check once old traffic no longer qualifies.
+        """,
+    )
 
     @classmethod
     def render_alert(cls, issue: HealthIssue) -> AlertContent:
@@ -113,10 +145,34 @@ class SdkOutdatedCheck(HealthCheck):
             raw_current = issue.payload.get("current_version")
             current = raw_current if raw_current and _is_safe_for_interpolation(raw_current) else None
             summary = f"{sdk_name} is on {current}, latest is {latest}" if current else f"{sdk_name} is behind {latest}"
+        is_migration = bool(issue.payload.get("migration_target"))
         return AlertContent(
-            title=f"{sdk_name} SDK is outdated",
+            title="SDK migration recommended" if is_migration else f"{sdk_name} SDK is outdated",
             summary=summary,
             link="/health/sdk-health",
+        )
+
+    @classmethod
+    def render_signal(cls, issue: HealthIssue) -> SignalContent | None:
+        sdk_name = issue.payload.get("sdk_name", "An SDK")
+        # `reason` is the assessment's allowlist-safe source of truth (see render_alert) — safe to
+        # forward verbatim. It names the in-use and target versions driving the issue.
+        reason = issue.payload.get("reason") or f"{sdk_name} is behind the latest release."
+        is_migration = bool(issue.payload.get("migration_target"))
+        title = "SDK migration recommended" if is_migration else f"{sdk_name} SDK is outdated"
+        description = (
+            f"This SDK requires migration. {reason}"
+            if is_migration
+            else (
+                f"The {sdk_name} SDK is outdated for this project. {reason} "
+                "Outdated SDKs miss bug fixes, performance improvements, and new features, and may "
+                "carry known issues. Recommend upgrading to the latest version."
+            )
+        )
+        return SignalContent(
+            description=description,
+            weight=_SEVERITY_WEIGHT[issue.severity],
+            extra=build_signal_extra(issue, title=title, summary=reason, link="/health/sdk-health"),
         )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
@@ -144,6 +200,10 @@ class SdkOutdatedCheck(HealthCheck):
                     }
                 )
 
+        for sdk_data in team_sdk_data.values():
+            for lib, entries in sdk_data.items():
+                sdk_data[lib] = sort_sdk_version_entries(entries)
+
         _cache_team_sdk_data({tid: dict(sdk_data) for tid, sdk_data in team_sdk_data.items()})
 
         issues: defaultdict[int, list[HealthCheckResult]] = defaultdict(list)
@@ -166,9 +226,11 @@ def _build_combined_data(
     """Shape per-team SDK usage into the structure compute_sdk_health expects."""
     combined: dict[str, dict[str, Any]] = {}
     for lib_name, entries in sdk_data.items():
-        if lib_name not in github_data or not entries:
+        if not entries:
             continue
-        sdk_github_data = github_data[lib_name]
+        sdk_github_data = github_data.get(lib_name)
+        if not sdk_github_data:
+            continue
         latest_version = sdk_github_data["latestVersion"]
         release_dates = sdk_github_data.get("releaseDates", {})
         combined[lib_name] = {
@@ -195,6 +257,14 @@ def _build_health_result(assessment: SdkAssessment) -> HealthCheckResult:
     """
     severity = _SEVERITY_BY_ASSESSMENT.get(assessment.severity, HealthIssue.Severity.WARNING)
     primary = assessment.releases[0] if assessment.releases else None
+    migration = (
+        {
+            "migration_source": "com.posthog.java:posthog",
+            "migration_target": "com.posthog:posthog-server",
+        }
+        if assessment.migration_required
+        else {}
+    )
     return HealthCheckResult(
         severity=severity,
         payload={
@@ -217,6 +287,7 @@ def _build_health_result(assessment: SdkAssessment) -> HealthCheckResult:
                 }
                 for release in assessment.releases
             ],
+            **migration,
         },
         hash_keys=["sdk_name"],
     )

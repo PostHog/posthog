@@ -10,9 +10,11 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useAnimatedPresence } from 'lib/hooks/useAnimatedPresence'
 import { cn } from 'lib/utils/css-classes'
 
+import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
+
 import { SuggestionGroup, maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
-import { InputFormArea } from './InputFormArea'
+import { InputFormArea, SandboxModeBadge } from './InputFormArea'
 import { QuestionInput } from './QuestionInput'
 
 export function SidebarQuestionInput({
@@ -21,7 +23,7 @@ export function SidebarQuestionInput({
 }: {
     isSticky?: boolean
     sidePanel?: boolean
-}): JSX.Element {
+}): JSX.Element | null {
     const { focusCounter, threadVisible } = useValues(maxLogic)
 
     // Use raw state values instead of selector to ensure re-renders on state changes
@@ -31,7 +33,12 @@ export function SidebarQuestionInput({
         pendingApprovalProposalId,
         pendingApprovalsData,
         resolvedApprovalStatuses,
+        pendingSandboxPermissionRequest,
+        conversation,
     } = useValues(maxThreadLogic)
+    // A pending sandbox request only originates from the sandbox stream, so its presence alone is
+    // enough — gating on `agent_runtime` would strand approvals on as-yet-unresolved conversations.
+    const hasSandboxPermissionToShow = !!pendingSandboxPermissionRequest
 
     // Check if there's a pending (not yet resolved) approval to show
     const hasApprovalToShow = useMemo(() => {
@@ -60,8 +67,12 @@ export function SidebarQuestionInput({
         }
     }, [focusCounter]) // Update focus when focusCounter changes
 
+    if (isPiTaskRuntime(conversation?.task?.runtime)) {
+        return null
+    }
+
     // Show form area directly when there's a pending form/approval (even if showInput is false)
-    if (activeMultiQuestionForm || hasApprovalToShow) {
+    if (activeMultiQuestionForm || hasApprovalToShow || hasSandboxPermissionToShow) {
         return (
             <div className="w-full max-w-180 self-center px-3 mx-auto bg-[var(--scene-layout-background)]/50 backdrop-blur-sm">
                 <div className="border border-primary rounded-lg bg-surface-primary">
@@ -78,6 +89,7 @@ export function SidebarQuestionInput({
             containerClassName={cn('mx-auto self-center backdrop-blur-sm z-50', sidePanel && 'px-0')}
             isThreadVisible={threadVisible}
         >
+            <SandboxModeBadge />
             <SuggestionsList />
         </QuestionInput>
     )

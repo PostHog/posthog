@@ -230,6 +230,7 @@ class TestRateLimitResponseHeaders:
                 "scopes": ["llm_gateway:read"],
                 "current_team_id": 1,
                 "distinct_id": "test-distinct-id",
+                "is_staff": False,
             }
         )
         mock_db_pool.acquire = AsyncMock(return_value=conn)
@@ -243,10 +244,65 @@ class TestRateLimitResponseHeaders:
 
             assert response.status_code == 429
             assert response.headers["retry-after"] == "3600"
+            # The reason is repeated in the message (SDK error strings often
+            # surface only error.message) and the throttle scope rides along as
+            # a machine-readable code.
             assert response.json() == {
                 "error": {
-                    "message": "Rate limit exceeded",
+                    "message": "Rate limit exceeded: Product rate limit exceeded",
                     "type": "rate_limit_error",
                     "reason": "Product rate limit exceeded",
+                    "code": "test_throttle",
                 }
             }
+
+
+class TestFreeTierModelGateErrorBody:
+    def test_gate_403_wire_body_carries_code_and_legacy_shim(
+        self, mock_db_pool: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Pins the gate 403's wire shape end-to-end (raise site + exception-handler
+        unwrap): a top-level error envelope, never FastAPI's {"detail": ...} nesting.
+        Pre-cutover PostHog Code clients route this 403 by the "(rate_limit)"
+        substring in the message and newer clients read the code — a regression in
+        either strands installed builds in fatal-session teardown."""
+        from llm_gateway.auth.models import AuthenticatedUser
+        from llm_gateway.config import get_settings
+        from llm_gateway.dependencies import get_authenticated_user
+        from llm_gateway.products.config import POSTHOG_CODE_US_APP_ID
+
+        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
+        get_settings.cache_clear()
+        try:
+            app = create_test_app(mock_db_pool)
+            # OAuth caller on the Code app whose org isn't billed for Code usage
+            # (the conftest quota resolver reports code_usage_billing_active=False).
+            app.dependency_overrides[get_authenticated_user] = lambda: AuthenticatedUser(
+                user_id=7,
+                team_id=1,
+                auth_method="oauth_access_token",
+                distinct_id="unbilled-user",
+                scopes=["*"],
+                application_id=POSTHOG_CODE_US_APP_ID,
+            )
+
+            with TestClient(app) as client:
+                response = client.post(
+                    "/posthog_code/v1/messages",
+                    json={
+                        "model": "claude-fable-5",
+                        "max_tokens": 16,
+                        "messages": [{"role": "user", "content": "Hi"}],
+                    },
+                )
+
+            assert response.status_code == 403
+            body = response.json()
+            assert "detail" not in body
+            error = body["error"]
+            assert error["type"] == "permission_error"
+            assert error["code"] == "model_gate"
+            assert "claude-fable-5" in error["message"]
+            assert error["message"].endswith("(rate_limit)")
+        finally:
+            get_settings.cache_clear()

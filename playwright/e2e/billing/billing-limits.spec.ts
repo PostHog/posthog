@@ -2,7 +2,7 @@ import { Page } from '@playwright/test'
 import fs from 'fs'
 import path from 'path'
 
-import { expect, test } from '../../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
 type BillingRouteHandlers = {
     getResponse: (billingContent: Record<string, any>) => Record<string, any>
@@ -46,6 +46,16 @@ async function setupBillingRoutes(page: Page, handlers: BillingRouteHandlers): P
 }
 
 test.describe('Billing Limits', () => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await playwrightSetup.login(page, workspace!)
+    })
+
     test('Show no limits set and allow user to set one', async ({ page }) => {
         await setupBillingRoutes(page, {
             getResponse: (billingContent) => billingContent,

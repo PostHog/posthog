@@ -5,7 +5,8 @@ import { IconInfo, IconTestTube } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyDuration, percentage } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
+import { percentage } from 'lib/utils/numbers'
 import { getExperimentMetricFromInsight } from 'scenes/experiments/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -38,27 +39,27 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                   </>,
               ]
             : []),
-        ...(funnelsFilter?.funnelVizType !== FunnelVizType.Trends
+        ...(funnelsFilter?.funnelVizType !== FunnelVizType.Trends && conversionMetrics.medianTime != null
             ? [
                   <>
                       <span className="flex items-center text-secondary">
                           <Tooltip
-                              title={`Average (arithmetic mean) of the total time each ${aggregationTargetLabel.singular} spent in the entire funnel.`}
+                              title={`Median (50th percentile) of the total time each ${aggregationTargetLabel.singular} spent in the entire funnel.`}
                           >
                               <IconInfo className="mr-1 text-xl shrink-0" />
                           </Tooltip>
-                          <span>Average time to convert</span>
+                          <span>Median time to convert</span>
                       </span>
                       {funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert && <FunnelStepsPicker />}
                       <span className="text-secondary mr-1">:</span>
                       {funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert ? (
-                          <span className="font-bold">{humanFriendlyDuration(conversionMetrics.averageTime)}</span>
+                          <span className="font-bold">{humanFriendlyDuration(conversionMetrics.medianTime)}</span>
                       ) : (
                           <Link
                               className="font-bold"
                               onClick={() => updateInsightFilter({ funnelVizType: FunnelVizType.TimeToConvert })}
                           >
-                              {humanFriendlyDuration(conversionMetrics.averageTime)}
+                              {humanFriendlyDuration(conversionMetrics.medianTime)}
                           </Link>
                       )}
                   </>,

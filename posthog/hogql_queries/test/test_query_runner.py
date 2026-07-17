@@ -7,7 +7,10 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from django.conf import settings
 from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from pydantic import BaseModel
@@ -37,22 +40,37 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.errors import QueryError, ResolutionError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.constants import AvailableFeature
+from posthog.errors import ExposedCHQueryError
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import (
+    SHARED_FORCE_BLOCKING_STALENESS_WINDOW,
+    AnalyticsQueryRunner,
     ExecutionMode,
     QueryRunner,
+    QueryRunnerWithHogQLContext,
     get_query_runner,
     shared_insights_execution_mode,
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team, WeekStartDay
-from posthog.rbac.user_access_control import UserAccessControlError
+from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
+
+try:
+    from ee.models.rbac.access_control import AccessControl
+except ImportError:
+    pass
 from posthog.slo.types import SloOutcome
 
-from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
+from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
 
 MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE = {
@@ -82,10 +100,10 @@ class TestQueryRunner(BaseTest):
         super().tearDown()
         cache.clear()
 
-    def setup_test_query_runner_class(self):
+    def setup_test_query_runner_class(self, base: type[QueryRunner] = QueryRunner):
         """Setup required methods and attributes of the abstract base class."""
 
-        class TestQueryRunner(QueryRunner):
+        class TestQueryRunner(base):  # type: ignore[misc, valid-type]
             query: TheTestQuery
             cached_response: TheTestCachedBasicQueryResponse
 
@@ -111,6 +129,40 @@ class TestQueryRunner(BaseTest):
         TestQueryRunner.__abstractmethods__ = frozenset()
 
         return TestQueryRunner
+
+    def test_sync_warning_attach_preserves_other_warning_kinds(self):
+        # The accumulator attach replaces the response's warnings with the collected sync warnings.
+        # Access control warnings ride the same shared field and were silently dropped whenever a
+        # sync warning was present.
+        from posthog.schema import AccessControlFilterWarning, DataWarehouseSyncWarning
+
+        from posthog.hogql.warehouse_warnings import record_warnings
+
+        TestQueryRunner = self.setup_test_query_runner_class()
+        sync_warning = DataWarehouseSyncWarning(
+            table_name="paid_bills",
+            schema_name="paid_bills",
+            source_type="Stripe",
+            status="Failed",
+            message="sync failed",
+        )
+        ac_warning = AccessControlFilterWarning(
+            resources=["insight"], message="Results may exclude insights you don't have access to"
+        )
+
+        def calculate_with_warnings(_self):
+            record_warnings([sync_warning])
+            response = TheTestBasicQueryResponse(results=[])
+            response.warnings = [ac_warning]
+            return response
+
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        with mock.patch.object(TestQueryRunner, "_calculate", autospec=True, side_effect=calculate_with_warnings):
+            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        warnings = [w if isinstance(w, dict) else w.model_dump() for w in response.warnings or []]
+        assert any(w.get("table_name") == "paid_bills" for w in warnings)
+        assert any(w.get("resources") == ["insight"] for w in warnings)
 
     def test_calculate_runs_validators_before_calculation(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -326,6 +378,12 @@ class TestQueryRunner(BaseTest):
         cache_key = runner.get_cache_key()
         assert cache_key == "cache_42_473689ec17cc982383519776503e498bd0e44f16e6b6f0073412599254a69aba"
 
+    def test_cache_payload_omits_object_restrictions_when_unrestricted(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
+
+        assert "restricted_objects" not in runner.get_cache_payload()
+
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -427,6 +485,60 @@ class TestQueryRunner(BaseTest):
             self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
             mock_on_commit.assert_called_once()
 
+    @parameterized.expand(
+        [
+            # The override replaces the subclass staleness policy in both directions: a runner
+            # that considers a young cache stale must still serve it within the window, and a
+            # runner that pins a long freshness must still recompute past the window.
+            ("subclass_stale_within_window_serves_cache", True, timedelta(minutes=11), True),
+            ("subclass_fresh_past_window_recomputes", False, timedelta(minutes=31), False),
+        ]
+    )
+    def test_cache_age_override_governs_staleness_over_subclass_policy(
+        self,
+        _name: str,
+        subclass_says_stale: bool,
+        cache_age: timedelta,
+        expected_is_cached: bool,
+    ):
+        base = self.setup_test_query_runner_class()
+
+        class OpinionatedQueryRunner(base):  # type: ignore[misc, valid-type]
+            def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+                return subclass_says_stale
+
+            def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+                return last_refresh + timedelta(hours=24) if last_refresh else None
+
+        start = datetime(2023, 2, 4, 13, 37, 42, tzinfo=UTC)
+        with freeze_time(start):
+            OpinionatedQueryRunner(query={"some_attr": "bla"}, team=self.team).run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+            )
+
+        with freeze_time(start + cache_age):
+            response = OpinionatedQueryRunner(query={"some_attr": "bla"}, team=self.team).run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                cache_age_seconds=1800,
+            )
+        self.assertEqual(response.is_cached, expected_is_cached)
+
+    def test_cache_age_override_not_persisted_on_cache_write(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with freeze_time(datetime(2023, 2, 4, 13, 37, 42, tzinfo=UTC)):
+            response = runner.run(
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                cache_age_seconds=999,
+            )
+
+        # The override governs this request's staleness decision only; the target age written
+        # to the cache (served to authenticated viewers and driving cache warming) must stay
+        # the runner's default.
+        self.assertNotEqual(response.cache_target_age, response.last_refresh + timedelta(seconds=999))
+        self.assertEqual(response.cache_target_age, runner.cache_target_age(response.last_refresh))
+
     def test_modifier_passthrough(self):
         try:
             from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -446,7 +558,12 @@ class TestQueryRunner(BaseTest):
         )
         response = runner.calculate()
         assert response.clickhouse is not None
-        assert "events.`mat_$browser" in response.clickhouse
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "events_json AS events" in response.clickhouse
+            assert "events.properties.`$browser`" in response.clickhouse
+            assert "events.`mat_$browser" not in response.clickhouse
+        else:
+            assert "events.`mat_$browser" in response.clickhouse
 
         runner = HogQLQueryRunner(
             query=HogQLQuery(query="select properties.$browser from events"),
@@ -598,13 +715,38 @@ class TestQueryRunner(BaseTest):
                 lambda: UserAccessControlError("query", "viewer", None),
                 SloOutcome.SUCCESS,
                 "user_error",
+                False,
             ),
-            ("concurrency_limit_exceeded", ConcurrencyLimitExceeded, SloOutcome.SUCCESS, "rate_limited"),
-            ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error"),
+            ("concurrency_limit_exceeded", ConcurrencyLimitExceeded, SloOutcome.SUCCESS, "rate_limited", False),
+            (
+                "user_hogql_query_error",
+                lambda: QueryError("Can't select a table when a column is expected: postgres_waitlist_entries"),
+                SloOutcome.SUCCESS,
+                "user_error",
+                False,
+            ),
+            (
+                # ClickHouse-raised user-safe error (code 60 = UNKNOWN_TABLE), e.g. a query
+                # referencing a deleted warehouse table — must not reach error tracking.
+                "user_facing_ch_query_error",
+                lambda: ExposedCHQueryError("Unknown table ae_event_people", code=60),
+                SloOutcome.SUCCESS,
+                "user_error",
+                False,
+            ),
+            (
+                # Internal (non-exposed) HogQL errors are server faults and must stay captured.
+                "internal_hogql_resolution_error",
+                lambda: ResolutionError("Unable to resolve field: ae_event_people"),
+                SloOutcome.FAILURE,
+                "error",
+                True,
+            ),
+            ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error", True),
         ]
     )
     def test_run_classifies_slo_error_at_except_boundary(
-        self, _name, exception_factory, expected_outcome, expected_error_category
+        self, _name, exception_factory, expected_outcome, expected_error_category, expected_captured
     ):
         TestQueryRunner = self.setup_test_query_runner_class()
         raised_exc = exception_factory()
@@ -615,7 +757,10 @@ class TestQueryRunner(BaseTest):
         TestQueryRunner.calculate = calculate_raises
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
-        with mock.patch("posthog.slo.context.emit_slo_completed") as mock_emit_slo_completed:
+        with (
+            mock.patch("posthog.slo.context.emit_slo_completed") as mock_emit_slo_completed,
+            mock.patch("posthog.hogql_queries.query_runner.capture_exception") as mock_capture_exception,
+        ):
             with pytest.raises(type(raised_exc)):
                 runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
@@ -623,6 +768,11 @@ class TestQueryRunner(BaseTest):
         completed_kwargs = mock_emit_slo_completed.call_args.kwargs
         assert completed_kwargs["properties"].outcome == expected_outcome
         assert completed_kwargs["extra_properties"]["error_category"] == expected_error_category
+
+        # User-input errors (SUCCESS outcome) must not be captured to error tracking; only FAILURE
+        # outcomes are. This is what keeps benign HogQL query errors out of error tracking.
+        captured = any(call.args and call.args[0] is raised_exc for call in mock_capture_exception.call_args_list)
+        assert captured == expected_captured
 
     def test_query_execution_metrics_not_recorded_on_cache_hit(self):
         from posthog.clickhouse.query_tagging import reset_query_tags
@@ -853,8 +1003,6 @@ class TestApplySeriesCustomNames(BaseTest):
         cached_results: list[dict],
         expected_results: list[dict],
     ):
-        from datetime import UTC
-
         from posthog.schema import CachedTrendsQueryResponse
 
         runner = TrendsQueryRunner(query=query, team=self.team)
@@ -931,8 +1079,6 @@ class TestApplySeriesCustomNames(BaseTest):
         expected_results: list,
         expect_modified: bool,
     ):
-        from datetime import UTC
-
         from posthog.schema import CachedFunnelsQueryResponse, FunnelsQuery
 
         from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -983,8 +1129,6 @@ class TestApplySeriesCustomNames(BaseTest):
         expected_results: list,
         expect_modified: bool,
     ):
-        from datetime import UTC
-
         from posthog.schema import CachedStickinessQueryResponse, StickinessQuery
 
         from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import (
@@ -1050,8 +1194,6 @@ class TestApplySeriesCustomNames(BaseTest):
         expected_results: list,
         expect_modified: bool,
     ):
-        from datetime import UTC
-
         from posthog.schema import CachedLifecycleQueryResponse, LifecycleQuery
 
         from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
@@ -1125,8 +1267,6 @@ class TestApplySeriesCustomNames(BaseTest):
         cached_results: list[dict],
         expect_modified: bool,
     ):
-        from datetime import UTC
-
         from posthog.schema import CachedTrendsQueryResponse
 
         runner = TrendsQueryRunner(query=query, team=self.team)
@@ -1148,48 +1288,24 @@ class TestApplySeriesCustomNames(BaseTest):
 class TestSharedInsightsExecutionMode(BaseTest):
     @parameterized.expand(
         [
-            # name, execution_mode, last_refresh_offset (None = no signal, timedelta = age), expected_mode
+            # name, execution_mode, expected_mode, expected_cache_age_seconds
             (
-                "force_blocking_no_last_refresh_downgrades",
+                "force_blocking_downgrades_with_staleness_window_threshold",
                 ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                None,
                 ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-            ),
-            (
-                "force_blocking_just_refreshed_downgrades",
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                timedelta(seconds=10),
-                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-            ),
-            (
-                "force_blocking_just_under_threshold_downgrades",
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                timedelta(minutes=29, seconds=59),
-                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-            ),
-            (
-                "force_blocking_at_threshold_passes_through",
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                timedelta(minutes=30),
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            ),
-            (
-                "force_blocking_long_stale_passes_through",
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                timedelta(hours=24),
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
             ),
             (
                 "cache_only_remaps_to_extended_async",
                 ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
-                timedelta(seconds=10),
                 ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+                None,
             ),
             (
                 "recent_cache_async_passes_through",
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
-                None,
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                None,
             ),
             (
                 "blocking_if_stale_passes_through",
@@ -1198,8 +1314,8 @@ class TestSharedInsightsExecutionMode(BaseTest):
                 # ship a CacheMissResponse to the frontend, which renders the "unsupported node"
                 # placeholder until a later reload picks up the warmed cache.
                 ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-                None,
                 ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                None,
             ),
         ]
     )
@@ -1207,9 +1323,345 @@ class TestSharedInsightsExecutionMode(BaseTest):
         self,
         _name: str,
         execution_mode: ExecutionMode,
-        last_refresh_offset: timedelta | None,
         expected_mode: ExecutionMode,
+        expected_cache_age_seconds: int | None,
     ) -> None:
-        last_refresh = None if last_refresh_offset is None else datetime.now(UTC) - last_refresh_offset
-        result = shared_insights_execution_mode(execution_mode, last_refresh=last_refresh)
-        self.assertEqual(result, expected_mode)
+        result_mode, cache_age_seconds = shared_insights_execution_mode(execution_mode)
+        self.assertEqual(result_mode, expected_mode)
+        self.assertEqual(cache_age_seconds, expected_cache_age_seconds)
+
+
+@pytest.mark.ee
+class TestQueryRunnerAccessControlFingerprint(BaseTest):
+    """The HogQL cache key must partition on object- and resource-level access control, otherwise
+    two users with different visibility could share a cached (filtered) result."""
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        # Object/resource AC only applies to non-admins.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+    def tearDown(self):
+        super().tearDown()
+        cache.clear()
+
+    RUNNER_BASES = [("analytics", AnalyticsQueryRunner), ("ctx", QueryRunnerWithHogQLContext)]
+
+    def _runner(self, user, base=QueryRunnerWithHogQLContext, queried_resources=None):
+        # `queried_resources` is the result we want the fingerprint to compute; pick a query that
+        # produces it: an unparseable query reads as None (fail closed), "select 1" reads no AC table.
+        query = HogQLQuery(query="select from from" if queried_resources is None else "select 1")
+
+        class _Runner(base):  # type: ignore[valid-type, misc]  # base is a runtime-parameterized class
+            query: HogQLQuery
+            cached_response: TheTestCachedBasicQueryResponse
+
+            def _calculate(self):
+                return TheTestBasicQueryResponse(results=[])
+
+            def to_query(self) -> ast.SelectQuery:
+                return ast.SelectQuery(select=[])
+
+            def _refresh_frequency(self) -> timedelta:
+                return timedelta(minutes=4)
+
+            def _is_stale(self, last_refresh, lazy: bool = False, *args, **kwargs) -> bool:
+                return False
+
+        return _Runner(query=query, team=self.team, user=user)
+
+    def _ac(self, resource, resource_id=None, access_level="none", organization_member=None):
+        ac, _ = AccessControl.objects.get_or_create(
+            team=self.team, resource=resource, resource_id=resource_id, organization_member=organization_member
+        )
+        ac.access_level = access_level
+        ac.save()
+        return ac
+
+    @parameterized.expand(RUNNER_BASES)
+    def test_resource_grant_changes_cache_key(self, _name, base):
+        self._ac(resource="notebook", access_level="none")
+        key_denied = self._runner(self.user, base).get_cache_key()
+
+        self._ac(resource="notebook", access_level="editor")
+        key_granted = self._runner(self.user, base).get_cache_key()
+
+        assert key_denied != key_granted
+
+    @parameterized.expand(RUNNER_BASES)
+    def test_fingerprint_covers_scopes_outside_the_legacy_resource_list(self, _name, base):
+        # System tables declare access_scopes (e.g. batch_export, alert, annotation) that the old
+        # hand-maintained blocked_resources tuple missed - a deny removed the table from the schema
+        # but left the cache key unchanged. blocked_resources is now derived from the actual rows,
+        # so any denied scope must show up in the fingerprint.
+        scopes = {"batch_export", "alert", "annotation"}
+        for scope in scopes:
+            self._ac(resource=scope, access_level="none")
+        restricted = set(self._runner(self.user, base).get_cache_payload().get("restricted_resources") or [])
+        assert scopes <= restricted
+
+    @parameterized.expand(RUNNER_BASES)
+    def test_object_grant_changes_cache_key(self, _name, base):
+        from products.notebooks.backend.models import Notebook
+
+        # Resource-level access granted so we isolate the object-level effect.
+        self._ac(resource="notebook", access_level="editor")
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, title="N")
+
+        blocking_ac = self._ac(
+            resource="notebook",
+            resource_id=str(notebook.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        runner = self._runner(self.user, base)
+        assert "restricted_objects" in runner.get_cache_payload()
+        key_blocked = runner.get_cache_key()
+
+        blocking_ac.delete()
+        key_unblocked = self._runner(self.user, base).get_cache_key()
+
+        assert key_blocked != key_unblocked
+
+    @parameterized.expand(RUNNER_BASES)
+    def test_admin_has_no_restrictions_but_userless_fails_closed(self, _name, base):
+        self._ac(resource="notebook", access_level="none")
+
+        # Org admin bypasses object/resource AC - no restriction keys, so they share the
+        # unrestricted cache partition.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        admin_payload = self._runner(self.user, base).get_cache_payload()
+        assert "restricted_objects" not in admin_payload
+        assert "restricted_resources" not in admin_payload
+
+        # Userless runs fail-closed (see no system.* tables), so they must partition separately
+        # from the admin's unrestricted result.
+        no_user_payload = self._runner(None, base).get_cache_payload()
+        assert no_user_payload["restricted_resources"] == ["*"]
+        assert self._runner(None, base).get_cache_key() != self._runner(self.user, base).get_cache_key()
+
+    def test_hogql_query_runner_partitions_cache_on_access_control(self):
+        # Raw HogQL is the only way to reach access-controlled system.* tables.
+        query = {"kind": "HogQLQuery", "query": "select * from system.notebooks"}
+
+        self._ac(resource="notebook", access_level="none")
+        denied_runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+        assert "notebook" in (denied_runner.get_cache_payload().get("restricted_resources") or [])
+        key_denied = denied_runner.get_cache_key()
+
+        self._ac(resource="notebook", access_level="editor")
+        key_granted = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
+
+        assert key_denied != key_granted
+
+    @parameterized.expand(RUNNER_BASES)
+    def test_query_reading_no_access_controlled_tables_shares_cache(self, _name, base):
+        # A query that reads no access-controlled table is principal-independent: a denied user, a
+        # granted user, and userless cache warming must all land in the same (unpartitioned) entry.
+        self._ac(resource="notebook", access_level="none")
+        payload = self._runner(self.user, base, queried_resources=set()).get_cache_payload()
+        assert "restricted_resources" not in payload
+        assert "restricted_objects" not in payload
+
+        shared_key = self._runner(self.user, base, queried_resources=set()).get_cache_key()
+        assert self._runner(None, base, queried_resources=set()).get_cache_key() == shared_key
+
+    def test_no_access_controlled_tables_skips_the_preload(self):
+        # The point of the branch: a query that reads no access-controlled table must not even
+        # load access control
+        self._ac(resource="notebook", access_level="none")
+        runner = self._runner(self.user, AnalyticsQueryRunner, queried_resources=set())
+        with CaptureQueriesContext(connection) as ctx:
+            runner.get_cache_key()
+        ac_queries = [q["sql"] for q in ctx.captured_queries if "ee_accesscontrol" in q["sql"]]
+        assert ac_queries == [], ac_queries
+
+    def test_hogql_fingerprint_partitions_only_on_queried_tables(self):
+        # Two denied resources, but the query only reads notebooks - so only that scope partitions.
+        self._ac(resource="notebook", access_level="none")
+        self._ac(resource="survey", access_level="none")
+        query = {"kind": "HogQLQuery", "query": "select * from system.notebooks"}
+        runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+
+        restricted = set(runner.get_cache_payload().get("restricted_resources") or [])
+        assert "notebook" in restricted  # queried and denied
+        assert "survey" not in restricted  # denied but not read by the query
+
+    def test_resource_deny_on_parent_partitions_inherited_child_table(self):
+        # system.accounts uses the "account" scope, which inherits from "customer_analytics".
+        # A deny on the parent must still partition a query that reads the child table - otherwise the
+        # schema filter denies it but the cache key doesn't, and a denied user gets a cached result.
+        self._ac(resource="customer_analytics", access_level="none")
+        query = {"kind": "HogQLQuery", "query": "select * from system.accounts"}
+        runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+
+        restricted = set(runner.get_cache_payload().get("restricted_resources") or [])
+        assert "account" in restricted  # denied via the inherited parent customer_analytics
+
+    def test_querying_access_controlled_tables_issues_one_preload(self):
+        # has_resource_access (incl. the inheritance recursion account -> customer_analytics) resolves
+        # against the in-memory preload, so reading several access-controlled tables still issues exactly
+        # one ee_accesscontrol query - no per-scope N+1.
+        self._ac(resource="customer_analytics", access_level="none")
+        self._ac(resource="notebook", access_level="none")
+        query = {"kind": "HogQLQuery", "query": "select * from system.accounts, system.notebooks, system.surveys"}
+        runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+
+        with CaptureQueriesContext(connection) as ctx:
+            runner.get_cache_key()
+
+        ac_queries = [q["sql"] for q in ctx.captured_queries if "ee_accesscontrol" in q["sql"]]
+        assert len(ac_queries) == 1, ac_queries
+
+    def test_object_level_deny_on_queried_resource_partitions_cache(self):
+        from products.notebooks.backend.models import Notebook
+
+        # Resource-level access granted so we isolate the object-level effect.
+        self._ac(resource="notebook", access_level="editor")
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, title="N")
+        query = {"kind": "HogQLQuery", "query": "select * from system.notebooks"}
+        key_unblocked = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
+
+        # Deny this specific notebook object - the query reads notebooks, so it must partition.
+        self._ac(
+            resource="notebook",
+            resource_id=str(notebook.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+        assert runner.get_cache_payload().get("restricted_objects", {}).get("notebook") == [str(notebook.id)]
+        assert runner.get_cache_key() != key_unblocked
+
+    def test_object_level_deny_on_unqueried_resource_is_ignored(self):
+        from products.notebooks.backend.models import Notebook
+
+        # Deny a specific notebook object, but the query reads surveys - the deny is irrelevant.
+        self._ac(resource="notebook", access_level="editor")
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, title="N")
+        self._ac(
+            resource="notebook",
+            resource_id=str(notebook.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        query = {"kind": "HogQLQuery", "query": "select * from system.surveys"}
+        payload = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_payload()
+        assert "restricted_objects" not in payload  # notebook object deny doesn't touch a surveys query
+
+    def test_run_recomputes_fingerprint_when_user_changes(self):
+        # run(user=...) swaps the user after construction; the snapshot must rebuild for the new user.
+        other_user = self._create_user("other@posthog.com")
+        other_membership = other_user.organization_memberships.get(organization=self.organization)
+        self._ac(resource="notebook", access_level="none")
+        # Personal grant for other_user only - the two users must land in different cache partitions.
+        self._ac(resource="notebook", access_level="editor", organization_member=other_membership)
+
+        runner = self._runner(self.user, AnalyticsQueryRunner)
+        key_restricted = runner.get_cache_key()
+
+        runner.user = other_user
+        runner._on_user_changed()
+        key_granted = runner.get_cache_key()
+
+        assert key_restricted != key_granted
+
+    def test_fingerprint_and_schema_filter_share_one_instance(self):
+        # The ctx runner's fingerprint reuses the instance create_for preloaded on the database, so
+        # the cache key and schema filtering resolve from the same rows (no drift).
+        runner = self._runner(self.user)
+        assert runner.database.user_access_control is runner.user_access_control
+
+    def test_cache_payload_preloads_access_controls_once(self):
+        # The memoized snapshot means both fingerprint helpers + repeated calls share one preload.
+        self._ac(resource="notebook", access_level="none")
+        runner = self._runner(self.user, AnalyticsQueryRunner)
+
+        with CaptureQueriesContext(connection) as ctx:
+            runner.get_cache_key()
+            runner.get_cache_key()
+
+        ac_queries = [q["sql"] for q in ctx.captured_queries if "ee_accesscontrol" in q["sql"]]
+        assert len(ac_queries) == 1, ac_queries
+
+    def test_run_issues_bounded_access_control_queries(self):
+        """End-to-end: building the database (schema filtering) plus computing the cache key issues
+        exactly two access-control queries - one for property-level AC and one shared bulk fetch for
+        resource/object AC - regardless of how many resources/objects/system tables exist. Schema
+        filtering must reuse the fingerprint's UserAccessControl, not issue its own ee_accesscontrol
+        query."""
+        from products.access_control.backend.property_access_control import restriction_cache_scope
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self._ac(resource="notebook", access_level="none")
+
+        with (
+            restriction_cache_scope(),
+            CaptureQueriesContext(connection) as ctx,
+        ):
+            runner = self._runner(self.user)
+            runner.get_cache_key()
+
+        # Guard against a false pass: prove schema filtering actually ran and consulted access control
+        # (it removed the notebook-scoped system table for this denied user). Without this, a single
+        # ee_accesscontrol query could come from the fingerprint alone and the "shared fetch" claim
+        # would be untested.
+        assert "system.notebooks" in runner.database._denied_tables
+
+        sqls = [q["sql"] for q in ctx.captured_queries]
+        resource_object_ac = [s for s in sqls if "ee_accesscontrol" in s]
+        property_ac = [s for s in sqls if "access_control_propertyaccesscontrol" in s]
+
+        # One shared bulk fetch for resource/object AC (schema filtering + fingerprint), one for property AC.
+        assert len(resource_object_ac) == 1, resource_object_ac
+        assert len(property_ac) == 1, property_ac
+
+    def test_create_for_reuses_preloaded_user_access_control(self):
+        # HogQLQueryRunner (a base AnalyticsQueryRunner) builds its database lazily inside
+        # execute_hogql_query, so it can't share via self.database like the ctx runner does. Instead
+        # it hands its warm fingerprint snapshot to create_for, which must reuse it rather than issue
+        # a second ee_accesscontrol fetch. This is the base-runner equivalent of the ctx-runner budget
+        # asserted in test_run_issues_bounded_access_control_queries.
+        self._ac(resource="notebook", access_level="none")
+        user_access_control = UserAccessControl(user=self.user, team=self.team)
+        # Warm the snapshot - the single bulk fetch the fingerprint already paid for.
+        _ = user_access_control.blocked_resources
+
+        with CaptureQueriesContext(connection) as ctx:
+            database = Database.create_for(team=self.team, user=self.user, user_access_control=user_access_control)
+
+        # Same object reused, table still denied, and no second ee_accesscontrol fetch.
+        assert database.user_access_control is user_access_control
+        assert "system.notebooks" in database._denied_tables
+        ac_queries = [q["sql"] for q in ctx.captured_queries if "ee_accesscontrol" in q["sql"]]
+        assert ac_queries == [], ac_queries
+
+    def test_unentitled_org_skips_access_control_fingerprint(self):
+        # Without the ACCESS_CONTROL entitlement no user can be restricted, so computing the cache key
+        # must not issue the access-control read
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        runner = self._runner(self.user, base=AnalyticsQueryRunner)
+        with CaptureQueriesContext(connection) as ctx:
+            runner.get_cache_key()
+
+        ac_queries = [q["sql"] for q in ctx.captured_queries if "ee_accesscontrol" in q["sql"]]
+        assert ac_queries == [], ac_queries
+
+        # Entitlement is read off the team's org, so the gate must short-circuit without building
+        # user_access_control (whose membership/preload reads are what we're avoiding per query).
+        assert runner._user_access_control is None

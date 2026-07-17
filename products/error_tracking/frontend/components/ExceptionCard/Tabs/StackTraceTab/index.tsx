@@ -1,10 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { P, match } from 'ts-pattern'
 
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { CollapsibleExceptionList } from 'lib/components/Errors/ExceptionList/CollapsibleExceptionList'
 import { LoadingExceptionList } from 'lib/components/Errors/ExceptionList/LoadingExceptionList'
-import { RawExceptionList } from 'lib/components/Errors/ExceptionList/RawExceptionList'
 import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { cn } from 'lib/utils/css-classes'
 
@@ -39,20 +37,19 @@ export function StackTraceTab({ className, renderActions, ...props }: StackTrace
     )
 }
 
-function StacktraceIssueDisplay({ className }: { className?: string }): JSX.Element | null {
-    const { showAsText, loading, showAllFrames, expandedFrameRawIds } = useValues(exceptionCardLogic)
-    const { setShowAllFrames, setFrameExpanded } = useActions(exceptionCardLogic)
-    const commonProps = { showAllFrames, setShowAllFrames, className }
+function StacktraceIssueDisplay({ className }: { className?: string }): JSX.Element {
+    const { loading, expandedFrameRawIds } = useValues(exceptionCardLogic)
+    const { setFrameExpanded } = useActions(exceptionCardLogic)
 
-    return match([loading, showAsText])
-        .with([true, P.any], () => <LoadingExceptionList {...commonProps} />)
-        .with([false, true], () => <RawExceptionList {...commonProps} />)
-        .with([false, false], () => (
-            <CollapsibleExceptionList
-                {...commonProps}
-                expandedFrameRawIds={expandedFrameRawIds}
-                onFrameExpandedChange={setFrameExpanded}
-            />
-        ))
-        .otherwise(() => null)
+    if (loading) {
+        return <LoadingExceptionList className={className} />
+    }
+
+    return (
+        <CollapsibleExceptionList
+            className={className}
+            expandedFrameRawIds={expandedFrameRawIds}
+            onFrameExpandedChange={setFrameExpanded}
+        />
+    )
 }

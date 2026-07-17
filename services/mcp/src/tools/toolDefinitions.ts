@@ -1,6 +1,7 @@
 import z from 'zod'
 
 import { hasScope, hasScopes } from '@/lib/api'
+import { OAUTH_SCOPES_SUPPORTED } from '@/lib/oauth-scopes.generated'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 
 import generatedToolDefinitionsJson from '../../schema/generated-tool-definitions.json'
@@ -21,6 +22,13 @@ export const ToolDefinitionSchema = z
         feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
         /** Variant of `feature_flag` to match exactly. Requires `feature_flag` to be set. */
         feature_flag_variant: z.string().optional(),
+        /**
+         * AvailableFeature the org's plan must include for this tool to be
+         * advertised (e.g. `'audit_logs'`), matching the backend's
+         * `premium_feature_on_cloud`. Best-effort — the backend
+         * `PremiumFeaturePermission` stays authoritative; the gate is fail-open.
+         */
+        feature_entitlement: z.string().optional(),
         /** One-line selection hint surfaced in the system prompt's query tool catalog. */
         system_prompt_hint: z.string().optional(),
         /**
@@ -67,6 +75,30 @@ export function getToolDefinitions(): ToolDefinitions {
     return { ..._toolDefinitions, ...generated }
 }
 
+let _advertisedOAuthScopes: readonly string[] | undefined = undefined
+
+/**
+ * Scopes published as `scopes_supported` in the MCP protected-resource
+ * metadata: every grantable scope the tool catalog requires, plus identity
+ * scopes (no `:`) that ride every authorize. Narrower than
+ * `OAUTH_SCOPES_SUPPORTED` (the authorization server's full grantable set) so
+ * clients are not asked to consent to write access no tool exercises. Filtering
+ * `OAUTH_SCOPES_SUPPORTED` keeps the result a subset of the AS, so no advertised
+ * scope is rejected at `/authorize`.
+ */
+export function getAdvertisedOAuthScopes(): readonly string[] {
+    if (!_advertisedOAuthScopes) {
+        const required = new Set<string>()
+        for (const definition of Object.values(getToolDefinitions())) {
+            for (const scope of definition.required_scopes ?? []) {
+                required.add(scope)
+            }
+        }
+        _advertisedOAuthScopes = OAUTH_SCOPES_SUPPORTED.filter((scope) => !scope.includes(':') || required.has(scope))
+    }
+    return _advertisedOAuthScopes
+}
+
 export function getToolDefinition(toolName: string): ToolDefinition {
     const toolDefinitions = getToolDefinitions()
 
@@ -77,6 +109,16 @@ export function getToolDefinition(toolName: string): ToolDefinition {
     }
 
     return definition
+}
+
+/**
+ * The product category a tool belongs to (e.g. "Logs", "Tracing"), or undefined
+ * for tools without a catalogued definition (e.g. the `exec` wrapper). Unlike
+ * {@link getToolDefinition} this never throws, so it is safe to call from the
+ * analytics hot path where a missing definition must not break the request.
+ */
+export function getToolCategory(toolName: string): string | undefined {
+    return getToolDefinitions()[toolName]?.category
 }
 
 export interface ToolFilterOptions {
@@ -93,6 +135,10 @@ export interface ToolFilterOptions {
      * need `organization:*` scopes — they'd fail anyway.
      */
     scopedTeams?: number[] | undefined
+    /** Org's plan entitlements (`available_product_features` keys). Undefined when unresolved. */
+    availableFeatures?: string[] | undefined
+    /** Whether the API this MCP talks to is PostHog Cloud. Off-cloud is never entitlement-gated. */
+    isCloud?: boolean | undefined
 }
 
 /**
@@ -139,8 +185,36 @@ export function toolPassesFlagGate(definition: ToolDefinition, featureFlags: Eva
     return (definition.feature_flag_behavior ?? 'enable') === 'enable' ? isOn : !isOn
 }
 
+/**
+ * Predicate: is a tool's `feature_entitlement` satisfied for this org? Fail-open,
+ * mirroring the backend `premium_feature_on_cloud` semantics:
+ *
+ *   no feature_entitlement          → pass (ungated)
+ *   isCloud === false (self-hosted) → pass (backend never gates off-cloud)
+ *   availableFeatures unknown       → pass (couldn't resolve; backend authoritative)
+ *   feature ∈ availableFeatures     → pass
+ *   otherwise (cloud + absent)      → hide
+ */
+export function toolPassesEntitlementGate(
+    definition: ToolDefinition,
+    availableFeatures?: string[],
+    isCloud?: boolean
+): boolean {
+    if (!definition.feature_entitlement) {
+        return true
+    }
+    if (isCloud === false) {
+        return true
+    }
+    if (availableFeatures === undefined) {
+        return true
+    }
+    return availableFeatures.includes(definition.feature_entitlement)
+}
+
 export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
-    const { features, tools, readOnly, aiConsentGiven, featureFlags, scopedTeams } = options || {}
+    const { features, tools, readOnly, aiConsentGiven, featureFlags, scopedTeams, availableFeatures, isCloud } =
+        options || {}
     const toolDefinitions = getToolDefinitions()
 
     let entries = Object.entries(toolDefinitions)
@@ -180,6 +254,9 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
 
     // Filter by feature flags — see {@link toolPassesFlagGate} for the predicate.
     entries = entries.filter(([_, definition]) => toolPassesFlagGate(definition, featureFlags))
+
+    // Filter by billing entitlement — see {@link toolPassesEntitlementGate}.
+    entries = entries.filter(([_, definition]) => toolPassesEntitlementGate(definition, availableFeatures, isCloud))
 
     // Hide tools that need org-level access when the session's token is
     // project-scoped - the backend would 403 them

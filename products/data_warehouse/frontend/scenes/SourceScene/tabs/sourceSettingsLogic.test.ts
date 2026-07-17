@@ -2,6 +2,7 @@ import type { SourceFieldConfig } from '~/queries/schema/schema-general'
 import type { ExternalDataSourceSchema } from '~/types'
 
 import {
+    clonePayloadPreservingFiles,
     clampFrequencyForSchema,
     isSensitiveCredentialField,
     removeEmptySensitiveValues,
@@ -188,6 +189,25 @@ describe('removeEmptySensitiveValues', () => {
         }
         removeEmptySensitiveValues(fields, value)
         expect(value).toEqual({ feature: { enabled: true } })
+    })
+})
+
+describe('clonePayloadPreservingFiles', () => {
+    it('preserves File instances in nested payloads', () => {
+        const keyFile = new File(['{"project_id":"my-project"}'], 'service-account.json', {
+            type: 'application/json',
+        })
+        const payload = {
+            key_file: [keyFile],
+            config: { use_custom_region: { enabled: true, region: 'us-east1' } },
+        }
+
+        const cloned = clonePayloadPreservingFiles(payload) as Record<string, any>
+
+        expect(cloned).not.toBe(payload)
+        expect(cloned.config).not.toBe(payload.config)
+        expect(cloned.key_file[0]).toBeInstanceOf(File)
+        expect(cloned.key_file[0]).toBe(keyFile)
     })
 })
 

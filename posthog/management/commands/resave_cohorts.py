@@ -7,15 +7,16 @@ from django.core.management.base import BaseCommand, CommandParser
 import structlog
 
 from posthog.api.cohort import validate_filters_and_compute_realtime_support
-from posthog.models.cohort.cohort import Cohort
-from posthog.models.cohort.util import get_all_cohort_dependencies, sort_cohorts_topologically
 from posthog.models.team.team import Team
+
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
 
 logger = structlog.get_logger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Regenerate inline bytecode (in filters) and cohort_type for cohorts."
+    help = "Regenerate inline bytecode (in filters), cohort_type, and condition_type for cohorts."
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument(
@@ -225,12 +226,19 @@ class Command(BaseCommand):
                                 computed_type = None
                                 break
 
+                computed_condition_type = Cohort.compute_condition_type(clean_filters)
+
                 # Decide if there is any change worth persisting/reporting
-                will_change = clean_filters != cohort.filters or computed_type != cohort.cohort_type
+                will_change = (
+                    clean_filters != cohort.filters
+                    or computed_type != cohort.cohort_type
+                    or computed_condition_type != cohort.condition_type
+                )
 
                 # ALWAYS update in-memory for dependency checking
                 cohort.filters = clean_filters
                 cohort.cohort_type = computed_type
+                cohort.condition_type = computed_condition_type
 
                 # Track summary stats
                 if computed_type == "realtime":
@@ -242,7 +250,7 @@ class Command(BaseCommand):
 
                 # Persist changes to database if needed
                 if will_change:
-                    cohort.save(update_fields=["filters", "cohort_type"])
+                    cohort.save(update_fields=["filters", "cohort_type", "condition_type"])
                     changed += 1
             except Exception as err:
                 errors += 1

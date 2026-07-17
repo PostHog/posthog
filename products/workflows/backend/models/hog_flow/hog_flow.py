@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING, Final
 
-from django.db import models
-from django.db.models.signals import post_save
+from django.db import models, transaction
+from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 
 import structlog
@@ -24,6 +24,14 @@ BILLABLE_ACTION_TYPES: Final[set[str]] = {
     "function_email",  # Email sending actions
     "function_sms",  # SMS sending actions
     "function_push",  # Push notification actions
+}
+
+# Action types that read person data and therefore cannot be used in person-less ("row-scoped")
+# workflows such as those triggered by a data warehouse table row sync. Keep in sync with the
+# frontend's PERSON_DEPENDENT_ACTION_TYPES.
+PERSON_DEPENDENT_ACTION_TYPES: Final[set[str]] = {
+    "wait_until_condition",
+    "random_cohort_branch",
 }
 
 
@@ -82,13 +90,31 @@ class HogFlow(UUIDTModel):
     draft = models.JSONField(null=True, blank=True)
     draft_updated_at = models.DateTimeField(null=True, blank=True)
 
+    # Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained
+    # by the API whenever a live graph edit deletes actions, so runs parked on a deleted step can
+    # continue at its surviving successor instead of exiting. Values always reference actions
+    # present in this row's `actions`; entries with no surviving successor are omitted.
+    action_redirects = models.JSONField(null=True, blank=True)
+
     def __str__(self):
         return f"HogFlow {self.id}/{self.version}: {self.name}"
 
 
 @receiver(post_save, sender=HogFlow)
-def hog_flow_saved(sender, instance: HogFlow, created, **kwargs):
+def hog_flow_saved(sender, instance: HogFlow, created, update_fields=None, **kwargs):
+    # Draft columns don't affect live execution, so workers don't need a config reload for them.
+    if update_fields and set(update_fields) <= {"draft", "draft_updated_at"}:
+        return
     reload_hog_flows_on_workers(team_id=instance.team_id, hog_flow_ids=[str(instance.id)])
+
+
+@receiver(post_delete, sender=HogFlow)
+def hog_flow_deleted(sender, instance: HogFlow, **kwargs):
+    team_id = instance.team_id
+    hog_flow_id = str(instance.id)
+    # post_delete fires inside the delete transaction, so publish only after commit; otherwise a
+    # worker could re-read the still-live row and cache it as active for another TTL.
+    transaction.on_commit(lambda: reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=[hog_flow_id]))
 
 
 @receiver(post_save, sender=Action)

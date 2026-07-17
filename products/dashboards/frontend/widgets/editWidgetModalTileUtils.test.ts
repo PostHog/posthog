@@ -1,6 +1,6 @@
-import { buildWidgetTileMetadataPatch, getWidgetEditModalTileDefaults } from './editWidgetModalTileUtils'
+import { buildWidgetTileMetadataPatch, getWidgetEditModalTileDefaults } from './editWidgetModalBuilders'
 
-describe('editWidgetModalTileUtils', () => {
+describe('editWidgetModalBuilders tile metadata', () => {
     it('getWidgetEditModalTileDefaults returns empty strings when metadata is missing', () => {
         expect(getWidgetEditModalTileDefaults({})).toEqual({
             tileName: '',

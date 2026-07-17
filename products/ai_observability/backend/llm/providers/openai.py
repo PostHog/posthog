@@ -20,11 +20,13 @@ from pydantic import BaseModel
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
+    is_context_window_error_message,
 )
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
@@ -81,6 +83,8 @@ class OpenAIConfig:
         "o3-mini",
         "o4-mini",
     ]
+
+    DEFAULT_MODEL: str = "gpt-5-mini"
 
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [
         "gpt-5.4",
@@ -164,6 +168,8 @@ class OpenAIAdapter:
                         parsed=parsed,
                     )
                 except openai.BadRequestError as e:
+                    if is_context_window_error_message(str(e)):
+                        raise ContextWindowExceededError(str(e)) from e
                     # Fall back to manual JSON parsing for older models that don't support json_schema
                     if "response_format" in str(e).lower() or "json_schema" in str(e).lower():
                         return self._complete_with_json_fallback(client, request, messages, analytics)
@@ -196,6 +202,8 @@ class OpenAIAdapter:
                 raise QuotaExceededError(str(e))
             raise RateLimitError(str(e))
         except openai.APIStatusError as e:
+            if isinstance(e, openai.BadRequestError) and is_context_window_error_message(str(e)):
+                raise ContextWindowExceededError(str(e)) from e
             # OpenRouter returns 402 when the key can't afford the requested
             # max_tokens (or is out of credits). Retrying never helps — mirror
             # the quota path so the workflow marks the key errored and stops.
@@ -259,7 +267,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         api_key: str | None,
         analytics: AnalyticsContext,
         base_url: str | None = None,
-    ) -> Generator[StreamChunk, None, None]:
+    ) -> Generator[StreamChunk]:
         """Streaming completion."""
         effective_api_key = api_key or self._get_default_api_key()
         effective_base_url = base_url or settings.OPENAI_BASE_URL
@@ -445,7 +453,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             cache_read_tokens=cache_read,
         )
 
-    def _yield_usage_chunks(self, usage: CompletionUsage) -> Generator[StreamChunk, None, None]:
+    def _yield_usage_chunks(self, usage: CompletionUsage) -> Generator[StreamChunk]:
         input_tokens = usage.prompt_tokens or 0
         output_tokens = usage.completion_tokens or 0
         cache_read_tokens = (

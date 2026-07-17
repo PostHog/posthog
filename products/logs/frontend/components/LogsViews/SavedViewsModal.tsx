@@ -3,10 +3,10 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 
-import { useKeepMountedWhileOpen } from 'products/logs/frontend/hooks/useKeepMountedWhileOpen'
 import { getFiltersSummaryLines } from 'products/logs/frontend/utils'
 
 import { logsViewsListLogic } from './logsViewsListLogic'

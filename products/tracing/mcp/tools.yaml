@@ -18,6 +18,22 @@ ui_apps:
         item_name_field: name
         click_prop: onSpanClick
 tools:
+    apm-attribute-breakdown:
+        operation: tracing_spans_attribute_breakdown_create
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Break down spans by attribute value
+        description_file: ./prompts/apm-attribute-breakdown.md
+        feature_flag: tracing
+        response:
+            include:
+                - results
+                - compare
     apm-attribute-values-list:
         operation: tracing_spans_values_retrieve
         enabled: true
@@ -102,6 +118,36 @@ tools:
         response:
             include:
                 - count
+    apm-spans-duration-histogram:
+        operation: tracing_spans_duration_histogram_create
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Trace duration distribution (histogram)
+        description_file: ./prompts/apm-spans-duration-histogram.md
+        feature_flag: tracing
+        response:
+            include:
+                - results
+    apm-spans-sparkline:
+        operation: tracing_spans_sparkline_create
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Span counts over time (sparkline)
+        description_file: ./prompts/apm-spans-sparkline.md
+        feature_flag: tracing
+        response:
+            include:
+                - results
     apm-spans-tree:
         operation: tracing_spans_tree_create
         enabled: true
@@ -118,9 +164,6 @@ tools:
             include:
                 - results
                 - compare
-    apm-sparkline-query:
-        operation: tracing_spans_sparkline_create
-        enabled: false
     apm-trace-get:
         operation: tracing_spans_trace_create
         enabled: true
@@ -130,12 +173,16 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: ?trace={params.trace_id}
         title: Retrieve trace spans
         description: >
             Fetch all spans for a specific trace by its hex trace ID. Returns the full span tree for the trace including
-            parent-child relationships, timing, status information, and each span's attributes map. Use this to inspect
-            a specific trace in detail after discovering it via the query tool. Set excludeAttributes to true to drop
-            the per-span attributes map (which can hold multi-KB values like db.statement) and keep the payload compact.
+            parent-child relationships, timing, status information, and each span's attributes map. Each span carries
+            self_time_nano — its duration not covered by child spans — so "where did the wall-clock go" is answered by
+            sorting on it: a large self_time_nano on a parent span is an uninstrumented gap, not time in any child. Use
+            this to inspect a specific trace in detail after discovering it via the query tool. Set excludeAttributes to
+            true to drop the per-span attributes map (which can hold multi-KB values like db.statement) and keep the
+            payload compact.
         ui_app: trace-span-list
         feature_flag: tracing
         response:
@@ -159,4 +206,25 @@ tools:
                 - results
     tracing-spans-has-spans-retrieve:
         operation: tracing_spans_has_spans_retrieve
+        enabled: false
+    tracing-spans-symbol-stats-create:
+        operation: tracing_spans_symbol_stats_create
+        enabled: false
+    tracing-views-create:
+        operation: tracing_views_create
+        enabled: false
+    tracing-views-destroy:
+        operation: tracing_views_destroy
+        enabled: false
+    tracing-views-list:
+        operation: tracing_views_list
+        enabled: false
+    tracing-views-partial-update:
+        operation: tracing_views_partial_update
+        enabled: false
+    tracing-views-retrieve:
+        operation: tracing_views_retrieve
+        enabled: false
+    tracing-views-update:
+        operation: tracing_views_update
         enabled: false

@@ -1,4 +1,4 @@
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 export interface AxisConfig {
     values: string[]

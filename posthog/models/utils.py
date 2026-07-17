@@ -1,15 +1,13 @@
 import re
 import json
-import uuid
 import string
 import hashlib
 import secrets
 import datetime
-from collections import defaultdict, namedtuple
+from collections import namedtuple
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from decimal import Decimal
-from time import time, time_ns
 from typing import TYPE_CHECKING, Any, Literal, Optional, TypeVar, Union
 from uuid import UUID
 
@@ -22,13 +20,11 @@ from django.db.models import Q, Subquery, UniqueConstraint
 from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
-from posthog.hogql import ast
-
 from posthog.constants import MAX_SLUG_LENGTH
-from posthog.person_db_router import PERSONS_DB_MODELS
+from posthog.uuidt import UUIDT, uuid7
 
 if TYPE_CHECKING:
-    from random import Random
+    from posthog.hogql import ast
 
 T = TypeVar("T")
 
@@ -37,124 +33,6 @@ AMBIGUOUS_CHARS = frozenset("01OIl")
 BASE57 = "".join(c for c in BASE62 if c not in AMBIGUOUS_CHARS)  # Base62 minus visually ambiguous characters
 EncryptionModeType = Literal["sha256", "pbkdf2"]
 SHA256_HASH_PREFIX = "sha256$"
-
-
-class UUIDT(uuid.UUID):
-    """
-    Deprecated, you probably want to use UUIDv7 instead. As of May 2024 the latest RFC with the UUIv7 spec is at
-    Proposed Standard (see RFC9562 https://www.rfc-editor.org/rfc/rfc9562#name-uuid-version-7). This class was written
-    well before that, is still in use in PostHog, but should not be used for new columns / models / features / etc.
-
-    UUID (mostly) sortable by generation time.
-
-    This doesn't adhere to any official UUID version spec, but it is superior as a primary key:
-    to incremented integers (as they can reveal sensitive business information about usage volumes and patterns),
-    to UUID v4 (as the complete randomness of v4 makes its indexing performance suboptimal),
-    and to UUID v1 (as despite being time-based it can't be used practically for sorting by generation time).
-
-    Order can be messed up if system clock is changed or if more than 65 536 IDs are generated per millisecond
-    (that's over 5 trillion events per day), but it should be largely safe to assume that these are time-sortable.
-
-    Anatomy:
-    - 6 bytes - Unix time milliseconds unsigned integer
-    - 2 bytes - autoincremented series unsigned integer (per millisecond, rolls over to 0 after reaching 65 535 UUIDs in one ms)
-    - 8 bytes - securely random gibberish
-
-    Loosely based on Segment's KSUID (https://github.com/segmentio/ksuid) and on Twitter's snowflake ID
-    (https://blog.twitter.com/engineering/en_us/a/2010/announcing-snowflake.html).
-    """
-
-    current_series_per_ms: dict[int, int] = defaultdict(int)
-
-    def __init__(
-        self,
-        unix_time_ms: Optional[int] = None,
-        uuid_str: Optional[str] = None,
-        *,
-        seeded_random: Optional["Random"] = None,
-    ) -> None:
-        if uuid_str and self.is_valid_uuid(uuid_str):
-            super().__init__(uuid_str)
-            return
-
-        if unix_time_ms is None:
-            unix_time_ms = int(time() * 1000)
-        time_component = unix_time_ms.to_bytes(6, "big", signed=False)  # 48 bits for time, WILL FAIL in 10 895 CE
-        series_component = self.get_series(unix_time_ms).to_bytes(2, "big", signed=False)  # 16 bits for series
-        if seeded_random is not None:
-            random_component = bytes(seeded_random.getrandbits(8) for _ in range(8))  # 64 bits for random gibberish
-        else:
-            random_component = secrets.token_bytes(8)  # 64 bits for random gibberish
-        input_bytes = time_component + series_component + random_component
-        assert len(input_bytes) == 16
-        super().__init__(bytes=input_bytes)
-
-    @classmethod
-    def get_series(cls, unix_time_ms: int) -> int:
-        """Get per-millisecond series integer in range [0-65536)."""
-        series = cls.current_series_per_ms[unix_time_ms]
-        if len(cls.current_series_per_ms) > 10_000:  # Clear class dict periodically
-            cls.current_series_per_ms.clear()
-            cls.current_series_per_ms[unix_time_ms] = series
-        cls.current_series_per_ms[unix_time_ms] += 1
-        cls.current_series_per_ms[unix_time_ms] %= 65_536
-        return series
-
-    @classmethod
-    def is_valid_uuid(cls, candidate: Any) -> bool:
-        if not isinstance(candidate, str):
-            return False
-        hex_str = candidate.replace("urn:", "").replace("uuid:", "")
-        hex_str = hex_str.strip("{}").replace("-", "")
-        if len(hex_str) != 32:
-            return False
-        try:
-            return 0 <= int(hex_str, 16) < (1 << 128)
-        except ValueError:
-            return False
-
-
-# Delete this when we can use the version from the stdlib directly, see https://github.com/python/cpython/issues/102461
-def uuid7(unix_ms_time: Optional[Union[int, str]] = None, random: Optional[Union["Random", int]] = None) -> uuid.UUID:
-    # timestamp part
-    unix_ms_time_int: int
-    if isinstance(unix_ms_time, str):
-        # parse the ISO format string, use the timestamp from that
-        date = datetime.datetime.fromisoformat(unix_ms_time)
-        unix_ms_time_int = int(date.timestamp() * 1000)
-    elif unix_ms_time is None:
-        # use the current system time
-        unix_ms_time_int = time_ns() // (10**6)
-    else:
-        # use the provided timestamp directly
-        unix_ms_time_int = unix_ms_time
-
-    # random part
-    if isinstance(random, int):
-        # use the integer directly as the random component
-        rand_a = random & 0x0FFF
-        rand_b = random >> 12 & 0x03FFFFFFFFFFFFFFF
-    elif random is not None:
-        # use the provided random generator
-        rand_a = random.getrandbits(12)
-        rand_b = random.getrandbits(56)
-    else:
-        # use the system random generator
-        rand_bytes = int.from_bytes(secrets.token_bytes(10), byteorder="little")
-        rand_a = rand_bytes & 0x0FFF
-        rand_b = (rand_bytes >> 12) & 0x03FFFFFFFFFFFFFFF
-
-    # fixed constants
-    ver = 7
-    var = 0b10
-
-    # construct the UUID int
-    uuid_int = (unix_ms_time_int & 0x0FFFFFFFFFFFF) << 80
-    uuid_int |= ver << 76
-    uuid_int |= rand_a << 64
-    uuid_int |= var << 62
-    uuid_int |= rand_b
-    return uuid.UUID(int=uuid_int)
 
 
 class CreatedMetaFields(models.Model):
@@ -243,7 +121,7 @@ class BytecodeModelMixin(models.Model):
                 self.bytecode = None
                 self.bytecode_error = str(e)
 
-    def get_expr(self) -> ast.Expr:
+    def get_expr(self) -> "ast.Expr":
         raise NotImplementedError()
 
 
@@ -484,23 +362,11 @@ class RootTeamQuerySet(models.QuerySet):
         if "team_id" in kwargs:
             team_id = kwargs.pop("team_id")
 
-            # Check if this model is in the persons database
-            # For persons DB models, we can't join with the Team table (cross-database)
-            if self.model._meta.model_name in PERSONS_DB_MODELS:
-                # Fetch the effective team_id directly from the default database
-                # Cannot use subquery as it would execute against persons_db
-                try:
-                    team = Team.objects.using("default").get(id=team_id)
-                    effective_team_id = team.parent_team_id if team.parent_team_id else team_id
-                except Team.DoesNotExist:
-                    effective_team_id = team_id
-                team_filter = Q(team_id=effective_team_id)
-            else:
-                # For non-persons DB models: use the original logic with JOIN
-                parent_team_subquery = Team.objects.filter(id=team_id).values("parent_team_id")[:1]
-                team_filter = Q(team_id=Subquery(parent_team_subquery)) | Q(
-                    team_id=team_id, team__parent_team_id__isnull=True
-                )
+            # Scope to the team and, when it is an environment, its project root team.
+            parent_team_subquery = Team.objects.filter(id=team_id).values("parent_team_id")[:1]
+            team_filter = Q(team_id=Subquery(parent_team_subquery)) | Q(
+                team_id=team_id, team__parent_team_id__isnull=True
+            )
             return super().filter(team_filter, *args, **kwargs)
         return super().filter(*args, **kwargs)
 
@@ -528,26 +394,8 @@ class RootTeamMixin(models.Model):
         abstract = True
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        if self._meta.model_name in PERSONS_DB_MODELS:
-            return self._save_in_persons_db(*args, **kwargs)
-
         if hasattr(self, "team") and self.team and hasattr(self.team, "parent_team") and self.team.parent_team:  # type: ignore
             self.team = self.team.parent_team  # type: ignore
-        super().save(*args, **kwargs)
-
-    def _save_in_persons_db(self, *args, **kwargs) -> None:
-        """
-        If the model is stored in persons db, referencing the foreign key will raise an error.
-        Reference the actual table column instead and query `team` manually.
-        """
-        team_id: Optional[int] = getattr(self, "team_id", None)
-        if team_id:
-            from posthog.models import Team
-
-            team = Team.objects.get(id=team_id)
-            if hasattr(team, "parent_team") and team.parent_team:
-                self.team_id = team.parent_team.id
-
         super().save(*args, **kwargs)
 
 

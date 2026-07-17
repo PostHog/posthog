@@ -1,0 +1,133 @@
+import {
+    areObjectValuesEmpty,
+    objectClean,
+    objectCleanWithEmpty,
+    objectDiffShallow,
+    objectsEqual,
+    reconcileById,
+} from 'lib/utils/objects'
+
+describe('objects utils', () => {
+    describe('objectsEqual()', () => {
+        it.each([
+            [
+                'toString shadowed by a string',
+                { toString: 'not a function', a: 1 },
+                { toString: 'not a function', a: 1 },
+                true,
+            ],
+            ['valueOf shadowed by a number', { valueOf: 5, a: 1 }, { valueOf: 5, a: 1 }, true],
+            ['toString callable only on the left', { toString: (): string => 'x' }, { toString: 'x' }, false],
+            ['valueOf callable only on the right', { valueOf: 5 }, { valueOf: (): number => 5 }, false],
+        ])('compares objects with %s without throwing', (_name, a, b, expected) => {
+            expect(objectsEqual(a, b)).toBe(expected)
+        })
+    })
+
+    describe('areObjectValuesEmpty()', () => {
+        it('returns correct value for objects with empty values', () => {
+            expect(areObjectValuesEmpty({ a: '', b: null, c: undefined })).toEqual(true)
+            expect(areObjectValuesEmpty({ a: undefined, b: undefined })).toEqual(true)
+            expect(areObjectValuesEmpty({})).toEqual(true)
+        })
+        it('returns correct value for objects with at least one non-empty value', () => {
+            expect(areObjectValuesEmpty({ a: '', b: null, c: 'hello' })).toEqual(false)
+            expect(areObjectValuesEmpty({ a: true, b: 'hello' })).toEqual(false)
+            expect(areObjectValuesEmpty('hello' as any)).toEqual(false)
+            expect(areObjectValuesEmpty(null as any)).toEqual(false)
+        })
+    })
+
+    describe('objectDiffShallow()', () => {
+        it('obj1 + result = obj2', () => {
+            expect(objectDiffShallow({ b: '4' }, { b: '3', a: '2' })).toStrictEqual({ b: '3', a: '2' })
+            expect(objectDiffShallow({ b: '4', c: '12' }, { b: '3', a: '2' })).toStrictEqual({
+                b: '3',
+                a: '2',
+                c: undefined,
+            })
+        })
+    })
+
+    describe('objectClean()', () => {
+        it('removes undefined values', () => {
+            expect(objectClean({ a: 1, b: 'b', c: null, d: {}, e: [], f: undefined })).toStrictEqual({
+                a: 1,
+                b: 'b',
+                c: null,
+                d: {},
+                e: [],
+            })
+        })
+    })
+
+    describe('objectCleanWithEmpty()', () => {
+        it('removes undefined and empty values', () => {
+            expect(
+                objectCleanWithEmpty({ a: 1, b: 'b', c: null, d: {}, e: [], f: undefined, g: { x: 1 }, h: [1] })
+            ).toStrictEqual({
+                a: 1,
+                b: 'b',
+                c: null,
+                g: { x: 1 },
+                h: [1],
+            })
+        })
+    })
+
+    describe('reconcileById()', () => {
+        type Item = { id: string; status: string; count: number }
+        const makeItem = (overrides: Partial<Item> = {}): Item => ({ id: 'a', status: 'done', count: 0, ...overrides })
+
+        it('keeps the previous reference for unchanged items and the fresh one for changed items', () => {
+            // A poll returns freshly parsed objects; reconcileById is what preserves identity so
+            // memoized rows only re-render on real change. If it degrades to `return next`,
+            // unchanged items churn references every poll and React.memo is silently defeated.
+            const prevUnchanged = makeItem({ id: 'a', count: 1 })
+            const prevChanged = makeItem({ id: 'b', status: 'running' })
+
+            const nextUnchanged = makeItem({ id: 'a', count: 1 })
+            const nextChanged = makeItem({ id: 'b', status: 'done' })
+            const nextNew = makeItem({ id: 'c' })
+
+            const result = reconcileById(
+                [prevUnchanged, prevChanged],
+                [nextUnchanged, nextChanged, nextNew],
+                (item) => item.id
+            )
+
+            expect(result[0]).toBe(prevUnchanged)
+            expect(result[1]).toBe(nextChanged)
+            expect(result[2]).toBe(nextNew)
+        })
+
+        it('returns the next array untouched when there is no previous list', () => {
+            const next = [makeItem()]
+            expect(reconcileById([], next, (item) => item.id)).toBe(next)
+        })
+
+        it('returns the previous array itself when every item is reused', () => {
+            // Consumers that diff collections by reference (ReactFlow's controlled nodes/edges
+            // props) must see an unchanged reconcile as unchanged: a fresh array wrapper per
+            // rebuild re-syncs ReactFlow's store on every render, which can amplify upstream
+            // churn into an infinite update loop (React #185).
+            const prev = [makeItem({ id: 'a' }), makeItem({ id: 'b' })]
+            const next = [makeItem({ id: 'a' }), makeItem({ id: 'b' })]
+            expect(reconcileById(prev, next, (item) => item.id)).toBe(prev)
+        })
+
+        it('never reuses items the isReusable predicate rejects, even when deep-equal', () => {
+            // An in-flight item's row may render wall-clock time: reusing its reference would let a
+            // memoized row skip the poll re-render and freeze.
+            const prev = makeItem({ status: 'running' })
+            const next = makeItem({ status: 'running' })
+            const result = reconcileById(
+                [prev],
+                [next],
+                (item) => item.id,
+                (item) => item.status !== 'running'
+            )
+            expect(result[0]).toBe(next)
+        })
+    })
+})

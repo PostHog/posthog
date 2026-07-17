@@ -1,9 +1,11 @@
 import datetime
+from typing import Any
 
 import pytest
-from posthog.test.base import BaseTest, _create_event, _create_person
+from posthog.test.base import BaseTest, QueryMatchingTest, _create_event, _create_person
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import override_settings
 from django.utils import timezone
 
@@ -18,18 +20,28 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_response_in_tests
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models import Cohort
-from posthog.models.cohort.calculation_history import CohortCalculationHistory
-from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.team.team import Team
-from posthog.models.utils import UUIDT
+from posthog.uuidt import UUIDT
+
+from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import recalculate_cohortpeople
 
 elements_chain_match = lambda x: parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=str(x))})
 not_call = lambda x: ast.Call(name="not", args=[x])
 
 
-class TestCohort(BaseTest):
+class TestCohort(BaseTest, QueryMatchingTest):
+    snapshot: Any
+    allow_dual_schema_snapshots = True
     maxDiff = None
+
+    def assertResponseMatchesSnapshot(self, response) -> None:
+        formatted_response = pretty_print_response_in_tests(response, self.team.pk)
+        use_new_events_schema_snapshot = (
+            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in formatted_response.lower()
+        )
+        assert formatted_response == self._schema_snapshot(use_new_events_schema_snapshot)
 
     def _create_random_events(self) -> str:
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
@@ -57,7 +69,7 @@ class TestCohort(BaseTest):
             modifiers=HogQLQueryModifiers(inCohortVia="subquery"),
             pretty=False,
         )
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
+        self.assertResponseMatchesSnapshot(response)
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0][0], random_uuid)
 
@@ -77,7 +89,7 @@ class TestCohort(BaseTest):
             modifiers=HogQLQueryModifiers(inCohortVia="subquery"),
             pretty=False,
         )
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
+        self.assertResponseMatchesSnapshot(response)
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0][0], random_uuid)
 
@@ -94,7 +106,7 @@ class TestCohort(BaseTest):
             modifiers=HogQLQueryModifiers(inCohortVia="subquery"),
             pretty=False,
         )
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
+        self.assertResponseMatchesSnapshot(response)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -110,7 +122,7 @@ class TestCohort(BaseTest):
             modifiers=HogQLQueryModifiers(inCohortVia="subquery"),
             pretty=False,
         )
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
+        self.assertResponseMatchesSnapshot(response)
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_in_cohort_error(self):

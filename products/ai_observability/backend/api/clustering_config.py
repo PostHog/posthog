@@ -1,5 +1,4 @@
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -15,7 +14,13 @@ from ..models.clustering_config import ClusteringConfig
 from .metrics import llma_track_latency
 
 
+@extend_schema_serializer(many=False)
 class ClusteringConfigSerializer(serializers.ModelSerializer):
+    event_filters = serializers.ListField(
+        child=serializers.DictField(child=serializers.JSONField()),
+        help_text="PostHog property filters that scope automated clustering jobs. Empty array means no saved filters.",
+    )
+
     class Meta:
         model = ClusteringConfig
         fields = [
@@ -29,6 +34,13 @@ class ClusteringConfigSerializer(serializers.ModelSerializer):
         ]
 
 
+class ClusteringConfigSetEventFiltersSerializer(serializers.Serializer):
+    event_filters = serializers.ListField(
+        child=serializers.DictField(child=serializers.JSONField()),
+        help_text="PostHog property filters to save for automated clustering jobs. Pass an empty array to clear filters.",
+    )
+
+
 class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Team-level clustering configuration (event filters for automated pipelines)."""
 
@@ -36,7 +48,7 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     serializer_class = _FallbackSerializer
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(responses={200: OpenApiTypes.OBJECT})
+    @extend_schema(responses={200: ClusteringConfigSerializer})
     @llma_track_latency("llma_clustering_config_list")
     @monitor(feature=None, endpoint="llma_clustering_config_list", method="GET")
     def list(self, request: Request, **kwargs) -> Response:
@@ -44,7 +56,7 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         serializer = ClusteringConfigSerializer(config)
         return Response(serializer.data)
 
-    @extend_schema(responses={200: OpenApiTypes.OBJECT})
+    @extend_schema(request=ClusteringConfigSetEventFiltersSerializer, responses={200: ClusteringConfigSerializer})
     @action(detail=False, methods=["post"], required_scopes=["llm_analytics:write"])
     @llma_track_latency("llma_clustering_config_set_event_filters")
     @monitor(feature=None, endpoint="llma_clustering_config_set_event_filters", method="POST")

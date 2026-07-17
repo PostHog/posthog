@@ -1,0 +1,12 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "skill_name": {
+            "description": "The kebab-case name of the skill to archive.",
+            "pattern": "^[^/]+$",
+            "type": "string"
+        }
+    },
+    "required": ["skill_name"],
+    "type": "object"
+}

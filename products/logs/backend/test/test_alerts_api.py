@@ -5,19 +5,28 @@ from uuid import uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.cdp.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
+from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.clickhouse.client import sync_execute
 from posthog.models.team.team import Team
 
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_utils import compute_shard_offset_seconds
-from products.logs.backend.alerts_api import ALLOWED_WINDOW_MINUTES, MAX_ALERTS_PER_TEAM
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
+from products.logs.backend.presentation.views.alerts_api import (
+    ALLOWED_WINDOW_MINUTES,
+    LOGS_ALERT_EVENT_IDS,
+    MAX_ALERTS_PER_TEAM,
+)
 
 
 def _make_log_row(*, team_id: int, service: str, uuid: str, ts: datetime, body: str) -> dict:
@@ -60,7 +69,7 @@ class TestLogsAlertAPI(APIBaseTest):
 
     # --- CRUD ---
 
-    @patch("products.logs.backend.alerts_api.report_user_action")
+    @patch("products.logs.backend.presentation.views.alerts_api.report_user_action")
     def test_create(self, mock_report):
         data = self._create_via_api()
         assert data["name"] == "High error rate"
@@ -72,9 +81,10 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data["filters"] == {"severityLevels": ["error"]}
 
         mock_report.assert_called_once()
-        assert mock_report.call_args[0][1] == "logs alert created"
-        assert mock_report.call_args[0][2]["name"] == "High error rate"
-        assert mock_report.call_args[0][2]["threshold_count"] == 10
+        assert mock_report.call_args.args[1] == "alert created"
+        assert mock_report.call_args.args[2]["config_type"] == "LogsAlertConfig"
+        assert mock_report.call_args.args[2]["alert_name"] == "High error rate"
+        assert mock_report.call_args.args[2]["threshold_count"] == 10
 
     def test_list(self):
         self._create_via_api(name="Alert 1")
@@ -172,7 +182,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["name"] == "Renamed"
 
-    @patch("products.logs.backend.alerts_api.report_user_action")
+    @patch("products.logs.backend.presentation.views.alerts_api.report_user_action")
     def test_partial_update(self, mock_report):
         created = self._create_via_api()
         mock_report.reset_mock()
@@ -186,21 +196,22 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.json()["name"] == "Patched"
 
         mock_report.assert_called_once()
-        assert mock_report.call_args[0][1] == "logs alert updated"
-        assert mock_report.call_args[0][2]["name"] == "Patched"
+        assert mock_report.call_args.args[1] == "alert updated"
+        assert mock_report.call_args.args[2]["alert_name"] == "Patched"
 
-    @patch("products.logs.backend.alerts_api.report_user_action")
+    @patch("products.logs.backend.presentation.views.alerts_api.report_user_action")
     def test_delete(self, mock_report):
         created = self._create_via_api()
         mock_report.reset_mock()
 
-        response = self.client.delete(f"{self.base_url}{created['id']}/")
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.delete(f"{self.base_url}{created['id']}/")
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not LogsAlertConfiguration.objects.filter(pk=created["id"]).exists()
 
         mock_report.assert_called_once()
-        assert mock_report.call_args[0][1] == "logs alert deleted"
-        assert mock_report.call_args[0][2]["name"] == "High error rate"
+        assert mock_report.call_args.args[1] == "alert deleted"
+        assert mock_report.call_args.args[2]["alert_name"] == "High error rate"
 
     # --- Team isolation ---
 
@@ -487,7 +498,7 @@ class TestLogsAlertAPI(APIBaseTest):
             )
 
         patched_ids = frozenset({self.team.id}) if uncapped else frozenset()
-        with patch("products.logs.backend.alerts_api.UNCAPPED_ALERT_TEAM_IDS", patched_ids):
+        with patch("products.logs.backend.presentation.views.alerts_api.UNCAPPED_ALERT_TEAM_IDS", patched_ids):
             response = self.client.post(
                 self.base_url,
                 self._valid_payload(name="Boundary"),
@@ -722,13 +733,9 @@ class TestLogsAlertAPI(APIBaseTest):
 
     def _sync_destination_templates(self) -> None:
         # Destination creation goes through the full HogFunctionSerializer pipeline,
-        # which looks up a HogFunctionTemplate by template_id. Seed Slack + webhook.
-        from posthog.cdp.templates.hog_function_template import sync_template_to_db
-        from posthog.cdp.templates.slack.template_slack import template as template_slack
-
-        from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
-
+        # which looks up a HogFunctionTemplate by template_id.
         sync_template_to_db(template_slack)
+        sync_template_to_db(template_microsoft_teams)
         HogFunctionTemplate.objects.get_or_create(
             template_id="template-webhook",
             defaults={
@@ -745,11 +752,9 @@ class TestLogsAlertAPI(APIBaseTest):
             },
         )
 
-    @patch("products.logs.backend.alerts_api.report_user_action")
+    @patch("products.logs.backend.presentation.views.alerts_api.report_user_action")
     def test_create_slack_destination_creates_one_hog_function_per_event_kind(self, mock_report):
         self._sync_destination_templates()
-        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-
         created = self._create_via_api()
         response = self.client.post(
             self._destinations_url(created["id"]),
@@ -791,19 +796,26 @@ class TestLogsAlertAPI(APIBaseTest):
         reset_calls = [c for c in mock_report.call_args_list if c.args[1] == "logs alert destination created"]
         assert len(reset_calls) == 1
 
-    def test_create_webhook_destination_creates_one_hog_function_per_event_kind(self):
-        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-
+    @patch("products.alerts.backend.destinations.reload_hog_functions_on_workers")
+    @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
+    def test_create_webhook_destination_creates_one_hog_function_per_event_kind(
+        self, signal_reload_hog_functions, alert_reload_hog_functions
+    ):
         self._sync_destination_templates()
         created = self._create_via_api()
-        response = self.client.post(
-            self._destinations_url(created["id"]),
-            {"type": "webhook", "webhook_url": "https://example.com/hook"},
-            format="json",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                self._destinations_url(created["id"]),
+                {"type": "webhook", "webhook_url": "https://example.com/hook"},
+                format="json",
+            )
+            assert signal_reload_hog_functions.call_count == 4
+            alert_reload_hog_functions.assert_not_called()
+
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         ids = response.json()["hog_function_ids"]
         assert len(ids) == 4  # firing + resolved + broken + errored
+        alert_reload_hog_functions.assert_called_once_with(team_id=self.team.id, hog_function_ids=sorted(ids))
 
         hog_functions = HogFunction.objects.filter(id__in=ids)
         for hf in hog_functions:
@@ -818,12 +830,37 @@ class TestLogsAlertAPI(APIBaseTest):
                 "logs_alert.errored",
             )
 
+    def test_create_teams_destination_creates_one_hog_function_per_event_kind(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        teams_url = "https://prod-00.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke?api-version=2016-06-01"
+        response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "teams", "webhook_url": teams_url},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        ids = response.json()["hog_function_ids"]
+        assert len(ids) == 4  # firing + resolved + broken + errored
+
+        hog_functions = HogFunction.objects.filter(id__in=ids)
+        for hf in hog_functions:
+            assert hf.template_id == "template-microsoft-teams"
+            inputs = hf.inputs or {}
+            assert inputs["webhookUrl"]["value"] == teams_url
+            text_value = inputs["text"]["value"]
+            # Adaptive Card markdown: bold label and an inline action link, not Slack-style single asterisks.
+            assert text_value.startswith("**")
+            assert "[View logs](" in text_value or "[View alert](" in text_value
+
     @parameterized.expand(
         [
             ("slack_missing_workspace", {"type": "slack", "slack_channel_id": "C1"}),
             ("slack_missing_channel", {"type": "slack", "slack_workspace_id": 1}),
             ("webhook_missing_url", {"type": "webhook"}),
             ("webhook_invalid_url", {"type": "webhook", "webhook_url": "not-a-url"}),
+            ("teams_missing_url", {"type": "teams"}),
+            ("teams_invalid_url", {"type": "teams", "webhook_url": "not-a-url"}),
         ]
     )
     def test_create_destination_rejects_invalid_payloads(self, _name: str, payload: dict) -> None:
@@ -843,9 +880,8 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_delete_destination_removes_hog_functions(self):
-        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-
+    @patch("products.alerts.backend.destinations.reload_hog_functions_on_workers")
+    def test_delete_destination_removes_hog_functions(self, reload_hog_functions):
         self._sync_destination_templates()
         created = self._create_via_api()
         create_response = self.client.post(
@@ -855,13 +891,34 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         ids = create_response.json()["hog_function_ids"]
 
-        delete_response = self.client.post(
-            self._destinations_delete_url(created["id"]),
-            {"hog_function_ids": ids},
-            format="json",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            delete_response = self.client.post(
+                self._destinations_delete_url(created["id"]),
+                {"hog_function_ids": ids},
+                format="json",
+            )
+            reload_hog_functions.assert_not_called()
+
         assert delete_response.status_code == status.HTTP_204_NO_CONTENT
         assert HogFunction.objects.filter(id__in=ids, deleted=False).count() == 0
+        assert HogFunction.objects.filter(id__in=ids, enabled=True).count() == 0
+        reload_hog_functions.assert_called_once_with(team_id=self.team.id, hog_function_ids=sorted(ids))
+
+    def test_delete_alert_soft_deletes_destination_hog_functions(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        create_response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        ids = create_response.json()["hog_function_ids"]
+
+        delete_response = self.client.delete(f"{self.base_url}{created['id']}/")
+        assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+        assert not LogsAlertConfiguration.objects.filter(id=created["id"]).exists()
+        assert HogFunction.objects.filter(id__in=ids, deleted=False).count() == 0
+        assert HogFunction.objects.filter(id__in=ids, enabled=True).count() == 0
 
     def test_delete_destination_rejects_foreign_hog_function_ids(self):
         self._sync_destination_templates()
@@ -879,20 +936,36 @@ class TestLogsAlertAPI(APIBaseTest):
             format="json",
         ).json()["hog_function_ids"]
 
-        # Trying to delete alert A's HogFunctions via alert B's endpoint should fail.
         response = self.client.post(
             self._destinations_delete_url(created_b["id"]),
-            {"hog_function_ids": a_ids + b_ids},
+            {"hog_function_ids": [a_ids[0], b_ids[0]]},
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "hog_function_ids"
+        message = response.json()["detail"]
+        assert a_ids[0] in message
+        assert b_ids[0] not in message
+        assert "Refresh the alert and try again." in message
+
+    def test_delete_destination_rejects_more_ids_than_one_destination_group(self):
+        created = self._create_via_api()
+
+        response = self.client.post(
+            self._destinations_delete_url(created["id"]),
+            {"hog_function_ids": [str(uuid4()) for _ in range(len(LOGS_ALERT_EVENT_IDS) + 1)]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "hog_function_ids"
 
     # --- Reset ---
 
     def _reset_url(self, alert_id: str) -> str:
         return f"{self.base_url}{alert_id}/reset/"
 
-    @patch("products.logs.backend.alerts_api.report_user_action")
+    @patch("products.logs.backend.presentation.views.alerts_api.report_user_action")
     def test_reset_broken_alert(self, mock_report):
         created = self._create_via_api()
         LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
@@ -1371,7 +1444,7 @@ class TestLogsAlertAPI(APIBaseTest):
         return [BucketedCount(timestamp=base + timedelta(minutes=m), count=c) for m, c in offset_counts]
 
     @freeze_time("2025-12-16T10:30:00Z")
-    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_returns_response_shape(self, mock_query_cls):
         mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets([(0, 50), (5, 20)])
 
@@ -1389,7 +1462,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert "notification" in bucket
 
     @freeze_time("2025-12-16T10:30:00Z")
-    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_fills_empty_minutes(self, mock_query_cls):
         # Two data points 10 minutes apart — should fill 5-min cadence gaps between them
         mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets([(0, 50), (10, 200)])
@@ -1422,7 +1495,7 @@ class TestLogsAlertAPI(APIBaseTest):
         ]
     )
     @freeze_time("2025-12-16T10:30:00Z")
-    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_rolling_window(self, _name, buckets, payload_overrides, expected, mock_query_cls):
         mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets(buckets)
 
@@ -1438,7 +1511,7 @@ class TestLogsAlertAPI(APIBaseTest):
             assert data["resolve_count"] >= expected["min_resolve_count"]
 
     @freeze_time("2025-12-16T10:30:00Z")
-    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_n_of_m_delays_firing(self, mock_query_cls):
         # window=5, 2-of-3 N-of-M. Cadence-spaced buckets at minute 0 and 5 each have
         # 150 logs (above threshold=100). At cadence 0 only 1-of-3 has breached, so
@@ -1466,7 +1539,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data_buckets[1]["notification"] == "fire"
 
     @freeze_time("2025-12-16T10:30:00Z")
-    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_cooldown_suppresses_renotification(self, mock_query_cls):
         # window=5, cooldown=15 min. Two spikes 10 minutes apart: first fires at minute 0,
         # rolling sum drops below threshold at minute 5 (spike falls out of window) -> resolves,
@@ -1493,7 +1566,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data["fire_count"] == 1
 
     @freeze_time("2025-12-16T10:30:00Z")
-    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_empty_results(self, mock_query_cls):
         mock_query_cls.return_value.execute_bucketed.return_value = []
 
@@ -1529,7 +1602,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @freeze_time("2025-12-16T10:30:00Z")
-    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_echoes_threshold_config(self, mock_query_cls):
         mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets([(0, 10)])
 
@@ -1543,7 +1616,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data["threshold_operator"] == "below"
 
     @freeze_time("2025-12-16T10:30:00Z")
-    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_rolling_window_excludes_current_bucket(self, mock_query_cls):
         # Regression test: the simulator's rolling sum at bucket time T must
         # match the actual evaluator's `[T-window, T)` semantics — purely past,
@@ -1699,9 +1772,11 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
         )
         self._checkpoint_patcher.start()
         self.addCleanup(self._checkpoint_patcher.stop)
+        # A None return would read as "enqueue failed" and roll back every
+        # notification, so the fake must return a (mock) ProduceResult.
         self._kafka_patcher = patch(
-            "products.logs.backend.temporal.activities.produce_internal_event",
-            return_value=None,
+            "products.alerts.backend.destinations.produce_internal_event",
+            return_value=MagicMock(),
         )
         self._kafka_patcher.start()
         self.addCleanup(self._kafka_patcher.stop)
@@ -1934,3 +2009,149 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
         assert eval_events == sim_events, f"cadence={cadence}: eval={eval_events}\nsim={sim_events}"
         assert any(k == "fire" for _, k in eval_events)
         assert any(k == "resolve" for _, k in eval_events)
+
+
+class TestLogsAlertAPIPersonalAPIKeyScopes(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        super().setUp()
+        self._ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        self._ff_patcher.start()
+        self.addCleanup(self._ff_patcher.stop)
+        self.base_url = f"/api/projects/{self.team.pk}/logs/alerts/"
+
+    def _auth(self, value: str) -> dict:
+        return {"HTTP_AUTHORIZATION": f"Bearer {value}"}
+
+    # --- events action (GET detail, requires logs:read) ---
+
+    @parameterized.expand(
+        [
+            ("logs_read", ["logs:read"]),
+            ("logs_write", ["logs:write"]),
+        ]
+    )
+    def test_events_action_allowed(self, _name: str, scopes: list[str]):
+        key = self.create_personal_api_key_with_scopes(scopes)
+        # Target a non-existent UUID so the action body doesn't run; a 404 proves the scope
+        # gate was passed cleanly (403 = gate rejected the key; a 401/500 would also slip past
+        # a bare `!= 403` check, so assert the exact code).
+        url = f"{self.base_url}{uuid4()}/events/"
+        response = self.client.get(url, **self._auth(key))
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
+    @parameterized.expand(
+        [
+            ("unrelated_scope", ["insight:read"]),
+            ("no_scopes", []),
+        ]
+    )
+    def test_events_action_rejected_without_logs_scope(self, _name: str, scopes: list[str]):
+        key = self.create_personal_api_key_with_scopes(scopes)
+        url = f"{self.base_url}{uuid4()}/events/"
+        response = self.client.get(url, **self._auth(key))
+        assert response.status_code == 403, response.json()
+
+    # --- simulate action (POST non-detail, requires logs:read) ---
+
+    @parameterized.expand(
+        [
+            ("logs_read", ["logs:read"]),
+            ("logs_write", ["logs:write"]),
+        ]
+    )
+    def test_simulate_action_allowed(self, _name: str, scopes: list[str]):
+        key = self.create_personal_api_key_with_scopes(scopes)
+        url = f"{self.base_url}simulate/"
+        # Empty body triggers 400 from serializer validation — proves the scope gate passed
+        # (asserting the exact code rules out a 401/500 sneaking past a bare `!= 403`).
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    @parameterized.expand(
+        [
+            ("unrelated_scope", ["insight:read"]),
+            ("no_scopes", []),
+        ]
+    )
+    def test_simulate_action_rejected_without_logs_scope(self, _name: str, scopes: list[str]):
+        key = self.create_personal_api_key_with_scopes(scopes)
+        url = f"{self.base_url}simulate/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code == 403, response.json()
+
+    # --- create_destination action (POST detail, requires logs:write) ---
+
+    def test_create_destination_allowed_with_logs_write_scope(self):
+        key = self.create_personal_api_key_with_scopes(["logs:write"])
+        url = f"{self.base_url}{uuid4()}/destinations/"
+        response = self.client.post(
+            url,
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+            **self._auth(key),
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
+    @parameterized.expand(
+        [
+            ("read_scope_cannot_satisfy_write", ["logs:read"]),
+            ("unrelated_scope", ["insight:read"]),
+            ("no_scopes", []),
+        ]
+    )
+    def test_create_destination_rejected_without_logs_write_scope(self, _name: str, scopes: list[str]):
+        key = self.create_personal_api_key_with_scopes(scopes)
+        url = f"{self.base_url}{uuid4()}/destinations/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code == 403, response.json()
+
+    # --- delete_destination action (POST detail, requires logs:write) ---
+
+    def test_delete_destination_allowed_with_logs_write_scope(self):
+        key = self.create_personal_api_key_with_scopes(["logs:write"])
+        url = f"{self.base_url}{uuid4()}/destinations/delete/"
+        response = self.client.post(
+            url,
+            {"hog_function_ids": [str(uuid4())]},
+            format="json",
+            **self._auth(key),
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
+    @parameterized.expand(
+        [
+            ("read_scope_cannot_satisfy_write", ["logs:read"]),
+            ("unrelated_scope", ["insight:read"]),
+            ("no_scopes", []),
+        ]
+    )
+    def test_delete_destination_rejected_without_logs_write_scope(self, _name: str, scopes: list[str]):
+        key = self.create_personal_api_key_with_scopes(scopes)
+        url = f"{self.base_url}{uuid4()}/destinations/delete/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code == 403, response.json()
+
+    # --- reset action (POST detail, requires logs:write) ---
+
+    def test_reset_allowed_with_logs_write_scope(self):
+        key = self.create_personal_api_key_with_scopes(["logs:write"])
+        # Detail action against a non-existent UUID: get_object 404s before the body runs,
+        # proving the scope gate passed (a bare `!= 403` would also pass on a 401/500).
+        url = f"{self.base_url}{uuid4()}/reset/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
+    @parameterized.expand(
+        [
+            ("read_scope_cannot_satisfy_write", ["logs:read"]),
+            ("unrelated_scope", ["insight:read"]),
+            ("no_scopes", []),
+        ]
+    )
+    def test_reset_rejected_without_logs_write_scope(self, _name: str, scopes: list[str]):
+        key = self.create_personal_api_key_with_scopes(scopes)
+        url = f"{self.base_url}{uuid4()}/reset/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code == 403, response.json()

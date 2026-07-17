@@ -98,6 +98,8 @@ export interface SurveyAppearanceSchema {
     thankYouMessageCloseButtonText?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
+    allowGoBack?: boolean
+    backButtonText?: string
     widgetType?: SurveyWidgetType
     widgetLabel?: string
     widgetSelector?: string

@@ -59,6 +59,16 @@ case "$RS_SVC" in
     export LOG_LEVEL=debug
     export DEBUG=1
     export KAFKA_ERROR_TRACKING_TOPIC=${KAFKA_ERROR_TRACKING_TOPIC:-ingestion-errortracking-main}
+    # v1 capture sink (MSK, writes to same topics as v0)
+    export CAPTURE_V1_SINKS=${CAPTURE_V1_SINKS:-msk}
+    export CAPTURE_V1_SINK_MSK_KAFKA_HOSTS=${CAPTURE_V1_SINK_MSK_KAFKA_HOSTS:-$DEFAULT_KAFKA}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_MAIN=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_MAIN:-events_plugin_ingestion}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HISTORICAL=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HISTORICAL:-events_plugin_ingestion_historical}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_OVERFLOW=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_OVERFLOW:-events_plugin_ingestion_overflow}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_DLQ=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_DLQ:-events_plugin_ingestion_dlq}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_EXCEPTION=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_EXCEPTION:-ingestion-errortracking-main}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HEATMAP=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HEATMAP:-heatmaps_ingestion}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_CLIENT_INGESTION_WARNING=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_CLIENT_INGESTION_WARNING:-ingestion-clientwarnings-main-1}
     ;;
 
   capture-replay)
@@ -115,8 +125,10 @@ case "$RS_SVC" in
     # output is still noisy. Unconditional export — flox activate exports its
     # own RUST_LOG, so a conditional default would silently inherit that and
     # match no cymbal modules.
-    export RUST_LOG=info,cymbal=debug,cymbal_resolution=debug,cymbal_proto=debug,rdkafka=warn
+    export RUST_LOG=info,cymbal=debug,cymbal_proto=debug,rdkafka=warn
     export RUST_BACKTRACE=1
+    # Default mode, but set explicitly now that cymbal is multi-mode.
+    export CYMBAL_MODE=processing
     export OBJECT_STORAGE_BUCKET=posthog
     export FRAME_CACHE_TTL_SECONDS=1
     export FRAME_RESULT_TTL_MINUTES=0
@@ -147,15 +159,16 @@ case "$RS_SVC" in
     ;;
 
   cymbal-resolution)
-    # Symbol-resolution service that cymbal offloads to via cymbal.resolution.v1.
-    # Uses cymbal::app_context::build_symbol_resolver which only connects to
-    # Postgres and S3 — NOT Kafka, NOT Redis, NOT signals. That's why this
-    # block is so much narrower than the cymbal block: anything cymbal needs
-    # for the fingerprinting / issue path is genuinely irrelevant here.
+    # The cymbal binary in resolution mode (gRPC symbol-resolution service that
+    # cymbal offloads to). Resolution mode only needs Postgres and S3 — no
+    # Kafka/Redis/signals — hence the narrower env than the cymbal block.
+    export CYMBAL_MODE=resolution
+    # Run the `cymbal` binary; mode is selected via CYMBAL_MODE above.
+    export DEV_RUST_SVC_OVERRIDE=cymbal
     # Only cymbal crates at debug; everything else at info. Unconditional
     # export — flox activate exports its own RUST_LOG, so a conditional
     # default would silently inherit that and match no cymbal modules.
-    export RUST_LOG=info,cymbal=debug,cymbal_resolution=debug,cymbal_proto=debug,rdkafka=warn
+    export RUST_LOG=info,cymbal=debug,cymbal_proto=debug,rdkafka=warn
     export RUST_BACKTRACE=1
     # S3 / MinIO bucket for symbol-file fetches.
     export OBJECT_STORAGE_BUCKET=posthog
@@ -172,6 +185,23 @@ case "$RS_SVC" in
     export INTERNAL_API_SECRET="${INTERNAL_API_SECRET:-posthog123}"
     # Match the dev cymbal cadence so the load bus updates often.
     export SUBSCRIBE_TICK_INTERVAL_MS="${SUBSCRIBE_TICK_INTERVAL_MS:-500}"
+    ;;
+
+  cymbal-notifications)
+    # The cymbal binary in notifications mode consumes the notifications topic
+    # produced by processing mode and runs issue side effects.
+    export CYMBAL_MODE=notifications
+    export DEV_RUST_SVC_OVERRIDE=cymbal
+    export RUST_LOG=debug,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export KAFKA_HOSTS="$DEFAULT_KAFKA"
+    export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}"
+    export KAFKA_CONSUMER_OFFSET_RESET="${KAFKA_CONSUMER_OFFSET_RESET:-earliest}"
+    export METRICS_PORT="${METRICS_PORT:-9107}"
+    export POSTHOG_API_KEY="${CYMBAL_NOTIFICATIONS_POSTHOG_API_KEY:-phc_localposthogprojecttoken}"
+    export POSTHOG_ENDPOINT="${CYMBAL_NOTIFICATIONS_POSTHOG_ENDPOINT:-http://localhost:3307}"
+    export SIGNALS_API_BASE_URL="${SIGNALS_API_BASE_URL:-http://localhost:8000}"
+    export INTERNAL_API_SECRET="${INTERNAL_API_SECRET:-posthog123}"
     ;;
 
   embedding-worker)
@@ -262,6 +292,34 @@ case "$RS_SVC" in
     export KAFKA_HOSTS="${KAFKA_HOSTS:-localhost:9092}"
     export KAFKA_CONSUMER_OFFSET_RESET="${KAFKA_CONSUMER_OFFSET_RESET:-earliest}"
     export METRICS_PORT=9105
+    export DEBUG=1
+    ;;
+
+  cohort-event-shuffler)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export KAFKA_HOSTS="$DEFAULT_KAFKA"
+    export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}" # reads posthog_cohort for the realtime team gate
+    # Code default gates to team 2 (the parity baseline); dev uses the local team, so open the gate.
+    export REALTIME_COHORT_TEAM_ALLOWLIST="${REALTIME_COHORT_TEAM_ALLOWLIST:-all}"
+    # earliest replays existing local events; prod defaults to "latest".
+    export KAFKA_CONSUMER_OFFSET_RESET="${KAFKA_CONSUMER_OFFSET_RESET:-earliest}"
+    export BIND_PORT=3310
+    export DEBUG=1
+    ;;
+
+  cohort-stream-processor)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}" # reads posthog_cohort for the realtime filter catalog
+    # Code default gates to team 2 (the parity baseline); dev uses the local team, so open the gate.
+    export REALTIME_COHORT_TEAM_ALLOWLIST="${REALTIME_COHORT_TEAM_ALLOWLIST:-all}"
+    # Fast refresh in dev so window/threshold edits surface a new LeafStateKey quickly.
+    export FILTER_CATALOG_REFRESH_SECS="${FILTER_CATALOG_REFRESH_SECS:-30}"
+    export FILTER_CATALOG_REFRESH_JITTER_SECS="${FILTER_CATALOG_REFRESH_JITTER_SECS:-5}"
+    export BIND_PORT=3311
     export DEBUG=1
     ;;
 

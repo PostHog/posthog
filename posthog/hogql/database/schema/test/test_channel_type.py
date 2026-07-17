@@ -9,7 +9,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models.utils import uuid7
+from posthog.uuidt import uuid7
 
 
 class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
@@ -146,6 +146,17 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             modifiers=HogQLQueryModifiers(customChannelTypeRules=custom_channel_rules),
         )
         return (session_response.results or [])[0][0]
+
+    def test_nested_expanded_function_is_rejected(self):
+        # Nesting a printer-expanded marker (only reachable from user-written HogQL) would expand
+        # exponentially; the printer must reject it rather than blow up.
+        inner = "_defaultChannelType('a', 'b', 'c', 'd', 'e', 'f', 'g')"
+        with self.assertRaises(Exception) as ctx:
+            execute_hogql_query(
+                parse_select(f"select _defaultChannelType({inner}, 'b', 'c', 'd', 'e', 'f', 'g') from events"),
+                self.team,
+            )
+        assert "cannot be nested" in str(ctx.exception)
 
     def test_direct(self):
         self.assertEqual(

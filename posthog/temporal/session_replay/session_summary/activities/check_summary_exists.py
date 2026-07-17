@@ -3,7 +3,7 @@ import temporalio
 from posthog.sync import database_sync_to_async
 from posthog.temporal.session_replay.session_summary.types.inputs import SingleSessionSummaryInputs
 
-from ee.models.session_summaries import SingleSessionSummary
+from products.replay.backend.models.session_summaries import SingleSessionSummary
 
 
 @temporalio.activity.defn

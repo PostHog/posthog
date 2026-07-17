@@ -1,8 +1,8 @@
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { SDK_DOCS_LINKS, SDK_TYPE_READABLE_NAME } from 'scenes/onboarding/sdks/sdkConstants'
-import type { SdkType } from 'scenes/onboarding/sdks/sdkHealthLogic'
+import { SDK_DOCS_LINKS, SDK_TYPE_READABLE_NAME } from 'scenes/onboarding/shared/sdkHealth/sdkConstants'
+import type { SdkType } from 'scenes/onboarding/shared/sdkHealth/sdkHealthLogic'
 
 import type { HealthIssue } from '../types'
 
@@ -16,8 +16,12 @@ interface UsageEntry {
     status_reason?: string
 }
 
-const statusTag = (entry: UsageEntry): JSX.Element => {
-    const tag = entry.is_latest ? (
+const statusTag = (entry: UsageEntry, migrationRequired: boolean): JSX.Element => {
+    const tag = migrationRequired ? (
+        <LemonTag type="danger" size="small">
+            Migration required
+        </LemonTag>
+    ) : entry.is_latest ? (
         <LemonTag type="success" size="small">
             Current
         </LemonTag>
@@ -38,6 +42,7 @@ export const SdkOutdatedRenderer = ({ issue }: { issue: HealthIssue }): JSX.Elem
     const latestVersion = issue.payload.latest_version as string | undefined
     const reason = issue.payload.reason as string | undefined
     const usage = issue.payload.usage as UsageEntry[] | undefined
+    const migrationRequired = typeof issue.payload.migration_target === 'string'
 
     if (!sdkName) {
         return <></>
@@ -84,7 +89,7 @@ export const SdkOutdatedRenderer = ({ issue }: { issue: HealthIssue }): JSX.Elem
                                 <td className="py-1 pr-2">
                                     <TZLabel time={entry.max_timestamp} />
                                 </td>
-                                <td className="py-1">{statusTag(entry)}</td>
+                                <td className="py-1">{statusTag(entry, migrationRequired)}</td>
                             </tr>
                         ))}
                     </tbody>

@@ -303,7 +303,7 @@ impl Event for S3Sink {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::uuid_v7;
+    use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{DataType, ProcessedEventMetadata};
     use common_types::CapturedEvent;
     use tokio_util::sync::CancellationToken;
@@ -336,9 +336,12 @@ mod tests {
     }
 
     fn create_test_event() -> ProcessedEvent {
+        let timestamp = chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
         ProcessedEvent {
             event: CapturedEvent {
-                uuid: uuid_v7(),
+                uuid: uuid_v7_from_datetime(timestamp),
                 distinct_id: "test_id".to_string(),
                 session_id: None,
                 ip: "127.0.0.1".to_string(),
@@ -347,9 +350,7 @@ mod tests {
                 sent_at: None,
                 token: "test_token".to_string(),
                 event: "test_event".to_string(),
-                timestamp: chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
-                    .unwrap()
-                    .with_timezone(&chrono::Utc),
+                timestamp,
                 is_cookieless_mode: false,
                 historical_migration: false,
             },

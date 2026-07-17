@@ -1,12 +1,15 @@
-import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from '@/lib/constants'
+import { resolveEffectiveClientName } from '@/lib/client-detection'
+import { MCP_DOCS_URL, getAuthorizationServerUrl } from '@/lib/constants'
 import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
+import { corsHeadersForOAuthMetadata, oauthMetadataPreflightResponse } from '@/lib/oauth-metadata-cors'
+import { RequestProperties } from '@/lib/request-properties'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
-import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
+import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
+import { getAdvertisedOAuthScopes } from '@/tools/toolDefinitions'
 import type { CloudRegion } from '@/tools/types'
 
-import { RequestProperties } from './mcp'
 import { proxyToHono, resolveProxyRegion } from './proxy'
 
 // Helper to get the public-facing URL, respecting reverse proxy headers
@@ -152,6 +155,11 @@ const handleRequest = async (
     // 5. Client reconnects to MCP with the access token
     const wellKnownPrefix = '/.well-known/oauth-protected-resource'
     if (url.pathname.startsWith(wellKnownPrefix)) {
+        const preflight = oauthMetadataPreflightResponse(request)
+        if (preflight) {
+            return preflight
+        }
+
         // Extract the resource path from after the well-known prefix
         // e.g., /.well-known/oauth-protected-resource/mcp → /mcp
         const resourcePath = url.pathname.slice(wellKnownPrefix.length) || '/'
@@ -167,19 +175,20 @@ const handleRequest = async (
             JSON.stringify({
                 resource: resourceUrl.toString().replace(/\/$/, ''),
                 authorization_servers: [authorizationServer],
-                scopes_supported: OAUTH_SCOPES_SUPPORTED,
+                scopes_supported: getAdvertisedOAuthScopes(),
                 bearer_methods_supported: ['header'],
             }),
             {
                 headers: {
                     'Content-Type': 'application/json',
                     'Cache-Control': 'public, max-age=3600',
+                    ...corsHeadersForOAuthMetadata(request),
                 },
             }
         )
     }
 
-    const token = request.headers.get('Authorization')?.split(' ')[1]
+    const token = extractBearerToken(request)
     const sessionId = url.searchParams.get('sessionId')
 
     if (!token) {
@@ -268,7 +277,7 @@ const handleRequest = async (
         projectId,
         clientUserAgent,
         mcpConsumer,
-        mcpClientName: clientInfo.clientName,
+        mcpClientName: resolveEffectiveClientName(clientInfo.clientName, mcpVendorClient),
         mcpClientVersion: clientInfo.clientVersion,
         mcpProtocolVersion: clientInfo.protocolVersion,
         mcpVendorClient,
@@ -295,7 +304,7 @@ const handleRequest = async (
     const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
 
     // Explicit selection between tool-based and CLI-based MCP. Falls back to the
-    // flag + client-detection logic in `MCP.init()` when unset. See `parseMcpMode`.
+    // client-detection logic in `resolveMode` when unset. See `parseMcpMode`.
     const mode = parseMcpMode(request.headers.get('x-posthog-mcp-mode') || url.searchParams.get('mode'))
 
     const extraContextProps = { features, tools, region: regionParam, version, readOnly, mode }
@@ -327,9 +336,6 @@ const handleRequest = async (
     log.extend({ error: 'route_not_found' })
     return new Response('Not found', { status: 404 })
 }
-
-// Durable Object class export - required for Wrangler to find the class for the MCP_OBJECT binding
-export { MCP } from './mcp'
 
 // Worker entry point
 export default {

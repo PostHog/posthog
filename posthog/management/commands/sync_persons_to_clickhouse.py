@@ -1,3 +1,10 @@
+"""Reconcile a team's person, distinct-id, and group rows from Postgres to ClickHouse.
+
+LOCAL/DEV USE ONLY for now: this loads the whole team's rows into memory (no batching), so it
+is not safe to run against large production teams. It exists to seed local ClickHouse from the
+local persons database (e.g. via the generate_persons command).
+"""
+
 import json
 import logging
 from typing import Literal, cast
@@ -9,11 +16,9 @@ import structlog
 
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.routing import flush_all_producers
-from posthog.models.group.group import Group
 from posthog.models.group.util import raw_create_group_ch
-from posthog.models.person import PersonDistinctId
-from posthog.models.person.person import Person
 from posthog.models.person.util import _delete_ch_distinct_id, create_person, create_person_distinct_id
+from posthog.persons_db import persons_db_connection
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -24,6 +29,9 @@ class Command(BaseCommand):
         Lookup from Postgres and with a lower version in ClickHouse will be updated.
         Note higher versions in ClickHouse will be ignored.
         Recommended: run first without `--live-run` and first for person table, then distinct_id table
+
+        Local/dev use only for now: this materializes the whole team in memory and is not safe
+        for large production teams.
         """
 
     def add_arguments(self, parser):
@@ -69,7 +77,21 @@ def run(options):
 def run_person_sync(team_id: int, live_run: bool, deletes: bool):
     logger.info("Running person table sync")
     # lookup what needs to be updated in ClickHouse and send kafka messages for only those
-    persons = Person.objects.filter(team_id=team_id)  # nosemgrep: no-direct-persons-db-orm
+    with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT uuid, version, properties, is_identified, created_at FROM posthog_person WHERE team_id = %s",
+            [team_id],
+        )
+        persons = [
+            {
+                "uuid": uuid,
+                "version": version,
+                "properties": properties,
+                "is_identified": is_identified,
+                "created_at": created_at,
+            }
+            for uuid, version, properties, is_identified, created_at in cursor.fetchall()
+        ]
     rows = sync_execute(
         """
             SELECT id, max(version) FROM person WHERE team_id = %(team_id)s GROUP BY id HAVING max(is_deleted) = 0
@@ -85,28 +107,28 @@ def run_person_sync(team_id: int, live_run: bool, deletes: bool):
     for i, person in enumerate(persons):
         if i % (max(total_pg // 10, 1)) == 0 and i > 0:
             logger.info(f"Processed {i / total_pg * 100}%")
-        ch_version = ch_persons_to_version.get(person.uuid, None)
-        pg_version = person.version or 0
+        ch_version = ch_persons_to_version.get(person["uuid"], None)
+        pg_version = person["version"] or 0
         if ch_version is None or ch_version < pg_version:
-            logger.info(f"Updating {person.uuid} to version {pg_version}")
+            logger.info(f"Updating {person['uuid']} to version {pg_version}")
             if live_run:
                 # Update ClickHouse via Kafka message
                 create_person(
                     team_id=team_id,
                     version=pg_version,
-                    uuid=str(person.uuid),
-                    properties=person.properties,
-                    is_identified=person.is_identified,
-                    created_at=person.created_at,
+                    uuid=str(person["uuid"]),
+                    properties=person["properties"],
+                    is_identified=person["is_identified"],
+                    created_at=person["created_at"],
                 )
         elif ch_version > pg_version:
             logger.info(
-                f"Clickhouse version ({ch_version}) for '{person.uuid}' is higher than in Postgres ({pg_version}). Ignoring."
+                f"Clickhouse version ({ch_version}) for '{person['uuid']}' is higher than in Postgres ({pg_version}). Ignoring."
             )
 
     if deletes:
         logger.info("Processing person deletions")
-        postgres_uuids = {person.uuid for person in persons}
+        postgres_uuids = {person["uuid"] for person in persons}
         for uuid, version in ch_persons_to_version.items():
             if uuid not in postgres_uuids:
                 logger.info(f"Deleting person with uuid={uuid}")
@@ -124,12 +146,17 @@ def run_person_sync(team_id: int, live_run: bool, deletes: bool):
 def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool):
     logger.info("Running person distinct id table sync")
     # lookup what needs to be updated in ClickHouse and send kafka messages for only those
-    # nosemgrep: no-direct-persons-db-orm
-    person_distinct_ids = PersonDistinctId.objects.filter(
-        team_id=team_id
-    ).select_related(  # nosemgrep: no-direct-persons-db-orm
-        "person"
-    )  # nosemgrep: no-direct-persons-db-orm
+    with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT pdi.distinct_id, pdi.version, p.uuid "
+            "FROM posthog_persondistinctid pdi JOIN posthog_person p ON p.id = pdi.person_id "
+            "WHERE pdi.team_id = %s",
+            [team_id],
+        )
+        person_distinct_ids = [
+            {"distinct_id": distinct_id, "version": version, "person_uuid": person_uuid}
+            for distinct_id, version, person_uuid in cursor.fetchall()
+        ]
     rows = sync_execute(
         """
             SELECT distinct_id, max(version) FROM person_distinct_id2 WHERE team_id = %(team_id)s GROUP BY distinct_id HAVING max(is_deleted) = 0
@@ -146,16 +173,16 @@ def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool):
     for i, person_distinct_id in enumerate(person_distinct_ids):
         if i % (max(total_pg // 10, 1)) == 0 and i > 0:
             logger.info(f"Processed {i / total_pg * 100}%")
-        ch_version = ch_distinct_id_to_version.get(person_distinct_id.distinct_id, None)
-        pg_version = person_distinct_id.version or 0
+        ch_version = ch_distinct_id_to_version.get(person_distinct_id["distinct_id"], None)
+        pg_version = person_distinct_id["version"] or 0
         if ch_version is None or ch_version < pg_version:
-            logger.info(f"Updating {person_distinct_id.distinct_id} to version {pg_version}")
+            logger.info(f"Updating {person_distinct_id['distinct_id']} to version {pg_version}")
             if live_run:
                 # Update ClickHouse via Kafka message
                 create_person_distinct_id(
                     team_id=team_id,
-                    distinct_id=person_distinct_id.distinct_id,
-                    person_id=str(person_distinct_id.person.uuid),
+                    distinct_id=person_distinct_id["distinct_id"],
+                    person_id=str(person_distinct_id["person_uuid"]),
                     version=pg_version,
                     is_deleted=False,
                 )
@@ -163,13 +190,13 @@ def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool):
             # This could be happening due to person deletions - check out fix_person_distinct_ids_after_delete management cmd.
             # Ignoring here to be safe.
             logger.info(
-                f"Clickhouse version ({ch_version}) for '{person_distinct_id.distinct_id}' is higher than in Postgres ({pg_version}). Ignoring."
+                f"Clickhouse version ({ch_version}) for '{person_distinct_id['distinct_id']}' is higher than in Postgres ({pg_version}). Ignoring."
             )
             continue
 
     if deletes:
         logger.info("Processing distinct id deletions")
-        postgres_distinct_ids = {person_distinct_id.distinct_id for person_distinct_id in person_distinct_ids}
+        postgres_distinct_ids = {pdi["distinct_id"] for pdi in person_distinct_ids}
         for distinct_id, version in ch_distinct_id_to_version.items():
             if distinct_id not in postgres_distinct_ids:
                 logger.info(f"Deleting distinct ID {distinct_id}")
@@ -180,9 +207,20 @@ def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool):
 def run_group_sync(team_id: int, live_run: bool):
     logger.info("Running group table sync")
     # lookup what needs to be updated in ClickHouse and send kafka messages for only those
-    pg_groups = Group.objects.filter(team_id=team_id).values(  # nosemgrep: no-direct-persons-db-orm
-        "group_type_index", "group_key", "group_properties", "created_at"
-    )
+    with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT group_type_index, group_key, group_properties, created_at FROM posthog_group WHERE team_id = %s",
+            [team_id],
+        )
+        pg_groups = [
+            {
+                "group_type_index": gti,
+                "group_key": group_key,
+                "group_properties": group_properties,
+                "created_at": created_at,
+            }
+            for gti, group_key, group_properties, created_at in cursor.fetchall()
+        ]
     # unfortunately we don't have version column for groups table
     rows = sync_execute(
         """

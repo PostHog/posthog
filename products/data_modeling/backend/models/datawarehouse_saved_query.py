@@ -1,7 +1,7 @@
 import re
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -10,25 +10,31 @@ from django.db import models, transaction
 
 import structlog
 
-from posthog.schema import DataWarehouseSavedQueryOrigin, HogQLQueryModifiers
+if TYPE_CHECKING:
+    from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
+from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.models import FieldOrTable, SavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
+from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
-from posthog.temporal.data_imports.naming_convention import NamingConvention
 
-from products.warehouse_sources.backend.models.util import (
+from products.warehouse_sources.backend.facade.hogql import (
     CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
+    reconstruct_ordered_columns,
     remove_named_tuples,
 )
+from products.warehouse_sources.backend.facade.sources import NamingConvention
 
 logger = structlog.get_logger(__name__)
 
@@ -80,6 +86,15 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         blank=True,
         help_text="Dict of all columns with ClickHouse type (including Nullable())",
     )
+    # Postgres jsonb does not preserve `columns` key order, so this records the SELECT order
+    # captured at write time. Null on rows saved before this field existed (they fall back to
+    # jsonb key order). Internal only, not exposed through the API.
+    column_order = models.JSONField(
+        default=None,
+        null=True,
+        blank=True,
+        help_text="Ordered column names capturing SELECT order (columns jsonb loses key order). Not user-facing.",
+    )
     external_tables = models.JSONField(default=list, null=True, blank=True, help_text="List of all external tables")
     query = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query")
     status = models.CharField(
@@ -126,6 +141,14 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         null=True, blank=True, help_text="When this test view should be automatically deleted."
     )
 
+    semantic_enrichment_hash = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text="Fingerprint of the view definition and column set used to skip AI semantic-description "
+        "regeneration when nothing relevant changed. Not user-facing.",
+    )
+
     def save(self, *args, **kwargs):
         if self.is_test and not self.expires_at:
             from django.utils import timezone
@@ -164,13 +187,25 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         If the workflow fails to schedule, it will disable materialization for this view.
         This also guarantees model paths are properly created or updated.
         """
-        from products.data_warehouse.backend.data_load.saved_query_service import (
+        from products.data_modeling.backend.schedule import get_v2_saved_query_ids
+        from products.data_warehouse.backend.facade.api import (
             saved_query_workflow_exists,
             sync_saved_query_workflow,
             unpause_saved_query_schedule,
         )
 
         try:
+            # If this query's DAG already runs on a v2 schedule, that schedule materializes it. Never
+            # create or revive a per-query v1 schedule, and clear any lingering frequency that would
+            # cause one to be recreated. This Temporal lookup stays inside the try so that, if it
+            # fails, we honor the failure contract below rather than leaving is_materialized=True
+            # with no schedule backing it.
+            if self.id in get_v2_saved_query_ids([self.id]):
+                if self.sync_frequency_interval is not None:
+                    self.sync_frequency_interval = None
+                    self.save(update_fields=["sync_frequency_interval"])
+                return
+
             self.setup_model_paths()
 
             schedule_exists = saved_query_workflow_exists(self)
@@ -179,7 +214,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             sync_saved_query_workflow(self, create=not schedule_exists)
         except Exception as e:
             capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
-            logger.warning(
+            logger.exception(
                 "failed_to_schedule_saved_query",
                 team_id=self.team_id,
                 saved_query_id=str(self.id),
@@ -193,7 +228,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     def revert_materialization(self):
         from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
-        from products.data_warehouse.backend.data_load.saved_query_service import delete_saved_query_schedule
+        from products.data_warehouse.backend.facade.api import delete_saved_query_schedule
 
         self.sync_frequency_interval = None
         self.last_run_at = None
@@ -223,6 +258,16 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         self.name = f"POSTHOG_DELETED_{uuid.uuid4()}"
 
         self.save()
+
+    def set_columns(self, columns: dict[str, Any]) -> None:
+        """Assign ``columns`` and record its SELECT order together.
+
+        The single chokepoint for persisting columns: the caller passes an ordered dict (SELECT /
+        ClickHouse output order), and both the jsonb payload and the ordered names are set here so
+        they can never drift. Never assign ``self.columns`` directly at a persist site.
+        """
+        self.columns = columns
+        self.column_order = list(columns.keys())
 
     def get_columns(self) -> dict[str, dict[str, Any]]:
         from posthog.api.services.query import process_query_dict
@@ -285,7 +330,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             team_id=self.team.pk,
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(self.team),
-            database=database or Database.create_for(self.team.pk),
+            # Internal saved-query resolution (no user); bypass warehouse HogQL access control.
+            database=database or Database.create_for(self.team.pk, bypass_warehouse_access_control=True),
         )
 
         query = self.query or {}
@@ -302,7 +348,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     @property
     def folder_path(self):
-        return f"team_{self.team.pk}_model_{self.id.hex}/modeling"
+        return f"team_{self.team_id}_model_{self.id.hex}/modeling"
 
     @property
     def normalized_name(self):
@@ -319,8 +365,15 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         return f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
     def hogql_definition(
-        self, modifiers: Optional[HogQLQueryModifiers] = None
-    ) -> Union[SavedQuery, HogQLDataWarehouseTable, DirectPostgresTable]:
+        self, modifiers: Optional["HogQLQueryModifiers"] = None
+    ) -> Union[
+        SavedQuery,
+        HogQLDataWarehouseTable,
+        DirectPostgresTable,
+        DirectMySQLTable,
+        DirectSnowflakeTable,
+        DirectRedshiftTable,
+    ]:
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
             return self.table.hogql_definition(modifiers)
 
@@ -331,9 +384,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         columns = self.columns or {}
         fields: dict[str, FieldOrTable] = {}
 
-        from products.warehouse_sources.backend.models.table import CLICKHOUSE_HOGQL_MAPPING
-
-        for column, type in columns.items():
+        for column, type in reconstruct_ordered_columns(columns, self.column_order):
             # Support for 'old' style columns
             if isinstance(type, str):
                 clickhouse_type = type

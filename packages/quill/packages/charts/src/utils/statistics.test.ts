@@ -43,6 +43,22 @@ describe('trendLine', () => {
         }
     })
 
+    it('fits over finite points only, ignoring gaps (NaN)', () => {
+        // The fit should follow y = x from the finite points; the gap must not poison it.
+        const result = trendLine([0, 1, NaN, 3, 4])
+        expect(result).toHaveLength(5)
+        for (let i = 0; i < result.length; i++) {
+            expect(result[i]).toBeCloseTo(i)
+        }
+    })
+
+    it('returns a finite-length copy when fewer than 2 finite points', () => {
+        const input = [NaN, 5]
+        const result = trendLine(input)
+        expect(result).toEqual(input)
+        expect(result).not.toBe(input)
+    })
+
     describe('fitUpTo', () => {
         it('fits the regression to a prefix and extrapolates to the full length', () => {
             // First 3 points are y = x; tail is noisy. fitUpTo=3 → trend continues as y=x.
@@ -95,6 +111,19 @@ describe('movingAverage', () => {
         const explicit = movingAverage([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 7)
         expect(result).toEqual(explicit)
     })
+
+    it('averages over finite values in the window, ignoring gaps (NaN)', () => {
+        // A single NaN must not drag the whole window average to NaN.
+        const result = movingAverage([5, 5, NaN, 5, 5, 5, 5, 5], 3)
+        expect(result.every((v) => isFinite(v))).toBe(true)
+    })
+
+    it('returns a copy rather than the same array when below the window size', () => {
+        const input = [1, 2, 3]
+        const result = movingAverage(input, 7)
+        expect(result).toEqual(input)
+        expect(result).not.toBe(input)
+    })
 })
 
 describe('ciRanges', () => {
@@ -136,5 +165,25 @@ describe('ciRanges', () => {
         for (let i = 0; i < values.length; i++) {
             expect(wide[1][i] - wide[0][i]).toBeGreaterThan(narrow[1][i] - narrow[0][i])
         }
+    })
+
+    it('estimates spread from finite values only, leaving the gap in place', () => {
+        const values = [10, 12, NaN, 14, 9, 11, 13]
+        const [lower, upper] = ciRanges(values)
+        expect(lower).toHaveLength(values.length)
+        // The band half-width is derived from the finite sample, so finite points stay bounded.
+        const halfBand = upper[0] - values[0]
+        expect(isFinite(halfBand)).toBe(true)
+        expect(halfBand).toBeGreaterThan(0)
+        // The gap is preserved (not fabricated into a value).
+        expect(isFinite(lower[2])).toBe(false)
+        expect(isFinite(upper[2])).toBe(false)
+    })
+
+    it('returns distinct array copies (not aliased) for the sub-2 case', () => {
+        const [lower, upper] = ciRanges([5])
+        expect(lower).toEqual([5])
+        expect(upper).toEqual([5])
+        expect(lower).not.toBe(upper)
     })
 })

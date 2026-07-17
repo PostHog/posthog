@@ -5,8 +5,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessDenied } from 'lib/components/AccessDenied'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -69,7 +69,7 @@ export function ModelsScene(): JSX.Element {
                 actions={
                     currentTab === 'views' ? (
                         <div className="flex gap-2">
-                            <AppShortcut
+                            <Shortcut
                                 name="NewModel"
                                 keybind={[keyBinds.new]}
                                 intent="New view"
@@ -82,7 +82,7 @@ export function ModelsScene(): JSX.Element {
                                 >
                                     <LemonButton
                                         type="primary"
-                                        to={urls.sqlEditor()}
+                                        to={urls.sqlEditor({ source: 'view' })}
                                         size="small"
                                         tooltip="Create view"
                                         data-attr="new-view-button"
@@ -90,7 +90,7 @@ export function ModelsScene(): JSX.Element {
                                         Create view
                                     </LemonButton>
                                 </AccessControlAction>
-                            </AppShortcut>
+                            </Shortcut>
                         </div>
                     ) : undefined
                 }

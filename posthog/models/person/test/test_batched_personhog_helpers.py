@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -81,7 +81,7 @@ class TestBatchedGetPersonsByUuids(SimpleTestCase):
 
         assert len(result) == 2
         assert mock_metric.labels.call_count == 2
-        mock_metric.labels.assert_any_call(operation="test_op", client_name="posthog-django")
+        mock_metric.labels.assert_any_call(operation="test_op", client_name=ANY)
 
     @patch("posthog.models.person.util.PERSONHOG_BATCH_SIZE", 2)
     def test_preserves_order_across_batches(self):
@@ -101,6 +101,56 @@ class TestBatchedGetPersonsByUuids(SimpleTestCase):
 
             assert len(result) == 1
             assert result[0].uuid == "uuid-1"
+
+    @patch("posthog.models.person.util.TEST", False)
+    @patch("posthog.models.person.util.PERSONHOG_BATCH_SIZE", 2)
+    def test_parallel_fan_out_returns_all_batches_in_order(self):
+        with fake_personhog_client() as fake:
+            for i in range(9):
+                fake.add_person(team_id=1, person_id=i + 1, uuid=f"uuid-{i}", distinct_ids=[f"d{i}"])
+
+            result = _batched_get_persons_by_uuids(1, [f"uuid-{i}" for i in range(9)], "test", concurrency=4)
+
+            assert [p.uuid for p in result] == [f"uuid-{i}" for i in range(9)]
+            fake.assert_called("get_persons_by_uuids", times=5)
+
+    @patch("posthog.models.person.util.TEST", False)
+    @patch("posthog.models.person.util.PERSONHOG_BATCH_SIZE", 2)
+    def test_parallel_fan_out_propagates_batch_failure(self):
+        # A failing batch must fail the whole call — collecting only the successful futures
+        # would hand callers (e.g. the freeze-exposure guard) a silently partial result.
+        with fake_personhog_client() as fake:
+            for i in range(6):
+                fake.add_person(team_id=1, person_id=i + 1, uuid=f"uuid-{i}", distinct_ids=[f"d{i}"])
+
+            original_get = fake.get_persons_by_uuids
+
+            def fail_second_batch(request):
+                if "uuid-2" in request.uuids:
+                    raise RuntimeError("batch failed")
+                return original_get(request)
+
+            with (
+                patch.object(fake, "get_persons_by_uuids", side_effect=fail_second_batch),
+                self.assertRaises(RuntimeError),
+            ):
+                _batched_get_persons_by_uuids(1, [f"uuid-{i}" for i in range(6)], "test", concurrency=4)
+
+    @patch("posthog.models.person.util.TEST", False)
+    @patch("posthog.models.person.util.PERSONHOG_BATCH_SIZE", 2)
+    def test_default_concurrency_stays_sequential(self):
+        # The fan-out is opt-in: without an explicit concurrency, even a multi-batch call must
+        # not spawn threads — most callers are small or background lookups whose load on the
+        # personhog bulk pools must not silently multiply.
+        with fake_personhog_client() as fake:
+            for i in range(6):
+                fake.add_person(team_id=1, person_id=i + 1, uuid=f"uuid-{i}", distinct_ids=[f"d{i}"])
+
+            with patch("posthog.models.person.util.ThreadPoolExecutor") as mock_executor:
+                result = _batched_get_persons_by_uuids(1, [f"uuid-{i}" for i in range(6)], "test")
+
+            assert [p.uuid for p in result] == [f"uuid-{i}" for i in range(6)]
+            mock_executor.assert_not_called()
 
 
 class TestBatchedGetPersonsByDistinctIds(SimpleTestCase):

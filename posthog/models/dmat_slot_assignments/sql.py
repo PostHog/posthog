@@ -15,9 +15,10 @@ and append-only would leave stale rows in the dict that silently overwrite
 columns no longer assigned to that (team, slot_index).
 """
 
+from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
-from posthog.settings.data_stores import CLICKHOUSE_DATABASE, CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
+from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 DMAT_SLOT_ASSIGNMENTS_TABLE_NAME = "dmat_slot_assignments"
 DMAT_SLOT_ASSIGNMENTS_DICTIONARY_NAME = "dmat_slot_assignments_dict"
@@ -63,6 +64,9 @@ FINAL
 """.replace("\n", " ").strip()
 
 
+CLICKHOUSE_DICT_READER_USER, CLICKHOUSE_DICT_READER_PASSWORD = get_clickhouse_creds(ClickHouseUser.DICT_READER)
+
+
 def DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL(on_cluster: bool = False) -> str:
     return """
 CREATE DICTIONARY IF NOT EXISTS {dictionary_name} {on_cluster_clause} (
@@ -77,8 +81,8 @@ LAYOUT(COMPLEX_KEY_HASHED())""".format(
         dictionary_name=f"`{DMAT_SLOT_ASSIGNMENTS_DICTIONARY_NAME}`",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         query=DMAT_SLOT_ASSIGNMENTS_DICTIONARY_QUERY(),
-        clickhouse_user=CLICKHOUSE_USER,
-        clickhouse_password=CLICKHOUSE_PASSWORD,
+        clickhouse_user=CLICKHOUSE_DICT_READER_USER,
+        clickhouse_password=CLICKHOUSE_DICT_READER_PASSWORD,
     )
 
 

@@ -6,9 +6,12 @@ import structlog
 import temporalio
 from pydantic import BaseModel, Field, model_validator
 
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
-from products.signals.backend.models import SignalReportArtefact
+from products.signals.backend.artefact_schemas import SafetyJudgment
+from products.signals.backend.models import ArtefactAttribution, SignalReportArtefact
 from products.signals.backend.temporal.llm import call_llm
 from products.signals.backend.temporal.types import SignalData, render_signals_to_text
 
@@ -114,6 +117,7 @@ class SafetyJudgeOutput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOutput:
     """Assess report for prompt injection attacks and store result as artefact."""
     try:
@@ -122,16 +126,14 @@ async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOu
             signals=input.signals,
         )
 
-        await SignalReportArtefact.objects.acreate(
+        # Append-only: each safety assessment is a point-in-time entry in the report log. The
+        # report's current safety status is the latest safety_judgment row. System-attributed:
+        # the judge is a plain LLM call on the worker — no user or sandbox task is in scope.
+        await database_sync_to_async(SignalReportArtefact.append_status, thread_sensitive=False)(
             team_id=input.team_id,
             report_id=input.report_id,
-            type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
-            content=json.dumps(
-                {
-                    "choice": result.choice,
-                    "explanation": result.explanation,
-                }
-            ),
+            content=SafetyJudgment(choice=result.choice, explanation=result.explanation),
+            attribution=ArtefactAttribution.system(),
         )
 
         logger.debug(

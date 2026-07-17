@@ -4,8 +4,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from freezegun import freeze_time
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+import pytest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest import mock
 
 from django.utils import timezone
@@ -13,32 +13,46 @@ from django.utils import timezone
 import pandas as pd
 from parameterized import parameterized
 
-from posthog.hogql.errors import QueryError
+from posthog.models.team import Team
 
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import (
+    GitHubSource,
     GitHubSourceNotConnectedError,
     MetricQuality,
     PRLifecycleEventKind,
     PRState,
 )
-from products.engineering_analytics.backend.logic import (
-    build_ci_cards,
-    build_pr_lifecycle,
-    build_pull_request_list,
-    build_workflow_health,
+from products.engineering_analytics.backend.logic import build_workflow_health
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries.pr_cost import query_cost_per_merge_series
+from products.engineering_analytics.backend.logic.sources import (
+    PULL_REQUESTS_SCHEMA,
+    WORKFLOW_RUNS_SCHEMA,
+    GitHubTables,
+    list_github_sources,
+    resolve_github_tables,
 )
-from products.engineering_analytics.backend.logic.queries import _curated
+from products.engineering_analytics.backend.logic.views.source_schema import WORKFLOW_JOBS_COLUMNS
 from products.engineering_analytics.backend.tests.test_views import (
     _PULL_REQUESTS_COLUMNS,
     _WORKFLOW_RUNS_COLUMNS,
+    GITHUB_SOURCE_PREFIX,
     _pr_row,
     _run_row,
+    connect_github_source_without_data,
+    create_github_source,
+    create_warehouse_table_row,
+    link_schema,
 )
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
-# All query modules run through this helper; patch it to test row mapping without a warehouse.
-_RUN_QUERY = "products.engineering_analytics.backend.logic.queries._curated.run_query"
+# Every query module runs HogQL through this method; patch it to test row mapping without a
+# warehouse. Patching the unbound method means the mock is called without `self`, so a plain
+# return_value / side_effect works as before.
+_RUN_QUERY = "products.engineering_analytics.backend.logic.queries._curated.CuratedGitHubSource.run"
 _PR_LIST = "products.engineering_analytics.backend.logic.queries.pull_request_list"
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.logic"
@@ -48,14 +62,64 @@ def _resp(results: list[tuple]) -> SimpleNamespace:
     return SimpleNamespace(results=results)
 
 
+def _pr_list_run(rows: list[tuple], push_rows: list[tuple] | None = None):
+    """Mocked ``curated.run`` for the PR-list path, which now issues two queries: the list
+    query returns ``rows``; the scoped push-history query returns ``push_rows``."""
+
+    def run(sql: str, *, query_type: str, **kwargs) -> SimpleNamespace:
+        if query_type == "engineering_analytics.pr_push_history":
+            return _resp(push_rows or [])
+        return _resp(rows)
+
+    return run
+
+
 def _dt(value: str) -> datetime:
     return datetime.fromisoformat(value).replace(tzinfo=UTC)
 
 
 def _ago(days: int) -> str:
+    return _ago_with_duration(days, 0)[0]
+
+
+def _ago_with_duration(days: int, duration_seconds: int) -> tuple[str, str]:
     # Seed dates relative to real time: HogQL now() runs server-side and ignores
     # freezegun, so window/age assertions must share the clock the query uses.
-    return (timezone.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    started_at = timezone.now() - timedelta(days=days)
+    updated_at = started_at + timedelta(seconds=duration_seconds)
+    fmt = "%Y-%m-%d %H:%M:%S"
+    return started_at.strftime(fmt), updated_at.strftime(fmt)
+
+
+def _job_row(
+    job_id: int,
+    run_id: int,
+    name: str,
+    conclusion: str,
+    *,
+    run_attempt: int = 1,
+    labels: str = '["depot-ubuntu-22.04-4"]',
+    started: str = "2026-01-01 00:00:00",
+    completed: str = "2026-01-01 00:02:00",
+) -> dict[str, Any]:
+    return {
+        "id": job_id,
+        "run_id": run_id,
+        "run_attempt": run_attempt,
+        "name": name,
+        "workflow_name": "CI",
+        "status": "completed",
+        "conclusion": conclusion,
+        "head_sha": "sha60",
+        "head_branch": "main",
+        "labels": labels,
+        "runner_name": "runner-1",
+        "runner_group_name": "depot",
+        "created_at": started,
+        "started_at": started,
+        "completed_at": completed,
+        "steps": "[]",
+    }
 
 
 def _header(
@@ -86,38 +150,66 @@ def _header(
 
 
 class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
-    """Creates warehouse tables from in-memory rows; skips when object storage is
-    unreachable so the suite still runs without the dev stack."""
+    """Seeds warehouse tables behind a connected GitHub source with a non-default prefix,
+    so the full resolve -> build -> query path runs end to end against `myprefixgithub_*`
+    tables. Skips when object storage is unreachable so the suite still runs without the
+    dev stack."""
 
-    def _create_table(self, name: str, columns: dict, rows: list[dict[str, Any]]) -> None:
+    def setUp(self) -> None:
+        super().setUp()
+        self._github_source: ExternalDataSource | None = None
+
+    def _create_table(
+        self,
+        base_name: str,
+        columns: dict,
+        rows: list[dict[str, Any]],
+        *,
+        source: ExternalDataSource | None = None,
+        prefix: str = GITHUB_SOURCE_PREFIX,
+    ) -> None:
+        # Defaults to the mixin's single shared source; pass source + prefix to seed a second
+        # source (e.g. one GitHub source per repository) under a distinct table prefix.
+        if source is None:
+            if self._github_source is None:
+                self._github_source = create_github_source(self.team)
+            source = self._github_source
         df = pd.DataFrame(rows, columns=list(columns.keys()))
         tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
         df.to_csv(tmp.name, index=False)
         tmp.close()
         self.addCleanup(Path(tmp.name).unlink, missing_ok=True)
         try:
-            _table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
+            table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
                 csv_path=Path(tmp.name),
-                table_name=name,
+                table_name=base_name,
                 table_columns=columns,
                 test_bucket=TEST_BUCKET,
                 team=self.team,
-                source_prefix="",
+                source=source,
+                source_prefix=prefix,
             )
         except PermissionError as err:
             self.skipTest(f"object storage unavailable: {err}")
         self.addCleanup(cleanup)
+        # base_name is "github_<endpoint>"; the synced schema/endpoint is its suffix.
+        link_schema(self.team, source, name=base_name.removeprefix("github_"), table=table)
 
 
 class TestPRLifecycleMapping(BaseTest):
     """HogQL parsing (parse_select runs for real) plus row mapping and event
-    assembly, without touching object storage."""
+    assembly, without touching object storage. The query helper is mocked, so a GitHub
+    source is connected (ORM only) just to satisfy the resolver."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        connect_github_source_without_data(self.team)
 
     def test_assembles_ordered_events_and_marks_partial(self) -> None:
         header = _header("merged", merged_at=_dt("2026-01-12T15:00:00"))
-        runs = [("CI", "completed", "success", _dt("2026-01-11T09:00:00"), _dt("2026-01-11T12:00:00"))]
+        runs = [(2001, "CI", "completed", "success", _dt("2026-01-11T09:00:00"), _dt("2026-01-11T12:00:00"))]
         with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp(runs)]):
-            lifecycle = build_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
+            lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
 
         assert lifecycle is not None
         assert lifecycle.metric_quality == MetricQuality.PARTIAL
@@ -131,52 +223,66 @@ class TestPRLifecycleMapping(BaseTest):
             PRLifecycleEventKind.CI_FINISHED,
             PRLifecycleEventKind.MERGED,
         ]
+        assert [e.run_id for e in lifecycle.events] == [None, 2001, 2001, None]
+
+    def test_skips_events_with_null_timestamps(self) -> None:
+        # parseDateTimeBestEffort yields NULL on a malformed/missing timestamp, so an event's `at`
+        # can come back None. A single bad run timestamp must drop just that event, not raise and
+        # take down the whole PR's lifecycle (the contract's `at` is non-nullable, and the event
+        # sort can't order a None key).
+        header = _header("merged", merged_at=_dt("2026-01-12T15:00:00"))
+        runs = [
+            # null start -> CI_STARTED dropped, but the completed finish still lands
+            (2001, "CI", "completed", "success", None, _dt("2026-01-11T12:00:00")),
+            # both timestamps null -> both events dropped
+            (2002, "Deploy", "completed", "success", None, None),
+        ]
+        with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp(runs)]):
+            lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
+
+        assert lifecycle is not None
+        assert [e.kind for e in lifecycle.events] == [
+            PRLifecycleEventKind.OPENED,
+            PRLifecycleEventKind.CI_FINISHED,
+            PRLifecycleEventKind.MERGED,
+        ]
+        assert [e.run_id for e in lifecycle.events] == [None, 2001, None]
 
     def test_returns_none_when_not_found(self) -> None:
         with mock.patch(_RUN_QUERY, return_value=_resp([])):
-            assert build_pr_lifecycle(team=self.team, pr_number=999, repo=None) is None
+            assert api.get_pr_lifecycle(team=self.team, pr_number=999, repo="PostHog/posthog") is None
 
     @parameterized.expand(["PostHog", "PostHog/", "/posthog", "/"])
     def test_malformed_repo_raises_before_querying(self, repo: str) -> None:
         # A half-specified repo must fail loudly, not silently drop the filter and
         # return a PR from the wrong repo. Raises in _split_repo before any query.
         with self.assertRaises(ValueError):
-            build_pr_lifecycle(team=self.team, pr_number=10, repo=repo)
+            api.get_pr_lifecycle(team=self.team, pr_number=10, repo=repo)
 
     def test_passes_through_view_derived_fields(self) -> None:
         # is_bot and state come from the curated query as columns; the logic layer does not re-derive them.
         header = _header("closed", merged_at=None, closed_at=_dt("2026-01-12T15:00:00"), is_bot=True, head_sha="")
         with mock.patch(_RUN_QUERY, return_value=_resp([header])):
-            lifecycle = build_pr_lifecycle(team=self.team, pr_number=10, repo=None)
+            lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
 
         assert lifecycle is not None
         assert lifecycle.pull_request.state == PRState.CLOSED
         assert lifecycle.pull_request.author.is_bot is True
         assert [e.kind for e in lifecycle.events] == [PRLifecycleEventKind.OPENED, PRLifecycleEventKind.CLOSED]
 
-    @parameterized.expand(
-        [
-            ("open", PRState.OPEN),
-            ("closed", PRState.CLOSED),
-            ("merged", PRState.MERGED),
-        ]
-    )
-    def test_state_passthrough(self, state: str, expected: PRState) -> None:
-        merged_at = _dt("2026-01-12T15:00:00") if state == "merged" else None
-        with mock.patch(_RUN_QUERY, return_value=_resp([_header(state, merged_at=merged_at, head_sha="")])):
-            lifecycle = build_pr_lifecycle(team=self.team, pr_number=10, repo=None)
-
-        assert lifecycle is not None
-        assert lifecycle.pull_request.state == expected
-
 
 class TestEndpointMapping(BaseTest):
-    """Row mapping for the aggregate endpoints (query helper mocked, no warehouse),
-    plus the no-source error path."""
+    """Row mapping for the aggregate endpoints (the query method mocked, no warehouse).
+    A GitHub source is connected (ORM only) so the resolver succeeds before the mocked
+    query runs."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        connect_github_source_without_data(self.team)
 
     def test_ci_cards_maps_counts(self) -> None:
         with mock.patch(_RUN_QUERY, return_value=_resp([(5, 2, 1, 1)])):
-            cards = build_ci_cards(team=self.team)
+            cards = api.get_ci_cards(team=self.team)
         assert (cards.open_prs, cards.repos, cards.stuck, cards.failing_ci) == (5, 2, 1, 1)
 
     def test_pull_request_list_maps_row(self) -> None:
@@ -198,9 +304,18 @@ class TestEndpointMapping(BaseTest):
             2,
             1,
             0,
+            ["E2E CI"],
+            5,
+            2,
         )
-        with mock.patch(_RUN_QUERY, return_value=_resp([row])):
-            result = build_pull_request_list(team=self.team, date_from="-30d")
+        # The query returns newest-first (its per-PR LIMIT BY keeps the most recent pushes); the mapper
+        # reverses to the oldest-first contract, so the mock is ordered newest-first to match.
+        push_rows = [
+            ("PostHog", "posthog", 10, "sha-new", _dt("2026-01-11T10:00:00"), None, 0, 1),
+            ("PostHog", "posthog", 10, "sha-old", _dt("2026-01-10T10:00:00"), 900, 1, 0),
+        ]
+        with mock.patch(_RUN_QUERY, side_effect=_pr_list_run([row], push_rows)):
+            result = api.list_pull_requests(team=self.team, date_from="-30d")
 
         assert result.truncated is False
         assert len(result.items) == 1
@@ -212,6 +327,13 @@ class TestEndpointMapping(BaseTest):
         assert item.labels == ["bug", "p1"]
         assert item.open_to_merge_seconds is None
         assert (item.ci.runs, item.ci.passing, item.ci.failing, item.ci.pending) == (3, 2, 1, 0)
+        assert item.ci.failing_workflows == ["E2E CI"]
+        assert (item.pushes, item.rerun_cycles) == (5, 2)
+        assert item.estimated_cost_usd is None
+        assert [(p.head_sha, p.wall_seconds, p.failed, p.pending) for p in item.push_history] == [
+            ("sha-old", 900, True, False),
+            ("sha-new", None, False, True),
+        ]
 
     def test_pull_request_list_flags_truncation(self) -> None:
         # Cap patched low; return more rows than the cap to exercise the N+1 overflow
@@ -234,85 +356,375 @@ class TestEndpointMapping(BaseTest):
             0,
             0,
             0,
+            list[str](),
+            0,
+            0,
         )
-        with mock.patch(f"{_PR_LIST}._LIMIT", 2), mock.patch(_RUN_QUERY, return_value=_resp([row, row, row])):
-            result = build_pull_request_list(team=self.team, date_from="-30d")
+        with (
+            mock.patch(f"{_PR_LIST}._LIMIT", 2),
+            mock.patch(_RUN_QUERY, side_effect=_pr_list_run([row, row, row])),
+        ):
+            result = api.list_pull_requests(team=self.team, date_from="-30d")
 
         assert result.truncated is True
         assert result.limit == 2
         assert len(result.items) == 2
 
+    def test_current_branch_health_counts_every_workflow(self) -> None:
+        workflow_rows = [(f"Workflow {index}", 1, 0) for index in range(100)]
+        workflow_rows.extend((f"Low-volume failure {index:02d}", 1, 1) for index in range(21))
+        workflow_rows.append(("Still running", 0, 0))
+
+        def run(sql: str, *, query_type: str, **kwargs) -> SimpleNamespace:
+            if query_type == "engineering_analytics.default_branch":
+                return _resp([(0, 12)])
+            assert query_type == "engineering_analytics.current_branch_health"
+            assert "LIMIT" not in sql.upper()
+            return _resp(workflow_rows)
+
+        with mock.patch(_RUN_QUERY, side_effect=run):
+            health = api.get_current_branch_health(team=self.team)
+
+        assert health.default_branch == "main"
+        assert health.settled_workflows == 121
+        assert health.failing_workflows == 21
+        assert health.failing_workflow_names == [f"Low-volume failure {index:02d}" for index in range(20)]
+
     def test_workflow_health_maps_and_nulls_empty_window(self) -> None:
+        # Columns: owner, name, workflow, run_count, success_rate, p50, p95, last_failure_at,
+        # completed_count, latest_failed, latest_conclusion, rerun_cycles.
         rows = [
-            ("CI", 10, 0.9, 120.0, 600.0, _dt("2026-01-20T00:00:00")),
-            # No completed runs: success_rate is NULL and quantileIf returns NaN — both map to None.
-            ("Deploy", 2, None, float("nan"), float("nan"), None),
+            ("PostHog", "posthog", "CI", 10, 0.9, 120.0, 600.0, _dt("2026-01-20T00:00:00"), 8, 0, "success", 3),
+            # No completed runs: success_rate is NULL and quantileIf returns NaN — both map to None,
+            # latest_run_failed is None (the completed_count guard), and latest_run_conclusion is None too
+            # despite argMaxIf's '' default.
+            ("PostHog", "posthog", "Deploy", 2, None, float("nan"), float("nan"), None, 0, 0, "", 0),
         ]
-        with mock.patch(_RUN_QUERY, return_value=_resp(rows)):
-            items = build_workflow_health(team=self.team, date_from="-30d", date_to=None)
+        # A -30d window buckets by day. Must land inside the window (relative to now). Columns:
+        # owner, name, workflow, bucket_start, run_count, completed, successes, failures.
+        bucket_rows = [("PostHog", "posthog", "CI", datetime.now(tz=UTC) - timedelta(days=1), 10, 8, 7, 1)]
+        # Third response: the previous-window success rate (the Δ baseline); Deploy had no prior runs.
+        prev_rows = [("PostHog", "posthog", "CI", 0.95)]
+        with mock.patch(_RUN_QUERY, side_effect=[_resp(rows), _resp(bucket_rows), _resp(prev_rows)]):
+            items = api.list_workflow_health(team=self.team, date_from="-30d", date_to=None)
 
         assert items[0].workflow_name == "CI" and items[0].success_rate == 0.9
+        assert items[0].repo.owner == "PostHog" and items[0].repo.name == "posthog"
+        assert items[0].granularity == "day"
+        assert items[0].latest_run_failed is False
+        assert items[0].latest_run_conclusion == "success"
+        assert items[0].rerun_cycles == 3
+        assert items[0].success_rate_prev == 0.95
+        assert items[1].success_rate_prev is None
+        # The series spans the whole window, zero-filled except the bucket with runs.
+        assert len(items[0].buckets) >= 30
+        seeded_bucket = next(entry for entry in items[0].buckets if entry.run_count > 0)
+        assert (seeded_bucket.completed, seeded_bucket.successes, seeded_bucket.failures) == (8, 7, 1)
+        assert all(entry.run_count == 0 for entry in items[1].buckets)
         assert items[0].p50_seconds == 120.0 and items[0].p95_seconds == 600.0
         assert items[1].success_rate is None
+        assert items[1].latest_run_failed is None
+        assert items[1].latest_run_conclusion is None
         assert items[1].p50_seconds is None and items[1].p95_seconds is None
         assert items[1].last_failure_at is None
 
+
+class TestResolveBranchMapping(BaseTest):
+    """Row mapping for resolve_branch (query method mocked, no warehouse). A GitHub source is
+    connected (ORM only) so the resolver succeeds before the mocked query runs."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        connect_github_source_without_data(self.team)
+
+    def test_maps_rows_and_normalizes_empty_fields(self) -> None:
+        # branch columns: repo_owner, repo_name, number, title, state. The second row carries an empty
+        # title / null state -> both normalize to None.
+        rows = [("PostHog", "posthog", 42, "Fix bug", "merged"), ("PostHog", "posthog", 7, "", None)]
+        with mock.patch(_RUN_QUERY, return_value=_resp(rows)) as run:
+            matches = api.resolve_branch(team=self.team, branch="feat/x")
+        assert [(m.repo, m.number, m.title, m.state) for m in matches] == [
+            ("PostHog/posthog", 42, "Fix bug", "merged"),
+            ("PostHog/posthog", 7, None, None),
+        ]
+        assert run.call_count == 1
+
+    @parameterized.expand([("branch_none", None), ("branch_blank", "   ")])
+    def test_rejects_missing_branch(self, _name: str, branch: str | None) -> None:
+        # Validation raises before any query is issued (source resolution still succeeds first).
+        with mock.patch(_RUN_QUERY) as run, self.assertRaises(ValueError):
+            api.resolve_branch(team=self.team, branch=branch)
+        run.assert_not_called()
+
+
+class TestCostPerMergeSeries(BaseTest):
+    """The cost-per-merged-PR trend on the repo hub: bucketing, zero-fill, and the cost/merge
+    division guard. The two warehouse scans are mocked (curated fully faked), so this tests the
+    Python fold — the bucket join, the trailing-window ratio, the empty-bucket handling — without a
+    warehouse. Cost is aggregated in SQL over the shared cost source, so only the per-bucket dollar
+    figure crosses the mock boundary."""
+
+    @staticmethod
+    def _curated(cost_rows: list[tuple], merges_rows: list[tuple], *, jobs_synced: bool = True) -> mock.Mock:
+        curated = mock.Mock()
+        curated.job_cost_source.return_value = "(cost_source)" if jobs_synced else None
+        curated.pr_source.return_value = "px_github_pull_requests"
+        # Cost scan first, then the merges scan — the call order in query_cost_per_merge_series.
+        curated.run.side_effect = [_resp(cost_rows), _resp(merges_rows)]
+        return curated
+
+    def test_buckets_cost_per_merge_and_zero_fills(self) -> None:
+        date_from = _dt("2026-06-01T00:00:00")
+        date_to = _dt("2026-06-30T00:00:00")  # 29-day window -> day granularity, deterministic buckets.
+        # Columns: bucket_start, billable_seconds, cost_sum, costed, unsettled, excluded — the SQL cost
+        # aggregates. depot-4 (4-core) bills at 2x, so 2 min -> 2 * 0.004 * 2 = 0.016; 1 min -> 0.008.
+        cost_rows = [
+            (datetime(2026, 6, 2), 120.0, 0.016, 1, 0, 0),
+            (datetime(2026, 6, 3), 60.0, 0.008, 1, 0, 0),
+            (datetime(2026, 6, 6), 120.0, 0.016, 1, 0, 0),  # cost but no merges below
+        ]
+        # Columns: bucket_start, merges.
+        merges_rows = [
+            (datetime(2026, 6, 2), 4),
+            (datetime(2026, 6, 3), 2),
+            (datetime(2026, 6, 5), 3),  # merges but no cost above
+        ]
+        buckets = query_cost_per_merge_series(
+            curated=self._curated(cost_rows, merges_rows), date_from=date_from, date_to=date_to, granularity="day"
+        )
+
+        assert len(buckets) == 30  # June 1..30 inclusive, zero-filled.
+        by_day = {bucket.bucket_start: bucket for bucket in buckets}
+
+        # estimated_cost_usd / merges stay bucket-local; the ratio is the trailing 7-day rolling window.
+        assert by_day[datetime(2026, 6, 2)].estimated_cost_usd == pytest.approx(0.016)
+        assert by_day[datetime(2026, 6, 2)].merges == 4
+        assert by_day[datetime(2026, 6, 2)].cost_per_merge_usd == pytest.approx(0.016 / 4)
+        assert by_day[datetime(2026, 6, 3)].cost_per_merge_usd == pytest.approx((0.016 + 0.008) / 6)
+
+        # A merge-only day still gets a ratio from the trailing window's cost.
+        assert by_day[datetime(2026, 6, 5)].estimated_cost_usd is None
+        assert by_day[datetime(2026, 6, 5)].merges == 3
+        assert by_day[datetime(2026, 6, 5)].cost_per_merge_usd == pytest.approx((0.016 + 0.008) / 9)
+
+        # A cost-only day likewise divides by the trailing window's merges (no divide-by-zero hole).
+        assert by_day[datetime(2026, 6, 6)].estimated_cost_usd == pytest.approx(0.016)
+        assert by_day[datetime(2026, 6, 6)].merges == 0
+        assert by_day[datetime(2026, 6, 6)].cost_per_merge_usd == pytest.approx((0.016 + 0.008 + 0.016) / 9)
+
+        # Once the trailing window slides past the merges (Jun 5 + 7d), cost alone yields no ratio.
+        assert by_day[datetime(2026, 6, 12)].cost_per_merge_usd is None
+
+        # An untouched bucket keeps its raw fields zero-filled but inherits the trailing ratio while
+        # the window still covers data (Jun 10 window = Jun 4..10: Jun 6 cost / Jun 5 merges).
+        empty = by_day[datetime(2026, 6, 10)]
+        assert (empty.estimated_cost_usd, empty.merges) == (None, 0)
+        assert empty.cost_per_merge_usd == pytest.approx(0.016 / 3)
+
+        # A bucket whose whole trailing window is empty is fully null.
+        dead = by_day[datetime(2026, 6, 20)]
+        assert (dead.estimated_cost_usd, dead.merges, dead.cost_per_merge_usd) == (None, 0, None)
+
+    def test_empty_when_jobs_source_unsynced(self) -> None:
+        curated = self._curated([], [], jobs_synced=False)
+        buckets = query_cost_per_merge_series(
+            curated=curated, date_from=_dt("2026-06-01T00:00:00"), date_to=_dt("2026-06-30T00:00:00"), granularity="day"
+        )
+        assert buckets == []
+        curated.run.assert_not_called()  # no jobs source -> no scan is issued
+
+
+class TestResolveGitHubTables(BaseTest):
+    """The per-team table resolver over the warehouse models (ORM only, no object storage).
+    No source is connected in setUp so the missing-source path can be exercised."""
+
+    def _connect(
+        self,
+        *,
+        prefix: str,
+        schemas: list[tuple[str, bool, bool]],
+        source_type: ExternalDataSourceType = ExternalDataSourceType.GITHUB,
+        team: Team | None = None,
+    ) -> ExternalDataSource:
+        # schemas: (endpoint name, should_sync, has a backing table)
+        team = team or self.team
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_id=f"src-{prefix}",
+            connection_id=f"src-{prefix}",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=source_type,
+            prefix=prefix,
+        )
+        for name, should_sync, has_table in schemas:
+            table = (
+                create_warehouse_table_row(team, name=f"{prefix}github_{name}", source=source) if has_table else None
+            )
+            link_schema(team, source, name=name, table=table, should_sync=should_sync)
+        return source
+
+    _BOTH_SYNCED = [(PULL_REQUESTS_SCHEMA, True, True), (WORKFLOW_RUNS_SCHEMA, True, True)]
+
+    def test_resolves_non_default_prefix_tables(self) -> None:
+        self._connect(prefix="myprefix", schemas=self._BOTH_SYNCED)
+        tables = resolve_github_tables(team=self.team)
+        assert tables == GitHubTables(
+            pull_requests="myprefixgithub_pull_requests", workflow_runs="myprefixgithub_workflow_runs"
+        )
+
+    def test_repo_scoped_resolution_survives_non_dict_job_inputs(self) -> None:
+        # job_inputs is an EncryptedJSONField that can hold any JSON value; the repo-first ordering
+        # must treat a non-dict as "no repository input", not crash the whole resolution.
+        source = self._connect(prefix="weird", schemas=self._BOTH_SYNCED)
+        ExternalDataSource.objects.filter(pk=source.pk).update(job_inputs=["not", "a", "dict"])
+        tables = resolve_github_tables(team=self.team, repo="PostHog/posthog")
+        assert tables.pull_requests == "weirdgithub_pull_requests"
+
+    def test_raises_without_a_github_source(self) -> None:
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            resolve_github_tables(team=self.team)
+
+    def test_build_raises_without_a_github_source(self) -> None:
+        # The orchestrator surfaces the resolver's error so the viewset can map it to a 400.
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            api.get_ci_cards(team=self.team)
+
     @parameterized.expand(
         [
-            ("github_pull_requests", GitHubSourceNotConnectedError),
-            ("github_workflow_runs", GitHubSourceNotConnectedError),
-            # An unrelated missing table is a real bug, not "no GitHub source" — it must
-            # surface as the original QueryError rather than masquerade as a 4xx.
-            ("some_typo", QueryError),
+            # Same-named schemas on a non-GitHub source must not be mistaken for a GitHub source.
+            ("non_github_source", [(PULL_REQUESTS_SCHEMA, True, True), (WORKFLOW_RUNS_SCHEMA, True, True)], "stripe"),
+            ("endpoint_not_synced", [(PULL_REQUESTS_SCHEMA, False, True), (WORKFLOW_RUNS_SCHEMA, False, True)], "gh"),
+            ("missing_one_endpoint", [(PULL_REQUESTS_SCHEMA, True, True)], "gh"),
+            ("schema_without_table", [(PULL_REQUESTS_SCHEMA, True, False), (WORKFLOW_RUNS_SCHEMA, True, False)], "gh"),
         ]
     )
-    def test_unknown_table_only_translates_for_source_tables(self, table: str, expected: type[Exception]) -> None:
-        with mock.patch(
-            "products.engineering_analytics.backend.logic.queries._curated.execute_hogql_query",
-            side_effect=QueryError(f"Unknown table `{table}`."),
-        ):
-            with self.assertRaises(expected):
-                _curated.run_query("SELECT 1", team=self.team, query_type="engineering_analytics.test")
+    def test_raises_when_endpoints_unavailable(
+        self, _name: str, schemas: list[tuple[str, bool, bool]], kind: str
+    ) -> None:
+        source_type = ExternalDataSourceType.STRIPE if kind == "stripe" else ExternalDataSourceType.GITHUB
+        self._connect(prefix="myprefix", schemas=schemas, source_type=source_type)
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            resolve_github_tables(team=self.team)
 
-    def test_build_propagates_source_error(self) -> None:
-        with mock.patch(_RUN_QUERY, side_effect=GitHubSourceNotConnectedError()):
-            with self.assertRaises(GitHubSourceNotConnectedError):
-                build_pull_request_list(team=self.team)
+    def test_prefers_oldest_complete_source(self) -> None:
+        # Two fully-connected GitHub sources (e.g. one per repo): the oldest wins, deterministically.
+        self._connect(prefix="older", schemas=self._BOTH_SYNCED)
+        self._connect(prefix="newer", schemas=self._BOTH_SYNCED)
+        tables = resolve_github_tables(team=self.team)
+        assert tables.pull_requests == "oldergithub_pull_requests"
 
-
-class TestPRLifecycleWarehouse(_WarehouseMixin, BaseTest):
-    """End-to-end through the curated builders over real warehouse tables.
-    Skips when object storage is unreachable."""
-
-    @freeze_time("2026-02-01")
-    def test_pr_lifecycle_end_to_end(self) -> None:
-        self._create_table(
-            "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
-            [
-                _pr_row(
-                    10, "alice", "closed", 0, "2026-01-10 09:00:00", merged_at="2026-01-12 15:00:00", head_sha="sha10"
-                )
-            ],
-        )
-        self._create_table(
-            "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
-            [_run_row(2001, "CI", "sha10", "completed", "success", "2026-01-11 09:00:00", "2026-01-11 12:00:00")],
+    def test_skips_incomplete_source_for_a_complete_one(self) -> None:
+        # The oldest source is missing an endpoint; resolution falls through to the complete one.
+        self._connect(prefix="incomplete", schemas=[(PULL_REQUESTS_SCHEMA, True, True)])
+        self._connect(prefix="complete", schemas=self._BOTH_SYNCED)
+        tables = resolve_github_tables(team=self.team)
+        assert tables == GitHubTables(
+            pull_requests="completegithub_pull_requests", workflow_runs="completegithub_workflow_runs"
         )
 
-        lifecycle = build_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
+    def test_ignores_soft_deleted_source(self) -> None:
+        source = self._connect(prefix="myprefix", schemas=self._BOTH_SYNCED)
+        ExternalDataSource.objects.filter(pk=source.pk).update(deleted=True)
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            resolve_github_tables(team=self.team)
 
-        assert lifecycle is not None
-        assert lifecycle.pull_request.state == PRState.MERGED
-        assert lifecycle.pull_request.author.handle == "alice"
-        assert lifecycle.pull_request.repo.name == "posthog"
-        assert [e.kind for e in lifecycle.events] == [
-            PRLifecycleEventKind.OPENED,
-            PRLifecycleEventKind.CI_STARTED,
-            PRLifecycleEventKind.CI_FINISHED,
-            PRLifecycleEventKind.MERGED,
+    def test_source_id_selects_a_specific_source(self) -> None:
+        self._connect(prefix="older", schemas=self._BOTH_SYNCED)
+        newer = self._connect(prefix="newer", schemas=self._BOTH_SYNCED)
+        tables = resolve_github_tables(team=self.team, source_id=str(newer.id))
+        assert tables == GitHubTables(
+            pull_requests="newergithub_pull_requests", workflow_runs="newergithub_workflow_runs"
+        )
+
+    def test_unknown_source_id_raises(self) -> None:
+        self._connect(prefix="myprefix", schemas=self._BOTH_SYNCED)
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            resolve_github_tables(team=self.team, source_id="0192f000-0000-7000-8000-000000000000")
+
+    def test_malformed_source_id_raises_value_error(self) -> None:
+        with self.assertRaises(ValueError):
+            resolve_github_tables(team=self.team, source_id="not-a-uuid")
+
+    def test_source_id_is_scoped_to_the_team(self) -> None:
+        # Selecting another team's source id must not leak it — the team filter excludes it.
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other_source = self._connect(prefix="other", schemas=self._BOTH_SYNCED, team=other_team)
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            resolve_github_tables(team=self.team, source_id=str(other_source.id))
+
+
+class TestListGitHubSources(BaseTest):
+    """list_github_sources lists every connected GitHub source for a picker (ORM only).
+    Unlike resolve_github_tables it does not require synced tables — a half-synced source the
+    user connected should still be selectable; the empty state handles an unusable pick."""
+
+    def _source(
+        self,
+        *,
+        prefix: str,
+        repository: str | None = None,
+        source_type: ExternalDataSourceType = ExternalDataSourceType.GITHUB,
+        team: Team | None = None,
+    ) -> ExternalDataSource:
+        team = team or self.team
+        return ExternalDataSource.objects.create(
+            team=team,
+            source_id=f"src-{prefix}",
+            connection_id=f"src-{prefix}",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=source_type,
+            prefix=prefix,
+            job_inputs={"repository": repository} if repository else {},
+        )
+
+    def test_lists_sources_oldest_first_with_repo_and_prefix(self) -> None:
+        older = self._source(prefix="older", repository="PostHog/posthog")
+        newer = self._source(prefix="newer", repository="PostHog/posthog.com")
+        assert list_github_sources(team=self.team) == [
+            GitHubSource(id=str(older.id), repo="PostHog/posthog", prefix="older"),
+            GitHubSource(id=str(newer.id), repo="PostHog/posthog.com", prefix="newer"),
         ]
+
+    def test_includes_sources_without_synced_tables(self) -> None:
+        # No schemas/tables linked: resolve_github_tables would reject this, the picker keeps it.
+        source = self._source(prefix="pronly", repository="PostHog/posthog")
+        assert [s.id for s in list_github_sources(team=self.team)] == [str(source.id)]
+
+    def test_repo_is_blank_without_a_repository_input(self) -> None:
+        source = self._source(prefix="noinputs")
+        assert list_github_sources(team=self.team) == [GitHubSource(id=str(source.id), repo="", prefix="noinputs")]
+
+    def test_repo_is_blank_when_job_inputs_is_not_a_dict(self) -> None:
+        # job_inputs is an EncryptedJSONField that can hold any JSON value; a non-dict must not crash
+        # the shared repository read (it backs every endpoint via resolve_github_tables), just yield "".
+        source = self._source(prefix="weird")
+        ExternalDataSource.objects.filter(pk=source.pk).update(job_inputs=["not", "a", "dict"])
+        assert list_github_sources(team=self.team) == [GitHubSource(id=str(source.id), repo="", prefix="weird")]
+
+    def test_excludes_non_github_and_soft_deleted_sources(self) -> None:
+        self._source(prefix="stripe", source_type=ExternalDataSourceType.STRIPE)
+        deleted = self._source(prefix="gone", repository="PostHog/posthog")
+        ExternalDataSource.objects.filter(pk=deleted.pk).update(deleted=True)
+        kept = self._source(prefix="kept", repository="PostHog/posthog")
+        assert [s.id for s in list_github_sources(team=self.team)] == [str(kept.id)]
+
+    def test_empty_without_a_github_source(self) -> None:
+        assert list_github_sources(team=self.team) == []
+
+    def test_scoped_to_the_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        self._source(prefix="theirs", repository="PostHog/posthog", team=other_team)
+        assert list_github_sources(team=self.team) == []
+
+
+class TestWorkflowHealthWindowCap(BaseTest):
+    @parameterized.expand(["2000-01-01", "-500d"])
+    def test_rejects_windows_beyond_a_year(self, date_from: str) -> None:
+        # The window cap is build_workflow_health's own guard, reached before it reads any data; a
+        # handle with dummy table names exposes the team (for timezone) and nothing else is touched.
+        curated = CuratedGitHubSource(team=self.team, tables=GitHubTables(pull_requests="pr", workflow_runs="wr"))
+        with pytest.raises(ValueError, match="the maximum is 366"):
+            build_workflow_health(curated=curated, date_from=date_from)
 
 
 class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
@@ -333,6 +745,8 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
                 _pr_row(12, "carol", "open", 1, _ago(30), head_sha="sha12"),
                 # open bot -> not stuck
                 _pr_row(13, "dependabot[bot]", "open", 0, _ago(30), head_sha="sha13"),
+                # open allowlisted bot (no [bot] suffix) -> is_bot, not stuck
+                _pr_row(16, "renovate", "open", 0, _ago(30), head_sha="sha16"),
                 # merged within the default 30d window -> in the list, not open
                 _pr_row(14, "alice", "closed", 0, _ago(40), merged_at=_ago(5), head_sha="sha14"),
                 # merged long ago -> outside the window, excluded from the list
@@ -343,33 +757,1210 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
             "github_workflow_runs",
             _WORKFLOW_RUNS_COLUMNS,
             [
-                _run_row(2001, "CI", "sha10", "completed", "failure", _ago(1), _ago(1)),
-                _run_row(2002, "CI", "sha11", "completed", "success", _ago(2), _ago(2)),
+                _run_row(2001, "CI", "sha10", "completed", "failure", _ago(1), _ago(1), pr_number=10),
+                _run_row(2002, "CI", "sha11", "completed", "success", _ago(2), _ago(2), pr_number=11),
+                # A second push on PR 10 (new head SHA) that was re-run -> pushes=2, rerun_cycles=1.
+                # A non-CI workflow so the CI workflow-health assertions stay at 2 runs.
+                _run_row(
+                    2003, "Deploy", "sha10b", "completed", "success", _ago(1), _ago(1), pr_number=10, run_attempt=2
+                ),
             ],
         )
 
     def test_ci_cards_counts(self) -> None:
         self._seed()
         cards = api.get_ci_cards(team=self.team)
-        assert cards.open_prs == 4  # 10, 11, 12, 13
+        assert cards.open_prs == 5  # 10, 11, 12, 13, 16
         assert cards.repos == 1  # all PostHog/posthog
-        assert cards.stuck == 1  # only 11 (10 recent, 12 draft, 13 bot)
+        assert cards.stuck == 1  # only 11 (10 recent, 12 draft, 13 and 16 bots)
         assert cards.failing_ci == 1  # only 10 has a failing latest run
+
+    def test_repo_overview_headlines_and_series_toggle(self) -> None:
+        # The weekly digest's whole read path: headline aggregates with include_series=False must
+        # still carry every number the digest renders — merged counts over ALL merged PRs (bots
+        # included: the merge population that triggered the spend) while the median keeps the
+        # locked bots/drafts-excluded recipe, plus job-backed billable minutes — with all four
+        # chart series empty. The default call keeps the series for the UI.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [
+                # human, merged in window: open->merge = 8 days; the median's only sample
+                _pr_row(80, "alice", "closed", 0, _ago(10), merged_at=_ago(2), head_sha="sha80"),
+                # bot, merged in window: counted in merged_pr_count, excluded from the median
+                _pr_row(81, "dependabot[bot]", "closed", 0, _ago(4), merged_at=_ago(3), head_sha="sha81"),
+                # merged before the window (and before its prev twin): in neither count
+                _pr_row(82, "alice", "closed", 0, _ago(120), merged_at=_ago(90), head_sha="sha82"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(9500, "CI", "sha80", "completed", "success", _ago(2), _ago(2), pr_number=80),
+                _run_row(9501, "CI", "sha81", "completed", "success", _ago(3), _ago(3), pr_number=81, run_attempt=2),
+            ],
+        )
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [_job_row(95000, 9500, "build", "success", labels='["depot-ubuntu-22.04-4"]')],
+        )
+
+        overview = api.get_repo_overview(team=self.team, include_series=False)
+        assert overview.merged_pr_count == 2  # 80 and 81; 82 merged long before the window
+        assert overview.merged_pr_count_prev == 0
+        assert overview.median_open_to_merge_seconds == pytest.approx(8 * 86400)  # bot PR 81 excluded
+        assert overview.run_count == 2
+        assert overview.rerun_cycles == 1
+        assert overview.billable_minutes == pytest.approx(2.0)  # one 120s job on a billable tier
+        assert overview.estimated_cost_usd == pytest.approx(0.016)  # 2 min x $0.004 x 2 (4-core)
+        assert overview.cost_series == []
+        assert overview.time_to_green_series == []
+        assert overview.success_rate_series == []
+        assert overview.open_to_merge_series == []
+        assert overview.cost_series_granularity == "day"  # the grain the series would have used
+
+        with_series = api.get_repo_overview(team=self.team)
+        assert len(with_series.cost_series) > 0  # zero-filled spine across the default -30d window
+        assert len(with_series.success_rate_series) > 0
 
     def test_pull_request_list_window_and_rollup(self) -> None:
         self._seed()
         result = api.list_pull_requests(team=self.team)
         assert result.truncated is False
         by_number = {item.number: item for item in result.items}
-        assert set(by_number) == {10, 11, 12, 13, 14}  # 15 merged before the window
+        assert set(by_number) == {10, 11, 12, 13, 14, 16}  # 15 merged before the window
         assert by_number[10].ci.failing == 1
         assert by_number[11].ci.passing == 1
-        assert by_number[13].author.is_bot is True
+        assert by_number[13].author.is_bot is True  # '[bot]' suffix branch
+        assert by_number[16].author.is_bot is True  # KNOWN_BOT_HANDLES allowlist branch
+        # pushes = distinct head SHAs across runs attributed to the PR; rerun_cycles = 2nd+ attempts.
+        assert (by_number[10].pushes, by_number[10].rerun_cycles) == (2, 1)
+        assert (by_number[11].pushes, by_number[11].rerun_cycles) == (1, 0)
+        assert by_number[12].pushes == 0  # no runs attributed to this PR
+        assert by_number[10].estimated_cost_usd is None  # no jobs source seeded here → no cost figure
+
+    def test_pull_request_list_includes_cost_when_jobs_synced(self) -> None:
+        # With the jobs source synced, the list carries per-PR cost + billable minutes.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(70, "alice", "open", 0, _ago(1), head_sha="sha70")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9400, "CI", "sha70", "completed", "success", _ago(1), _ago(1), pr_number=70)],
+        )
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [_job_row(94000, 9400, "build", "success", labels='["depot-ubuntu-22.04-4"]')],
+        )
+        item = next(i for i in api.list_pull_requests(team=self.team).items if i.number == 70)
+        assert item.estimated_cost_usd is not None and item.estimated_cost_usd > 0
+        assert item.billable_minutes is not None and item.billable_minutes > 0
+
+    def test_pr_cost_sums_all_jobs_past_the_default_row_cap(self) -> None:
+        # A PR with more jobs than HogQL's default 100-row cap: the detail cost must sum every job, not
+        # silently truncate to the first 100 (the truncation that made PR detail cost disagree with the list).
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(71, "alice", "open", 0, _ago(1), head_sha="sha71")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9700, "CI", "sha71", "completed", "success", _ago(1), _ago(1), pr_number=71)],
+        )
+        job_count = 150
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                _job_row(97000 + i, 9700, f"job-{i}", "success", labels='["depot-ubuntu-22.04-4"]')
+                for i in range(job_count)
+            ],
+        )
+        cost = api.get_pr_cost(team=self.team, pr_number=71, repo="PostHog/posthog")
+        # Every job counts; before the LIMIT fix this capped at 100. 150 jobs x 120s = 300 min, depot
+        # 4-core (2x) at $0.004/min = 300 x 0.004 x 2 = $2.40.
+        assert cost.costed_jobs == job_count
+        assert cost.estimated_cost_usd == pytest.approx(2.40)
+
+    def test_pr_cost_clamps_clock_skewed_negative_durations(self) -> None:
+        # Two jobs share one run/label group: a normal +120s job and a clock-skewed -120s one
+        # (completed_at < started_at). The grouped sum must clamp the negative per-job (greatest(.,0))
+        # so it doesn't cancel its group-mate's elapsed inside the group total. Without the clamp the
+        # group sums to 0s and the PR reads $0.00; with it, the skewed job contributes 0 and the
+        # normal job's 120s survives = 2 billable min, depot 4-core (2x) at $0.004/min = $0.016.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(72, "alice", "open", 0, _ago(1), head_sha="sha72")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9800, "CI", "sha72", "completed", "success", _ago(1), _ago(1), pr_number=72)],
+        )
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                _job_row(98000, 9800, "ok", "success", started="2026-01-01 00:00:00", completed="2026-01-01 00:02:00"),
+                _job_row(
+                    98001, 9800, "skew", "success", started="2026-01-01 00:02:00", completed="2026-01-01 00:00:00"
+                ),
+            ],
+        )
+        cost = api.get_pr_cost(team=self.team, pr_number=72, repo="PostHog/posthog")
+        assert cost.costed_jobs == 2
+        assert cost.billable_minutes == pytest.approx(2.0)
+        assert cost.estimated_cost_usd == pytest.approx(0.016)
+
+    def test_pull_request_list_author_filter(self) -> None:
+        # The author filter scopes the list to one author's PRs (drives the author page).
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(81, "alice", "open", 0, _ago(1), head_sha="sha81"),
+                _pr_row(82, "bob", "open", 0, _ago(1), head_sha="sha82"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(8100, "CI", "sha81", "completed", "success", _ago(1), _ago(1), pr_number=81)],
+        )
+        assert {i.number for i in api.list_pull_requests(team=self.team, author="alice").items} == {81}
+        assert {i.number for i in api.list_pull_requests(team=self.team, author="bob").items} == {82}
+
+    def test_resolve_branch_orders_open_first(self) -> None:
+        # The branch path matches the PR head ref (head.ref); open PRs come before merged/closed ones,
+        # and PRs on other branches are excluded.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(62, "bob", "closed", 0, _ago(6), merged_at=_ago(1), head_sha="sha62", head_ref="feat/login"),
+                _pr_row(61, "alice", "open", 0, _ago(2), head_sha="sha61", head_ref="feat/login"),
+                _pr_row(63, "carol", "open", 0, _ago(1), head_sha="sha63", head_ref="other"),
+            ],
+        )
+        # Source resolution requires the workflow_runs schema synced too (SPEC: both endpoints
+        # required together), even though the branch path only reads the PR snapshot.
+        self._create_table("github_workflow_runs", _WORKFLOW_RUNS_COLUMNS, [])
+        matches = api.resolve_branch(team=self.team, branch="feat/login")
+        assert [m.number for m in matches] == [61, 62]  # only feat/login PRs, open first
+        # A branch matching no PR resolves to nothing (empty list, not an error).
+        assert api.resolve_branch(team=self.team, branch="feat/nothing") == []
+
+    def test_resolve_branch_prefers_pr_active_at_timestamp(self) -> None:
+        # Same head ref reused across PRs over time: an old one merged months ago and a newer open one.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(
+                    70, "bob", "closed", 0, _ago(120), merged_at=_ago(110), head_sha="sha70", head_ref="feat/reuse"
+                ),
+                _pr_row(71, "alice", "open", 0, _ago(2), head_sha="sha71", head_ref="feat/reuse"),
+            ],
+        )
+        self._create_table("github_workflow_runs", _WORKFLOW_RUNS_COLUMNS, [])
+        # No timestamp: open PR wins on the open-first/recency fallback.
+        assert [m.number for m in api.resolve_branch(team=self.team, branch="feat/reuse")] == [71, 70]
+        # A timestamp inside the old PR's lifetime window ranks it first, even though the newer PR is open.
+        during_old = timezone.now() - timedelta(days=112)
+        matches = api.resolve_branch(team=self.team, branch="feat/reuse", timestamp=during_old)
+        assert [m.number for m in matches] == [70, 71]
 
     def test_workflow_health_aggregates(self) -> None:
         self._seed()
-        items = api.list_workflow_health(team=self.team)
+        items = api.list_workflow_health(team=self.team, date_from="-30d")
         ci = next(item for item in items if item.workflow_name == "CI")
         assert ci.run_count == 2
         assert ci.success_rate == 0.5  # 1 success of 2 completed
         assert ci.last_failure_at is not None
+        assert ci.billable_minutes is None  # no jobs source seeded → no cost figure
+
+    def test_workflow_health_prev_window_survives_raw_scan_floor(self) -> None:
+        # The prev-window query's raw-string scan floor must come from prev_from, not date_from.
+        # A run in [prev_from, date_from) sits below the date_from floor; if that floor leaked into
+        # the prev scan the innermost raw prefilter would drop it and success_rate_prev would go None.
+        # A -30d window puts its prev twin at [-60d, -30d), so _ago(45) lands squarely in it.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(60, "alice", "open", 0, _ago(2), head_sha="sha60")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(6001, "CI", "sha60", "completed", "success", _ago(2), _ago(2), pr_number=60),
+                _run_row(6002, "CI", "sha60p", "completed", "success", _ago(45), _ago(45), pr_number=60),
+            ],
+        )
+        ci = next(i for i in api.list_workflow_health(team=self.team, date_from="-30d") if i.workflow_name == "CI")
+        assert ci.success_rate == 1.0
+        assert ci.success_rate_prev == 1.0
+
+    def test_workflow_health_duration_percentiles_exclude_cancelled_failed_and_noop_runs(self) -> None:
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(90, "alice", "open", 0, _ago(1), head_sha="sha90")],
+        )
+        # Every real success shares one duration, so the percentile population is exactly 100; any
+        # leaked cancel (1s), failure (1000s), or no-op gate success (4s) moves p50/p95 off 100.
+        conclusions = [("success", 100)] * 2 + [("success", 4)] * 3 + [("cancelled", 1)] * 3 + [("failure", 1000)]
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(
+                    9000 + index,
+                    "CI",
+                    f"{conclusion}-{index}",
+                    "completed",
+                    conclusion,
+                    *_ago_with_duration(1, duration_seconds),
+                    pr_number=90,
+                    head_branch="feature/ci",
+                )
+                for index, (conclusion, duration_seconds) in enumerate(conclusions)
+            ]
+            # An all-fast workflow has no real successes — its percentiles fall back to every
+            # successful run instead of reading as missing.
+            + [
+                _run_row(9100, "Guard", "guard-1", "completed", "success", *_ago_with_duration(1, 4)),
+                _run_row(9101, "Guard", "guard-2", "completed", "success", *_ago_with_duration(2, 4)),
+            ],
+        )
+
+        health = api.list_workflow_health(team=self.team, date_from="-30d")
+        ci = next(item for item in health if item.workflow_name == "CI")
+
+        # Counts and rate stay over all/completed runs; only the duration population narrows.
+        assert ci.run_count == 9
+        assert ci.success_rate == pytest.approx(5 / 9)
+        assert ci.p50_seconds == pytest.approx(100)
+        assert ci.p95_seconds == pytest.approx(100)
+
+        guard = next(item for item in health if item.workflow_name == "Guard")
+        assert guard.p50_seconds == pytest.approx(4)
+
+    def test_workflow_health_pull_request_scope_excludes_default_branch_and_unattributed_runs(self) -> None:
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(91, "alice", "open", 0, _ago(1), head_sha="sha91")],
+        )
+        # The scenario matrix: PR-attributed × head branch. Only the attributed feature-branch
+        # run belongs in the pull_request scope.
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(run_id, "CI", sha, "completed", "success", _ago(1), _ago(1), pr_number=pr, head_branch=head)
+                for run_id, sha, pr, head in [
+                    (9101, "sha-pr", 91, "feature/pr"),
+                    (9102, "sha-master", None, "master"),
+                    (9103, "sha-master-pr", 91, "master"),
+                    (9104, "sha-branch", None, "feature/no-pr"),
+                    (9105, "sha-main-pr", 91, "main"),
+                ]
+            ],
+        )
+
+        pull_request = next(
+            item
+            for item in api.list_workflow_health(team=self.team, date_from="-30d", run_scope="pull_request")
+            if item.workflow_name == "CI"
+        )
+
+        # 1 exactly: over-exclusion drops to 0, a leaked master/main/unattributed row raises it above 1.
+        assert pull_request.run_count == 1
+
+    def test_workflow_health_includes_cost_when_jobs_synced(self) -> None:
+        # With the jobs source synced, each workflow carries its windowed billable cost + minutes.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(80, "alice", "open", 0, _ago(1), head_sha="sha80")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9500, "CI", "sha80", "completed", "success", _ago(1), _ago(1))],
+        )
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [_job_row(95000, 9500, "build", "success", labels='["depot-ubuntu-22.04-4"]')],
+        )
+        ci = next(i for i in api.list_workflow_health(team=self.team, date_from="-30d") if i.workflow_name == "CI")
+        assert ci.estimated_cost_usd is not None and ci.estimated_cost_usd > 0
+        assert ci.billable_minutes is not None and ci.billable_minutes > 0
+
+    def test_workflow_runner_costs_breaks_down_by_tier(self) -> None:
+        # The single-workflow breakdown splits a workflow's spend across runner tiers.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(83, "alice", "open", 0, _ago(1), head_sha="sha83")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9600, "CI", "sha83", "completed", "success", _ago(1), _ago(1))],
+        )
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                _job_row(96000, 9600, "build", "success", labels='["depot-ubuntu-22.04-16"]'),
+                _job_row(96001, 9600, "test", "success", labels='["depot-ubuntu-22.04-4"]'),
+                _job_row(96002, 9600, "e2e", "success", labels='["ubuntu-latest"]'),
+            ],
+        )
+        costs = api.get_workflow_runner_costs(team=self.team, repo="PostHog/posthog", workflow_name="CI")
+        by_label = {c.runner_label: c for c in costs}
+        assert by_label["16-core"].provider == "self_hosted"
+        assert by_label["16-core"].estimated_cost_usd is not None and by_label["16-core"].estimated_cost_usd > 0
+        github_hosted = next(c for c in costs if c.provider == "github_hosted")
+        assert github_hosted.estimated_cost_usd is None  # free tier: minutes/jobs only, no billable cost
+
+    def test_workflow_health_daily_failures_exclude_non_failures(self) -> None:
+        # The daily failure count is decisive failures only — skipped / cancelled / action_required
+        # runs are completed but neither successes nor failures, so they must not inflate the trend.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(30, "alice", "open", 0, _ago(1), head_sha="sha30")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(6001, "CI", "sha-a", "completed", "success", _ago(1), _ago(1)),
+                _run_row(6002, "CI", "sha-b", "completed", "failure", _ago(1), _ago(1)),
+                _run_row(6003, "CI", "sha-c", "completed", "timed_out", _ago(1), _ago(1)),
+                _run_row(6004, "CI", "sha-d", "completed", "skipped", _ago(1), _ago(1)),
+                _run_row(6005, "CI", "sha-e", "completed", "cancelled", _ago(1), _ago(1)),
+                _run_row(6006, "CI", "sha-f", "completed", "action_required", _ago(1), _ago(1)),
+            ],
+        )
+        ci = next(i for i in api.list_workflow_health(team=self.team, date_from="-30d") if i.workflow_name == "CI")
+        bucket = next(entry for entry in ci.buckets if entry.run_count > 0)
+        # 6 completed, 1 success, 2 failures (failure + timed_out) — skipped/cancelled/action_required are neither.
+        assert (bucket.completed, bucket.successes, bucket.failures) == (6, 1, 2)
+
+    def test_workflow_health_last_failure_includes_timed_out(self) -> None:
+        # last_failure_at must agree with the failure definition used by the trend: a workflow whose
+        # only decisive failure is a timeout still has a "last failure".
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(31, "alice", "open", 0, _ago(1), head_sha="sha31")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(6101, "CI", "sha-g", "completed", "success", _ago(2), _ago(2)),
+                _run_row(6102, "CI", "sha-h", "completed", "timed_out", _ago(1), _ago(1)),
+            ],
+        )
+        ci = next(i for i in api.list_workflow_health(team=self.team, date_from="-30d") if i.workflow_name == "CI")
+        assert ci.last_failure_at is not None
+        # The latest completed run (the timeout) was decisive — drives the RED status badge.
+        assert ci.latest_run_failed is True
+        # And its raw conclusion is carried so the UI can distinguish a real pass from a non-failure.
+        assert ci.latest_run_conclusion == "timed_out"
+
+    def test_workflow_run_detail_by_id(self) -> None:
+        # The run detail page fetches one run by id; re-runs share the id, so the latest attempt wins.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(42, "alice", "open", 0, _ago(1), head_sha="sha42")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(
+                    7777, "CI", "sha42", "completed", "failure", _ago(2), _ago(2), head_branch="master", pr_number=42
+                ),
+                _run_row(
+                    7777,
+                    "CI",
+                    "sha42",
+                    "completed",
+                    "success",
+                    _ago(1),
+                    _ago(1),
+                    head_branch="master",
+                    pr_number=42,
+                    run_attempt=2,
+                ),
+            ],
+        )
+        run = api.get_workflow_run(team=self.team, run_id=7777)
+        assert run is not None
+        assert run.id == 7777
+        assert run.workflow_name == "CI"
+        assert run.run_attempt == 2  # latest attempt wins
+        assert run.conclusion == "success"
+        assert run.status == "completed"
+        assert run.head_branch == "master"
+        assert run.pr_number == 42
+        assert run.repo.owner == "PostHog" and run.repo.name == "posthog"
+        assert run.duration_seconds is not None
+
+        # An unknown id is None (the view turns this into a 404).
+        assert api.get_workflow_run(team=self.team, run_id=99999) is None
+
+    def test_workflow_run_list_scoped_to_workflow(self) -> None:
+        # The workflow detail page lists one workflow's runs, newest first, scoped to its repo.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(50, "alice", "open", 0, _ago(1), head_sha="sha50")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(8001, "CI", "sha-a", "completed", "success", _ago(3), _ago(3)),
+                _run_row(8002, "CI", "sha-b", "completed", "failure", _ago(1), _ago(1)),
+                _run_row(8003, "Deploy", "sha-c", "completed", "success", _ago(2), _ago(2)),
+                # Older than the default -30d window — excluded unless the caller widens the window.
+                _run_row(8004, "CI", "sha-d", "completed", "success", _ago(60), _ago(60)),
+            ],
+        )
+        ci_runs = api.list_workflow_runs(team=self.team, repo="PostHog/posthog", workflow_name="CI")
+        assert [r.id for r in ci_runs] == [8002, 8001]  # only CI runs in the default window, newest first
+        assert all(r.workflow_name == "CI" for r in ci_runs)
+
+        # Widening the window pulls in the older run.
+        wide = api.list_workflow_runs(team=self.team, repo="PostHog/posthog", workflow_name="CI", date_from="-90d")
+        assert [r.id for r in wide] == [8002, 8001, 8004]
+
+        # A repo with no such workflow yields an empty list (not an error).
+        assert api.list_workflow_runs(team=self.team, repo="PostHog/posthog", workflow_name="Nope") == []
+
+    def test_workflow_run_activity_projects_and_windows(self) -> None:
+        # The chart endpoint returns compact per-run points over the window, newest first, with the
+        # projection mapped in the right column order and an explicit (untruncated) cap signal.
+        # No-op gate runs (benign conclusion, settled in seconds) are hidden by the endpoint — real
+        # runs fill the cap first — while fast failures and in-flight runs stay, and an all-fast
+        # workflow falls back to showing everything.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(80, "alice", "open", 0, _ago(1), head_sha="sha80")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                # A fast failure is signal (broken config fails in seconds) — never filtered as no-op.
+                _run_row(
+                    8101,
+                    "CI",
+                    "sha-a",
+                    "completed",
+                    "failure",
+                    *_ago_with_duration(2, 4),
+                    pr_number=80,
+                    head_branch="feat",
+                ),
+                _run_row(8102, "CI", "sha-b", "completed", "success", *_ago_with_duration(1, 300)),
+                _run_row(8103, "Deploy", "sha-c", "completed", "success", *_ago_with_duration(1, 300)),
+                # Older than the default -30d window — excluded unless the caller widens it.
+                _run_row(8104, "CI", "sha-d", "completed", "success", *_ago_with_duration(60, 120)),
+                # A no-op gate run: succeeded in seconds without doing real work — off the chart.
+                _run_row(8105, "CI", "sha-e", "completed", "success", *_ago_with_duration(1, 4)),
+                # Still running: no duration yet, but it must stay (it feeds the in-flight band).
+                _run_row(8106, "CI", "sha-f", "in_progress", None, _ago(3), _ago(3)),
+                # Completed fast but with a NULL conclusion (conclusions can lag the sync) — undecided,
+                # so it must stay; a non-NULL-safe no-op flag would silently drop it.
+                _run_row(8107, "CI", "sha-g", "completed", None, *_ago_with_duration(4, 4)),
+                # A legitimately fast workflow: every run finishes in seconds. Duration alone can't
+                # tell it from a gate no-op, so with no real runs to show the filter must stand down.
+                _run_row(8110, "Guard", "sha-h", "completed", "success", *_ago_with_duration(2, 3)),
+                _run_row(8111, "Guard", "sha-i", "completed", "success", *_ago_with_duration(1, 4)),
+                # A sparse workflow: one real execution, one in flight, one fast no-op. The in-flight
+                # run has no duration to plot, so dropping the no-op would leave the scatter below its
+                # 2-point minimum — the fallback must count duration-bearing runs, not kept rows.
+                _run_row(8120, "Sparse", "sha-j", "completed", "success", *_ago_with_duration(3, 300)),
+                _run_row(8121, "Sparse", "sha-k", "in_progress", None, _ago(2), _ago(2)),
+                _run_row(8122, "Sparse", "sha-l", "completed", "success", *_ago_with_duration(1, 4)),
+            ],
+        )
+        activity = api.get_workflow_run_activity(team=self.team, repo="PostHog/posthog", workflow_name="CI")
+        # Only CI runs in window, newest first; the no-op 8105 is excluded, the in-flight 8106 and the
+        # fast-but-undecided 8107 are kept.
+        assert [p.run_id for p in activity.points] == [8102, 8101, 8106, 8107]
+        assert activity.truncated is False
+        assert activity.limit == 2000
+        # Each field maps to the right column — guards a wrong unpack order in _to_point.
+        newest, failed, in_flight, undecided = activity.points
+        assert (newest.run_id, newest.conclusion, newest.pr_number) == (8102, "success", 0)
+        assert (failed.conclusion, failed.head_branch, failed.pr_number) == ("failure", "feat", 80)
+        assert (in_flight.conclusion, in_flight.duration_seconds) == (None, None)
+        assert (undecided.conclusion, undecided.duration_seconds) == (None, 4)
+        # run_started_at is non-null on this endpoint — the window filter excludes unparseable-start runs.
+        assert all(p.run_started_at is not None for p in activity.points)
+
+        # Widening the window pulls in the older run.
+        wide = api.get_workflow_run_activity(
+            team=self.team, repo="PostHog/posthog", workflow_name="CI", date_from="-90d"
+        )
+        assert [p.run_id for p in wide.points] == [8102, 8101, 8106, 8107, 8104]
+
+        # An all-fast workflow keeps its history: with no real runs left to show, hiding the no-ops
+        # would blank the chart, so the filter stands down and both runs come back.
+        guard = api.get_workflow_run_activity(team=self.team, repo="PostHog/posthog", workflow_name="Guard")
+        assert [p.run_id for p in guard.points] == [8111, 8110]
+
+        # One plottable real run isn't enough for the scatter either — the no-op stays visible too.
+        sparse = api.get_workflow_run_activity(team=self.team, repo="PostHog/posthog", workflow_name="Sparse")
+        assert [p.run_id for p in sparse.points] == [8122, 8121, 8120]
+
+    def test_repo_run_activity_collapses_workflows_per_commit(self) -> None:
+        # The repo-health chart folds every workflow run of a default-branch commit into ONE point: the
+        # verdict is failure if any workflow failed, success if all settled and at least one passed, and
+        # in-flight (null) while any is still running. Two workflows on the same head_sha must not yield
+        # two dots. Runs off the default branch and outside the window are excluded.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(95, "alice", "open", 0, _ago(1), head_sha="sha95")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                # Commit A: two workflows, both passed -> one green dot with a wall-clock duration spanning
+                # the earliest start to the latest finish (not either workflow's own duration).
+                _run_row(9601, "CI", "sha-a", "completed", "success", _ago(3), _ago(2), head_branch="main"),
+                _run_row(9602, "Deploy", "sha-a", "completed", "success", _ago(3), _ago(1), head_branch="main"),
+                # Commit B: one workflow failed -> the whole commit is red even though the other passed.
+                _run_row(9603, "CI", "sha-b", "completed", "failure", _ago(2), _ago(2), head_branch="main"),
+                _run_row(9604, "Deploy", "sha-b", "completed", "success", _ago(2), _ago(2), head_branch="main"),
+                # Commit C: one workflow still running -> in-flight, so conclusion and duration are null.
+                _run_row(9605, "CI", "sha-c", "completed", "success", _ago(1), _ago(1), head_branch="main"),
+                _run_row(9606, "Deploy", "sha-c", "in_progress", None, _ago(1), _ago(1), head_branch="main"),
+                # A PR-branch commit and an out-of-window commit: both excluded from default-branch health.
+                _run_row(9607, "CI", "sha-d", "completed", "failure", _ago(1), _ago(1), head_branch="feat"),
+                _run_row(9608, "CI", "sha-e", "completed", "success", _ago(60), _ago(60), head_branch="main"),
+            ],
+        )
+        activity = api.get_repo_run_activity(team=self.team)
+        by_started = sorted(activity.points, key=lambda p: p.run_started_at)
+        # Three default-branch commits in the window -> three points (six runs collapsed), oldest first here.
+        assert len(activity.points) == 3
+        commit_a, commit_b, commit_c = by_started
+        assert commit_a.conclusion == "success"
+        assert commit_a.duration_seconds is not None and commit_a.duration_seconds > 0
+        assert commit_b.conclusion == "failure"
+        # In-flight commit: unsettled workflow leaves the verdict and duration null (drops off the scatter).
+        assert commit_c.conclusion is None
+        assert commit_c.duration_seconds is None
+        # Default-branch commits carry no single attributed PR.
+        assert all(p.pr_number == 0 for p in activity.points)
+
+    def test_workflow_detail_branch_filter(self) -> None:
+        # The workflow detail page's runs list and runner-cost breakdown must honor the same branch scope
+        # as the Workflows tab — without it, drilling in from a branch-scoped tab widened back to every
+        # branch and showed more runs (and more cost) than the tab did.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(90, "alice", "open", 0, _ago(1), head_sha="sha90")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(8501, "CI", "sha-m1", "completed", "success", *_ago_with_duration(2, 60), head_branch="main"),
+                _run_row(8502, "CI", "sha-m2", "completed", "failure", *_ago_with_duration(1, 60), head_branch="main"),
+                _run_row(
+                    8503, "CI", "sha-r1", "completed", "success", *_ago_with_duration(1, 60), head_branch="release"
+                ),
+            ],
+        )
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                _job_row(85010, 8501, "build", "success", labels='["depot-ubuntu-22.04-4"]'),
+                _job_row(85020, 8502, "build", "success", labels='["depot-ubuntu-22.04-4"]'),
+                _job_row(85030, 8503, "build", "success", labels='["depot-ubuntu-22.04-4"]'),
+            ],
+        )
+        repo, workflow = "PostHog/posthog", "CI"
+
+        # Runs list: unfiltered spans every branch; scoped keeps only that branch's runs.
+        all_runs = api.list_workflow_runs(team=self.team, repo=repo, workflow_name=workflow)
+        assert {r.id for r in all_runs} == {8501, 8502, 8503}
+        main_runs = api.list_workflow_runs(team=self.team, repo=repo, workflow_name=workflow, branch="main")
+        assert {r.id for r in main_runs} == {8501, 8502}
+        # A blank branch is "no filter", not a literal match on ''; an unknown branch yields nothing.
+        assert len(api.list_workflow_runs(team=self.team, repo=repo, workflow_name=workflow, branch="  ")) == 3
+        assert api.list_workflow_runs(team=self.team, repo=repo, workflow_name=workflow, branch="nope") == []
+
+        # Runner costs: the branch scope narrows the costed jobs the same way (3 jobs → 2 on main).
+        all_jobs = sum(
+            c.job_count for c in api.get_workflow_runner_costs(team=self.team, repo=repo, workflow_name=workflow)
+        )
+        main_jobs = sum(
+            c.job_count
+            for c in api.get_workflow_runner_costs(team=self.team, repo=repo, workflow_name=workflow, branch="main")
+        )
+        assert (all_jobs, main_jobs) == (3, 2)
+
+        # The activity chart honors the same branch scope as the runs list, so it can't plot other
+        # branches' runs under an applied branch filter.
+        all_activity = api.get_workflow_run_activity(team=self.team, repo=repo, workflow_name=workflow)
+        assert {p.run_id for p in all_activity.points} == {8501, 8502, 8503}
+        main_activity = api.get_workflow_run_activity(team=self.team, repo=repo, workflow_name=workflow, branch="main")
+        assert {p.run_id for p in main_activity.points} == {8501, 8502}
+
+    def test_pr_runs_span_all_commits(self) -> None:
+        # The PR detail lists runs across all of the PR's commits (by association), not just head SHA.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(70, "alice", "open", 0, _ago(1), head_sha="shaA")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(9300, "CI", "shaA", "completed", "success", _ago(2), _ago(2), pr_number=70),
+                _run_row(9301, "CI", "shaB", "completed", "failure", _ago(1), _ago(1), pr_number=70),
+                _run_row(9302, "CI", "shaC", "completed", "success", _ago(1), _ago(1), pr_number=71),
+            ],
+        )
+        runs = api.list_pr_runs(team=self.team, pr_number=70, repo="PostHog/posthog")
+        assert {r.id for r in runs} == {9300, 9301}  # only PR 70's runs
+        assert {r.head_sha for r in runs} == {"shaA", "shaB"}  # across two commits
+
+    def test_workflow_jobs_optional_and_costed(self) -> None:
+        # Jobs are an optional source: absent → graceful empty; present → costed per runner tier.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(60, "alice", "open", 0, _ago(1), head_sha="sha60")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9100, "CI", "sha60", "completed", "failure", _ago(1), _ago(1))],
+        )
+        # No jobs table synced yet → empty, not an error (the graceful path).
+        assert api.list_workflow_jobs(team=self.team, run_id=9100) == []
+
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                _job_row(91000, 9100, "build", "success", labels='["depot-ubuntu-22.04-16"]'),
+                _job_row(91001, 9100, "e2e", "failure", labels='["ubuntu-latest"]'),
+            ],
+        )
+        jobs = api.list_workflow_jobs(team=self.team, run_id=9100)
+        assert {j.name for j in jobs} == {"build", "e2e"}
+        build = next(j for j in jobs if j.name == "build")
+        assert build.runner_provider == "self_hosted" and build.runner_label == "16-core"
+        assert build.estimated_cost_usd is not None
+        # github-hosted runner isn't billable → no cost estimate, and the provider reads as github_hosted.
+        e2e = next(j for j in jobs if j.name == "e2e")
+        assert e2e.runner_provider == "github_hosted" and e2e.estimated_cost_usd is None
+
+    def test_workflow_run_detail_handles_null_timestamps(self) -> None:
+        # A queued/barely-started run lands with empty timestamps; the mapper must yield None, not raise
+        # a contract validation error (regression guard for nullable run_started_at/updated_at).
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(63, "alice", "open", 0, _ago(1), head_sha="sha63")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9300, "CI", "sha63", "queued", None, "", "", pr_number=63)],
+        )
+        run = api.get_workflow_run(team=self.team, run_id=9300)
+        assert run is not None
+        assert run.run_started_at is None and run.updated_at is None
+        assert run.status == "queued" and run.conclusion is None
+        # The list path maps the same sparse row without error.
+        runs = api.list_pr_runs(team=self.team, pr_number=63, repo="PostHog/posthog")
+        assert [r.id for r in runs] == [9300]
+
+    def test_workflow_jobs_scoped_to_attempt(self) -> None:
+        # A re-run carries multiple attempts under one run_id; the jobs query must not merge them.
+        # Default (no run_attempt) returns the latest attempt; an explicit attempt returns just that one.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(62, "alice", "open", 0, _ago(1), head_sha="sha62")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9200, "CI", "sha62", "completed", "success", _ago(1), _ago(1), run_attempt=2)],
+        )
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                _job_row(92000, 9200, "build", "failure", run_attempt=1),
+                _job_row(92001, 9200, "test", "failure", run_attempt=1),
+                _job_row(92002, 9200, "build", "success", run_attempt=2),
+            ],
+        )
+        # Default: latest attempt (2) only — the failed first attempt's jobs don't leak in.
+        latest = api.list_workflow_jobs(team=self.team, run_id=9200)
+        assert {j.id for j in latest} == {92002}
+        assert latest[0].conclusion == "success"
+        # Explicit older attempt: just that attempt's jobs.
+        first = api.list_workflow_jobs(team=self.team, run_id=9200, run_attempt=1)
+        assert {j.id for j in first} == {92000, 92001}
+
+    def test_pr_cost_aggregates_billable_jobs_across_runs(self) -> None:
+        # PR cost sums the jobs of all the PR's runs (across commits), counting only billable Linux
+        # runners; absent jobs source → graceful empty with jobs_available False.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(60, "alice", "open", 0, _ago(1), head_sha="sha60")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(9100, "CI", "sha60a", "completed", "success", _ago(2), _ago(2), pr_number=60),
+                _run_row(9101, "CI", "sha60b", "completed", "failure", _ago(1), _ago(1), pr_number=60),
+                _run_row(9102, "CI", "sha99", "completed", "success", _ago(1), _ago(1), pr_number=61),
+            ],
+        )
+        # No jobs table synced yet → every figure zero/None, cards hidden.
+        empty = api.get_pr_cost(team=self.team, pr_number=60, repo="PostHog/posthog")
+        assert empty.jobs_available is False and empty.estimated_cost_usd is None and empty.billable_minutes == 0.0
+
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                # Two billable Linux jobs across two of the PR's runs, plus a github-hosted (excluded).
+                _job_row(91000, 9100, "build", "success", labels='["depot-ubuntu-22.04-4"]'),
+                _job_row(91001, 9101, "test", "failure", labels='["depot-ubuntu-22.04-4"]'),
+                _job_row(91002, 9101, "e2e", "success", labels='["ubuntu-latest"]'),
+                # A job on another PR's run must not leak into PR 60's cost.
+                _job_row(91003, 9102, "build", "success", labels='["depot-ubuntu-22.04-16"]'),
+            ],
+        )
+        cost = api.get_pr_cost(team=self.team, pr_number=60, repo="PostHog/posthog")
+        assert cost.jobs_available is True
+        assert cost.costed_jobs == 2  # the two depot Linux jobs on PR 60's runs
+        assert cost.excluded_jobs == 1  # the github-hosted one
+        assert cost.estimated_cost_usd is not None and cost.estimated_cost_usd > 0
+        assert cost.billable_minutes == pytest.approx(4.0)  # 2 jobs x 2 min each (_job_row default window)
+        # Per-workflow breakdown sums to the same: PR 60's runs are all the "CI" workflow.
+        ci_cost = next(w for w in cost.by_workflow if w.workflow_name == "CI")
+        assert ci_cost.costed_jobs == 2 and ci_cost.excluded_jobs == 1
+        # Per-run breakdown keys by (run_id, run_attempt): each of the two runs carries one billable job
+        # (run 9101's github-hosted e2e is excluded from its minutes), summing back to the PR total.
+        by_run = {rc.run_id: rc for rc in cost.by_run}
+        assert by_run[9100].billable_minutes == pytest.approx(2.0)
+        assert by_run[9101].billable_minutes == pytest.approx(2.0)
+        assert sum(rc.billable_minutes for rc in cost.by_run) == pytest.approx(cost.billable_minutes)
+
+    def test_workflow_health_branch_filter(self) -> None:
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(20, "alice", "open", 0, _ago(1), head_sha="sha20")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(5001, "CI", "sha-m1", "completed", "success", _ago(2), _ago(2), head_branch="main"),
+                _run_row(5002, "CI", "sha-m2", "completed", "failure", _ago(1), _ago(1), head_branch="main"),
+                _run_row(5003, "CI", "sha-f1", "completed", "success", _ago(1), _ago(1), head_branch="feature/x"),
+            ],
+        )
+        # Unfiltered: every branch's runs aggregate together.
+        assert (
+            next(
+                i for i in api.list_workflow_health(team=self.team, date_from="-30d") if i.workflow_name == "CI"
+            ).run_count
+            == 3
+        )
+
+        # Scoped to a branch: only that branch's runs count, and rates recompute over them.
+        main_only = next(
+            i
+            for i in api.list_workflow_health(team=self.team, date_from="-30d", branch="main")
+            if i.workflow_name == "CI"
+        )
+        assert main_only.run_count == 2
+        assert main_only.success_rate == 0.5
+
+        # A blank branch is treated as "no filter", not a literal match on ''.
+        assert (
+            next(
+                i
+                for i in api.list_workflow_health(team=self.team, date_from="-30d", branch="  ")
+                if i.workflow_name == "CI"
+            ).run_count
+            == 3
+        )
+
+        # A branch with no runs yields no rows.
+        assert api.list_workflow_health(team=self.team, date_from="-30d", branch="nope") == []
+
+    def test_pull_request_list_rollup_is_repo_qualified(self) -> None:
+        # PR numbers restart per repo. Two repos share PR #10; the per-PR push / re-run rollup must
+        # attribute each repo's runs to its own PR, not merge them on number alone. (The head-SHA CI
+        # rollup is already repo-safe; this proves the runs_by_pr join is too.) A resolved source is
+        # one repo today, so this is the defensive guarantee, exercised by seeding both into one.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(10, "alice", "open", 0, _ago(1), head_sha="sha10", full_name="PostHog/posthog"),
+                _pr_row(10, "bob", "open", 0, _ago(1), head_sha="shaB10", full_name="PostHog/posthog.com"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(3001, "CI", "sha10", "completed", "success", _ago(1), _ago(1), pr_number=10),
+                _run_row(
+                    3002,
+                    "CI",
+                    "shaB10",
+                    "completed",
+                    "success",
+                    _ago(1),
+                    _ago(1),
+                    pr_number=10,
+                    full_name="PostHog/posthog.com",
+                ),
+                # A second push + re-run on the other repo's PR #10 — must not leak onto posthog's #10.
+                _run_row(
+                    3003,
+                    "CI",
+                    "shaB10b",
+                    "completed",
+                    "success",
+                    _ago(1),
+                    _ago(1),
+                    pr_number=10,
+                    run_attempt=2,
+                    full_name="PostHog/posthog.com",
+                ),
+            ],
+        )
+        result = api.list_pull_requests(team=self.team)
+        by_repo = {(item.repo.owner, item.repo.name): item for item in result.items}
+        assert (by_repo[("PostHog", "posthog")].pushes, by_repo[("PostHog", "posthog")].rerun_cycles) == (1, 0)
+        assert (by_repo[("PostHog", "posthog.com")].pushes, by_repo[("PostHog", "posthog.com")].rerun_cycles) == (2, 1)
+
+
+class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
+    """LLM token spend attributed to a PR by git branch, over a real warehouse PR row plus
+    $ai_generation events. Skips when object storage is unreachable."""
+
+    def _generation(
+        self,
+        *,
+        branch: str | None,
+        days_ago: float,
+        cost: float,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        repo: str | None = None,
+        session: str | None = None,
+        trace: str | None = None,
+        event: str = "$ai_generation",
+    ) -> None:
+        # branch=None seeds an unstamped generation (no $ai_git_branch), the transient state the
+        # carry-forward and prefix rules attribute; session/trace set the grouping key.
+        props: dict[str, Any] = {
+            "$ai_total_cost_usd": cost,
+            "$ai_input_tokens": input_tokens,
+            "$ai_output_tokens": output_tokens,
+        }
+        if branch is not None:
+            props["$ai_git_branch"] = branch
+        if repo is not None:
+            props["$ai_git_repo"] = repo
+        if session is not None:
+            props["$ai_session_id"] = session
+        if trace is not None:
+            props["$ai_trace_id"] = trace
+        _create_event(
+            event=event,
+            team=self.team,
+            distinct_id="agent-1",
+            properties=props,
+            timestamp=timezone.now() - timedelta(days=days_ago),
+        )
+
+    def _seed_pr(self, number: int, head_ref: str, *, base_ref: str = "master") -> None:
+        # A merged PR fixes the window to [created - 14d, merged] = [_ago(19), _ago(1)]. The runs table
+        # must exist for the source to resolve even though LLM spend never reads it (mixin gotcha).
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(
+                    number,
+                    "alice",
+                    "closed",
+                    0,
+                    _ago(5),
+                    merged_at=_ago(1),
+                    head_sha=f"sha{number}",
+                    head_ref=head_ref,
+                    base_ref=base_ref,
+                )
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(number * 100, "CI", f"sha{number}", "completed", "success", _ago(4), _ago(4), pr_number=number)],
+        )
+
+    def test_llm_spend_attributes_by_branch_within_window(self) -> None:
+        branch = "feat/tokens"
+        self._seed_pr(80, branch)
+        # Matches: on-branch, in-window; one with no repo stamped, one with the repo stamped in clone-URL
+        # casing (the repo compare is case-insensitive, like GitHub repo names).
+        self._generation(branch=branch, days_ago=4, cost=1.0, input_tokens=100, output_tokens=50)
+        self._generation(
+            branch=branch, days_ago=10, cost=2.0, input_tokens=200, output_tokens=80, repo="posthog/POSTHOG"
+        )
+        # Excluded: wrong repo, wrong branch, before the lead window, after merge, wrong event type.
+        self._generation(branch=branch, days_ago=4, cost=99.0, repo="other/repo")
+        self._generation(branch="other-branch", days_ago=4, cost=99.0)
+        self._generation(branch=branch, days_ago=25, cost=99.0)
+        self._generation(branch=branch, days_ago=0, cost=99.0)
+        self._generation(branch=branch, days_ago=4, cost=99.0, event="$ai_embedding")
+        flush_persons_and_events()
+
+        cost = api.get_pr_cost(team=self.team, pr_number=80, repo="PostHog/posthog")
+        assert cost.llm_spend is not None
+        assert cost.llm_spend.generations == 2
+        assert cost.llm_spend.cost_usd == pytest.approx(3.0)
+        assert cost.llm_spend.input_tokens == 300
+        assert cost.llm_spend.output_tokens == 130
+
+    def test_llm_spend_none_when_head_is_base(self) -> None:
+        self._seed_pr(84, "master", base_ref="master")
+        self._generation(branch="master", days_ago=4, cost=5.0)
+        flush_persons_and_events()
+
+        cost = api.get_pr_cost(team=self.team, pr_number=84, repo="PostHog/posthog")
+        assert cost.llm_spend is None
+
+    def test_llm_spend_failure_degrades_to_none(self) -> None:
+        # The spend join is an optional enrichment; a query failure (e.g. a timeout on an AI-heavy
+        # team) must not take the whole cost summary down with it.
+        self._seed_pr(85, "feat/degrade")
+        with mock.patch(
+            "products.engineering_analytics.backend.logic.query_pr_llm_spend",
+            side_effect=Exception("clickhouse timeout"),
+        ):
+            cost = api.get_pr_cost(team=self.team, pr_number=85, repo="PostHog/posthog")
+        assert cost.llm_spend is None
+
+    def test_llm_spend_none_when_no_generations(self) -> None:
+        # Open PR whose branch no event carries — spend stays null so the UI hides the row.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(81, "alice", "open", 0, _ago(2), head_sha="sha81", head_ref="feat/empty")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(8100, "CI", "sha81", "completed", "success", _ago(1), _ago(1), pr_number=81)],
+        )
+        cost = api.get_pr_cost(team=self.team, pr_number=81, repo="PostHog/posthog")
+        assert cost.llm_spend is None
+
+    @parameterized.expand(
+        [
+            # first feature stamp == H: the base-stamped prefix and the H events all credit H.
+            ("first_feature_is_head", "feat/tokens", 4, pytest.approx(14.0)),
+            # first feature stamp == a different branch: the prefix belongs to that branch, so only
+            # the later direct-H stamp credits H (guards against prefix-stealing).
+            ("first_feature_is_other", "feat/other", 1, pytest.approx(8.0)),
+        ]
+    )
+    def test_prefix_credits_head_only_when_first_feature_branch_is_head(
+        self, _name: str, first_feature: str, expected_generations: int, expected_cost: Any
+    ) -> None:
+        head = "feat/tokens"
+        self._seed_pr(82, head, base_ref="master")
+        # Same session: base-stamped exploration, then the first feature stamp, then a direct H stamp.
+        self._generation(branch="master", days_ago=10, cost=1.0, session="s1")
+        self._generation(branch="master", days_ago=9, cost=1.0, session="s1")
+        self._generation(branch=first_feature, days_ago=8, cost=4.0, session="s1")
+        self._generation(branch=head, days_ago=6, cost=8.0, session="s1")
+        flush_persons_and_events()
+
+        cost = api.get_pr_cost(team=self.team, pr_number=82, repo="PostHog/posthog")
+        assert cost.llm_spend is not None
+        assert cost.llm_spend.generations == expected_generations
+        assert cost.llm_spend.cost_usd == expected_cost
+
+    def test_carry_forward_follows_latest_stamp_until_a_branch_switch(self) -> None:
+        self._seed_pr(83, "feat/tokens", base_ref="master")
+        # H stamp, then an unstamped event that carries H forward, then a switch to another branch whose
+        # later unstamped event must NOT credit H.
+        self._generation(branch="feat/tokens", days_ago=10, cost=1.0, session="s2")
+        self._generation(branch=None, days_ago=9, cost=2.0, session="s2")
+        self._generation(branch="feat/other", days_ago=8, cost=99.0, session="s2")
+        self._generation(branch=None, days_ago=7, cost=99.0, session="s2")
+        flush_persons_and_events()
+
+        cost = api.get_pr_cost(team=self.team, pr_number=83, repo="PostHog/posthog")
+        assert cost.llm_spend is not None
+        assert cost.llm_spend.generations == 2
+        assert cost.llm_spend.cost_usd == pytest.approx(3.0)
+
+    def test_out_of_window_events_excluded_even_in_an_eligible_session(self) -> None:
+        self._seed_pr(84, "feat/tokens", base_ref="master")
+        # In-window H stamp makes the session eligible; an unstamped event after the merge would carry H
+        # forward if the window were dropped from the group scan, so it guards that outer-window filter.
+        self._generation(branch="feat/tokens", days_ago=4, cost=1.0, session="s3")
+        self._generation(branch=None, days_ago=0, cost=99.0, session="s3")
+        self._generation(branch="feat/tokens", days_ago=25, cost=99.0, session="s3")
+        flush_persons_and_events()
+
+        cost = api.get_pr_cost(team=self.team, pr_number=84, repo="PostHog/posthog")
+        assert cost.llm_spend is not None
+        assert cost.llm_spend.generations == 1
+        assert cost.llm_spend.cost_usd == pytest.approx(1.0)
+
+    def test_ungrouped_events_count_only_via_a_direct_head_stamp(self) -> None:
+        self._seed_pr(85, "feat/tokens", base_ref="master")
+        # No session and no trace id: no group, so neither prefix nor carry-forward applies — only the
+        # event stamped H directly counts.
+        self._generation(branch="feat/tokens", days_ago=8, cost=5.0)
+        self._generation(branch="master", days_ago=9, cost=99.0)
+        self._generation(branch=None, days_ago=7, cost=99.0)
+        flush_persons_and_events()
+
+        cost = api.get_pr_cost(team=self.team, pr_number=85, repo="PostHog/posthog")
+        assert cost.llm_spend is not None
+        assert cost.llm_spend.generations == 1
+        assert cost.llm_spend.cost_usd == pytest.approx(5.0)
+
+    def test_session_with_only_base_stamps_is_not_eligible(self) -> None:
+        self._seed_pr(86, "feat/tokens", base_ref="master")
+        # A session that never stamps the head ref is not eligible, so its base-stamped exploration
+        # credits nothing and spend stays null.
+        self._generation(branch="master", days_ago=10, cost=99.0, session="s4")
+        self._generation(branch=None, days_ago=9, cost=99.0, session="s4")
+        flush_persons_and_events()
+
+        cost = api.get_pr_cost(team=self.team, pr_number=86, repo="PostHog/posthog")
+        assert cost.llm_spend is None
+
+    def test_newest_snapshot_by_updated_at_drives_attribution(self) -> None:
+        # Two snapshot rows for the same PR share created_at (the PR's creation time); only updated_at
+        # separates the stale row from the fresh one. The header must pick the freshest so its head_ref
+        # — not the stale row's — drives the branch attribution. Ordering on created_at alone left the
+        # winner arbitrary and could credit the stale branch.
+        created = _ago(5)
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(90, "alice", "closed", 0, created, merged_at=_ago(3), head_sha="sha90a", head_ref="feat/stale"),
+                _pr_row(90, "alice", "closed", 0, created, merged_at=_ago(1), head_sha="sha90b", head_ref="feat/fresh"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9000, "CI", "sha90b", "completed", "success", _ago(4), _ago(4), pr_number=90)],
+        )
+        self._generation(branch="feat/fresh", days_ago=4, cost=3.0, input_tokens=30, output_tokens=10)
+        self._generation(branch="feat/stale", days_ago=4, cost=99.0)
+        flush_persons_and_events()
+
+        cost = api.get_pr_cost(team=self.team, pr_number=90, repo="PostHog/posthog")
+        assert cost.llm_spend is not None
+        assert cost.llm_spend.generations == 1
+        assert cost.llm_spend.cost_usd == pytest.approx(3.0)
+
+
+class TestMultiSourceResolutionWarehouse(_WarehouseMixin, BaseTest):
+    """A team with one GitHub source per repository: a repo-scoped read must resolve the source
+    connected for that repo, not the oldest one. Skips when object storage is unreachable."""
+
+    def _connect_source(self, *, source_id: str, prefix: str, repository: str) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=source_id,
+            connection_id=source_id,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.GITHUB,
+            prefix=prefix,
+            job_inputs={"repository": repository},
+        )
+
+    def test_resolve_branch_targets_the_repo_scoped_source(self) -> None:
+        # Both sources are fully synced, so oldest-first would search repo A and miss the PR that only
+        # exists in the newer repo B. The repo hint routes resolution to B.
+        older = self._connect_source(source_id="src-a", prefix="repoa", repository="PostHog/posthog")
+        newer = self._connect_source(source_id="src-b", prefix="repob", repository="PostHog/posthog.com")
+        # Source A (older, other repo): synced but holds no PR on the branch.
+        self._create_table("github_pull_requests", _PULL_REQUESTS_COLUMNS, [], source=older, prefix="repoa")
+        self._create_table("github_workflow_runs", _WORKFLOW_RUNS_COLUMNS, [], source=older, prefix="repoa")
+        # Source B (newer, target repo): holds the feat/login PR.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(
+                    61,
+                    "alice",
+                    "open",
+                    0,
+                    _ago(2),
+                    head_sha="sha61",
+                    head_ref="feat/login",
+                    full_name="PostHog/posthog.com",
+                )
+            ],
+            source=newer,
+            prefix="repob",
+        )
+        self._create_table("github_workflow_runs", _WORKFLOW_RUNS_COLUMNS, [], source=newer, prefix="repob")
+
+        # Clone-URL casing: both the source hint and the repo filter compare case-insensitively.
+        matches = api.resolve_branch(team=self.team, branch="feat/login", repo="posthog/POSTHOG.com")
+        assert [(m.repo, m.number) for m in matches] == [("PostHog/posthog.com", 61)]
+        # Without the repo hint the oldest source (A) is searched and the PR is missed.
+        assert api.resolve_branch(team=self.team, branch="feat/login") == []

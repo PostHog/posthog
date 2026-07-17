@@ -1,4 +1,4 @@
-import { DiagnosisVerdict, diagnoseReplayCapture } from './replayCaptureDiagnostics'
+import { DiagnosisVerdict, diagnoseReplayCapture, hasReplayDiagnosticSignals } from './replayCaptureDiagnostics'
 
 type Case = {
     name: string
@@ -86,6 +86,35 @@ describe('diagnoseReplayCapture', () => {
                 $session_recording_start_reason: 'recording_initialized',
             },
             expected: 'captured',
+        },
+        {
+            name: 'reported rrweb error → recorder_error',
+            properties: {
+                $recording_status: 'buffering',
+                $sdk_debug_replay_rrweb_error: 'TypeError: boom',
+            },
+            expected: 'recorder_error',
+        },
+        {
+            name: 'rrweb error outranks a pending trigger',
+            properties: {
+                $recording_status: 'buffering',
+                $sdk_debug_replay_event_trigger_status: 'trigger_pending',
+                $sdk_debug_replay_rrweb_error: 'boom',
+            },
+            expected: 'recorder_error',
+        },
+        {
+            // rrweb is started during buffering, so an unattached recorder with no reported error
+            // is a normal sampled-out / torn-down session, not a failure.
+            name: 'unattached recorder without an error is not mislabelled as recorder_error',
+            properties: {
+                $recording_status: 'buffering',
+                $sdk_debug_rrweb_start_attempted: true,
+                $sdk_debug_rrweb_attached: false,
+                $session_recording_start_reason: 'sampled_out',
+            },
+            expected: 'sampled_out',
         },
         {
             name: 'string-valued flushed size is coerced to a number',
@@ -245,6 +274,30 @@ describe('diagnoseReplayCapture', () => {
         expect(result.reasons[0]).not.toContain('linked flag trigger')
     })
 
+    it('recorder_error surfaces the rrweb error message when present', () => {
+        const result = diagnoseReplayCapture({
+            $recording_status: 'buffering',
+            $sdk_debug_replay_rrweb_error: 'boom',
+        })
+        expect(result.verdict).toBe('recorder_error')
+        expect(result.reasons.some((r) => r.includes('boom'))).toBe(true)
+    })
+
+    it('preserves newly added replay debug keys in rawSignals', () => {
+        const result = diagnoseReplayCapture({
+            $replay_override_sampling: true,
+            $sdk_debug_rrweb_attached: false,
+            $sdk_debug_replay_trigger_groups_count: 3,
+            $session_recording_event_trigger_activated_session: 'abc',
+            $not_a_signal: 'ignored',
+        })
+        expect(result.rawSignals).toHaveProperty('$replay_override_sampling')
+        expect(result.rawSignals).toHaveProperty('$sdk_debug_rrweb_attached')
+        expect(result.rawSignals).toHaveProperty('$sdk_debug_replay_trigger_groups_count')
+        expect(result.rawSignals).toHaveProperty('$session_recording_event_trigger_activated_session')
+        expect(result.rawSignals).not.toHaveProperty('$not_a_signal')
+    })
+
     it('preserves all known diagnostic keys in rawSignals', () => {
         const properties = {
             $has_recording: false,
@@ -263,5 +316,23 @@ describe('diagnoseReplayCapture', () => {
         expect(result.rawSignals).toHaveProperty('$replay_minimum_duration')
         expect(result.rawSignals).toHaveProperty('$sdk_debug_session_start')
         expect(result.rawSignals).not.toHaveProperty('$some_other_prop')
+    })
+})
+
+describe('hasReplayDiagnosticSignals', () => {
+    it('returns false for nullish or empty properties', () => {
+        expect(hasReplayDiagnosticSignals(undefined)).toBe(false)
+        expect(hasReplayDiagnosticSignals(null)).toBe(false)
+        expect(hasReplayDiagnosticSignals({})).toBe(false)
+    })
+
+    it('returns false when no recording diagnostic signals are present', () => {
+        expect(hasReplayDiagnosticSignals({ $browser: 'Chrome', some_custom_prop: 1 })).toBe(false)
+    })
+
+    it('returns true when at least one recording diagnostic signal is present', () => {
+        expect(hasReplayDiagnosticSignals({ $recording_status: 'buffering' })).toBe(true)
+        expect(hasReplayDiagnosticSignals({ $sdk_debug_replay_event_trigger_status: 'trigger_pending' })).toBe(true)
+        expect(hasReplayDiagnosticSignals({ $has_recording: false })).toBe(true)
     })
 })

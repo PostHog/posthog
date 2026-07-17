@@ -7,7 +7,7 @@ from posthog.schema import AssistantMessage, HumanMessage
 from products.posthog_ai.backend.models.assistant import CoreMemory
 
 from ee.hogai.chat_agent.slash_commands.commands import SlashCommand
-from ee.hogai.core.agent_modes import SlashCommandName
+from ee.hogai.core.agent_modes.const import SlashCommandName
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 

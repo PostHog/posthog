@@ -8,18 +8,46 @@ import { getTextMeasureCtx } from '../utils/text-measure'
 
 export type ValueLabelsMode = 'per-segment' | 'stack-total'
 
+/** Per-segment context handed to a value formatter so callers can compute labels that depend on
+ *  the band (e.g. each segment's share of its band). Keeps band/stacking knowledge in the library
+ *  while leaving the label text — values, percentages, units — entirely to the caller. */
+export interface ValueLabelContext {
+    /** Underlying value of this segment (the band total for stack-total labels). In percent layout
+     *  the formatter's `value` arg is the segment's fraction (0..1); `rawValue` stays the original so
+     *  callers can compute their own shares. */
+    rawValue: number
+    /** Finite values of every series contributing to this band's stack (non-excluded, not a fill
+     *  lower-bound, not an overlay) at this dataIndex — the denominator set for share math. */
+    bandValues: number[]
+    /** Same as `bandValues` for the preceding dataIndex; empty at the first index. */
+    previousBandValues: number[]
+    /** True in normalized/percent layout, where `value` is already a fraction. */
+    isPercent: boolean
+}
+
+/** Returning an empty string skips the label entirely. */
+export type ValueLabelFormatter = (
+    value: number,
+    /** `-1` for stack-total labels. */
+    seriesIndex: number,
+    dataIndex: number,
+    context: ValueLabelContext
+) => string
+
 export interface ValueLabelsProps {
-    /** `seriesIndex` is `-1` for stack-total labels. */
-    valueFormatter?: (value: number, seriesIndex: number, dataIndex: number) => string
+    valueFormatter?: ValueLabelFormatter
     minGap?: number
     mode?: ValueLabelsMode
+    /** Gap in px between the bar tip and the label, applied along the value axis in the outward
+     *  direction (right/above the tip, or inward for labels flipped inside a clipped bar). Ignored
+     *  for centered (`percent`) labels. Defaults to 0 — the label's edge sits on the bar tip. */
+    offset?: number
 }
 
 const LABEL_FONT =
     '600 12px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif'
 const LABEL_HEIGHT = 22
 const LABEL_PADDING_X = 4
-const LABEL_PADDING_Y = 2
 const LABEL_BORDER = 2
 const LABEL_HORIZONTAL_CHROME = (LABEL_PADDING_X + LABEL_BORDER) * 2
 const STACK_TOTAL_KEY = '__stack_total__'
@@ -94,6 +122,21 @@ function buildCandidates(args: BuildCandidatesArgs): Candidate[] {
     return args.mode === 'stack-total' ? buildStackTotal(args, ctx) : buildPerSegment(args, ctx)
 }
 
+function stackContributors(series: ResolvedSeries[]): ResolvedSeries[] {
+    return series.filter((s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.overlay)
+}
+
+function bandValuesAt(contributors: ResolvedSeries[], dIdx: number): number[] {
+    const values: number[] = []
+    for (const s of contributors) {
+        const v = s.data[dIdx]
+        if (typeof v === 'number' && isFinite(v)) {
+            values.push(v)
+        }
+    }
+    return values
+}
+
 function bandTotal(visible: ResolvedSeries[], dIdx: number): number | null {
     let total = 0
     let count = 0
@@ -140,6 +183,17 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
         if (categoricalCoord == null || !isFinite(categoricalCoord) || !isFinite(valueCoord)) {
             continue
         }
+        // `visible` (label-eligible series) rather than all stack contributors, so `bandValues`
+        // sums to the `total` shown — `buildPerSegment` deliberately uses the wider contributor set.
+        const text = valueFormatter(total, -1, dIdx, {
+            rawValue: total,
+            bandValues: bandValuesAt(visible, dIdx),
+            previousBandValues: dIdx > 0 ? bandValuesAt(visible, dIdx - 1) : [],
+            isPercent,
+        })
+        if (text === '') {
+            continue
+        }
         pushCandidate(
             out,
             ctx,
@@ -148,7 +202,7 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             -1,
             dIdx,
             barColorAt(topSeries, dIdx),
-            valueFormatter(total, -1, dIdx),
+            text,
             categoricalCoord,
             valueCoord,
             total >= 0
@@ -161,13 +215,12 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
     const { series, labels, scales, resolvePositionValue, valueFormatter, isHorizontal, isPercent } = args
     const out: Candidate[] = []
 
-    // In percent layout each band sums to 1, so we need the band total to convert each segment's
-    // raw value into the fraction d3 uses for placement (`raw / total`). Match the d3 stack's own
-    // denominator — every non-excluded stacked series — even if some have `valueLabel: false`,
-    // since those still contribute to the visual stack height.
-    const visibleForTotal = isPercent
-        ? series.filter((s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.overlay)
-        : []
+    // Stack denominator — for percent-layout fraction placement and for the `bandValues` handed to
+    // the formatter. Includes `valueLabel: false` series, which still contribute to stack height.
+    // The band depends only on `dIdx`, so compute it once per index instead of per segment.
+    const contributors = stackContributors(series)
+    const bandValuesByIndex = labels.map((_, dIdx) => bandValuesAt(contributors, dIdx))
+    const bandTotalByIndex = isPercent ? labels.map((_, dIdx) => bandTotal(contributors, dIdx)) : []
 
     for (let sIdx = 0; sIdx < series.length; sIdx++) {
         const s = series[sIdx]
@@ -191,7 +244,7 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             let above = isPercent ? false : yValue >= 0
 
             if (isPercent) {
-                const total = bandTotal(visibleForTotal, dIdx)
+                const total = bandTotalByIndex[dIdx]
                 if (total == null || total === 0) {
                     continue
                 }
@@ -209,6 +262,16 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             if (categoricalCoord == null || !isFinite(categoricalCoord) || !isFinite(valueCoord)) {
                 continue
             }
+            const text = valueFormatter(displayValue, sIdx, dIdx, {
+                rawValue,
+                bandValues: bandValuesByIndex[dIdx],
+                previousBandValues: dIdx > 0 ? bandValuesByIndex[dIdx - 1] : [],
+                isPercent,
+            })
+            if (text === '') {
+                continue
+            }
+
             pushCandidate(
                 out,
                 ctx,
@@ -217,7 +280,7 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
                 sIdx,
                 dIdx,
                 barColorAt(s, dIdx),
-                valueFormatter(displayValue, sIdx, dIdx),
+                text,
                 categoricalCoord,
                 valueCoord,
                 above,
@@ -293,48 +356,28 @@ function flipClippedCandidates(
     return candidates
 }
 
+// Greedy overlap removal over every candidate at once, keyed on the full 2D label box. Value
+// labels sit at their bar/point tip, so two neighbours can share a categorical position yet sit
+// far apart along the value axis (bars of different heights) — the boxes never touch. Testing
+// only the categorical axis would drop the second of every such pair (the "skips every other bar
+// even when there's room" case); the 2D `rectsOverlap` test keeps whatever genuinely fits, so a
+// label is skipped only when it would actually collide. Candidates are ordered by series, then
+// along the categorical axis, so ties resolve toward earlier series and a stable
+// left-to-right / top-to-bottom keep set.
 function applyCollisionAvoidance(candidates: Candidate[], minGap: number, isHorizontal: boolean): Candidate[] {
     if (candidates.length === 0) {
         return candidates
     }
-    const bySeries: Map<number, Candidate[]> = new Map()
-    for (const c of candidates) {
-        const bucket = bySeries.get(c.seriesIndex)
-        if (bucket) {
-            bucket.push(c)
-        } else {
-            bySeries.set(c.seriesIndex, [c])
+    const ordered = [...candidates].sort((a, b) => {
+        if (a.seriesIndex !== b.seriesIndex) {
+            return a.seriesIndex - b.seriesIndex
         }
-    }
-
-    const afterPrimary: Candidate[] = []
-    for (const group of bySeries.values()) {
-        if (isHorizontal) {
-            group.sort((a, b) => a.y - b.y)
-            const halfH = LABEL_HEIGHT / 2
-            let lastBottom = -Infinity
-            for (const c of group) {
-                if (c.y - halfH >= lastBottom + minGap) {
-                    afterPrimary.push(c)
-                    lastBottom = c.y + halfH
-                }
-            }
-        } else {
-            group.sort((a, b) => a.x - b.x)
-            let lastRight = -Infinity
-            for (const c of group) {
-                const halfW = c.width / 2
-                if (c.x - halfW >= lastRight + minGap) {
-                    afterPrimary.push(c)
-                    lastRight = c.x + halfW
-                }
-            }
-        }
-    }
+        return isHorizontal ? a.y - b.y : a.x - b.x
+    })
 
     const visible: Candidate[] = []
     const placedRects: Rect[] = []
-    for (const c of afterPrimary) {
+    for (const c of ordered) {
         const rect = labelRect(c, isHorizontal)
         if (!placedRects.some((p) => rectsOverlap(rect, p, minGap))) {
             visible.push(c)
@@ -346,11 +389,18 @@ function applyCollisionAvoidance(candidates: Candidate[], minGap: number, isHori
 
 const LABEL_STYLE_BASE: React.CSSProperties = {
     position: 'absolute',
+    // Fixed, even border-box height so `translateY(-50%)` lands on a whole pixel (no half-pixel
+    // bias) and the text is flex-centered rather than relying on line-height to centre it.
+    boxSizing: 'border-box',
+    height: LABEL_HEIGHT,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
     color: 'white',
     fontSize: 12,
     fontWeight: 600,
-    lineHeight: 1.2,
-    padding: `${LABEL_PADDING_Y}px ${LABEL_PADDING_X}px`,
+    lineHeight: 1,
+    padding: `0 ${LABEL_PADDING_X}px`,
     borderRadius: 4,
     borderWidth: LABEL_BORDER,
     borderStyle: 'solid',
@@ -359,7 +409,7 @@ const LABEL_STYLE_BASE: React.CSSProperties = {
     transition: 'transform 150ms ease-out',
 }
 
-function transformFor(c: Candidate, isHorizontal: boolean, hovered: boolean): string {
+function transformFor(c: Candidate, isHorizontal: boolean, hovered: boolean, offset: number): string {
     // Lift direction depends on which side of the value-axis the label sits on.
     let liftX = 0
     let liftY = 0
@@ -370,6 +420,15 @@ function transformFor(c: Candidate, isHorizontal: boolean, hovered: boolean): st
             liftX = c.above ? HOVER_LIFT_PX : -HOVER_LIFT_PX
         } else {
             liftY = c.above ? -HOVER_LIFT_PX : HOVER_LIFT_PX
+        }
+    }
+    // Nudge the label off the bar tip, away from the baseline (or inward when flipped inside a
+    // clipped bar so the gap stays on the bar side). Centered labels sit on the segment, no offset.
+    if (offset && !c.centerAnchor) {
+        if (isHorizontal) {
+            liftX += c.above ? offset : -offset
+        } else {
+            liftY += c.above ? -offset : offset
         }
     }
     const lift = liftX === 0 && liftY === 0 ? '' : ` translate(${liftX}px, ${liftY}px)`
@@ -386,6 +445,7 @@ export function ValueLabels({
     valueFormatter,
     minGap = 4,
     mode = 'per-segment',
+    offset = 0,
 }: ValueLabelsProps): React.ReactElement | null {
     const { series, scales, labels, theme, resolvePositionValue, axis, dimensions } = useChartLayout()
     const { hoverIndex } = useChartHover()
@@ -457,7 +517,7 @@ export function ValueLabels({
                             borderColor,
                             left: Math.round(c.x),
                             top: Math.round(c.y),
-                            transform: transformFor(c, isHorizontal, isHovered),
+                            transform: transformFor(c, isHorizontal, isHovered, offset),
                             willChange: isHovered ? 'transform' : undefined,
                         }}
                     >

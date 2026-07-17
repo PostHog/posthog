@@ -2,14 +2,48 @@ import '~/tests/helpers/mocks/date.mock'
 
 import { DateTime } from 'luxon'
 
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
 
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { HogInputsService, formatHogInput } from './hog-inputs.service'
+import { HogInputsService, formatHogInput, getAppIdentifierForPush } from './hog-inputs.service'
+import { RecipientTokensService } from './messaging/recipient-tokens.service'
+
+describe('getAppIdentifierForPush', () => {
+    it('returns null when no integration inputs are present', () => {
+        expect(getAppIdentifierForPush({})).toBeNull()
+        expect(getAppIdentifierForPush({ push_provider: { value: null } })).toBeNull()
+    })
+
+    it('returns null when integration has no project_id or bundle_id', () => {
+        expect(getAppIdentifierForPush({ push_provider: { value: { key_id: 'abc' } } })).toBeNull()
+    })
+
+    it('returns project_id from a Firebase integration input', () => {
+        const result = getAppIdentifierForPush({
+            push_provider: { value: { project_id: 'my-firebase-project', key_id: 'abc' } },
+        })
+        expect(result).toBe('my-firebase-project')
+    })
+
+    it('returns bundle_id from an APNS integration input', () => {
+        const result = getAppIdentifierForPush({
+            push_provider: { value: { bundle_id: 'com.example.app', key_id: 'abc' } },
+        })
+        expect(result).toBe('com.example.app')
+    })
+
+    it('returns the first app identifier when multiple integrations are present', () => {
+        const result = getAppIdentifierForPush({
+            firebase_account: { value: { project_id: 'firebase-proj' } },
+            apns_account: { value: { bundle_id: 'com.example.app' } },
+        })
+        expect(result).toBe('firebase-proj')
+    })
+})
 
 describe('Hog Inputs', () => {
     let hub: Hub
@@ -44,7 +78,8 @@ describe('Hog Inputs', () => {
             },
         })
 
-        hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        hogInputsService = new HogInputsService(hub.integrationManager, recipientTokensService, hub.encryptedFields)
     })
 
     afterEach(async () => {
@@ -159,48 +194,35 @@ describe('Hog Inputs', () => {
             expect(inputs.liquid_templated).toMatchInlineSnapshot(`"event: "test""`)
         })
 
-        it('should loads inputs with integration inputs', async () => {
+        it('should load integration inputs and replace access tokens with placeholders', async () => {
+            hogFunction = createHogFunction({
+                ...hogFunction,
+                inputs: {
+                    hog_templated: hogFunction.inputs!.hog_templated,
+                    liquid_templated: hogFunction.inputs!.liquid_templated,
+                    oauth: { value: 1 },
+                    auth: { value: 2 },
+                },
+                inputs_schema: [
+                    { key: 'hog_templated', type: 'string', required: true },
+                    { key: 'oauth', type: 'integration', required: true },
+                    { key: 'auth', type: 'integration', required: true },
+                ],
+            })
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
 
             expect(inputs.oauth).toMatchInlineSnapshot(`
                 {
+                  "$integration_id": 1,
                   "access_token": "$$_access_token_placeholder_1",
                   "access_token_raw": "token",
                   "not_encrypted": "not-encrypted",
                   "team": "foobar",
                 }
             `)
-        })
-
-        it('access token should be replaced with placeholder', async () => {
-            hogFunction = createHogFunction({
-                id: 'hog-function-1',
-                team_id: team.id,
-                name: 'Hog Function 1',
-                enabled: true,
-                type: 'destination',
-                inputs: {
-                    hog_templated: {
-                        value: 'event: "{event.event}"',
-                        templating: 'hog',
-                        bytecode: await compileHog('return f\'event: "{event.event}"\''),
-                    },
-                    liquid_templated: {
-                        value: 'event: "{{ event.event }}"',
-                        templating: 'liquid',
-                    },
-                    auth: { value: 2 },
-                },
-                inputs_schema: [
-                    { key: 'hog_templated', type: 'string', required: true },
-                    { key: 'auth', type: 'integration', required: true },
-                ],
-            })
-
-            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
-
             expect(inputs.auth).toMatchInlineSnapshot(`
                 {
+                  "$integration_id": 2,
                   "access_token": "$$_access_token_placeholder_2",
                   "access_token_raw": "token",
                   "not_encrypted": "not-encrypted",
@@ -261,6 +283,34 @@ describe('Hog Inputs', () => {
             expect(inputs.email.html).toEqual(
                 `<div>Manage subscription preferences here <a href="http://localhost:8000/messaging-preferences/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoyLCJpZGVudGlmaWVyIjoidGVzdEBwb3N0aG9nLmNvbSIsImlhdCI6MTczNTY4OTYwMCwiZXhwIjoxNzM2Mjk0NDAwLCJhdWQiOiJwb3N0aG9nOm1lc3NhZ2luZzpzdWJzY3JpcHRpb25fcHJlZmVyZW5jZXMifQ.pBh-COzTEyApuxe8J5sViPanp1lV1IClepOTVFZNhIs/">here</a>Or, click <a href="http://localhost:8000/messaging-preferences/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoyLCJpZGVudGlmaWVyIjoidGVzdEBwb3N0aG9nLmNvbSIsImlhdCI6MTczNTY4OTYwMCwiZXhwIjoxNzM2Mjk0NDAwLCJhdWQiOiJwb3N0aG9nOm1lc3NhZ2luZzpzdWJzY3JpcHRpb25fcHJlZmVyZW5jZXMifQ.pBh-COzTEyApuxe8J5sViPanp1lV1IClepOTVFZNhIs/?one_click_unsubscribe=1">here</a> to immediately unsubscribe from all marketing emails</div>`
             )
+        })
+
+        it('resolves push subscription inputs without a valid integration', async () => {
+            const hogFunction = createHogFunction({
+                id: 'hog-function-1',
+                team_id: team.id,
+                name: 'Hog Function 1',
+                enabled: true,
+                type: 'destination',
+                inputs: {
+                    push_provider: { value: 999 },
+                    push_subscription: { value: 'user-123' },
+                },
+                inputs_schema: [
+                    {
+                        key: 'push_provider',
+                        type: 'integration',
+                    },
+                    {
+                        key: 'push_subscription',
+                        type: 'push_subscription',
+                        platform: 'android',
+                    },
+                ],
+            })
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+            expect(inputs.push_subscription).toBeNull()
         })
     })
 })

@@ -1,8 +1,8 @@
 import { DataColorToken } from 'lib/colors'
 // eslint-disable-next-line import/no-cycle
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { ConversionGoalSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
+import { ConversionGoalSchema } from '~/taxonomy/marketingAnalytics'
 import {
     AnyFilterLike,
     AnyGroupScopeFilter,
@@ -53,6 +53,8 @@ import {
     SessionPropertyFilter,
     SessionRecordingType,
     SimpleIntervalType,
+    SlackIntegrationScope,
+    SlackIntegrationScopeInReview,
     StepOrderValue,
     StickinessFilterType,
     TrendsFilterType,
@@ -61,6 +63,10 @@ import {
 import { integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
+// Re-exported so the codegen picks them up and emits matching `StrEnum`s in posthog/schema.py.
+// The runtime consts live in `~/types` as `SLACK_INTEGRATION_SCOPES` (always-on) and
+// `SLACK_INTEGRATION_SCOPES_IN_REVIEW` (DEV-instance only until Slack approves them).
+export { SlackIntegrationScope, SlackIntegrationScopeInReview }
 
 /**
  * PostHog Query Schema definition.
@@ -105,9 +111,12 @@ export enum NodeKind {
     LogsQuery = 'LogsQuery',
     LogAttributesQuery = 'LogAttributesQuery',
     LogValuesQuery = 'LogValuesQuery',
+    MetricsQuery = 'MetricsQuery',
     TraceSpansQuery = 'TraceSpansQuery',
     TraceSpansAggregationQuery = 'TraceSpansAggregationQuery',
     TraceSpansTreeQuery = 'TraceSpansTreeQuery',
+    TraceSpansAttributeBreakdownQuery = 'TraceSpansAttributeBreakdownQuery',
+    TraceSpansSymbolStatsQuery = 'TraceSpansSymbolStatsQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
     // Interface nodes
@@ -171,6 +180,7 @@ export enum NodeKind {
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
     TraceQuery = 'TraceQuery',
+    SessionQuery = 'SessionQuery',
     TraceNeighborsQuery = 'TraceNeighborsQuery',
     VectorSearchQuery = 'VectorSearchQuery',
     DocumentSimilarityQuery = 'DocumentSimilarityQuery',
@@ -184,10 +194,23 @@ export enum NodeKind {
     EndpointsUsageTableQuery = 'EndpointsUsageTableQuery',
     EndpointsUsageTrendsQuery = 'EndpointsUsageTrendsQuery',
 
+    // MCP analytics
+    MCPHarnessBreakdownQuery = 'MCPHarnessBreakdownQuery',
+    MCPToolTopUsersQuery = 'MCPToolTopUsersQuery',
+    MCPToolFailuresQuery = 'MCPToolFailuresQuery',
+    MCPToolStatsQuery = 'MCPToolStatsQuery',
+    MCPToolDailyStatsQuery = 'MCPToolDailyStatsQuery',
+    MCPToolDescriptionsQuery = 'MCPToolDescriptionsQuery',
+    MCPToolSampleIntentsQuery = 'MCPToolSampleIntentsQuery',
+    MCPToolNeighborsQuery = 'MCPToolNeighborsQuery',
+
     // Property values
     PropertyValuesQuery = 'PropertyValuesQuery',
 }
 
+/**
+ * @discriminator kind
+ */
 export type AnyDataNode =
     | EventsNode // never queried directly
     | ActionsNode // old actions API endpoint
@@ -230,15 +253,18 @@ export type AnyDataNode =
     | LogsQuery
     | LogAttributesQuery
     | LogValuesQuery
+    | MetricsQuery
     | TraceSpansQuery
     | TraceSpansAggregationQuery
     | TraceSpansTreeQuery
+    | TraceSpansAttributeBreakdownQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | CalendarHeatmapQuery
     | RecordingsQuery
     | TracesQuery
     | TraceQuery
+    | SessionQuery
     | TraceNeighborsQuery
     | VectorSearchQuery
     | UsageMetricsQuery
@@ -246,6 +272,14 @@ export type AnyDataNode =
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
+    | MCPHarnessBreakdownQuery
+    | MCPToolTopUsersQuery
+    | MCPToolFailuresQuery
+    | MCPToolStatsQuery
+    | MCPToolDailyStatsQuery
+    | MCPToolDescriptionsQuery
+    | MCPToolSampleIntentsQuery
+    | MCPToolNeighborsQuery
 
 /**
  * @discriminator kind
@@ -331,10 +365,14 @@ export type QuerySchema =
     | LogAttributesQuery
     | LogValuesQuery
 
+    // Metrics
+    | MetricsQuery
+
     // Tracing
     | TraceSpansQuery
     | TraceSpansAggregationQuery
     | TraceSpansTreeQuery
+    | TraceSpansAttributeBreakdownQuery
 
     // AI
     | SuggestedQuestionsQuery
@@ -343,6 +381,7 @@ export type QuerySchema =
     | ActorsPropertyTaxonomyQuery
     | TracesQuery
     | TraceQuery
+    | SessionQuery
     | TraceNeighborsQuery
     | VectorSearchQuery
 
@@ -354,6 +393,16 @@ export type QuerySchema =
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
+
+    // MCP analytics
+    | MCPHarnessBreakdownQuery
+    | MCPToolTopUsersQuery
+    | MCPToolFailuresQuery
+    | MCPToolStatsQuery
+    | MCPToolDailyStatsQuery
+    | MCPToolDescriptionsQuery
+    | MCPToolSampleIntentsQuery
+    | MCPToolNeighborsQuery
 
     // Property values
     | PropertyValuesQuery
@@ -393,9 +442,11 @@ export type AnyResponseType =
     | LogsQueryResponse
     | LogAttributesQueryResponse
     | LogValuesQueryResponse
+    | MetricsQueryResponse
     | TraceSpansQueryResponse
     | TraceSpansAggregationQueryResponse
     | TraceSpansTreeQueryResponse
+    | TraceSpansAttributeBreakdownQueryResponse
 
 /** Tags that will be added to the Query log comment  **/
 export interface QueryLogTags {
@@ -472,6 +523,8 @@ export interface DataWarehouseEventsModifier {
 }
 
 export interface DataWarehouseSyncWarning {
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type: 'warehouse_sync'
     /** Name of the warehouse table the warning refers to */
     table_name: string
     /** Name of the ExternalDataSchema responsible for syncing the table */
@@ -482,6 +535,15 @@ export interface DataWarehouseSyncWarning {
     source_id?: string | null
     /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
     status: string
+    /** Human-readable warning shown to the user */
+    message: string
+}
+
+export interface AccessControlFilterWarning {
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type: 'access_control'
+    /** Resource types the user has access restrictions on, referenced by the query, e.g. ["insight", "dashboard"] */
+    resources: string[]
     /** Human-readable warning shown to the user */
     message: string
 }
@@ -503,8 +565,9 @@ export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBas
     /**
      * Warnings about data warehouse sources referenced by the query whose latest sync failed,
      * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
+     * Also carries access control warnings when a system-table query filters out objects the user can't access.
      */
-    warnings?: DataWarehouseSyncWarning[]
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -529,7 +592,7 @@ export interface HogQLVariable {
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
     query: string
-    /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
+    /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string
     /** Run the selected connection query directly without translating it through HogQL first */
     sendRawQuery?: boolean
@@ -578,6 +641,7 @@ export const VALID_RECORDING_ORDERS = [
     'mouse_activity_count',
     'activity_score',
     'recording_ttl',
+    'surfacing_score',
 ] as const
 
 export interface MatchingEventsResponse {
@@ -744,7 +808,7 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     language: HogLanguage
     /** Query to validate */
     query: string
-    /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
+    /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string
     /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
     sourceQuery?: AnyDataNode
@@ -764,7 +828,7 @@ export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
     language: HogLanguage
     /** Query to validate */
     query: string
-    /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
+    /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string
     /** Query in whose context to validate. */
     sourceQuery?: AnyDataNode
@@ -852,6 +916,8 @@ export interface ActionsNode extends EntityNode {
     id: integer
 }
 
+// NOTE: attaching `@discriminator` here breaks ts-json-schema-generator on the generic
+// alias ("multiple definitions") — per-query `*SeriesNodeUnion` aliases carry the tag instead.
 export type AnyEntityNode<WarehouseNode = DataWarehouseNode> = EventsNode | ActionsNode | WarehouseNode
 
 export type AnyDataWarehouseNode = DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode
@@ -1023,6 +1089,50 @@ export interface PersonsNode extends DataNode {
 
 export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
 
+// Named separately from `DataTableNodeSource` so the JSDoc `@discriminator` tag
+// can attach without tripping ts-json-schema-generator's dedup (same workaround
+// pattern as `FunnelsQuerySeriesNodeUnion = FunnelsQuerySeriesNode`). The alias is
+// the public type — callers continue to use `DataTableNodeSource`.
+/**
+ * @discriminator kind
+ */
+export type DataTableNodeSourceUnion =
+    | EventsNode
+    | EventsQuery
+    | PersonsNode
+    | ActorsQuery
+    | GroupsQuery
+    | HogQLQuery
+    | WebOverviewQuery
+    | WebStatsTableQuery
+    | WebExternalClicksTableQuery
+    | WebGoalsQuery
+    | WebVitalsQuery
+    | WebVitalsPathBreakdownQuery
+    | SessionAttributionExplorerQuery
+    | SessionsQuery
+    | RevenueAnalyticsGrossRevenueQuery
+    | RevenueAnalyticsMetricsQuery
+    | RevenueAnalyticsMRRQuery
+    | RevenueAnalyticsOverviewQuery
+    | RevenueAnalyticsTopCustomersQuery
+    | RevenueExampleEventsQuery
+    | RevenueExampleDataWarehouseTablesQuery
+    | MarketingAnalyticsTableQuery
+    | MarketingAnalyticsAggregatedQuery
+    | NonIntegratedConversionsTableQuery
+    | ErrorTrackingQuery
+    | ErrorTrackingIssueCorrelationQuery
+    | ExperimentFunnelsQuery
+    | ExperimentTrendsQuery
+    | TracesQuery
+    | TraceQuery
+    | SessionQuery
+    | EndpointsUsageTableQuery
+    | AccountsQuery
+
+export type DataTableNodeSource = DataTableNodeSourceUnion
+
 export interface DataTableNode
     extends
         Node<
@@ -1057,6 +1167,7 @@ export interface DataTableNode
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
                     | TracesQuery
+                    | SessionQuery
                     | EndpointsUsageTableQuery
                     | AccountsQuery
                 )['response']
@@ -1065,39 +1176,7 @@ export interface DataTableNode
         DataTableNodeViewProps {
     kind: NodeKind.DataTableNode
     /** Source of the events */
-    source:
-        | EventsNode
-        | EventsQuery
-        | PersonsNode
-        | ActorsQuery
-        | GroupsQuery
-        | HogQLQuery
-        | WebOverviewQuery
-        | WebStatsTableQuery
-        | WebExternalClicksTableQuery
-        | WebGoalsQuery
-        | WebVitalsQuery
-        | WebVitalsPathBreakdownQuery
-        | SessionAttributionExplorerQuery
-        | SessionsQuery
-        | RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsOverviewQuery
-        | RevenueAnalyticsTopCustomersQuery
-        | RevenueExampleEventsQuery
-        | RevenueExampleDataWarehouseTablesQuery
-        | MarketingAnalyticsTableQuery
-        | MarketingAnalyticsAggregatedQuery
-        | NonIntegratedConversionsTableQuery
-        | ErrorTrackingQuery
-        | ErrorTrackingIssueCorrelationQuery
-        | ExperimentFunnelsQuery
-        | ExperimentTrendsQuery
-        | TracesQuery
-        | TraceQuery
-        | EndpointsUsageTableQuery
-        | AccountsQuery
+    source: DataTableNodeSource
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -1164,6 +1243,16 @@ export interface HeatmapSettings {
     sortOrder?: HeatmapSortOrder
 }
 
+export interface PieChartSettings {
+    /** What to render on each slice. Defaults to labels. */
+    sliceContent?: 'labels' | 'values' | 'none'
+    /** Whether slice values show as absolute amounts or shares of the total. Only applies when
+     *  `sliceContent` is `values`. */
+    valueDisplay?: 'absolute' | 'percentage'
+    /** Whether to show the aggregation total below the chart. Defaults to on. */
+    showTotal?: boolean
+}
+
 export interface YAxisSettings {
     label?: string
     scale?: 'linear' | 'logarithmic'
@@ -1190,10 +1279,13 @@ export interface ChartSettings {
     showYAxisBorder?: boolean
     showLegend?: boolean
     showValuesOnSeries?: boolean
-    showTotalRow?: boolean
+    // Deprecated: superseded by `pie.showTotal`. Retained so pre-existing pie-chart insights still
+    // validate (ChartSettings is `extra="forbid"`). Read as a fallback in the pie chart components.
     showPieTotal?: boolean
+    showTotalRow?: boolean
     showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
+    pie?: PieChartSettings
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
 }
@@ -1400,6 +1492,13 @@ export type TrendsFormulaNode = {
     custom_name?: string
 }
 
+/** Per-insight chart rendering style. Pure presentation — no field changes the computed values.
+ * Every field is optional; unset fields fall through to the app-level chart defaults. */
+export interface ChartStyle {
+    /** Line interpolation: straight segments or a smoothed curve through the points. */
+    curve?: 'linear' | 'smooth'
+}
+
 export type TrendsFilter = {
     /** @default 1 */
     smoothingIntervals?: integer
@@ -1413,6 +1512,9 @@ export type TrendsFilter = {
     display?: TrendsFilterLegacy['display']
     /** @default false */
     showLegend?: TrendsFilterLegacy['show_legend']
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
+     * @default bottom */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** @default false */
     showAlertThresholdLines?: boolean
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
@@ -1482,6 +1584,28 @@ export type TrendsFilter = {
     hideWeekends?: boolean
     /** @default true */
     showAnnotations?: boolean
+    /** Show the period-over-period change pill on the Metric display.
+     * @default true */
+    metricShowChange?: boolean
+    /** Metric display: change pill color when the metric increased. Defaults to green. */
+    metricChangeIncreaseColor?: string
+    /** Metric display: change pill color when the metric decreased. Defaults to red. */
+    metricChangeDecreaseColor?: string
+    /** Metric display: color the sparkline by whether the metric increased or decreased.
+     * @default false */
+    metricColorByDirection?: boolean
+    /** Metric display: line color when the metric increased. Defaults to green. */
+    metricLineIncreaseColor?: string
+    /** Metric display: line color when the metric decreased. Defaults to red. */
+    metricLineDecreaseColor?: string
+    /** Metric display: which summary the resting headline shows — the period total, the average,
+     * or the latest point. Hovering the sparkline always shows the hovered point's value. Also drives
+     * the change pill: total/average compare against the previous period when "compare to previous"
+     * is on; latest compares first→last of the series.
+     * @default total */
+    metricSummary?: 'total' | 'average' | 'latest'
+    /** Chart rendering style overrides (line shape). */
+    chartStyle?: ChartStyle
 }
 
 export type CalendarHeatmapFilter = {
@@ -1500,6 +1624,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'formula',
     'display',
     'showLegend',
+    'legendPosition',
     'breakdown_histogram_bin_count',
     'aggregationAxisFormat',
     'aggregationAxisPrefix',
@@ -1514,6 +1639,14 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'excludeBoxPlotOutliers',
     'hideWeekends',
     'showAnnotations',
+    'metricShowChange',
+    'metricChangeIncreaseColor',
+    'metricChangeDecreaseColor',
+    'metricColorByDirection',
+    'metricLineIncreaseColor',
+    'metricLineDecreaseColor',
+    'metricSummary',
+    'chartStyle',
 ])
 
 export interface BoxPlotDatum {
@@ -1554,6 +1687,17 @@ export interface ResultCustomizationByValue extends ResultCustomizationBase {
 
 export type ResultCustomization = ResultCustomizationByValue | ResultCustomizationByPosition
 
+// Named separately from `TrendsQuerySeriesNode` so the JSDoc `@discriminator` tag
+// can attach without tripping ts-json-schema-generator's dedup (same workaround
+// pattern as `FunnelsQuerySeriesNodeUnion = FunnelsQuerySeriesNode`). The alias is
+// the public type — callers continue to use `TrendsQuerySeriesNode`.
+/**
+ * @discriminator kind
+ */
+export type TrendsQuerySeriesNodeUnion = EventsNode | ActionsNode | DataWarehouseNode | GroupNode
+
+export type TrendsQuerySeriesNode = TrendsQuerySeriesNodeUnion
+
 export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     kind: NodeKind.TrendsQuery
     /**
@@ -1563,7 +1707,7 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
      */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (AnyEntityNode | GroupNode)[]
+    series: TrendsQuerySeriesNode[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /**
@@ -1587,6 +1731,15 @@ export interface CalendarHeatmapResponse extends AnalyticsQueryResponseBase {
 
 export type CachedCalendarHeatmapQueryResponse = CachedQueryResponse<CalendarHeatmapResponse>
 
+// Two-level alias so the JSDoc `@discriminator` tag survives ts-json-schema-generator's
+// dedup — same workaround pattern as `FunnelsQuerySeriesNodeUnion = FunnelsQuerySeriesNode`.
+/**
+ * @discriminator kind
+ */
+export type CalendarHeatmapQuerySeriesNodeUnion = EventsNode | ActionsNode | DataWarehouseNode
+
+export type CalendarHeatmapQuerySeriesNode = CalendarHeatmapQuerySeriesNodeUnion
+
 export interface CalendarHeatmapQuery extends InsightsQueryBase<CalendarHeatmapResponse> {
     kind: NodeKind.CalendarHeatmapQuery
     /**
@@ -1596,7 +1749,7 @@ export interface CalendarHeatmapQuery extends InsightsQueryBase<CalendarHeatmapR
      */
     interval?: IntervalType
     /** Events and actions to include */
-    series: AnyEntityNode[]
+    series: CalendarHeatmapQuerySeriesNode[]
     /** Properties specific to the trends insight */
     calendarHeatmapFilter?: CalendarHeatmapFilter
     /**  Whether we should be comparing against a specific conversion goal */
@@ -1640,6 +1793,9 @@ export interface FunnelExclusionSteps {
 }
 export interface FunnelExclusionEventsNode extends EventsNode, FunnelExclusionSteps {}
 export interface FunnelExclusionActionsNode extends ActionsNode, FunnelExclusionSteps {}
+/**
+ * @discriminator kind
+ */
 export type FunnelExclusion = FunnelExclusionEventsNode | FunnelExclusionActionsNode
 
 export type FunnelsFilter = {
@@ -1676,6 +1832,15 @@ export type FunnelsFilter = {
     goalLines?: GoalLine[]
     /** Display linear regression trend lines on the chart (only for historical trends viz) */
     showTrendLines?: boolean
+    /**
+     * Whether to show a legend describing the series. The legend only renders when the funnel has
+     * multiple series. Only applies to historical-trends funnels.
+     * @default false
+     */
+    showLegend?: boolean
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
+     * @default bottom */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** @default false */
     showValuesOnSeries?: boolean
     /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
@@ -1691,18 +1856,33 @@ export type FunnelsFilter = {
      * @default false
      */
     hideIncompleteConversionWindowPeriods?: boolean
+    /** Chart rendering style overrides (line shape). Only applies to historical-trends funnels. */
+    chartStyle?: ChartStyle
 }
+
+// Named separately from `FunnelsQuerySeriesNode` so the JSDoc `@discriminator` tag
+// can attach without tripping ts-json-schema-generator's dedup (same workaround
+// pattern as `ExperimentMetricSourceUnion = ExperimentMetricSource`). The alias is
+// the public type — callers continue to use `FunnelsQuerySeriesNode`.
+/**
+ * @discriminator kind
+ */
+export type FunnelsQuerySeriesNodeUnion = EventsNode | ActionsNode | FunnelsDataWarehouseNode | GroupNode
+
+export type FunnelsQuerySeriesNode = FunnelsQuerySeriesNodeUnion
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
     kind: NodeKind.FunnelsQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (AnyEntityNode<FunnelsDataWarehouseNode> | GroupNode)[]
+    series: FunnelsQuerySeriesNode[]
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter
+    /** Compare to date range */
+    compareFilter?: CompareFilter
 }
 
 /** @asType integer */
@@ -1711,6 +1891,7 @@ export type FunnelStepsResults = Record<string, any>[]
 export type FunnelStepsBreakdownResults = Record<string, any>[][]
 export type FunnelTimeToConvertResults = {
     average_conversion_time: number | null
+    median_conversion_time: number | null
     bins: [BinNumber, BinNumber][]
 }
 export type FunnelTrendsResults = Record<string, any>[]
@@ -1718,6 +1899,8 @@ export interface FunnelsQueryResponse extends AnalyticsQueryResponseBase {
     // This is properly FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
     // but this large of a union doesn't provide any type-safety and causes python mypy issues, so represented as any.
     results: any
+    /** Median total conversion time across all completers, computed breakdown-agnostically for the Steps viz header. */
+    total_median_conversion_time?: number | null
 }
 
 export type CachedFunnelsQueryResponse = CachedQueryResponse<FunnelsQueryResponse>
@@ -1763,6 +1946,8 @@ export type RetentionFilter = {
     /** @description Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1 for D1/D2/D3). Display-only — does not affect retention calculations.
      * @default 0 */
     cohortLabelStartIndex?: integer
+    /** Chart rendering style overrides (line shape). */
+    chartStyle?: ChartStyle
 }
 
 export interface RetentionValue {
@@ -1874,6 +2059,9 @@ export interface StickinessCriteria {
 export type StickinessFilter = {
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
+     * @default bottom */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
     showMultipleYAxes?: StickinessFilterLegacy['show_multiple_y_axes']
     hiddenLegendIndexes?: integer[]
@@ -1888,13 +2076,17 @@ export type StickinessFilter = {
     resultCustomizations?:
         | Record<string, ResultCustomizationByValue>
         | Record<numerical_key, ResultCustomizationByPosition>
+    /** Chart rendering style overrides (line shape). */
+    chartStyle?: ChartStyle
 }
 
 export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
     'display',
     'showLegend',
+    'legendPosition',
     'showValuesOnSeries',
     'hiddenLegendIndexes',
+    'chartStyle',
 ])
 
 export interface StickinessQueryResponse extends AnalyticsQueryResponseBase {
@@ -1902,6 +2094,15 @@ export interface StickinessQueryResponse extends AnalyticsQueryResponseBase {
 }
 
 export type CachedStickinessQueryResponse = CachedQueryResponse<StickinessQueryResponse>
+
+// Two-level alias so the JSDoc `@discriminator` tag survives ts-json-schema-generator's
+// dedup — same workaround pattern as `FunnelsQuerySeriesNodeUnion = FunnelsQuerySeriesNode`.
+/**
+ * @discriminator kind
+ */
+export type StickinessQuerySeriesNodeUnion = EventsNode | ActionsNode | DataWarehouseNode
+
+export type StickinessQuerySeriesNode = StickinessQuerySeriesNodeUnion
 
 export interface StickinessQuery extends Omit<
     InsightsQueryBase<StickinessQueryResponse>,
@@ -1918,7 +2119,7 @@ export interface StickinessQuery extends Omit<
      */
     intervalCount?: positive_integer
     /** Events and actions to include */
-    series: AnyEntityNode[]
+    series: StickinessQuerySeriesNode[]
     /** Properties specific to the stickiness insight */
     stickinessFilter?: StickinessFilter
     /** Compare to date range */
@@ -1933,9 +2134,15 @@ export type LifecycleFilterLegacy = Omit<LifecycleFilterType, keyof FilterType |
 
 export type LifecycleFilter = {
     showValuesOnSeries?: LifecycleFilterLegacy['show_values_on_series']
+    /** Append per-band percentage to each value label (e.g. `580 (42%)`). Requires
+     *  `showValuesOnSeries` — on its own it has no visible effect. */
+    showPercentagesOnSeries?: boolean
     toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
     /** @default false */
     showLegend?: LifecycleFilterLegacy['show_legend']
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
+     * @default bottom */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** @default true */
     stacked?: boolean
 }
@@ -1971,6 +2178,11 @@ export interface EndpointRequest {
     deleted?: boolean
     /** Tag names to associate with this endpoint. Replaces any existing tags. Omit to leave tags untouched. */
     tags?: string[]
+    /**
+     * Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of
+     * that breakdown.
+     */
+    optional_breakdown_properties?: string[]
 }
 
 /**
@@ -2111,8 +2323,9 @@ export interface AnalyticsQueryResponseBase {
      * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
      * Accumulated across every HogQL execution that contributes to this response — so insights backed
      * by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.
+     * Also carries access control warnings when a system-table query filters out objects the user can't access.
      */
-    warnings?: DataWarehouseSyncWarning[]
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
 }
 
 interface CachedQueryResponseMixin {
@@ -2184,6 +2397,11 @@ export type QueryStatus = {
     complete: boolean
     /**  @default null */
     error_message: string | null
+    /**
+     * Stable machine-readable code for the error (the DRF exception code), when known.
+     * @default null
+     */
+    error_code: string | null
     results?: any
     /**
      * When was the query execution task picked up by a worker.
@@ -2213,6 +2431,15 @@ export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase {
 
 export type CachedLifecycleQueryResponse = CachedQueryResponse<LifecycleQueryResponse>
 
+// Two-level alias so the JSDoc `@discriminator` tag survives ts-json-schema-generator's
+// dedup — same workaround pattern as `FunnelsQuerySeriesNodeUnion = FunnelsQuerySeriesNode`.
+/**
+ * @discriminator kind
+ */
+export type LifecycleQuerySeriesNodeUnion = EventsNode | ActionsNode | LifecycleDataWarehouseNode
+
+export type LifecycleQuerySeriesNode = LifecycleQuerySeriesNodeUnion
+
 export interface LifecycleQuery extends InsightsQueryBase<LifecycleQueryResponse> {
     kind: NodeKind.LifecycleQuery
     /**
@@ -2221,7 +2448,7 @@ export interface LifecycleQuery extends InsightsQueryBase<LifecycleQueryResponse
      */
     interval?: IntervalType
     /** Events and actions to include */
-    series: AnyEntityNode<LifecycleDataWarehouseNode>[]
+    series: LifecycleQuerySeriesNode[]
     /** Properties specific to the lifecycle insight */
     lifecycleFilter?: LifecycleFilter
     /** For data warehouse based lifecycle insights when the aggregation target can't be mapped to persons or groups. */
@@ -2300,8 +2527,6 @@ export interface AccountsQueryResponse extends AnalyticsQueryResponseBase {
     metricsResults?: (number | null)[]
 }
 
-export type AccountsRoleAssignmentFilter = integer | 'unassigned'
-
 export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     kind: NodeKind.AccountsQuery
     select?: HogQLExpression[]
@@ -2309,9 +2534,9 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     metrics?: HogQLExpression[]
     search?: string
     tagNames?: string[]
-    csm?: AccountsRoleAssignmentFilter
-    accountExecutive?: AccountsRoleAssignmentFilter
-    accountOwner?: AccountsRoleAssignmentFilter
+    /** Match accounts where any of these user ids actively holds any relationship (CSM, Account executive, or a custom definition). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
+    assignedToUserIds?: integer[]
+    /** Match accounts with no active relationship of any definition. */
     allRolesUnassigned?: boolean
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: HogQLExpression
@@ -2418,8 +2643,16 @@ export interface WebAnalyticsItemBase<T> {
     changeFromPreviousPct?: number
     isIncreaseBad?: boolean
 }
-export interface WebOverviewItem extends WebAnalyticsItemBase<number> {
-    usedPreAggregatedTables?: boolean
+export interface WebOverviewItem extends WebAnalyticsItemBase<number> {}
+
+/** Which read path served a web analytics response. */
+export enum WebAnalyticsPreComputeStrategy {
+    /** Served from the v2 continuously-maintained pre-aggregated tables. */
+    PreAggregated = 'pre_aggregated',
+    /** Served from the on-demand lazy precompute tables. */
+    LazyPrecompute = 'lazy_precompute',
+    /** Computed live from raw events (no precompute). */
+    Live = 'live',
 }
 
 export interface SamplingRate {
@@ -2432,11 +2665,208 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
     samplingRate?: SamplingRate
     dateFrom?: string
     dateTo?: string
-    usedPreAggregatedTables?: boolean
-    usedLazyPrecompute?: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
+
+/** One row of the MCP harness (client) breakdown: a resolved customer label and its activity. */
+export interface MCPHarnessBreakdownItem {
+    /** Customer-facing harness label, e.g. "Claude Agent SDK", "OpenAI Codex", "Cursor", "Other". */
+    harness: string
+    total_calls: integer
+    errors: integer
+    error_rate_pct: number
+    sessions: integer
+}
+
+export interface MCPHarnessBreakdownQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPHarnessBreakdownItem[]
+}
+
+/** MCP tool-call activity grouped by the resolved client harness, over $mcp_tool_call events. */
+export interface MCPHarnessBreakdownQuery extends DataNode<MCPHarnessBreakdownQueryResponse> {
+    kind: NodeKind.MCPHarnessBreakdownQuery
+    dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
+    /** When set, scope to a single effective tool's new-SDK calls (the per-tool "By harness" table). */
+    toolName?: string
+}
+
+export type CachedMCPHarnessBreakdownQueryResponse = CachedQueryResponse<MCPHarnessBreakdownQueryResponse>
+
+/** One row of the per-tool "Top users" table: a user and their activity on a tool. */
+export interface MCPToolTopUserItem {
+    distinct_id: string
+    /** JSON-encoded person.properties for the most recent call, for display. */
+    person_properties: string
+    calls: integer
+    errors: integer
+    error_rate_pct: number
+    /** Resolved harness labels seen for this user, deduped and sorted. */
+    harnesses: string[]
+    last_seen: string
+}
+
+export interface MCPToolTopUsersQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolTopUserItem[]
+}
+
+/** Top users of a single MCP tool over the last 7 days, with server-resolved harness labels. */
+export interface MCPToolTopUsersQuery extends DataNode<MCPToolTopUsersQueryResponse> {
+    kind: NodeKind.MCPToolTopUsersQuery
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolTopUsersQueryResponse = CachedQueryResponse<MCPToolTopUsersQueryResponse>
+
+/** One row of the per-tool "Failures" table: a failure bucket (error type/status) for a tool. */
+export interface MCPToolFailureItem {
+    /** Failure label composed from $mcp_error_type and, when present, $mcp_error_status (e.g. "api_5xx (HTTP 500)"). */
+    message: string
+    occurrences: integer
+    last_seen: string
+    /** Resolved harness labels seen for this failure, deduped and sorted. */
+    harnesses: string[]
+}
+
+export interface MCPToolFailuresQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolFailureItem[]
+}
+
+/** Errored calls of a single MCP tool grouped by error type/status, with server-resolved harness labels. */
+export interface MCPToolFailuresQuery extends DataNode<MCPToolFailuresQueryResponse> {
+    kind: NodeKind.MCPToolFailuresQuery
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolFailuresQueryResponse = CachedQueryResponse<MCPToolFailuresQueryResponse>
+
+/** Summary scalars for a single MCP tool: activity, latency, reach, and intent coverage. */
+export interface MCPToolStatsItem {
+    calls: integer
+    errors: integer
+    p50_ms: number | null
+    p95_ms: number | null
+    users: integer
+    conversations: integer
+    /** Calls carrying a non-empty intent payload; the coverage denominator is `calls`. */
+    with_intent: integer
+}
+
+export interface MCPToolStatsQueryResponse extends AnalyticsQueryResponseBase {
+    /** Zero or one row; empty when the tool had no calls in the window. */
+    results: MCPToolStatsItem[]
+}
+
+/** Summary scalars and intent coverage for a single MCP tool over the last 7 days. */
+export interface MCPToolStatsQuery extends DataNode<MCPToolStatsQueryResponse> {
+    kind: NodeKind.MCPToolStatsQuery
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolStatsQueryResponse = CachedQueryResponse<MCPToolStatsQueryResponse>
+
+/** One day of activity for a single MCP tool. */
+export interface MCPToolDailyStatItem {
+    day: string
+    calls: integer
+    errors: integer
+    p50: number
+    p95: number
+    users: integer
+    sessions: integer
+}
+
+export interface MCPToolDailyStatsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolDailyStatItem[]
+}
+
+/** Per-bucket activity series for a single MCP tool over the selected window. */
+export interface MCPToolDailyStatsQuery extends DataNode<MCPToolDailyStatsQueryResponse> {
+    kind: NodeKind.MCPToolDailyStatsQuery
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+    dateRange?: DateRange
+    /** Bucket granularity for the series. The frontend passes getDefaultInterval so a sub-day window
+     * buckets by hour/minute instead of collapsing to a single day point. Defaults to day. */
+    interval?: IntervalType
+}
+
+export type CachedMCPToolDailyStatsQueryResponse = CachedQueryResponse<MCPToolDailyStatsQueryResponse>
+
+/** One distinct description seen for a single MCP tool, with the last time it was reported. */
+export interface MCPToolDescriptionItem {
+    description: string
+    last_seen: string
+}
+
+export interface MCPToolDescriptionsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolDescriptionItem[]
+}
+
+/** Distinct descriptions reported for a single MCP tool over the last 30 days, most recent first. */
+export interface MCPToolDescriptionsQuery extends DataNode<MCPToolDescriptionsQueryResponse> {
+    kind: NodeKind.MCPToolDescriptionsQuery
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolDescriptionsQueryResponse = CachedQueryResponse<MCPToolDescriptionsQueryResponse>
+
+/** One sampled call of a single MCP tool that carried a non-empty intent. */
+export interface MCPToolSampleIntentItem {
+    timestamp: string
+    /** JSON-encoded intent payload as reported by the client. */
+    intent: string
+    intent_source: string
+    /** Resolved harness label for the call. */
+    harness: string
+}
+
+export interface MCPToolSampleIntentsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolSampleIntentItem[]
+}
+
+/** Recent sampled intents for a single MCP tool over the last 7 days, with a resolved harness label. */
+export interface MCPToolSampleIntentsQuery extends DataNode<MCPToolSampleIntentsQueryResponse> {
+    kind: NodeKind.MCPToolSampleIntentsQuery
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolSampleIntentsQueryResponse = CachedQueryResponse<MCPToolSampleIntentsQueryResponse>
+
+/** One tool frequently called adjacent to the target tool within the same conversation. */
+export interface MCPToolNeighborItem {
+    neighbor_tool: string
+    co_occurrences: integer
+}
+
+export interface MCPToolNeighborsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolNeighborItem[]
+}
+
+/** Tools most often called immediately before or after a single MCP tool within a conversation. */
+export interface MCPToolNeighborsQuery extends DataNode<MCPToolNeighborsQueryResponse> {
+    kind: NodeKind.MCPToolNeighborsQuery
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+    /** Whether to count tools called immediately before or after the target tool. */
+    neighborDirection: 'before' | 'after'
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolNeighborsQueryResponse = CachedQueryResponse<MCPToolNeighborsQueryResponse>
 
 export enum WebStatsBreakdown {
     Page = 'Page',
@@ -2486,8 +2916,9 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
     hasMore?: boolean
     limit?: integer
     offset?: integer
-    usedPreAggregatedTables?: boolean
-    usedLazyPrecompute?: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    preComputeStale?: boolean
 }
 export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
 
@@ -2524,10 +2955,7 @@ export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase {
     hasMore?: boolean
     limit?: integer
     offset?: integer
-    /** Whether the response was served from a precomputed table. */
-    usedPreAggregatedTables?: boolean
-    /** Whether the response was served from the lazy precompute path. */
-    usedLazyPrecompute?: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 export type CachedWebGoalsQueryResponse = CachedQueryResponse<WebGoalsQueryResponse>
 
@@ -2576,7 +3004,7 @@ export type WebVitalsPathBreakdownResult = Record<WebVitalsMetricBand, WebVitals
 // hence the tuple type rather than a single object.
 export interface WebVitalsPathBreakdownQueryResponse extends AnalyticsQueryResponseBase {
     results: [WebVitalsPathBreakdownResult]
-    usedLazyPrecompute?: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 export type CachedWebVitalsPathBreakdownQueryResponse = CachedQueryResponse<WebVitalsPathBreakdownQueryResponse>
 
@@ -2778,12 +3206,12 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     personId?: string
     groupKey?: string
     groupTypeIndex?: integer
-    /** Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries) */
+    /** @deprecated Ignored — V2 query path was removed. Kept so requests from older clients still validate. */
     useQueryV2?: boolean
-    /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
+    /** @deprecated Ignored — V3 is the only query path. Kept so requests from older clients still validate. */
     useQueryV3?: boolean
     /**
-     * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only).
+     * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery.
      * The backend caps the list at 50 entries; extras are dropped silently.
      * @type array
      */
@@ -3052,6 +3480,9 @@ export type LogsSparklineBreakdownBy = 'severity' | 'service'
 /** @title LogsOrderBy */
 export type LogsOrderBy = 'latest' | 'earliest'
 
+/** Columns the trace list can be ordered by (allowlisted — fed straight into `ORDER BY`). */
+export type TraceOrderColumn = 'timestamp' | 'duration'
+
 /**
  * Filter criteria for a logs alert configuration. Subset of LogsViewerFilters
  * (excludes dateRange). At least one of `severityLevels`, `serviceNames`, or
@@ -3081,6 +3512,13 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     resourceFingerprint?: string
     /** Omit the per-log `attributes` and `resource_attributes` maps from results to keep payloads compact */
     excludeAttributes?: boolean
+    /**
+     * Custom column expressions evaluated per log row. Each entry is either a source-prefixed
+     * shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar
+     * HogQL expression (`upper(level)`, `coalesce(attributes['a'], attributes['b'])`).
+     * Values come back on each result row keyed by the aliases in `LogsQueryResponse.columns`.
+     */
+    customColumns?: string[]
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
@@ -3125,6 +3563,8 @@ export interface LogAttributesQueryResponse extends AnalyticsQueryResponseBase {
 export interface LogValueResult {
     id: string
     name: string
+    /** Number of log records with this attribute value, over the current date range, service, and resource filters. */
+    count?: integer
 }
 
 export interface LogValuesQueryResponse extends AnalyticsQueryResponseBase {
@@ -3142,6 +3582,82 @@ export interface LogValuesQuery extends DataNode<LogValuesQueryResponse> {
     serviceNames?: string[]
     attributeKey: string
     attributeType: string
+}
+
+/** Which attribute map a metric label key lives in; `auto` resolves resource attributes first, then datapoint attributes. */
+export type MetricsAttributeScope = 'resource' | 'attribute' | 'auto'
+
+export type MetricsFilterOp = 'eq' | 'neq' | 'regex' | 'not_regex'
+
+/** OTel metric type; matches what ingest writes to `metric_type` */
+export type MetricsOtelType = 'gauge' | 'sum' | 'histogram' | 'exponential_histogram' | 'summary'
+
+export type MetricsAggregation =
+    | 'sum'
+    | 'avg'
+    | 'count'
+    | 'min'
+    | 'max'
+    | 'quantile'
+    | 'rate'
+    | 'increase'
+    | 'histogram_quantile'
+
+export interface MetricsQueryFilter {
+    key: string
+    op: MetricsFilterOp
+    value: string
+    scope?: MetricsAttributeScope
+}
+
+export interface MetricsQueryGroupBy {
+    key: string
+    scope?: MetricsAttributeScope
+}
+
+export interface MetricsQueryClause {
+    /** Alias a formula refers to (e.g. "a"); must be unique within the query */
+    name: string
+    metricName: string
+    aggregation: MetricsAggregation
+    /** Series identity includes the OTel type — one name can exist as e.g. both a
+     * counter and a gauge — so a clause pins it to avoid blending distinct series. */
+    metricType?: MetricsOtelType
+    filters?: MetricsQueryFilter[]
+    groupBy?: MetricsQueryGroupBy[]
+    /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
+    quantile?: number
+}
+
+export interface MetricsQueryPoint {
+    /** Bucket start, ISO 8601 */
+    time: string
+    value: number
+}
+
+export interface MetricsQuerySeries {
+    /** Label values identifying this series; empty for an ungrouped query */
+    labels: Record<string, string>
+    points: MetricsQueryPoint[]
+    metricName?: string
+    /** Clause alias that produced this series (`formula` for the formula result) */
+    clause?: string
+}
+
+export interface MetricsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MetricsQuerySeries[]
+}
+export type CachedMetricsQueryResponse = CachedQueryResponse<MetricsQueryResponse>
+
+export interface MetricsQuery extends DataNode<MetricsQueryResponse> {
+    kind: NodeKind.MetricsQuery
+    clauses: MetricsQueryClause[]
+    /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
+    dateRange?: DateRange
+    /** Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted */
+    interval?: string
+    /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
+    formula?: string
 }
 
 export interface SessionEventsItem {
@@ -3191,12 +3707,23 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     dateRange: DateRange
     limit?: integer
     offset?: integer
-    orderBy?: LogsOrderBy
+    /** Column to order by. Defaults to timestamp. `timestamp` paginates via keyset cursor (`after`); other columns via `offset`. */
+    orderBy?: TraceOrderColumn
+    /** Order direction. Defaults to DESC. */
+    orderDirection?: 'ASC' | 'DESC'
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
     statusCodes?: integer[]
     traceId?: string
     rootSpans?: boolean
+    /**
+     * Return the matching spans themselves, one row per span (root and child), instead of the
+     * whole-trace grouping. Streams the matches under `ORDER BY … LIMIT` rather than grouping every
+     * matching span by trace, so a filter on a hot child attribute (e.g. `code.filepath`) stays
+     * bounded. Distinct from `rootSpans`, which scopes whole-trace selection. The single-trace
+     * waterfall never sets this.
+     */
+    flatSpans?: boolean
     /** Cursor for fetching the next page of results */
     after?: string
     /** Prefetch up to this many spans per trace and include them in results */
@@ -3225,6 +3752,8 @@ export interface AggregatedSpanRow {
     avg_duration_nano: number
     p50_duration_nano: number
     p95_duration_nano: number
+    p99_duration_nano: number
+    p999_duration_nano: number
     error_count: integer
 }
 
@@ -3260,6 +3789,8 @@ export interface SpanTreeNode {
     avg_duration_nano: number
     p50_duration_nano: number
     p95_duration_nano: number
+    p99_duration_nano: number
+    p999_duration_nano: number
     error_count: integer
     /**
      * Average nanoseconds from the parent span's start to this span's start. Zero for
@@ -3267,6 +3798,13 @@ export interface SpanTreeNode {
      * flame graph.
      */
     avg_start_offset_nano: number
+    /**
+     * How many times this child runs per parent invocation (edge count / parent span
+     * count). Separates fan-out volume from per-call cost: a child can dominate
+     * total_duration_nano purely by running many times per parent. Null for root edges
+     * (no parent invocation to ratio against).
+     */
+    calls_per_parent_invocation?: number | null
 }
 
 export interface TraceSpansTreeQuery extends DataNode<TraceSpansTreeQueryResponse> {
@@ -3297,6 +3835,190 @@ export interface TraceSpansTreeQueryResponse extends AnalyticsQueryResponseBase 
 }
 
 export type CachedTraceSpansTreeQueryResponse = CachedQueryResponse<TraceSpansTreeQueryResponse>
+
+/**
+ * One row of a span attribute breakdown: the spans matching the filters, grouped by one
+ * attribute's value. Spans without the attribute group under `value = ''`.
+ */
+export interface AttributeBreakdownRow {
+    value: string
+    count: integer
+    error_count: integer
+    p50_duration_nano: number
+    p95_duration_nano: number
+}
+
+export type TraceSpanBreakdownType = 'span' | 'span_attribute' | 'span_resource_attribute'
+export type TraceSpanBreakdownOrderBy = 'count' | 'error_count'
+
+export interface TraceSpansAttributeBreakdownQuery extends DataNode<TraceSpansAttributeBreakdownQueryResponse> {
+    kind: NodeKind.TraceSpansAttributeBreakdownQuery
+    dateRange: DateRange
+    /**
+     * Attribute key to group by (e.g. `http.response.status_code`, `server.address`).
+     * For the `span` breakdown type, must be an allowlisted top-level column (`service_name`, `status_code`).
+     */
+    breakdownKey: string
+    /** Where the key lives: an allowlisted top-level span column, span-level attributes, or resource-level attributes. */
+    breakdownType: TraceSpanBreakdownType
+    /** Order rows by span count or error count, descending. Defaults to count. */
+    orderBy?: TraceSpanBreakdownOrderBy
+    /** Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set. */
+    compareFilter?: CompareFilter
+    filterGroup?: PropertyGroupFilter
+    serviceNames?: string[]
+    /**
+     * Drop filters targeting the breakdown key itself (including `serviceNames` for a `service_name`
+     * breakdown) so a facet's value list stays complete while one of its values is selected.
+     */
+    excludeBreakdownFilter?: boolean
+    /**
+     * Type-ahead filter over the breakdown field's own values (case-insensitive substring match).
+     * Lets a facet's value search reach past the row limit.
+     */
+    facetSearch?: string
+}
+
+export interface TraceSpansAttributeBreakdownQueryResponse extends AnalyticsQueryResponseBase {
+    results: AttributeBreakdownRow[]
+    /** Result rows for the comparison period when `compareFilter.compare` is true. */
+    compare?: AttributeBreakdownRow[]
+}
+
+export type CachedTraceSpansAttributeBreakdownQueryResponse =
+    CachedQueryResponse<TraceSpansAttributeBreakdownQueryResponse>
+
+/**
+ * A source symbol (typically a function) the client wants production latency for, identified by its
+ * declaration line range. The client supplies these from its own AST/LSP — the server does not infer
+ * function boundaries (OTel `code.function.name` is frequently absent, and `code.line.number` may be a
+ * call site inside the body rather than the declaration line).
+ */
+export interface SourceSymbol {
+    /** Opaque identifier (e.g. the function name) echoed back on the matching result row. */
+    name?: string
+    /** First line of the symbol's range, inclusive (1-based). */
+    startLine: positive_integer
+    /** Last line of the symbol's range, inclusive (1-based). */
+    endLine: positive_integer
+}
+
+/** Aggregated metrics for a symbol over a single time period. Used for the prior-period comparison. */
+export interface SymbolStatsPeriod {
+    /** Number of spans attributed to this symbol in the period. */
+    count: integer
+    /** Spans whose OTel status is Error (`status_code = 2`). */
+    error_count: integer
+    /** Total wall-clock span duration in the period, in nanoseconds (additive across spans). */
+    sum_duration_nano: number
+    /** Median wall-clock span duration, in nanoseconds. */
+    p50_duration_nano: number
+    /** 95th-percentile wall-clock span duration, in nanoseconds. */
+    p95_duration_nano: number
+    /** 99th-percentile wall-clock span duration, in nanoseconds. */
+    p99_duration_nano: number
+    /** Spans in the period carrying an active/busy time attribute. 0 means busy_* are not meaningful. */
+    busy_count: integer
+    /** Median active (busy) time, in nanoseconds. Excludes time awaiting children. */
+    p50_busy_nano: number
+    /** 95th-percentile active (busy) time, in nanoseconds. */
+    p95_busy_nano: number
+    /** 99th-percentile active (busy) time, in nanoseconds. */
+    p99_busy_nano: number
+}
+
+/**
+ * Production latency for one bucket of a source file: spans carrying OpenTelemetry `code.*` location
+ * attributes, aggregated by line (no `symbols`) or into a symbol's line range (`symbols` supplied). The
+ * flat fields are the current period; `previous` is the immediately-preceding equal-length window. One
+ * row per bucket with spans in either period.
+ */
+export interface SymbolStatsRow {
+    /** The bucket's anchor line: the source line in line mode, or the symbol's `startLine` in symbol mode. */
+    line: integer
+    /** Echoed `name` from the requested symbol. Symbol mode only. */
+    name?: string
+    /** `endLine` of the matched symbol's range. Symbol mode only. */
+    end_line?: integer
+    /** Number of spans attributed to this bucket. */
+    count: integer
+    /** Spans whose OTel status is Error (`status_code = 2`). */
+    error_count: integer
+    /** Total wall-clock span duration in this symbol, in nanoseconds (additive across spans). */
+    sum_duration_nano: number
+    /** Median wall-clock span duration, in nanoseconds. */
+    p50_duration_nano: number
+    /** 95th-percentile wall-clock span duration, in nanoseconds. */
+    p95_duration_nano: number
+    /** 99th-percentile wall-clock span duration, in nanoseconds. */
+    p99_duration_nano: number
+    /** Spans in this symbol carrying an active/busy time attribute. 0 means busy_* are not meaningful. */
+    busy_count: integer
+    /** Median active (busy) time, in nanoseconds. Excludes time awaiting children. */
+    p50_busy_nano: number
+    /** 95th-percentile active (busy) time, in nanoseconds. */
+    p95_busy_nano: number
+    /** 99th-percentile active (busy) time, in nanoseconds. */
+    p99_busy_nano: number
+    /** The same metrics over the immediately-preceding equal-length period. */
+    previous: SymbolStatsPeriod
+    /**
+     * Percentage change in count vs the previous period (180 = +180%). Null when there is no baseline
+     * (previous count 0); use `previous.count`, not a null here, to detect a brand-new symbol.
+     */
+    count_pct_change: number | null
+    /**
+     * Percentage change in p50 duration vs the previous period (180 = +180%). Null when the previous p50
+     * is 0 (no comparable baseline), which can happen even when previous.count > 0 — do not read null as "new".
+     */
+    p50_duration_pct_change: number | null
+    /**
+     * Percentage change in p95 duration vs the previous period (180 = +180%). Null when the previous p95
+     * is 0 (no comparable baseline), which can happen even when previous.count > 0 — do not read null as "new".
+     */
+    p95_duration_pct_change: number | null
+    /**
+     * Percentage change in p99 duration vs the previous period (180 = +180%). Null when the previous p99
+     * is 0 (no comparable baseline), which can happen even when previous.count > 0 — do not read null as "new".
+     */
+    p99_duration_pct_change: number | null
+    /**
+     * Percentage change in error rate (`error_count / count` per window) vs the previous period. Null when
+     * the previous error rate is 0 — i.e. the previous window had no errors or no traffic. This includes a
+     * 0→N new-error spike, which surfaces as null rather than a delta.
+     */
+    error_rate_pct_change: number | null
+}
+
+export interface TraceSpansSymbolStatsQuery extends DataNode<TraceSpansSymbolStatsQueryResponse> {
+    kind: NodeKind.TraceSpansSymbolStatsQuery
+    dateRange: DateRange
+    /**
+     * Repo-relative path of the source file to aggregate (e.g. `src/flags/flag_matching.rs`).
+     * Matched as a path suffix against the recorded `code.file.path` / `code.filepath`, so a
+     * recorded path carrying an extra crate/workspace prefix still matches.
+     */
+    filePath: string
+    /**
+     * Optional symbol (function) ranges to aggregate spans into. When supplied, each span is attributed
+     * to the smallest range that encloses its recorded line (one row per symbol). When omitted (or an
+     * empty list), spans are aggregated per source line (one row per instrumented line) — pass a single
+     * whole-file range for a file-level total.
+     */
+    symbols?: SourceSymbol[]
+}
+
+/** Bucketing applied to a symbol-stats result: per source line, or per requested symbol range. */
+export type SymbolStatsGranularity = 'line' | 'symbol'
+
+export interface TraceSpansSymbolStatsQueryResponse extends AnalyticsQueryResponseBase {
+    /** One row per bucket, ordered by line ascending. */
+    results: SymbolStatsRow[]
+    /** Which bucketing was applied: `line` when no symbols were supplied, `symbol` otherwise. */
+    granularity: SymbolStatsGranularity
+}
+
+export type CachedTraceSpansSymbolStatsQueryResponse = CachedQueryResponse<TraceSpansSymbolStatsQueryResponse>
 
 export interface FileSystemCount {
     count: number
@@ -3329,12 +4051,15 @@ export interface FileSystemEntry {
     tags?: ('alpha' | 'beta')[]
     /** Order of object in tree */
     visualOrder?: number
+    /** Access level the user has for the referenced object ('none' means no access); null/absent when access controls don't apply */
+    user_access_level?: string | null
 }
 
 export type FileSystemIconType =
     | 'default_icon_type'
     | 'dashboard'
     | 'llm_analytics'
+    | 'ai_gateway'
     | 'product_analytics'
     | 'revenue_analytics'
     | 'revenue_analytics_metadata'
@@ -3388,7 +4113,7 @@ export type FileSystemIconType =
     | 'insight/hog'
     | 'team_activity'
     | 'home'
-    | 'apps'
+    | 'tools'
     | 'live'
     | 'chat'
     | 'search'
@@ -3397,6 +4122,8 @@ export type FileSystemIconType =
     | 'conversations'
     | 'toolbar'
     | 'visual_review'
+    | 'code_review'
+    | 'stamphog'
     | 'settings'
     | 'health'
     | 'inbox'
@@ -3408,6 +4135,7 @@ export type FileSystemIconType =
     | 'llm_playground'
     | 'llm_prompts'
     | 'llm_clusters'
+    | 'mcp_analytics'
     | 'exports'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
@@ -3436,6 +4164,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     reasonText?: string | null
     /** Display label override — when set, shown in the nav instead of the last segment of `path` */
     displayLabel?: string
+    /** Auto-include in the user's pinned sidebar when `flag` is on, even without an explicit UserProductList row */
+    pinnedByDefault?: boolean
 }
 
 export interface FileSystemViewLogEntry {
@@ -3606,11 +4336,20 @@ export interface ExperimentEventExposureConfig extends Node {
 }
 
 // ── Slim API types for experiment create/update ──────────────────────
-// These are intentionally simplified versions of the full query types.
-// The full types (EventsNode, ExperimentMeanMetric, …) pull in
-// AnyPropertyFilter (18-subtype union) which explodes the OpenAPI/MCP
-// schema via inline expansion. These slim types use EventPropertyFilter
-// directly, keeping the generated schema compact.
+// Simplified versions of the full query types: they drop the nested
+// metric/node machinery (EventsNode, ExperimentMeanMetric, …) the
+// create/update payloads never need.
+//
+// Property-filter typing is intentionally asymmetric. AnyPropertyFilter is
+// an 18-subtype union that the OpenAPI/MCP codegen inlines (not $ref's) at
+// every use site, so each use expands the generated schema.
+//  - Exposure config uses AnyPropertyFilter: targeting exposure by
+//    person/group/cohort is a real case the runtime validator already
+//    accepts, and EventPropertyFilter[] silently dropped those filters.
+//  - Metric event sources keep EventPropertyFilter[]: the source is inlined
+//    across every metric field (source, numerator, denominator, start/
+//    completion event) in every experiment tool, so widening it multiplies
+//    the expansion — not worth it until metrics need non-event filters.
 
 /** Slim event/action source for experiment API payloads. */
 export interface ExperimentApiEventSource {
@@ -3669,6 +4408,9 @@ export interface ExperimentApiMetric {
     upper_bound_percentile?: number
     /** For mean metrics: exclude zero values when computing the winsorization percentile thresholds. */
     ignore_zeros?: boolean
+    /** For mean metrics: when set, reports the percentage of users whose per-user summed/counted value
+     *  reaches or exceeds this threshold. Only meaningful for sum/count math types. */
+    threshold?: number
     /** For ratio metrics: winsorization applied to the numerator aggregate, independently of the
      *  denominator and each with its own percentile thresholds. */
     numerator_outlier_handling?: ExperimentMetricOutlierHandling
@@ -3685,41 +4427,58 @@ export interface ExperimentApiMetric {
     start_handling?: 'first_seen' | 'last_seen'
 }
 
-export interface ExperimentVariant {
-    /** Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'. */
-    key: string
-    /** Human-readable variant name. */
-    name?: string
-    /** @deprecated Use split_percent instead. Accepted for backward compatibility. */
-    rollout_percentage?: number
-    /** Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided. */
-    split_percent?: number
-}
-
 export interface ExperimentParameters {
-    /** Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20. */
-    feature_flag_variants?: ExperimentVariant[]
     /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
     minimum_detectable_effect?: number
-    /** Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100. */
-    rollout_percentage?: number
-    /** Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. */
-    excluded_variants?: string[]
+    /** Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL. */
+    variant_notes?: Record<string, string>
 }
 
-/** Slim exposure config for experiment API payloads. */
+/** Exposure estimate settings for the experiment running-time calculator. */
+export interface ExperimentExposureEstimateConfig {
+    /** 'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data. */
+    conversionRateInputType: 'manual' | 'automatic'
+    /** Metric type the manual baseline value refers to. Only used in manual mode. */
+    manualMetricType?: 'funnel' | 'mean_count' | 'mean_sum_or_avg'
+    /** Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode. */
+    manualBaselineValue?: number
+    /** Manually entered estimate of users exposed to the experiment per day. Only used in manual mode. */
+    manualExposureRate?: number
+}
+
+/** Running-time calculator state for an experiment. Canonical home for keys that historically lived in `parameters`. */
+export interface ExperimentRunningTimeCalculation {
+    /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. */
+    minimum_detectable_effect?: number
+    /** Estimated number of days needed to reach the recommended sample size. */
+    recommended_running_time?: number
+    /** Recommended number of exposed users needed for statistical significance. */
+    recommended_sample_size?: number
+    /** How the exposure estimate is configured: manual user-entered values or automatic from live experiment data. */
+    exposure_estimate_config?: ExperimentExposureEstimateConfig | null
+}
+
+/** Slim exposure config for experiment API payloads. Discriminated by `kind`:
+ *  'ExperimentEventExposureConfig' tracks exposure via a custom event,
+ *  'ActionsNode' tracks exposure via an action. */
 export interface ExperimentApiExposureConfig {
-    kind: NodeKind.ExperimentEventExposureConfig
-    /** Custom exposure event name. */
-    event: string
-    /** Event property filters. Pass an empty array if no filters needed. */
-    properties: EventPropertyFilter[]
+    /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
+    kind?: 'ExperimentEventExposureConfig' | 'ActionsNode'
+    /** Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'. */
+    event?: string
+    /** Action ID. Required when kind is 'ActionsNode'. */
+    id?: integer
+    /** Property filters (event, person, and other supported types). Pass an empty array if no filters needed. */
+    properties: AnyPropertyFilter[]
 }
 
 /** Exposure criteria for experiment API payloads. */
 export interface ExperimentApiExposureCriteria {
     filterTestAccounts?: boolean
     exposure_config?: ExperimentApiExposureConfig
+    /** How to handle entities exposed to multiple variants. 'exclude' (default) drops them from
+     *  the analysis; 'first_seen' assigns them to the variant from their earliest exposure. */
+    multiple_variant_handling?: 'exclude' | 'first_seen'
 }
 
 export const enum ExperimentMetricType {
@@ -3784,6 +4543,9 @@ export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
     ExperimentMetricOutlierHandling & {
         metric_type: ExperimentMetricType.MEAN
         source: ExperimentMetricSource
+        /** When set, reports the percentage of users whose per-user summed/counted value
+         *  reaches or exceeds this threshold. Only meaningful for sum/count math types. */
+        threshold?: number
     }
 
 export const isExperimentMeanMetric = (metric: ExperimentMetric): metric is ExperimentMeanMetric =>
@@ -4145,6 +4907,10 @@ export interface FunnelsActorsQuery extends InsightActorsQueryBase {
     funnelTrendsDropOff?: boolean
     /** Used together with `funnelTrendsDropOff` for funnels time conversion date for the persons modal. */
     funnelTrendsEntrancePeriodStart?: string
+    /** When the source funnel has compare-to-previous enabled, scopes the actors to a single
+     * period. The runner resolves `'previous'` to the shifted date range; `'current'` (or unset)
+     * uses the source's own date range. */
+    compare?: 'current' | 'previous'
 }
 
 export interface FunnelCorrelationActorsQuery extends InsightActorsQueryBase {
@@ -4362,8 +5128,10 @@ export interface DatabaseSchemaSystemTable extends DatabaseSchemaTableCommon {
 
 export interface DatabaseSchemaDataWarehouseTable extends DatabaseSchemaTableCommon {
     type: 'data_warehouse'
-    format: string
-    url_pattern: string
+    /** Absent for a dual-mode source's virtual tables, which have no synced S3 backing. */
+    format?: string
+    /** Absent for a dual-mode source's virtual tables, which have no synced S3 backing. */
+    url_pattern?: string
     schema?: DatabaseSchemaSchema
     source?: DatabaseSchemaSource
     /** Alternate names the table is queryable by (e.g. the flat underscore form), in addition to `name`. */
@@ -4431,6 +5199,20 @@ export interface DateRange {
      * @default false
      * */
     explicitDate?: boolean | null
+    /**
+     * Restrict the query to events occurring on these ISO days of week
+     * (1=Monday to 7=Sunday), evaluated in the project timezone.
+     * Omit or empty for all days. Only applied by insight queries.
+     */
+    daysOfWeek?: (1 | 2 | 3 | 4 | 5 | 6 | 7)[] | null
+    /**
+     * Exclude the current, still-collecting period by clipping date_to to the
+     * end of the last complete interval (evaluated in the project timezone).
+     * No-op when the range contains no complete interval. Only applied by
+     * insight queries.
+     * @default false
+     */
+    excludeIncompletePeriods?: boolean | null
 }
 
 export interface ResolvedDateRangeResponse {
@@ -4485,6 +5267,10 @@ export interface DashboardFilter {
     properties?: AnyPropertyFilter[] | null
     breakdown_filter?: BreakdownFilter | null
     explicitDate?: boolean
+    /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
+    interval?: IntervalType | null
+    /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
+    filterTestAccounts?: boolean | null
 }
 
 export interface TileFilters {
@@ -4493,6 +5279,8 @@ export interface TileFilters {
     properties?: AnyPropertyFilter[] | null | undefined
     breakdown_filter?: BreakdownFilter | null | undefined
     explicitDate?: boolean | undefined
+    interval?: IntervalType | null | undefined
+    filterTestAccounts?: boolean | null | undefined
 }
 
 export interface InsightsThresholdBounds {
@@ -4533,6 +5321,7 @@ export enum AlertState {
 }
 
 export enum AlertCalculationInterval {
+    REAL_TIME = 'real_time',
     EVERY_15_MINUTES = 'every_15_minutes',
     HOURLY = 'hourly',
     DAILY = 'daily',
@@ -4545,6 +5334,49 @@ export interface TrendsAlertConfig {
     /** Zero-based index of the series in the insight's query to monitor. */
     series_index: integer
     /** When true, evaluate the current (still incomplete) time interval in addition to completed ones. */
+    check_ongoing_interval?: boolean
+}
+
+/** How a SQL alert reads the query result.
+ * `last_row` = the query is ordered oldest→newest and the last row is the current value;
+ * `first_row` = the query is ordered newest→oldest and the first row is the current value
+ * (this mode bounds the fetch with a LIMIT since only the head is read);
+ * `any_row` = every row is checked and the alert fires if any value breaches (absolute conditions only). */
+export type HogQLAlertEvaluation = 'last_row' | 'first_row' | 'any_row'
+
+/** Alert config for HogQL/SQL-backed insights. The query owns its own time window. */
+export interface HogQLAlertConfig {
+    type: 'HogQLAlertConfig'
+    /** Name of the result column to evaluate. When unset, the single numeric column is used
+     * (an error if the result has more than one numeric column). */
+    column?: string | null
+    /** How to read the result rows — an explicit choice, no implicit default. */
+    evaluation: HogQLAlertEvaluation
+    /** Column whose value labels the evaluated row(s) in breach messages: every row in `any_row`
+     * mode, or the single evaluated row in `last_row`/`first_row`. When unset, the first
+     * non-evaluated column is used, falling back to the row number (any_row) or the value column
+     * name (last_row/first_row). */
+    label_column?: string | null
+}
+
+/** How a funnel alert measures conversion at its step.
+ * `conversion_from_start` = step count / first-step count; `conversion_from_previous` = step count / previous-step count. */
+export type FunnelConversionMetric = 'conversion_from_start' | 'conversion_from_previous'
+
+/** Alert config for funnel insights. Evaluates the conversion rate (as a percentage) at one step. */
+export interface FunnelsAlertConfig {
+    type: 'FunnelsAlertConfig'
+    /** Zero-based step index to evaluate. Null = the last step (overall conversion). */
+    funnel_step?: integer | null
+    metric: FunnelConversionMetric
+    /** When true, evaluate the current (still in-progress) period; by default only completed periods are used. */
+    check_ongoing_interval?: boolean
+}
+
+/** Alert config for metrics insights. Every series the query returns is evaluated; the alert fires if any breaches. */
+export interface MetricsAlertConfig {
+    type: 'MetricsAlertConfig'
+    /** When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one. */
     check_ongoing_interval?: boolean
 }
 
@@ -4724,7 +5556,10 @@ export enum EnsembleOperator {
     OR = 'or',
 }
 
-/** A single (leaf) detector config */
+/**
+ * A single (leaf) detector config
+ * @discriminator type
+ */
 export type SingleDetectorConfig =
     | ZScoreDetectorConfig
     | MADDetectorConfig
@@ -4747,7 +5582,10 @@ export interface EnsembleDetectorConfig {
     detectors: SingleDetectorConfig[]
 }
 
-/** Detector configuration types */
+/**
+ * Detector configuration types
+ * @discriminator type
+ */
 export type DetectorConfig = SingleDetectorConfig | EnsembleDetectorConfig
 
 export interface HogCompileResponse {
@@ -4936,6 +5774,21 @@ export interface LLMTraceEvent {
     event: AIEventType | string // Allow both specific AI events and other event types
     properties: Record<string, any>
     createdAt: string
+    sentiment?: LLMSentimentResult
+}
+
+export interface LLMSentimentMessage {
+    label: string
+    score: number
+    scores?: Record<string, number>
+}
+
+export interface LLMSentimentResult {
+    label: string
+    score: number
+    scores?: Record<string, number>
+    messages?: Record<string, LLMSentimentMessage>
+    message_count?: number
 }
 
 // Snake-case here for the DataTable component.
@@ -4967,6 +5820,7 @@ export interface LLMTrace {
     events: LLMTraceEvent[]
     isSupportTrace?: boolean
     tools?: string[]
+    sentiment?: LLMSentimentResult
 }
 
 export interface TracesQueryResponse extends AnalyticsQueryResponseBase {
@@ -4991,8 +5845,11 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     personId?: string
     groupKey?: string
     groupTypeIndex?: integer
+    /** Include stored sentiment evaluation results for returned traces and direct generation events. */
+    includeSentiment?: boolean
     /** Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias. */
     randomOrder?: boolean
+    searchTerm?: string
 }
 
 export interface TraceQueryResponse extends AnalyticsQueryResponseBase {
@@ -5007,8 +5864,28 @@ export interface TraceQuery extends DataNode<TraceQueryResponse> {
     kind: NodeKind.TraceQuery
     traceId: string
     dateRange?: DateRange
+    /** Include stored sentiment evaluation results for the trace and its generations. */
+    includeSentiment?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
+}
+
+export interface SessionQueryResponse extends AnalyticsQueryResponseBase {
+    results: LLMTrace[]
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    columns?: string[]
+}
+
+export interface SessionQuery extends DataNode<SessionQueryResponse> {
+    kind: NodeKind.SessionQuery
+    sessionId: string
+    dateRange?: DateRange
+    limit?: integer
+    offset?: integer
+    /** Include stored sentiment evaluation results for returned traces and generation events. */
+    includeSentiment?: boolean
 }
 
 export interface TraceNeighborsQueryResponse {
@@ -5041,6 +5918,7 @@ export interface TraceNeighborsQuery extends DataNode<TraceNeighborsQueryRespons
 
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
 export type CachedTraceQueryResponse = CachedQueryResponse<TraceQueryResponse>
+export type CachedSessionQueryResponse = CachedQueryResponse<SessionQueryResponse>
 export type CachedTraceNeighborsQueryResponse = CachedQueryResponse<TraceNeighborsQueryResponse>
 
 // NOTE: Keep in sync with posthog/models/exchange_rate/currencies.py
@@ -5311,6 +6189,7 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
     results: PageURL[]
     hasMore?: boolean
     limit?: integer
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
@@ -5333,7 +6212,7 @@ export interface WebNotableChangeItem {
 export interface WebNotableChangesQueryResponse extends AnalyticsQueryResponseBase {
     results: WebNotableChangeItem[]
     samplingRate?: SamplingRate
-    usedPreAggregatedTables?: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 
 export type CachedWebNotableChangesQueryResponse = CachedQueryResponse<WebNotableChangesQueryResponse>
@@ -5809,6 +6688,27 @@ export interface SourceFieldInputConfig {
     secret: boolean
 }
 
+export interface SourceFieldOauthAccountSelectConfig {
+    type: 'oauth-account-select'
+    name: string
+    label: string
+    /** Name of the OAuth integration id field this account selector reads from. */
+    integrationField: string
+    /** Integration kind to validate and route the account fetch through. */
+    integrationKind: string
+    placeholder?: string
+    caption?: string
+    required?: boolean
+    /** Allow selecting multiple values; the field's payload value becomes string[]. */
+    multiple?: boolean
+    /**
+     * Keep the field in the config tree (so its value parses and survives job_inputs
+     * redaction) without rendering it in the source form. Used for legacy fields that
+     * a newer field supersedes.
+     */
+    hidden?: boolean
+}
+
 export type SourceFieldSelectConfigConverter = 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
 
 export interface SourceFieldSelectConfigOption {
@@ -5825,6 +6725,7 @@ export interface SourceFieldSelectConfig {
     defaultValue: string
     options: SourceFieldSelectConfigOption[]
     converter?: SourceFieldSelectConfigConverter
+    caption?: string
 }
 
 export interface SourceFieldSwitchGroupConfig {
@@ -5854,6 +6755,7 @@ export type SourceFieldConfig =
     | SourceFieldSwitchGroupConfig
     | SourceFieldSelectConfig
     | SourceFieldOauthConfig
+    | SourceFieldOauthAccountSelectConfig
     | SourceFieldFileUploadConfig
     | SourceFieldSSHTunnelConfig
 
@@ -5861,6 +6763,25 @@ export interface SuggestedTable {
     table: string
     tooltip?: string | null
 }
+
+export const dataWarehouseSourceCategories = [
+    'Databases',
+    'File storage',
+    'Advertising',
+    'Marketing & email',
+    'CRM',
+    'Sales',
+    'Customer support',
+    'Payments & billing',
+    'Finance & accounting',
+    'Analytics',
+    'Engineering & monitoring',
+    'Productivity',
+    'HR & recruiting',
+    'Communication',
+    'E-commerce',
+] as const
+export type DataWarehouseSourceCategory = (typeof dataWarehouseSourceCategories)[number]
 
 export interface SourceConfig {
     name: ExternalDataSourceType
@@ -5904,6 +6825,19 @@ export interface SourceConfig {
      * @default false
      */
     supportsColumnSelection?: boolean
+
+    /**
+     * Catalog bucket this source is grouped under in the new-source wizard. Optional at the
+     * type level so partial/in-progress sources don't break, but every registered source must
+     * set one (enforced by a test). See `dataWarehouseSourceCategories`.
+     */
+    category?: DataWarehouseSourceCategory
+
+    /**
+     * Extra search terms (alternate spellings, acronyms) for the catalog search, e.g.
+     * GoogleAnalytics → ["ga4", "ga"]. Matched alongside name/label/category.
+     */
+    keywords?: string[]
 }
 
 export const externalDataSources = [
@@ -6054,7 +6988,716 @@ export const externalDataSources = [
     'Resend',
     'PgAnalyze',
     'WorkOS',
+    'AmazonS3',
+    'GoogleCloudStorage',
+    'Databricks',
+    'Dynamics365',
+    'SalesforceMarketingCloud',
+    'Db2',
+    'Heap',
+    'AdobeAnalytics',
+    'Matomo',
+    'Optimizely',
+    'Adyen',
+    'GoCardless',
+    'Mollie',
+    'CheckoutCom',
+    'Branch',
+    'Criteo',
+    'Outbrain',
+    'Taboola',
+    'AdRoll',
+    'DisplayVideo360',
+    'GoogleAdManager',
+    'CampaignManager360',
+    'SearchAds360',
+    'AdobeCommerce',
+    'AmazonSellingPartner',
+    'Ebay',
+    'Commercetools',
+    'LightspeedRetail',
+    'ShipStation',
+    'ConstantContact',
+    'Mailgun',
+    'Eloqua',
+    'Sailthru',
+    'Ortto',
+    'Attentive',
+    'Kustomer',
+    'Dixa',
+    'Gladly',
+    'Qualtrics',
+    'Delighted',
+    'AzureDevOps',
+    'Rollbar',
+    'Opsgenie',
+    'IncidentIo',
+    'Pingdom',
+    'Cloudflare',
+    'CosmosDB',
+    'PlanetScale',
+    'SapHana',
+    'Rippling',
+    'HiBob',
+    'Personio',
+    'Deel',
+    'AdpWorkforceNow',
+    'Paylocity',
+    'Gusto',
+    'CultureAmp',
+    'Lattice',
+    'SageIntacct',
+    'FreshBooks',
+    'Expensify',
+    'Ramp',
+    'Brex',
+    'Coupa',
+    'SapConcur',
+    'Apollo',
+    'Crunchbase',
+    'ZoomInfo',
+    'Clari',
+    'Chorus',
+    'Coda',
+    'Guru',
+    'Dropbox',
+    'Docusign',
+    'PandaDoc',
+    'SapErp',
+    'SapSuccessFactors',
+    'OracleEbs',
+    'OracleFusion',
+    'AmazonSNS',
+    'AmazonEventBridge',
+    'AmazonSQS',
+    'AmazonKinesis',
+    'AmazonCloudWatch',
+    'OpenAIAds',
+    'OneHundredMs',
+    'SevenShifts',
+    'AcuityScheduling',
+    'AgileCRM',
+    'Aha',
+    'Airbyte',
+    'Akeneo',
+    'Algolia',
+    'AlpacaBrokerAPI',
+    'ApifyDataset',
+    'Appcues',
+    'Appfigures',
+    'Appfollow',
+    'Apptivo',
+    'AssemblyAI',
+    'Awin',
+    'AwsCloudTrail',
+    'AzureTableStorage',
+    'Babelforce',
+    'Basecamp',
+    'Beamer',
+    'BigMailer',
+    'Bluetally',
+    'BoldSign',
+    'BreezyHR',
+    'Bugsnag',
+    'Buildkite',
+    'Bunny',
+    'Buzzsprout',
+    'CalCom',
+    'CallRail',
+    'Campayn',
+    'Canny',
+    'CapsuleCRM',
+    'CaptainData',
+    'CartCom',
+    'CastorEDC',
+    'Chameleon',
+    'Chargedesk',
+    'Chargify',
+    'Chift',
+    'Churnkey',
+    'Cin7',
+    'CiscoMeraki',
+    'Clazar',
+    'Clockify',
+    'Clockodo',
+    'Cloudbeds',
+    'Coassemble',
+    'Codefresh',
+    'Concord',
+    'ConfigCat',
+    'Couchbase',
+    'Curve',
+    'Customerly',
+    'Datascope',
+    'Dbt',
+    'Deputy',
+    'DevinAI',
+    'Docuseal',
+    'Dolibarr',
+    'Dremio',
+    'DropboxSign',
+    'Dwolla',
+    'EConomic',
+    'Easypost',
+    'Easypromos',
+    'Elasticemail',
+    'EmailOctopus',
+    'EmploymentHero',
+    'Encharge',
+    'Eventee',
+    'Eventzilla',
+    'Everhour',
+    'EZOfficeInventory',
+    'Factorial',
+    'Fastbill',
+    'Fastly',
+    'Fauna',
+    'Feishu',
+    'Fillout',
+    'Finage',
+    'Firebolt',
+    'FireHydrant',
+    'Fleetio',
+    'Flexmail',
+    'Flexport',
+    'FloatApp',
+    'Flowlu',
+    'Formbricks',
+    'FreeAgent',
+    'Freightview',
+    'Freshcaller',
+    'Freshchat',
+    'Freshservice',
+    'Fulcrum',
+    'GainsightPx',
+    'GitBook',
+    'Glassfrog',
+    'Goldcast',
+    'GoLogin',
+    'Grafana',
+    'GreytHr',
+    'Gridly',
+    'Harness',
+    'Height',
+    'Hellobaton',
+    'HighLevel',
+    'HoorayHR',
+    'Hubplanner',
+    'Humanitix',
+    'Huntr',
+    'Inflowinventory',
+    'InforNexus',
+    'Insightful',
+    'Insightly',
+    'Instantly',
+    'Instatus',
+    'Intruder',
+    'Invoiced',
+    'Invoiceninja',
+    'JamfPro',
+    'JobNimbus',
+    'Jotform',
+    'JudgeMeReviews',
+    'JustCall',
+    'JustSift',
+    'K6Cloud',
+    'Katana',
+    'Keka',
+    'Kisi',
+    'Kissmetrics',
+    'Klarna',
+    'Klaus',
+    'Lago',
+    'Leadfeeder',
+    'Lemlist',
+    'LessAnnoyingCRM',
+    'LinkedinPages',
+    'Linkrunner',
+    'Linnworks',
+    'Lob',
+    'Lokalise',
+    'Looker',
+    'Luma',
+    'MailerSend',
+    'Mailosaur',
+    'Mailtrap',
+    'Mantle',
+    'Mention',
+    'MercadoAds',
+    'Merge',
+    'Metabase',
+    'Metricool',
+    'MicrosoftDataverse',
+    'MicrosoftEntraId',
+    'MicrosoftLists',
+    'Miro',
+    'Missive',
+    'MixMax',
+    'Mode',
+    'Mux',
+    'MyHours',
+    'N8n',
+    'Navan',
+    'NebiusAI',
+    'Nexiopay',
+    'NinjaOneRMM',
+    'NoCRM',
+    'NorthpassLMS',
+    'Nutshell',
+    'Nylas',
+    'Oncehub',
+    'Onepagecrm',
+    'OneSignal',
+    'Onfleet',
+    'OpinionStage',
+    'OPUSWatch',
+    'Orb',
+    'Orbit',
+    'Oura',
+    'Oveit',
+    'PabblySubscriptionsBilling',
+    'Paperform',
+    'Papersign',
+    'Partnerize',
+    'PartnerStack',
+    'PayFit',
+    'Paystack',
+    'Pennylane',
+    'Perk',
+    'PersistIq',
+    'Persona',
+    'Phyllo',
+    'Picqer',
+    'Pipeliner',
+    'PivotalTracker',
+    'Piwik',
+    'Planhat',
+    'Plausible',
+    'Poplar',
+    'PrestaShop',
+    'Pretix',
+    'Primetric',
+    'Printify',
+    'Productive',
+    'Pylon',
+    'Qonto',
+    'Qualaroo',
+    'Railz',
+    'RDStationMarketing',
+    'Recruitee',
+    'Reddit',
+    'ReferralHero',
+    'RentCast',
+    'Repairshopr',
+    'ReplyIo',
+    'RetailExpress',
+    'Retently',
+    'RevolutMerchant',
+    'RocketChat',
+    'Rocketlane',
+    'Rootly',
+    'Ruddr',
+    'SafetyCulture',
+    'SageHR',
+    'Salesflare',
+    'SAPFieldglass',
+    'SavvyCal',
+    'Secoda',
+    'Segment',
+    'Sendowl',
+    'SendPulse',
+    'Senseforce',
+    'Serpstat',
+    'Sharetribe',
+    'Shippo',
+    'ShopWired',
+    'Shortio',
+    'Shutterstock',
+    'SigmaComputing',
+    'SignNow',
+    'SimpleCast',
+    'Simplesat',
+    'Smaily',
+    'SmartEngage',
+    'Smartreach',
+    'Smartwaiver',
+    'SolarwindsServiceDesk',
+    'SonarCloud',
+    'SparkPost',
+    'SplitIo',
+    'SpotifyAds',
+    'SpotlerCRM',
+    'Squarespace',
+    'Statsig',
+    'Statuspage',
+    'Stigg',
+    'Strava',
+    'SurveySparrow',
+    'Survicate',
+    'Svix',
+    'Systeme',
+    'Tavus',
+    'Teamtailor',
+    'Teamwork',
+    'Tempo',
+    'Testrail',
+    'Thinkific',
+    'ThinkificCourses',
+    'ThriveLearning',
+    'Ticketmaster',
+    'TicketTailor',
+    'TickTick',
+    'Timely',
+    'Tinyemail',
+    'Todoist',
+    'Toggl',
+    'TrackPMS',
+    'Tremendous',
+    'TrustPilot',
+    'Twitter',
+    'TyntecSMS',
+    'Unleash',
+    'UpPromote',
+    'Uptick',
+    'Uservoice',
+    'Vantage',
+    'Veeqo',
+    'Vercel',
+    'VismaEconomic',
+    'VWO',
+    'Waiteraid',
+    'Wasabi',
+    'WhenIWork',
+    'Wordpress',
+    'Workable',
+    'Workflowmax',
+    'Workramp',
+    'Wufoo',
+    'Xsolla',
+    'YandexMetrica',
+    'Yotpo',
+    'Ynab',
+    'Younium',
+    'YouSign',
+    'YoutubeData',
+    'ZapierSupportedStorage',
+    'ZapSign',
+    'ZendeskSell',
+    'ZendeskSunshine',
+    'Zenefits',
+    'Zenloop',
+    'ZohoAnalytics',
+    'ZohoBigin',
+    'ZohoBilling',
+    'ZohoBooks',
+    'ZohoCampaign',
+    'ZohoDesk',
+    'ZohoExpense',
+    'ZohoInventory',
+    'ZohoInvoice',
+    'ZonkaFeedback',
+    'AlphaVantage',
+    'Aviationstack',
+    'Bitly',
+    'Blogger',
+    'Breezometer',
+    'CareQualityCommission',
+    'Cimis',
+    'CoinApi',
+    'CoinGecko',
+    'CoinMarketCap',
+    'DingConnect',
+    'Dockerhub',
+    'ExchangeRatesApi',
+    'FinancialModelling',
+    'Finnhub',
+    'Finnworlds',
+    'Giphy',
+    'Gmail',
+    'GNews',
+    'GoogleCalendar',
+    'GoogleClassroom',
+    'GoogleDirectory',
+    'GoogleForms',
+    'GooglePageSpeedInsights',
+    'GoogleTasks',
+    'GoogleWebfonts',
+    'GoogleWorkspaceAdminReports',
+    'HuggingFace',
+    'IlluminaBasespace',
+    'Imagga',
+    'Interzoid',
+    'IP2Whois',
+    'KYVE',
+    'Marketstack',
+    'Mendeley',
+    'Nasa',
+    'NewYorkTimes',
+    'NewsApi',
+    'NewsData',
+    'OpenDataDc',
+    'OpenExchangeRates',
+    'OpenAQ',
+    'OpenFDA',
+    'OpenWeather',
+    'Outlook',
+    'Perigon',
+    'Pexels',
+    'Pocket',
+    'Polygon',
+    'PyPI',
+    'Recreation',
+    'RKICovid',
+    'Rss',
+    'SimFin',
+    'StockData',
+    'Guardian',
+    'TMDb',
+    'TVMaze',
+    'TwelveData',
+    'Ubidots',
+    'USCensus',
+    'Watchmode',
+    'WikipediaPageviews',
+    'YahooFinance',
+    'Clarifai',
+    'Adapty',
+    'Braintrust',
+    'StreamElements',
+    'Streamlabs',
+    'Datorama',
+    'Ahrefs',
+    'Lightfield',
+    'Appstack',
+    'Razorpay',
+    'Neon',
+    'NewRelic',
     'Custom',
+    'Tile38',
+    'Chatwoot',
+    'Sanity',
+    'Metronome',
+    'Jobber',
+    'Knock',
+    'Leexi',
+    'RB2B',
+    'Superwall',
+    'Liana',
+    'TawkTo',
+    'Hightouch',
+    'LemonSqueezy',
+    'Ikas',
+    'Talkwalker',
+    'NextdoorAds',
+    'AppLovin',
+    'Baserow',
+    'Plunk',
+    'Dub',
+    'AirOps',
+    'Podium',
+    'Loops',
+    'Redis',
+    'Mercury',
+    'Gojiberry',
+    'Teachable',
+    'PeecAI',
+    'Healthchecks',
+    'Impact',
+    'AikidoSecurity',
+    'Alguna',
+    'Anthropic',
+    'Appwrite',
+    'BlandAI',
+    'BrowseAI',
+    'BrowserUse',
+    'ChartHop',
+    'Cody',
+    'Cursor',
+    'Decagon',
+    'Deepgram',
+    'ElevenLabs',
+    'Harvey',
+    'Hyperspell',
+    'Langfuse',
+    'LingoDev',
+    'M3ter',
+    'Maxio',
+    'Metorial',
+    'OpenRouter',
+    'TogetherAI',
+    'Vapi',
+    'Vespa',
+    'Writesonic',
+    'Aiven',
+    'Aviator',
+    'Backblaze',
+    'Baseten',
+    'Browserbase',
+    'Cohere',
+    'DenoDeploy',
+    'DigitalOcean',
+    'E2B',
+    'Fintoc',
+    'Firecrawl',
+    'FireworksAI',
+    'FlyIo',
+    'Groq',
+    'GrowthBook',
+    'Gumloop',
+    'Hatchet',
+    'Helicone',
+    'Heroku',
+    'Hetzner',
+    'HeyGen',
+    'Infisical',
+    'Inngest',
+    'KapaAI',
+    'Kernel',
+    'Koyeb',
+    'LambdaLabs',
+    'LangSmith',
+    'Linode',
+    'LlamaCloud',
+    'Mem0',
+    'Metriport',
+    'Mintlify',
+    'MistralAI',
+    'Mono',
+    'Netlify',
+    'Northflank',
+    'OpenAI',
+    'Pinecone',
+    'PlatformSh',
+    'PromptingCompany',
+    'Qdrant',
+    'Render',
+    'Replicate',
+    'RetellAI',
+    'Roark',
+    'RunPod',
+    'ScaleAI',
+    'Scaleway',
+    'SigNoz',
+    'Sim',
+    'Skyvern',
+    'Slash',
+    'Synthesia',
+    'Telli',
+    'TerraApi',
+    'TriggerDev',
+    'Turso',
+    'TwelveLabs',
+    'Twenty',
+    'Unstructured',
+    'Upstash',
+    'Vellum',
+    'Vultr',
+    'Windmill',
+    'Zep',
+    'Hex',
+    'Singular',
+    'Swonkie',
+    'Sumsub',
+    'GoogleChat',
+    'Kickscale',
+    'Zellify',
+    'RudderStack',
+    'DodoPayments',
+    'Salestrics',
+    'Doppler',
+    'Usersnap',
+    'Asknicely',
+    'Featurebase',
+    'Frill',
+    'Bettermode',
+    'Dynatrace',
+    'Honeycomb',
+    'SumoLogic',
+    'LogzIO',
+    'Coralogix',
+    'BetterStack',
+    'Raygun',
+    'Honeybadger',
+    'Airbrake',
+    'Appsignal',
+    'Appdynamics',
+    'Instana',
+    'SplunkObservabilityCloud',
+    'Uptimerobot',
+    'Statuscake',
+    'Tailscale',
+    'Flagsmith',
+    'Xmatters',
+    'Squadcast',
+    'Zenduty',
+    'Cronitor',
+    'Jenkins',
+    'Bitbucket',
+    'Gitea',
+    'Teamcity',
+    'TravisCI',
+    'Semaphore',
+    'CircleciInsights',
+    'OctopusDeploy',
+    'Sourcegraph',
+    'Bitrise',
+    'Gerrit',
+    'TerraformCloud',
+    'PulumiCloud',
+    'Spacelift',
+    'Railway',
+    'Argocd',
+    'PrefectCloud',
+    'DagsterCloud',
+    'Env0',
+    'Kubecost',
+    'Snyk',
+    'Semgrep',
+    'Veracode',
+    'Checkmarx',
+    'Gitguardian',
+    'QualysVmdr',
+    'Rapid7Insightvm',
+    'TenableVulnerabilityManagement',
+    'Sentinelone',
+    'Lacework',
+    'OrcaSecurity',
+    'Drata',
+    'Secureframe',
+    'CiscoDuo',
+    'Jumpcloud',
+    'OnePassword',
+    'Stytch',
+    'Sonarqube',
+    'Codecov',
+    'Coveralls',
+    'Codacy',
+    'Deepsource',
+    'Linearb',
+    'Jellyfish',
+    'Swarmia',
+    'Packagist',
+    'Nuget',
+    'CratesIO',
+    'SonatypeNexus',
+    'JfrogArtifactory',
+    'Snowplow',
+    'WeightsAndBiases',
+    'MonteCarlo',
+    'Metaplane',
+    'Datahub',
+    'ClickhouseCloud',
+    'ConfluentCloud',
+    'KongKonnect',
+    'Kandji',
+    'Automox',
+    'Autumn',
+    'GetStream',
+    'Octolens',
+    'Kajabi',
+    'Shopware',
+    'Dubsado',
+    'Campfire',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -6535,6 +8178,7 @@ export interface ProductsData {
 }
 
 export enum UserProductListReason {
+    DEFAULT = 'default',
     ONBOARDING = 'onboarding',
     PRODUCT_INTENT = 'product_intent',
     USED_BY_COLLEAGUES = 'used_by_colleagues',
@@ -6558,6 +8202,7 @@ export interface UserProductListItem {
 // Keep this in alphabetical order if you wanna maintain Rafa's sanity
 export enum ProductKey {
     ACTIONS = 'actions',
+    AI_GATEWAY = 'ai_gateway',
     AI_OBSERVABILITY = 'llm_analytics',
     ALERTS = 'alerts',
     ANNOTATIONS = 'annotations',
@@ -6569,6 +8214,7 @@ export enum ProductKey {
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
     ENDPOINTS = 'endpoints',
+    ENGINEERING_ANALYTICS = 'engineering_analytics',
     ERROR_TRACKING = 'error_tracking',
     EXPERIMENTS = 'experiments',
     FEATURE_FLAGS = 'feature_flags',
@@ -6586,6 +8232,7 @@ export enum ProductKey {
     LOGS = 'logs',
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
+    MCP_ANALYTICS = 'mcp_analytics',
     MOBILE_REPLAY = 'mobile_replay',
     NOTEBOOKS = 'notebooks',
     PERSONS = 'persons',
@@ -6596,9 +8243,11 @@ export enum ProductKey {
     PRODUCT_ANALYTICS = 'product_analytics',
     PRODUCT_TOURS = 'product_tours',
     REVENUE_ANALYTICS = 'revenue_analytics',
+    REVIEW_HOG = 'review_hog',
     SESSION_REPLAY = 'session_replay',
     REPLAY_VISION = 'replay_vision',
     SITE_APPS = 'site_apps',
+    SKILLS = 'skills',
     SUBSCRIPTIONS = 'subscriptions',
     STREAMLIT_APPS = 'streamlit_apps',
     SURVEYS = 'surveys',
@@ -6633,6 +8282,7 @@ export enum ProductIntentContext {
 
     // Session Replay
     SESSION_REPLAY_SET_FILTERS = 'session_replay_set_filters',
+    SESSION_REPLAY_EXPERIMENT_LINK_CLICKED = 'session_replay_experiment_link_clicked',
 
     // Error Tracking
     ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED = 'error_tracking_exception_autocapture_enabled',
@@ -6649,6 +8299,10 @@ export enum ProductIntentContext {
     LLM_EVALUATION_CREATED = 'llm_evaluation_created',
     LLM_PROMPT_CREATED = 'llm_prompt_created',
 
+    // MCP Analytics
+    MCP_ANALYTICS_VIEWED = 'mcp_analytics_viewed',
+    MCP_ANALYTICS_CONNECTED = 'mcp_analytics_connected',
+
     // Logs
     LOGS_DOCS_VIEWED = 'logs_docs_viewed',
     LOGS_SET_FILTERS = 'logs_set_filters',
@@ -6656,6 +8310,10 @@ export enum ProductIntentContext {
 
     // Metrics
     METRICS_DOCS_VIEWED = 'metrics_docs_viewed',
+    METRICS_VIEWER_QUERY_RUN = 'metrics_viewer_query_run',
+    METRICS_SQL_QUERY_RUN = 'metrics_sql_query_run',
+    METRICS_QUERY_SAVED = 'metrics_query_saved',
+    METRICS_FIRST_INGESTED = 'metrics_first_ingested',
 
     // Product Analytics
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',

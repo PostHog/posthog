@@ -4,7 +4,6 @@ from posthog.settings import CLOUD_DEPLOYMENT, DEBUG, TEST
 from products.ai_observability.backend.api import (
     AIObservabilityClusteringRunViewSet,
     AIObservabilityOfflineEvaluationsViewSet,
-    AIObservabilitySentimentViewSet,
     AIObservabilitySummarizationViewSet,
     AIObservabilityTextReprViewSet,
     AIObservabilityTranslateViewSet,
@@ -22,6 +21,7 @@ from products.ai_observability.backend.api import (
     LLMProviderKeyViewSet,
     LLMProxyViewSet,
     ParserRecipeViewSet,
+    PersonalSpendInternalViewSet,
     PersonalSpendViewSet,
     ReviewQueueItemViewSet,
     ReviewQueueViewSet,
@@ -29,7 +29,6 @@ from products.ai_observability.backend.api import (
     TaggerViewSet,
     TraceReviewViewSet,
 )
-from products.ai_observability.backend.api.skills import LLMSkillViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -38,11 +37,12 @@ def register_routes(routers: RouterRegistry) -> None:
     # CLOUD/DEBUG/TEST gate the registration carried inline.
     if CLOUD_DEPLOYMENT == "US" or DEBUG or TEST:
         routers.root.register(r"llm_analytics/@me/spend", PersonalSpendViewSet, "personal_spend")
+        # HMAC-authenticated receiver for the EU→US personal-spend proxy.
+        routers.root.register(r"llm_analytics/internal/spend", PersonalSpendInternalViewSet, "personal_spend_internal")
 
     routers.projects.register(
         r"llm_analytics/parser_recipes", ParserRecipeViewSet, "project_llm_analytics_parser_recipes", ["team_id"]
     )
-    routers.register_legacy_dual_route(r"llm_skills", LLMSkillViewSet, "project_llm_skills", ["team_id"])
     routers.register_legacy_dual_route(r"datasets", DatasetViewSet, "environment_datasets", ["team_id"])
     routers.register_legacy_dual_route(r"dataset_items", DatasetItemViewSet, "environment_dataset_items", ["team_id"])
     routers.register_legacy_dual_route(r"evaluations", EvaluationViewSet, "project_evaluations", ["team_id"])
@@ -98,9 +98,6 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.register_legacy_dual_route(
         r"llm_analytics/clustering_jobs", ClusteringJobViewSet, "project_llm_analytics_clustering_jobs", ["team_id"]
-    )
-    routers.register_legacy_dual_route(
-        r"llm_analytics/sentiment", AIObservabilitySentimentViewSet, "project_llm_analytics_sentiment", ["team_id"]
     )
     routers.register_legacy_dual_route(
         r"llm_analytics/offline_evaluations",

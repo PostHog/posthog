@@ -1,7 +1,9 @@
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { IntegrationKind } from '~/types'
 
+import IconApple from 'public/services/apple_search_ads.png'
+import IconAwsS3 from 'public/services/aws-s3.png'
 import IconAzureBlob from 'public/services/azure-blob-storage.png'
 import IconBingAds from 'public/services/bing-ads.svg'
 import IconClickUp from 'public/services/clickup.svg'
@@ -15,6 +17,7 @@ import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 import IconGoogleCloud from 'public/services/google-cloud.png'
 import IconGoogleSearchConsole from 'public/services/google-search-console.svg'
 import IconGoogleSheets from 'public/services/google-sheets.svg'
+import IconGoogleAnalytics from 'public/services/google_analytics.png'
 import IconHubspot from 'public/services/hubspot.png'
 import IconIntercom from 'public/services/intercom.png'
 import IconJira from 'public/services/jira.svg'
@@ -23,10 +26,13 @@ import IconLinkedIn from 'public/services/linkedin.png'
 import IconMailjet from 'public/services/mailjet.png'
 import IconMetaAds from 'public/services/meta-ads.png'
 import IconPinterest from 'public/services/pinterest_ads.png'
+import IconPostgres from 'public/services/postgres.png'
 import IconReddit from 'public/services/reddit.png'
+import IconS3Compatible from 'public/services/s3-compatible.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
 import IconSnapchat from 'public/services/snapchat.png'
+import IconSnowflake from 'public/services/snowflake.png'
 import IconStripe from 'public/services/stripe.png'
 import IconTikTok from 'public/services/tiktok.png'
 import IconTwilio from 'public/services/twilio.png'
@@ -40,6 +46,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     'google-cloud-storage': IconGoogleCloudStorage,
     'google-cloud-service-account': IconGoogleCloud,
     'google-ads': IconGoogleAds,
+    'google-analytics': IconGoogleAnalytics,
     'google-search-console': IconGoogleSearchConsole,
     'google-sheets': IconGoogleSheets,
     snapchat: IconSnapchat,
@@ -65,7 +72,16 @@ export const ICONS: Record<IntegrationKind, any> = {
     'customerio-app': IconCustomerIO,
     'customerio-webhook': IconCustomerIO,
     'customerio-track': IconCustomerIO,
+    apns: IconApple,
+    postgresql: IconPostgres,
+    'aws-s3': IconAwsS3,
+    's3-compatible': IconS3Compatible,
+    snowflake: IconSnowflake,
 }
+
+// Brand marks that are solid black/monochrome on a transparent background — they vanish against a dark
+// surface, so invert them in dark mode (`dark:invert`) wherever the integration icon is rendered.
+export const DARK_MODE_INVERT_ICON_KINDS = new Set<IntegrationKind>(['apns', 'github'])
 
 export const getIntegrationNameFromKind = (kind: string): string => {
     switch (kind) {
@@ -75,6 +91,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'Google Cloud Storage'
         case 'google-ads':
             return 'Google Ads'
+        case 'google-analytics':
+            return 'Google Analytics'
         case 'google-search-console':
             return 'Google Search Console'
         case 'google-cloud-service-account':
@@ -97,6 +115,14 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'GitHub'
         case 'firebase':
             return 'Firebase'
+        case 'apns':
+            return 'Apple Push Notification Service'
+        case 'postgresql':
+            return 'PostgreSQL'
+        case 'aws-s3':
+            return 'AWS S3'
+        case 's3-compatible':
+            return 'S3-compatible storage'
         default:
             return capitalizeFirstLetter(kind)
     }

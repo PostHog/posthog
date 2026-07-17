@@ -19,8 +19,10 @@ import {
     IconReceipt,
     IconServer,
     IconShieldLock,
+    IconToggle,
 } from '@posthog/icons'
 
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -28,6 +30,8 @@ import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
+import { themeLogic } from 'lib/logic/themeLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -46,20 +50,17 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
 import { getTreeItemsGames } from '~/products'
 import { UserTheme } from '~/types'
 
-import { appShortcutLogic } from '../AppShortcuts/appShortcutLogic'
-import { openCHQueriesDebugModal } from '../AppShortcuts/utils/DebugCHQueries'
+import { shortcutLogic } from '../Shortcuts/shortcutLogic'
+import { openCHQueriesDebugModal } from '../Shortcuts/utils/DebugCHQueries'
 import { OrgCombobox } from './OrgCombobox'
 
 interface AccountMenuProps extends DropdownMenuContentProps {
@@ -146,7 +147,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
     const { logout } = useActions(userLogic)
-    const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
+    const { setShortcutMenuOpen } = useActions(shortcutLogic)
     const { toggleZenMode } = useActions(navigation3000Logic)
 
     return (
@@ -315,7 +316,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                         <ButtonPrimitive
                             tooltip="Hide navigation and focus on content"
                             tooltipPlacement="right"
-                            onClick={toggleZenMode}
+                            onClick={() => toggleZenMode('account_menu')}
                             menuItem
                         >
                             <IconExpand45 />
@@ -328,7 +329,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                         <ButtonPrimitive
                             tooltip="Open shortcut menu"
                             tooltipPlacement="right"
-                            onClick={() => setAppShortcutMenuOpen(true)}
+                            onClick={() => setShortcutMenuOpen(true)}
                             menuItem
                         >
                             <span className="size-4 flex items-center justify-center">⌘</span>
@@ -422,6 +423,18 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                 >
                                     <IconServer />
                                     Instance panel
+                                </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                                <Link
+                                    to={urls.featureFlagsStaffTools()}
+                                    buttonProps={{
+                                        menuItem: true,
+                                    }}
+                                    data-attr="top-menu-flags-staff-tools"
+                                >
+                                    <IconToggle />
+                                    Flags staff tools
                                 </Link>
                             </DropdownMenuItem>
 

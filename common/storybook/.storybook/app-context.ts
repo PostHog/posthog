@@ -13,6 +13,7 @@ export const getStorybookAppContext = (): AppContext => ({
     default_event_name: '$pageview',
     has_pageview: true,
     has_screen: true,
+    has_person_email: false,
     persisted_feature_flags: [],
     commit_sha: undefined,
     preflight: null as any, // `null` triggers a fetch and lets us mock the data
@@ -73,6 +74,7 @@ export const getStorybookAppContext = (): AppContext => ({
     resource_access_control: {
         action: 'manager',
         feature_flag: 'manager',
+        hog_flow: 'manager',
         dashboard: 'manager',
         dashboard_template: 'manager',
         insight: 'manager',
@@ -81,10 +83,14 @@ export const getStorybookAppContext = (): AppContext => ({
         revenue_analytics: 'manager',
         survey: 'manager',
         experiment: 'manager',
+        export: 'manager',
+        early_access_feature: 'manager',
         external_data_source: 'manager',
         web_analytics: 'manager',
         activity_log: 'viewer',
         customer_analytics: 'manager',
         llm_analytics: 'manager',
+        error_tracking: 'manager',
+        metrics: 'manager',
     },
 })

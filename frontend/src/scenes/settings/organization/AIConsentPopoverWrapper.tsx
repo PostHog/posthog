@@ -1,12 +1,13 @@
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { useCallback } from 'react'
 
-import { IconArrowRight, IconLock } from '@posthog/icons'
+import { IconArrowRight, IconCheck, IconLock } from '@posthog/icons'
 import { LemonButton, Popover, PopoverProps, Tooltip } from '@posthog/lemon-ui'
 
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { getExternalAIProvidersTooltipTitle, openAIConsentLegalDialog } from './aiConsentCopy'
+import { aiConsentLogic } from './aiConsentLogic'
 
 export function AIConsentPopoverContent({
     onApprove,
@@ -28,7 +29,7 @@ export function AIConsentPopoverContent({
                 <Tooltip title={getExternalAIProvidersTooltipTitle()}>
                     <dfn>external AI providers</dfn>
                 </Tooltip>
-                . <i>Your data won't be used for training models.</i>
+                . <i>Your data won't be used for training third-party models.</i>
             </p>
             <div className="flex gap-1.5 self-end">
                 <LemonButton data-attr="ai-consent-cancel" type="secondary" size="xsmall" onClick={onDismiss}>
@@ -52,6 +53,33 @@ export function AIConsentPopoverContent({
     )
 }
 
+function AIAccessRequestPopoverContent(): JSX.Element {
+    const { requestingAiAccess, aiAccessRequested } = useValues(aiConsentLogic)
+    const { requestAiAccess } = useActions(aiConsentLogic)
+
+    return (
+        <div className="flex flex-col gap-2 m-1.5 max-w-prose">
+            <p className="font-medium text-pretty">
+                PostHog AI access has not been enabled for this organization. You can request access from an
+                organization owner or admin.
+            </p>
+            <div className="flex self-end">
+                <LemonButton
+                    data-attr="ai-access-request"
+                    type="primary"
+                    size="xsmall"
+                    onClick={() => requestAiAccess()}
+                    loading={requestingAiAccess}
+                    disabledReason={aiAccessRequested ? 'Your request has been sent' : undefined}
+                    sideIcon={aiAccessRequested ? <IconCheck /> : <IconArrowRight />}
+                >
+                    {aiAccessRequested ? 'Request sent' : 'Request access'}
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
 export function AIConsentPopoverWrapper({
     hidden,
     children,
@@ -67,10 +95,11 @@ export function AIConsentPopoverWrapper({
     onApprove?: () => void
     onDismiss?: () => void
 }): JSX.Element {
-    const { acceptDataProcessing } = useAsyncActions(maxGlobalLogic)
+    const { acceptDataProcessing } = useAsyncActions(aiConsentLogic)
     const { dataProcessingApprovalDisabledReason, dataProcessingAccepted, dataProcessingDismissed } =
-        useValues(maxGlobalLogic)
-    const { dismissDataProcessing } = useActions(maxGlobalLogic)
+        useValues(aiConsentLogic)
+    const { dismissDataProcessing } = useActions(aiConsentLogic)
+    const { isAdminOrOwner } = useValues(organizationLogic)
 
     const handleDismiss = (): void => {
         if (!ignoreDismissal) {
@@ -82,15 +111,19 @@ export function AIConsentPopoverWrapper({
     return (
         <Popover
             overlay={
-                <AIConsentPopoverContent
-                    approvalDisabledReason={dataProcessingApprovalDisabledReason}
-                    onApprove={() =>
-                        void acceptDataProcessing()
-                            .then(() => onApprove?.())
-                            .catch(console.error)
-                    }
-                    onDismiss={handleDismiss}
-                />
+                isAdminOrOwner ? (
+                    <AIConsentPopoverContent
+                        approvalDisabledReason={dataProcessingApprovalDisabledReason}
+                        onApprove={() =>
+                            void acceptDataProcessing()
+                                .then(() => onApprove?.())
+                                .catch(console.error)
+                        }
+                        onDismiss={handleDismiss}
+                    />
+                ) : (
+                    <AIAccessRequestPopoverContent />
+                )
             }
             style={{ zIndex: 'var(--z-modal)' }} // Don't show above the re-authentication modal
             visible={!hidden && !dataProcessingAccepted && (ignoreDismissal || !dataProcessingDismissed)}

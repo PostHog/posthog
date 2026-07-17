@@ -1,0 +1,38 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<p>Provision a new managed warehouse for an organization and its first team. This runs the same
+flow as the in-product provision API: the duckgres control-plane <code>/provision</code> call, then
+the <code>DuckgresServer</code> and <code>DuckgresServerTeam</code>
+records for the team. The organization's <code>data-warehouse-scene</code> feature flag is
+<strong>not</strong> required here.</p>
+<p><strong>This makes a real control-plane call.</strong> In environments where
+<code>DUCKGRES_API_URL</code> is unset, it returns "not configured" and persists nothing.</p>
+
+<form method="post">
+    {% csrf_token %}
+    <div style="margin: 20px 0;">
+        <label for="organization_id" style="display: block; margin-bottom: 5px; font-weight: bold;">Organization ID (UUID):</label>
+        <input type="text" id="organization_id" name="organization_id" style="width: 400px; padding: 8px;" required />
+    </div>
+    <div style="margin: 20px 0;">
+        <label for="team_id" style="display: block; margin-bottom: 5px; font-weight: bold;">Team ID (the first/provisioning team in the org):</label>
+        <input type="text" id="team_id" name="team_id" style="width: 400px; padding: 8px;" required />
+    </div>
+    <div style="margin: 20px 0;">
+        <label for="database_name" style="display: block; margin-bottom: 5px; font-weight: bold;">Database name:</label>
+        <input type="text" id="database_name" name="database_name" style="width: 400px; padding: 8px;" required />
+        <p class="help">Becomes the connection's SNI subdomain — 3-63 chars, lowercase letters, numbers and hyphens, starting with a letter.</p>
+    </div>
+    <div style="margin: 20px 0;">
+        <label for="table_name" style="display: block; margin-bottom: 5px; font-weight: bold;">Table suffix:</label>
+        <input type="text" id="table_name" name="table_name" style="width: 400px; padding: 8px;" required />
+        <p class="help">The team's per-environment table suffix — lowercase letters, numbers and underscores. The backfill writes to <code>events_&lt;suffix&gt;</code> / <code>persons_&lt;suffix&gt;</code>.</p>
+    </div>
+    <div style="margin-top: 20px;">
+        <input type="submit" class="default" value="Provision" style="padding: 10px 20px;" />
+        <a href="{% url 'admin:posthog_duckgresserver_changelist' %}" style="margin-left: 10px;">Cancel</a>
+    </div>
+</form>
+{% endblock %}

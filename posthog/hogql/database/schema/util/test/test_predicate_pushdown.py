@@ -4,6 +4,7 @@ from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.lazy_join_tags import FOREIGN_KEY
 from posthog.hogql.database.models import LazyJoin
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import (
@@ -35,7 +36,7 @@ def make_lazy_join_type(field: str) -> ast.LazyJoinType:
     return ast.LazyJoinType(
         table_type=make_events_table_type(),
         field=field,
-        lazy_join=LazyJoin(from_field=["id"], join_table=EventsTable(), join_function=lambda *args: None),
+        lazy_join=LazyJoin(from_field=["id"], join_table=EventsTable(), resolver=FOREIGN_KEY),
     )
 
 

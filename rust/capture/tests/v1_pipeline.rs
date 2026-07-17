@@ -32,7 +32,7 @@ async fn run_batch_with_state(
 ) -> (Result<BatchResponse, Error>, test_utils::TestState) {
     let batch: Batch = serde_json::from_slice(payload).expect("payload must parse as Batch");
     let ts = builder.build();
-    let mut ctx = test_utils::test_context();
+    let mut ctx = test_utils::test_analytics_context();
     let result = process_batch(&ts.state, &mut ctx, batch).await;
     (result, ts)
 }
@@ -138,7 +138,7 @@ async fn all_events_quota_dropped() {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
     loop {
         let batch: Batch = serde_json::from_slice(&payload).expect("payload must parse as Batch");
-        let mut ctx = test_utils::test_context();
+        let mut ctx = test_utils::test_analytics_context();
         ctx.api_token = "*".to_string();
         let result = process_batch(&ts.state, &mut ctx, batch).await;
         if result.is_err() {
@@ -226,7 +226,7 @@ async fn compression_round_trip(#[case] encoding: Option<&str>) {
     };
 
     let ts = TestStateBuilder::new().build();
-    let mut ctx = test_utils::test_context();
+    let mut ctx = test_utils::test_analytics_context();
     if encoding.is_some() {
         ctx.content_encoding = encoding.map(String::from);
     }

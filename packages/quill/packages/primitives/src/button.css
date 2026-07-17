@@ -31,7 +31,14 @@
         box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent);
     }
 
-    .quill-button:disabled {
+    /* Disabled covers both paths: native :disabled (focusableWhenDisabled=false)
+       and the focusable aria-disabled="true" path (the default). Loading is
+       excluded — it's busy, not unavailable, so it keeps full-strength visuals
+       under the spinner. cursor: not-allowed signals the button is unavailable;
+       native :disabled set it for free, but aria-disabled does not. */
+    .quill-button:disabled,
+    .quill-button[aria-disabled='true']:not([data-loading]) {
+        cursor: not-allowed;
         opacity: 0.5;
     }
 
@@ -55,10 +62,6 @@
         height: 1rem;
     }
 
-    .quill-button:not(:disabled):active {
-        translate: 0 1px;
-    }
-
     .quill-button kbd {
         margin-right: -0.25rem;
     }
@@ -75,7 +78,7 @@
         transition: border-radius 0.1s;
     }
 
-    .quill-button--variant-default:not(:disabled):hover {
+    .quill-button--variant-default:not(:disabled, [aria-disabled='true']):hover {
         color: var(--foreground);
         background-color: var(--fill-hover);
     }
@@ -138,12 +141,19 @@
         content: '';
     }
 
-    .quill-button--variant-primary:not(:disabled):hover {
+    .quill-button--variant-primary:not(:disabled, [aria-disabled='true']):hover {
         background-color: color-mix(in oklab, var(--primary) 98%, black 5%);
     }
 
-    .quill-button--variant-primary:not(:disabled):active {
+    .quill-button--variant-primary:not(:disabled, [aria-disabled='true']):active {
         box-shadow: 0 1px 0 -1px color-mix(in oklab, var(--primary) 50%, transparent);
+        translate: 0 0;
+    }
+
+    /* Disabled sits flat — no raised lift/shadow that reads as pressable. */
+    .quill-button--variant-primary:disabled,
+    .quill-button--variant-primary[aria-disabled='true']:not([data-loading]) {
+        box-shadow: none;
         translate: 0 0;
     }
 
@@ -159,13 +169,9 @@
         border-color: color-mix(in oklab, var(--foreground) 15%, transparent);
     }
 
-    .quill-button--variant-outline:not(:disabled):hover {
+    .quill-button--variant-outline:not(:disabled, [aria-disabled='true']):hover {
         color: var(--foreground);
-        background-color: color-mix(in oklab, var(--muted) 50%, transparent);
-    }
-
-    :is(.dark, [theme='dark']) .quill-button--variant-outline:hover {
-        color: var(--foreground);
+        background-color: var(--fill-hover);
     }
 
     .quill-button--variant-outline[aria-expanded='true'] {
@@ -185,7 +191,7 @@
         background-color: color-mix(in oklab, var(--destructive) 50%, transparent);
     }
 
-    .quill-button--variant-destructive:not(:disabled):hover {
+    .quill-button--variant-destructive:not(:disabled, [aria-disabled='true']):hover {
         background-color: var(--destructive);
     }
 
@@ -206,7 +212,7 @@
         text-underline-offset: 4px;
     }
 
-    .quill-button--variant-link:hover,
+    .quill-button--variant-link:not(:disabled, [aria-disabled='true']):hover,
     .quill-button--variant-link[data-popup-open] {
         text-decoration: underline;
     }
@@ -216,7 +222,7 @@
         text-underline-offset: 4px;
     }
 
-    .quill-button--variant-link-muted:hover,
+    .quill-button--variant-link-muted:not(:disabled, [aria-disabled='true']):hover,
     .quill-button--variant-link-muted[data-popup-open] {
         text-decoration: underline;
     }
@@ -361,11 +367,78 @@
         cursor: default;
     }
 
-    .quill-button--inert:not(:disabled):hover {
+    .quill-button--inert:not(:disabled, [aria-disabled='true']):hover {
         background-color: transparent;
     }
 
-    .quill-button--inert:not(:disabled):active {
-        translate: 0 0;
+    /* =========================================================================
+       Loading
+       ========================================================================= */
+
+    /* The label stays in the DOM at full width — text fades to transparent and
+       element children (icons, kbd) fade out — so the button never resizes.
+       The spinner overlays the center. */
+    .quill-button[data-loading] {
+        position: relative;
+        color: transparent;
+        transition: color 150ms ease;
+    }
+
+    /* Loading is busy, not unavailable: the button is focusable-while-disabled
+       (aria-disabled, no native disabled attribute), so the dimmed :disabled
+       look never applies — full-strength visuals under the spinner. */
+    .quill-button[data-loading] > :not(.quill-spinner) {
+        opacity: 0;
+        transition: opacity 150ms ease;
+    }
+
+    .quill-button[data-loading] > .quill-spinner {
+        position: absolute;
+        inset: 0;
+        margin: auto;
+        color: var(--foreground);
+        animation:
+            var(--animate-spin, spin 1s linear infinite),
+            quill-button__spinner-in 150ms cubic-bezier(0.215, 0.61, 0.355, 1);
+    }
+
+    .quill-button--variant-primary[data-loading] > .quill-spinner {
+        color: var(--primary-foreground);
+    }
+
+    .quill-button--variant-destructive[data-loading] > .quill-spinner {
+        color: var(--destructive-foreground);
+    }
+
+    .quill-button--variant-link[data-loading] > .quill-spinner {
+        color: var(--primary);
+    }
+
+    .quill-button--variant-link-muted[data-loading] > .quill-spinner {
+        color: var(--muted-foreground);
+    }
+
+    @keyframes quill-button__spinner-in {
+        from {
+            opacity: 0;
+            scale: 0.9;
+        }
+
+        to {
+            opacity: 1;
+            scale: 1;
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .quill-button[data-loading],
+        .quill-button[data-loading] > :not(.quill-spinner) {
+            transition: none;
+        }
+
+        /* Keep the rotation — it is the status indicator — but drop the entrance. */
+        .quill-button[data-loading] > .quill-spinner {
+            animation: var(--animate-spin, spin 1s linear infinite);
+        }
     }
 }

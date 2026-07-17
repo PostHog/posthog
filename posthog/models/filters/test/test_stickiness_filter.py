@@ -1,7 +1,7 @@
 from posthog.test.base import BaseTest
 
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.queries.util import get_earliest_timestamp
+from posthog.models.filters.utils import earliest_timestamp_func
 
 
 class TestStickinessFilter(BaseTest):
@@ -16,7 +16,7 @@ class TestStickinessFilter(BaseTest):
                 "sampling_factor": 0.1,
             },
             team=self.team,
-            get_earliest_timestamp=get_earliest_timestamp,
+            get_earliest_timestamp=earliest_timestamp_func,
         )
         self.assertEqual(
             filter.to_dict(),

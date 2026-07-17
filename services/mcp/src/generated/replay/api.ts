@@ -3,13 +3,19 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 8 enabled ops
+ * PostHog API - MCP 9 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
 /**
- * Override list to include synthetic playlists
+ * Override list to include synthetic playlists.
+ *
+ * Synthetics have no DB row, so we compute each one's position in the merged
+ * sort and split the requested page between synthetics and a DB queryset slice.
+ * The merge/rank/sort is all in-memory, so each phase is wrapped in a span and
+ * the input sizes are recorded as span attributes — a slow response on a team
+ * with many playlists then shows up as a wide span against a large db_count.
  */
 export const SessionRecordingPlaylistsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -120,6 +126,33 @@ export const SessionRecordingsDestroyParams = /* @__PURE__ */ zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Delete a batch of session recordings by session ID. Deletion is permanent and cannot be undone. IDs that don't match an existing recording are skipped and counted in `total_requested` but not `deleted_count`.
+ */
+export const SessionRecordingsBulkDeleteCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const sessionRecordingsBulkDeleteCreateBodySessionRecordingIdsMax = 100
+
+export const SessionRecordingsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
+    session_recording_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(sessionRecordingsBulkDeleteCreateBodySessionRecordingIdsMax)
+        .describe('Session IDs of the recordings to delete (max 100 per call).'),
+    date_from: zod
+        .string()
+        .nullish()
+        .describe(
+            "Earliest start time of the recordings, as an ISO date or a relative offset like '-30d'. Providing this narrows the lookup and speeds up the request; defaults to the project's recording retention period."
         ),
 })
 

@@ -4,8 +4,6 @@ import { SlotCoercer } from '../runtime/coercion'
 import { Scope } from '../scope'
 import { compileRecipe } from './compiler'
 
-jest.mock('posthog-js', () => ({ __esModule: true, default: { capture: jest.fn() } }))
-
 const ENGINE: DispatchEngine = { dispatch: () => NO_MATCH, coercer: new SlotCoercer() }
 const INPUT = { name: 'Ada', items: ['a', 'b'] }
 

@@ -5,32 +5,52 @@ import { onboardingVariantChrome, resolveOnboardingFlowVariant } from './onboard
 
 describe('onboardingVariants', () => {
     describe('resolveOnboardingFlowVariant', () => {
-        it('falls back to control when the flag is not set', () => {
-            expect(resolveOnboardingFlowVariant({} as FeatureFlagsSet)).toBe('control')
+        it('falls back to legacy when the flag is not set', () => {
+            expect(resolveOnboardingFlowVariant({} as FeatureFlagsSet)).toBe('legacy')
         })
 
-        it('falls back to control when the flag resolves to a boolean', () => {
+        it('falls back to legacy when the flag resolves to a boolean', () => {
             expect(
                 resolveOnboardingFlowVariant({ [FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]: true } as FeatureFlagsSet)
-            ).toBe('control')
+            ).toBe('legacy')
         })
 
-        it('returns the variant string when set to a named variant', () => {
+        it('maps the control flag value to legacy', () => {
+            expect(
+                resolveOnboardingFlowVariant({ [FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]: 'control' } as FeatureFlagsSet)
+            ).toBe('legacy')
+        })
+
+        it('maps the historical legacy flag value to legacy, same as control', () => {
+            expect(
+                resolveOnboardingFlowVariant({ [FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]: 'legacy' } as FeatureFlagsSet)
+            ).toBe('legacy')
+        })
+
+        it('returns self-driving when the flag selects it', () => {
+            expect(
+                resolveOnboardingFlowVariant({
+                    [FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]: 'self-driving',
+                } as FeatureFlagsSet)
+            ).toBe('self-driving')
+        })
+
+        it('falls back to legacy for an unregistered variant', () => {
             expect(
                 resolveOnboardingFlowVariant({
                     [FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]: 'some_future_variant',
                 } as FeatureFlagsSet)
-            ).toBe('some_future_variant')
+            ).toBe('legacy')
         })
     })
 
     describe('onboardingVariantChrome', () => {
-        it('control keeps the minimal top bar', () => {
-            expect(onboardingVariantChrome('control')).toBe('minimal')
+        it('legacy keeps the minimal top bar', () => {
+            expect(onboardingVariantChrome('legacy')).toBe('minimal')
         })
 
-        it('defaults to minimal for an unregistered variant', () => {
-            expect(onboardingVariantChrome('not_a_real_variant')).toBe('minimal')
+        it('self-driving owns the whole viewport (no chrome)', () => {
+            expect(onboardingVariantChrome('self-driving')).toBe('none')
         })
     })
 })

@@ -1,0 +1,357 @@
+#!/usr/bin/env bash
+
+set -e
+set -o pipefail
+
+# Image used to read the old MinIO data — must match the format the dev/hobby MinIO
+# wrote (same RELEASE tag as docker-compose.hobby.yml).
+MINIO_IMAGE="minio/minio:RELEASE.2025-04-22T22-12-26Z"
+TEMP_CONTAINER="objectstorage-salvage-src"
+S3_KEY="object_storage_root_user"
+S3_SECRET="object_storage_root_password"
+
+show_help() {
+    cat <<'EOF'
+Objectstorage MinIO → SeaweedFS Salvage Script
+
+⚠️  IMPORTANT: This script is for LOCAL DEVELOPMENT environments.
+
+PostHog dev objectstorage now runs SeaweedFS in a fresh named volume
+(objectstorage-data). Your old MinIO objects live on the previous (now
+orphaned) volume and are invisible to the new SeaweedFS — the on-disk formats
+are not compatible, so there is no in-place conversion. This script salvages
+them by copying object-by-object over S3.
+
+The script automatically:
+- Finds the orphaned MinIO objectstorage volume (looks for /data/.minio.sys)
+- Spins up a temporary MinIO container reading that volume
+- Copies every bucket into the running SeaweedFS objectstorage
+- Removes the temporary container when done
+
+The old MinIO volume is left untouched, so this is safe to run later if you
+forgot — and safe to re-run (existing objects are skipped). Remove the old
+volume once you've verified the data landed.
+
+Usage:
+  hogli deploy:upgrade-objectstorage                 Interactive mode (default)
+  hogli deploy:upgrade-objectstorage --list          List all MinIO volumes
+  ./bin/upgrade-objectstorage <volume-id>            Salvage a specific volume
+
+Examples:
+  # Interactive: detect the orphaned volume and copy it over
+  hogli deploy:upgrade-objectstorage
+
+  # Find orphaned MinIO volumes
+  hogli deploy:upgrade-objectstorage --list
+
+  # Salvage a specific volume
+  ./bin/upgrade-objectstorage 6e93806fad73d030739a55dd1c6594bf925833dd1a2ef59b3fb14b54bd6f5d73
+
+EOF
+}
+
+# A MinIO data volume always has a .minio.sys directory at its root.
+is_minio_volume() {
+    docker run --rm -v "$1:/data:ro" alpine test -d /data/.minio.sys 2>/dev/null
+}
+
+list_minio_volumes() {
+    echo "Scanning for MinIO objectstorage volumes..."
+    echo ""
+
+    docker volume ls -q | while read -r vol; do
+        if is_minio_volume "$vol"; then
+            SIZE=$(docker run --rm -v "$vol:/data:ro" alpine du -sh /data 2>/dev/null | awk '{print $1}' || echo "unknown")
+            IN_USE=$(docker ps -a --filter "volume=$vol" --format "{{.Names}}" 2>/dev/null)
+
+            if [ -n "$IN_USE" ]; then
+                echo "✅ $vol"
+                echo "   Size: $SIZE | In use by: $IN_USE"
+            else
+                echo "⚠️  $vol"
+                echo "   Size: $SIZE | ORPHANED (not mounted)"
+            fi
+            echo ""
+        fi
+    done
+}
+
+# The compose file in the directory you run this from is authoritative — whoever runs
+# the command controls how containers come up. We deliberately do NOT read the running
+# container's recorded compose path: the objectstorage container is shared across
+# worktrees (same COMPOSE_PROJECT_NAME), so it may have last been started from another
+# worktree still on MinIO. Trusting that label would force-recreate MinIO again instead
+# of swapping to the SeaweedFS your freshly-pulled compose defines. So: pull, run, done.
+detect_compose_file() {
+    if [ -f "docker-compose.dev.yml" ]; then
+        echo "docker-compose.dev.yml"
+    elif [ -f "docker-compose.yml" ]; then
+        echo "docker-compose.yml"
+    else
+        echo ""
+    fi
+}
+
+# Return the first volume that looks like MinIO data and isn't backing a running
+# container (the live objectstorage is SeaweedFS, so it won't match anyway).
+detect_minio_volume() {
+    docker volume ls -q | while read -r vol; do
+        if is_minio_volume "$vol"; then
+            echo "$vol"
+            return
+        fi
+    done
+}
+
+# Image of the running objectstorage container, empty if none is running.
+running_objectstorage_image() {
+    local container
+    container=$(docker ps --filter "label=com.docker.compose.service=objectstorage" --format "{{.ID}}" | head -1)
+    [ -z "$container" ] && return
+    docker inspect "$container" --format '{{.Config.Image}}' 2>/dev/null || true
+}
+
+# The destination must be SeaweedFS. If the old MinIO objectstorage is still running
+# (branch checked out but `hogli up` not run yet), copying into it would silently
+# no-op — the data is already there — and never populate SeaweedFS. Recreate it as
+# SeaweedFS first; that orphans the old volume, which is exactly what we salvage from.
+ensure_objectstorage_running() {
+    local COMPOSE_FILE="$1"
+    local image
+    image=$(running_objectstorage_image)
+
+    if [ -n "$image" ] && [[ "$image" != *minio* ]]; then
+        return
+    fi
+
+    if [ -n "$image" ]; then
+        echo "objectstorage is still the old MinIO — recreating it as SeaweedFS first..."
+        docker compose -f "$COMPOSE_FILE" up -d --force-recreate objectstorage
+    else
+        echo "Starting objectstorage (SeaweedFS) as the copy destination..."
+        docker compose -f "$COMPOSE_FILE" up -d objectstorage
+    fi
+
+    for _ in $(seq 1 30); do
+        image=$(running_objectstorage_image)
+        if [ -n "$image" ] && [[ "$image" != *minio* ]]; then
+            return
+        fi
+        sleep 1
+    done
+    echo "❌ objectstorage is not running as SeaweedFS. Run 'hogli up' to swap it, then re-run."
+    exit 1
+}
+
+# Host port the running objectstorage publishes for S3 (defaults to 19000).
+objectstorage_host_port() {
+    local container
+    container=$(docker ps --filter "label=com.docker.compose.service=objectstorage" --format "{{.ID}}" | head -1)
+    local mapping
+    mapping=$(docker port "$container" 19000 2>/dev/null | head -1)
+    if [ -n "$mapping" ]; then
+        echo "${mapping##*:}"
+    else
+        echo "19000"
+    fi
+}
+
+cleanup_temp_container() {
+    docker rm -f "$TEMP_CONTAINER" >/dev/null 2>&1 || true
+}
+
+# boto3 sends buffered (non-streaming) signed PUTs, which open-mode SeaweedFS
+# accepts — unlike mc / aws-chunked streaming uploads, which it rejects.
+copy_buckets() {
+    local SRC_ENDPOINT="$1"
+    local DST_ENDPOINT="$2"
+
+    if ! python3 -c "import boto3" >/dev/null 2>&1; then
+        echo "❌ boto3 is required. Run this inside the PostHog dev environment (flox)."
+        exit 1
+    fi
+
+    python3 - "$SRC_ENDPOINT" "$DST_ENDPOINT" "$S3_KEY" "$S3_SECRET" <<'PY'
+import sys, time, boto3
+from botocore.config import Config
+from botocore.exceptions import ClientError
+
+src_ep, dst_ep, key, secret = sys.argv[1:5]
+
+
+def client(ep):
+    return boto3.client(
+        "s3", endpoint_url=ep, aws_access_key_id=key, aws_secret_access_key=secret,
+        region_name="us-east-1",
+        config=Config(s3={"addressing_style": "path"}, signature_version="s3v4"),
+    )
+
+
+src, dst = client(src_ep), client(dst_ep)
+
+for name, c in (("source", src), ("destination", dst)):
+    for _ in range(60):
+        try:
+            c.list_buckets()
+            break
+        except Exception:
+            time.sleep(1)
+    else:
+        print(f"❌ {name} object storage never became reachable")
+        sys.exit(1)
+
+
+def exists(c, bucket, key):
+    try:
+        c.head_object(Bucket=bucket, Key=key)
+        return True
+    except ClientError:
+        return False
+
+
+buckets = [b["Name"] for b in src.list_buckets().get("Buckets", [])]
+if not buckets:
+    print("No buckets on the old volume — nothing to copy.")
+    sys.exit(0)
+
+copied = skipped = 0
+for bucket in buckets:
+    try:
+        dst.create_bucket(Bucket=bucket)
+    except ClientError:
+        pass
+    print(f"→ {bucket}")
+    for page in src.get_paginator("list_objects_v2").paginate(Bucket=bucket):
+        for obj in page.get("Contents", []):
+            obj_key = obj["Key"]
+            if exists(dst, bucket, obj_key):
+                skipped += 1
+                continue
+            o = src.get_object(Bucket=bucket, Key=obj_key)
+            body = o["Body"].read()
+            kw = {"Bucket": bucket, "Key": obj_key, "Body": body}
+            if o.get("ContentType"):
+                kw["ContentType"] = o["ContentType"]
+            dst.put_object(**kw)
+            copied += 1
+
+print(f"✅ Copied {copied} objects ({skipped} already present, skipped)")
+PY
+}
+
+migrate_volume() {
+    local SOURCE_VOLUME="$1"
+    local COMPOSE_FILE="$2"
+
+    if ! is_minio_volume "$SOURCE_VOLUME"; then
+        echo "❌ Error: Volume $SOURCE_VOLUME does not look like MinIO data (no .minio.sys)"
+        exit 1
+    fi
+
+    SIZE=$(docker run --rm -v "$SOURCE_VOLUME:/data:ro" alpine du -sh /data 2>/dev/null | awk '{print $1}' || echo "unknown")
+    echo "Found MinIO objectstorage volume: $SOURCE_VOLUME ($SIZE)"
+    echo ""
+    read -r -p "Copy this data into the running SeaweedFS objectstorage? [y/N] " confirm
+    if [[ ! "$confirm" =~ ^([yY][eE][sS]|[yY])$ ]]; then
+        echo "Cancelled."
+        exit 0
+    fi
+
+    ensure_objectstorage_running "$COMPOSE_FILE"
+    DST_PORT=$(objectstorage_host_port)
+
+    cleanup_temp_container
+    trap cleanup_temp_container EXIT
+
+    echo ""
+    echo "Step 1: Starting temporary MinIO reading the old volume..."
+    docker run -d \
+        --name "$TEMP_CONTAINER" \
+        -p "127.0.0.1::19000" \
+        -v "$SOURCE_VOLUME:/data" \
+        -e MINIO_ROOT_USER="$S3_KEY" \
+        -e MINIO_ROOT_PASSWORD="$S3_SECRET" \
+        "$MINIO_IMAGE" \
+        server --address ":19000" /data >/dev/null
+
+    SRC_MAPPING=$(docker port "$TEMP_CONTAINER" 19000 | head -1)
+    SRC_PORT="${SRC_MAPPING##*:}"
+
+    echo ""
+    echo "Step 2: Copying every bucket into SeaweedFS..."
+    copy_buckets "http://127.0.0.1:$SRC_PORT" "http://127.0.0.1:$DST_PORT"
+
+    echo ""
+    echo "Step 3: Removing temporary container..."
+    cleanup_temp_container
+    trap - EXIT
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "✅ Objectstorage salvage complete!"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "Verify your data, then remove the old MinIO volume to reclaim disk:"
+    echo "  docker volume rm $SOURCE_VOLUME"
+    echo ""
+}
+
+case "${1:-}" in
+    --help|-h)
+        show_help
+        exit 0
+        ;;
+
+    --list)
+        list_minio_volumes
+        exit 0
+        ;;
+
+    "")
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "🪣 Objectstorage MinIO → SeaweedFS salvage"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+
+        COMPOSE_FILE=$(detect_compose_file)
+        if [ -z "$COMPOSE_FILE" ]; then
+            echo "❌ Error: No docker-compose file found"
+            exit 1
+        fi
+        echo "Using compose file: $COMPOSE_FILE"
+        echo ""
+
+        DETECTED_VOLUME=$(detect_minio_volume)
+        if [ -n "$DETECTED_VOLUME" ]; then
+            migrate_volume "$DETECTED_VOLUME" "$COMPOSE_FILE"
+        else
+            echo "No MinIO objectstorage data detected — nothing to salvage."
+            echo ""
+            echo "If you have data in an orphaned MinIO volume:"
+            echo "  hogli deploy:upgrade-objectstorage --list   # List all MinIO volumes"
+            echo "  ./bin/upgrade-objectstorage <volume-id>     # Salvage a specific volume"
+            echo ""
+        fi
+        ;;
+
+    *)
+        VOLUME_ID="$1"
+
+        COMPOSE_FILE=$(detect_compose_file)
+        if [ -z "$COMPOSE_FILE" ]; then
+            echo "❌ Error: No docker-compose file found"
+            exit 1
+        fi
+
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "🪣 Objectstorage MinIO → SeaweedFS salvage"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Using compose file: $COMPOSE_FILE"
+        echo ""
+
+        migrate_volume "$VOLUME_ID" "$COMPOSE_FILE"
+        ;;
+esac

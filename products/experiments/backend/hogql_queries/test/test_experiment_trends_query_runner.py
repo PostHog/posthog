@@ -22,6 +22,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
+    EventPropertyFilter,
     EventsNode,
     ExperimentSignificanceCode,
     ExperimentTrendsQuery,
@@ -31,12 +32,13 @@ from posthog.schema import (
 )
 
 from posthog.constants import ExperimentNoResultsErrorKeys
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import count_cohort_members
 from products.experiments.backend.hogql_queries.experiment_trends_query_runner import ExperimentTrendsQueryRunner
 from products.experiments.backend.hogql_queries.types import ExperimentMetricType
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout
@@ -105,6 +107,40 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment.holdout = holdout
         experiment.save()
         return holdout
+
+    def test_deleted_feature_flag_tombstone_uses_original_key_in_prepared_queries(self):
+        feature_flag = self.create_feature_flag(key="deleted-trends-flag")
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        original_key = feature_flag.key
+        feature_flag.key = f"{original_key}:deleted:{feature_flag.id}"
+        feature_flag.deleted = True
+        feature_flag.save(update_fields=["key", "deleted"])
+
+        query_runner = ExperimentTrendsQueryRunner(
+            query=ExperimentTrendsQuery(
+                experiment_id=experiment.id,
+                kind="ExperimentTrendsQuery",
+                count_query=TrendsQuery(series=[EventsNode(event="$pageview")]),
+                exposure_query=None,
+            ),
+            team=self.team,
+        )
+
+        self.assertEqual(query_runner.breakdown_key, f"$feature/{original_key}")
+        assert query_runner.prepared_count_query.breakdownFilter is not None
+        self.assertEqual(query_runner.prepared_count_query.breakdownFilter.breakdown, f"$feature/{original_key}")
+
+        exposure_properties = query_runner.prepared_exposure_query.properties
+        assert exposure_properties is not None
+        feature_flag_filter = cast(
+            EventPropertyFilter,
+            next(
+                prop
+                for prop in exposure_properties
+                if isinstance(prop, EventPropertyFilter) and prop.key == "$feature_flag"
+            ),
+        )
+        self.assertEqual(feature_flag_filter.value, [original_key])
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner(self):
@@ -916,7 +952,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         if name == "cohort_static" and cohort:
             cohort.insert_users_by_list(["user_control_1", "user_control_2", "user_test_2"])
-            self.assertEqual(cohort.people.count(), 3)
+            self.assertEqual(count_cohort_members(cohort.team_id, cohort.id, consistency="strong"), 3)
         elif name == "cohort_dynamic" and cohort:
             cohort.calculate_people_ch(pending_version=0)
 

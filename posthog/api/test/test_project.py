@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
+
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
@@ -8,10 +10,11 @@ from posthog.api.project import ProjectViewSet
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
 from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.person import Person
+from posthog.models.person.util import get_person_by_uuid
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.persons import create_person, delete_person
 
 
 class TestProjectAPI(team_api_test_factory()):  # type: ignore
@@ -339,7 +342,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "Updated Name")
 
-    @patch("posthog.api.project.delete_project_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
     def test_project_deletion_queues_async_task(self, mock_delete_task):
         """Verify that project deletion queues async task for full deletion."""
         viewset = ProjectViewSet()
@@ -354,9 +357,9 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         viewset.perform_destroy(self.project)
 
-        # Project deletion happens async in Celery task
+        # Project deletion happens async in the Temporal workflow
 
-        mock_delete_task.delay.assert_called_once_with(
+        mock_delete_task.assert_called_once_with(
             team_ids=[team_id],
             project_id=project_id,
             user_id=self.user.id,
@@ -372,7 +375,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             ("cloud_no_license", True, 1, True, None, status.HTTP_204_NO_CONTENT),
         ]
     )
-    @patch("posthog.api.project.delete_project_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     @patch("posthog.api.project.get_cached_instance_license")
     def test_delete_last_project_subscription_guard(
@@ -406,20 +409,56 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             self.assertIn("active subscription", response.json()["detail"])
             self.assertTrue(Project.objects.filter(id=self.project.id).exists())
 
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+    def test_project_deletion_sets_pending_deletion_flag(self, mock_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.delete(f"/api/projects/{self.project.id}")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_pending_deletion)
+        mock_delete_task.assert_called_once()
+
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+    def test_project_deletion_returns_pending_deletion_in_api(self, mock_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        self.client.delete(f"/api/projects/{self.project.id}")
+
+        response = self.client.get(f"/api/projects/{self.project.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["is_pending_deletion"])
+
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+    def test_delete_project_already_pending_deletion_returns_400(self, mock_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        self.project.is_pending_deletion = True
+        self.project.save(update_fields=["is_pending_deletion"])
+
+        response = self.client.delete(f"/api/projects/{self.project.id}")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already being deleted", response.json()["detail"])
+        mock_delete_task.assert_not_called()
+
     def test_team_deletion_does_not_cascade_to_persons(self):
         """Verify that deleting Team directly doesn't CASCADE delete Persons (on_delete=DO_NOTHING)."""
         # Create a Person
-        person = Person.objects.create(team=self.team)
-        person_id = person.id
+        person = create_person(team=self.team)
 
         # Delete the team directly (not via API, bypassing manual delete)
         self.team.delete()
 
-        # Person should still exist (not CASCADE deleted)
-        self.assertTrue(Person.objects.filter(id=person_id).exists())
+        # Person should still exist (not CASCADE deleted). Read by the person's own
+        # team_id — self.team.pk is None after delete().
+        self.assertIsNotNone(get_person_by_uuid(person.team_id, str(person.uuid)))
 
-        # Clean up orphaned person using raw delete to bypass signals
-        Person.objects.filter(id=person_id)._raw_delete(Person.objects.db)
+        # Clean up orphaned person
+        delete_person(person)
 
     def test_complete_product_onboarding_requires_product_type(self):
         response = self.client.patch(
@@ -606,3 +645,103 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         # Verify changes were made
         self.project.refresh_from_db()
         self.assertEqual(self.project.name, "New Project Name")
+
+    # --- Parity coverage: fields and actions that previously existed only on /api/environments/ ---
+
+    def test_retrieve_project_includes_environment_parity_fields(self):
+        response = self.client.get(f"/api/projects/{self.project.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        # Fields that used to be exposed only by /api/environments/ must now appear on /api/projects/ too
+        for field in [
+            "project_id",
+            "user_access_level",
+            "managed_viewsets",
+            "base_currency",
+            "capture_dead_clicks",
+            "cookieless_server_hash_mode",
+            "default_data_theme",
+            "revenue_analytics_config",
+            "marketing_analytics_config",
+            "customer_analytics_config",
+            "web_analytics_pre_aggregated_tables_enabled",
+        ]:
+            self.assertIn(field, data, f"/api/projects/ response is missing parity field '{field}'")
+        # project_id on a Project equals its own id (Project ↔ Team is 1:1)
+        self.assertEqual(data["project_id"], self.project.id)
+
+    def test_retrieve_project_does_not_500_when_broker_unavailable(self):
+        # Regression: get_product_intents used to call calculate_product_activation.delay()
+        # on every retrieve, which 500s the whole endpoint when the broker is down. It now
+        # goes through the debounced helper, which fails open on broker errors.
+        # Clear the cache so the debounce key is unset and the enqueue path actually runs —
+        # otherwise the patched .delay() is never reached and this test passes vacuously.
+        cache.clear()
+        with patch(
+            "posthog.models.product_intent.product_intent.calculate_product_activation.delay",
+            side_effect=Exception("broker is unavailable"),
+        ) as mock_delay:
+            response = self.client.get(f"/api/projects/{self.project.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertIn("product_intents", response.json())
+        mock_delay.assert_called_once()
+
+    def test_new_passthrough_field_writes_through_to_team(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"base_currency": "EUR", "capture_dead_clicks": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["base_currency"], "EUR")
+        self.assertEqual(response.json()["capture_dead_clicks"], True)
+
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.base_currency, "EUR")
+        self.assertEqual(self.team.capture_dead_clicks, True)
+
+    def test_rename_project_syncs_passthrough_team_name(self):
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"name": "Renamed project"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        self.project.refresh_from_db()
+        self.team.refresh_from_db()
+        self.assertEqual(self.project.name, "Renamed project")
+        self.assertEqual(self.team.name, "Renamed project")
+
+    def test_customer_analytics_config_writes_through_to_team(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"customer_analytics_config": {"activity_event": "$pageview"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["customer_analytics_config"]["activity_event"], "$pageview")
+
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.customer_analytics_config.activity_event, "$pageview")
+
+    def test_settings_as_of_action_available_on_projects(self):
+        # This action previously existed only on /api/environments/ — it must now work on /api/projects/ too.
+        # NOTE: we pass a `scope` filter on purpose. The unscoped snapshot path has a pre-existing bug on the
+        # environments endpoint too — TEAM_CONFIG_FIELDS includes the analytics-config *properties* (model
+        # instances, not JSON-serializable), so an unscoped call 500s on both surfaces. Faithfully replicated
+        # here; fixing it belongs in a separate change since it affects /api/environments/ identically.
+        response = self.client.get(
+            f"/api/projects/{self.project.id}/settings_as_of/?at=2020-01-01T00:00:00Z&scope=timezone"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertIn("timezone", response.json())
+
+    def test_experiments_config_action_available_on_projects(self):
+        response = self.client.get(f"/api/projects/{self.project.id}/experiments_config/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertIn("default_experiment_stats_method", response.json())

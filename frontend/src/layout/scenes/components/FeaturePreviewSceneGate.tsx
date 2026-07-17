@@ -70,7 +70,7 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
                             <span className="font-semibold">Enable feature preview</span>
                         </label>
                     ) : (
-                        <LemonButton type="primary" to={urls.settings('user-feature-previews')}>
+                        <LemonButton type="primary" to={urls.featurePreview(config.flag)}>
                             Open feature previews
                         </LemonButton>
                     )

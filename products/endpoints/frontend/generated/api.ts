@@ -11,12 +11,16 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     EndpointLastExecutionTimesRequestApi,
     EndpointMaterializationApi,
+    EndpointMaterializationConditionsApi,
+    EndpointMaterializationSuggestionApi,
+    EndpointMaterializationSuggestionRequestApi,
     EndpointRequestApi,
     EndpointResponseApi,
     EndpointRunRequestApi,
     EndpointRunResponseApi,
     EndpointVersionResponseApi,
     EndpointsListParams,
+    EndpointsLogsRetrieveParams,
     EndpointsOpenapiSpecRetrieveParams,
     EndpointsVersionsListParams,
     MaterializationPreviewRequestApi,
@@ -31,7 +35,7 @@ export const getEndpointsListUrl = (projectId: string, params?: EndpointsListPar
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -150,6 +154,34 @@ export const endpointsDestroy = async (projectId: string, name: string, options?
     })
 }
 
+export const getEndpointsLogsRetrieveUrl = (projectId: string, name: string, params?: EndpointsLogsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/endpoints/${name}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/endpoints/${name}/logs/`
+}
+
+export const endpointsLogsRetrieve = async (
+    projectId: string,
+    name: string,
+    params?: EndpointsLogsRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getEndpointsLogsRetrieveUrl(projectId, name, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getEndpointsMaterializationPreviewCreateUrl = (projectId: string, name: string) => {
     return `/api/projects/${projectId}/endpoints/${name}/materialization_preview/`
 }
@@ -189,6 +221,30 @@ export const endpointsMaterializationStatusRetrieve = async (
     })
 }
 
+export const getEndpointsMaterializationSuggestionCreateUrl = (projectId: string, name: string) => {
+    return `/api/projects/${projectId}/endpoints/${name}/materialization_suggestion/`
+}
+
+/**
+ * Ask AI to rewrite the endpoint's query into a semantically equivalent form that can be materialized. Only applicable to SQL (HogQL) endpoints that currently fail the materialization checks. The suggestion is validated against the live checks before being returned; nothing is saved. Requires the organization's AI data processing approval.
+ */
+export const endpointsMaterializationSuggestionCreate = async (
+    projectId: string,
+    name: string,
+    endpointMaterializationSuggestionRequestApi?: EndpointMaterializationSuggestionRequestApi,
+    options?: RequestInit
+): Promise<EndpointMaterializationSuggestionApi> => {
+    return apiMutator<EndpointMaterializationSuggestionApi>(
+        getEndpointsMaterializationSuggestionCreateUrl(projectId, name),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(endpointMaterializationSuggestionRequestApi),
+        }
+    )
+}
+
 export const getEndpointsOpenapiSpecRetrieveUrl = (
     projectId: string,
     name: string,
@@ -198,7 +254,7 @@ export const getEndpointsOpenapiSpecRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -268,7 +324,7 @@ export const getEndpointsVersionsListUrl = (projectId: string, name: string, par
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -312,4 +368,24 @@ export const endpointsLastExecutionTimesCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(endpointLastExecutionTimesRequestApi),
     })
+}
+
+export const getEndpointsMaterializationConditionsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/endpoints/materialization_conditions/`
+}
+
+/**
+ * Get the source code of the live materialization checks, plus the rewrite contract. Lets an agent rewrite a rejected endpoint query itself: fetch these conditions, produce a semantically equivalent query that passes every check, update the endpoint with it, then confirm via materialization_status. The source is read from the running system, so it always matches the checks this instance enforces.
+ */
+export const endpointsMaterializationConditionsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<EndpointMaterializationConditionsApi> => {
+    return apiMutator<EndpointMaterializationConditionsApi>(
+        getEndpointsMaterializationConditionsRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }

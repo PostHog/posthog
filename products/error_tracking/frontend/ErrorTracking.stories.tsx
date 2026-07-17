@@ -19,19 +19,16 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2024-07-09', // To stabilize relative dates
         pageUrl: urls.errorTracking(),
+        testOptions: { viewport: { width: 1300, height: 2000 } },
     },
     decorators: [
         mswDecorator({
             get: {
-                'api/projects/:team_id/error_tracking/issue/:id': async (_, res, ctx) => {
-                    return res(ctx.json(errorTrackingTypeIssue))
-                },
+                'api/projects/:team_id/error_tracking/issue/:id': () => [200, errorTrackingTypeIssue],
             },
             post: {
-                '/api/environments/:team_id/query/ErrorTrackingQuery': async (_, res, ctx) =>
-                    res(ctx.json(errorTrackingQueryResponse)),
-                '/api/environments/:team_id/query/EventsQuery': async (_, res, ctx) =>
-                    res(ctx.json(errorTrackingEventsQueryResponse)),
+                '/api/environments/:team_id/query/ErrorTrackingQuery': () => [200, errorTrackingQueryResponse],
+                '/api/environments/:team_id/query/EventsQuery': () => [200, errorTrackingEventsQueryResponse],
             },
         }),
     ],

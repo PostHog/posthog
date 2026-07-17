@@ -451,6 +451,9 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
         final_status = DeliveryStatus.SKIPPED
         delivery_recipient_results: list[dict] = []
         caught_error: BaseException | None = None
+        # Set when a delivered-but-degraded report should record a reason without an exception
+        # (every generated query failed). Falls through to update_delivery_record's error column.
+        generation_error: dict | None = None
 
         try:
             delivery_id = await temporalio.workflow.execute_activity(
@@ -503,6 +506,13 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 final_status = DeliveryStatus.FAILED
                 return
 
+            if generate_result.skipped:
+                # Over AI-credit budget — generation rescheduled the sub past the credit reset and
+                # notified the owner. SKIPPED (not FAILED): the sub isn't broken, it resumes when
+                # credits reset; advance_next_delivery_date (finally) recomputes from the reschedule.
+                final_status = DeliveryStatus.SKIPPED
+                return
+
             # Phase 2: ship the persisted report. is_new only for target-change triggers.
             is_new = inputs.trigger_type == SubscriptionTriggerType.TARGET_CHANGE
             deliver_result = await temporalio.workflow.execute_activity(
@@ -520,7 +530,13 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 retry_policy=SUBSCRIPTION_DELIVER_RETRY_POLICY,
             )
             delivery_recipient_results = _to_recipient_dicts(deliver_result.recipient_results)
-            final_status = DeliveryStatus.COMPLETED
+
+            # A report whose every generated query failed computed no metrics, so it records FAILED with
+            # the failure detail the delivery history surfaces on hover (see delivered_status). The report
+            # email already went out above (with the leading failure notice), so FAILED here means "empty
+            # report", not "not delivered" — recipient_results can still show successful sends. Partial
+            # failures stay COMPLETED; their per-query diagnostics live in content_snapshot for the viewer.
+            final_status, generation_error = generate_result.delivered_status()
 
         except Exception as e:
             # Preserve recipient outcomes carried in non-retryable delivery errors so the
@@ -545,7 +561,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                             recipient_results=delivery_recipient_results or None,
                             error={"message": str(caught_error)[:500], "type": type(caught_error).__name__}
                             if caught_error
-                            else None,
+                            else generation_error,
                             finished=True,
                         ),
                         start_to_close_timeout=dt.timedelta(minutes=2),

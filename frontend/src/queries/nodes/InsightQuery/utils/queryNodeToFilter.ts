@@ -1,5 +1,5 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { objectClean } from 'lib/utils'
+import { objectClean } from 'lib/utils/objects'
 
 import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
 import {

@@ -9,13 +9,14 @@
  */
 /**
  * * `replay` - REPLAY
- * `notebook` - NOTEBOOK
- * `insight` - INSIGHT
- * `feature_flag` - FEATURE_FLAG
- * `dashboard` - DASHBOARD
- * `survey` - SURVEY
- * `experiment` - EXPERIMENT
- * `error_tracking` - ERROR_TRACKING
+ * * `notebook` - NOTEBOOK
+ * * `insight` - INSIGHT
+ * * `feature_flag` - FEATURE_FLAG
+ * * `dashboard` - DASHBOARD
+ * * `survey` - SURVEY
+ * * `experiment` - EXPERIMENT
+ * * `error_tracking` - ERROR_TRACKING
+ * * `customer_analytics` - CUSTOMER_ANALYTICS
  */
 export type NotificationEventSourceTypeEnumApi =
     (typeof NotificationEventSourceTypeEnumApi)[keyof typeof NotificationEventSourceTypeEnumApi]
@@ -29,7 +30,14 @@ export const NotificationEventSourceTypeEnumApi = {
     Survey: 'survey',
     Experiment: 'experiment',
     ErrorTracking: 'error_tracking',
+    CustomerAnalytics: 'customer_analytics',
 } as const
+
+/**
+ * Optional structured payload for rich client-side rendering, specific to the notification type. For `web_analytics_digest`, holds the weekly metrics (visitors, pageviews, sessions, bounce rate, session duration with week-over-week change), top pages, and top sources used to render the digest card.
+ * @nullable
+ */
+export type NotificationEventApiMetadata = { [key: string]: unknown } | null
 
 export interface NotificationEventApi {
     id: string
@@ -42,6 +50,8 @@ export interface NotificationEventApi {
     read: boolean
     /** @nullable */
     read_at: string | null
+    /** Whether this notification opted in to being archived (dismissed) by the recipient. When false, the notification only supports read/unread. */
+    archivable: boolean
     target_type: string
     target_id: string
     /** @nullable */
@@ -51,6 +61,11 @@ export interface NotificationEventApi {
     source_type: NotificationEventSourceTypeEnumApi | null
     /** @nullable */
     source_id: string | null
+    /**
+     * Optional structured payload for rich client-side rendering, specific to the notification type. For `web_analytics_digest`, holds the weekly metrics (visitors, pageviews, sessions, bounce rate, session duration with week-over-week change), top pages, and top sources used to render the digest card.
+     * @nullable
+     */
+    metadata?: NotificationEventApiMetadata
     created_at: string
 }
 
@@ -72,6 +87,10 @@ export interface BulkNotificationIdsRequestApi {
 }
 
 export type NotificationsListParams = {
+    /**
+     * When true, return only notifications the recipient has archived; otherwise return only non-archived notifications (the default)
+     */
+    archived?: boolean
     /**
      * ISO 8601 timestamp; only events at or after this time
      */

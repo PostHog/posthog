@@ -5,14 +5,17 @@ import api from 'lib/api'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import {
+    FeatureFlagsFilters,
     FeatureFlagsTab,
     featureFlagsLogic,
+    flagMatchesFilters,
     flagMatchesSearch,
     flagMatchesStatus,
     flagMatchesType,
 } from 'scenes/feature-flags/featureFlagsLogic'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType } from '~/types'
@@ -49,7 +52,7 @@ describe('flagMatchesSearch', () => {
             key: 'experiment-flag',
             name: 'Experiment Flag',
             experiment_set: [1],
-            experiment_set_metadata: [{ id: 1, name: 'My Experiment Test' }],
+            experiment_set_metadata: [{ id: 1, name: 'My Experiment Test', is_running: false }],
         } as FeatureFlagType
 
         it.each<[FeatureFlagType, string, boolean]>([
@@ -90,7 +93,7 @@ describe('flagMatchesSearch', () => {
                 key: 'null-test-flag',
                 name: 'Flag with Null Test',
                 experiment_set: [2],
-                experiment_set_metadata: [{ id: 2, name: null as any }],
+                experiment_set_metadata: [{ id: 2, name: null as any, is_running: false }],
             } as FeatureFlagType
 
             // Should not throw error and should still match by flag name
@@ -153,6 +156,76 @@ describe('flagMatchesType', () => {
         ['remote_config', 'remote_config', true],
     ])('%s with type=%p → %p', (flagKey, type, expected) => {
         expect(flagMatchesType(flags[flagKey], type)).toBe(expected)
+    })
+})
+
+describe('flagMatchesFilters', () => {
+    const base = { ...NEW_FLAG, id: 1, key: 'test', active: true } as FeatureFlagType
+
+    describe('archived filter', () => {
+        const liveFlag = { ...base, archived: false } as FeatureFlagType
+        const archivedFlag = { ...base, archived: true } as FeatureFlagType
+
+        it.each<[string, FeatureFlagType, Partial<FeatureFlagsFilters>, boolean]>([
+            ['hides archived by default', archivedFlag, {}, false],
+            ['shows live flags by default', liveFlag, {}, true],
+            ['shows archived when archived=true', archivedFlag, { archived: 'true' }, true],
+            ['hides live when archived=true', liveFlag, { archived: 'true' }, false],
+        ])('%s', (_label, flag, filters, expected) => {
+            expect(flagMatchesFilters(flag, filters as FeatureFlagsFilters)).toBe(expected)
+        })
+    })
+
+    describe('excluded_tags filter', () => {
+        const flagWithTag = { ...base, archived: false, tags: ['beta', 'internal'] } as FeatureFlagType
+        const flagWithoutTag = { ...base, archived: false, tags: ['beta'] } as FeatureFlagType
+
+        it.each<[string, FeatureFlagType, Partial<FeatureFlagsFilters>, boolean]>([
+            ['excludes a flag whose tag matches excluded_tags', flagWithTag, { excluded_tags: ['internal'] }, false],
+            [
+                'keeps a flag whose tags do not match excluded_tags',
+                flagWithoutTag,
+                { excluded_tags: ['internal'] },
+                true,
+            ],
+            ['keeps a flag when excluded_tags is empty', flagWithTag, { excluded_tags: [] }, true],
+            [
+                'keeps an untagged flag when excluded_tags is set',
+                // Deliberately undefined tags to exercise the optional-chaining guard in flagMatchesFilters.
+                { ...base, tags: undefined } as unknown as FeatureFlagType,
+                { excluded_tags: ['internal'] },
+                true,
+            ],
+            [
+                'excluded_tags wins over tags when both match',
+                flagWithTag,
+                { tags: ['beta'], excluded_tags: ['beta'] },
+                false,
+            ],
+        ])('%s', (_label, flag, filters, expected) => {
+            expect(flagMatchesFilters(flag, filters as FeatureFlagsFilters)).toBe(expected)
+        })
+    })
+
+    describe('creator filter', () => {
+        const flagByUser = (id: number | null): FeatureFlagType =>
+            ({
+                ...base,
+                archived: false,
+                created_by: id == null ? null : ({ id } as FeatureFlagType['created_by']),
+            }) as FeatureFlagType
+
+        it.each<[string, number | null, number[] | undefined, boolean]>([
+            ['no filter set matches any flag', 7, undefined, true],
+            ['no filter set matches a creatorless flag', null, undefined, true],
+            ['no filter set matches a creatorless flag with empty list', null, [], true],
+            ['author in the list matches', 7, [7], true],
+            ['author in a multi-id list matches', 7, [3, 7], true],
+            ['author absent from the list does not match', 7, [3, 5], false],
+            ['creatorless flag is excluded once a filter is set', null, [7], false],
+        ])('%s', (_name, createdById, createdByIdFilter, expected) => {
+            expect(flagMatchesFilters(flagByUser(createdById), { created_by_id: createdByIdFilter })).toBe(expected)
+        })
     })
 })
 
@@ -224,6 +297,10 @@ describe('the feature flags logic', () => {
 
 describe('updateFeatureFlag 409 handling', () => {
     let logic: ReturnType<typeof featureFlagsLogic.build>
+
+    // Every test here rejects updateFeatureFlag on purpose; kea-loaders would log each failure
+    beforeEach(silenceKeaLoadersErrors)
+    afterEach(resumeKeaLoadersErrors)
 
     beforeEach(() => {
         useMocks({

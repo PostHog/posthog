@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
@@ -12,8 +12,10 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Link } from 'lib/lemon-ui/Link'
-import { UnexpectedNeverError, genericOperatorMap, uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { UnexpectedNeverError } from 'lib/utils/guards'
+import { genericOperatorMap } from 'lib/utils/operators'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 

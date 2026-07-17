@@ -1,6 +1,7 @@
 import ast
 
 from django import forms
+from django.conf import settings
 from django.contrib import admin, messages
 from django.http import HttpResponseRedirect
 from django.template.response import TemplateResponse
@@ -16,11 +17,12 @@ from posthog.models.data_deletion_request import (
     ExecutionMode,
     RequestStatus,
     RequestType,
-    compile_hogql_predicate,
+    cached_compile_hogql_predicate,
+    count_remaining_for_request,
     event_match_params,
     event_match_sql_fragment,
+    invalidate_compiled_predicate_cache,
     jsonhas_expr,
-    verify_queued_request,
 )
 
 CRITERIA_FIELDS = {
@@ -40,6 +42,14 @@ CRITERIA_FIELDS = {
 }
 CLICKHOUSE_TEAM_GROUP = "ClickHouse Team"
 
+PERSON_REMOVAL_FIELDS = (
+    "person_uuids",
+    "person_distinct_ids",
+    "person_drop_profiles",
+    "person_drop_events",
+    "person_drop_recordings",
+)
+
 # Requests can only be edited while draft or pending. Once approved (or later), the
 # criteria are locked — operators must explicitly "revert to draft" to change them.
 EDITABLE_STATUSES = {RequestStatus.DRAFT, RequestStatus.PENDING}
@@ -58,12 +68,21 @@ EDITABLE_FIELDS = (
     "hogql_predicate",
     "notes",
     "requires_approval",
-    "person_uuids",
-    "person_distinct_ids",
-    "person_drop_profiles",
-    "person_drop_events",
-    "person_drop_recordings",
 )
+
+# Dagster Cloud deployment slug per PostHog cloud environment. The admin runs on web pods, which
+# don't carry DAGSTER_DOMAIN (only Dagster pods do), so the run URL is derived from CLOUD_DEPLOYMENT.
+DAGSTER_DEPLOYMENT_BY_CLOUD = {"US": "prod-us", "EU": "prod-eu", "DEV": "dev"}
+
+
+def dagster_run_url(run_id: str) -> str | None:
+    """Link to a Dagster run, or None when the deployment can't be identified (local/self-hosted)."""
+    if settings.DAGSTER_DOMAIN:
+        return f"https://{settings.DAGSTER_DOMAIN}/runs/{run_id}"
+    deployment = DAGSTER_DEPLOYMENT_BY_CLOUD.get((settings.CLOUD_DEPLOYMENT or "").upper())
+    if deployment:
+        return f"https://posthog.dagster.cloud/{deployment}/runs/{run_id}"
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -194,25 +213,23 @@ class DataDeletionRequestForm(forms.ModelForm):
         help_text="Optional HogQL boolean expression (validated against the events table). "
         "Combined with the other filters via AND. Example: properties.$browser = 'Chrome'.",
     )
-    person_uuids = ArrayTextareaField(
-        required=False,
-        help_text="One person UUID per line. You can also paste a JSON array. "
-        "Combined with person_distinct_ids; total ≤ 1000.",
-    )
-    person_distinct_ids = ArrayTextareaField(
-        required=False,
-        help_text="One person distinct ID per line. You can also paste a JSON array. "
-        "Combined with person_uuids; total ≤ 1000.",
-    )
 
     class Meta:
         model = DataDeletionRequest
-        fields = "__all__"
+        exclude = PERSON_REMOVAL_FIELDS
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request_type = self.fields.get("request_type")
+        if isinstance(request_type, forms.ChoiceField):
+            request_type.choices = [
+                (value, label) for value, label in RequestType.choices if value != RequestType.PERSON_REMOVAL
+            ]
 
 
 def _append_hogql_predicate(fragment: str, params: dict, obj) -> tuple[str, dict]:
     """Append the compiled HogQL predicate (if any) to ``fragment`` and merge params."""
-    hogql_sql, hogql_values = compile_hogql_predicate(obj)
+    hogql_sql, hogql_values = cached_compile_hogql_predicate(obj)
     if not hogql_sql:
         return fragment, params
     combined = f"{fragment} AND ({hogql_sql})".strip() if fragment else f"AND ({hogql_sql})"
@@ -413,6 +430,7 @@ def fetch_deletion_stats(obj: DataDeletionRequest, *, user_id: int | None = None
 @admin.register(DataDeletionRequest)
 class DataDeletionRequestAdmin(admin.ModelAdmin):
     form = DataDeletionRequestForm
+    actions = ["duplicate_requests"]
     list_display = (
         "id",
         "team_id",
@@ -450,6 +468,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         "attempt_count",
         "first_executed_at",
         "last_executed_at",
+        "last_dagster_run",
         "rendered_count_query",
     )
     ordering = ("-created_at",)
@@ -473,20 +492,6 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "notes",
                     "requires_approval",
                 ),
-            },
-        ),
-        (
-            "Person targets",
-            {
-                "fields": (
-                    "person_uuids",
-                    "person_distinct_ids",
-                    "person_drop_profiles",
-                    "person_drop_events",
-                    "person_drop_recordings",
-                ),
-                "classes": ("data-deletion-person-fields",),
-                "description": "Only used for person_removal requests.",
             },
         ),
         (
@@ -521,10 +526,49 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "attempt_count",
                     "first_executed_at",
                     "last_executed_at",
+                    "last_dagster_run",
                 ),
             },
         ),
     )
+
+    @admin.action(permissions=["add"], description="Duplicate selected requests (as new drafts)")
+    def duplicate_requests(self, request, queryset):
+        """Copy each selected request into a fresh draft, noting it's a copy of the original."""
+        created = 0
+        for original in queryset:
+            original_url = request.build_absolute_uri(
+                reverse("admin:posthog_datadeletionrequest_change", args=[original.pk])
+            )
+            copy_note = f"Copy of data deletion request {original.pk} ({original_url})."
+            notes = f"{copy_note}\n\n{original.notes}" if original.notes else copy_note
+            # Build a fresh draft from CRITERIA_FIELDS (the single source of truth) so a new
+            # criteria field is copied automatically. Everything operational — stats, approval,
+            # execution tracking — falls back to model defaults (DRAFT, no stats, not approved).
+            criteria = {field: getattr(original, field) for field in CRITERIA_FIELDS}
+            # Shallow-copy mutable list fields so the duplicate never aliases the original's lists.
+            criteria = {k: list(v) if isinstance(v, list) else v for k, v in criteria.items()}
+            DataDeletionRequest.objects.create(
+                **criteria,
+                team_id=original.team_id,
+                requires_approval=original.requires_approval,
+                notes=notes,
+                status=RequestStatus.DRAFT,
+                created_by=request.user,
+                created_by_staff=request.user.is_staff,
+            )
+            created += 1
+        messages.success(request, f"Duplicated {created} request(s) as new draft(s).")
+
+    @admin.display(description="Last Dagster run")
+    def last_dagster_run(self, obj: DataDeletionRequest) -> str:
+        """Link to the Dagster run of the latest execution attempt, for debugging in-flight requests."""
+        if not obj.last_dagster_run_id:
+            return "—"
+        url = dagster_run_url(obj.last_dagster_run_id)
+        if url is None:
+            return obj.last_dagster_run_id
+        return format_html('<a href="{}" target="_blank" rel="noopener">{}</a>', url, obj.last_dagster_run_id)
 
     @admin.display(description="Count query (ready to paste)")
     def rendered_count_query(self, obj: DataDeletionRequest) -> str:
@@ -551,6 +595,9 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         readonly = super().get_readonly_fields(request, obj)
         if self._is_locked(obj):
             return tuple(readonly) + EDITABLE_FIELDS
+        if obj is not None:
+            # team_id is immutable once the request exists — a request belongs to one team.
+            return (*tuple(readonly), "team_id")
         return readonly
 
     def save_model(self, request, obj, form, change):
@@ -560,6 +607,8 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         elif form.changed_data and CRITERIA_FIELDS & set(form.changed_data):
             obj.criteria_updated_by = request.user
             obj.criteria_updated_at = timezone.now()
+            # Criteria changed — the cached compiled predicate (used by stats/preview) is stale.
+            invalidate_compiled_predicate_cache(obj.pk)
             obj.count = None
             obj.part_count = None
             obj.parts_size = None
@@ -567,6 +616,9 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             obj.min_timestamp = None
             obj.max_timestamp = None
             obj.stats_calculated_at = None
+            # Rows cleaned under the old criteria are ordinary candidates for the new ones —
+            # a stale marker would make the copy pass skip them as "already cleaned".
+            obj.property_removal_marker = None
             if obj.status != RequestStatus.DRAFT:
                 obj.status = RequestStatus.DRAFT
                 messages.warning(request, "Deletion criteria were changed — status has been reset to draft.")
@@ -630,9 +682,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 obj.status == RequestStatus.FAILED and request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists()
             )
             extra_context["retry_url"] = reverse("admin:posthog_datadeletionrequest_retry", args=[obj.pk])
-            extra_context["can_verify"] = (
-                obj.status == RequestStatus.QUEUED and request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists()
-            )
+            extra_context["can_verify"] = request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists()
             extra_context["verify_url"] = reverse("admin:posthog_datadeletionrequest_verify", args=[obj.pk])
 
             # ClickHouse stats are calculated from this page (works for any status).
@@ -867,9 +917,10 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
         supports_deferred = obj.request_type == RequestType.EVENT_REMOVAL
+        default_execution_mode = ExecutionMode.DEFERRED if supports_deferred else ExecutionMode.IMMEDIATE
 
         if request.method == "POST":
-            execution_mode = request.POST.get("execution_mode", ExecutionMode.IMMEDIATE)
+            execution_mode = request.POST.get("execution_mode", default_execution_mode)
             if obj.request_type == RequestType.PERSON_REMOVAL:
                 # person_removal is always IMMEDIATE — ignore any submitted value.
                 execution_mode = ExecutionMode.IMMEDIATE
@@ -911,7 +962,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             "supports_deferred": supports_deferred,
             "is_person_removal": obj.request_type == RequestType.PERSON_REMOVAL,
             "execution_mode_choices": ExecutionMode.choices,
-            "default_execution_mode": ExecutionMode.IMMEDIATE,
+            "default_execution_mode": default_execution_mode,
             "opts": self.model._meta,
             "title": f"Approve deletion request {obj.pk}",
         }
@@ -990,19 +1041,37 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             messages.error(request, "Only ClickHouse Team members can verify deletion requests.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
-        if obj.status != RequestStatus.QUEUED:
-            messages.error(request, "Only queued requests can be verified.")
-            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
-
-        outcome = verify_queued_request(obj)
-        if outcome.promoted:
-            obj.refresh_from_db()
-            self.log_change(request, obj, "Verified: 0 matching events remain, status queued → completed.")
-            messages.success(request, "Verified — no matching events remain. Marked completed.")
-        else:
+        if obj.request_type == RequestType.PERSON_REMOVAL:
             messages.warning(
                 request,
-                f"{outcome.remaining} matching event(s) still present in ClickHouse. "
-                "Left queued — re-run after the next scheduled deletion.",
+                "Automated verification isn't available for person removal requests — verify manually.",
             )
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        try:
+            remaining = count_remaining_for_request(obj)
+        except Exception as e:
+            messages.error(request, f"Failed to verify: {e}")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        if remaining:
+            messages.warning(
+                request,
+                f"{remaining} matching row(s) still present in ClickHouse. "
+                f"Left {obj.get_status_display().lower()} — re-run after the next scheduled deletion.",
+            )
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        prior_status = obj.status
+        promoted = (
+            DataDeletionRequest.objects.filter(pk=obj.pk)
+            .exclude(status=RequestStatus.COMPLETED)
+            .update(status=RequestStatus.COMPLETED, updated_at=timezone.now())
+        )
+        if promoted:
+            obj.refresh_from_db()
+            self.log_change(request, obj, f"Verified: 0 matching rows remain, status {prior_status} → completed.")
+            messages.success(request, "Verified — no matching rows remain. Marked completed.")
+        else:
+            messages.info(request, "Verified — no matching rows remain. Already completed.")
         return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))

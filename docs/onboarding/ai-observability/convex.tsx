@@ -1,4 +1,4 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
 
@@ -61,7 +61,8 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                     <Markdown>
                         Create a Convex action that initializes a `BasicTracerProvider` with PostHog's trace exporter
                         and enables telemetry on your AI SDK calls. The provider is initialized at module scope so it
-                        persists across warm V8 isolate invocations.
+                        persists across warm V8 isolate invocations. Await `provider.forceFlush()` before returning
+                        because Convex may finish the action while the OTLP export is still pending.
                     </Markdown>
 
                     <CodeBlock
@@ -110,6 +111,8 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                     },
                                   },
                                 })
+
+                                await provider.forceFlush()
 
                                 return { text: result.text, usage: result.usage }
                               },
@@ -191,6 +194,8 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                     },
                                   },
                                 })
+
+                                await provider.forceFlush()
 
                                 return { text: result.text, usage: result.totalUsage }
                               },

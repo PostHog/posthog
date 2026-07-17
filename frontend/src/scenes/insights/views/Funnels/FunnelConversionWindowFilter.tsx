@@ -4,7 +4,7 @@ import { IconInfo } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { capitalizeFirstLetter, pluralize } from 'lib/utils'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { TIME_INTERVAL_BOUNDS } from 'scenes/funnels/funnelUtils'
 

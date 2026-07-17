@@ -20,6 +20,7 @@ from products.signals.backend.temporal.grouping import (
     assign_and_emit_signal_activity,
 )
 from products.signals.backend.temporal.types import (
+    RERESEARCH_MAX_SIGNALS,
     ExistingReportMatch,
     MatchedMetadata,
     NewReportMatch,
@@ -83,13 +84,14 @@ def _build_input(
     team_id: int,
     match_result: ExistingReportMatch | NewReportMatch,
     weight: float = 0.5,
+    source_product: str = "conversations",
 ) -> AssignAndEmitSignalInput:
     return AssignAndEmitSignalInput(
         team_id=team_id,
         signal_id=str(uuid.uuid4()),
         description="A test signal description",
         weight=weight,
-        source_product="conversations",
+        source_product=source_product,
         source_type="ticket",
         source_id=f"src-{uuid.uuid4()}",
         extra={},
@@ -131,6 +133,51 @@ async def test_new_match_creates_and_immediately_promotes_when_above_threshold(a
     report = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
     assert report.status == SignalReport.Status.CANDIDATE
     assert report.promoted_at is not None
+
+
+# ---------------------------------------------------------------------------
+# Billing exemption: PostHog-system signal sources
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "source_product,expected_reason",
+    [
+        ("health_checks", SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK),
+        ("conversations", None),
+    ],
+)
+async def test_new_report_billing_exemption_follows_source_product(ateam, source_product, expected_reason):
+    """A report formed from a PostHog-system signal (health checks) is stamped never-billable at
+    creation; reports from customer sources stay billable."""
+    input_ = _build_input(ateam.id, _new_match(), source_product=source_product)
+
+    result = await assign_and_emit_signal_activity(input_)
+
+    report = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
+    assert report.billing_exempt_reason == expected_reason
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_exempt_source_signal_joining_existing_report_never_flips_it(ateam):
+    """The exemption is frozen at formation: a health-check signal grouped into a customer-origin
+    report must not make that report free (and would silently exempt paid work if it did)."""
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.POTENTIAL,
+        total_weight=0.2,
+        signal_count=1,
+    )
+    input_ = _build_input(ateam.id, _existing_match(str(report.id)), source_product="health_checks")
+
+    await assign_and_emit_signal_activity(input_)
+
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
+    assert refreshed.billing_exempt_reason is None
+    assert refreshed.signal_count == 2
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +378,138 @@ async def test_ready_and_resolved_repromote_to_candidate_on_any_signal(ateam, st
 
 
 # ---------------------------------------------------------------------------
+# Re-research cap: already-researched reports stop re-researching past RERESEARCH_MAX_SIGNALS
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "starting_status",
+    [SignalReport.Status.READY, SignalReport.Status.RESOLVED],
+)
+async def test_reresearch_allowed_up_to_cap(ateam, starting_status):
+    """At the boundary (the new signal brings signal_count exactly to RERESEARCH_MAX_SIGNALS), a
+    READY/RESOLVED report still re-promotes — the cap only bites once signal_count exceeds it."""
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=starting_status,
+        total_weight=1.5,
+        signal_count=RERESEARCH_MAX_SIGNALS - 1,
+    )
+    input_ = _build_input(ateam.id, _existing_match(str(report.id)), weight=0.1)
+
+    result = await assign_and_emit_signal_activity(input_)
+
+    assert result.promoted is True
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
+    assert refreshed.status == SignalReport.Status.CANDIDATE
+    assert refreshed.signal_count == RERESEARCH_MAX_SIGNALS
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "starting_status",
+    [SignalReport.Status.READY, SignalReport.Status.RESOLVED],
+)
+async def test_reresearch_capped_past_threshold_still_assigns_signal(ateam, patch_side_effects, starting_status):
+    """Past the cap, a READY/RESOLVED report stops re-researching: promoted=False and status is
+    unchanged, but the signal is still counted, weighted, and emitted (not marked deleted)."""
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=starting_status,
+        total_weight=2.0,
+        signal_count=RERESEARCH_MAX_SIGNALS,  # post-increment lands at cap + 1
+        title="original title",
+        summary="original summary",
+    )
+    input_ = _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
+
+    result = await assign_and_emit_signal_activity(input_)
+
+    assert result.promoted is False
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
+    assert refreshed.status == starting_status
+    assert refreshed.promoted_at is None
+    assert refreshed.signal_count == RERESEARCH_MAX_SIGNALS + 1
+    assert refreshed.total_weight == pytest.approx(2.5)
+    emit_kwargs = patch_side_effects["emit"].call_args.kwargs
+    assert emit_kwargs["metadata"].get("deleted") is not True
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_reresearch_capped_emits_skipped_event(ateam, patch_side_effects):
+    """Crossing the cap fires signal_report_reresearch_skipped (after signal_assigned_to_report) so
+    the saved re-research volume is trackable as an insight."""
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.READY,
+        total_weight=2.0,
+        signal_count=RERESEARCH_MAX_SIGNALS,
+    )
+    input_ = _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
+
+    result = await assign_and_emit_signal_activity(input_)
+
+    # The report was genuinely capped (not re-promoted), and the event reflects that.
+    assert result.promoted is False
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
+    assert refreshed.status == SignalReport.Status.READY
+    events = [call.kwargs["event"] for call in patch_side_effects["capture"].call_args_list]
+    assert events == ["signal_assigned_to_report", "signal_report_reresearch_skipped"]
+    skipped = next(
+        c.kwargs["properties"]
+        for c in patch_side_effects["capture"].call_args_list
+        if c.kwargs["event"] == "signal_report_reresearch_skipped"
+    )
+    assert skipped["report_id"] == str(report.id)
+    assert skipped["signal_count"] == RERESEARCH_MAX_SIGNALS + 1
+    assert skipped["status"] == SignalReport.Status.READY
+    assert skipped["threshold"] == RERESEARCH_MAX_SIGNALS
+    assert skipped["source_id"] == input_.source_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_reresearch_within_cap_does_not_emit_skipped_event(ateam, patch_side_effects):
+    """A READY report within the cap re-promotes normally and fires only signal_assigned_to_report."""
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.READY,
+        total_weight=1.5,
+        signal_count=2,
+    )
+    input_ = _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
+
+    await assign_and_emit_signal_activity(input_)
+
+    events = [call.kwargs["event"] for call in patch_side_effects["capture"].call_args_list]
+    assert events == ["signal_assigned_to_report"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_potential_promotes_past_cap_for_first_research(ateam):
+    """The cap only applies to re-research. A POTENTIAL report that grew past RERESEARCH_MAX_SIGNALS
+    without ever being researched still promotes for its first research."""
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.POTENTIAL,
+        total_weight=WEIGHT_THRESHOLD,
+        signal_count=RERESEARCH_MAX_SIGNALS + 5,
+    )
+    input_ = _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
+
+    result = await assign_and_emit_signal_activity(input_)
+
+    assert result.promoted is True
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
+    assert refreshed.status == SignalReport.Status.CANDIDATE
+
+
+# ---------------------------------------------------------------------------
 # States that should NOT promote
 # ---------------------------------------------------------------------------
 
@@ -402,3 +581,26 @@ async def test_deleted_report_skips_counter_updates_and_marks_signal_deleted(ate
     patch_side_effects["soft_delete"].assert_called_once()
     emit_kwargs = patch_side_effects["emit"].call_args.kwargs
     assert emit_kwargs["metadata"]["deleted"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_deleted_report_emits_matched_deleted_telemetry(ateam, patch_side_effects):
+    """A signal that dedupes into a DELETED report fires signal_matched_deleted_report (so the
+    emit->assign funnel stays complete) and never signal_assigned_to_report."""
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.DELETED,
+        total_weight=2.0,
+        signal_count=3,
+    )
+    input_ = _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
+
+    await assign_and_emit_signal_activity(input_)
+
+    events = [call.kwargs["event"] for call in patch_side_effects["capture"].call_args_list]
+    assert events == ["signal_matched_deleted_report"]
+    properties = patch_side_effects["capture"].call_args.kwargs["properties"]
+    assert properties["report_id"] == str(report.id)
+    assert properties["source_id"] == input_.source_id
+    assert properties["source_product"] == "conversations"

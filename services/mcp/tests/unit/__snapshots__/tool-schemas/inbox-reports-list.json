@@ -1,6 +1,14 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "has_implementation_pr": {
+            "description": "Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.",
+            "type": "boolean"
+        },
+        "include_all_statuses": {
+            "description": "When true, the list includes reports in every status with no default exclusions applied — currently that adds suppressed (dismissed) reports, which are otherwise hidden. Use it to see the full inbox state (e.g. deduplicating before creating a report) and read each row's status (plus dismissal_reason/dismissal_note on dismissed rows) before acting. Deleted reports are terminal and never returned. Defaults to false, which keeps the existing default exclusions. Ignored when an explicit 'status' filter is set — that filter alone decides which statuses are returned.",
+            "type": "boolean"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"
@@ -26,11 +34,15 @@
             "type": "string"
         },
         "status": {
-            "description": "Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, failed, suppressed. Defaults to all statuses except suppressed.",
+            "description": "Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. Defaults to all statuses except suppressed.",
             "type": "string"
         },
         "suggested_reviewers": {
             "description": "Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.",
+            "type": "string"
+        },
+        "task_id": {
+            "description": "Only reports associated with this task (via the report's task associations).",
             "type": "string"
         }
     },

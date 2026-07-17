@@ -19,12 +19,15 @@ import {
     LogsAttributesRetrieveQueryParams,
     LogsCountCreateBody,
     LogsCountRangesCreateBody,
+    LogsFacetValuesCreateBody,
+    LogsPatternsCreateBody,
+    LogsPatternsDiffCreateBody,
     LogsQueryCreateBody,
     LogsServicesCreateBody,
     LogsSparklineCreateBody,
     LogsValuesRetrieveQueryParams,
 } from '@/generated/logs/api'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const LogsAlertsCreateSchema = LogsAlertsCreateBody
@@ -96,9 +99,25 @@ const logsAlertsCreate = (): ToolBase<typeof LogsAlertsCreateSchema, Schemas.Log
     },
 })
 
-const LogsAlertsDestinationsCreateSchema = LogsAlertsDestinationsCreateParams.omit({ project_id: true }).extend(
-    LogsAlertsDestinationsCreateBody.shape
-)
+const LogsAlertsDestinationsCreateSchema = LogsAlertsDestinationsCreateParams.omit({ project_id: true })
+    .extend(LogsAlertsDestinationsCreateBody.shape)
+    .extend({
+        type: LogsAlertsDestinationsCreateBody.shape['type'].describe(
+            'Destination type. Use slack, webhook, or teams. Slack requires slack_workspace_id and slack_channel_id. Webhook and teams require webhook_url.'
+        ),
+        slack_workspace_id: LogsAlertsDestinationsCreateBody.shape['slack_workspace_id'].describe(
+            'Slack workspace integration ID. Required when type is slack.'
+        ),
+        slack_channel_id: LogsAlertsDestinationsCreateBody.shape['slack_channel_id'].describe(
+            'Slack channel ID. Required when type is slack.'
+        ),
+        slack_channel_name: LogsAlertsDestinationsCreateBody.shape['slack_channel_name'].describe(
+            'Optional Slack channel name used for display.'
+        ),
+        webhook_url: LogsAlertsDestinationsCreateBody.shape['webhook_url'].describe(
+            'Required when type is webhook or teams.'
+        ),
+    })
 
 const logsAlertsDestinationsCreate = (): ToolBase<
     typeof LogsAlertsDestinationsCreateSchema,
@@ -504,6 +523,83 @@ const logsCountRanges = (): ToolBase<typeof LogsCountRangesSchema, Schemas._Logs
     },
 })
 
+const LogsFacetValuesCreateSchema = LogsFacetValuesCreateBody
+
+const logsFacetValuesCreate = (): ToolBase<typeof LogsFacetValuesCreateSchema, Schemas._LogsFacetValuesResponse> => ({
+    name: 'logs-facet-values-create',
+    schema: LogsFacetValuesCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof LogsFacetValuesCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<Schemas._LogsFacetValuesResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/facet_values/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, ['results']) as typeof result
+        return filtered
+    },
+})
+
+const LogsPatternsSchema = LogsPatternsCreateBody
+
+const logsPatterns = (): ToolBase<typeof LogsPatternsSchema, Schemas._LogsPatternsResponse> => ({
+    name: 'logs-patterns',
+    schema: LogsPatternsSchema,
+    handler: async (context: Context, params: z.infer<typeof LogsPatternsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<Schemas._LogsPatternsResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/patterns/`,
+            body,
+        })
+        const filtered = omitResponseFields(result, [
+            'patterns.*.examples',
+            'patterns.*.sparkline',
+            'patterns.*.count',
+            'patterns.*.error_count',
+            'sparkline_buckets',
+        ]) as typeof result
+        return filtered
+    },
+})
+
+const LogsPatternsDiffSchema = LogsPatternsDiffCreateBody
+
+const logsPatternsDiff = (): ToolBase<typeof LogsPatternsDiffSchema, Schemas._LogsPatternsDiffResponse> => ({
+    name: 'logs-patterns-diff',
+    schema: LogsPatternsDiffSchema,
+    handler: async (context: Context, params: z.infer<typeof LogsPatternsDiffSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.baselineDateRange !== undefined) {
+            body['baselineDateRange'] = params.baselineDateRange
+        }
+        const result = await context.api.request<Schemas._LogsPatternsDiffResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/patterns_diff/`,
+            body,
+        })
+        const filtered = omitResponseFields(result, [
+            'entries.*.pattern.examples',
+            'entries.*.pattern.sparkline',
+            'entries.*.pattern.count',
+            'entries.*.pattern.error_count',
+        ]) as typeof result
+        return filtered
+    },
+})
+
 const LogsServicesCreateSchema = LogsServicesCreateBody
 
 const logsServicesCreate = (): ToolBase<typeof LogsServicesCreateSchema, Schemas._LogsServicesResponse> => ({
@@ -581,6 +677,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'logs-attributes-list': logsAttributesList,
     'logs-count': logsCount,
     'logs-count-ranges': logsCountRanges,
+    'logs-facet-values-create': logsFacetValuesCreate,
+    'logs-patterns': logsPatterns,
+    'logs-patterns-diff': logsPatternsDiff,
     'logs-services-create': logsServicesCreate,
     'logs-sparkline-query': logsSparklineQuery,
     'query-logs': queryLogs,

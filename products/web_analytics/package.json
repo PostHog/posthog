@@ -9,7 +9,7 @@
         "kea-router": "catalog:"
     },
     "peerDependencies": {
-        "@posthog/icons": "*",
+        "@posthog/icons": "catalog:",
         "@types/react": "*",
         "clsx": "*",
         "fuse.js": "*",

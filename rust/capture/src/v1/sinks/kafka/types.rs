@@ -56,7 +56,6 @@ pub fn error_code_tag(code: RDKafkaErrorCode) -> &'static str {
 #[derive(Debug)]
 pub enum KafkaSinkError {
     SinkUnavailable,
-    SerializationFailed(String),
     Produce(ProduceError),
     Timeout,
     TaskPanicked,
@@ -66,7 +65,6 @@ impl KafkaSinkError {
     pub fn outcome(&self) -> Outcome {
         match self {
             Self::SinkUnavailable => Outcome::RetriableError,
-            Self::SerializationFailed(_) => Outcome::FatalError,
             Self::Produce(e) => {
                 if e.is_retriable() {
                     Outcome::RetriableError
@@ -82,7 +80,6 @@ impl KafkaSinkError {
     pub fn as_tag(&self) -> &'static str {
         match self {
             Self::SinkUnavailable => "sink_unavailable",
-            Self::SerializationFailed(_) => "serialization_failed",
             Self::Produce(e) => e.as_tag(),
             Self::Timeout => "timeout",
             Self::TaskPanicked => "task_panicked",
@@ -92,7 +89,6 @@ impl KafkaSinkError {
     pub fn detail(&self) -> Cow<'_, str> {
         match self {
             Self::SinkUnavailable => Cow::Borrowed("sink unavailable"),
-            Self::SerializationFailed(m) => Cow::Owned(format!("serialization failed: {m}")),
             Self::Produce(e) => Cow::Owned(format!("{e}")),
             Self::Timeout => Cow::Borrowed("produce timeout"),
             Self::TaskPanicked => Cow::Borrowed("task panicked during delivery"),

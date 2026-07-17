@@ -1,9 +1,9 @@
 import { Browser, Page } from 'puppeteer'
 import { launch as launchForCapture } from 'puppeteer-capture'
 
-import { config } from '../config'
-import { createLogger } from '../logger'
-import { RasterizationMetrics } from '../metrics'
+import { config } from '~/session-replay/recording-rasterizer/config'
+import { createLogger } from '~/session-replay/recording-rasterizer/logger'
+import { RasterizationMetrics } from '~/session-replay/recording-rasterizer/metrics'
 
 const log = createLogger()
 
@@ -57,6 +57,8 @@ export class BrowserPool {
     private launchArgs(): string[] {
         return [
             '--disable-dev-shm-usage',
+            // Pin crashpad to /tmp — the container root filesystem is read-only.
+            '--crash-dumps-dir=/tmp/chrome-crash-dumps',
             '--mute-audio',
             ...this.proxyArgs,
             ...(config.disableBrowserSecurity ? ['--disable-web-security'] : []),

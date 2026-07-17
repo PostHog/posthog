@@ -37,7 +37,6 @@ from products.actions.backend.models.action import Action
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
-    ensure_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,
@@ -46,15 +45,19 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     ceil_utc_day,
     check_common_eligibility,
     floor_utc_day,
+    handle_stale_served,
     host_filter_expr,
     log_eligibility_outcome,
     test_account_filter_expr,
+    web_ensure_precomputed,
 )
 
 if TYPE_CHECKING:
     from products.web_analytics.backend.hogql_queries.web_goals import WebGoalsQueryRunner
 
 logger = structlog.get_logger(__name__)
+
+_FAMILY = "web_goals"
 
 
 # Sentinel action_id used for the per-hour denominator row. Real Django
@@ -237,7 +240,7 @@ def _build_insert_query(actions: Sequence) -> str:
     return f"""
 SELECT
     toStartOfHour(start_timestamp) AS time_window_start,
-    action_id,
+    action_id AS action_id,
     sumState(assumeNotNull(toInt(action_count))) AS count_state,
     uniqStateIf(
         session_person_id,
@@ -287,7 +290,7 @@ def ensure_web_goals_precomputed(
     placeholders: dict[str, ast.Expr] = {
         "events_session_id": _events_session_id_expr(runner),
         "action_or_expr": _action_or_expr(actions),
-        "user_filter": host_filter_expr(runner.query.properties or []),
+        "user_filter": host_filter_expr(runner.query.properties or [], team=runner.team),
         "test_account_filter": test_account_filter_expr(
             test_account_filters=runner._test_account_filters, team=runner.team
         ),
@@ -297,7 +300,7 @@ def ensure_web_goals_precomputed(
         placeholders[f"action_{n}_expr"] = action_to_expr(action)
         placeholders[f"action_{n}_id"] = ast.Constant(value=int(action.id))
 
-    return ensure_precomputed(
+    return web_ensure_precomputed(
         team=runner.team,
         insert_query=_build_insert_query(actions),
         time_range_start=time_range_start,
@@ -306,6 +309,7 @@ def ensure_web_goals_precomputed(
         table=LazyComputationTable.WEB_GOALS_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_goals_lazy_insert",
+        spill_to_disk=True,  # per-action GROUP BY over a sessions join; can build a large hash table
     )
 
 
@@ -445,6 +449,8 @@ def execute_lazy_precomputed_read(runner: "WebGoalsQueryRunner") -> Optional[dic
             job_count=len(result.job_ids),
             ensure_duration_ms=ensure_duration_ms,
         )
+        if result.stale:
+            handle_stale_served(runner=runner, family=_FAMILY)
 
         if not result.job_ids or not result.ready:
             return None
@@ -478,6 +484,10 @@ def execute_lazy_precomputed_read(runner: "WebGoalsQueryRunner") -> Optional[dic
                         time_range_end=prev_range_end,
                     )
                     ensure_duration_ms += int((time.perf_counter() - prev_ensure_started) * 1000)
+                    if prev_result.stale:
+                        # handle_stale_served enqueues at most once per request; one
+                        # revalidation re-runs the whole query, covering both periods.
+                        handle_stale_served(runner=runner, family=_FAMILY)
                     if not prev_result.ready:
                         logger.info(
                             "web_goals_lazy_precompute_previous_not_ready",

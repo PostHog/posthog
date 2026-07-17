@@ -1,246 +1,237 @@
 import { useActions, useValues } from 'kea'
 
-import { IconInfo } from '@posthog/icons'
-import { LemonCard, LemonSegmentedButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconDatabase, IconPeople, IconRefresh } from '@posthog/icons'
 
-import { TZLabel } from 'lib/components/TZLabel'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { PaginationControl } from 'lib/lemon-ui/PaginationControl'
+import { Link } from 'lib/lemon-ui/Link'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { urls } from 'scenes/urls'
 
-import { DataWarehouseSavedQueryOrigin } from '~/queries/schema/schema-general'
-import { DataWarehouseActivityRecord } from '~/types'
+import type {
+    ManagedWarehouseDatasetStatusApi,
+    ManagedWarehouseSourceSummaryApi,
+} from 'products/data_warehouse/frontend/generated/api.schemas'
 
-import { dataWarehouseSceneLogic } from '../dataWarehouseSceneLogic'
-import { DataWarehousePricingCard } from './components/DataWarehousePricingCard'
-import { JobStatsChart } from './components/JobStatsChart'
-import { StatusIcon, StatusTag } from './components/StatusComponents'
+import { managedWarehouseDataStatusLogic } from './managedWarehouseDataStatusLogic'
+import { SourceSchemasModal } from './SourceSchemasModal'
+import { sourceSchemasModalLogic } from './sourceSchemasModalLogic'
+import { STATUS_SEVERITY, StatusTag } from './warehouseStatusDisplay'
 
-const LIST_SIZE = 8
+function DatasetCard({
+    title,
+    description,
+    icon,
+    status,
+}: {
+    title: string
+    description: string
+    icon: JSX.Element
+    status: ManagedWarehouseDatasetStatusApi
+}): JSX.Element {
+    const hasProgress = status.total_partitions !== null && status.total_partitions > 0
+    const progress = hasProgress ? Math.round((status.completed_partitions / status.total_partitions!) * 100) : null
 
-function formatOrigin(origin: DataWarehouseSavedQueryOrigin | null | undefined): string {
-    if (!origin || origin === DataWarehouseSavedQueryOrigin.DATA_WAREHOUSE) {
-        return ''
-    }
-    return origin.replace(/_/g, ' ')
+    return (
+        <LemonCard className="p-4 space-y-4" hoverEffect={false}>
+            <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                    <div className="text-xl text-muted mt-0.5">{icon}</div>
+                    <div>
+                        <h3 className="mb-1">{title}</h3>
+                        <p className="text-muted mb-0">{description}</p>
+                    </div>
+                </div>
+                <StatusTag readinessState={status.readiness_state} />
+            </div>
+            <div className="border-t pt-4 space-y-3">
+                <p className="mb-0">{status.detail}</p>
+                {progress !== null && (
+                    <div className="space-y-1">
+                        <div className="flex justify-between text-xs text-muted">
+                            <span>Historical backfill</span>
+                            <span>
+                                {status.completed_partitions} / {status.total_partitions}
+                            </span>
+                        </div>
+                        <LemonProgress percent={progress} />
+                    </div>
+                )}
+                {status.current_partition && (
+                    <div className="text-xs text-muted">
+                        Current partition: <code>{status.current_partition}</code>
+                    </div>
+                )}
+                {status.last_updated_at && (
+                    <div className="text-xs text-muted">
+                        Updated {humanFriendlyDetailedTime(status.last_updated_at)}
+                    </div>
+                )}
+            </div>
+        </LemonCard>
+    )
 }
 
 export function OverviewTab(): JSX.Element {
-    const {
-        activityRunningPaginationState,
-        activityCompletedPaginationState,
-        totalRowsStats,
-        totalRowsStatsLoading,
-        tablesLoading,
-        jobStats,
-        jobStatsLoading,
-        runningActivityResponse,
-        completedActivityResponse,
-        dataWarehouseSources,
-        materializedViews,
-        dataWarehouseProduct,
-    } = useValues(dataWarehouseSceneLogic)
-    const { setActivityRunningCurrentPage, setActivityCompletedCurrentPage, loadJobStats } =
-        useActions(dataWarehouseSceneLogic)
+    const { managedWarehouseDataStatus, managedWarehouseDataStatusLoading } = useValues(managedWarehouseDataStatusLogic)
+    const { loadManagedWarehouseDataStatus } = useActions(managedWarehouseDataStatusLogic)
+    const { loadSourceSchemas } = useActions(sourceSchemasModalLogic)
 
-    const activityRunningPagination = {
-        currentPage: activityRunningPaginationState.currentPage,
-        pageCount: activityRunningPaginationState.pageCount,
-        dataSourcePage: activityRunningPaginationState.dataSourcePage,
-        currentStartIndex: activityRunningPaginationState.currentStartIndex,
-        currentEndIndex: activityRunningPaginationState.currentEndIndex,
-        entryCount: activityRunningPaginationState.entryCount,
-        setCurrentPage: setActivityRunningCurrentPage,
-        pagination: { pageSize: LIST_SIZE },
-    }
-
-    const activityCompletedPagination = {
-        currentPage: activityCompletedPaginationState.currentPage,
-        pageCount: activityCompletedPaginationState.pageCount,
-        dataSourcePage: activityCompletedPaginationState.dataSourcePage,
-        currentStartIndex: activityCompletedPaginationState.currentStartIndex,
-        currentEndIndex: activityCompletedPaginationState.currentEndIndex,
-        entryCount: activityCompletedPaginationState.entryCount,
-        setCurrentPage: setActivityCompletedCurrentPage,
-        pagination: { pageSize: LIST_SIZE },
-    }
-
-    const activityColumns: LemonTableColumns<DataWarehouseActivityRecord> = [
+    const sourceSummaryColumns: LemonTableColumns<ManagedWarehouseSourceSummaryApi> = [
         {
-            title: 'Activity',
-            key: 'name',
-            render: (_, activity) => {
-                const formattedOrigin = formatOrigin(activity.origin)
-                const tagText = formattedOrigin ? `${activity.type} created by ${formattedOrigin}` : activity.type
-                return (
-                    <div className="flex items-center gap-1">
-                        <StatusIcon status={activity.status} />
-                        <span>{activity.name}</span>
-                        <LemonTag size="medium" type="muted" className="px-1 rounded-lg ml-1">
-                            {tagText}
-                        </LemonTag>
-                    </div>
-                )
-            },
+            title: 'Source',
+            key: 'source',
+            render: (_, source) => (
+                <div>
+                    <div className="font-medium">{source.source_name}</div>
+                    <div className="text-xs text-muted">{source.source_type}</div>
+                </div>
+            ),
+            sorter: (a, b) => a.source_name.localeCompare(b.source_name),
         },
         {
-            title: 'When',
-            key: 'created_at',
-            tooltip: 'Time when this job was created',
-            render: (_, activity) => <TZLabel time={activity.created_at} />,
+            title: 'Warehouse status',
+            key: 'readiness_state',
+            render: (_, source) => (
+                <div className="space-y-1 max-w-96">
+                    <StatusTag readinessState={source.readiness_state} />
+                    <div className="text-xs text-muted">{source.detail}</div>
+                </div>
+            ),
+            sorter: (a, b) => STATUS_SEVERITY[a.readiness_state] - STATUS_SEVERITY[b.readiness_state],
         },
         {
-            title: 'Rows',
-            key: 'rows',
-            align: 'right',
-            tooltip: 'Number of rows processed in this job',
-            render: (_, activity) => (activity.rows !== null ? activity.rows.toLocaleString() : '0'),
+            title: 'Schemas backfilled',
+            key: 'backfilled_schemas',
+            render: (_, source) => `${source.backfilled_schemas} / ${source.total_schemas}`,
+            sorter: (a, b) => a.backfilled_schemas / a.total_schemas - b.backfilled_schemas / b.total_schemas,
         },
         {
-            title: 'Status',
-            key: 'status',
-            align: 'right',
-            render: (_, activity) => <StatusTag status={activity.status} />,
+            title: 'Pending imports',
+            dataIndex: 'pending_batches',
+            render: (pendingBatches) =>
+                typeof pendingBatches === 'number' ? pendingBatches.toLocaleString() : 'Unavailable',
+            sorter: (a, b) => (a.pending_batches ?? -1) - (b.pending_batches ?? -1),
+        },
+        {
+            title: 'Last source import',
+            dataIndex: 'last_synced_at',
+            render: (lastSyncedAt) =>
+                typeof lastSyncedAt === 'string' ? humanFriendlyDetailedTime(lastSyncedAt) : 'Not synced yet',
+            sorter: (a, b) => new Date(a.last_synced_at ?? 0).getTime() - new Date(b.last_synced_at ?? 0).getTime(),
         },
     ]
 
+    if (managedWarehouseDataStatusLoading && !managedWarehouseDataStatus) {
+        return (
+            <div className="mt-4 flex items-center gap-2 text-muted">
+                <Spinner />
+                <span>Loading warehouse data status...</span>
+            </div>
+        )
+    }
+
+    if (!managedWarehouseDataStatus) {
+        return (
+            <LemonBanner type="error" className="mt-4">
+                <div className="flex items-center justify-between gap-3">
+                    <span>Warehouse data status could not be loaded.</span>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconRefresh />}
+                        onClick={() => loadManagedWarehouseDataStatus()}
+                        loading={managedWarehouseDataStatusLoading}
+                    >
+                        Try again
+                    </LemonButton>
+                </div>
+            </LemonBanner>
+        )
+    }
+
+    const bannerType =
+        managedWarehouseDataStatus.overall_readiness_state === 'needs_attention'
+            ? 'error'
+            : managedWarehouseDataStatus.overall_readiness_state === 'up_to_date'
+              ? 'success'
+              : 'info'
+
     return (
-        <>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <LemonCard className="p-4 hover:transform-none">
-                    <div className="flex items-start gap-1">
-                        <div className="text-sm text-muted">Rows processed</div>
-                        <Tooltip
-                            title="Total rows processed this month by all data sources and materialized views"
-                            placement="bottom"
-                        >
-                            <IconInfo className="text-muted mt-0.5" />
-                        </Tooltip>
-                    </div>
-                    <div className="text-2xl font-semibold mt-1 flex items-center gap-2">
-                        {totalRowsStatsLoading && !totalRowsStats?.total_rows ? (
-                            <Spinner className="text-muted" />
-                        ) : (
-                            (totalRowsStats?.total_rows ?? 0).toLocaleString()
-                        )}
-                    </div>
-                </LemonCard>
-
-                <LemonCard className="p-4 hover:transform-none">
-                    <div className="flex items-center justify-between">
-                        <div className="text-sm text-muted">Data sources</div>
-                        {jobStats && jobStats.external_data_jobs.running > 0 && (
-                            <LemonTag type="primary" size="small">
-                                {jobStats.external_data_jobs.running} syncing
-                            </LemonTag>
-                        )}
-                    </div>
-                    <div className="text-2xl font-semibold mt-1 flex items-center gap-2">
-                        {tablesLoading && !dataWarehouseSources ? (
-                            <Spinner className="text-muted" />
-                        ) : (
-                            (dataWarehouseSources?.results?.length ?? 0)
-                        )}
-                    </div>
-                </LemonCard>
-
-                <LemonCard className="p-4 hover:transform-none">
-                    <div className="flex items-center justify-between">
-                        <div className="text-sm text-muted">Materialized views</div>
-                        {jobStats && jobStats.modeling_jobs.running > 0 && (
-                            <LemonTag type="primary" size="small">
-                                {jobStats.modeling_jobs.running} syncing
-                            </LemonTag>
-                        )}
-                    </div>
-                    <div className="text-2xl font-semibold mt-1 flex items-center gap-2">
-                        {tablesLoading && !materializedViews ? (
-                            <Spinner className="text-muted" />
-                        ) : (
-                            (materializedViews?.length ?? 0)
-                        )}
-                    </div>
-                </LemonCard>
+        <div className="mt-4 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+                <div>
+                    <h2 className="mb-1">Warehouse data readiness</h2>
+                    <p className="text-muted mb-0">
+                        Track historical backfills and whether recent source imports have reached your warehouse.
+                    </p>
+                </div>
+                <LemonButton
+                    type="secondary"
+                    icon={<IconRefresh />}
+                    onClick={() => loadManagedWarehouseDataStatus()}
+                    loading={managedWarehouseDataStatusLoading}
+                >
+                    Refresh
+                </LemonButton>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
-                {/* Pricing breakdown - 1/3 width */}
-                <div className="lg:col-span-1">
-                    <DataWarehousePricingCard product={dataWarehouseProduct} />
+            <LemonBanner type={bannerType}>
+                <div className="flex items-center gap-2">
+                    <StatusTag readinessState={managedWarehouseDataStatus.overall_readiness_state} />
+                    <span>Status checked {humanFriendlyDetailedTime(managedWarehouseDataStatus.generated_at)}</span>
                 </div>
+            </LemonBanner>
 
-                {/* Sync Success Rate - 2/3 width */}
-                <div className="lg:col-span-2">
-                    <LemonCard className="p-4 hover:transform-none min-h-96 flex flex-col h-full">
-                        <div className="flex items-center justify-between mb-4 flex-shrink-0">
-                            <div className="flex items-center gap-2">
-                                <div className="flex items-start gap-1">
-                                    <div className="text-lg font-medium">Sync success rate</div>
-                                </div>
-                                {jobStatsLoading && <Spinner className="text-muted" />}
-                            </div>
-                            <LemonSegmentedButton
-                                size="xsmall"
-                                value={jobStats?.days ?? 7}
-                                onChange={(value) => loadJobStats({ days: value as 1 | 7 | 30 })}
-                                options={[
-                                    { value: 1, label: '24h' },
-                                    { value: 7, label: '7d' },
-                                    { value: 30, label: '30d' },
-                                ]}
-                            />
-                        </div>
-                        {jobStats && (
-                            <div className="flex-1 min-h-0">
-                                <JobStatsChart jobStats={jobStats} />
-                            </div>
-                        )}
-                    </LemonCard>
-                </div>
-            </div>
-
-            <div className="mt-6 mb-2">
-                <h2 className="text-xl font-semibold">Source and materialization jobs</h2>
-            </div>
-
-            <LemonCard className="hover:transform-none mt-4">
-                <div className="flex items-center gap-2 pb-2">
-                    <span className="font-medium text-lg">Currently running</span>
-                    {tablesLoading && runningActivityResponse !== null && <Spinner className="text-muted" />}
-                </div>
-                <LemonTable
-                    dataSource={activityRunningPagination.dataSourcePage as DataWarehouseActivityRecord[]}
-                    columns={activityColumns}
-                    rowKey={(r) => `${r.type}-${r.name}-${r.created_at}`}
-                    loading={tablesLoading && runningActivityResponse === null}
-                    loadingSkeletonRows={3}
-                    emptyState="No currently running activities"
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <DatasetCard
+                    title="Events"
+                    description="Historical events and daily warehouse updates"
+                    icon={<IconDatabase />}
+                    status={managedWarehouseDataStatus.events}
                 />
-                {activityRunningPagination.entryCount > 0 && (
-                    <div className="px-4 pb-4">
-                        <PaginationControl {...activityRunningPagination} nouns={['activity', 'activities']} />
+                <DatasetCard
+                    title="Persons"
+                    description="Historical persons and daily warehouse updates"
+                    icon={<IconPeople />}
+                    status={managedWarehouseDataStatus.persons}
+                />
+            </div>
+
+            <LemonCard className="p-0 overflow-hidden" hoverEffect={false}>
+                <div className="p-4 flex items-start justify-between gap-3 border-b">
+                    <div>
+                        <h3 className="mb-1">Imported source tables</h3>
+                        <p className="text-xs text-muted mb-0">
+                            Reflects the warehouse source imports currently enabled to sync.{' '}
+                            <Link to={urls.sources()}>Manage sources</Link>
+                        </p>
                     </div>
+                    <StatusTag readinessState={managedWarehouseDataStatus.sources.readiness_state} />
+                </div>
+                {managedWarehouseDataStatus.sources.sources.length ? (
+                    <LemonTable
+                        embedded
+                        columns={sourceSummaryColumns}
+                        dataSource={managedWarehouseDataStatus.sources.sources}
+                        rowKey="source_id"
+                        pagination={{ pageSize: 20 }}
+                        onRow={(source) => ({
+                            onClick: () =>
+                                loadSourceSchemas({ sourceId: source.source_id, sourceName: source.source_name }),
+                            className: 'cursor-pointer',
+                        })}
+                    />
+                ) : (
+                    <div className="p-6 text-muted">No imported source tables are configured for this warehouse.</div>
                 )}
             </LemonCard>
 
-            <LemonCard className="hover:transform-none mt-4">
-                <div className="flex items-center gap-2 pb-2">
-                    <span className="font-medium text-lg">Recently completed</span>
-                    {tablesLoading && completedActivityResponse !== null && <Spinner className="text-muted" />}
-                </div>
-                <LemonTable
-                    dataSource={activityCompletedPagination.dataSourcePage as DataWarehouseActivityRecord[]}
-                    columns={activityColumns}
-                    rowKey={(r) => `${r.type}-${r.name}-${r.created_at}`}
-                    loading={tablesLoading && completedActivityResponse === null}
-                    loadingSkeletonRows={3}
-                    emptyState="No recently completed activities"
-                />
-                {activityCompletedPagination.entryCount > 0 && (
-                    <div className="px-4 pb-4">
-                        <PaginationControl {...activityCompletedPagination} nouns={['activity', 'activities']} />
-                    </div>
-                )}
-            </LemonCard>
-        </>
+            <SourceSchemasModal />
+        </div>
     )
 }

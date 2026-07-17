@@ -6,8 +6,11 @@ import { getDashboardWidgetCatalogEntry } from '@posthog/products-dashboards/fro
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
-import { objectClean, shouldCancelQuery, toParams } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { objectClean } from 'lib/utils/objects'
+import { shouldCancelQuery } from 'lib/utils/requests'
+import { toParams } from 'lib/utils/url'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'
@@ -63,6 +66,7 @@ export function dashboardToSaveableTemplate(
                 }
                 if (tile.button_tile) {
                     return {
+                        type: 'BUTTON' as const,
                         button_tile: {
                             url: tile.button_tile.url,
                             text: tile.button_tile.text,
@@ -157,8 +161,6 @@ export const SEARCH_PARAM_FILTERS_KEY = 'query_filters'
 export const DEFAULT_AUTO_PREVIEW_TILE_LIMIT = 10
 
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
-
-export const QUICK_FILTER_DEBOUNCE_MS = 1500
 
 function staleAgeMinutes(effectiveLastRefresh: Dayjs | null): number | null {
     if (!effectiveLastRefresh) {
@@ -436,4 +438,26 @@ export function combineDashboardFilters(...filters: DashboardFilter[]): Dashboar
         })
         return combined
     }, {} as DashboardFilter)
+}
+
+const LAYOUT_EDIT_EVENT_SOURCES = new Set<DashboardEventSource>([
+    DashboardEventSource.SceneCommonButtons,
+    DashboardEventSource.CardEdgeHover,
+    DashboardEventSource.CardDragHandle,
+    DashboardEventSource.DashboardsList,
+])
+
+export function isLayoutEditEventSource(source: DashboardEventSource | null): boolean {
+    return source !== null && LAYOUT_EDIT_EVENT_SOURCES.has(source)
+}
+
+export function shouldSnapshotUrlAtEditModeEntry(source: DashboardEventSource | null): boolean {
+    return (
+        source !== null &&
+        (isLayoutEditEventSource(source) ||
+            source === DashboardEventSource.DashboardFilters ||
+            source === DashboardEventSource.DashboardVariableOverride ||
+            source === DashboardEventSource.DashboardInsightColorsModal ||
+            source === DashboardEventSource.DashboardHeaderOverridesBanner)
+    )
 }

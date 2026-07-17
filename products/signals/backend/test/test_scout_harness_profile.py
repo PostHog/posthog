@@ -6,21 +6,27 @@ Layered top-down: builder source-readers → `compute_project_profile` end-to-en
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.business_knowledge.backend.models.knowledge_chunk import KnowledgeChunk
+from products.business_knowledge.backend.models.knowledge_document import KnowledgeDocument
+from products.business_knowledge.backend.models.knowledge_source import KnowledgeSource
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -30,6 +36,10 @@ from products.signals.backend.models import SignalProjectProfile, SignalReport, 
 from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERSION, Inventory, build_inventory
 from products.signals.backend.scout_harness.profile.builders import (
     RECENT_ACTIVITY_WINDOW_DAYS,
+    REVIEWER_CORRECTIONS_WINDOW_DAYS,
+    TOP_EVENTS_LOOKBACK_DAYS,
+    _business_knowledge,
+    _emit_eligibility,
     _existing_inbox_reports,
     _external_data_sources,
     _integrations,
@@ -46,8 +56,10 @@ from products.signals.backend.scout_harness.profile.builders import (
     _recent_hog_flows,
     _recent_hog_functions,
     _recent_notebooks,
+    _recent_reviewer_corrections,
     _recent_surveys,
     _signal_source_configs,
+    _top_events,
 )
 from products.signals.backend.scout_harness.tools.profile import (
     PROFILE_TTL,
@@ -55,7 +67,7 @@ from products.signals.backend.scout_harness.tools.profile import (
     get_project_profile,
 )
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
@@ -165,6 +177,30 @@ class TestExternalDataSources(BaseTest):
         assert result[0]["status"] == "Failed"
         assert result[0]["prefix"] == "pg_"
 
+    def test_last_run_at_none_when_never_completed_a_sync(self) -> None:
+        # A source stuck in `Running` that has never completed a sync must read as `last_run_at=None`
+        # so a scout can tell it apart from a healthy source — `status` alone conflates the two. Only
+        # a `Completed` job counts; a `Running` job present here must not populate `last_run_at`.
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type="BigQuery", status="Running", prefix="bq_"
+        )
+        ExternalDataJob.objects.create(team=self.team, pipeline=source, status=ExternalDataJob.Status.RUNNING)
+        result = _external_data_sources(self.team)
+        assert result[0]["last_run_at"] is None
+        assert result[0]["latest_error"] is None
+
+    def test_surfaces_last_run_at_and_latest_error(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type="Stripe", status="Completed", prefix="stripe_"
+        )
+        job = ExternalDataJob.objects.create(team=self.team, pipeline=source, status=ExternalDataJob.Status.COMPLETED)
+        ExternalDataSchema.objects.create(
+            team=self.team, source=source, name="charges", latest_error="permission denied for table charges"
+        )
+        result = _external_data_sources(self.team)
+        assert result[0]["last_run_at"] == job.created_at.isoformat()
+        assert result[0]["latest_error"] == "permission denied for table charges"
+
 
 class TestSignalSourceConfigs(BaseTest):
     def test_splits_enabled_and_disabled(self) -> None:
@@ -185,6 +221,39 @@ class TestSignalSourceConfigs(BaseTest):
         assert result["enabled"][0]["source_product"] == "error_tracking"
         assert len(result["disabled"]) == 1
         assert result["disabled"][0]["source_product"] == "linear"
+
+
+class TestEmitEligibility(BaseTest):
+    def test_can_emit_when_ai_approved_and_source_on(self) -> None:
+        # Default org has AI processing approved; scout source is fail-open (no disabled row).
+        result = _emit_eligibility(self.team)
+        assert result["ai_processing_approved"] is True
+        assert result["source_enabled"] is True
+        assert result["can_emit"] is True
+        assert result["remediation"] is None
+
+    def test_blocked_with_remediation_when_ai_not_approved(self) -> None:
+        # Mutate through team.organization — the exact instance the builder reads — so the change is
+        # visible regardless of Django's per-instance FK caching.
+        self.team.organization.is_ai_data_processing_approved = False
+        self.team.organization.save()
+        result = _emit_eligibility(self.team)
+        assert result["ai_processing_approved"] is False
+        assert result["can_emit"] is False
+        # The remediation must be actionable, not a bare reason code — this is the reported symptom.
+        assert result["remediation"] and "AI data processing" in result["remediation"]
+
+    def test_blocked_with_remediation_when_source_disabled(self) -> None:
+        SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT,
+            source_type=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE,
+            enabled=False,
+        )
+        result = _emit_eligibility(self.team)
+        assert result["source_enabled"] is False
+        assert result["can_emit"] is False
+        assert result["remediation"] and "source" in result["remediation"]
 
 
 class TestExistingInboxReports(BaseTest):
@@ -586,6 +655,132 @@ class TestRecentActivity(BaseTest):
         return User.objects.create(email=email, distinct_id=email)
 
 
+class TestRecentReviewerCorrections(BaseTest):
+    def _log_correction(self, *, team=None, created_at=None, detail=None, activity="suggested_reviewers_changed"):
+        return ActivityLog.objects.create(
+            team_id=(team or self.team).id,
+            activity=activity,
+            scope="SignalReport",
+            item_id=str(uuid4()),
+            was_impersonated=False,
+            is_system=False,
+            created_at=created_at or timezone.now(),
+            detail=detail
+            if detail is not None
+            else {
+                "name": "Report title",
+                "changes": [
+                    {
+                        "type": "SignalReport",
+                        "action": "changed",
+                        "field": "suggested_reviewers",
+                        "before": ["alice"],
+                        "after": ["bob"],
+                    }
+                ],
+            },
+        )
+
+    def test_parses_corrections_and_excludes_noise(self) -> None:
+        correction = self._log_correction()
+        # None of these are reviewer corrections: other activity on the same scope,
+        # another team's correction, and a correction outside the window.
+        self._log_correction(activity="updated")
+        other = self.organization.teams.create(name="other")
+        self._log_correction(team=other)
+        self._log_correction(created_at=timezone.now() - timedelta(days=REVIEWER_CORRECTIONS_WINDOW_DAYS + 1))
+
+        result = _recent_reviewer_corrections(self.team)
+        assert result["window_days"] == REVIEWER_CORRECTIONS_WINDOW_DAYS
+        (row,) = result["corrections"]
+        assert row == {
+            "report_id": str(correction.item_id),
+            "report_title": "Report title",
+            "before": ["alice"],
+            "after": ["bob"],
+            "at": correction.created_at.isoformat(),
+        }
+
+    def test_malformed_detail_degrades_to_empty_lists(self) -> None:
+        self._log_correction(detail={})
+        result = _recent_reviewer_corrections(self.team)
+        (row,) = result["corrections"]
+        assert row["before"] == []
+        assert row["after"] == []
+        assert row["report_title"] is None
+
+
+class TestBusinessKnowledge(BaseTest):
+    def test_returns_zeroed_section_when_no_sources(self) -> None:
+        result = _business_knowledge(self.team)
+        assert result == {
+            "total_count": 0,
+            "ready_count": 0,
+            "document_count": 0,
+            "chunk_count": 0,
+            "recent": [],
+        }
+
+    def test_counts_ready_sources_and_aggregates_docs_and_chunks(self) -> None:
+        ready = KnowledgeSource.objects.create(team=self.team, name="Docs", source_type="text", status="ready")
+        processing = KnowledgeSource.objects.create(team=self.team, name="URLs", source_type="url", status="processing")
+        # doc1 carries 2 chunks — guards against join inflation in the shared aggregate.
+        doc1 = KnowledgeDocument.objects.create(team=self.team, source=ready, stable_id="d1")
+        doc2 = KnowledgeDocument.objects.create(team=self.team, source=ready, stable_id="d2")
+        KnowledgeDocument.objects.create(team=self.team, source=processing, stable_id="d3")
+        # Tombstoned doc (and its chunk) must not count toward searchable volume.
+        tombstoned = KnowledgeDocument.objects.create(
+            team=self.team, source=ready, stable_id="d4", tombstoned_at=timezone.now()
+        )
+        for i in range(2):
+            KnowledgeChunk.objects.create(
+                id=uuid4(), team=self.team, source=ready, document=doc1, ordinal=i, content="c", char_count=1
+            )
+        KnowledgeChunk.objects.create(
+            id=uuid4(), team=self.team, source=ready, document=doc2, ordinal=0, content="c", char_count=1
+        )
+        KnowledgeChunk.objects.create(
+            id=uuid4(), team=self.team, source=ready, document=tombstoned, ordinal=0, content="c", char_count=1
+        )
+
+        result = _business_knowledge(self.team)
+        assert result["total_count"] == 2
+        assert result["ready_count"] == 1
+        assert result["document_count"] == 3
+        assert result["chunk_count"] == 3
+        assert len(result["recent"]) == 2
+        assert result["recent"][0]["name"] in ("Docs", "URLs")
+
+    def test_team_isolated(self) -> None:
+        other = self.organization.teams.create(name="other")
+        KnowledgeSource.objects.create(team=other, name="Other", source_type="text", status="ready")
+        result = _business_knowledge(self.team)
+        assert result["total_count"] == 0
+
+
+class TestTopEvents(BaseTest):
+    @patch("products.signals.backend.scout_harness.profile.builders.execute_hogql_query")
+    def test_rows_carry_window_days_and_windowed_timestamps(self, mock_query: MagicMock) -> None:
+        # Every count/timestamp is over a rolling window, not lifetime — the row must carry
+        # `window_days` and window-scoped timestamp keys so a scout can't misread a thin
+        # in-window count (e.g. during a capture gap) as a genuinely low-volume project.
+        seen = datetime(2026, 7, 1, tzinfo=UTC)
+        mock_query.return_value = SimpleNamespace(results=[["$pageview", 207000, 12000, 40, 30, seen, seen]])
+
+        assert _top_events(self.team) == [
+            {
+                "window_days": TOP_EVENTS_LOOKBACK_DAYS,
+                "event": "$pageview",
+                "count": 207000,
+                "distinct_users": 12000,
+                "recent_24h_count": 40,
+                "recent_24h_users": 30,
+                "first_seen_in_window": seen.isoformat(),
+                "last_seen_in_window": seen.isoformat(),
+            }
+        ]
+
+
 class TestBuildInventory(BaseTest):
     def test_returns_a_validated_inventory_with_all_sections(self) -> None:
         inventory = build_inventory(self.team)
@@ -597,8 +792,10 @@ class TestBuildInventory(BaseTest):
             "integrations",
             "external_data_sources",
             "signal_source_configs",
+            "emit_eligibility",
             "existing_inbox_reports",
             "recent_activity",
+            "recent_reviewer_corrections",
             "recent_dashboards",
             "recent_surveys",
             "recent_feature_flags",
@@ -609,6 +806,7 @@ class TestBuildInventory(BaseTest):
             "recent_notebooks",
             "recent_cohorts",
             "recent_actions",
+            "business_knowledge",
             "top_events",
         }
 

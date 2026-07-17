@@ -46,7 +46,7 @@ export const getMcpServerInstallationsListUrl = (projectId: string, params?: Mcp
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -169,6 +169,28 @@ export const mcpServerInstallationsProxyCreate = async (
     })
 }
 
+export const getMcpServerInstallationsShareCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/mcp_server_installations/${id}/share/`
+}
+
+/**
+ * Escalate a personal installation to a team-wide shared one.
+ *
+ * Owner-only AND admin-only: sharing exposes the owner's credential to
+ * every project member and all autonomous agents, so it carries the same
+ * gate as creating a shared install outright.
+ */
+export const mcpServerInstallationsShareCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MCPServerInstallationApi> => {
+    return apiMutator<MCPServerInstallationApi>(getMcpServerInstallationsShareCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getMcpServerInstallationsToolsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/mcp_server_installations/${id}/tools/`
 }
@@ -230,6 +252,29 @@ export const mcpServerInstallationsToolsRefreshCreate = async (
     )
 }
 
+export const getMcpServerInstallationsUnshareCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/mcp_server_installations/${id}/unshare/`
+}
+
+/**
+ * De-escalate a shared installation back to personal.
+ *
+ * Allowed for the credential owner OR a project admin (the reclaim path
+ * for shared credentials). The row always stays owned by the ORIGINAL
+ * owner — an admin unsharing someone else's install must not capture
+ * their credential.
+ */
+export const mcpServerInstallationsUnshareCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MCPServerInstallationApi> => {
+    return apiMutator<MCPServerInstallationApi>(getMcpServerInstallationsUnshareCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getMcpServerInstallationsAuthorizeRetrieveUrl = (
     projectId: string,
     params?: McpServerInstallationsAuthorizeRetrieveParams
@@ -238,7 +283,7 @@ export const getMcpServerInstallationsAuthorizeRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -251,10 +296,10 @@ export const getMcpServerInstallationsAuthorizeRetrieveUrl = (
 
 /**
  * Start (or re-start) an OAuth flow.
-
-Pass ``template_id`` to (re)connect a catalog template, or
-``installation_id`` to reconnect an existing custom install using its
-cached metadata and per-user DCR creds.
+ *
+ * Pass ``template_id`` to (re)connect a catalog template, or
+ * ``installation_id`` to reconnect an existing custom install using its
+ * cached metadata and per-user DCR creds.
  */
 export const mcpServerInstallationsAuthorizeRetrieve = async (
     projectId: string,
@@ -312,7 +357,7 @@ export const getMcpServersListUrl = (projectId: string, params?: McpServersListP
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -325,9 +370,9 @@ export const getMcpServersListUrl = (projectId: string, params?: McpServersListP
 
 /**
  * Lists curated MCP server templates that users can install with one click.
-
-Templates are seeded by PostHog operators and carry shared, encrypted
-OAuth client credentials. Inactive templates are hidden from the catalog.
+ *
+ * Templates are seeded by PostHog operators and carry shared, encrypted
+ * OAuth client credentials. Inactive templates are hidden from the catalog.
  */
 export const mcpServersList = async (
     projectId: string,

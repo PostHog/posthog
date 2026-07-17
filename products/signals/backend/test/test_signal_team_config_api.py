@@ -20,7 +20,9 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         data = response.json()
         assert response.status_code == status.HTTP_200_OK, data
         assert data["default_slack_notification_channel"] is None
-        assert data["default_autostart_priority"] == "P0"
+        assert data["default_autostart_priority"] == "P4"
+        # Null until a team explicitly opts out; the guard treats null as autostart-on.
+        assert data["autostart_enabled"] is None
 
     def test_get_config_lazily_creates_when_no_config_exists(self):
         self.config.delete()
@@ -28,7 +30,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         response = self.client.get(self._url())
         data = response.json()
         assert response.status_code == status.HTTP_200_OK, data
-        assert data["default_autostart_priority"] == "P0"
+        assert data["default_autostart_priority"] == "P4"
         assert data["default_slack_notification_channel"] is None
         assert SignalTeamConfig.objects.filter(team=self.team).exists()
 
@@ -121,3 +123,33 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         self.config.refresh_from_db()
         assert self.config.autostart_base_branches == {"acme/web": "staging"}
+
+    @parameterized.expand(
+        [
+            ("disable", True, False),
+            ("enable", False, True),
+        ]
+    )
+    def test_update_autostart_enabled(self, _name, initial, sent):
+        self.config.autostart_enabled = initial
+        self.config.save(update_fields=["autostart_enabled"])
+        response = self.client.post(self._url(), data={"autostart_enabled": sent}, format="json")
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK, data
+        assert data["autostart_enabled"] is sent
+        self.config.refresh_from_db()
+        assert self.config.autostart_enabled is sent
+
+    def test_partial_update_preserves_autostart_enabled(self):
+        # A team that turned autostart off must not have it silently re-enabled when it later
+        # edits an unrelated field.
+        self.config.autostart_enabled = False
+        self.config.save(update_fields=["autostart_enabled"])
+        response = self.client.post(
+            self._url(),
+            data={"default_slack_notification_channel": "C123|#posthog-signals"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        self.config.refresh_from_db()
+        assert self.config.autostart_enabled is False

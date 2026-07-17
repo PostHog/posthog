@@ -189,5 +189,3 @@ class ShutdownMonitor:
         if self.is_worker_shutdown():
             self.logger.debug("Worker is shutting down.")
             raise WorkerShuttingDownError.from_activity_context()
-
-        self.logger.debug("Worker is not shutting down.")

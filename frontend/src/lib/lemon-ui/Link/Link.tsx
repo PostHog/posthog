@@ -6,14 +6,14 @@ import React from 'react'
 import { IconExternal, IconSend } from '@posthog/icons'
 
 import { ButtonPrimitiveProps, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
-import { isExternalLink } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
-import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { isExternalLink } from 'lib/utils/url'
 import { urlToResource } from 'scenes/urls'
 
 import { Tooltip, TooltipProps } from '../Tooltip'
+import { useLinkDrag } from './useLinkDrag'
 
 type RoutePart = string | Record<string, any>
 
@@ -94,12 +94,23 @@ const isDirectLink = (url: string): boolean => {
     return /^(mailto:|https?:\/\/|:\/\/)/.test(url)
 }
 
+const hasDangerousScheme = (url: string): boolean => {
+    // Browsers ignore leading control chars/whitespace and any tabs/newlines embedded in the scheme,
+    // so strip them all before matching. javascript:/vbscript: targets must never become an href —
+    // not even when disableClientSideRouting would otherwise skip the routing rewrite.
+    const normalized = url.replace(/[\u0000-\u0020]/g, '').toLowerCase()
+    return /^(javascript|vbscript):/.test(normalized)
+}
+
 /** Resolve a `to` target into a concrete href string. */
 function resolveHref(to: LinkPrimitiveProps['to'], disableClientSideRouting?: boolean): string | undefined {
     if (!to) {
         return undefined
     }
     if (typeof to !== 'string') {
+        return '#'
+    }
+    if (hasDangerousScheme(to)) {
         return '#'
     }
     return isDirectLink(to) || disableClientSideRouting ? to : addProjectIdIfMissing(to)
@@ -139,9 +150,7 @@ export const LinkPrimitive: React.FC<LinkPrimitiveProps & React.RefAttributes<HT
         ref
     ) => {
         const externalLink = isExternalLink(to)
-        const { elementProps: draggableProps } = useNotebookDrag({
-            href: typeof to === 'string' ? to : undefined,
-        })
+        const { elementProps: draggableProps } = useLinkDrag(typeof to === 'string' ? to : undefined)
 
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {

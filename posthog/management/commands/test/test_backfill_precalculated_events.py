@@ -17,12 +17,13 @@ from posthog.management.commands.backfill_precalculated_events import (
     compute_backfill_days,
     extract_behavioral_filters,
 )
-from posthog.models import Cohort, Team
-from posthog.models.cohort.cohort import CohortType
+from posthog.models import Team
 from posthog.temporal.messaging.backfill_precalculated_events_coordinator_workflow import (
     BackfillPrecalculatedEventsCoordinatorInputs,
 )
 from posthog.temporal.messaging.types import BehavioralEventFilter
+
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 
 
 class TestExtractBehavioralFilters(BaseTest):
@@ -837,7 +838,7 @@ class TestRunTemporalWorkflow(BaseTest):
                 cohort_ids=[1, 2],
                 effective_days=14,
                 concurrent_workflows=5,
-                force_reprocess=False,
+                ignore_backfilled_dates=False,
             )
 
         mock_store.assert_called_once_with(self.filters, self.team.id)
@@ -852,7 +853,7 @@ class TestRunTemporalWorkflow(BaseTest):
         self.assertEqual(inputs.condition_hashes, ["hash_1", "hash_2"])
         self.assertEqual(inputs.days_to_backfill, 14)
         self.assertEqual(inputs.concurrent_workflows, 5)
-        self.assertFalse(inputs.force_reprocess)
+        self.assertFalse(inputs.ignore_backfilled_dates)
         self.assertEqual(kwargs["task_queue"], settings.MESSAGING_TASK_QUEUE)
         self.assertEqual(kwargs["id_reuse_policy"], WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY)
         self.assertEqual(kwargs["id"], workflow_id)

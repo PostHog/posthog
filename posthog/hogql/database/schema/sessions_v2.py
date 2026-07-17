@@ -1,8 +1,6 @@
 import re
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.schema import BounceRatePageViewMode, CustomChannelRule, SessionsV2JoinMode
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -29,15 +27,12 @@ from posthog.hogql.database.schema.util.where_clause_extractor import (
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
-from posthog.models.raw_sessions.sessions_v2 import (
-    RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL,
-    RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
-)
 from posthog.queries.insight import insight_sync_execute
-
-from products.event_definitions.backend.models.property_definition import PropertyType
+from posthog.schema_enums import BounceRatePageViewMode, SessionsV2JoinMode
 
 if TYPE_CHECKING:
+    from posthog.schema import CustomChannelRule
+
     from posthog.models.team import Team
 
 RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
@@ -84,14 +79,20 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
 }
 
 LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
-    "id": StringDatabaseField(name="id"),
+    "id": StringDatabaseField(name="id", description="Session identifier; matches `events.$session_id`."),
     # # TODO remove this, it's a duplicate of the correct session_id field below to get some trends working on a deadline
-    "session_id": StringDatabaseField(name="session_id"),
+    "session_id": StringDatabaseField(
+        name="session_id", description="Session identifier; matches `events.$session_id`."
+    ),
     "session_id_v7": IntegerDatabaseField(name="session_id_v7"),
     "team_id": IntegerDatabaseField(name="team_id"),
     "distinct_id": StringDatabaseField(name="distinct_id"),
-    "$start_timestamp": DateTimeDatabaseField(name="$start_timestamp"),
-    "$end_timestamp": DateTimeDatabaseField(name="$end_timestamp"),
+    "$start_timestamp": DateTimeDatabaseField(
+        name="$start_timestamp", description="Timestamp of the first event in the session."
+    ),
+    "$end_timestamp": DateTimeDatabaseField(
+        name="$end_timestamp", description="Timestamp of the last event in the session."
+    ),
     "max_inserted_at": DateTimeDatabaseField(name="max_inserted_at"),
     "$urls": StringArrayDatabaseField(name="$urls"),
     "$num_uniq_urls": IntegerDatabaseField(name="$num_uniq_urls"),
@@ -448,6 +449,10 @@ def select_from_sessions_table_v2(
 
 
 class SessionsTableV2(LazyTable):
+    description: str = (
+        "Aggregated user sessions (one row per session), with entry/exit URLs, attribution, and duration. "
+        "Join from events via `events.$session_id = sessions.session_id`."
+    )
     fields: dict[str, FieldOrTable] = LAZY_SESSIONS_FIELDS
 
     def lazy_select(
@@ -561,6 +566,9 @@ def get_lazy_session_table_properties_v2(search: Optional[str]):
         "$exit_pathname",
     }
 
+    # lazy import keeps the event-definitions ORM off this module's import path
+    from products.event_definitions.backend.models.property_definition import PropertyType  # noqa: PLC0415
+
     # some fields should have a specific property type which isn't derivable from the type of database field
     property_type_overrides = {
         "$session_duration": PropertyType.Duration,
@@ -635,6 +643,12 @@ SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
 
 
 def get_lazy_session_table_values_v2(key: str, search_term: Optional[str], team: "Team"):
+    # lazy import keeps the raw-sessions SQL module (Django ORM) off this module's import path
+    from posthog.models.raw_sessions.sessions_v2 import (  # noqa: PLC0415
+        RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL,
+        RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
+    )
+
     # the sessions table does not have a properties json object like the events and person tables
 
     if key == "$channel_type":

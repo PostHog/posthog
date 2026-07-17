@@ -1,6 +1,14 @@
+import type { GroupType } from '@/api/client'
+import { hasScope } from '@/lib/api'
 import { MCPClientProfile } from '@/lib/client-detection'
+import { isCloudApi, isLocalApi, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
-import { type EvaluatedFlags, evaluateFeatureFlags, type FlagGroups } from '@/lib/posthog/flags'
+import {
+    type EvaluatedFlags,
+    evaluateFeatureFlags,
+    type FlagGroups,
+    resolveFeatureFlagOverrides,
+} from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import type { McpMode } from '@/lib/utils'
 import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
@@ -30,6 +38,13 @@ export interface ResolvedState {
     allTools: Tool<ZodObjectAny>[]
     scopeGatedTools: ScopeGatedTool[]
     distinctId: string
+    renderUiEnabled: boolean
+    // Active project/user environment prompt and group types. Rendered into the
+    // `instructions` payload, and (for clients that don't surface instructions to
+    // the model like Codex, or ignore it like Claude web/desktop) the exec command
+    // reference. Resolved once here so every render path reads the same source.
+    metadata: string | undefined
+    groupTypes: GroupType[] | undefined
 }
 
 // ─── Pure helpers ───
@@ -39,13 +54,11 @@ export function resolveMode(args: { mode: McpMode | undefined; clientProfile: MC
     useSingleExec: boolean
 } {
     const { mode, clientProfile } = args
-    const useSingleExec =
-        mode === 'cli' ||
-        (mode !== 'tools' &&
-            (clientProfile.isCodingAgent() ||
-                clientProfile.isPostHogCodeConsumer() ||
-                clientProfile.isVibeCodingClient()))
-    return { mode: mode ?? (useSingleExec ? 'cli' : 'tools'), useSingleExec }
+    // CLI (single-exec) is the default; only allow-listed clients (Cursor,
+    // ChatGPT) keep the full per-tool roster, and an explicit ?mode= /
+    // x-posthog-mcp-mode header always wins over auto-detection.
+    const resolved: McpMode = mode ?? (clientProfile.isToolsModeClient() ? 'tools' : 'cli')
+    return { mode: resolved, useSingleExec: resolved === 'cli' }
 }
 
 // ─── Resolver ───
@@ -92,10 +105,11 @@ export class RequestStateResolver {
             cachedProjectId = (await reqCtx.tokenCache.get('projectId')) ?? undefined
         }
 
-        const toolFlagKeys = getRequiredFeatureFlags()
-        const allFlagKeys = toolFlagKeys
+        // PRODUCT_DATA_CATALOG_FLAG gates instructions content (the metric-discovery prompt
+        // section), not a tool, so the tool-definition scan can't discover it.
+        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), PRODUCT_DATA_CATALOG_FLAG])]
 
-        const flagAnalyticsContext = await reqCtx.getAnalyticsContextSafe(context)
+        const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
 
         const [allFlags, _apiKey, distinctId] = await Promise.all([
@@ -104,10 +118,15 @@ export class RequestStateResolver {
             reqCtx.getDistinctId(),
         ])
 
+        // Dev/test-only overrides win over evaluated values (no-op in production).
+        const overrides = resolveFeatureFlagOverrides(props.featureFlagOverrides)
+        const mergedFlags = { ...allFlags, ...overrides }
         // Preserve variant strings (and `undefined` for unevaluated flags) — the
         // tool filter needs raw values to support `feature_flag_variant` matching.
-        const toolFeatureFlags =
-            toolFlagKeys.length > 0 ? Object.fromEntries(toolFlagKeys.map((k) => [k, allFlags[k]])) : undefined
+        // Include override keys so a forced flag reaches the tool/instructions layer
+        // even when no catalog tool referenced it.
+        const flagKeysForState = [...new Set([...allFlagKeys, ...Object.keys(overrides)])]
+        const toolFeatureFlags = Object.fromEntries(flagKeysForState.map((k) => [k, mergedFlags[k]]))
 
         const oauthClientName = (await reqCtx.tokenCache.get('clientName')) || undefined
 
@@ -117,7 +136,13 @@ export class RequestStateResolver {
             consumer: clientContext.mcpConsumer,
             oauthClientName,
             vendorClient: clientContext.mcpVendorClient,
+            userAgent: props.clientUserAgent,
         })
+
+        // `render-ui` is only meaningful for MCP Apps hosts (Claude web/desktop) that can
+        // mount its iframe. Single-exec CLI clients like Claude Code can't mount it, so the
+        // tool's advertisement and execution stay gated on the UI-host check.
+        const renderUiEnabled = clientProfile.isClaudeUiHost()
 
         const { mode: resolvedMode, useSingleExec } = resolveMode({
             mode: requestContext.mode,
@@ -130,6 +155,8 @@ export class RequestStateResolver {
         const apiKeyScopes = _apiKey?.scopes ?? []
         const apiKeyScopedTeams = _apiKey?.scoped_teams ?? []
         const aiConsentGiven = await context.stateManager.getAiConsentGiven()
+        const availableFeatures = await context.stateManager.getAvailableFeatures()
+        const isCloud = isCloudApi()
 
         const excludeTools: string[] = []
         if (projectId) {
@@ -146,11 +173,20 @@ export class RequestStateResolver {
             featureFlags: toolFeatureFlags,
             scopedTeams: apiKeyScopedTeams,
             aiConsentGiven: aiConsentGiven ?? undefined,
+            availableFeatures,
+            isCloud,
         }
         const allTools = this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes })
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
+
+        const [groupTypes, metadata] = await Promise.all([
+            cachedProjectId && hasScope(apiKeyScopes, 'group:read')
+                ? context.stateManager.getOrFetchGroupTypes(cachedProjectId).catch(() => undefined)
+                : undefined,
+            context.stateManager.getEnvironmentPrompt(),
+        ])
 
         return {
             reqCtx,
@@ -164,6 +200,9 @@ export class RequestStateResolver {
             allTools,
             scopeGatedTools,
             distinctId,
+            renderUiEnabled,
+            metadata,
+            groupTypes,
         }
     }
 
@@ -203,6 +242,13 @@ export class RequestStateResolver {
     ): Promise<EvaluatedFlags> {
         if (flagKeys.length === 0) {
             return {}
+        }
+        // Local dev runs against the locally-running project, where the dev-only
+        // surfaces these flags gate (e.g. the agent-platform product DB) exist.
+        // The flags only hide those surfaces on prod until GA, so enable them all
+        // locally — the analytics flag-eval client is disabled in dev anyway.
+        if (isLocalApi()) {
+            return Object.fromEntries(flagKeys.map((key) => [key, true]))
         }
         try {
             const distinctId = await reqCtx.getDistinctId()

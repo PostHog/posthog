@@ -89,13 +89,16 @@ class TestTrafficTypeExpressions:
         user_agent_expr = ast.Field(chain=["properties", "$user_agent"])
         expr = is_bot_expr(user_agent_expr)
 
-        # Uses multiMatchAnyIndex(...) != 0 pattern
-        assert isinstance(expr, ast.CompareOperation)
-        assert expr.op == ast.CompareOperationOp.NotEq
-        assert isinstance(expr.left, ast.Call)
-        assert expr.left.name == "multiMatchAnyIndex"
-        assert isinstance(expr.right, ast.Constant)
-        assert expr.right.value == 0
+        # toBool(multiMatchAnyIndex(...) != 0) so results render as true/false
+        assert isinstance(expr, ast.Call)
+        assert expr.name == "toBool"
+        comparison = expr.args[0]
+        assert isinstance(comparison, ast.CompareOperation)
+        assert comparison.op == ast.CompareOperationOp.NotEq
+        assert isinstance(comparison.left, ast.Call)
+        assert comparison.left.name == "multiMatchAnyIndex"
+        assert isinstance(comparison.right, ast.Constant)
+        assert comparison.right.value == 0
 
     def test_get_bot_type_expr_structure(self):
         user_agent_expr = ast.Field(chain=["properties", "$user_agent"])

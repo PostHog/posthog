@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { IconCamera, IconPause, IconPlay, IconRewindPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { isChristmas, isHalloween } from 'lib/holidays'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -20,7 +21,6 @@ import {
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SessionPlayerState } from '~/types'
 
 import { ClipRecording } from './ClipRecording'
@@ -220,7 +220,9 @@ export function PlayerController(): JSX.Element {
                 hoverModeIsEnabled && showPlayerChrome
                     ? 'opacity-100 bg-surface-primary pointer-events-auto'
                     : hoverModeIsEnabled
-                      ? 'opacity-0 pointer-events-none'
+                      ? // invisible releases the hidden overlay's raster backing; transition-all
+                        // already covers visibility so the fade still plays (see PanelLayout scrims)
+                        'opacity-0 pointer-events-none invisible'
                       : 'bg-surface-primary'
             )}
         >

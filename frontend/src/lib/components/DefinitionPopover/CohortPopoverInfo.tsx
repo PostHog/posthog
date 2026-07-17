@@ -8,7 +8,7 @@ import {
     operatorToHumanName,
     propertyValueToHumanName,
 } from 'lib/components/DefinitionPopover/utils'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { BEHAVIORAL_TYPE_TO_LABEL } from 'scenes/cohorts/CohortFilters/constants'
 import {
     COHORT_MATCHING_DAYS,
@@ -104,7 +104,7 @@ export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Eleme
         </>
     ) : (
         <>
-            {(cohort.groups?.length || 0 > 0) && <LemonDivider className="DefinitionPopover my-2" />}
+            {(cohort.groups?.length || 0) > 0 && <LemonDivider className="DefinitionPopover my-2" />}
             {cohort.groups &&
                 cohort.groups.map((group, index) => (
                     <DefinitionPopover.Section key={index}>

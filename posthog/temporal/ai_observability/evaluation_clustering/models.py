@@ -16,7 +16,6 @@ class SamplerActivityInputs:
     team_id: int
     job_id: str
     job_name: str
-    run_ts: str  # ISO timestamp tag used in the embedding `rendering` value
     window_start: str  # ISO
     window_end: str  # ISO
     max_samples: int

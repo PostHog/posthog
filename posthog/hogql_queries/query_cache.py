@@ -1,7 +1,10 @@
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
-from typing import NamedTuple, Optional
+from typing import TYPE_CHECKING, NamedTuple, Optional
+
+if TYPE_CHECKING:
+    from posthog.caching.fetch_from_cache import SplitCachedResponse
 
 from django.conf import settings
 
@@ -131,7 +134,7 @@ def _get_cache_metrics(registry: Optional[CollectorRegistry] = None) -> CacheMet
 
 
 @contextmanager
-def get_cache_metrics_context(registry_name: str) -> Generator[CacheMetrics, None, None]:
+def get_cache_metrics_context(registry_name: str) -> Generator[CacheMetrics]:
     """Context manager that yields the appropriate cache metrics based on execution context."""
     if _is_short_lived_context():
         with pushed_metrics_registry(registry_name) as registry:
@@ -176,7 +179,16 @@ class DjangoCacheQueryCacheManager(QueryCacheManagerBase):
     """
 
     def set_cache_data(self, *, response: dict, target_age: Optional[datetime]) -> None:
-        fresh_response_serialized = OrjsonJsonSerializer({}).dumps(response)
+        from posthog.caching.fetch_from_cache import encode_split_cached_response
+
+        if isinstance(response.get("results"), list):
+            # Split format keeps `results` as its own JSON segment so cache hits can skip
+            # parsing it — see fetch_from_cache.SplitCachedResponse. Pods that predate this
+            # format treat split entries as cache misses and recompute, so entries written
+            # during a rolling deploy may be recomputed once — accepted, deploys are quick.
+            fresh_response_serialized = encode_split_cached_response(response)
+        else:
+            fresh_response_serialized = OrjsonJsonSerializer({}).dumps(response)
         data_size = len(fresh_response_serialized)
 
         # Set cache with per-team size limit enforcement
@@ -202,3 +214,8 @@ class DjangoCacheQueryCacheManager(QueryCacheManagerBase):
         from posthog.caching.fetch_from_cache import fetch_cached_response_by_key
 
         return fetch_cached_response_by_key(self.cache_key, self.team_id)
+
+    def get_cache_data_split(self) -> Optional["SplitCachedResponse"]:
+        from posthog.caching.fetch_from_cache import fetch_split_cached_response_by_key
+
+        return fetch_split_cached_response_by_key(self.cache_key, self.team_id)

@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import uuid4
@@ -5,15 +6,23 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.exceptions import SynchronousOnlyOperation
+
+from asgiref.sync import async_to_sync
+from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
+
+from posthog.schema import AssistantMessage, HumanMessage
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
+from ee.hogai.chat_agent.slash_commands.commands.usage.command import UsageCommand
 from ee.hogai.chat_agent.slash_commands.commands.usage.queries import (
     CLOUD_REGION_TO_TEAM_ID,
     CLOUD_REGION_TO_URL,
     DEFAULT_FREE_TIER_CREDITS,
     DEFAULT_GA_LAUNCH_DATE,
+    POSTHOG_AI_PRODUCTS,
     AiUsagePeriod,
     format_usage_message,
     get_ai_credits,
@@ -23,6 +32,7 @@ from ee.hogai.chat_agent.slash_commands.commands.usage.queries import (
     get_ga_launch_date,
     get_past_month_start,
 )
+from ee.hogai.utils.types import AssistantState
 
 
 class TestUsage(BaseTest):
@@ -120,6 +130,9 @@ class TestUsage(BaseTest):
             query, params = mock_sync_execute.call_args[0][:2]
             self.assertEqual(params["team_to_query"], expected_team_to_query)
             self.assertEqual(params["session_id"], str(conversation_id))
+            # Only PostHog AI bucket products count — posthog_code bills separately.
+            self.assertIn("AND JSONExtractString(properties, 'ai_product') IN %(ai_products)s", query)
+            self.assertEqual(params["ai_products"], tuple(POSTHOG_AI_PRODUCTS))
             if expected_region_url is None:
                 self.assertNotIn("region_url", params)
                 self.assertNotIn("%(region_url)s", query)
@@ -273,6 +286,55 @@ class TestUsage(BaseTest):
         self.assertEqual(usage_period.start, datetime(2025, 11, 20, tzinfo=UTC))
         self.assertEqual(usage_period.end, now)
         self.assertEqual(usage_period.query_start, datetime(2025, 11, 20, tzinfo=UTC))
+
+    def test_execute_runs_usage_period_off_event_loop(self):
+        # Without a billing context, get_ai_usage_period falls back to team.organization.usage, a sync
+        # ORM access. It must run off the event loop or Django raises SynchronousOnlyOperation, which the
+        # command would swallow into a generic failure. This guard mimics that check: it raises only when
+        # get_ai_usage_period executes directly on the running loop.
+        conversation = Conversation.objects.create(team=self.team, user=self.user)
+        config = RunnableConfig(configurable={"thread_id": str(conversation.id)})
+        state = AssistantState(messages=[HumanMessage(content="/usage")])
+
+        def usage_period_guarded(*args, **kwargs):
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                return AiUsagePeriod(
+                    label="Past 30 days",
+                    start=datetime(2026, 5, 1, tzinfo=UTC),
+                    end=datetime(2026, 6, 1, tzinfo=UTC),
+                    query_start=datetime(2026, 5, 1, tzinfo=UTC),
+                )
+            raise SynchronousOnlyOperation(
+                "You cannot call this from an async context - use a thread or sync_to_async."
+            )
+
+        with (
+            patch(
+                "ee.hogai.chat_agent.slash_commands.commands.usage.command.get_ai_usage_period",
+                side_effect=usage_period_guarded,
+            ),
+            patch(
+                "ee.hogai.chat_agent.slash_commands.commands.usage.command.get_ai_credits_for_conversation",
+                return_value=10,
+            ),
+            patch(
+                "ee.hogai.chat_agent.slash_commands.commands.usage.command.get_ai_credits_for_team",
+                return_value=100,
+            ),
+            patch(
+                "ee.hogai.chat_agent.slash_commands.commands.usage.command.get_ai_free_tier_credits",
+                return_value=2000,
+            ),
+        ):
+            result = async_to_sync(UsageCommand(self.team, self.user).execute)(config, state)
+
+        message = result.messages[0]
+        assert isinstance(message, AssistantMessage)
+        content = cast(str, message.content)
+        self.assertIn("PostHog AI usage", content)
+        self.assertNotIn("query failed", content)
 
     def test_format_usage_message_no_usage(self):
         """Test formatting when no credits have been used."""

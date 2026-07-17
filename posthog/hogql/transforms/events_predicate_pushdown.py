@@ -1,29 +1,61 @@
-from typing import cast
+"""Events predicate pushdown.
+
+Wraps a `FROM events <JOIN…> WHERE p LIMIT n` query's events scan in a pre-filtering subquery so the events table is
+read once, filtered and `LIMIT`-bounded, before the joins fan out:
+
+    FROM events <JOIN…> WHERE <p> LIMIT n
+    ->
+    FROM (SELECT <needed cols> FROM events WHERE <pushable p> LIMIT n) AS events <JOIN…> WHERE <residual p>
+
+It runs *after* logical lowering and *before* the ClickHouse physical passes (see `prepare_ast_for_printing`), so it
+operates on the dialect-neutral logical form: property reads are `PropertyAccess`, not yet materialized columns. Two
+pieces move events work into the subquery:
+
+1. The pushable predicates (`EventsPredicatePushdownExtractor`) move into the subquery WHERE verbatim — they already
+   reference the real events table, so the physical pass optimizes them (materialized columns, skip indexes) in place.
+2. Everything the *outer* query still references is handled by `EventsSubexprHoister`: each maximal subexpression that
+   depends only on the events table is projected into the subquery and replaced by a reference to that column. The
+   physical pass then resolves any `PropertyAccess` / property-group form inside the subquery. Pushdown itself never
+   inspects physical columns or special-cases particular functions.
+
+It is a pure optimization: any unexpected error leaves the query untouched (run flat), and every rewrite is
+result-equivalent.
+
+Two things are built by hand here, on purpose:
+
+- **The subquery's types.** `_build_subquery` constructs the subquery's `SelectQueryType` directly rather than calling
+  `resolve_types`. It has to: `resolve_types` runs before lowering, has no handling for `PropertyAccess`, and clones
+  with `clear_types=True` — so re-resolving a subquery that already holds lowered `PropertyAccess` projections would
+  wipe their types and break nullability and printing downstream. Teaching the resolver about lowered nodes would cross
+  a layering boundary, so the types are assembled here instead.
+- **Hoisted-column nullability.** The printer reads a hoisted column's nullability from the subquery's projected column
+  type, not as a blanket-nullable subquery column. That is what lets a join key be hoisted like any other column: it
+  wraps in `ifNull(...)` only when the value is genuinely nullable.
+"""
+
+from typing import TYPE_CHECKING, cast
 
 import structlog
-
-from posthog.schema import HogQLQueryModifiers, PropertyGroupsMode
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.constants import LimitContext, get_max_limit_for_context
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DatabaseField, FieldTraverser
+from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import EventsPredicatePushdownExtractor
 from posthog.hogql.functions.mapping import find_hogql_aggregation
-from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
-from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_materialized_column_for_property
-from posthog.clickhouse.property_groups import property_groups
-from posthog.models.property import PropertyName, TableColumn
 from posthog.settings import TEST
+
+if TYPE_CHECKING:
+    from posthog.schema import HogQLQueryModifiers
 
 logger = structlog.get_logger(__name__)
 
 
-def events_pushdown_enabled(modifiers: HogQLQueryModifiers) -> bool:
+def events_pushdown_enabled(modifiers: "HogQLQueryModifiers") -> bool:
     """Enabled when explicitly on, or unset under TEST. Shared by the call site and the transform."""
     return bool(modifiers.pushDownPredicates or (modifiers.pushDownPredicates is None and TEST))
 
@@ -42,7 +74,7 @@ def apply_events_predicate_pushdown(
     node: _T_AST,
     context: HogQLContext,
 ) -> _T_AST:
-    """Apply predicate pushdown to events tables with lazy joins. Mutates the AST in place; returns it."""
+    """Apply predicate pushdown to eligible `FROM events … JOIN …` queries. Mutates the AST in place; returns it."""
     top_level_select_ids = _printer_top_level_select_ids(node)
     EventsPredicatePushdownTransform(context=context, top_level_select_ids=top_level_select_ids).visit(node)
     return node
@@ -68,238 +100,224 @@ class SelectAliasInliner(CloningVisitor):
         return super().visit_field(node)
 
 
-class LazyTypeDetector(TraversingVisitor):
-    """Detects any unresolved LazyJoinType / LazyTableType; pushdown bails if found (the subquery won't have those joins)."""
+class _StructuralNormalizer(CloningVisitor):
+    """Builds the hoister's structural-identity clone of an events-only expression: type- and location-stripped,
+    with every events column leaf rewritten to its resolved database column name. After lowering, two reads off
+    different blobs can carry the same chain (`properties` vs poe's `person_properties`, where the blob identity
+    lives only in the type), so the chain alone would wrongly identify them; the database name disambiguates.
+    Sets `failed` for an unresolvable column so the caller declines."""
 
-    def __init__(self):
+    def __init__(self, hoister: "EventsSubexprHoister"):
+        super().__init__(clear_types=True, clear_locations=True)
+        self.hoister = hoister
+        self.failed = False
+
+    def visit_field(self, node: ast.Field) -> ast.Field:
+        if self.hoister._is_target_field(node.type):
+            assert isinstance(node.type, ast.FieldType)
+            name = self.hoister._database_column_name(node.type)
+            if name is None:
+                self.failed = True
+            return ast.Field(chain=[name or ""])
+        return cast(ast.Field, super().visit_field(node))
+
+
+class _EventsOnlyScan(TraversingVisitor):
+    """Classifies the leaf references in an expression so the hoister can decide whether the whole subtree depends
+    only on the target events table. Counts target-table vs foreign field references (a lazy-join or any other
+    non-events ref is simply foreign) and flags nested subqueries."""
+
+    def __init__(self, hoister: "EventsSubexprHoister"):
         super().__init__()
-        self.found_lazy_type = False
+        self.hoister = hoister
+        self.target_refs = 0
+        self.foreign_refs = 0
+        self.has_subquery = False
 
-    def visit_field(self, node: ast.Field):
+    def visit_field(self, node: ast.Field) -> None:
         super().visit_field(node)
-        if node.type is not None and self._check_type_for_lazy(node.type):
-            self.found_lazy_type = True
+        if self.hoister._is_target_field(node.type):
+            self.target_refs += 1
+        else:
+            self.foreign_refs += 1
 
-    def visit_join_expr(self, node: ast.JoinExpr):
-        super().visit_join_expr(node)
-        if node.type is not None and self._check_type_for_lazy(node.type):
-            self.found_lazy_type = True
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        self.has_subquery = True
 
-    def visit_alias(self, node: ast.Alias):
-        super().visit_alias(node)
-        if node.type is not None and self._check_type_for_lazy(node.type):
-            self.found_lazy_type = True
-
-    def _check_type_for_lazy(self, field_type: ast.Type) -> bool:
-        if isinstance(field_type, ast.LazyJoinType):
-            return True
-        if isinstance(field_type, ast.LazyTableType):
-            return True
-        if isinstance(field_type, ast.FieldType):
-            return self._check_table_type_for_lazy(field_type.table_type)
-        if isinstance(field_type, ast.PropertyType):
-            return self._check_type_for_lazy(field_type.field_type)
-        if isinstance(field_type, ast.SelectQueryAliasType):
-            if field_type.select_query_type is not None:
-                return self._check_select_query_type_for_lazy(field_type.select_query_type)
-        return False
-
-    def _check_table_type_for_lazy(self, table_type: ast.Type | None) -> bool:
-        if table_type is None:
-            return False
-        if isinstance(table_type, ast.LazyJoinType):
-            return True
-        if isinstance(table_type, ast.LazyTableType):
-            return True
-        if isinstance(table_type, ast.TableAliasType):
-            return self._check_table_type_for_lazy(table_type.table_type)
-        if isinstance(table_type, ast.SelectQueryAliasType):
-            if table_type.select_query_type is not None:
-                return self._check_select_query_type_for_lazy(table_type.select_query_type)
-        return False
-
-    def _check_select_query_type_for_lazy(self, query_type: ast.SelectQueryType | ast.SelectSetQueryType) -> bool:
-        if isinstance(query_type, ast.SelectSetQueryType):
-            return False
-        for table_type in query_type.tables.values():
-            if self._check_table_type_for_lazy(table_type):
-                return True
-        for table_type in query_type.anonymous_tables:
-            if self._check_table_type_for_lazy(table_type):
-                return True
-        return False
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        self.has_subquery = True
 
 
-class EventsFieldCollector(TraversingVisitor):
-    """Collects the direct events columns a query references (with resolved FieldTypes, so the subquery can be
-    built without re-running resolve_types) and flags non-direct fields / lazy joins that block pushdown."""
+class EventsSubexprHoister(CloningVisitor):
+    """Rewrites an events query's outer expressions so the work that depends only on the events table moves into the
+    pre-filtering subquery.
 
-    def __init__(self, target_table: ast.TableType | ast.TableAliasType, context: HogQLContext):
-        super().__init__()
+    For each *maximal* subexpression that references only the target events table (its columns and property reads)
+    plus constants — a property value read, `JSONHas(properties, k)`, `match(uuid, …)`, `upper(properties.x)`, … — the
+    whole subexpression is projected into the subquery under a stable name and the outer occurrence becomes a
+    reference to that column. The ClickHouse physical pass, running afterwards, resolves any `PropertyAccess` /
+    property-group form *inside the subquery*; pushdown itself never inspects physical columns, mimics the events
+    schema, or special-cases particular functions — `JSONHas` is just one events-only expression among many.
+
+    A hoisted reference carries the projected column's real nullability (see the module docstring), so a non-nullable
+    value stays unwrapped and can serve as a join key, while a nullable property key still wraps correctly.
+
+    Sets `blocked` if a referenced leaf is an unresolvable column, so the caller declines."""
+
+    def __init__(
+        self,
+        target_table: ast.TableType | ast.TableAliasType,
+        subquery_ref: ast.SelectQueryAliasType,
+        context: HogQLContext,
+    ):
+        super().__init__(clear_types=False)
         self.target_table = target_table
+        self.subquery_ref = subquery_ref
+        # Pushdown always builds the ref over a SelectQueryType (never a set query); narrow it for column bookkeeping.
+        assert isinstance(subquery_ref.select_query_type, ast.SelectQueryType)
+        self.subquery_type = subquery_ref.select_query_type
         self.context = context
-        self.collected_fields: dict[str, ast.FieldType] = {}
-        self.materialized_columns: set[str] = set()
-        self._group_covered_field_ids: set[int] = set()
-        self.has_non_direct_fields = False
+        self.projections: dict[str, ast.Expr] = {}
+        self.column_types: dict[str, ast.Type] = {}
+        self.blocked = False
+        self._counter = 0
+        self._structures: dict[str, ast.Expr] = {}
 
-    def visit_field(self, node: ast.Field):
-        super().visit_field(node)
+    def visit(self, node: ast.AST | None) -> ast.AST:
+        # Aliases are transparent: recurse so the inner subexpression is hoisted while the alias — and the output
+        # name it carries — stays in the outer query.
+        if not isinstance(node, ast.Expr) or isinstance(node, ast.Alias):
+            return super().visit(node)
 
-        # Already exposed via its property-group Map column (see visit_call), so skip the redundant blob.
-        if id(node) in self._group_covered_field_ids:
-            return
+        # The maximal events-only subexpression — a direct column, a property read, or an events-only join key — is
+        # projected whole into the subquery and read back as one column. A join key needs no special handling; its
+        # nullability rides the projected column's type.
+        if self._is_hoistable(node):
+            name = self._intern(node)
+            if name is not None:
+                return ast.Field(chain=[name], type=ast.FieldType(name=name, table_type=self.subquery_ref))
 
-        field_type = node.type
+        return super().visit(node)
 
-        # events.properties.$foo: unwrap to the base column so we collect/re-type it for the inner table.
-        property_type = field_type if isinstance(field_type, ast.PropertyType) else None
-        if property_type is not None:
-            field_type = property_type.field_type
+    def visit_alias(self, node: ast.Alias) -> ast.Alias:
+        # The resolver wraps a bare column reference in an alias whose `FieldAliasType` carries the events column's
+        # `FieldType` again. Hoisting only the inner expression would leave that wrapper stale, and downstream
+        # consumers that resolve through it (`resolve_field_type`) would treat the outer reference as still reading
+        # the real events table. Re-point the wrapper at the rewritten expression's type (mirrors lowering's
+        # `visit_alias`).
+        new_node = cast(ast.Alias, super().visit_alias(node))
+        unwrapped: ast.Type | None = new_node.type
+        while isinstance(unwrapped, ast.FieldAliasType):
+            unwrapped = unwrapped.type
+        if (
+            isinstance(new_node.type, ast.FieldAliasType)
+            and self._is_target_field(unwrapped)
+            and new_node.expr.type is not None
+        ):
+            new_node.type = ast.FieldAliasType(alias=new_node.type.alias, type=new_node.expr.type)
+        return new_node
 
-        if isinstance(field_type, ast.FieldType):
-            table_type = field_type.table_type
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        # A nested subquery is its own scope: its events references resolve against its own FROM (even when that is
+        # the same events table), so rewriting them to read the outer pre-filtering subquery would cross scopes.
+        return cast(ast.SelectQuery, clone_expr(node, clear_types=False))
 
-            if self._type_references_lazy_join(table_type):
-                self.has_non_direct_fields = True
-                return
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> ast.SelectSetQuery:
+        return cast(ast.SelectSetQuery, clone_expr(node, clear_types=False))
 
-            if self._matches_target_table(table_type):
-                # Expose the physical mat/dmat/group column the printer reads, not the slow `properties` blob;
-                # falls through to the blob if the property isn't materialized.
-                if property_type is not None and self._collect_materialized_column(property_type, field_type):
-                    return
-
-                db_column_name = self._get_database_column_name(field_type)
-                if db_column_name:
-                    self.collected_fields[db_column_name] = field_type
-                else:
-                    self.has_non_direct_fields = True
-
-    def visit_call(self, node: ast.Call):
-        # Expose the property-group Map column for an OPTIMIZED JSONHas(properties, 'k') before recursing, so
-        # visit_field can skip the redundant blob. Mirrors ClickHousePrinter._get_optimized_property_group_call.
-        group_column = self._optimized_json_has_group_column(node)
-        if group_column is not None:
-            self.materialized_columns.add(group_column)
-            covered = node.args[0]
-            while isinstance(covered, ast.Alias):
-                covered = covered.expr
-            if isinstance(covered, ast.Field):
-                self._group_covered_field_ids.add(id(covered))
-        super().visit_call(node)
-
-    def _optimized_json_has_group_column(self, node: ast.Call) -> str | None:
-        """The property-group Map column an OPTIMIZED `JSONHas(<events properties>, <const>)` reads, else None."""
-        if self.context.modifiers.propertyGroupsMode != PropertyGroupsMode.OPTIMIZED:
+    def _intern(self, expr: ast.Expr) -> str | None:
+        """Record a subquery projection for `expr` and return the column name to reference it by. Structurally
+        identical reads share one projection. The preferred name is *not* injective — `properties.a[1]` (array index)
+        and `properties.a['1']` (object key) both prefer `properties__a__1`, and `properties.a.b` collides with
+        `properties['a__b']` — so a structurally different read whose preferred name is already taken gets a fresh
+        synthetic column instead; collapsing the two would silently return the first read's value for the second.
+        Returns None (setting `blocked`) for an unresolvable column."""
+        # Structural identity compares normalized type-stripped clones (type objects can be cyclic — table types
+        # embed query types — so comparing nodes with types attached is unsafe; see `_StructuralNormalizer` for the
+        # column-name normalization that disambiguates reads off different blobs).
+        normalizer = _StructuralNormalizer(self)
+        structure = cast(ast.Expr, normalizer.visit(expr))
+        if normalizer.failed:
+            self.blocked = True
             return None
-        if node.name != "JSONHas" or len(node.args) != 2 or not isinstance(node.args[1], ast.Constant):
+        for existing_name, existing_structure in self._structures.items():
+            if existing_structure == structure:
+                return existing_name
+        name = self._preferred_name(expr)
+        if name is None:
+            self.blocked = True
             return None
-        field_type = resolve_field_type(node.args[0])
-        if not isinstance(field_type, ast.FieldType) or not self._matches_target_table(field_type.table_type):
-            return None
-        resolved = self._resolve_events_table_and_column(field_type)
-        if resolved is None:
-            return None
-        table_name, field_name = resolved
-        for group_column in property_groups.get_property_group_columns(table_name, field_name, str(node.args[1].value)):
-            return group_column
-        return None
+        if name in self.projections:
+            name = self._synthetic_name()
+        value_type: ast.Type = expr.type or ast.UnknownType()
+        self.projections[name] = clone_expr(expr, clear_types=False)
+        self._structures[name] = structure
+        self.column_types[name] = value_type
+        self.subquery_type.columns[name] = value_type
+        return name
 
-    def _resolve_events_table_and_column(self, field_type: ast.FieldType) -> tuple[str, str] | None:
-        """(events table name, db column name) for a direct column on the target events table, else None."""
-        field_name = self._get_database_column_name(field_type)
-        if field_name is None:
-            return None
-        table = field_type.table_type
-        while isinstance(table, (ast.TableAliasType, ast.VirtualTableType)):
-            table = table.table_type
-        if not isinstance(table, ast.TableType):
-            return None
-        return table.table.to_printed_hogql(), field_name
+    def _preferred_name(self, node: ast.Expr) -> str | None:
+        # A property read's name is its source blob column joined with its key path, so `properties.x` and the person
+        # blob's `person_properties.x` hoist to separate columns instead of colliding on the bare key `x` (which would
+        # read the wrong blob for one of them). A direct column uses its database name; any other events-only
+        # subexpression a synthetic internal name (its outer output name rides its alias).
+        if isinstance(node, ast.PropertyAccess):
+            blob = self._database_column_name(node.expr.type) if isinstance(node.expr.type, ast.FieldType) else None
+            if blob is None:
+                return None
+            return "__".join([blob, *(str(key) for key in node.keys)])
+        if isinstance(node, ast.Field) and isinstance(node.type, ast.FieldType):
+            return self._database_column_name(node.type)
+        return self._synthetic_name()
 
-    def _collect_materialized_column(self, property_type: ast.PropertyType, base_field_type: ast.FieldType) -> bool:
-        """Record the physical column the printer reads for this event property; False (collect the raw blob) when none."""
-        if self.context.modifiers.materializationMode == "disabled" or not property_type.chain:
-            return False
-        resolved = self._resolve_events_table_and_column(base_field_type)
-        if resolved is None:
-            return False
-        table_name, field_name = resolved
-        column = self._materialized_column_for_property(table_name, field_name, str(property_type.chain[0]))
-        if column is None:
-            return False
-        self.materialized_columns.add(column)
-        return True
+    def _synthetic_name(self) -> str:
+        name = f"__pd_expr_{self._counter}"
+        self._counter += 1
+        return name
 
-    def _materialized_column_for_property(self, table_name: str, field_name: str, property_name: str) -> str | None:
-        """The single physical column the printer reads for events.<field>.<property>, or None. Mirrors
-        BasePrinter._get_all_materialized_property_sources' priority (static column, dmat slot, first group column)."""
-        materialized_column = get_materialized_column_for_property(
-            cast(TablesWithMaterializedColumns, table_name),
-            cast(TableColumn, field_name),
-            cast(PropertyName, property_name),
-        )
-        if materialized_column is not None:
-            return materialized_column.name
+    def _is_target_field(self, node_type: ast.Type | None) -> bool:
+        return isinstance(node_type, ast.FieldType) and self._matches_target_table(node_type.table_type)
 
-        if self.context.property_swapper is not None and table_name == "events" and field_name == "properties":
-            prop_info = self.context.property_swapper.event_properties.get(property_name)
-            if prop_info and prop_info.get("dmat"):
-                return prop_info["dmat"]
+    def _is_hoistable(self, node: ast.Expr) -> bool:
+        """True if `node` depends only on the target events table (its columns / property reads) plus constants — no
+        joined-table, lazy, or other foreign reference and no nested subquery — and touches the target at least once
+        (so we never project a pure constant)."""
+        scan = _EventsOnlyScan(self)
+        scan.visit(node)
+        return scan.target_refs > 0 and scan.foreign_refs == 0 and not scan.has_subquery
 
-        if self.context.modifiers.propertyGroupsMode in (PropertyGroupsMode.ENABLED, PropertyGroupsMode.OPTIMIZED):
-            for group_column in property_groups.get_property_group_columns(table_name, field_name, property_name):
-                return group_column
-
-        return None
-
-    def _type_references_lazy_join(self, table_type: ast.Type | None) -> bool:
-        if table_type is None:
-            return False
-        if isinstance(table_type, ast.LazyJoinType):
-            return True
-        if isinstance(table_type, ast.TableAliasType):
-            return self._type_references_lazy_join(table_type.table_type)
-        if isinstance(table_type, ast.LazyTableType):
-            return True
-        if isinstance(table_type, ast.VirtualTableType):
-            return self._type_references_lazy_join(table_type.table_type)
-        return False
-
-    def _get_database_column_name(self, field_type: ast.FieldType) -> str | None:
+    def _database_column_name(self, field_type: ast.FieldType) -> str | None:
         try:
             resolved = field_type.resolve_database_field(self.context)
-            if isinstance(resolved, FieldTraverser):
-                return None
             if isinstance(resolved, DatabaseField):
                 return resolved.name
             return None
         except Exception as err:
-            # Fail-safe: treat any resolution failure as non-direct and decline; debug-logged so a resolver
-            # regression silently disabling pushdown stays visible.
+            # Fail-safe: an unresolvable column blocks pushdown rather than risking a wrong subquery; debug-logged so
+            # a resolver regression silently disabling pushdown stays visible.
             logger.debug("events_predicate_pushdown_field_resolution_failed", error=str(err))
             return None
 
     def _matches_target_table(self, table_type: ast.Type | None) -> bool:
-        if table_type is None:
-            return False
-
-        unwrapped: ast.Type = table_type
-        if isinstance(unwrapped, ast.TableAliasType):
-            unwrapped = unwrapped.table_type
-        if isinstance(unwrapped, ast.VirtualTableType):
-            unwrapped = unwrapped.table_type
-        if isinstance(unwrapped, ast.TableAliasType):
+        # Match the specific FROM table, not the EventsTable schema object: a self-join (`events a JOIN events b`)
+        # shares one schema object across both sides, so rewriting by object identity would collapse `b`'s columns
+        # onto the subquery too. Discriminate by alias (object identity is unreliable — the pipeline's CloningVisitors
+        # may have re-instantiated the types since the FROM was captured). Only POE virtual layers are peeled.
+        unwrapped: ast.Type | None = table_type
+        while isinstance(unwrapped, ast.VirtualTableType):
             unwrapped = unwrapped.table_type
 
-        target: ast.Type = self.target_table
+        target = self.target_table
         if isinstance(target, ast.TableAliasType):
-            target = target.table_type
-
-        if isinstance(unwrapped, ast.TableType) and isinstance(target, ast.TableType):
-            return unwrapped.table is target.table
-        return table_type is self.target_table or unwrapped is target
+            return (
+                isinstance(unwrapped, ast.TableAliasType)
+                and unwrapped.alias == target.alias
+                and isinstance(unwrapped.table_type, ast.TableType)
+                and isinstance(target.table_type, ast.TableType)
+                and unwrapped.table_type.table is target.table_type.table
+            )
+        # Unaliased FROM: match the bare events TableType only, never a column reached through some join alias.
+        return isinstance(unwrapped, ast.TableType) and unwrapped.table is target.table
 
 
 class _ShortCircuitBlockerFinder(TraversingVisitor):
@@ -331,11 +349,13 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
     """Pushes events WHERE/PREWHERE predicates into a pre-filtering subquery:
     `FROM events` -> `FROM (SELECT <needed cols> FROM events WHERE <predicates>) AS events`.
 
-    Runs after resolve_lazy_tables and applies bottom-up so nested `FROM events` subqueries benefit too."""
+    Runs after logical lowering (so property reads are PropertyAccess) and before the ClickHouse physical passes,
+    applying bottom-up so nested `FROM events` subqueries benefit too."""
 
-    # Join types across which moving an events PREDICATE is result-safe (they preserve the events/left side).
-    # Broader than _all_joins_preserve_every_row (LEFT only): INNER / CROSS are predicate-safe but can drop an
-    # events row, so they pass here yet decline at _safe_inner_limit (the single-rule gate always needs it).
+    # Join types across which moving an events PREDICATE is result-safe (they preserve the events/left side). This is
+    # broader than the all-rows-preserved check (`_all_joins_preserve_every_row`, LEFT only): INNER / CROSS are
+    # predicate-safe but can drop an events row, so they pass here yet are rejected when deciding whether to also push
+    # the LIMIT (`_safe_inner_limit`).
     _SAFE_JOIN_TYPES = {"JOIN", "INNER JOIN", "LEFT JOIN", "LEFT OUTER JOIN", "CROSS JOIN"}
 
     def __init__(
@@ -365,6 +385,15 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         """Apply predicate pushdown to an eligible query. Returns a decline reason, or None if applied."""
         assert node.select_from is not None
 
+        # The hoister rewrites events references in the select list, residual predicates, HAVING/QUALIFY, and join
+        # constraints — but the printer also prints column-CTE bodies and WINDOW clauses. An events reference there
+        # would survive un-rewritten and point at a column the pre-filtering subquery doesn't project (ClickHouse:
+        # unknown identifier), so decline those shapes outright.
+        if node.ctes:
+            return "has_ctes"
+        if node.window_exprs:
+            return "has_window_exprs"
+
         joined_aliases = self._collect_joined_aliases(node)
         if not joined_aliases:
             return "no_safe_joined_aliases"
@@ -372,12 +401,6 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         events_table_type = node.select_from.type
         if not isinstance(events_table_type, (ast.TableType, ast.TableAliasType)):
             return "from_not_table_type"
-
-        # Collect needed columns before extracting/mutating predicates, so we can bail before touching
-        # node.where and never drop a pushable predicate.
-        collector = self._collect_needed_columns(node, events_table_type)
-        if collector is None or (not collector.collected_fields and not collector.materialized_columns):
-            return "no_collectable_columns"
 
         # Classify a WHERE field that resolves to an alias by what the alias references (e.g. `f(session.x) AS
         # event` must not be pushed by name).
@@ -418,36 +441,48 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         if inner_limit is None:
             return "no_short_circuitable_limit"
 
-        # Build the subquery from the outer query's resolved types. The inner events table keeps the outer
-        # alias so the pushed predicates resolve against it; the printer injects the per-table team_id guard.
-        events_subquery = self._build_typed_subquery(
-            collector.collected_fields,
-            collector.materialized_columns,
-            events_table_type,
-            inner_where,
-            inner_prewhere,
-            alias=node.select_from.alias,
-            limit=inner_limit,
+        # Hoist the events leaves the outer query still references into the pre-filtering subquery, rewriting each
+        # outer reference to read the subquery column. Build the subquery's type/ref first so the rewritten
+        # references can point at it; nothing on `node` is mutated until every check below passes.
+        new_alias = node.select_from.alias or "events"
+        subquery_type = ast.SelectQueryType(columns={}, tables={new_alias: events_table_type})
+        subquery_ref = ast.SelectQueryAliasType(alias=new_alias, select_query_type=subquery_type)
+        hoister = EventsSubexprHoister(events_table_type, subquery_ref, self.context)
+
+        new_select = [cast(ast.Expr, hoister.visit(column)) for column in node.select]
+        new_where = cast(ast.Expr, hoister.visit(new_where)) if new_where is not None else None
+        new_having = cast(ast.Expr, hoister.visit(node.having)) if node.having is not None else None
+        new_qualify = cast(ast.Expr, hoister.visit(node.qualify)) if node.qualify is not None else None
+        rewritten_join_constraints: list[tuple[ast.JoinExpr, ast.Expr]] = []
+        join = node.select_from.next_join
+        while join is not None:
+            if join.constraint is not None and join.constraint.expr is not None:
+                rewritten_join_constraints.append((join, cast(ast.Expr, hoister.visit(join.constraint.expr))))
+            join = join.next_join
+
+        if hoister.blocked:
+            return "non_direct_outer_reference"
+        if not hoister.projections:
+            return "no_collectable_columns"
+
+        events_subquery = self._build_subquery(
+            hoister, events_table_type, inner_where, inner_prewhere, alias=node.select_from.alias, limit=inner_limit
         )
         if events_subquery is None:
             return "subquery_build_failed"
-        subquery_type = events_subquery.type
-        assert subquery_type is not None
 
-        # Commit: drop the pushed predicates and swap the events table for the subquery, keeping the alias.
+        # Commit: install the rewritten outer expressions and swap the events table for the subquery.
+        node.select = new_select
         node.where = new_where
+        node.having = new_having
+        node.qualify = new_qualify
+        for join_expr, rewritten in rewritten_join_constraints:
+            assert join_expr.constraint is not None
+            join_expr.constraint.expr = rewritten
         node.prewhere = new_prewhere
-        original_alias = node.select_from.alias
-        new_alias = original_alias or "events"
         node.select_from.table = events_subquery
         node.select_from.alias = new_alias
-
-        # Outer field refs keep their original types and resolve against the alias by name.
-        # TODO: re-point outer field refs so query metadata reflects the rewrite.
-        node.select_from.type = ast.SelectQueryAliasType(
-            alias=new_alias,
-            select_query_type=subquery_type,
-        )
+        node.select_from.type = subquery_ref
         return None
 
     def _should_apply_pushdown(self, node: ast.SelectQuery) -> bool:
@@ -510,6 +545,10 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             or node.array_join_list is not None
             or node.limit_with_ties
             or node.limit_percent
+            # A non-aggregate HAVING / QUALIFY drops rows after the join, exactly like a residual predicate: the
+            # first `offset + limit` events no longer cover the outer slice, so a pushed LIMIT could under-produce.
+            or node.having is not None
+            or node.qualify is not None
         ):
             return None
         if residual_where is not None or residual_prewhere is not None:
@@ -560,23 +599,6 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             join = join.next_join
         return aliases
 
-    def _collect_needed_columns(
-        self, node: ast.SelectQuery, events_table_type: ast.TableType | ast.TableAliasType
-    ) -> EventsFieldCollector | None:
-        """Collect the events columns the outer query references; None if it can't be pushed (lazy or non-direct fields)."""
-        lazy_detector = LazyTypeDetector()
-        lazy_detector.visit(node)
-        if lazy_detector.found_lazy_type:
-            return None
-
-        collector = EventsFieldCollector(events_table_type, self.context)
-        collector.visit(node)
-
-        if collector.has_non_direct_fields:
-            return None
-
-        return collector
-
     def _prepare_inner_predicate(self, expr: ast.Expr | None, select_aliases: dict[str, ast.Expr]) -> ast.Expr | None:
         """Ready a pushed predicate for the inner subquery (inline SELECT-alias refs, clone), or None if there is none."""
         if expr is None:
@@ -584,64 +606,37 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         expr = SelectAliasInliner(select_aliases).visit(expr)
         return clone_expr(expr)
 
-    def _build_typed_subquery(
+    def _build_subquery(
         self,
-        collected_fields: dict[str, ast.FieldType],
-        materialized_columns: set[str],
+        hoister: EventsSubexprHoister,
         events_table_type: ast.TableType | ast.TableAliasType,
         where_clause: ast.Expr | None,
-        prewhere_clause: ast.Expr | None = None,
-        alias: str | None = None,
-        limit: ast.Constant | None = None,
+        prewhere_clause: ast.Expr | None,
+        alias: str | None,
+        limit: ast.Constant | None,
     ) -> ast.SelectQuery | None:
-        """Build the subquery from the outer query's resolved FieldTypes (avoiding resolve_types, which might
-        re-resolve lazy joins). Keeps the outer events alias so pushed predicates and the SELECT list match."""
+        """Build `SELECT <hoisted projections> FROM events WHERE <pushed predicates> LIMIT n`.
+
+        The hoisted projections and the pushed predicates already reference the original events table type, so the
+        subquery reuses it directly as its FROM — no schema mimicry, no synthetic materialized columns. The ClickHouse
+        physical pass rewrites the `PropertyAccess` projections to their materialized columns afterwards."""
         base_table_type: ast.Type = events_table_type
         if isinstance(base_table_type, ast.TableAliasType):
             base_table_type = base_table_type.table_type
         if not isinstance(base_table_type, ast.TableType):
             return None
 
-        inner_table_type = self._inner_table_type_with_materialized_columns(base_table_type, materialized_columns)
-        ref_table_type: ast.TableType | ast.TableAliasType = (
-            ast.TableAliasType(alias=alias, table_type=inner_table_type) if alias else inner_table_type
-        )
+        events_field = ast.Field(chain=[base_table_type.table.to_printed_hogql()], type=base_table_type)
+        select_from = ast.JoinExpr(table=events_field, alias=alias, type=events_table_type)
 
-        # One aliased Field per column, so names survive even if PropertySwapper rewrites the inner expr.
-        select_fields: list[ast.Expr] = []
-        columns_in_scope: dict[str, ast.Type] = {}
-
-        for col_name in sorted(collected_fields.keys()):
-            original_field_type = collected_fields[col_name]
-
-            if isinstance(original_field_type.table_type, ast.VirtualTableType):
-                virtual_table_type = ast.VirtualTableType(
-                    table_type=ref_table_type,
-                    field=original_field_type.table_type.field,
-                    virtual_table=original_field_type.table_type.virtual_table,
-                )
-                field_type = ast.FieldType(name=original_field_type.name, table_type=virtual_table_type)
-            else:
-                field_type = ast.FieldType(name=col_name, table_type=ref_table_type)
-
-            field_node = ast.Field(chain=[col_name], type=field_type)
-            alias_node = ast.Alias(alias=col_name, expr=field_node, type=field_type)
-            select_fields.append(alias_node)
-            columns_in_scope[col_name] = field_type
-
-        # Expose the raw physical mat/dmat/group columns so the printer's outer references resolve against the
-        # subquery alias; the outer query re-applies the property semantics.
-        for col_name in sorted(materialized_columns):
-            if col_name in columns_in_scope:
-                continue
-            field_type = ast.FieldType(name=col_name, table_type=ref_table_type)
-            field_node = ast.Field(chain=[col_name], type=field_type)
-            select_fields.append(ast.Alias(alias=col_name, expr=field_node, type=field_type))
-            columns_in_scope[col_name] = field_type
-
-        events_field = ast.Field(chain=["events"], type=inner_table_type)
-        select_from = ast.JoinExpr(table=events_field, alias=alias, type=ref_table_type)
-        select_query_type = ast.SelectQueryType(columns=columns_in_scope, tables={alias or "events": ref_table_type})
+        select_fields: list[ast.Expr] = [
+            ast.Alias(
+                alias=name,
+                expr=hoister.projections[name],
+                type=ast.FieldAliasType(alias=name, type=hoister.column_types[name]),
+            )
+            for name in sorted(hoister.projections)
+        ]
 
         return ast.SelectQuery(
             select=select_fields,
@@ -649,22 +644,5 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             where=where_clause,
             prewhere=prewhere_clause,
             limit=limit,
-            type=select_query_type,
+            type=hoister.subquery_type,
         )
-
-    def _inner_table_type_with_materialized_columns(
-        self, base_table_type: ast.TableType, materialized_columns: set[str]
-    ) -> ast.TableType:
-        """Inner events table type augmented with synthetic DatabaseFields for the materialized columns (physical
-        ClickHouse columns, not HogQL schema fields). Uses a copy; the shared table object is never mutated."""
-        synthetic_fields = {
-            column: DatabaseField(name=column)
-            for column in materialized_columns
-            if not base_table_type.table.has_field(column)
-        }
-        if not synthetic_fields:
-            return base_table_type
-        augmented_table = base_table_type.table.model_copy(
-            update={"fields": {**base_table_type.table.fields, **synthetic_fields}}
-        )
-        return ast.TableType(table=augmented_table)

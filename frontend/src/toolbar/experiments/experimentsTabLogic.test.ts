@@ -1,10 +1,15 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { EXPERIMENT_TARGET_SELECTOR } from 'lib/actionUtils'
+import { EXPERIMENT_TARGET_SELECTOR } from 'lib/utils/actions'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { success: jest.fn(), error: jest.fn() },
+}))
+
+// The failure-path tests intentionally exercise toolbarLogger, which logs to the console by design
+jest.mock('~/toolbar/toolbarLogger', () => ({
+    toolbarLogger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }))
 
 import { useMocks } from '~/mocks/jest'
@@ -14,6 +19,12 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 
 import { experimentsLogic } from './experimentsLogic'
 import { experimentsTabLogic } from './experimentsTabLogic'
+
+// The toolbar logger mirrors intentional error/auth paths to the console (its job on
+// customer pages); tests exercise those paths on purpose, so stub the boundary.
+jest.mock('~/toolbar/toolbarLogger', () => ({
+    toolbarLogger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}))
 
 const web_experiments = [
     {
@@ -52,12 +63,17 @@ const web_experiments = [
     },
 ]
 
-global.fetch = jest.fn(() =>
-    Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ results: web_experiments }),
-    } as any as Response)
-)
+// The toolbar calls `global.fetch` directly (not the app api client / MSW). Reassign the mock per
+// test in beforeEach — the MSW jest harness installs its own `global.fetch` in a global beforeAll,
+// which runs after this module loads and would otherwise clobber a top-level assignment.
+const installFetchMock = (): void => {
+    global.fetch = jest.fn(() =>
+        Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ results: web_experiments }),
+        } as any as Response)
+    )
+}
 describe('experimentsTabLogic', () => {
     let theExperimentsTabLogic: ReturnType<typeof experimentsTabLogic.build>
     let theExperimentsLogic: ReturnType<typeof experimentsLogic.build>
@@ -65,6 +81,7 @@ describe('experimentsTabLogic', () => {
     let theToolbarConfigLogic: ReturnType<typeof toolbarConfigLogic.build>
 
     beforeEach(() => {
+        installFetchMock()
         const { lemonToast } = jest.requireMock('lib/lemon-ui/LemonToast/LemonToast')
         ;(lemonToast.success as jest.Mock).mockClear()
         ;(lemonToast.error as jest.Mock).mockClear()
@@ -297,7 +314,7 @@ describe('experimentsTabLogic', () => {
                 theExperimentsTabLogic.actions.submitExperimentForm()
             }).delay(0)
 
-            expect(lemonToast.error).toHaveBeenCalledWith('Experiment save failed: Invalid experiment config')
+            expect(lemonToast.error).toHaveBeenCalledWith('Invalid experiment config')
         })
 
         it('shows generic error when API returns error and json parsing fails', async () => {
@@ -318,7 +335,7 @@ describe('experimentsTabLogic', () => {
                 theExperimentsTabLogic.actions.submitExperimentForm()
             }).delay(0)
 
-            expect(lemonToast.error).toHaveBeenCalledWith('Experiment save failed: Request failed: 500')
+            expect(lemonToast.error).toHaveBeenCalledWith('Failed to save experiment')
         })
 
         it('handles network error gracefully', async () => {
@@ -333,7 +350,7 @@ describe('experimentsTabLogic', () => {
                 theExperimentsTabLogic.actions.submitExperimentForm()
             }).delay(0)
 
-            expect(lemonToast.error).toHaveBeenCalledWith('Experiment save failed: Network error')
+            expect(lemonToast.error).toHaveBeenCalledWith('Failed to save experiment')
         })
     })
 

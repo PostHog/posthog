@@ -1,4 +1,4 @@
-import { delay } from 'lib/utils'
+import { delay } from 'lib/utils/async'
 
 import { randomString } from '../utils'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../utils/workspace-test-base'

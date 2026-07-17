@@ -22,7 +22,7 @@ from products.exports.backend.temporal.subscriptions.types import SnapshotInsigh
 from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.product_analytics.backend.models.insight import Insight
 
-from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
+from ee.billing.quota_limiting import is_team_over_ai_credit_budget
 
 LOGGER = get_logger(__name__)
 
@@ -121,9 +121,12 @@ def _build_states_from_content_snapshot(
         query_kind = (insight_query_kinds or {}).get(insight_id, "Unknown")
         result_payload = query_results.get("result") if query_results else None
         columns = _extract_columns(query_results)
+        value_format = insight_snap.get("value_format")
 
         if query_results and result_payload:
-            results_summary = build_results_summary(query_kind, result_payload, columns=columns)
+            results_summary = build_results_summary(
+                query_kind, result_payload, columns=columns, value_format=value_format
+            )
             fallback_reason: str | None = None
         elif query_error:
             results_summary = "Query failed"
@@ -443,8 +446,8 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
     # graceful degradation beats failing the whole delivery. Fail open on a quota-lookup
     # error: generate the summary rather than silently dropping it on a transient blip.
     try:
-        is_over_credit_budget = await sync_to_async(is_team_limited, thread_sensitive=False)(
-            subscription.team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        is_over_credit_budget = await sync_to_async(is_team_over_ai_credit_budget, thread_sensitive=False)(
+            subscription.team.api_token
         )
     except Exception as e:
         is_over_credit_budget = False

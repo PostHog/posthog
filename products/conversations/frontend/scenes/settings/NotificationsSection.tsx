@@ -23,6 +23,17 @@ const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
         trigger: '$conversation_ticket_created',
     },
     {
+        title: 'Team reply → email customer',
+        description:
+            'When a team member replies on a ticket, email the customer so they receive the response in their inbox.',
+        trigger: '$conversation_message_sent',
+    },
+    {
+        title: 'Customer message → notify team',
+        description: 'When a customer sends a message on a ticket, notify the assigned teammate by email or Slack.',
+        trigger: '$conversation_message_received',
+    },
+    {
         title: 'SLA: no response in 4h → escalate',
         description: 'If a ticket sits without a team reply for 4 hours, reassign to a lead and email the team.',
         trigger: '$conversation_ticket_created',

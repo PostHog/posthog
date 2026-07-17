@@ -1,4 +1,5 @@
-from typing import Optional
+from dataclasses import dataclass
+from typing import Literal, Optional, overload
 
 import structlog
 import pydantic_core
@@ -32,6 +33,7 @@ from posthog.event_usage import AnalyticsProps
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, QueryResponse, get_query_runner_or_none
 from posthog.models import Team, User
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -39,6 +41,66 @@ from products.data_tools.backend.models.join import DataWarehouseJoin
 from common.hogvm.python.debugger import color_bytecode
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class RawCachedQueryResponse:
+    """A cached query response whose `results` field is carried as raw JSON bytes.
+
+    `response.results` holds an empty-list placeholder; `raw_results` is the JSON-encoded
+    results segment straight from the cache, ready to be embedded into a JSON response
+    (e.g. via orjson.Fragment) without a parse/re-serialize round trip. Only produced when
+    a caller passes allow_raw_results=True.
+    """
+
+    response: BaseModel
+    raw_results: bytes
+
+
+# The overloads keep the public contract at `dict | BaseModel` for the vast majority of
+# callers: only allow_raw_results=True can produce a RawCachedQueryResponse.
+@overload
+def process_query_dict(
+    team: Team,
+    query_json: dict,
+    *,
+    dashboard_filters_json: Optional[dict] = ...,
+    variables_override_json: Optional[dict] = ...,
+    limit_context: Optional[LimitContext] = ...,
+    execution_mode: ExecutionMode = ...,
+    user: Optional[User] = ...,
+    user_access_control: Optional[UserAccessControl] = ...,
+    query_id: Optional[str] = ...,
+    insight_id: Optional[int] = ...,
+    dashboard_id: Optional[int] = ...,
+    is_query_service: bool = ...,
+    cache_age_seconds: Optional[int] = ...,
+    pagination_cursor: Optional[str] = ...,
+    analytics_props: Optional[AnalyticsProps] = ...,
+    allow_raw_results: Literal[False] = ...,
+) -> dict | BaseModel: ...
+
+
+@overload
+def process_query_dict(
+    team: Team,
+    query_json: dict,
+    *,
+    dashboard_filters_json: Optional[dict] = ...,
+    variables_override_json: Optional[dict] = ...,
+    limit_context: Optional[LimitContext] = ...,
+    execution_mode: ExecutionMode = ...,
+    user: Optional[User] = ...,
+    user_access_control: Optional[UserAccessControl] = ...,
+    query_id: Optional[str] = ...,
+    insight_id: Optional[int] = ...,
+    dashboard_id: Optional[int] = ...,
+    is_query_service: bool = ...,
+    cache_age_seconds: Optional[int] = ...,
+    pagination_cursor: Optional[str] = ...,
+    analytics_props: Optional[AnalyticsProps] = ...,
+    allow_raw_results: bool,
+) -> dict | BaseModel | RawCachedQueryResponse: ...
 
 
 def process_query_dict(
@@ -50,13 +112,16 @@ def process_query_dict(
     limit_context: Optional[LimitContext] = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
     user: Optional[User] = None,
+    user_access_control: Optional[UserAccessControl] = None,
     query_id: Optional[str] = None,
     insight_id: Optional[int] = None,
     dashboard_id: Optional[int] = None,
     is_query_service: bool = False,
+    cache_age_seconds: Optional[int] = None,
     pagination_cursor: Optional[str] = None,
     analytics_props: Optional[AnalyticsProps] = None,
-) -> dict | BaseModel:
+    allow_raw_results: bool = False,
+) -> dict | BaseModel | RawCachedQueryResponse:
     upgraded_query_json = upgrade(query_json)
     try:
         model = QuerySchemaRoot.model_validate(upgraded_query_json)
@@ -100,13 +165,60 @@ def process_query_dict(
         limit_context=limit_context,
         execution_mode=execution_mode,
         user=user,
+        user_access_control=user_access_control,
         query_id=query_id,
         insight_id=insight_id,
         dashboard_id=dashboard_id,
         is_query_service=is_query_service,
+        cache_age_seconds=cache_age_seconds,
         pagination_cursor=pagination_cursor,
         analytics_props=analytics_props,
+        allow_raw_results=allow_raw_results,
     )
+
+
+@overload
+def process_query_model(
+    team: Team,
+    query: BaseModel,
+    *,
+    dashboard_filters: Optional[DashboardFilter] = ...,
+    variables_override: Optional[list[HogQLVariable]] = ...,
+    limit_context: Optional[LimitContext] = ...,
+    execution_mode: ExecutionMode = ...,
+    user: Optional[User] = ...,
+    user_access_control: Optional[UserAccessControl] = ...,
+    query_id: Optional[str] = ...,
+    insight_id: Optional[int] = ...,
+    dashboard_id: Optional[int] = ...,
+    is_query_service: bool = ...,
+    cache_age_seconds: Optional[int] = ...,
+    pagination_cursor: Optional[str] = ...,
+    analytics_props: Optional[AnalyticsProps] = ...,
+    allow_raw_results: Literal[False] = ...,
+) -> dict | BaseModel: ...
+
+
+@overload
+def process_query_model(
+    team: Team,
+    query: BaseModel,
+    *,
+    dashboard_filters: Optional[DashboardFilter] = ...,
+    variables_override: Optional[list[HogQLVariable]] = ...,
+    limit_context: Optional[LimitContext] = ...,
+    execution_mode: ExecutionMode = ...,
+    user: Optional[User] = ...,
+    user_access_control: Optional[UserAccessControl] = ...,
+    query_id: Optional[str] = ...,
+    insight_id: Optional[int] = ...,
+    dashboard_id: Optional[int] = ...,
+    is_query_service: bool = ...,
+    cache_age_seconds: Optional[int] = ...,
+    pagination_cursor: Optional[str] = ...,
+    analytics_props: Optional[AnalyticsProps] = ...,
+    allow_raw_results: bool,
+) -> dict | BaseModel | RawCachedQueryResponse: ...
 
 
 def process_query_model(
@@ -118,6 +230,7 @@ def process_query_model(
     limit_context: Optional[LimitContext] = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
     user: Optional[User] = None,
+    user_access_control: Optional[UserAccessControl] = None,
     query_id: Optional[str] = None,
     insight_id: Optional[int] = None,
     dashboard_id: Optional[int] = None,
@@ -125,8 +238,9 @@ def process_query_model(
     cache_age_seconds: Optional[int] = None,
     pagination_cursor: Optional[str] = None,
     analytics_props: Optional[AnalyticsProps] = None,
-) -> dict | BaseModel:
-    result: dict | BaseModel
+    allow_raw_results: bool = False,
+) -> dict | BaseModel | RawCachedQueryResponse:
+    result: dict | BaseModel | RawCachedQueryResponse
 
     if isinstance(query, HogQLAutocomplete):
         _, database = resolve_database_for_connection(
@@ -177,7 +291,9 @@ def process_query_model(
             joins=join_models,
         )
 
-    query_runner = get_query_runner_or_none(query, team, limit_context=limit_context, user=user)
+    query_runner = get_query_runner_or_none(
+        query, team, limit_context=limit_context, user=user, user_access_control=user_access_control
+    )
     if query_runner is None:  # This query doesn't run via query runner
         if hasattr(query, "source") and isinstance(query.source, BaseModel):
             result = process_query_model(
@@ -188,12 +304,14 @@ def process_query_model(
                 limit_context=limit_context,
                 execution_mode=execution_mode,
                 user=user,
+                user_access_control=user_access_control,
                 query_id=query_id,
                 insight_id=insight_id,
                 dashboard_id=dashboard_id,
                 is_query_service=is_query_service,
                 cache_age_seconds=cache_age_seconds,
                 analytics_props=analytics_props,
+                allow_raw_results=allow_raw_results,
             )
         elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
             # Caching is handled by query runners, so in this case we can only return a cache miss
@@ -223,6 +341,8 @@ def process_query_model(
         if pagination_cursor:
             query_runner.apply_pagination_cursor(pagination_cursor)
         query_runner.is_query_service = is_query_service
+        if allow_raw_results:
+            query_runner.serve_raw_cached_results = True
 
         result = query_runner.run(
             execution_mode=execution_mode,
@@ -233,5 +353,8 @@ def process_query_model(
             cache_age_seconds=cache_age_seconds,
             analytics_props=analytics_props,
         )
+        raw_results = query_runner.raw_cached_results_bytes
+        if raw_results is not None and isinstance(result, BaseModel):
+            return RawCachedQueryResponse(response=result, raw_results=raw_results)
 
     return result

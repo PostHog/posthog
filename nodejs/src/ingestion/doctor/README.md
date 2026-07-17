@@ -1,7 +1,7 @@
 # Pipeline Doctor
 
 Convention-checking agents for the PostHog ingestion pipeline.
-The agents use the doc-test chapters in `pipelines/docs/` as their source of truth
+The agents use the doc-test chapters in `framework/docs/` as their source of truth
 and review code for adherence to framework patterns.
 
 ## Agents
@@ -31,9 +31,9 @@ Use `/pipeline-doctor` for a general architecture overview that helps you pick t
 The 13 runnable doc-test chapters define all conventions:
 
 ```text
-nodejs/src/ingestion/pipelines/docs/
+nodejs/src/ingestion/framework/docs/
 ├── 01-introduction.test.ts
-├── 02-batch-pipelines.test.ts
+├── 02-chunk-pipelines.test.ts
 ├── 03-concurrent-processing.test.ts
 ├── 04-sequential-processing.test.ts
 ├── 05-grouping.test.ts

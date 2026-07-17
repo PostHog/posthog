@@ -11,15 +11,15 @@
 """Emit OTLP traces from Backend CI JUnit XML artifacts.
 
 Reads `junit-results-*` artifacts (downloaded by the workflow) and emits one
-trace per workflow run shaped:
+trace per job (shard) shaped:
 
-    ci-backend (root)
-    └── <segment>-<group>            (shard)
-        ├── <pytest nodeid>          (test)
-        └── ...
+    <workflow> / <job>               (root, one trace per job)
+    ├── <pytest nodeid>              (test)
+    └── ...
 
-Trace ID is deterministic per (run_id, run_attempt) so each workflow attempt
-gets its own trace. Failures and errors mark spans Status.ERROR.
+Trace ID is deterministic per (run_id, run_attempt, job) so each job in each
+workflow attempt gets its own trace. Failures and errors mark spans
+Status.ERROR.
 
 This script must NEVER fail the workflow: any unexpected error is logged and
 the process exits 0. The workflow job is also `continue-on-error: true` as a
@@ -67,8 +67,9 @@ class TestCase:
     duration_seconds: float
     start: datetime
     end: datetime
-    outcome: str  # passed | failed | error | skipped | rerun_passed
+    outcome: str  # passed | failed | error | skipped | xfailed | rerun_passed
     attempts: int  # 1 + number of pytest-rerunfailures retries before final outcome
+    selector: str  # runnable 'path/test.py::Class::test' from JUnit's `file`; '' when file is absent
 
 
 @dataclass(frozen=True)
@@ -89,6 +90,12 @@ class Shard:
     testcase_seconds: float
     overhead_seconds: float
     tests: list[TestCase]
+    # Wall-clock seconds from `<testsuite timestamp>` to the first test's logstart, as
+    # reported by the `posthog-junit-timings` pytest plugin. Captures the shared
+    # pre-first-test overhead (imports, collection, session/package fixture setup) so
+    # the trace exporter can emit it as its own span instead of letting it visually
+    # collapse into the first test. Zero when the plugin didn't run (external shards).
+    setup_seconds: float = 0.0
 
 
 # ---------- artifact directory parsing ----------
@@ -142,17 +149,32 @@ def collect_artifact_infos(artifacts_root: Path) -> list[ArtifactInfo]:
 def classify_testcase(testcase: Any) -> tuple[str, int]:
     """Return (outcome, attempts) from a single `<testcase>` element.
 
-    pytest-rerunfailures emits prior attempts as `<rerunFailure>` /
-    `<rerunError>` siblings before the final outcome child. Walk children once.
+    pytest's junitxml records nothing for pytest-rerunfailures attempts (a
+    rerun report is neither passed, failed, nor skipped), so the root
+    conftest's `posthog-junit-timings` plugin surfaces the retry count as a
+    `posthog.reruns` testcase property. `<rerunFailure>`/`<rerunError>`
+    children from other junit producers are honored too. Walk children once.
     """
     rerun_count = 0
     final_outcome: str | None = None
     for child in testcase:
         tag = child.tag
-        if tag.startswith("rerun"):
+        if tag == "properties":
+            for prop in child.findall("property"):
+                if prop.get("name") == "posthog.reruns":
+                    try:
+                        rerun_count += max(0, int(prop.get("value", "0")))
+                    except ValueError:
+                        pass
+        elif tag.startswith("rerun"):
             rerun_count += 1
         elif tag in ("failure", "error", "skipped") and final_outcome is None:
-            final_outcome = "failed" if tag == "failure" else tag
+            if tag == "skipped" and child.get("type") == "pytest.xfail":
+                # Quarantined-but-still-failing tests (xfail strict=False) must stay
+                # distinguishable from plain skips in the analytics data.
+                final_outcome = "xfailed"
+            else:
+                final_outcome = "failed" if tag == "failure" else tag
     if final_outcome is None:
         final_outcome = "rerun_passed" if rerun_count else "passed"
     return final_outcome, 1 + rerun_count
@@ -167,6 +189,24 @@ def to_nodeid(classname: str, name: str) -> str:
     return f"{classname.replace('.', '/')}::{name}" if classname else name
 
 
+def to_selector(file: str, classname: str, name: str) -> str:
+    """Runnable pytest selector 'path/to/test_x.py::TestClass::test_y' from JUnit's `file` + `classname`.
+
+    Unlike `to_nodeid`, JUnit's `file` gives the exact module boundary, so nothing is guessed: the
+    class portion is `classname` with the file's module prefix stripped. Returns '' when JUnit omits
+    `file` (external shards) or the shape is unexpected — consumers fall back to the nodeid.
+    """
+    if not file or not name:
+        return ""
+    module = file[:-3].replace("/", ".") if file.endswith(".py") else ""
+    if not classname:
+        return f"{file}::{name}"
+    if module and classname.startswith(module):
+        class_part = classname[len(module) :].lstrip(".")
+        return f"{file}::{class_part}::{name}" if class_part else f"{file}::{name}"
+    return ""
+
+
 def parse_iso_utc(value: str) -> datetime | None:
     """Parse an ISO 8601 timestamp (pytest emits naive); treat as UTC."""
     if not value:
@@ -176,6 +216,25 @@ def parse_iso_utc(value: str) -> datetime | None:
     except ValueError:
         return None
     return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+
+
+def parse_testsuite_properties(suite_elem: Any) -> dict[str, str]:
+    """Extract `<properties><property name=.. value=../></properties>` from `<testsuite>`.
+
+    Pytest writes these via `record_testsuite_property` /
+    `xml.add_global_property`. Returns an empty dict when no `<properties>` block
+    exists (e.g., external shards without the `posthog-junit-timings` plugin).
+    """
+    properties_elem = suite_elem.find("properties")
+    if properties_elem is None:
+        return {}
+    result: dict[str, str] = {}
+    for prop in properties_elem.findall("property"):
+        name = prop.get("name")
+        value = prop.get("value")
+        if name and value is not None:
+            result[name] = value
+    return result
 
 
 def parse_shard(xml_path: Path, info: ArtifactInfo) -> Shard | None:
@@ -198,11 +257,20 @@ def parse_shard(xml_path: Path, info: ArtifactInfo) -> Shard | None:
     except ValueError:
         wall_seconds = 0.0
 
+    properties = parse_testsuite_properties(suite_elem)
+    try:
+        setup_seconds = max(0.0, float(properties.get("posthog.setup_seconds", "0")))
+    except ValueError:
+        setup_seconds = 0.0
+    # Clamp to wall time so a clock skew or malformed property can't push tests past `end`.
+    setup_seconds = min(setup_seconds, wall_seconds)
+
     tests: list[TestCase] = []
-    cursor = start
+    cursor = start + timedelta(seconds=setup_seconds)
     for tc in suite_elem.iter("testcase"):
         classname = tc.get("classname", "")
         name = tc.get("name", "")
+        file = tc.get("file", "")
         outcome, attempts = classify_testcase(tc)
         try:
             duration = float(tc.get("time", "0"))
@@ -216,6 +284,7 @@ def parse_shard(xml_path: Path, info: ArtifactInfo) -> Shard | None:
                 nodeid=to_nodeid(classname, name),
                 classname=classname,
                 name=name,
+                selector=to_selector(file, classname, name),
                 duration_seconds=duration,
                 start=test_start,
                 end=test_end,
@@ -234,6 +303,7 @@ def parse_shard(xml_path: Path, info: ArtifactInfo) -> Shard | None:
         testcase_seconds=testcase_seconds,
         overhead_seconds=max(0.0, wall_seconds - testcase_seconds),
         tests=tests,
+        setup_seconds=setup_seconds,
     )
 
 
@@ -251,8 +321,8 @@ def collect_shards(artifacts_root: Path) -> list[Shard]:
 
 
 def should_emit(test: TestCase, min_duration_seconds: float) -> bool:
-    """Emit signal-bearing testcases: failures, errors, reruns, or above the duration threshold."""
-    if test.outcome in ("failed", "error"):
+    """Emit signal-bearing testcases: failures, errors, xfails, reruns, or above the duration threshold."""
+    if test.outcome in ("failed", "error", "xfailed"):
         return True
     if test.attempts > 1:
         return True
@@ -270,6 +340,7 @@ def filter_shards(shards: list[Shard], min_duration_seconds: float) -> list[Shar
             testcase_seconds=s.testcase_seconds,
             overhead_seconds=s.overhead_seconds,
             tests=[t for t in s.tests if should_emit(t, min_duration_seconds)],
+            setup_seconds=s.setup_seconds,
         )
         for s in shards
     ]
@@ -310,6 +381,9 @@ def workflow_resource_attributes() -> dict[str, str | int]:
     attrs["ci.event_name"] = os.environ.get("GITHUB_EVENT_NAME", "")
     attrs["ci.head_ref"] = os.environ.get("GITHUB_HEAD_REF", "")
     attrs["ci.base_ref"] = os.environ.get("GITHUB_BASE_REF", "")
+    attrs["ci.ref_name"] = os.environ.get("GITHUB_REF_NAME", "")
+    # Branch name regardless of event: PR source branch, else the pushed branch.
+    attrs["ci.branch"] = os.environ.get("GITHUB_HEAD_REF") or os.environ.get("GITHUB_REF_NAME", "")
     pr_number = get_pull_request_number()
     if pr_number is not None:
         attrs["ci.pr_number"] = pr_number
@@ -320,20 +394,24 @@ def workflow_resource_attributes() -> dict[str, str | int]:
 # ---------- OTLP export ----------
 
 
-def deterministic_trace_id(run_id: str, run_attempt: str) -> int:
-    """One trace ID per (run_id, run_attempt). Reruns of the same attempt collide intentionally."""
-    digest = hashlib.sha256(f"{run_id}:{run_attempt}".encode()).digest()
+def deterministic_trace_id(run_id: str, run_attempt: str, job_key: str) -> int:
+    """One trace ID per (run_id, run_attempt, job). Reruns of the same attempt collide intentionally."""
+    digest = hashlib.sha256(f"{run_id}:{run_attempt}:{job_key}".encode()).digest()
     return int.from_bytes(digest[:16], "big")  # OTLP trace IDs are 128-bit (16 bytes).
 
 
 class _FixedTraceIdGenerator(IdGenerator):
-    """Force every span in the run to share a deterministic trace ID."""
+    """Force every span to share whatever trace ID is currently set.
 
-    def __init__(self, trace_id: int) -> None:
-        self._trace_id = trace_id
+    `trace_id` is mutated between jobs so each job's root span (and its inherited
+    test children) lands in its own trace while sharing one provider/exporter.
+    """
+
+    def __init__(self, trace_id: int = 0) -> None:
+        self.trace_id = trace_id
 
     def generate_trace_id(self) -> int:
-        return self._trace_id
+        return self.trace_id
 
     def generate_span_id(self) -> int:
         span_id = secrets.randbits(64)
@@ -346,14 +424,26 @@ def _to_ns(dt: datetime) -> int:
     return int(dt.timestamp() * 1_000_000_000)
 
 
+def job_trace_key(info: ArtifactInfo) -> str:
+    """Stable per-job identity; folds into the trace ID so each job is its own trace."""
+    return f"{info.suite}:{info.segment}:{info.group}"
+
+
+def job_trace_name(workflow: str, info: ArtifactInfo) -> str:
+    """Human trace name `<workflow> / <job>` derived from the artifact, e.g. `Backend CI / core (29)`."""
+    job = f"{info.segment} ({info.group})" if info.group is not None else info.segment
+    return f"{workflow} / {job}"
+
+
 def emit_traces(shards: list[Shard], endpoint: str, token: str) -> None:
-    """Build root → shard → test span hierarchy and ship via OTLP HTTP."""
+    """Emit one trace per job: a `<workflow> / <job>` root span with test children, shipped via OTLP HTTP."""
     run_id = os.environ.get("GITHUB_RUN_ID", "0")
     run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
-    trace_id = deterministic_trace_id(run_id, run_attempt)
+    workflow = os.environ.get("GITHUB_WORKFLOW", "") or SERVICE_NAME
 
+    id_generator = _FixedTraceIdGenerator()
     resource = Resource.create({"service.name": SERVICE_NAME, **workflow_resource_attributes()})
-    provider = TracerProvider(resource=resource, id_generator=_FixedTraceIdGenerator(trace_id))
+    provider = TracerProvider(resource=resource, id_generator=id_generator)
     exporter = OTLPSpanExporter(endpoint=endpoint, headers={"Authorization": f"Bearer {token}"})
     provider.add_span_processor(BatchSpanProcessor(exporter, max_export_batch_size=SPAN_BATCH_SIZE))
     tracer = provider.get_tracer(INSTRUMENTATION_NAME, INSTRUMENTATION_VERSION)
@@ -362,26 +452,19 @@ def emit_traces(shards: list[Shard], endpoint: str, token: str) -> None:
         provider.shutdown()
         return
 
-    root_start = min(s.start for s in shards)
-    root_end = max(s.end for s in shards)
-    root_span = tracer.start_span(SERVICE_NAME, start_time=_to_ns(root_start))
-    root_has_error = False
-    with trace.use_span(root_span, end_on_exit=False):
-        for shard in shards:
-            if _emit_shard_span(tracer, shard):
-                root_has_error = True
+    for shard in shards:
+        # Mutate the shared generator before each job so its root span (and the test
+        # children that inherit the active parent's trace ID) form a distinct trace.
+        id_generator.trace_id = deterministic_trace_id(run_id, run_attempt, job_trace_key(shard.info))
+        _emit_shard_span(tracer, shard, job_trace_name(workflow, shard.info))
 
-    if root_has_error:
-        root_span.set_status(Status(StatusCode.ERROR))
-    root_span.end(end_time=_to_ns(root_end))
     provider.shutdown()
 
 
-def _emit_shard_span(tracer: trace.Tracer, shard: Shard) -> bool:
-    """Emit shard span and its test children. Returns True iff any child has Error."""
+def _emit_shard_span(tracer: trace.Tracer, shard: Shard, root_name: str) -> bool:
+    """Emit the job's root span and its test children. Returns True iff any child has Error."""
     info = shard.info
-    shard_name = f"{info.segment}-{info.group}" if info.group is not None else info.segment
-    shard_span = tracer.start_span(shard_name, start_time=_to_ns(shard.start))
+    shard_span = tracer.start_span(root_name, start_time=_to_ns(shard.start))
     shard_span.set_attribute("shard.suite", info.suite)
     shard_span.set_attribute("shard.segment", info.segment)
     if info.group is not None:
@@ -391,9 +474,18 @@ def _emit_shard_span(tracer: trace.Tracer, shard: Shard) -> bool:
     shard_span.set_attribute("shard.junit_filename", shard.junit_filename)
     shard_span.set_attribute("shard.testcase_seconds", shard.testcase_seconds)
     shard_span.set_attribute("shard.overhead_seconds", shard.overhead_seconds)
+    shard_span.set_attribute("shard.setup_seconds", shard.setup_seconds)
 
     has_error = False
     with trace.use_span(shard_span, end_on_exit=False):
+        # Surface the pre-first-test gap (imports, collection, session/package fixtures)
+        # as its own span — without it, the cursor-based reconstruction would visually
+        # collapse this overhead into the first test's window.
+        if shard.setup_seconds > 0:
+            setup_span = tracer.start_span("setup", start_time=_to_ns(shard.start))
+            setup_span.set_attribute("shard.setup_seconds", shard.setup_seconds)
+            setup_span.end(end_time=_to_ns(shard.start + timedelta(seconds=shard.setup_seconds)))
+
         # Pytest runs serially within a shard (no `-n` flag — confirmed in pytest.ini),
         # so parse-time cumulative durations give non-overlapping per-test windows
         # that stay stable even after threshold filtering.
@@ -403,6 +495,8 @@ def _emit_shard_span(tracer: trace.Tracer, shard: Shard) -> bool:
             test_span.set_attribute("test.attempts", test.attempts)
             test_span.set_attribute("test.classname", test.classname)
             test_span.set_attribute("test.name", test.name)
+            if test.selector:
+                test_span.set_attribute("test.selector", test.selector)
             if test.outcome in ("failed", "error"):
                 test_span.set_status(Status(StatusCode.ERROR))
                 has_error = True

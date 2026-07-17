@@ -32,6 +32,8 @@ import { setLatestVersionsOnQuery } from '~/queries/utils'
 import type { Experiment, FilterType, IntervalType, MultivariateFlagVariant } from '~/types'
 import { ChartDisplayType, ExperimentMetricMathType, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { EXPOSURE_DEFAULT_EVENT, EXPOSURE_FEATURE_FLAG_PROPERTY, featureFlagVariantProperty } from './exposureContract'
+
 /**
  * We extract all the math properties from the EntityNode type so we can use them as
  * options when creating a query. Tools like the running time calculator have to set
@@ -357,7 +359,8 @@ export function filterToMetricSource(
     if (events?.[0]) {
         return {
             kind: NodeKind.EventsNode,
-            event: events[0].id,
+            // Fall back to `name` when taxonomic selection leaves `id` empty/null.
+            event: events[0].id || events[0].name,
             name: events[0].name,
             math: events[0].math || ExperimentMetricMathType.TotalCount,
             math_property: events[0].math_property,
@@ -497,7 +500,7 @@ export const getExposureConfigEventsNode = (
     options: { featureFlagKey: string; featureFlagVariants: MultivariateFlagVariant[] }
 ): EventsNode => {
     const exposure_step_name = 'Experiment exposure'
-    if (exposureConfig && exposureConfig.event !== '$feature_flag_called') {
+    if (exposureConfig && exposureConfig.event !== EXPOSURE_DEFAULT_EVENT) {
         const { featureFlagKey, featureFlagVariants } = options
         return {
             kind: NodeKind.EventsNode,
@@ -506,7 +509,7 @@ export const getExposureConfigEventsNode = (
             properties: [
                 ...(exposureConfig.properties || []),
                 {
-                    key: `$feature/${featureFlagKey}`,
+                    key: featureFlagVariantProperty(featureFlagKey),
                     type: PropertyFilterType.Event,
                     value: featureFlagVariants.map(({ key }) => key),
                     operator: PropertyOperator.Exact,
@@ -518,10 +521,10 @@ export const getExposureConfigEventsNode = (
     return {
         kind: NodeKind.EventsNode,
         custom_name: exposure_step_name,
-        event: '$feature_flag_called',
+        event: EXPOSURE_DEFAULT_EVENT,
         properties: [
             {
-                key: '$feature_flag',
+                key: EXPOSURE_FEATURE_FLAG_PROPERTY,
                 type: PropertyFilterType.Event,
                 value: options.featureFlagKey,
                 operator: PropertyOperator.Exact,

@@ -41,10 +41,12 @@ export function AiFirstHomepage(): JSX.Element {
                 {/* Chat header — fixed at top, fades in independently */}
                 <div
                     className={cn(
-                        'absolute top-0 left-0 right-0 z-10 transition-opacity duration-300 ease-out motion-reduce:duration-0',
+                        // visibility joins the transition so the fade still plays but the hidden
+                        // header releases its raster backing (see PanelLayout scrims)
+                        'absolute top-0 left-0 right-0 z-10 transition-[opacity,visibility] duration-300 ease-out motion-reduce:duration-0',
                         isAi && phaseAtLeast(animationPhase, 'separator')
                             ? 'opacity-100'
-                            : 'opacity-0 pointer-events-none'
+                            : 'opacity-0 pointer-events-none invisible'
                     )}
                 >
                     {isAi && (

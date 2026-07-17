@@ -13,7 +13,7 @@ declare module '@playwright/test' {
 
 /**
  * Core Playwright test base with page extensions but NO automatic login
- * Use this as the foundation for both legacy tests and new workspace-based tests
+ * Use this as the foundation for workspace-based tests
  */
 export const test = base.extend<{ page: Page }>({
     page: async ({ page }, use) => {

@@ -3,7 +3,7 @@ import type { LemonSelectOption } from '@posthog/lemon-ui'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { capitalizeFirstLetter, pluralize } from 'lib/utils'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { TIME_INTERVAL_BOUNDS } from 'scenes/funnels/funnelUtils'
 
 import { FunnelConversionWindowTimeUnit } from '~/types'

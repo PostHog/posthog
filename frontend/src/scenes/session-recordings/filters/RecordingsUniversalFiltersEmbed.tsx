@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useId, useRef, useState } from 'react'
 
@@ -31,6 +31,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { SettingsMenu } from 'lib/components/PanelSettings/PanelSettings'
 import { CategoryDropdown } from 'lib/components/TaxonomicFilter/CategoryDropdown'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
@@ -50,7 +51,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
-import { SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -65,6 +65,9 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
+
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
 import { TimestampFormat, playerSettingsLogic } from '../player/playerSettingsLogic'
 import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
@@ -77,6 +80,7 @@ import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLo
 import { CurrentFilterIndicator } from './CurrentFilterIndicator'
 import { DurationFilter } from './DurationFilter'
 import { ProductAnalyticsOverLimitBanner } from './ProductAnalyticsOverLimitBanner'
+import { deriveOperand } from './recordingsQueryConversions'
 import { SavedFilters } from './SavedFilters'
 
 function HideRecordingsMenu(): JSX.Element {
@@ -138,6 +142,13 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     const { setIsFiltersExpanded } = useActions(playlistFiltersLogic)
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
     const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
+
+    useAttachedContext([
+        { type: 'recording_filters', value: JSON.stringify(filters), label: 'Current filters' },
+        ...(currentSessionRecordingId
+            ? [{ type: 'session_recording', key: currentSessionRecordingId, label: 'Current session' } as const]
+            : []),
+    ] as AttachedContextItem[])
 
     return (
         <>
@@ -226,6 +237,11 @@ interface ReplayUniversalFiltersEmbedProps {
     className?: string
     allowReplayHogQLFilters?: boolean
     pinnedFilters?: UniversalFiltersGroup
+    /**
+     * Drop the saved-filter footer (feedback button + "Save as new filter") and surface "Reset filters" inline at
+     * the top instead. Used by embedders that only want ad-hoc filtering, e.g. Replay Vision's Run tab.
+     */
+    compactActions?: boolean
 }
 
 export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFiltersEmbedProps): JSX.Element => {
@@ -493,7 +509,7 @@ function SavedFilterNameEditor({
     )
 }
 
-function RecordingsUniversalFilterAddFilterPopover({
+export function RecordingsUniversalFilterAddFilterPopover({
     categoryDropdownVariant,
     taxonomicGroupTypes,
 }: {
@@ -584,7 +600,7 @@ function RecordingsUniversalFilterAddFilterPopover({
     )
 }
 
-const ReplayFiltersTab = ({
+export const ReplayFiltersTab = ({
     filters,
     setFilters,
     resetFilters,
@@ -592,6 +608,7 @@ const ReplayFiltersTab = ({
     totalFiltersCount,
     allowReplayHogQLFilters = false,
     pinnedFilters,
+    compactActions = false,
 }: ReplayUniversalFiltersEmbedProps): JSX.Element => {
     const [isSaveFiltersModalOpen, setIsSaveFiltersModalOpen] = useState(false)
 
@@ -599,6 +616,7 @@ const ReplayFiltersTab = ({
     const categoryDropdownVariant = resolveCategoryDropdownVariant(
         featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
     )
+    const showFeedbackButton = useFeatureFlag('SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON')
 
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
@@ -674,12 +692,25 @@ const ReplayFiltersTab = ({
 
     const hasFilterChanges = appliedSavedFilter ? !equal(appliedSavedFilter.filters, filters) : false
 
+    const resetButton = (
+        <LemonButton
+            type="tertiary"
+            size="small"
+            onClick={handleResetFilters}
+            icon={<IconRevert />}
+            tooltip="Remove all filters and reset to defaults"
+            disabledReason={!(resetFilters && (totalFiltersCount ?? 0) > 0) ? 'No filters applied' : undefined}
+        >
+            Reset filters
+        </LemonButton>
+    )
+
     return (
         <div className={clsx('relative bg-surface-primary w-full h-full', className)}>
             <ProductAnalyticsOverLimitBanner />
             {appliedSavedFilter && (
-                <div className="border-b px-2 py-3 flex flex-wrap items-center gap-2">
-                    <div className="flex items-center gap-2 min-w-0 flex-1 basis-3/5">
+                <div className="border-b px-2 py-2 flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
                         <span className="font-medium whitespace-nowrap shrink-0">Loaded saved filter:</span>
                         <SavedFilterNameEditor
                             appliedSavedFilter={appliedSavedFilter}
@@ -726,10 +757,20 @@ const ReplayFiltersTab = ({
                     )}
                 </div>
             )}
-            <div className="flex items-center py-2 justify-between">
+            <div className="flex items-center py-2 justify-between px-2">
                 <AndOrFilterSelect
-                    value={filters.filter_group.type}
+                    // Reflect the effective operand, not just the outer group: legacy saved filters can
+                    // carry the match-any on the inner group while the outer stays AND. Toggling syncs
+                    // both below, so interacting normalizes the structure.
+                    value={deriveOperand(filters.filter_group)}
                     onChange={(type) => {
+                        // Clicking the already-effective operand is a no-op — don't rewrite the
+                        // group or mark the saved filter dirty just because the displayed value
+                        // came from a legacy inner group.
+                        if (type === deriveOperand(filters.filter_group)) {
+                            return
+                        }
+
                         let values = filters.filter_group.values
 
                         // set the type on the nested child when only using a single filter group
@@ -750,16 +791,20 @@ const ReplayFiltersTab = ({
                     suffix={['filter', 'filters']}
                     size="small"
                 />
-                <div className="mr-2">
-                    <TestAccountFilter
-                        size="small"
-                        filters={filters}
-                        onChange={(testFilters) =>
-                            setFilters({
-                                filter_test_accounts: testFilters.filter_test_accounts,
-                            })
-                        }
-                    />
+                <div>
+                    {compactActions ? (
+                        resetButton
+                    ) : (
+                        <TestAccountFilter
+                            size="small"
+                            filters={filters}
+                            onChange={(testFilters) =>
+                                setFilters({
+                                    filter_test_accounts: testFilters.filter_test_accounts,
+                                })
+                            }
+                        />
+                    )}
                 </div>
             </div>
 
@@ -841,40 +886,37 @@ const ReplayFiltersTab = ({
                 </div>
             </UniversalFilters>
 
-            <LemonDivider className="mt-4" />
+            {!compactActions && (
+                <>
+                    <LemonDivider className="mt-4" />
 
-            <div className="flex items-center py-2 justify-between px-1 gap-2">
-                {useFeatureFlag('SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON') && (
-                    <LemonButton
-                        id="replay-filters-feedback-button"
-                        type="tertiary"
-                        status="danger"
-                        size="small"
-                        data-attr="replay-filters-feedback-button"
-                    >
-                        Unexpected filter results?
-                    </LemonButton>
-                )}
-                <div className="flex gap-2 ml-auto">
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        onClick={handleResetFilters}
-                        icon={<IconRevert />}
-                        tooltip="Remove all filters and reset to defaults"
-                        disabledReason={
-                            !(resetFilters && (totalFiltersCount ?? 0) > 0) ? 'No filters applied' : undefined
-                        }
-                    >
-                        Reset filters
-                    </LemonButton>
-                    <LemonButton type="primary" size="small" onClick={() => setIsSaveFiltersModalOpen(true)}>
-                        Save as new filter
-                    </LemonButton>
-                </div>
-            </div>
+                    <div className="flex items-center py-2 justify-between px-2 gap-2">
+                        {showFeedbackButton && (
+                            <LemonButton
+                                id="replay-filters-feedback-button"
+                                type="tertiary"
+                                status="danger"
+                                size="small"
+                                data-attr="replay-filters-feedback-button"
+                            >
+                                Unexpected filter results?
+                            </LemonButton>
+                        )}
+                        <div className="flex gap-2 ml-auto">
+                            {resetButton}
+                            <LemonButton type="primary" size="small" onClick={() => setIsSaveFiltersModalOpen(true)}>
+                                Save as new filter
+                            </LemonButton>
+                        </div>
+                    </div>
 
-            <SaveFiltersModal isOpen={isSaveFiltersModalOpen} setIsOpen={setIsSaveFiltersModalOpen} filters={filters} />
+                    <SaveFiltersModal
+                        isOpen={isSaveFiltersModalOpen}
+                        setIsOpen={setIsSaveFiltersModalOpen}
+                        filters={filters}
+                    />
+                </>
+            )}
         </div>
     )
 }

@@ -28,17 +28,16 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
-from posthog.models import Cohort, Team
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models import Team
 from posthog.models.event.event import Selector
 from posthog.models.property.util import build_selector_regex
-from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.resource_limits import LimitKey, check_count_limit
 
 from products.actions.backend.models.action import ACTION_STEP_MATCHING_OPTIONS, Action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
 from products.product_analytics.backend.models.insight import Insight
 
@@ -570,6 +569,26 @@ class ActionViewSet(
             return None
         return value if value >= 0 else None
 
+    _ORDERING_WHITELIST = {"name", "created_at", "pinned_at", "created_by"}
+
+    def _ordering_from_request(self, request: request.Request) -> list[str] | None:
+        raw = request.query_params.get("ordering")
+        if not raw:
+            return None
+        field = raw.lstrip("-")
+        if field not in self._ORDERING_WHITELIST:
+            return None
+        prefix = "-" if raw.startswith("-") else ""
+        # created_by is a FK, so sort by the creator's full name rather than the raw id.
+        ordering: list[str]
+        if field == "created_by":
+            ordering = [f"{prefix}created_by__first_name", f"{prefix}created_by__last_name"]
+        else:
+            ordering = [f"{prefix}{field}"]
+        if field != "name":
+            ordering.append("name")  # stable tiebreak within equal values
+        return ordering
+
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -581,25 +600,65 @@ class ActionViewSet(
             OpenApiParameter(
                 "search", OpenApiTypes.STR, description="Case-insensitive substring match on the action name."
             ),
+            OpenApiParameter(
+                "created_by",
+                OpenApiTypes.STR,
+                description="Comma-separated list of creator user ids. Returns only actions created by these users.",
+            ),
+            OpenApiParameter(
+                "tags",
+                OpenApiTypes.STR,
+                description='JSON-encoded array of tag names, e.g. ["billing","beta"]. Returns actions having any of these tags.',
+            ),
+            OpenApiParameter(
+                "ordering",
+                OpenApiTypes.STR,
+                description="Field to order by (name, created_at, pinned_at, created_by). Prefix with '-' for descending.",
+            ),
         ]
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         # :HACKY: we need to override this viewset method until actions support
         # better pagination in the taxonomic filter and on the actions page.
         #
-        # `limit`/`offset`/`search` are opt-in: with no params we still return the
-        # full, ordered list so the actions page and taxonomic filter keep working
-        # unchanged. API/MCP consumers can pass them to avoid pulling every action
-        # at once (a project can have thousands), which otherwise overflows the
-        # context window of LLM clients calling the `actions-get-all` MCP tool.
+        # `limit`/`offset`/`search`/`created_by`/`tags`/`ordering` are opt-in: with
+        # no params we still return the full, ordered list so the taxonomic filter
+        # and other in-memory consumers of the shared actions list keep working
+        # unchanged. The actions page and API/MCP consumers pass them to avoid
+        # pulling every action at once (a project can have thousands), which
+        # otherwise overflows the context window of LLM clients calling the
+        # `actions-get-all` MCP tool.
         actions = self.filter_queryset(self.get_queryset())
 
         search = request.query_params.get("search")
         if search:
             actions = actions.filter(name__icontains=search)
 
+        created_by = request.query_params.get("created_by")
+        if created_by:
+            creator_ids = [int(v) for v in created_by.split(",") if v.strip().isdigit()]
+            if creator_ids:
+                actions = actions.filter(created_by_id__in=creator_ids)
+
+        tags = request.query_params.get("tags")
+        if tags:
+            try:
+                tags_list = json.loads(tags)
+            except (json.JSONDecodeError, TypeError):
+                tags_list = None
+            if tags_list:
+                actions = actions.filter(tagged_items__tag__name__in=tags_list).distinct()
+
+        ordering = self._ordering_from_request(request)
+        if ordering:
+            actions = actions.order_by(*ordering)
+
         offset = self._parse_non_negative_int(request.query_params.get("offset")) or 0
         limit = self._parse_non_negative_int(request.query_params.get("limit"))
+        # Only pay for a COUNT query when actually paginating. The full-list default
+        # (no `limit`) is a hot path shared with the taxonomic filter, so we derive the
+        # count from the serialized results there instead of hitting the DB again.
+        count = actions.count() if limit is not None else None
         if limit is not None:
             actions = actions[offset : offset + limit]
         elif offset:
@@ -615,32 +674,7 @@ class ActionViewSet(
             for a in actions_list:
                 a["reference_count"] = ref_counts.get(a["id"], 0)
 
-        return Response({"results": actions_list})
+        if count is None:
+            count = offset + len(actions_list)
 
-
-@mutable_receiver(model_activity_signal, sender=Action)
-def handle_action_change(
-    sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs
-) -> None:
-    # Detect soft delete/restore by checking the deleted field
-    if before_update and after_update:
-        if not before_update.deleted and after_update.deleted:
-            # Soft deleted
-            activity = "deleted"
-        elif before_update.deleted and not after_update.deleted:
-            # Restored from soft delete
-            activity = "updated"
-
-    log_activity(
-        organization_id=after_update.team.organization_id,
-        team_id=after_update.team_id,
-        user=after_update.created_by,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=after_update.name,
-        ),
-    )
+        return Response({"count": count, "results": actions_list})

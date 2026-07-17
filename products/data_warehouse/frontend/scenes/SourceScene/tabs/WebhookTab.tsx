@@ -47,7 +47,7 @@ const WEBHOOK_METRICS_INFO: Record<string, { name: string; description: string; 
     },
 }
 
-export function WebhookTab({ id, tabId }: { id: string; tabId?: string }): JSX.Element {
+export function WebhookTab({ id }: { id: string }): JSX.Element {
     const {
         webhookInfo,
         webhookInfoLoading,
@@ -61,10 +61,8 @@ export function WebhookTab({ id, tabId }: { id: string; tabId?: string }): JSX.E
         canDeleteWebhook,
         webhookDeleting,
         currentSection,
-    } = useValues(webhookTabLogic({ id, tabId }))
-    const { createWebhook, loadWebhookInfo, deleteWebhook, setCurrentSection } = useActions(
-        webhookTabLogic({ id, tabId })
-    )
+    } = useValues(webhookTabLogic({ id }))
+    const { createWebhook, loadWebhookInfo, deleteWebhook, setCurrentSection } = useActions(webhookTabLogic({ id }))
 
     if (webhookInfoLoading && !webhookInfo) {
         return (
@@ -77,7 +75,7 @@ export function WebhookTab({ id, tabId }: { id: string; tabId?: string }): JSX.E
     }
 
     // No webhook exists yet — show setup flow (or re-creation if external webhook is missing)
-    const logicProps = { id, tabId }
+    const logicProps = { id }
 
     if (!webhookInfo?.exists) {
         return (
@@ -135,7 +133,6 @@ export function WebhookTab({ id, tabId }: { id: string; tabId?: string }): JSX.E
                             webhookCreating={webhookCreating}
                             createWebhookResult={createWebhookResult}
                             onCreateWebhook={createWebhook}
-                            tabId={tabId}
                         />
                     )}
                     {!externalMissing && (webhookInfo.missing_events?.length ?? 0) > 0 && (
@@ -205,7 +202,7 @@ function WebhookConfigurationSection({
     formLogicProps,
 }: {
     sourceConfig: SourceConfig
-    formLogicProps: { id: string; tabId?: string }
+    formLogicProps: { id: string }
 }): JSX.Element {
     const { webhookFieldInputs, isWebhookFieldInputsSubmitting } = useValues(webhookTabLogic(formLogicProps))
     const webhookFields = sourceConfig.webhookFields ?? []
@@ -305,7 +302,6 @@ function WebhookStatusSection({
 
 function WebhookRecreateSection({
     id,
-    tabId,
     sourceName,
     sourceConfig,
     webhookCreating,
@@ -313,7 +309,6 @@ function WebhookRecreateSection({
     onCreateWebhook,
 }: {
     id: string
-    tabId?: string
     sourceName: string
     sourceConfig: any
     webhookCreating: boolean
@@ -327,7 +322,7 @@ function WebhookRecreateSection({
             webhookResult={createWebhookResult}
             webhookCreating={webhookCreating}
             onCreateWebhook={onCreateWebhook}
-            formLogic={webhookTabLogic({ id, tabId })}
+            formLogic={webhookTabLogic({ id })}
             formKey="webhookFieldInputs"
         />
     )

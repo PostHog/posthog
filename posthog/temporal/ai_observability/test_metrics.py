@@ -16,7 +16,7 @@ class TestExecutionTimeRecorder:
         mock_hist = MagicMock()
         mock_meter.create_histogram_timedelta.return_value = mock_hist
 
-        with patch("posthog.temporal.ai_observability.metrics.get_metric_meter", return_value=mock_meter) as mock_get:
+        with patch("posthog.temporal.common.metrics.get_metric_meter", return_value=mock_meter) as mock_get:
             with ExecutionTimeRecorder("test_histogram"):
                 pass
 
@@ -30,14 +30,15 @@ class TestExecutionTimeRecorder:
         mock_hist = MagicMock()
         mock_meter.create_histogram_timedelta.return_value = mock_hist
 
-        with patch("posthog.temporal.ai_observability.metrics.get_metric_meter", return_value=mock_meter) as mock_get:
+        with patch("posthog.temporal.common.metrics.get_metric_meter", return_value=mock_meter) as mock_get:
             with pytest.raises(ValueError):
                 with ExecutionTimeRecorder("test_histogram"):
                     raise ValueError("test error")
 
             call_args = mock_get.call_args[0][0]
             assert call_args["status"] == "FAILED"
-            assert call_args["exception"] == "test error"
+            # Class name, not the message — free-form messages would explode label cardinality.
+            assert call_args["exception"] == "ValueError"
 
     def test_raises_if_not_entered(self):
         """Test that __exit__ raises if __enter__ was not called"""
@@ -51,7 +52,7 @@ class TestExecutionTimeRecorder:
         mock_hist = MagicMock()
         mock_meter.create_histogram_timedelta.return_value = mock_hist
 
-        with patch("posthog.temporal.ai_observability.metrics.get_metric_meter", return_value=mock_meter) as mock_get:
+        with patch("posthog.temporal.common.metrics.get_metric_meter", return_value=mock_meter) as mock_get:
             with ExecutionTimeRecorder("test_histogram", histogram_attributes={"activity_type": "test_activity"}):
                 pass
 
@@ -66,7 +67,7 @@ class TestExecutionTimeRecorder:
         mock_hist = MagicMock()
         mock_meter.create_histogram_timedelta.return_value = mock_hist
 
-        with patch("posthog.temporal.ai_observability.metrics.get_metric_meter", return_value=mock_meter) as mock_get:
+        with patch("posthog.temporal.common.metrics.get_metric_meter", return_value=mock_meter) as mock_get:
             with ExecutionTimeRecorder("test_histogram") as recorder:
                 recorder.set_status("SKIPPED")
 
@@ -98,6 +99,7 @@ class TestActivityTypes:
             "fetch_evaluation_activity",
             "execute_llm_judge_activity",
             "execute_hog_eval_activity",
+            "execute_sentiment_eval_activity",
             "emit_evaluation_event_activity",
             "emit_internal_telemetry_activity",
             "increment_trial_eval_count_activity",

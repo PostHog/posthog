@@ -10,7 +10,7 @@ import { IconTrending } from '@posthog/icons'
 import { LemonRow, Link } from '@posthog/lemon-ui'
 
 import { IconFlare, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
-import { percentage } from 'lib/utils'
+import { percentage } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
@@ -177,7 +177,7 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
             {showComparison && <BoldNumberComparison showPersonsModal={showPersonsModal} context={context} />}
         </div>
     ) : (
-        <InsightEmptyState />
+        <InsightEmptyState sampleDataVariant="number" />
     )
 }
 
@@ -295,7 +295,7 @@ export function HogQLBoldNumber(): JSX.Element {
     if (formattedValue === null || directValue === null || resultsValue === null || resultValue === null) {
         return (
             <div className="LemonTable HogQL">
-                <InsightEmptyState />
+                <InsightEmptyState sampleDataVariant="number" />
             </div>
         )
     }

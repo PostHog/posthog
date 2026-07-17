@@ -1,6 +1,7 @@
 import { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
 import {
@@ -9,6 +10,7 @@ import {
     IconCalendar,
     IconCheck,
     IconClock,
+    IconChevronRight,
     IconCode,
     IconCode2,
     IconDatabase,
@@ -17,6 +19,7 @@ import {
 } from '@posthog/icons'
 import { LemonDialog } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconTextSize } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -24,7 +27,13 @@ import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/Le
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
+import {
+    DropdownMenuGroup,
+    DropdownMenuItem,
+    DropdownMenuSub,
+    DropdownMenuSubContent,
+    DropdownMenuSubTrigger,
+} from 'lib/ui/DropdownMenu/DropdownMenu'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
@@ -36,7 +45,7 @@ import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
-import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
+import { DatabaseSerializedFieldType, externalDataSources } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -79,6 +88,7 @@ export const QueryDatabase = ({
         activeDraggedViewId,
         highlightedDropFolderId,
         highlightViewsSectionDrop,
+        featureFlags,
     } = useValues(queryDatabaseLogic)
     const {
         setExpandedFolders,
@@ -100,10 +110,11 @@ export const QueryDatabase = ({
         createDataWarehouseSavedQueryFolder,
         deleteDataWarehouseSavedQueryFolder,
         updateDataWarehouseSavedQueryFolder,
+        deleteDataWarehouseSavedQuery,
     } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(sourceManagementLogic)
     const { deleteDraft } = useActions(draftsLogic)
-    const { openMaterializationModal, runQuery, setActiveTab, setQueryInput, setSourceQuery } =
+    const { openMaterializationModal, openAccessControlModal, runQuery, setActiveTab, setQueryInput, setSourceQuery } =
         useActions(sqlEditorLogic)
     const { isEmbeddedMode, sourceQuery } = useValues(sqlEditorLogic)
     const builtTabLogic = useMountedLogic(sqlEditorLogic)
@@ -116,6 +127,7 @@ export const QueryDatabase = ({
     )
     const addJoinAccessDisabledReason = resourceLevelEditorDisabledReason
     const materializationAccessDisabledReason = resourceLevelEditorDisabledReason
+    const warehouseAccessControlEnabled = !!featureFlags[FEATURE_FLAGS.HOGQL_WAREHOUSE_ACCESS_CONTROL]
     const formatTraversalChain = (chain?: (string | number)[]): string | null => {
         if (!chain || chain.length === 0) {
             return null
@@ -507,6 +519,12 @@ export const QueryDatabase = ({
 
                 // Show menu for tables
                 if (item.record?.type === 'table') {
+                    // Per-object access control only exists for actual warehouse tables, not posthog/system tables
+                    const warehouseTableId =
+                        warehouseAccessControlEnabled && item.record.table?.type === 'data_warehouse'
+                            ? item.record.table?.id
+                            : null
+
                     return (
                         <DropdownMenuGroup>
                             <DropdownMenuItem
@@ -553,6 +571,21 @@ export const QueryDatabase = ({
                             >
                                 <ButtonPrimitive menuItem>Copy table name</ButtonPrimitive>
                             </DropdownMenuItem>
+                            {warehouseTableId ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        openAccessControlModal({
+                                            resource: AccessControlResourceType.WarehouseTable,
+                                            resourceId: warehouseTableId,
+                                            name: item.name,
+                                        })
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Access control</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
                         </DropdownMenuGroup>
                     )
                 }
@@ -683,6 +716,11 @@ export const QueryDatabase = ({
                                   item.record.view?.user_access_level
                               )
                             : null
+                    // Only saved views map to the WarehouseView resource; endpoints use the Endpoint resource, managed views have none.
+                    const warehouseViewId =
+                        warehouseAccessControlEnabled && item.record.type === 'view' && item.record.isSavedQuery
+                            ? item.record.view?.id
+                            : null
 
                     return (
                         <DropdownMenuGroup>
@@ -796,6 +834,59 @@ export const QueryDatabase = ({
                                     <ButtonPrimitive menuItem>Copy view name</ButtonPrimitive>
                                 </DropdownMenuItem>
                             ) : null}
+                            {warehouseViewId ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        openAccessControlModal({
+                                            resource: AccessControlResourceType.WarehouseView,
+                                            resourceId: warehouseViewId,
+                                            name: item.name,
+                                        })
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Access control</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
+                            {item.record.type === 'view' && item.record.isSavedQuery ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (editViewAccessDisabledReason) {
+                                            return
+                                        }
+                                        LemonDialog.open({
+                                            title: `Delete view "${item.name}"?`,
+                                            description:
+                                                'Are you sure you want to delete this view? This action cannot be undone.',
+                                            primaryButton: {
+                                                status: 'danger',
+                                                children: 'Delete view',
+                                                onClick: () => {
+                                                    if (item.record?.view?.id) {
+                                                        deleteDataWarehouseSavedQuery(item.record.view.id)
+                                                    }
+                                                },
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                            },
+                                        })
+                                    }}
+                                >
+                                    <ButtonPrimitive
+                                        menuItem
+                                        className="text-danger"
+                                        disabledReasons={
+                                            editViewAccessDisabledReason ? { [editViewAccessDisabledReason]: true } : {}
+                                        }
+                                    >
+                                        Delete view
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
                         </DropdownMenuGroup>
                     )
                 }
@@ -834,6 +925,73 @@ export const QueryDatabase = ({
                     return null
                 }
 
+                // External source folders get an actions menu: edit the source and add a new one of this type
+                if (
+                    item.record?.type === 'source-folder' &&
+                    externalDataSources.includes(item.record?.sourceType as (typeof externalDataSources)[number])
+                ) {
+                    const sourceType = item.record?.sourceType
+                    const sources: { id: string; label: string }[] = item.record?.sources ?? []
+                    return (
+                        <DropdownMenuGroup>
+                            {sources.length === 1 ? (
+                                <DropdownMenuItem asChild>
+                                    <Link
+                                        to={urls.dataWarehouseSource(`managed-${sources[0].id}`, 'configuration')}
+                                        target="_blank"
+                                        buttonProps={{ menuItem: true }}
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        Edit source
+                                    </Link>
+                                </DropdownMenuItem>
+                            ) : sources.length > 1 ? (
+                                <DropdownMenuSub>
+                                    <DropdownMenuSubTrigger asChild>
+                                        <ButtonPrimitive menuItem>
+                                            Edit source
+                                            <IconChevronRight className="ml-auto size-3" />
+                                        </ButtonPrimitive>
+                                    </DropdownMenuSubTrigger>
+                                    <DropdownMenuSubContent>
+                                        {sources.map((source) => (
+                                            <DropdownMenuItem key={source.id} asChild>
+                                                <Link
+                                                    to={urls.dataWarehouseSource(
+                                                        `managed-${source.id}`,
+                                                        'configuration'
+                                                    )}
+                                                    target="_blank"
+                                                    buttonProps={{ menuItem: true }}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                >
+                                                    {source.label}
+                                                </Link>
+                                            </DropdownMenuItem>
+                                        ))}
+                                    </DropdownMenuSubContent>
+                                </DropdownMenuSub>
+                            ) : null}
+                            <DropdownMenuItem asChild>
+                                <Link
+                                    to={urls.dataWarehouseSourceNew(sourceType)}
+                                    target="_blank"
+                                    buttonProps={{ menuItem: true }}
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        posthog.capture('sql-editor-add-source-clicked', {
+                                            source_type: sourceType,
+                                            location: 'source_type_row',
+                                        })
+                                    }}
+                                >
+                                    Add new source of this type
+                                </Link>
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                    )
+                }
+
                 return undefined
             }}
             itemSideActionButton={(item) => {
@@ -845,6 +1003,10 @@ export const QueryDatabase = ({
                             className="z-2"
                             onClick={(e) => {
                                 e.stopPropagation()
+                                posthog.capture('sql-editor-add-source-clicked', {
+                                    source_type: null,
+                                    location: 'sources_header',
+                                })
                                 newInternalTab(urls.dataWarehouseSourceNew())
                             }}
                             data-attr="sql-editor-add-source"
@@ -853,6 +1015,9 @@ export const QueryDatabase = ({
                         </ButtonPrimitive>
                     )
                 }
+
+                // External source folders fall through to the default ellipsis trigger, which opens
+                // the actions menu (edit source / add new source of this type) defined in itemSideAction
             }}
             renderItemTooltip={(item) => {
                 // Show tooltip with full name for items that could be truncated

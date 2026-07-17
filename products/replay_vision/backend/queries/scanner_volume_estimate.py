@@ -1,6 +1,8 @@
 import datetime as dt
 from dataclasses import dataclass
 
+from django.utils import timezone
+
 from posthog.schema import RecordingsQuery
 
 from posthog.hogql import ast
@@ -11,11 +13,26 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, SamplingMode
+from products.replay_vision.backend.queries.scanner_candidate_query import (
+    eligibility_predicates,
+    surfacing_score_predicate,
+)
+
 # A pathological filter must not be able to hang the estimate request.
 _ESTIMATE_MAX_EXECUTION_TIME_SECONDS = 30
 
+# Interactive saves get a tighter budget and fail soft; the batch refresher can afford the full cap.
+ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS = 10
+
 # The estimate always projects a calendar month from a fixed 30-day lookback.
 ESTIMATE_WINDOW_DAYS = 30
+
+# The earliest-recording probe scans at most this far back; anything older clamps the divisor to the full window.
+_EARLIEST_PROBE_LOOKBACK_DAYS = 3 * ESTIMATE_WINDOW_DAYS
+
+# Persisted per-scanner estimates older than this are recomputed by the sweep.
+ESTIMATE_STALE_AFTER = dt.timedelta(hours=24)
 
 
 @dataclass(frozen=True)
@@ -25,19 +42,32 @@ class ScannerVolumeEstimate:
     effective_window_days: int
 
 
-def estimate_scanner_session_volume(*, team: Team, query: RecordingsQuery) -> ScannerVolumeEstimate:
+def estimate_scanner_session_volume(
+    *,
+    team: Team,
+    query: RecordingsQuery,
+    sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
+    max_execution_seconds: int = _ESTIMATE_MAX_EXECUTION_TIME_SECONDS,
+) -> ScannerVolumeEstimate:
     """Count sessions matching `query` over the last 30 days, for the scanner cost preview.
 
     Reuses `SessionRecordingListFromQuery`'s filter compilation verbatim and wraps it in a
     COUNT, so the estimate and the real recordings list agree on what "matches". The team's
-    earliest recording is fetched in the same round trip via a CROSS JOIN so the cost-preview
-    widget never pays for two sequential HogQL queries.
+    earliest recent recording is fetched in the same round trip via a CROSS JOIN so the
+    cost-preview widget never pays for two sequential HogQL queries.
     """
+    now = dt.datetime.now(dt.UTC)
+    window_start = now - dt.timedelta(days=ESTIMATE_WINDOW_DAYS)
     windowed = query.model_copy(deep=True)
-    windowed.date_from = f"-{ESTIMATE_WINDOW_DAYS}d"
+    # Exact timestamp — the relative "-30d" form truncates to start-of-day, counting up to 31 days against a /30 divisor.
+    windowed.date_from = window_start.isoformat()
     windowed.date_to = None
 
-    inner = SessionRecordingListFromQuery(team=team, query=windowed).get_query()
+    # Count only sessions the sweep would actually observe, so the forecast matches the eligible set the candidate query selects.
+    extra_having = eligibility_predicates()
+    if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
+        extra_having.append(surfacing)
+    inner = SessionRecordingListFromQuery(team=team, query=windowed, extra_having_predicates=extra_having).get_query()
     # The inner query groups by session_id, so one row is one session; order is irrelevant to a count.
     inner.order_by = None
 
@@ -53,6 +83,12 @@ def estimate_scanner_session_volume(*, team: Team, query: RecordingsQuery) -> Sc
             )
         ],
         select_from=ast.JoinExpr(table=ast.Field(chain=["raw_session_replay_events"])),
+        # Bounded so the probe partition-prunes; older data would clamp the divisor to the full window anyway.
+        where=ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Field(chain=["min_first_timestamp"]),
+            right=ast.Constant(value=now - dt.timedelta(days=_EARLIEST_PROBE_LOOKBACK_DAYS)),
+        ),
     )
     combined_query = ast.SelectQuery(
         select=[
@@ -75,7 +111,7 @@ def estimate_scanner_session_volume(*, team: Team, query: RecordingsQuery) -> Sc
         query=combined_query,
         team=team,
         query_type="ReplayVisionScannerEstimateQuery",
-        settings=HogQLGlobalSettings(max_execution_time=_ESTIMATE_MAX_EXECUTION_TIME_SECONDS),
+        settings=HogQLGlobalSettings(max_execution_time=max_execution_seconds),
     )
     results = response.results or []
     matched = int(results[0][0]) if results else 0
@@ -85,6 +121,32 @@ def estimate_scanner_session_volume(*, team: Team, query: RecordingsQuery) -> Sc
         matched_sessions=matched,
         effective_window_days=_clamp_window_days(earliest),
     )
+
+
+def project_monthly_observations(estimate: ScannerVolumeEstimate, sampling_rate: float) -> int:
+    """Scale matched sessions to a 30-day month and apply the sampling rate."""
+    return round(estimate.matched_sessions / estimate.effective_window_days * ESTIMATE_WINDOW_DAYS * sampling_rate)
+
+
+def refresh_scanner_estimate(
+    scanner: ReplayScanner, *, max_execution_seconds: int = _ESTIMATE_MAX_EXECUTION_TIME_SECONDS
+) -> None:
+    """Recompute and persist the scanner's projected monthly volume. Raises on failure; callers decide severity."""
+    estimate = estimate_scanner_session_volume(
+        team=scanner.team,
+        query=scanner.recordings_query(),
+        sampling_mode=scanner.sampling_mode,
+        max_execution_seconds=max_execution_seconds,
+    )
+    projection = project_monthly_observations(estimate, scanner.sampling_rate)
+    estimated_at = timezone.now()
+    # Filtered write so a config edit racing the (slow) estimate query can't get stamped fresh with stale numbers.
+    updated = ReplayScanner.objects.filter(
+        pk=scanner.pk, query=scanner.query, sampling_rate=scanner.sampling_rate, sampling_mode=scanner.sampling_mode
+    ).update(estimated_monthly_observations=projection, estimated_at=estimated_at)
+    if updated:
+        scanner.estimated_monthly_observations = projection
+        scanner.estimated_at = estimated_at
 
 
 def _clamp_window_days(earliest: object) -> int:

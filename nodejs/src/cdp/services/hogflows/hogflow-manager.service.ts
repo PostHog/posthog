@@ -1,9 +1,9 @@
-import { HogFlow } from '~/schema/hogflow'
+import { HogFlow } from '~/cdp/schema/hogflow'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { LazyLoader } from '~/common/utils/lazy-loader'
+import { logger } from '~/common/utils/logger'
+import { PubSub } from '~/common/utils/pubsub'
 import { Team } from '~/types'
-import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
-import { LazyLoader } from '~/utils/lazy-loader'
-import { logger } from '~/utils/logger'
-import { PubSub } from '~/utils/pubsub'
 
 // TODO: Make sure we only have fields we truly need
 const HOG_FLOW_FIELDS = [
@@ -23,6 +23,7 @@ const HOG_FLOW_FIELDS = [
     'actions',
     'abort_action',
     'billable_action_types',
+    'variables',
 ]
 
 export type HogFlowTeamInfo = Pick<HogFlow, 'id' | 'team_id' | 'version'>
@@ -35,13 +36,29 @@ export class HogFlowManagerService {
         private postgres: PostgresRouter,
         private pubSub: PubSub
     ) {
+        // The reload-hog-flows pub/sub below is the primary invalidation; these ages bound how
+        // stale a worker can run when it misses the publish (pod restart, Redis blip). Live edits
+        // are expected to reach in-flight runs, so a hot flow self-heals within ~30s via a
+        // non-blocking background refresh, with a 2 minute hard cap - without these, a missed
+        // publish serves stale config for the 5 minute default and the expiry refetch blocks the
+        // worker's hot path.
+        const cacheOptions = {
+            refreshAgeMs: 2 * 60 * 1000,
+            refreshBackgroundAgeMs: 30 * 1000,
+            // Absorb transient Postgres blips inside a single load attempt so failed background
+            // refreshes don't re-fire at caller QPS and hard-cap refreshes don't fail the batch.
+            loaderRetry: { retryIntervalMs: 250, retryJitterMs: 250, maxElapsedMs: 5000 },
+        }
+
         this.lazyLoaderByTeam = new LazyLoader({
             name: 'hog_flow_manager_by_team',
+            ...cacheOptions,
             loader: async (teamIds) => await this.fetchTeamHogFlows(teamIds),
         })
 
         this.lazyLoader = new LazyLoader({
             name: 'hog_flow_manager',
+            ...cacheOptions,
             loader: async (ids) => await this.fetchHogFlows(ids),
         })
 

@@ -67,14 +67,14 @@ describe('the property definitions model', () => {
     beforeEach(async () => {
         useMocks({
             get: {
-                '/api/projects/:team_id/property_definitions/': (req) => {
-                    const propertiesToFind = (req.url.searchParams.get('properties') || '').split(',')
+                '/api/projects/:team_id/property_definitions/': ({ request }) => {
+                    const url = new URL(request.url)
+                    const propertiesToFind = (url.searchParams.get('properties') || '').split(',')
                     if (propertiesToFind[0] === 'network error') {
-                        return
+                        return [500, { detail: 'simulated network error' }]
                     }
                     const filteredPropertyDefinitions =
-                        req.url.searchParams.get('type') === 'group' &&
-                        req.url.searchParams.get('group_type_index') !== null
+                        url.searchParams.get('type') === 'group' && url.searchParams.get('group_type_index') !== null
                             ? groupPropertyDefinitions
                             : propertyDefinitions
                     const foundProperties = filteredPropertyDefinitions.filter(
@@ -242,6 +242,12 @@ describe('the property definitions model', () => {
                         'event_metadata/timestamp': partial({
                             name: 'timestamp',
                         }),
+                        'person_metadata/created_at': {
+                            id: 'created_at',
+                            name: 'created_at',
+                            property_type: 'DateTime',
+                            type: 'person_metadata',
+                        },
                         'resource/assignee': partial({ name: 'assignee' }),
                         'resource/first_seen': partial({ name: 'first_seen' }),
                     },
@@ -527,8 +533,8 @@ describe('the property definitions model', () => {
 
             useMocks({
                 get: {
-                    '/api/event/values': (req) => {
-                        capturedUrl = req.url.toString()
+                    '/api/event/values': ({ request }) => {
+                        capturedUrl = request.url
                         return [200, { results: [], refreshing: false }]
                     },
                 },
@@ -552,8 +558,8 @@ describe('the property definitions model', () => {
 
             useMocks({
                 get: {
-                    '/api/event/values': (req) => {
-                        capturedUrl = req.url.toString()
+                    '/api/event/values': ({ request }) => {
+                        capturedUrl = request.url
                         return [200, { results: [], refreshing: false }]
                     },
                 },
@@ -591,8 +597,8 @@ describe('the property definitions model', () => {
 
             useMocks({
                 get: {
-                    '/api/event/values': (req) => {
-                        capturedUrls.push(req.url.toString())
+                    '/api/event/values': ({ request }) => {
+                        capturedUrls.push(request.url)
                         return [200, { results: [], refreshing: capturedUrls.length === 1 }]
                     },
                 },

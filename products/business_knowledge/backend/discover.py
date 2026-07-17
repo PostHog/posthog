@@ -28,14 +28,35 @@ import defusedxml.ElementTree as ET
 from bs4 import BeautifulSoup
 from defusedxml.ElementTree import ParseError as DefusedParseError
 
-from .constants import CRAWL_HARD_MAX_DEPTH, DEFAULT_CRAWL_MAX_DEPTH, HARD_DISCOVER_CAP, URL_BOT_NAME, URL_MAX_BYTES
-from .url_fetch import UrlFetchError, fetch_text
+from .constants import (
+    CRAWL_HARD_MAX_DEPTH,
+    DEFAULT_CRAWL_MAX_DEPTH,
+    HARD_DISCOVER_CAP,
+    PREFETCH_CACHE_MAX_BYTES,
+    URL_BOT_NAME,
+    URL_MAX_BYTES,
+)
+from .url_fetch import FetchResult, UrlFetchError, fetch_text, fetch_url, prefetch_key
 
 logger = structlog.get_logger(__name__)
 
 
 class DiscoverError(Exception):
     """User-safe discover failure. No server detail in the message."""
+
+
+@dataclass(frozen=True)
+class DiscoverResult:
+    """
+    Discovery output: the deduped/filtered/capped URL list, plus the pages we
+    already fetched while traversing (same-origin BFS fetches every
+    intermediate page to extract links). `prefetched` is keyed by normalized
+    URL so the crawl fetch phase can reuse those bodies instead of hitting
+    the origin a second time.
+    """
+
+    urls: list[str]
+    prefetched: dict[str, FetchResult]
 
 
 @dataclass(frozen=True)
@@ -226,11 +247,14 @@ def _load_robots(origin: str) -> urllib.robotparser.RobotFileParser | None:
     return parser
 
 
-def _discover_same_origin(entry_url: str, *, config: CrawlConfig) -> list[str]:
+def _discover_same_origin(entry_url: str, *, config: CrawlConfig) -> tuple[list[str], dict[str, FetchResult]]:
     """
     BFS crawler scoped to the entry URL's (scheme, host, port). Respects
     robots.txt when available. Stops at `config.max_depth`, once `max_pages`
     matching URLs are collected, or at `HARD_DISCOVER_CAP` fetches.
+
+    Returns (urls, prefetched). Every traversed page's `FetchResult` is kept
+    in `prefetched` so the content fetch phase doesn't re-download it.
 
     Glob filtering happens *here*, not after, so `max_pages` counts pages that
     actually match the include globs — otherwise the budget gets spent on
@@ -250,6 +274,8 @@ def _discover_same_origin(entry_url: str, *, config: CrawlConfig) -> list[str]:
 
     seen: set[str] = {entry_url}
     out: list[str] = []
+    prefetched: dict[str, FetchResult] = {}
+    prefetched_bytes = 0
     visited = 0
     queue: deque[tuple[str, int]] = deque([(entry_url, 0)])
     while queue and len(out) < page_cap and visited < HARD_DISCOVER_CAP:
@@ -270,10 +296,25 @@ def _discover_same_origin(entry_url: str, *, config: CrawlConfig) -> list[str]:
             continue
         try:
             visited += 1
-            html = _http_get_text(url)
-        except DiscoverError:
+            # fetch_url (not fetch_text): content Accept headers, and the full
+            # FetchResult (body/etag/content-type) is reusable downstream.
+            result = fetch_url(url)
+        except UrlFetchError:
             # One bad page shouldn't tank the crawl.
             continue
+        if result.body is None:
+            continue
+        # Cache only pages the fetch phase will actually request (collected
+        # ones), within a total byte budget — beyond it the fetch phase just
+        # re-downloads, trading a request for bounded memory.
+        # `excluded` pages never reach here — the depth/exclusion guard above
+        # already skipped them before the fetch.
+        if included and prefetched_bytes + len(result.body) <= PREFETCH_CACHE_MAX_BYTES:
+            prefetched[prefetch_key(url)] = result
+            prefetched_bytes += len(result.body)
+        # Decode for link extraction only — hrefs are effectively ASCII, so
+        # utf-8/replace is good enough here.
+        html = result.body.decode("utf-8", errors="replace")
         for link in _extract_links(html, url, origin_tuple):
             if link in seen:
                 continue
@@ -282,7 +323,7 @@ def _discover_same_origin(entry_url: str, *, config: CrawlConfig) -> list[str]:
             if not _should_traverse(link_path, include_prefixes):
                 continue
             queue.append((link, depth + 1))
-    return out
+    return out, prefetched
 
 
 # --- Glob filter + public entry point ---------------------------------------
@@ -327,19 +368,21 @@ def _dedupe_preserving_order(urls: list[str]) -> list[str]:
     return out
 
 
-def discover(mode: str, entry_url: str, config: CrawlConfig) -> list[str]:
+def discover(mode: str, entry_url: str, config: CrawlConfig) -> DiscoverResult:
     """
     Entry point for `logic.py`. Dispatches on `mode`, dedupes, applies
-    include/exclude globs, truncates to `max_pages`, and returns a list of
-    absolute URLs ready for the fetch loop.
+    include/exclude globs, truncates to `max_pages`, and returns the URLs
+    ready for the fetch loop plus any page bodies already fetched during
+    traversal (same-origin mode only).
 
     Never returns more than `min(max_pages, MAX_URLS_PER_SOURCE)` URLs.
     """
 
+    prefetched: dict[str, FetchResult] = {}
     if mode == "sitemap":
         raw = _discover_sitemap(entry_url, config=config)
     elif mode == "same_origin":
-        raw = _discover_same_origin(entry_url, config=config)
+        raw, prefetched = _discover_same_origin(entry_url, config=config)
     elif mode == "github_repo":
         raise NotImplementedError("github_repo crawl mode is not yet supported")
     else:
@@ -347,4 +390,4 @@ def discover(mode: str, entry_url: str, config: CrawlConfig) -> list[str]:
 
     deduped = _dedupe_preserving_order(raw)
     filtered = _apply_globs(deduped, config)
-    return filtered[: config.max_pages]
+    return DiscoverResult(urls=filtered[: config.max_pages], prefetched=prefetched)

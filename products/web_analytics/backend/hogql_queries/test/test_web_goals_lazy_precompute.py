@@ -13,6 +13,7 @@ from posthog.schema import (
     PropertyOperator,
     SessionPropertyFilter,
     SessionsV2JoinMode,
+    WebAnalyticsPreComputeStrategy,
     WebAnalyticsSampling,
     WebGoalsQuery,
 )
@@ -204,6 +205,13 @@ class TestWebGoalsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         jobs = list(PreaggregationJob.objects.filter(team_id=self.team.pk))
         assert len(jobs) > 0, "expected at least one precompute job to be created"
+        # A failed INSERT still leaves a job row (status FAILED), so existence
+        # alone doesn't prove the insert ran — assert the jobs reached READY.
+        # This catches insert-build errors (e.g. an unaliased SELECT column)
+        # without depending on the skipped read-after-write round trip.
+        assert all(j.status == PreaggregationJob.Status.READY for j in jobs), (
+            f"expected all precompute jobs READY, got {[(str(j.id), j.status, j.error) for j in jobs]}"
+        )
 
     @unittest.skip(
         "Mirrors the CI-only flake in test_web_stats_paths_lazy_precompute.py — "
@@ -221,8 +229,7 @@ class TestWebGoalsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         with self._enable_lazy():
             lazy_response = self._runner(self._build_query()).calculate()
 
-        assert lazy_response.usedLazyPrecompute is True
-        assert lazy_response.usedPreAggregatedTables is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
 
         live_by_action = {r[0]: (r[1], r[2], r[3]) for r in live_response.results}
         lazy_by_action = {r[0]: (r[1], r[2], r[3]) for r in lazy_response.results}
@@ -238,3 +245,31 @@ class TestWebGoalsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         # The live slice is hard-coded `[:5]` in `web_goals.py`'s `to_query`.
         assert MAX_ACTIONS == 5
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_stale_served_enqueues_background_revalidation(self):
+        # Without the `result.stale` hook this family would serve stale for the whole
+        # 6h grace and never refresh (the revalidate half of stale-while-revalidate).
+        from posthog.clickhouse.query_tagging import reset_query_tags, tags_context
+
+        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
+        from products.web_analytics.backend.hogql_queries.web_goals_lazy_precompute import execute_lazy_precomputed_read
+
+        self._create_action("goal")
+        with (
+            tags_context(),
+            self._enable_lazy(),
+            patch(
+                "products.web_analytics.backend.hogql_queries.web_goals_lazy_precompute.ensure_web_goals_precomputed",
+                return_value=LazyComputationResult(ready=True, job_ids=[], stale=True),
+            ),
+            patch(
+                "products.web_analytics.backend.tasks.lazy_precompute_revalidation.revalidate_web_analytics_precompute.delay"
+            ) as delay,
+        ):
+            reset_query_tags()
+            runner = self._runner(self._build_query())
+            execute_lazy_precomputed_read(runner)
+
+        assert delay.call_count == 1
+        assert delay.call_args.kwargs["team_id"] == self.team.pk

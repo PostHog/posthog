@@ -10,8 +10,11 @@ DEFAULT_MAX_SAMPLES = 1500
 DEFAULT_MIN_K = 2
 DEFAULT_MAX_K = 10
 
-# Minimum traces required for clustering
-MIN_TRACES_FOR_CLUSTERING = 20
+# Minimum items required for clustering, checked per analysis level over the
+# lookback window (~1 week). A team qualifies for trace clustering with >= this
+# many traces, and independently for generation clustering with >= this many
+# generations.
+MIN_TRACES_FOR_CLUSTERING = 1000
 
 # Coordinator concurrency settings
 DEFAULT_MAX_CONCURRENT_TEAMS = 4  # Max teams to process in parallel
@@ -32,7 +35,7 @@ GENERATION_CHILD_WORKFLOW_ID_PREFIX = "llma-generation-clustering-team"
 # Activity timeouts (per activity type, per single attempt)
 COMPUTE_ACTIVITY_TIMEOUT = timedelta(seconds=120)  # Fetch + clustering + distances
 LLM_ACTIVITY_TIMEOUT = timedelta(seconds=600)  # 10 minutes for full labeling agent run (LangGraph multi-turn)
-AGGREGATES_ACTIVITY_TIMEOUT = timedelta(seconds=300)  # 5 min budget for metrics + sentiment
+AGGREGATES_ACTIVITY_TIMEOUT = timedelta(seconds=300)  # 5 min budget for metrics
 EMIT_ACTIVITY_TIMEOUT = timedelta(seconds=60)  # ClickHouse write
 
 # Heartbeat timeouts - allows Temporal to detect dead workers faster than
@@ -41,7 +44,7 @@ EMIT_ACTIVITY_TIMEOUT = timedelta(seconds=60)  # ClickHouse write
 # and schedule a retry on another worker.
 COMPUTE_HEARTBEAT_TIMEOUT = timedelta(seconds=60)  # 1 minute - compute is mostly CPU-bound
 LLM_HEARTBEAT_TIMEOUT = timedelta(seconds=120)  # 2 minutes - agent runs can have long pauses between LLM calls
-AGGREGATES_HEARTBEAT_TIMEOUT = timedelta(seconds=60)  # 1 minute - external calls to ClickHouse + sentiment
+AGGREGATES_HEARTBEAT_TIMEOUT = timedelta(seconds=60)  # 1 minute - external calls to ClickHouse
 EMIT_HEARTBEAT_TIMEOUT = timedelta(seconds=30)  # 30 seconds - ClickHouse writes are fast
 
 # Schedule-to-close timeouts - caps total time including all retry attempts,
@@ -74,12 +77,6 @@ LLM_ACTIVITY_RETRY_POLICY = RetryPolicy(
 AGGREGATES_ACTIVITY_RETRY_POLICY = RetryPolicy(
     maximum_attempts=1,
 )
-
-# Sentiment batching within the aggregates activity
-SENTIMENT_BATCH_SIZE = 5  # trace IDs per sentiment workflow (matches API batch size)
-SENTIMENT_MAX_CONCURRENT = 10  # max concurrent sentiment workflows
-SENTIMENT_PER_BATCH_TIMEOUT = 120  # seconds per sentiment batch
-SENTIMENT_TOTAL_TIMEOUT = 240  # seconds total budget for all sentiment batches (must be < activity timeout)
 
 # Event emission - database write, quick retries
 EMIT_ACTIVITY_RETRY_POLICY = RetryPolicy(

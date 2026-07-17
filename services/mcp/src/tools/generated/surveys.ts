@@ -356,6 +356,7 @@ const surveysGetAll = (): ToolBase<typeof SurveysGetAllSchema, WithPostHogUrl<Sc
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/`,
                 query: {
                     archived: params.archived,
+                    ids: Array.isArray(params.ids) ? params.ids.join(',') || undefined : params.ids,
                     limit: params.limit,
                     offset: params.offset,
                     search: params.search,

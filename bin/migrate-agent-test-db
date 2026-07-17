@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Create + migrate the agent_platform *test* database from the Django migrations
+# (products/agent_platform/backend/migrations/) -- the single source of truth for
+# the schema. The node agent test suites assume this schema already exists;
+# reset() (services/agent-shared/.../test-reset.ts) only truncates between cases.
+# Run this once before `pnpm --filter @posthog/agent-* test`, and again after
+# pulling a new agent_platform migration.
+#
+# Mirrors what CI does (.github/workflows/ci-agents.yml): drop + recreate the DB,
+# then `manage.py migrate agent_platform` onto the agent_platform_db_writer alias.
+
+cd "$(dirname "$0")/.."
+
+DB_NAME="${AGENT_TEST_DB_NAME:-agent_runtime_queue_test}"
+PG_HOST="${PGHOST:-localhost}"
+PG_PORT="${PGPORT:-5432}"
+PG_USER="${PGUSER:-posthog}"
+export PGPASSWORD="${PGPASSWORD:-posthog}"
+
+echo "Recreating database \"$DB_NAME\" on $PG_HOST:$PG_PORT ..."
+psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -c "DROP DATABASE IF EXISTS \"$DB_NAME\";"
+psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -c "CREATE DATABASE \"$DB_NAME\";"
+
+echo "Applying agent_platform Django migrations to \"$DB_NAME\" ..."
+DEBUG=1 \
+    PRODUCT_DB_AGENT_PLATFORM_WRITER_URL="postgres://$PG_USER:$PGPASSWORD@$PG_HOST:$PG_PORT/$DB_NAME" \
+    PRODUCT_DB_CIRCUIT_BREAKER_ENABLED=0 \
+    uv run python manage.py migrate agent_platform --database agent_platform_db_writer
+
+echo "Done -- \"$DB_NAME\" migrated, ready for the agent test suites."

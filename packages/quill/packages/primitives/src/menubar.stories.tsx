@@ -7,6 +7,7 @@ import {
     Menubar,
     MenubarCheckboxItem,
     MenubarContent,
+    MenubarGroup,
     MenubarItem,
     MenubarLabel,
     MenubarMenu,
@@ -78,17 +79,21 @@ export const WithCheckboxAndRadio: Story = {
                 <MenubarMenu>
                     <MenubarTrigger>Format</MenubarTrigger>
                     <MenubarContent>
-                        <MenubarLabel>Style</MenubarLabel>
-                        <MenubarCheckboxItem checked={bold} onCheckedChange={setBold}>
-                            Bold
-                        </MenubarCheckboxItem>
+                        <MenubarGroup>
+                            <MenubarLabel>Style</MenubarLabel>
+                            <MenubarCheckboxItem checked={bold} onCheckedChange={setBold}>
+                                Bold
+                            </MenubarCheckboxItem>
+                        </MenubarGroup>
                         <MenubarSeparator />
-                        <MenubarLabel>Size</MenubarLabel>
-                        <MenubarRadioGroup value={size} onValueChange={setSize}>
-                            <MenubarRadioItem value="small">Small</MenubarRadioItem>
-                            <MenubarRadioItem value="medium">Medium</MenubarRadioItem>
-                            <MenubarRadioItem value="large">Large</MenubarRadioItem>
-                        </MenubarRadioGroup>
+                        <MenubarGroup>
+                            <MenubarLabel>Size</MenubarLabel>
+                            <MenubarRadioGroup value={size} onValueChange={setSize}>
+                                <MenubarRadioItem value="small">Small</MenubarRadioItem>
+                                <MenubarRadioItem value="medium">Medium</MenubarRadioItem>
+                                <MenubarRadioItem value="large">Large</MenubarRadioItem>
+                            </MenubarRadioGroup>
+                        </MenubarGroup>
                     </MenubarContent>
                 </MenubarMenu>
             </Menubar>
@@ -97,15 +102,42 @@ export const WithCheckboxAndRadio: Story = {
 } satisfies Story
 
 const TIMEZONES = [
-    'Pacific/Midway', 'Pacific/Honolulu', 'America/Anchorage', 'America/Los_Angeles',
-    'America/Denver', 'America/Phoenix', 'America/Chicago', 'America/Mexico_City',
-    'America/New_York', 'America/Toronto', 'America/Halifax', 'America/Sao_Paulo',
-    'Atlantic/Azores', 'Europe/London', 'Europe/Dublin', 'Europe/Lisbon',
-    'Europe/Paris', 'Europe/Berlin', 'Europe/Madrid', 'Europe/Rome',
-    'Europe/Athens', 'Europe/Helsinki', 'Africa/Cairo', 'Europe/Moscow',
-    'Asia/Dubai', 'Asia/Karachi', 'Asia/Kolkata', 'Asia/Bangkok',
-    'Asia/Singapore', 'Asia/Hong_Kong', 'Asia/Shanghai', 'Asia/Tokyo',
-    'Asia/Seoul', 'Australia/Perth', 'Australia/Sydney', 'Pacific/Auckland',
+    'Pacific/Midway',
+    'Pacific/Honolulu',
+    'America/Anchorage',
+    'America/Los_Angeles',
+    'America/Denver',
+    'America/Phoenix',
+    'America/Chicago',
+    'America/Mexico_City',
+    'America/New_York',
+    'America/Toronto',
+    'America/Halifax',
+    'America/Sao_Paulo',
+    'Atlantic/Azores',
+    'Europe/London',
+    'Europe/Dublin',
+    'Europe/Lisbon',
+    'Europe/Paris',
+    'Europe/Berlin',
+    'Europe/Madrid',
+    'Europe/Rome',
+    'Europe/Athens',
+    'Europe/Helsinki',
+    'Africa/Cairo',
+    'Europe/Moscow',
+    'Asia/Dubai',
+    'Asia/Karachi',
+    'Asia/Kolkata',
+    'Asia/Bangkok',
+    'Asia/Singapore',
+    'Asia/Hong_Kong',
+    'Asia/Shanghai',
+    'Asia/Tokyo',
+    'Asia/Seoul',
+    'Australia/Perth',
+    'Australia/Sydney',
+    'Pacific/Auckland',
 ] as const
 
 export const Overflow: Story = {

@@ -54,11 +54,18 @@ describe('cohortActivityDescriber', () => {
     })
 
     it('returns null for non-cohort scope', () => {
-        const result = cohortActivityDescriber({
-            ...makeLogItem({ detail: { name: 'x', merge: null, trigger: null, changes: [] } }),
-            scope: ActivityScope.FEATURE_FLAG,
-        })
-        expect(result.description).toBeNull()
+        // the describer deliberately reports the scope mismatch via console.error
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+        try {
+            const result = cohortActivityDescriber({
+                ...makeLogItem({ detail: { name: 'x', merge: null, trigger: null, changes: [] } }),
+                scope: ActivityScope.FEATURE_FLAG,
+            })
+            expect(result.description).toBeNull()
+            expect(consoleErrorSpy).toHaveBeenCalledWith('cohort describer received a non-cohort activity')
+        } finally {
+            consoleErrorSpy.mockRestore()
+        }
     })
 
     it.each([

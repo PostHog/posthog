@@ -105,14 +105,19 @@ def _run_detector_simulation(
     """
     # Imported lazily because the workflow module can't pull in heavy query machinery
     # at Temporal workflow-definition time — only activities can.
-    from posthog.tasks.alerts.detector import simulate_detector_on_insight
+    from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 
     try:
         return simulate_detector_on_insight(
             insight=alert.insight,
             team=team,
             detector_config=alert.detector_config or {"type": "zscore", "threshold": 0.95},
+            # Mirror the alert-check path (TrendsDetectorExtractor.extract): the monitored series
+            # is chosen by config.series_index. Without this the simulation defaults to series 0,
+            # so the investigation analyzes a different series than the one that actually fired.
+            series_index=(alert.config or {}).get("series_index", 0),
             date_from=date_from,
+            user=alert.created_by,
         )
     except Exception as err:
         return str(err)

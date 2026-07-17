@@ -1,22 +1,29 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
-import {
-    canonicalizeApiHost,
-    canonicalizeUiHost,
-    toolbarConfigLogic,
-    toolbarFetch,
-    toolbarUploadMedia,
-} from '~/toolbar/toolbarConfigLogic'
+import { canonicalizeApiHost, canonicalizeUiHost, toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarFetch'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
-global.fetch = jest.fn(() =>
-    Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve([]),
-    } as any as Response)
-)
+// The toolbar logger mirrors intentional error/auth paths to the console (its job on
+// customer pages); tests exercise those paths on purpose, so stub the boundary.
+jest.mock('~/toolbar/toolbarLogger', () => ({
+    toolbarLogger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}))
+
+// The toolbar calls `global.fetch` directly (not the app api client / MSW). Reassign the mock per
+// test in beforeEach — the MSW jest harness installs its own `global.fetch` in a global beforeAll,
+// which runs after this module loads and would otherwise clobber a top-level assignment.
+const installFetchMock = (): void => {
+    global.fetch = jest.fn(() =>
+        Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve([]),
+        } as any as Response)
+    )
+}
 
 /** Mock fetch so the HEAD check succeeds and then the token exchange succeeds. */
 function mockTokenExchangeSuccess(): void {
@@ -33,18 +40,38 @@ function mockTokenExchangeSuccess(): void {
 }
 
 describe('toolbar toolbarConfigLogic', () => {
+    // These suites intentionally reject requests to exercise error states; the
+    // failures are asserted via authStatus/values, so skip the global loader logging.
+    beforeAll(silenceKeaLoadersErrors)
+    afterAll(resumeKeaLoadersErrors)
+
     let mockOpen: jest.SpyInstance
+    let consoleSpies: jest.SpyInstance[]
 
     beforeEach(() => {
+        // The auth/config failure-path tests intentionally exercise toolbarLogger, which
+        // logs to the console by design. Module-mocking it doesn't work here: the MSW
+        // setup chain preloads toolbarConfigLogic (via heatmapDataLogic) before any
+        // test-file jest.mock registration.
+        consoleSpies = [
+            jest.spyOn(console, 'error').mockImplementation(),
+            jest.spyOn(console, 'warn').mockImplementation(),
+            jest.spyOn(console, 'info').mockImplementation(),
+        ]
         initKeaTests()
         localStorage.clear()
         sessionStorage.clear()
-        ;(global.fetch as jest.Mock).mockClear()
+        // Install the fetch mock after initKeaTests so its mount-time /_preflight/ call isn't
+        // counted by tests that assert on global.fetch.mock.calls.
+        installFetchMock()
         mockOpen = jest.spyOn(window, 'open').mockReturnValue({} as Window)
     })
 
     afterEach(() => {
         mockOpen.mockRestore()
+        consoleSpies.forEach((spy) => spy.mockRestore())
+        // Safety net for tests that call silenceKeaLoadersErrors() inline
+        resumeKeaLoadersErrors()
     })
 
     it('is not authenticated without any token', () => {
@@ -246,7 +273,9 @@ describe('toolbar toolbarConfigLogic', () => {
 
         it('confirmAuthenticate opens the config modal when authStatus flipped to error after modal was shown', async () => {
             // Simulate: user opened the modal, then the in-flight reachability check failed
-            // before they clicked Continue.
+            // before they clicked Continue. The rejecting fetch also fails the mounted
+            // preflight loader, which kea-loaders would log.
+            silenceKeaLoadersErrors()
             ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new Error('network')))
             const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
             logic.mount()
@@ -812,6 +841,11 @@ describe('toolbar toolbarConfigLogic', () => {
     })
 
     describe('token refresh on 401', () => {
+        // The 401-first fetch mocks also fail the mounted preflight loader,
+        // which kea-loaders would log
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
         it('retries request with new token after successful refresh', async () => {
             const logic = toolbarConfigLogic.build({
                 apiURL: 'http://localhost',
@@ -896,6 +930,26 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(response.status).toBe(200)
             // Only one fetch call (no refresh)
             expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
+            expect(logic.values.accessToken).toBe('access-token')
+        })
+
+        it('does not throw when a customer fetch wrapper resolves to undefined', async () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'access-token',
+                refreshToken: 'refresh-token',
+                clientId: 'client-id',
+            })
+            logic.mount()
+            // A site-level `window.fetch` wrapper that returns `undefined` instead of a Response
+            // used to crash the OAuth chain with "Cannot read properties of undefined (reading 'status')".
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve(undefined))
+
+            const response = await toolbarFetch('/api/projects/@current/actions/')
+
+            // Normalized into a synthetic failed response so callers can degrade gracefully.
+            expect(response).toBeInstanceOf(Response)
+            expect(response.ok).toBe(false)
             expect(logic.values.accessToken).toBe('access-token')
         })
     })

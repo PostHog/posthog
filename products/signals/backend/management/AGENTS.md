@@ -41,7 +41,8 @@ python manage.py list_signal_reports --team-id 1 --signals --json
 7. On reaching `ready`, the summary workflow starts `signal-report-inbox-notification` to post the Slack
    inbox notification. If the report auto-started an implementation task, that workflow waits for the PR to
    open (bounded by `SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS`) so the card can show a "Review PR"
-   button; reports with no auto-start task notify immediately.
+   button; if that task never opens a PR (fails, is cancelled, or the wait times out) no notification is
+   sent. Reports with no auto-start task notify immediately.
 8. `ready` reports accumulate new signals silently. After enough new signals (`signal_count >= signals_at_run`),
    the report is re-promoted and the summary workflow runs again — reusing the previous repo selection and
    lightly validating previous findings instead of re-researching from scratch.
@@ -72,6 +73,36 @@ still requires a working GitHub integration (for reviewer resolution) and the co
 in `relevant_commit_hashes` to map to a user with a `SignalUserAutonomyConfig` whose effective
 priority threshold (personal or team default) covers the report's priority — otherwise the
 report will be saved but no `Task` will be created.
+
+## Seeding billable reports (refund testing)
+
+`seed_refund_test_data` drops five minimal reports covering the refund/exemption matrix:
+PR-run-today (refund takes the `excluded` path), PR-run-4-days-ago (`credited` path — calls the
+billing dispute endpoint), PR-run-last-month (out of the billing period — the Refund button
+renders disabled with the reason), billing-exempt with a PR ("Free" badge with health-check
+tooltip; refund hidden), and no-PR (target for `exempt_signal_report_billing`). Re-run freely —
+a report can only be refunded once.
+
+```bash
+python manage.py seed_refund_test_data --team-id 1
+```
+
+`seed_inbox_data` reports are billable too (runs are recorded via the production dual-write),
+but their runs are created "now", so refunds on them always take the excluded path.
+Environment prerequisites (feature flag, local billing service): "Testing refunds locally"
+in `../../ARCHITECTURE.md`.
+
+## Re-ingesting reports
+
+`reingest_signal_report` deletes specific reports and re-emits their signals through the active
+pipeline (same `SignalReportReingestionWorkflow` as the API `reingest` action), so they regroup
+and re-research from scratch:
+
+```bash
+python manage.py reingest_signal_report --team-id 1 <report-uuid> [<report-uuid> ...]
+```
+
+For a full-team wipe + reingest, use `reingest_team_signals --team-id 1` (add `--delete` for delete-only).
 
 ## Session summary (video-based)
 
@@ -128,7 +159,7 @@ python manage.py run_signals_scout --team-id 1 --skill-name signals-scout-genera
 The team must have a `SignalScoutConfig` row for the scout (the coordinator auto-creates
 one; the command also seeds it). Configs default to `emit=False` — the scout runs and
 logs but `emit_finding` writes nothing, so no finding reaches the Signals inbox until you
-flip `emit=True` on that scout's config (e.g. via the `signals-scout-config-update` MCP tool).
+flip `emit=True` on that scout's config (e.g. via the `scout-config-update` MCP tool).
 
 ### Canonical skill sync
 
@@ -152,6 +183,30 @@ left alone), `tombstoned` (rows the team already soft-deleted — left alone, ne
 `pruned` (live rows whose canonical skill was removed from disk — soft-deleted so the
 coordinator stops dispatching them). Same function the coordinator and runner call lazily —
 this command is just the impatient path.
+
+## Backfilling task_run artefacts
+
+One-off data migration: turn legacy `SignalReportTask` rows (those carrying the old `relationship`
+label) into `task_run` log artefacts so the research / implementation / repo-selection runs tied to
+a report show up in its artefact timeline. `SignalReportTask` lives on as the unlabelled
+task↔report association; rows without a legacy label are skipped — their `task_run` artefact is
+written at creation time.
+
+```bash
+# Preview, scoped to one team
+python manage.py backfill_task_run_artefacts --team-id 1 --dry-run
+
+# Backfill for real (all teams, or add --team-id N)
+python manage.py backfill_task_run_artefacts
+```
+
+Idempotent — skips any report that already has a `task_run` artefact referencing the same task, so it
+is safe to re-run. Each artefact carries a `(product, type)` pair: these are signals-pipeline runs, so
+`product` is `signals` and `type` is the legacy relationship label (`research` / `implementation` /
+`repo_selection`). Backfilled artefacts are attributed to their task and backdated to their
+`SignalReportTask.created_at` so the log stays chronologically correct (the artefact row is created
+now, but the run happened earlier). Live creation paths append the same artefacts at run time going
+forward — custom agents instead use their own `identifier()` `(product, type)` pair.
 
 ## Tips
 

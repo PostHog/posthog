@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import { sessionProfileLogic } from '../sessionProfileLogic'
 

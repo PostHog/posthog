@@ -3,7 +3,7 @@ import './LemonBadge.scss'
 import clsx from 'clsx'
 import { forwardRef } from 'react'
 
-import { compactNumber, humanFriendlyNumber } from 'lib/utils'
+import { compactNumber, humanFriendlyNumber } from 'lib/utils/numbers'
 
 interface LemonBadgePropsBase {
     size?: 'xsmall' | 'small' | 'medium' | 'large'

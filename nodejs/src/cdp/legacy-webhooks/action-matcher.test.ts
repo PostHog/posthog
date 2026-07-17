@@ -1,5 +1,7 @@
 import { DateTime } from 'luxon'
 
+import { closeHub, createHub } from '~/common/utils/db/hub'
+
 import { commonUserId, insertRow, resetTestDatabase } from '../../../tests/helpers/sql'
 import {
     Action,
@@ -12,11 +14,10 @@ import {
     RawAction,
     StringMatching,
 } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
 import { ActionManager } from './action-manager'
 import { ActionMatcher, castingCompare } from './action-matcher'
 
-jest.mock('../../../src/utils/logger')
+jest.mock('~/common/utils/logger')
 
 /** Return a test event created on a common base using provided property overrides. */
 function createTestEvent(overrides: Partial<PostIngestionEvent> = {}): PostIngestionEvent {

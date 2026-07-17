@@ -9,6 +9,7 @@ from posthog.api.shared import UserBasicSerializer
 
 from products.ai_observability.backend.models.llm_prompt import (
     LLMPrompt,
+    LLMPromptLabel,
     get_prompt_outline,
     normalize_prompt_to_string,
 )
@@ -48,6 +49,39 @@ def validate_prompt_payload_size(prompt_payload: Any) -> Any:
     return prompt_payload
 
 
+RESERVED_PROMPT_LABEL_NAMES = {"latest"}
+PROMPT_LABEL_NAME_MAX_LENGTH = 128
+# Allowlist keeps label names unambiguous everywhere they travel: URL path segments,
+# cache keys, and the label= argument in customer code.
+PROMPT_LABEL_NAME_REGEX = re.compile(r"^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$")
+
+
+def validate_prompt_label_name_value(value: str) -> str:
+    value = value.strip()
+    if not value or len(value) > PROMPT_LABEL_NAME_MAX_LENGTH:
+        raise serializers.ValidationError(
+            f"Label names must be between 1 and {PROMPT_LABEL_NAME_MAX_LENGTH} characters.",
+            code="invalid_label_name",
+        )
+    if value.lower() in RESERVED_PROMPT_LABEL_NAMES:
+        raise serializers.ValidationError(
+            "'latest' is a reserved label. It always points to the newest version.",
+            code="reserved_label_name",
+        )
+    if value.isdigit():
+        raise serializers.ValidationError(
+            "Label names cannot be numbers only, to avoid confusion with version numbers.",
+            code="invalid_label_name",
+        )
+    if not PROMPT_LABEL_NAME_REGEX.match(value):
+        raise serializers.ValidationError(
+            "Use lowercase letters, numbers, dots (.), hyphens (-) and underscores (_), "
+            "starting and ending with a letter or number.",
+            code="invalid_label_name",
+        )
+    return value
+
+
 CONTENT_MODE_CHOICES = ["full", "preview", "none"]
 CONTENT_MODE_HELP = (
     "Controls how much prompt content is included in the response. "
@@ -65,12 +99,31 @@ class LLMPromptFetchQuerySerializer(serializers.Serializer):
 
 
 class LLMPromptGetByNameQuerySerializer(LLMPromptFetchQuerySerializer):
+    label = serializers.CharField(  # type: ignore[assignment]
+        required=False,
+        max_length=PROMPT_LABEL_NAME_MAX_LENGTH,
+        help_text=(
+            "Fetch the version this label currently points to, e.g. 'production'. "
+            "Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version."
+        ),
+    )
     content = serializers.ChoiceField(
         choices=CONTENT_MODE_CHOICES,
         required=False,
         default="full",
         help_text=CONTENT_MODE_HELP,
     )
+
+    def validate_label(self, value: str) -> str:
+        # Fetching also writes to the cache (miss sentinels under caller-controlled keys),
+        # so impossible label names are rejected before any cache touch — and a caller
+        # sending 'Production' gets the naming rules instead of a confusing 404.
+        return validate_prompt_label_name_value(value)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("version") is not None and attrs.get("label") is not None:
+            raise serializers.ValidationError("Use either version or label, not both.")
+        return attrs
 
 
 class LLMPromptListQuerySerializer(serializers.Serializer):
@@ -147,9 +200,18 @@ class LLMPromptPublishSerializer(serializers.Serializer):
         min_value=1,
         help_text="Latest version you are editing from. Used for optimistic concurrency checks.",
     )
+    version_description = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_blank=True,
+        help_text="Optional note describing what changed in this version. Shown in the version history.",
+    )
 
     def validate_prompt(self, value: Any) -> Any:
         return validate_prompt_payload_size(value)
+
+    def validate_version_description(self, value: str) -> str | None:
+        return value.strip() or None
 
     def validate_edits(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
         if len(value) == 0:
@@ -175,6 +237,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
     version_count = serializers.SerializerMethodField()
     first_version_created_at = serializers.SerializerMethodField()
     outline = serializers.SerializerMethodField()
+    labels = serializers.SerializerMethodField()
 
     class Meta:
         model = LLMPrompt
@@ -183,6 +246,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             "name",
             "prompt",
             "version",
+            "version_description",
             "created_by",
             "created_at",
             "updated_at",
@@ -192,6 +256,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             "version_count",
             "first_version_created_at",
             "outline",
+            "labels",
         ]
         read_only_fields = [
             "id",
@@ -205,15 +270,28 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             "version_count",
             "first_version_created_at",
             "outline",
+            "labels",
         ]
         extra_kwargs = {
             "name": {"help_text": "Unique prompt name using letters, numbers, hyphens, and underscores only."},
             "prompt": {"help_text": "Prompt payload as JSON or string data."},
+            "version_description": {
+                "help_text": "Optional note describing what changed in this version. Set when the version is published."
+            },
         }
 
     @extend_schema_field(LLMPromptOutlineEntrySerializer(many=True))
     def get_outline(self, instance: LLMPrompt) -> list[dict[str, Any]]:
         return get_prompt_outline(instance.prompt)
+
+    @extend_schema_field(
+        serializers.ListField(
+            child=serializers.CharField(),
+            help_text="Names of the labels currently pointing at this version.",
+        )
+    )
+    def get_labels(self, instance: LLMPrompt) -> list[str]:
+        return sorted(label.name for label in instance.labels.all())
 
     def get_is_latest(self, instance: LLMPrompt) -> bool:
         return bool(getattr(instance, "is_latest", False))
@@ -243,6 +321,11 @@ class LLMPromptSerializer(serializers.ModelSerializer):
 
     def validate_prompt(self, value: Any) -> Any:
         return validate_prompt_payload_size(value)
+
+    def validate_version_description(self, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         team = self.context["get_team"]()
@@ -310,17 +393,29 @@ class LLMPromptListSerializer(LLMPromptSerializer):
 
 class LLMPromptVersionSummarySerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    labels = serializers.SerializerMethodField()
 
     class Meta:
         model = LLMPrompt
         fields = [
             "id",
             "version",
+            "version_description",
             "created_by",
             "created_at",
             "is_latest",
+            "labels",
         ]
         read_only_fields = fields
+
+    @extend_schema_field(
+        serializers.ListField(
+            child=serializers.CharField(),
+            help_text="Names of the labels currently pointing at this version.",
+        )
+    )
+    def get_labels(self, instance: LLMPrompt) -> list[str]:
+        return sorted(label.name for label in instance.labels.all())
 
 
 class LLMPromptPublicSerializer(serializers.Serializer):
@@ -339,6 +434,10 @@ class LLMPromptPublicSerializer(serializers.Serializer):
         help_text="Flat list of markdown headings parsed from the prompt. Useful as a lightweight table of contents.",
     )
     version = serializers.IntegerField()
+    label = serializers.CharField(  # type: ignore[assignment]
+        required=False,
+        help_text="The label this prompt was fetched by. Only present when fetching with the label parameter.",
+    )
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()
     deleted = serializers.BooleanField()
@@ -362,3 +461,38 @@ class LLMPromptResolveResponseSerializer(serializers.Serializer):
     prompt = LLMPromptSerializer()
     versions = LLMPromptVersionSummarySerializer(many=True)
     has_more = serializers.BooleanField()
+
+
+class LLMPromptSetLabelSerializer(serializers.Serializer):
+    version = serializers.IntegerField(
+        min_value=1,
+        help_text=(
+            "Prompt version this label should point to. "
+            "If the label already exists on another version of the prompt, it is moved there."
+        ),
+    )
+
+
+class LLMPromptLabelSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    version = serializers.SerializerMethodField()
+
+    class Meta:
+        model = LLMPromptLabel
+        fields = [
+            "id",
+            "name",
+            "prompt_name",
+            "version",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+        extra_kwargs = {
+            "name": {"help_text": "Label name, e.g. 'production'. Points to exactly one version of the prompt."},
+            "prompt_name": {"help_text": "Name of the prompt this label belongs to."},
+        }
+
+    def get_version(self, instance: LLMPromptLabel) -> int:
+        return instance.prompt.version

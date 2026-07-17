@@ -3,17 +3,17 @@ import { MockKafkaProducerWrapper } from '~/tests/helpers/mocks/producer.mock'
 import { ClickHouseClient } from '@clickhouse/client'
 import { DateTime } from 'luxon'
 
+import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { ensureKafkaTopics, resetKafka } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { KAFKA_HOG_INVOCATION_RESULTS } from '../../config/kafka-topics'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub, Team } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
-import { UUIDT } from '../../utils/utils'
 import { insertHogFunction as _insertHogFunction, createHogExecutionGlobals } from '../_tests/fixtures'
 import { createCdpOutputsRegistry } from '../outputs/registry'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
@@ -26,7 +26,7 @@ import { CyclotronJobInvocationHogFunction, HogFunctionInvocationGlobals, HogFun
 import { RERUN_PAGE_SIZE, RerunJobState } from './rerun-job.types'
 import { RerunPaginatorService } from './rerun-paginator.service'
 
-const ActualKafkaProducerWrapper = jest.requireActual('../../kafka/producer').KafkaProducerWrapper
+const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
 
 /**
  * Integration test for RerunPaginatorService.
@@ -42,7 +42,7 @@ const ActualKafkaProducerWrapper = jest.requireActual('../../kafka/producer').Ka
  * collapse query all line up.
  */
 describe('RerunPaginatorService integration', () => {
-    jest.setTimeout(60_000)
+    jest.setTimeout(180_000)
 
     let hub: Hub
     let kafkaProducer: KafkaProducerWrapper
@@ -118,6 +118,10 @@ describe('RerunPaginatorService integration', () => {
         seededCount += rows.length
         const expected = seededCount
 
+        // Seed visibility rides the shared Kafka -> ClickHouse pipe, whose consumer may still be
+        // chewing a backlog from whichever suite the shard ran just before this one (run order
+        // shifts whenever sibling files change size). The deadline is sized for that worst case;
+        // waitForExpect polls, so a healthy pipe still completes in seconds.
         await waitForExpect(async () => {
             const got = await clickhouse.query<{ c: number }>(
                 `SELECT count() AS c FROM hog_invocation_results
@@ -125,7 +129,53 @@ describe('RerunPaginatorService integration', () => {
                    AND function_id = '${hogFunction.id}'`
             )
             expect(Number(got[0]?.c ?? 0)).toBeGreaterThanOrEqual(expected)
-        }, 30_000)
+        }, 90_000)
+    }
+
+    // Produce a raw lifecycle row with a chosen (here: undecodable) invocation_globals,
+    // bypassing the seeding service so we can exercise the paginator's per-row
+    // rehydration-failure path — a poison-pill record whose stored globals can't be
+    // decoded must be skipped, not abort the whole recovery batch.
+    const seedRawRow = async (invocationId: string, invocationGlobals: string): Promise<void> => {
+        await kafkaProducer.queueMessages({
+            topic: KAFKA_HOG_INVOCATION_RESULTS,
+            messages: [
+                {
+                    key: invocationId,
+                    value: JSON.stringify({
+                        team_id: team.id,
+                        function_kind: 'hog_function',
+                        function_id: hogFunction.id,
+                        invocation_id: invocationId,
+                        parent_run_id: '',
+                        status: 'failed',
+                        attempts: 0,
+                        is_retry: 0,
+                        scheduled_at: DateTime.utc().toFormat("yyyy-MM-dd HH:mm:ss.SSS'000'"),
+                        started_at: null,
+                        finished_at: null,
+                        duration_ms: null,
+                        error_kind: 'janitor_poison_pill',
+                        error_message: 'poison pill',
+                        event_uuid: '',
+                        distinct_id: '',
+                        person_id: '',
+                        invocation_globals: invocationGlobals,
+                        version: String(BigInt(Date.now()) * 1000n),
+                        is_deleted: 0,
+                    }),
+                },
+            ],
+        })
+        await kafkaProducer.flush()
+        seededCount += 1
+        await waitForExpect(async () => {
+            const got = await clickhouse.query<{ c: number }>(
+                `SELECT count() AS c FROM hog_invocation_results
+                 WHERE team_id = ${team.id} AND invocation_id = '${invocationId}'`
+            )
+            expect(Number(got[0]?.c ?? 0)).toBeGreaterThanOrEqual(1)
+        }, 90_000)
     }
 
     beforeAll(async () => {
@@ -311,6 +361,34 @@ describe('RerunPaginatorService integration', () => {
             const enqueued = hogQueue.queueInvocations.mock.calls[0][0] as CyclotronJobInvocationHogFunction[]
             expect(enqueued).toHaveLength(1)
             expect(enqueued[0].state.globals).not.toHaveProperty('inputs')
+        })
+
+        it('skips a record that fails to rehydrate and still re-enqueues the rest of the batch', async () => {
+            await seedRows([{ invocation_id: 'inv-good', status: 'failed', error: new Error('5xx') }])
+            await seedRawRow('inv-bad', 'not-a-decodable-globals-blob')
+
+            const state = buildState({
+                request: {
+                    filter: {
+                        window_start: '2026-01-01T00:00:00Z',
+                        window_end: '2027-01-01T00:00:00Z',
+                        invocation_ids: ['inv-good', 'inv-bad'],
+                    },
+                },
+            })
+
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-rerun-job',
+                createdAt: DateTime.now(),
+            })
+
+            // The undecodable record is skipped, not fatal — the good one still re-enqueues.
+            const enqueued = hogQueue.queueInvocations.mock.calls.flatMap(
+                (c) => c[0] as CyclotronJobInvocationHogFunction[]
+            )
+            expect(enqueued.map((i) => i.id)).toEqual(['inv-good'])
+            expect(next.progress.queued).toBe(1)
+            expect(next.progress.skipped).toBeGreaterThanOrEqual(1)
         })
     })
 

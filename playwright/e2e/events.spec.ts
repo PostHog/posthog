@@ -1,13 +1,21 @@
 import path from 'path'
 
-import { expect, test } from '../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../utils/workspace-test-base'
 
 test.describe('Events', () => {
-    test.beforeEach(async ({ page }) => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await playwrightSetup.loginAndNavigateToTeam(page, workspace!)
+
         await page.route('/api/event/values?key=%24browser', (route) =>
             route.fulfill({
                 status: 200,
-                body: JSON.stringify([{ name: '96' }, { name: '97' }]),
+                body: JSON.stringify([{ name: 'Chrome 145' }, { name: 'Firefox' }]),
             })
         )
 
@@ -18,38 +26,33 @@ test.describe('Events', () => {
             })
         )
 
-        await page.route('/api/projects/*/property_definitions?is_feature_flag=false&search=&*', (route) =>
+        // The endpoint injects params (exclude_hidden, exclude_restricted, ...) between
+        // is_feature_flag and search, so match on the discriminating params regardless of order.
+        await page.route('**/property_definitions?*is_feature_flag=false*search=&*', (route) =>
             route.fulfill({
                 status: 200,
                 path: path.resolve(__dirname, '../mocks/events/property_definitions.json'),
             })
         )
 
-        await page.route('/api/projects/*/property_definitions?is_feature_flag=false&search=%24time*', (route) =>
+        await page.route('**/property_definitions?*is_feature_flag=false*search=%24time*', (route) =>
             route.fulfill({
                 status: 200,
                 path: path.resolve(__dirname, '../mocks/events/only_time_property_definition.json'),
             })
         )
 
-        await page.route('/api/projects/*/property_definitions?is_feature_flag=false&search=%24browser*', (route) =>
+        await page.route('**/property_definitions?*is_feature_flag=false*search=%24browser*', (route) =>
             route.fulfill({
                 status: 200,
-                path: path.resolve(__dirname, '../mocks/events/only_browser_version_property_definition.json'),
+                path: path.resolve(__dirname, '../mocks/events/browser_property_definitions.json'),
             })
         )
 
-        await page.route('/api/projects/*/property_definitions?is_feature_flag=true*', (route) =>
+        await page.route('**/property_definitions?*is_feature_flag=true*', (route) =>
             route.fulfill({
                 status: 200,
                 path: path.resolve(__dirname, '../mocks/events/feature_flag_property_definition.json'),
-            })
-        )
-
-        await page.route('/api/event/values/?key=$browser_version', (route) =>
-            route.fulfill({
-                status: 200,
-                body: JSON.stringify([{ name: '96' }, { name: '97' }]),
             })
         )
 

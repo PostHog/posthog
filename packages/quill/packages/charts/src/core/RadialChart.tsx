@@ -1,16 +1,17 @@
-import React, { useCallback, useMemo } from 'react'
+import React, { useMemo } from 'react'
 
-import type { PieLayout } from '../charts/PieChart/computePieLayout'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
 import { Tooltip } from '../overlays/Tooltip'
 import { ChartHoverContext, ChartLayoutContext } from './chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from './chart-context'
+import { ChartShell, countVisibleSeries, useCanvasBounds, useColoredSeries } from './chart-shell'
 import { useChartCanvas } from './hooks/useChartCanvas'
 import { useChartDraw } from './hooks/useChartDraw'
 import { useRadialInteraction } from './hooks/useRadialInteraction'
 import type { RadialSlicePayload } from './hooks/useRadialInteraction'
 import { RadialLayoutContext } from './radial-context'
 import type { RadialLayoutContextValue } from './radial-context'
+import type { PieLayout } from './radial-layout'
 import type {
     ChartDrawArgs,
     ChartMargins,
@@ -22,32 +23,6 @@ import type {
     TooltipContext,
 } from './types'
 import { defaultResolveValue } from './types'
-
-const OVERLAY_STYLE: React.CSSProperties = {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    width: '100%',
-    height: '100%',
-    pointerEvents: 'none',
-}
-const WRAPPER_STYLE_BASE: React.CSSProperties = {
-    position: 'relative',
-    width: '100%',
-    flex: 1,
-    minHeight: 0,
-    overflow: 'hidden',
-}
-const WRAPPER_STYLE_DEFAULT: React.CSSProperties = { ...WRAPPER_STYLE_BASE, cursor: 'default' }
-const WRAPPER_STYLE_POINTER: React.CSSProperties = { ...WRAPPER_STYLE_BASE, cursor: 'pointer' }
-
-const STATIC_CANVAS_STYLE: React.CSSProperties = { position: 'absolute', top: 0, left: 0 }
-const OVERLAY_CANVAS_STYLE: React.CSSProperties = {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    pointerEvents: 'none',
-}
 
 /** Near-zero margins — the radial chart computes center + radius from the full plot box and
  *  pulls the outer edge back via `radiusPadding`. The tiny pad here keeps slice strokes off
@@ -85,7 +60,7 @@ export function RadialChart<Meta = unknown>({
     buildLayout,
     drawStatic,
     drawHover,
-    tooltip: renderTooltip = DefaultTooltip,
+    tooltip: renderTooltipProp,
     showTooltip = true,
     onSliceClick,
     hitOuterSlack = 0,
@@ -98,14 +73,14 @@ export function RadialChart<Meta = unknown>({
         margins: RADIAL_MARGINS,
     })
 
-    const coloredSeries = useMemo<ResolvedSeries<Meta>[]>(
-        () =>
-            series.map((s, i) => ({
-                ...s,
-                color: s.color || theme.colors[i % theme.colors.length],
-            })),
-        [series, theme.colors]
+    // Wrap DefaultTooltip in a JSX render function so its hooks run inside its own component
+    // tree — calling it as a plain function would violate rules-of-hooks.
+    const renderTooltip = useMemo<(ctx: TooltipContext<Meta>) => React.ReactNode>(
+        () => renderTooltipProp ?? ((ctx: TooltipContext<Meta>) => <DefaultTooltip {...ctx} />),
+        [renderTooltipProp]
     )
+
+    const coloredSeries = useColoredSeries<Meta>(series, theme)
 
     const layout = useMemo(() => {
         if (!dimensions) {
@@ -155,17 +130,9 @@ export function RadialChart<Meta = unknown>({
         hoverAnimationMs,
     })
 
-    const ariaLabel = useMemo(() => {
-        const visible = coloredSeries.reduce((n, s) => n + (s.visibility?.excluded ? 0 : 1), 0)
-        return `Pie chart with ${visible} slices`
-    }, [coloredSeries])
+    const ariaLabel = useMemo(() => `Pie chart with ${countVisibleSeries(coloredSeries)} slices`, [coloredSeries])
 
-    const wrapperStyle = hoverIndex >= 0 && onSliceClick ? WRAPPER_STYLE_POINTER : WRAPPER_STYLE_DEFAULT
-
-    const canvasBounds = useCallback(
-        (): DOMRect | null => canvasRef.current?.getBoundingClientRect() ?? null,
-        [canvasRef]
-    )
+    const canvasBounds = useCanvasBounds(canvasRef)
 
     // Provide the standard ChartLayoutContext so existing shared overlays (e.g. custom user
     // overlays accessing `useChartLayout()` for `theme`) continue to work. Most cartesian-only
@@ -184,6 +151,7 @@ export function RadialChart<Meta = unknown>({
             resolvePositionValue: defaultResolveValue,
             canvasBounds,
             axis: { orientation: 'vertical', xTickFormatter: undefined, isPercent: false },
+            yGutters: [],
         }
     }, [scales, dimensions, coloredSeries, theme, canvasBounds])
 
@@ -200,31 +168,22 @@ export function RadialChart<Meta = unknown>({
         <ChartLayoutContext.Provider value={layoutValue as ChartLayoutContextValue | null}>
             <RadialLayoutContext.Provider value={radialValue as RadialLayoutContextValue | null}>
                 <ChartHoverContext.Provider value={hoverValue}>
-                    <div
-                        ref={wrapperRef}
+                    <ChartShell
+                        wrapperRef={wrapperRef}
+                        canvasRef={canvasRef}
+                        overlayCanvasRef={overlayCanvasRef}
                         className={className}
-                        data-attr={dataAttr}
-                        style={wrapperStyle}
-                        onMouseMove={handlers.onMouseMove}
-                        onMouseLeave={handlers.onMouseLeave}
-                        onClick={handlers.onClick}
+                        dataAttr={dataAttr}
+                        pointer={hoverIndex >= 0 && !!onSliceClick}
+                        ariaLabel={ariaLabel}
+                        handlers={handlers}
+                        showOverlay={!!(dimensions && layout)}
                     >
-                        <canvas ref={canvasRef} role="img" aria-label={ariaLabel} style={STATIC_CANVAS_STYLE} />
-                        <canvas ref={overlayCanvasRef} aria-hidden="true" style={OVERLAY_CANVAS_STYLE} />
-
-                        {dimensions && layout && (
-                            <div style={OVERLAY_STYLE}>
-                                {children}
-                                {tooltipCtx && showTooltip && (
-                                    <Tooltip
-                                        context={tooltipCtx}
-                                        renderTooltip={renderTooltip}
-                                        placement="cursor"
-                                    />
-                                )}
-                            </div>
+                        {children}
+                        {tooltipCtx && showTooltip && (
+                            <Tooltip context={tooltipCtx} renderTooltip={renderTooltip} placement="cursor" />
                         )}
-                    </div>
+                    </ChartShell>
                 </ChartHoverContext.Provider>
             </RadialLayoutContext.Provider>
         </ChartLayoutContext.Provider>

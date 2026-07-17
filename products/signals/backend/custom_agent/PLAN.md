@@ -181,7 +181,7 @@ Free-form selection (`select_repository_for_prompt`) reuses the existing repo ca
 
 ## Send / multi-turn details
 
-- Session backing: `products/tasks/backend/services/custom_prompt_multi_turn_runner.MultiTurnSession`.
+- Session backing: `products/tasks/backend/logic/services/custom_prompt_multi_turn_runner.MultiTurnSession`.
 - Always uses `posthog_mcp_scopes="read_only"`.
 - Sandbox env is `SIGNALS_REPORT_RESEARCH` (TRUSTED network access). Repo-selection runs in `SIGNALS_REPO_DISCOVERY` (CUSTOM, GitHub-only domains).
 - `Heartbeater()` keeps the Temporal activity alive while the agent thinks.

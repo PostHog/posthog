@@ -24,9 +24,9 @@ async function reserveFreePort(): Promise<number> {
     })
 }
 
-// Boots a real workerd via `wrangler unstable_dev` so the McpAgent framework
-// (Durable Objects, blockConcurrencyWhile, agents SDK) runs end-to-end the same
-// way it does in production. `local: true` keeps everything on the developer
+// Boots a real workerd via `wrangler unstable_dev` so the worker entry point
+// (auth gate, routing, and `/mcp` proxy to the Hono runtime) runs end-to-end the
+// same way it does in production. `local: true` keeps everything on the developer
 // machine — no Cloudflare account / network required.
 export async function startCfHarness(env: IntegrationEnv): Promise<IntegrationHarness> {
     const port = await reserveFreePort()

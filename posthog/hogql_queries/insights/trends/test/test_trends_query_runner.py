@@ -46,6 +46,7 @@ from posthog.schema import (
     InCohortVia,
     IntervalType,
     MathGroupTypeIndex,
+    MetricSummary,
     MultipleBreakdownType,
     PersonPropertyFilter,
     PropertyMathType,
@@ -54,6 +55,7 @@ from posthog.schema import (
     TrendsFilter,
     TrendsFormulaNode,
     TrendsQuery,
+    TrendsQueryResponse,
 )
 
 from posthog.hogql import ast
@@ -69,13 +71,13 @@ from posthog.hogql_queries.insights.utils.breakdowns import (
     BREAKDOWN_OTHER_DISPLAY,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 
@@ -480,6 +482,195 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual([1, 0, 1, 3, 1, 0, 2, 0, 1, 0, 1], response.results[0]["data"])
 
+    @parameterized.expand(
+        [
+            (
+                "quarter",
+                IntervalType.QUARTER,
+                "2021-03-31",
+                ["2020-01-01", "2020-04-01", "2020-07-01", "2020-10-01", "2021-01-01"],
+                [1, 2, 1, 0, 1],
+            ),
+            (
+                "year",
+                IntervalType.YEAR,
+                "2021-12-31",
+                ["2020-01-01", "2021-01-01"],
+                [4, 1],
+            ),
+        ]
+    )
+    def test_trends_quarter_and_year_intervals(self, _name, interval, date_to, expected_days, expected_data):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-15T12:00:00Z",
+                                "2020-04-10T12:00:00Z",
+                                "2020-05-10T12:00:00Z",
+                                "2020-09-01T12:00:00Z",
+                                "2021-02-01T12:00:00Z",
+                            ],
+                        )
+                    ],
+                    properties={},
+                )
+            ]
+        )
+
+        response = self._run_trends_query("2020-01-01", date_to, interval, None, None, None)
+
+        self.assertEqual(expected_days, response.results[0]["days"])
+        self.assertEqual(expected_data, response.results[0]["data"])
+
+    def _run_days_of_week_query(
+        self, interval: IntervalType, days_of_week: list[int], date_from: str, date_to: str
+    ) -> TrendsQueryResponse:
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from=date_from, date_to=date_to, daysOfWeek=days_of_week),
+            interval=interval,
+        )
+        return TrendsQueryRunner(team=self.team, query=query).calculate()
+
+    def test_days_of_week_filters_events_and_day_buckets(self):
+        # 2020-01-06 is a Monday
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-06T12:00:00Z",  # Monday
+                                "2020-01-07T12:00:00Z",  # Tuesday
+                                "2020-01-11T12:00:00Z",  # Saturday
+                            ],
+                        )
+                    ],
+                    properties={},
+                )
+            ]
+        )
+
+        response = self._run_days_of_week_query(IntervalType.DAY, [1, 2], "2020-01-06", "2020-01-12")
+
+        self.assertEqual(["2020-01-06", "2020-01-07"], response.results[0]["days"])
+        self.assertEqual([1, 1], response.results[0]["data"])
+        self.assertEqual(2, response.results[0]["count"])
+
+    def test_days_of_week_restricts_events_within_longer_buckets(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",  # Saturday
+                                "2020-01-12T12:00:00Z",  # Sunday
+                                "2020-01-15T12:00:00Z",  # Wednesday
+                                "2020-02-08T12:00:00Z",  # Saturday
+                            ],
+                        )
+                    ],
+                    properties={},
+                )
+            ]
+        )
+
+        response = self._run_days_of_week_query(IntervalType.MONTH, [6, 7], "2020-01-01", "2020-02-29")
+
+        self.assertEqual(["2020-01-01", "2020-02-01"], response.results[0]["days"])
+        self.assertEqual([2, 1], response.results[0]["data"])
+
+    def test_days_of_week_uses_project_timezone(self):
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        # 06:00 UTC Sunday = 22:00 Saturday in US/Pacific
+                        Series(event="$pageview", timestamps=["2020-01-12T06:00:00Z"]),
+                    ],
+                    properties={},
+                )
+            ]
+        )
+
+        response = self._run_days_of_week_query(IntervalType.DAY, [6], "2020-01-06", "2020-01-12")
+
+        self.assertEqual(1, response.results[0]["count"])
+        self.assertEqual(["2020-01-11"], response.results[0]["days"])
+
+    def test_days_of_week_wau_counts_only_monday_events(self):
+        # p1 fires on Mon Jan 13 and Tue Jan 14 — only the Monday event counts with daysOfWeek=[1]
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-13T12:00:00Z",  # Monday — counted in WAU
+                                "2020-01-14T12:00:00Z",  # Tuesday — filtered out of aggregation
+                            ],
+                        )
+                    ],
+                    properties={},
+                )
+            ]
+        )
+        flush_persons_and_events()
+
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
+            dateRange=DateRange(date_from="2020-01-13", date_to="2020-01-20", daysOfWeek=[1]),
+            interval=IntervalType.DAY,
+        )
+        response = TrendsQueryRunner(team=self.team, query=query).calculate()
+
+        # With interval=day and daysOfWeek=[1], non-Monday buckets are removed from the response.
+        # Jan 13 WAU window [Jan 7–13] includes p1's Monday event → count=1.
+        # Jan 20 WAU window [Jan 14–20] has no Monday events (Tue Jan 14 is filtered) → count=0.
+        assert response.results[0]["days"] == ["2020-01-13", "2020-01-20"]
+        assert response.results[0]["data"] == [1, 0]
+
+    def test_days_of_week_with_smoothing_is_rejected(self):
+        # Smoothing would average the excluded days in as zeros; the runner must refuse the
+        # combination instead of returning silently understated values
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from="2020-01-06", date_to="2020-01-12", daysOfWeek=[1, 2]),
+            interval=IntervalType.DAY,
+            trendsFilter=TrendsFilter(smoothingIntervals=7),
+        )
+
+        with self.assertRaises(DRFValidationError):
+            TrendsQueryRunner(team=self.team, query=query).calculate()
+
+    def test_exclude_incomplete_periods_drops_current_bucket(self):
+        self._create_test_events()
+
+        with freeze_time("2020-01-15T12:00:00Z"):
+            query = TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                dateRange=DateRange(date_from="-7d", excludeIncompletePeriods=True),
+                interval=IntervalType.DAY,
+            )
+            response = TrendsQueryRunner(team=self.team, query=query).calculate()
+
+        self.assertEqual("2020-01-14", response.results[0]["days"][-1])
+
     def test_trends_days(self):
         self._create_test_events()
 
@@ -629,6 +820,27 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("Formula (A-B)", response.results[1]["label"])
         self.assertEqual([1, 0, 0, 2, -2, 0, 2, -1, 1, 0, 1], response.results[1]["data"])
 
+    def test_ratio_formula_total_is_ratio_of_sums(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            self.default_date_from,
+            self.default_date_to,
+            IntervalType.DAY,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            TrendsFilter(formulas=["A/B"]),
+        )
+
+        self.assertEqual(1, len(response.results))
+        # Per-interval line stays as the daily ratio (division by zero renders as 0).
+        self.assertEqual(
+            [0, 0, 1, 3, 1 / 3, 0, 0, 0, 0, 0, 0],
+            response.results[0]["data"],
+        )
+        # The total is the ratio of the summed series (sum(A)/sum(B) = 10/6), not the sum of the
+        # daily ratios (which would be 1 + 3 + 1/3 = 4.333 and nonsensically overshoot the ratio).
+        self.assertAlmostEqual(10 / 6, response.results[0]["count"])
+
     def test_formula_with_compare(self):
         self._create_test_events()
 
@@ -686,6 +898,42 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # response shape
         self.assertEqual("Formula (A+2*B)", response.results[0]["label"])
         self.assertEqual(True, response.results[0]["compare"])
+
+    def test_metric_display_forces_compare(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-15",
+            "2020-01-19",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.METRIC),
+        )
+
+        self.assertEqual(2, len(response.results))
+        self.assertEqual("current", response.results[0]["compare_label"])
+        self.assertEqual("previous", response.results[1]["compare_label"])
+
+    @parameterized.expand(
+        [
+            ("all_time", "all", TrendsFilter(display=ChartDisplayType.METRIC)),
+            ("pill_hidden", "2020-01-15", TrendsFilter(display=ChartDisplayType.METRIC, metricShowChange=False)),
+            (
+                "latest_summary",
+                "2020-01-15",
+                TrendsFilter(display=ChartDisplayType.METRIC, metricSummary=MetricSummary.LATEST),
+            ),
+        ]
+    )
+    def test_metric_display_does_not_force_compare(self, _name, date_from, trends_filter):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            date_from, None, IntervalType.DAY, [EventsNode(event="$pageview")], trends_filter
+        )
+
+        self.assertEqual(1, len(response.results))
+        self.assertNotIn("compare_label", response.results[0])
 
     def test_formula_with_compare_to_week(self):
         self._create_test_events()
@@ -1099,17 +1347,19 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 2
 
-        assert response.results[0]["label"] == "cohort p1"
-        assert response.results[0]["breakdown_value"] == cohort1.pk
-        assert response.results[0]["count"] == 0
-        assert len(response.results[0]["data"]) == 12
-        assert len(response.results[0]["days"]) == 12
+        # Both cohorts aggregate to 0, so breakdown order is a nondeterministic tie — assert per-cohort.
+        by_cohort = {r["breakdown_value"]: r for r in response.results}
+        assert set(by_cohort) == {cohort1.pk, cohort2.pk}
 
-        assert response.results[1]["label"] == "cohort p2"
-        assert response.results[1]["breakdown_value"] == cohort2.pk
-        assert response.results[1]["count"] == 0
-        assert len(response.results[1]["data"]) == 12
-        assert len(response.results[1]["days"]) == 12
+        assert by_cohort[cohort1.pk]["label"] == "cohort p1"
+        assert by_cohort[cohort1.pk]["count"] == 0
+        assert len(by_cohort[cohort1.pk]["data"]) == 12
+        assert len(by_cohort[cohort1.pk]["days"]) == 12
+
+        assert by_cohort[cohort2.pk]["label"] == "cohort p2"
+        assert by_cohort[cohort2.pk]["count"] == 0
+        assert len(by_cohort[cohort2.pk]["data"]) == 12
+        assert len(by_cohort[cohort2.pk]["days"]) == 12
 
     @parameterized.expand(
         [
@@ -1325,25 +1575,27 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response.results.sort(key=lambda r: r["count"])
 
-        assert response.results[0]["label"] == "Formula (A+B)"
+        # The total is the formula applied to each series' summed values, so the constant in
+        # `B+1` counts once, not once per interval: sum(B) + 1, not sum(B_i + 1).
+        assert response.results[0]["label"] == "Formula (B+1)"
         assert response.results[0]["breakdown_value"] == cohort1.pk
-        assert response.results[0]["count"] == 9
-        assert response.results[0]["data"] == [0, 0, 2, 2, 2, 0, 1, 0, 1, 0, 1, 0]
+        assert response.results[0]["count"] == 4
+        assert response.results[0]["data"] == [1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1]
 
         assert response.results[1]["label"] == "Formula (B+1)"
-        assert response.results[1]["breakdown_value"] == cohort1.pk
-        assert response.results[1]["count"] == 15
-        assert response.results[1]["data"] == [1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1]
+        assert response.results[1]["breakdown_value"] == "all"
+        assert response.results[1]["count"] == 7
+        assert response.results[1]["data"] == [1, 1, 2, 2, 4, 1, 1, 2, 1, 1, 1, 1]
 
         assert response.results[2]["label"] == "Formula (A+B)"
-        assert response.results[2]["breakdown_value"] == "all"
-        assert response.results[2]["count"] == 16
-        assert response.results[2]["data"] == [1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1, 0]
+        assert response.results[2]["breakdown_value"] == cohort1.pk
+        assert response.results[2]["count"] == 9
+        assert response.results[2]["data"] == [0, 0, 2, 2, 2, 0, 1, 0, 1, 0, 1, 0]
 
-        assert response.results[3]["label"] == "Formula (B+1)"
+        assert response.results[3]["label"] == "Formula (A+B)"
         assert response.results[3]["breakdown_value"] == "all"
-        assert response.results[3]["count"] == 18
-        assert response.results[3]["data"] == [1, 1, 2, 2, 4, 1, 1, 2, 1, 1, 1, 1]
+        assert response.results[3]["count"] == 16
+        assert response.results[3]["data"] == [1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1, 0]
 
         # action needs to be unset to display custom label
         assert response.results[0]["action"] is None
@@ -2080,8 +2332,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert results_by_breakdown["[2,3.01]"]["data"] == [0, 200.0, 0]
 
-    def test_trends_breakdown_histogram_with_unsupported_math_type_raises_error(self):
-        with pytest.raises(ValueError) as exc_info:
+    def test_trends_breakdown_histogram_with_unsupported_math_type_raises_validation_error(self):
+        with pytest.raises(DRFValidationError) as exc_info:
             self._run_trends_query(
                 "2020-01-11",
                 "2020-01-13",
@@ -2094,7 +2346,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     breakdown_histogram_bin_count=2,
                 ),
             )
-        assert "is not supported with histogram breakdowns" in str(exc_info.value)
+        assert exc_info.value.get_codes() == ["property_math_unsupported_with_histogram_breakdown"]
 
     @parameterized.expand(
         [
@@ -3054,7 +3306,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.posthoganalytics.feature_enabled")
+    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.feature_enabled_or_false")
     def test_session_property_pre_aggregation_modifier_gate(
         self,
         _name: str,
@@ -3070,7 +3322,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         assert runner.modifiers.sessionPropertyPreAggregation is expected
 
-    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.posthoganalytics.feature_enabled")
+    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.feature_enabled_or_false")
     def test_session_property_pre_aggregation_modifier_clears_on_dashboard_reapply(self, patch_feature_enabled):
         # apply_dashboard_filters re-runs __post_init__. The modifier must reflect the *current*
         # query state, not the initial one — so a session-breakdown query that gets overridden
@@ -7506,11 +7758,11 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             trends_filters=TrendsFilter(hideWeekends=True),
         )
 
-        # Weekly buckets are preserved, only event counts change
-        assert len(response_hidden.results[0]["days"]) == len(response_normal.results[0]["days"])
-        # 10 total events, 5 on weekends (Jan 11 Sat, Jan 12 Sun x3, Jan 19 Sun)
-        assert response_normal.results[0]["count"] == 10.0
-        assert response_hidden.results[0]["count"] == 5.0
+        # Week buckets span weekends, so hiding weekends is a no-op here — buckets and counts
+        # are identical to the normal response (we never drop weekend events from aggregation).
+        assert response_hidden.results[0]["days"] == response_normal.results[0]["days"]
+        assert response_hidden.results[0]["data"] == response_normal.results[0]["data"]
+        assert response_hidden.results[0]["count"] == response_normal.results[0]["count"] == 10.0
 
     def test_hide_weekends_with_compare(self):
         self._create_test_events()
@@ -7561,6 +7813,57 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert formula_result["action"] is None
         assert len(formula_result["data"]) == len(formula_result["days"])
         assert formula_result["count"] == sum(formula_result["data"])
+
+    @parameterized.expand(
+        [
+            # Weekly active users: each weekday's sliding-window value must still count weekend
+            # events, so the weekday values match the non-hidden query (would drop under the bug).
+            (
+                "weekly_active",
+                "2020-01-09",
+                "2020-01-20",
+                [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
+                None,
+                [
+                    "2020-01-09",
+                    "2020-01-10",
+                    "2020-01-13",
+                    "2020-01-14",
+                    "2020-01-15",
+                    "2020-01-16",
+                    "2020-01-17",
+                    "2020-01-20",
+                ],
+                [1, 1, 3, 3, 4, 4, 4, 2],
+            ),
+            # Cumulative: the running total keeps weekend events folded in, so Monday 2020-01-13
+            # is already 6 (would be lower if weekend events were filtered out of the aggregation).
+            (
+                "cumulative",
+                "2020-01-09",
+                "2020-01-19",
+                [EventsNode(event="$pageview")],
+                ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE,
+                ["2020-01-09", "2020-01-10", "2020-01-13", "2020-01-14", "2020-01-15", "2020-01-16", "2020-01-17"],
+                [1, 1, 6, 6, 8, 8, 9],
+            ),
+        ]
+    )
+    def test_hide_weekends_does_not_corrupt_windowed_math(
+        self, _name, date_from, date_to, series, display, expected_days, expected_data
+    ):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            date_from,
+            date_to,
+            IntervalType.DAY,
+            series,
+            trends_filters=TrendsFilter(hideWeekends=True, display=display),
+        )
+
+        assert response.results[0]["days"] == expected_days
+        assert response.results[0]["data"] == expected_data
 
     @parameterized.expand(
         [

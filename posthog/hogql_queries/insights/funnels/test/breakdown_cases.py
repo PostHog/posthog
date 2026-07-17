@@ -35,13 +35,13 @@ from posthog.constants import FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID, NOT_IN_COHORT_ID
-from posthog.models.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import override_instance_config
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+from products.cohorts.backend.models.cohort import Cohort
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.funnels.breakdown_cases"
 

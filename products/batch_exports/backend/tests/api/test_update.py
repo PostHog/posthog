@@ -50,7 +50,7 @@ def bigquery_integration(team, user):
 
 def test_can_put_config(client: HttpClient, temporal, encryption_codec, organization, team, user):
     destination_data: dict[str, t.Any] = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -127,7 +127,7 @@ def test_can_patch_config(client: HttpClient, interval, temporal, encryption_cod
     # use offset of 1 hour for daily exports and None for hourly exports (these don't support offsets)
     offset_hour = None if interval == "hour" else 1
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -162,7 +162,7 @@ def test_can_patch_config(client: HttpClient, interval, temporal, encryption_cod
     # We should be able to update the destination config, excluding the aws
     # credentials. The existing values should be preserved.
     new_destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-new-production-s3-bucket",
             "region": "us-east-1",
@@ -378,6 +378,28 @@ def test_can_patch_config(client: HttpClient, interval, temporal, encryption_cod
             None,
             "offset_hour is not applicable for non-daily/weekly intervals",
         ),
+        pytest.param(
+            {
+                "interval": "hour",
+                "timezone": "UTC",
+                "offset_day": None,
+                "offset_hour": None,
+            },
+            {
+                "interval": "every 5 minutes",
+                "timezone": "UTC",
+                "offset_day": None,
+                "offset_hour": None,
+            },
+            {
+                "interval": "hour",
+                "timezone": "UTC",
+                "offset_day": None,
+                "offset_hour": None,
+            },
+            "Higher frequency batch exports are not enabled for this team.",
+            id="Cannot update to high frequency batch exports without feature flag",
+        ),
     ],
 )
 def test_can_patch_schedule_configuration(
@@ -398,7 +420,7 @@ def test_can_patch_schedule_configuration(
     provided, we should keep the existing value.
     """
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -439,7 +461,7 @@ def test_can_patch_schedule_configuration(
 
     response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
     if expected_error:
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_400_BAD_REQUEST or response.status_code == status.HTTP_403_FORBIDDEN
         assert expected_error in response.json()["detail"]
         return
     assert response.status_code == status.HTTP_200_OK, response.json()
@@ -646,7 +668,7 @@ def test_put_rejects_destination_type_change(
 def test_can_patch_hogql_query(client: HttpClient, temporal, encryption_codec, organization, team, user):
     """Test we can patch a schema with a HogQL query."""
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -734,7 +756,7 @@ def test_can_patch_hogql_query(client: HttpClient, temporal, encryption_codec, o
 
 def test_patch_returns_error_on_unsupported_hogql_query(client: HttpClient, temporal, organization, team, user):
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -918,3 +940,42 @@ def test_can_update_batch_export_with_integration_to_none(
     response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert "Integration is required for Databricks batch exports" in response.json()["detail"]
+
+
+def test_updating_legacy_postgres_batch_export_keeps_inline_credentials(
+    client: HttpClient, temporal, organization, team, user
+):
+    """Test that existing inline-credential Postgres exports are grandfathered when edited.
+
+    Exports created before integrations existed have no linked integration. Editing them must
+    not force migrating to an integration, so the integration requirement applies on create only.
+    """
+    destination = BatchExportDestination.objects.create(
+        type=BatchExportDestination.Destination.POSTGRES,
+        config={
+            "user": "user",
+            "password": "my-password",
+            "host": "8.8.8.8",
+            "port": 5432,
+            "database": "my-db",
+            "schema": "public",
+            "table_name": "my_events",
+        },
+    )
+    batch_export = BatchExport.objects.create(
+        name="legacy-postgres-export", team=team, destination=destination, interval="hour"
+    )
+    sync_batch_export(batch_export, created=True)
+
+    client.force_login(user)
+    new_batch_export_data = {
+        "destination": {
+            "type": "Postgres",
+            "config": {"table_name": "my_new_events"},
+        },
+    }
+    response = patch_batch_export(client, team.pk, batch_export.id, new_batch_export_data)
+
+    assert response.status_code == status.HTTP_200_OK, response.json()
+    updated = get_batch_export_ok(client, team.pk, batch_export.id)
+    assert updated["destination"]["config"]["table_name"] == "my_new_events"

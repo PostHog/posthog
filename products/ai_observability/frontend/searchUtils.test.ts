@@ -298,6 +298,26 @@ describe('searchUtils', () => {
             expect(eventMatchesSearch(event, 'hidden response text')).toBe(true)
             expect(eventMatchesSearch(event, 'not found anywhere')).toBe(false)
         })
+
+        // `$ai_span_name`/`$ai_model`/`$ai_provider` are strings by convention, but the event
+        // property bag is untyped; a structured value must not crash `.toLowerCase()`.
+        it('does not throw when string-by-convention properties are not strings', () => {
+            const event = createEvent({
+                properties: { $ai_span_name: {}, $ai_model: { oops: true }, $ai_provider: 123 },
+            })
+            expect(() => eventMatchesSearch(event, 'anything')).not.toThrow()
+            // Non-string values are not searchable, but the event name still is
+            expect(eventMatchesSearch(event, 'generation')).toBe(true)
+            expect(eventMatchesSearch(event, 'oops')).toBe(false)
+        })
+
+        it('still matches the string provider when the model is an object', () => {
+            const event = createEvent({
+                properties: { $ai_span_name: 'Chat', $ai_model: { oops: true }, $ai_provider: 'openai' },
+            })
+            expect(eventMatchesSearch(event, 'openai')).toBe(true)
+            expect(eventMatchesSearch(event, 'claude')).toBe(false)
+        })
     })
 
     describe('findSearchOccurrences', () => {
@@ -389,16 +409,23 @@ describe('searchUtils', () => {
     })
 
     describe('findSidebarOccurrences', () => {
+        const createTraceEvent = (id: string, event: string, properties: Record<string, any>): LLMTraceEvent => ({
+            id,
+            event,
+            properties,
+            createdAt: '2024-01-01T00:00:00Z',
+        })
+
         it('returns empty array for empty query', () => {
-            const events = [{ id: 'e1', properties: { $ai_span_name: 'Test' } }]
+            const events = [createTraceEvent('e1', '$ai_span', { $ai_span_name: 'Test' })]
             expect(findSidebarOccurrences(events, '')).toEqual([])
             expect(findSidebarOccurrences(events, '  ')).toEqual([])
         })
 
         it('finds occurrences in span name', () => {
             const events = [
-                { id: 'e1', properties: { $ai_span_name: 'Chat Completion' } },
-                { id: 'e2', properties: { $ai_span_name: 'Text Generation' } },
+                createTraceEvent('e1', '$ai_span', { $ai_span_name: 'Chat Completion' }),
+                createTraceEvent('e2', '$ai_span', { $ai_span_name: 'Text Generation' }),
             ]
             const occurrences = findSidebarOccurrences(events, 'chat')
 
@@ -414,15 +441,11 @@ describe('searchUtils', () => {
 
         it('finds occurrences in model and provider', () => {
             const events = [
-                {
-                    id: 'e1',
-                    event: '$ai_generation',
-                    properties: {
-                        $ai_span_name: 'Generation',
-                        $ai_model: 'gpt-4',
-                        $ai_provider: 'OpenAI',
-                    },
-                },
+                createTraceEvent('e1', '$ai_generation', {
+                    $ai_span_name: 'Generation',
+                    $ai_model: 'gpt-4',
+                    $ai_provider: 'OpenAI',
+                }),
             ]
             const occurrences = findSidebarOccurrences(events, 'openai')
 
@@ -438,15 +461,11 @@ describe('searchUtils', () => {
 
         it('searches in combined model and provider text', () => {
             const events = [
-                {
-                    id: 'e1',
-                    event: '$ai_generation',
-                    properties: {
-                        $ai_span_name: 'Gen',
-                        $ai_model: 'claude-3',
-                        $ai_provider: 'Anthropic',
-                    },
-                },
+                createTraceEvent('e1', '$ai_generation', {
+                    $ai_span_name: 'Gen',
+                    $ai_model: 'claude-3',
+                    $ai_provider: 'Anthropic',
+                }),
             ]
             const occurrences = findSidebarOccurrences(events, 'anthropic')
 
@@ -461,33 +480,53 @@ describe('searchUtils', () => {
         })
 
         it('handles events without model or provider', () => {
-            const events = [
-                {
-                    id: 'e1',
-                    event: '$ai_generation',
-                    properties: { $ai_span_name: 'Test' },
-                },
-            ]
+            const events = [createTraceEvent('e1', '$ai_generation', { $ai_span_name: 'Test' })]
             expect(findSidebarOccurrences(events, 'model')).toEqual([])
         })
 
         it('finds multiple occurrences across events', () => {
             const events = [
-                { id: 'e1', properties: { $ai_span_name: 'Test Event' } },
-                { id: 'e2', properties: { $ai_span_name: 'Another Test' } },
-                {
-                    id: 'e3',
-                    event: '$ai_generation',
-                    properties: {
-                        $ai_span_name: 'Generation Test',
-                        $ai_model: 'test-model',
-                    },
-                },
+                createTraceEvent('e1', '$ai_span', { $ai_span_name: 'Test Event' }),
+                createTraceEvent('e2', '$ai_span', { $ai_span_name: 'Another Test' }),
+                createTraceEvent('e3', '$ai_generation', {
+                    $ai_span_name: 'Generation Test',
+                    $ai_model: 'test-model',
+                }),
             ]
             const occurrences = findSidebarOccurrences(events, 'test')
 
             expect(occurrences).toHaveLength(4)
             expect(occurrences.map((o) => o.eventId)).toEqual(['e1', 'e2', 'e3', 'e3'])
+        })
+
+        it('matches the rendered model row when the model is not a string', () => {
+            const events = [
+                createTraceEvent('e1', '$ai_generation', {
+                    $ai_span_name: 'Chat',
+                    $ai_model: { oops: true },
+                    $ai_provider: 'openai',
+                }),
+            ]
+            // The rendered row shows the bare provider, so the occurrence covers exactly that text
+            expect(findSidebarOccurrences(events, 'openai')).toEqual([
+                {
+                    type: 'sidebar',
+                    field: 'model',
+                    startIndex: 0,
+                    eventId: 'e1',
+                },
+            ])
+            expect(findSidebarOccurrences(events, 'oops')).toEqual([])
+        })
+
+        it('does not throw when span name and model are not strings', () => {
+            const events = [
+                createTraceEvent('e1', '$ai_generation', {
+                    $ai_span_name: {},
+                    $ai_model: { oops: true },
+                }),
+            ]
+            expect(findSidebarOccurrences(events, 'test')).toEqual([])
         })
     })
 

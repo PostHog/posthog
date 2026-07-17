@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react'
 
-import type { PieLayout } from '../charts/PieChart/computePieLayout'
+import type { PieLayout } from './radial-layout'
 
 /** Layout-stable values exposed to radial overlays (slice labels, custom decorations). Identity
  *  does NOT change on hover. */

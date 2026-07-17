@@ -17,6 +17,8 @@ from pydantic import BaseModel
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ModelNotFoundError,
+    ModelPermissionError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
@@ -46,7 +48,6 @@ class GeminiConfig:
         "gemini-2.5-flash-lite",
         "gemini-2.5-pro",
         "gemini-2.0-flash",
-        "gemini-2.0-flash-lite",
         "gemini-1.5-flash",
         "gemini-1.5-pro",
     ]
@@ -58,9 +59,10 @@ class GeminiConfig:
         "gemini-2.5-flash",
         "gemini-2.5-flash-lite",
         "gemini-2.0-flash",
-        "gemini-2.0-flash-lite",
         "gemini-1.5-flash",
     ]
+
+    DEFAULT_MODEL: str = "gemini-2.5-flash"
 
 
 class GeminiAdapter:
@@ -138,10 +140,17 @@ class GeminiAdapter:
             status_code = getattr(e, "code", None) or getattr(e, "status_code", None)
             if status_code == 401 or "authentication" in error_message or "api key" in error_message:
                 raise AuthenticationError(str(e))
+            if status_code == 403 or "permission denied" in error_message:
+                raise ModelPermissionError(request.model)
             if status_code == 429 or "rate limit" in error_message or "resource exhausted" in error_message:
                 if "quota" in error_message or "billing" in error_message:
                     raise QuotaExceededError(str(e))
                 raise RateLimitError(str(e))
+            # Google returns a 404-class error (often with "no longer available") when a
+            # model is retired/deprecated. Map it so call_llm_judge disables the eval
+            # gracefully instead of burning Temporal retries on an unhandled exception.
+            if status_code == 404 or "no longer available" in error_message or "not found" in error_message:
+                raise ModelNotFoundError(request.model)
             raise
 
     def stream(
@@ -150,7 +159,7 @@ class GeminiAdapter:
         api_key: str | None,
         analytics: AnalyticsContext,
         _base_url: str | None = None,
-    ) -> Generator[StreamChunk, None, None]:
+    ) -> Generator[StreamChunk]:
         """Streaming completion."""
         effective_api_key = api_key or self._get_default_api_key()
         model_id = request.model
@@ -309,7 +318,7 @@ class GeminiAdapter:
         assert result is not None, "tools must be non-empty when calling _convert_tools"
         return result
 
-    def _extract_chunks_from_response(self, chunk) -> Generator[StreamChunk, None, None]:
+    def _extract_chunks_from_response(self, chunk) -> Generator[StreamChunk]:
         """Extract StreamChunks from a Gemini response chunk."""
         if hasattr(chunk, "text") and chunk.text:
             yield StreamChunk(type="text", data={"text": chunk.text})

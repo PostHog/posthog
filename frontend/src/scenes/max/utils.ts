@@ -1,8 +1,9 @@
+import type { BuiltLogic } from 'kea'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import { VisualizationBlock } from '~/queries/schema/schema-assistant-artifacts'
 import {
@@ -38,8 +39,10 @@ import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } fr
 
 import { Scene } from '../sceneTypes'
 import { MODE_DEFINITIONS } from './max-constants'
+import { EnhancedToolCall } from './max-constants'
 import { SuggestionGroup } from './maxLogic'
 import {
+    EvaluationRuntime,
     InsightWithQuery,
     MaxActionContext,
     MaxContextType,
@@ -51,7 +54,6 @@ import {
     MaxNotebookContext,
     MaxUIContext,
 } from './maxTypes'
-import { EnhancedToolCall } from './Thread'
 
 export function isMultiVisualizationMessage(
     message: RootAssistantMessage | undefined | null
@@ -121,6 +123,41 @@ export function threadEndsWithMultiQuestionForm(messages: RootAssistantMessage[]
     return false
 }
 
+export interface PendingClientToolCall {
+    toolName: string
+    toolCallId: string
+    args: Record<string, any>
+}
+
+// A client tool call is pending when the current turn contains it with no result message.
+// The whole turn is scanned, not just the last message: a sibling server-side tool's result
+// may land after the assistant message carrying the client call.
+export function findPendingClientToolCall(
+    messages: RootAssistantMessage[],
+    clientToolNames: Set<string>
+): PendingClientToolCall | null {
+    const lastHumanIndex = messages.findLastIndex(isHumanMessage)
+    const currentTurn = messages.slice(lastHumanIndex + 1)
+
+    const completedToolCallIds = new Set<string>()
+    for (const message of messages) {
+        if (message.type === AssistantMessageType.ToolCall && 'tool_call_id' in message) {
+            completedToolCallIds.add((message as { tool_call_id: string }).tool_call_id)
+        }
+    }
+    for (const message of currentTurn) {
+        if (!isAssistantMessage(message) || !message.tool_calls?.length) {
+            continue
+        }
+        for (const toolCall of message.tool_calls) {
+            if (clientToolNames.has(toolCall.name) && !completedToolCallIds.has(toolCall.id)) {
+                return { toolName: toolCall.name, toolCallId: toolCall.id, args: toolCall.args ?? {} }
+            }
+        }
+    }
+    return null
+}
+
 export function castAssistantQuery(query: AnyAssistantGeneratedQuery | QuerySchemaRoot | null): QuerySchemaRoot | null {
     if (query) {
         return query as QuerySchemaRoot
@@ -174,7 +211,9 @@ export const dashboardToMaxContext = (dashboard: DashboardType<InsightWithQuery>
         id: dashboard.id,
         name: dashboard.name,
         description: dashboard.description,
-        insights: dashboard.tiles.filter((tile) => tile.insight).map((tile) => insightToMaxContext(tile.insight!)),
+        insights: (dashboard.tiles ?? [])
+            .filter((tile) => tile.insight)
+            .map((tile) => insightToMaxContext(tile.insight!)),
         filters: dashboard.filters,
     }
 }
@@ -221,7 +260,7 @@ export const evaluationToMaxContextPayload = (evaluation: {
     id: string
     name?: string | null
     description?: string | null
-    evaluation_type: 'hog' | 'llm_judge'
+    evaluation_type: EvaluationRuntime
     hog_source?: string | null
 }): MaxEvaluationContext => ({
     type: MaxContextType.EVALUATION,
@@ -246,7 +285,7 @@ export interface MaxOpenContext {
         id: string
         name?: string | null
         description?: string | null
-        evaluation_type: 'hog' | 'llm_judge'
+        evaluation_type: EvaluationRuntime
         hog_source?: string | null
     }
 }
@@ -337,4 +376,17 @@ export const visualizationTypeToQuery = (
         return { kind: NodeKind.InsightVizNode, source, showHeader: true } satisfies InsightVizNode
     }
     return source
+}
+
+/**
+ * Whether it's safe to read auto-context from the active scene logic. `sceneLogic`'s
+ * `activeSceneLogic` is built but may already be unmounted mid scene-transition (e.g. navigating
+ * away from a dashboard); reading its selectors/values then throws `[KEA] Can not find path`
+ * because the reducer path is gone from the store. Check this at read time — mounted state changes
+ * without a selector-input change, so it can't be memoized upstream.
+ */
+export function activeSceneLogicHasMaxContext(
+    activeSceneLogic: BuiltLogic | null | undefined
+): activeSceneLogic is BuiltLogic {
+    return !!activeSceneLogic?.isMounted() && 'maxContext' in activeSceneLogic.selectors
 }

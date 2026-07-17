@@ -6,8 +6,8 @@ import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/com
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { genericOperatorMap } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { genericOperatorMap } from 'lib/utils/operators'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
@@ -15,7 +15,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { cohortsModelType } from '~/models/cohortsModelType'
+import type { cohortsModelType } from '~/models/cohortsModel'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     PropertyOperator,

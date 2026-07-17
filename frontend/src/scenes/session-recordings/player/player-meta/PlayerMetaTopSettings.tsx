@@ -5,16 +5,11 @@ import { useEffect } from 'react'
 import { IconBottomPanel, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
 import { LemonButton, LemonDialog, Link } from '@posthog/lemon-ui'
 
+import { SettingsBar, SettingsButton, SettingsMenu, SettingsToggle } from 'lib/components/PanelSettings/PanelSettings'
 import { SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS } from 'lib/constants'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
-import { humanFriendlyDuration } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
-import {
-    SettingsBar,
-    SettingsButton,
-    SettingsMenu,
-    SettingsToggle,
-} from 'scenes/session-recordings/components/PanelSettings'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { PlayerInspectorButton } from 'scenes/session-recordings/player/player-meta/PlayerInspectorButton'
 import {
     ModesWithInteractions,
@@ -171,7 +166,9 @@ export function PlayerMetaTopSettings(): JSX.Element {
                 hoverModeIsEnabled && showPlayerChrome
                     ? 'opacity-100 pointer-events-auto'
                     : hoverModeIsEnabled
-                      ? 'opacity-0 pointer-events-none'
+                      ? // invisible releases the hidden overlay's raster backing; transition-all
+                        // already covers visibility so the fade still plays (see PanelLayout scrims)
+                        'opacity-0 pointer-events-none invisible'
                       : ''
             )}
         >

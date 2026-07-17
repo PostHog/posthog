@@ -20,6 +20,21 @@ def ast_parse_safe(file_path: Path) -> ast.Module | None:
         return None
 
 
+def get_imported_module_names(tree: ast.Module) -> set[str]:
+    """Every dotted module path the tree imports via real import statements.
+
+    'from a.b import c' records both 'a.b' and 'a.b.c' (c may be a submodule); relative
+    imports are skipped — they can't name a path outside the importing package."""
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            imported.add(node.module)
+            imported.update(f"{node.module}.{alias.name}" for alias in node.names)
+    return imported
+
+
 def _file_imports_django_models(tree: ast.Module) -> bool:
     """Check whether a file imports from django.db.models (or django.db)."""
     for node in ast.walk(tree):
@@ -215,36 +230,6 @@ def find_direct_orm_queries(path: Path) -> list[str]:
                     rel = f
                 locations.append(f"{rel}:{node.lineno}")
     return locations
-
-
-def get_cross_product_internal_imports(product_dir: Path, product_name: str) -> list[str]:
-    """
-    Find imports from other products' internals (non-facade) within this product's own files.
-    Handles both `from X import Y` and `import X` styles.
-    Returns list of 'relpath: module' strings.
-    """
-
-    def _is_cross_product_violation(module: str) -> bool:
-        if module.startswith(f"products.{product_name}"):
-            return False
-        if module.startswith("products.") and ".backend." in module:
-            return "facade" not in module.split(".")
-        return False
-
-    violations: list[str] = []
-    for py_file in product_dir.rglob("*.py"):
-        tree = ast_parse_safe(py_file)
-        if not tree:
-            continue
-        rel = str(py_file.relative_to(product_dir))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module and _is_cross_product_violation(node.module):
-                violations.append(f"{rel}: {node.module}")
-            elif isinstance(node, ast.Import):
-                for alias in node.names:
-                    if _is_cross_product_violation(alias.name):
-                        violations.append(f"{rel}: {alias.name}")
-    return violations
 
 
 def view_facade_usage(views_path: Path) -> tuple[bool, bool]:

@@ -11,6 +11,8 @@ import MaxTool from 'scenes/max/MaxTool'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AvailableFeature, CyclotronJobInputSchemaType } from '~/types'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
 
 export function HogFunctionInputs(): JSX.Element {
@@ -18,6 +20,7 @@ export function HogFunctionInputs(): JSX.Element {
         showSource,
         configuration,
         configurationErrors,
+        inputFormWarnings,
         sampleGlobalsWithInputs,
         usesGroups,
         hasGroupsAddon,
@@ -37,6 +40,17 @@ export function HogFunctionInputs(): JSX.Element {
         reportAIHogFunctionInputsPromptOpen,
     } = useActions(hogFunctionConfigurationLogic)
 
+    useAttachedContext([
+        {
+            type: 'hog_function_inputs_schema',
+            value: JSON.stringify({
+                inputs_schema: configuration.inputs_schema ?? [],
+                hog_code: configuration.hog ?? '',
+            }),
+            label: 'Current inputs schema',
+        },
+    ])
+
     const content = (
         <div className={clsx('p-3 rounded border deprecated-space-y-2 bg-surface-primary')}>
             <div className="deprecated-space-y-2">
@@ -52,6 +66,7 @@ export function HogFunctionInputs(): JSX.Element {
 
                 <CyclotronJobInputs
                     errors={(configurationErrors.inputs ?? {}) as Record<string, string>}
+                    warnings={inputFormWarnings}
                     configuration={{
                         inputs_schema: newInputs ?? configuration.inputs_schema ?? [],
                         inputs: configuration.inputs ?? {},

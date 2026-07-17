@@ -1,12 +1,11 @@
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
-from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.schema import DateRange, HogQLQueryModifiers, WebStatsBreakdown, WebStatsTableQuery
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models import Person, Team
+from posthog.models import Team
 from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
 
@@ -19,15 +18,6 @@ from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_ba
 
 @snapshot_clickhouse_queries
 class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, FloatAwareTestCase):
-    def setUp(self):
-        super().setUp()
-        patcher = patch(
-            "products.web_analytics.backend.hogql_queries.stats_table.is_web_analytics_events_prefilter_team",
-            return_value=False,
-        )
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
     def _setup_test_data(self):
         """Required by WebAnalyticsPreAggregatedTestBase. Each test handles its own data setup."""
         pass
@@ -283,7 +273,6 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
             assert not comparison["raw_used"]
 
         finally:
-            Person.objects.filter(team=team).delete()
             team.delete()
 
     def test_timezone_boundary_behavior_explicit(self):
@@ -372,7 +361,6 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
                 )
 
         finally:
-            Person.objects.filter(team__in=[utc_team, pt_team, jst_team]).delete()
             utc_team.delete()
             pt_team.delete()
             jst_team.delete()
@@ -477,5 +465,4 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
             assert chrome_raw[1][0] == 2.0
 
         finally:
-            Person.objects.filter(team=india_team).delete()
             india_team.delete()

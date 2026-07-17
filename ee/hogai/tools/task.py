@@ -18,11 +18,8 @@ from posthog.schema import (
 
 from posthog.models import Team, User
 
-from products.posthog_ai.backend.models.assistant import Conversation
-
 from ee.hogai.artifacts.utils import unwrap_notebook_artifact_content, unwrap_visualization_artifact_content
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.stream.redis_stream import get_subagent_stream_key
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.utils.prompt import format_prompt_string
@@ -101,17 +98,6 @@ The following artifacts have been generated:
 """
 
 
-class SubagentExecutor(AgentExecutor):
-    """Executor for subagent workflows that uses a tool-specific stream key."""
-
-    def __init__(self, conversation: Conversation, tool_call_id: str, execution_id: str):
-        # Include execution_id to make workflow IDs unique per execution,
-        # preventing conflicts when tool calls are replayed from checkpoints
-        stream_key = get_subagent_stream_key(conversation.id, f"{tool_call_id}-{execution_id}")
-        super().__init__(conversation, stream_key, reconnectable=False)
-        self._workflow_id = f"subagent-{conversation.id}-{tool_call_id}-{execution_id}"
-
-
 class TaskToolArgs(BaseModel):
     title: str = Field(description="A short title for the task")
     task: str = Field(
@@ -126,8 +112,14 @@ class TaskTool(MaxTool):
     args_schema: type[BaseModel] = TaskToolArgs
 
     async def _arun_impl(self, title: str, task: str, agent_mode: AgentMode) -> tuple[str, ToolMessagesArtifact | None]:
-        # Avoid circular import
-        from posthog.temporal.ai.chat_agent import ChatAgentWorkflow, ChatAgentWorkflowInputs
+        # Deferred: SubagentExecutor (and the chat_agent workflow) pull in ee.hogai.core.executor ->
+        # posthog.temporal.ai -> chat_agent -> toolkit, which reaches back into ee.hogai.tools. At module
+        # level that cycle only resolved by import-order luck; the lazy API router removed that luck (the
+        # agent core is no longer pre-imported at django.setup), so the first MCP-tools request in a fresh
+        # worker hit the half-initialized cycle. Importing both lazily here breaks it.
+        from posthog.temporal.ai.chat_agent import ChatAgentWorkflow, ChatAgentWorkflowInputs  # noqa: PLC0415
+
+        from ee.hogai.tools.subagent_executor import SubagentExecutor  # noqa: PLC0415
 
         thread_id = self._get_thread_id(self._config)
         if not thread_id:

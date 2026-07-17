@@ -7,11 +7,11 @@ import { LemonCollapse, LemonTable, LemonTableColumns, LemonTabs } from '@postho
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { FunnelChart } from 'scenes/experiments/charts/funnel/FunnelChart'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
-import { getViewRecordingFilters } from 'scenes/experiments/utils'
+import { applySessionLinkability, getViewRecordingFilters } from 'scenes/experiments/utils'
 
 import {
     CachedNewExperimentQueryResponse,
@@ -41,6 +41,7 @@ import {
     isBayesianResult,
     isFrequentistResult,
 } from '../shared/utils'
+import { viewRecordingsLinkabilityLogic } from './viewRecordingsLinkabilityLogic'
 
 /**
  * Convert new experiment results directly to DataDrivenFunnel format
@@ -175,6 +176,9 @@ export function ResultDetails({
     metric: ExperimentMetric
 }): JSX.Element {
     const { featureFlags } = useValues(experimentLogic)
+    const { unlinkableEventNames, linkabilityLoaded } = useValues(viewRecordingsLinkabilityLogic({ experiment }))
+
+    const baselineKey = result.baseline?.key
 
     const columns: LemonTableColumns<ExperimentVariantResult & { key: string }> = [
         {
@@ -203,7 +207,7 @@ export function ResultDetails({
                     ? 'Chance to win'
                     : 'p-value',
             render: (_, item: ExperimentVariantResult & { key: string }) => {
-                if (item.key === 'control') {
+                if (item.key === baselineKey) {
                     return '—'
                 }
 
@@ -219,7 +223,7 @@ export function ResultDetails({
             key: 'significant',
             title: 'Significant',
             render: (_, item: ExperimentVariantResult & { key: string }) => {
-                if (item.key === 'control') {
+                if (item.key === baselineKey) {
                     return '—'
                 }
                 if (!('significant' in item)) {
@@ -235,7 +239,7 @@ export function ResultDetails({
                 ? `${getIntervalLabel(result.variant_results[0])} (95%)`
                 : 'Confidence interval (95%)',
             render: (_, item: ExperimentVariantResult & { key: string }) => {
-                if (item.key === 'control') {
+                if (item.key === baselineKey) {
                     return '—'
                 }
                 const interval = getVariantInterval(item)
@@ -252,13 +256,22 @@ export function ResultDetails({
                 const variantKey = item.key
                 const filters = getViewRecordingFilters(experiment, metric, variantKey)
 
+                // While the seenTogether check is in flight, keep today's behavior (fail open).
+                const {
+                    filters: safeFilters,
+                    droppedMetricEventCount,
+                    exposureUnlinkable,
+                } = linkabilityLoaded
+                    ? applySessionLinkability(filters, unlinkableEventNames)
+                    : { filters, droppedMetricEventCount: 0, exposureUnlinkable: false }
+
                 const filterGroup: Partial<RecordingUniversalFilters> = {
                     filter_group: {
                         type: FilterLogicalOperator.And,
                         values: [
                             {
                                 type: FilterLogicalOperator.And,
-                                values: filters,
+                                values: safeFilters,
                             },
                         ],
                     },
@@ -272,10 +285,20 @@ export function ResultDetails({
                         filters={filterGroup}
                         size="xsmall"
                         type="secondary"
-                        tooltip="Watch recordings of people who were exposed to this variant."
-                        disabled={filters.length === 0}
+                        tooltip={
+                            droppedMetricEventCount > 0
+                                ? `Watch recordings of people who were exposed to this variant. Excluded ${droppedMetricEventCount} server-side ${
+                                      droppedMetricEventCount === 1 ? 'event' : 'events'
+                                  } captured without a session ID, which can't match recordings.`
+                                : 'Watch recordings of people who were exposed to this variant.'
+                        }
+                        disabled={safeFilters.length === 0}
                         disabledReason={
-                            filters.length === 0 ? 'Unable to identify recordings for this metric' : undefined
+                            exposureUnlinkable
+                                ? "This experiment's exposure event is captured server-side without a session ID, so recordings can't be matched."
+                                : filters.length === 0
+                                  ? 'Unable to identify recordings for this metric'
+                                  : undefined
                         }
                         data-attr="experiment-metrics-view-recordings"
                         onClick={() => {
@@ -288,9 +311,7 @@ export function ResultDetails({
     ]
 
     const dataSource = [
-        ...(result.baseline
-            ? [{ ...result.baseline, key: 'control' } as ExperimentVariantResult & { key: string }]
-            : []),
+        ...(result.baseline ? [result.baseline as ExperimentVariantResult & { key: string }] : []),
         ...(result.variant_results || []),
     ]
 

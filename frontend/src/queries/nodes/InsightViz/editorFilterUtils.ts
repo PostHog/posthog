@@ -1,4 +1,4 @@
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { formatEventName } from 'scenes/insights/utils'
 
 import { BreakdownFilter } from '~/queries/schema/schema-general'

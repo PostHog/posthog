@@ -58,10 +58,14 @@ export default defineConfig({
                 find: /^@posthog\/quill-charts$/,
                 replacement: resolve(__dirname, '../../packages/quill/packages/charts/src/index.ts'),
             },
-            // lucide-react isn't a workspace dep at the products/ level, so files
-            // resolved via the `products` alias can't find it. Pin to this
-            // package's installed copy (matches the version Quill expects).
+            // lucide-react, react, and react-dom aren't reachable from files
+            // resolved via the `products` alias (products/ isn't a dep of this
+            // package), so pin them to this package's copies. react needs its
+            // subpaths covered too: Vite 7 resolves the injected react/jsx-runtime
+            // import relative to the importing file.
             { find: /^lucide-react$/, replacement: resolve(__dirname, 'node_modules/lucide-react') },
+            { find: 'react', replacement: resolve(__dirname, 'node_modules/react') },
+            { find: 'react-dom', replacement: resolve(__dirname, 'node_modules/react-dom') },
             { find: '@common', replacement: resolve(__dirname, '../../common') },
         ],
     },

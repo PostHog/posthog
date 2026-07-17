@@ -213,6 +213,7 @@ OAuth access is permitted only for products with an explicit `allowed_applicatio
 | Product              | Auth            | Models                     | Notes                           |
 | -------------------- | --------------- | -------------------------- | ------------------------------- |
 | `llm_gateway`        | API key only    | All                        | Default when no product in path |
+| `ci`                 | API key only    | All                        | CI / e2e test runs              |
 | `posthog_code`       | OAuth only      | Restricted set             | Desktop coding agent            |
 | `background_agents`  | OAuth only      | Restricted set             | Cloud background agents         |
 | `wizard`             | API key + OAuth | All                        | Max AI assistant                |

@@ -928,6 +928,22 @@ def _fix_pydantic_schema_for_openapi(schema):
     return schema
 
 
+def _unrequire_deprecated_dashboards_field(schema):
+    """
+    The deprecated insight `dashboards` field is gated behind an opt-in query parameter, so it
+    can be absent from any insight payload — but drf-spectacular always marks read-only fields
+    as required, which would make strict generated clients reject gated responses. Un-require
+    it wherever it appears alongside its replacement, `dashboard_tiles`.
+    """
+    properties = schema.get("properties") if isinstance(schema, dict) else None
+    if not isinstance(properties, dict) or not {"dashboards", "dashboard_tiles"} <= properties.keys():
+        return schema
+    required = schema.get("required")
+    if isinstance(required, list) and "dashboards" in required:
+        schema["required"] = [field for field in required if field != "dashboards"]
+    return schema
+
+
 def lint_spec_consistency_hook(result, generator, request, public):
     """Postprocessing hook that emits drf-spectacular warnings for spec self-inconsistencies.
 
@@ -1086,9 +1102,10 @@ def custom_postprocessing_hook(result, generator, request, public):
             #      When present, NOTHING else is added — the dev intent wins. Use this to send
             #      an endpoint to the core bucket from inside ``products/<X>/backend/`` (e.g.
             #      ``extensions={"x-product": "core"}``).
-            #   2. ``@extend_schema(tags=[...])`` values matching a product folder — supported
-            #      for legacy call sites; the explicit form above is preferred for new code.
-            #      Non-folder tag values are dropped here (tags=[...] is for display, not routing).
+            #   2. ``@extend_schema(tags=[...])`` values — supported for legacy call sites; the
+            #      explicit form above is preferred for new code. Non-folder values pass through
+            #      here; consumers ignore anything that doesn't match a product folder or
+            #      definition file (tags=[...] is for display, not routing).
             #   3. Module-path auto-attribution: ViewSet in ``products/<name>/backend/`` → ``<name>``.
             #
             # The resulting list is read by ``generate-openapi-types.mjs`` and
@@ -1178,7 +1195,8 @@ def custom_postprocessing_hook(result, generator, request, public):
     # Apply OpenAPI 3.1 schema cleanup to all component schemas.
     if "components" in result and "schemas" in result["components"]:
         result["components"]["schemas"] = {
-            name: _fix_pydantic_schema_for_openapi(schema) for name, schema in result["components"]["schemas"].items()
+            name: _unrequire_deprecated_dashboards_field(_fix_pydantic_schema_for_openapi(schema))
+            for name, schema in result["components"]["schemas"].items()
         }
 
     # Apply the same cleanup to parameter, requestBody, and response schemas at the operation

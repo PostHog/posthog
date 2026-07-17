@@ -42,7 +42,12 @@ export function ChartCard({
                 </LemonButton>
             </div>
             <div className="ErrorTracking__insights flex-1 min-h-0 p-2">
-                <Query query={query} readOnly={true} context={{ insightProps }} inSharedMode={true} />
+                <Query
+                    query={query}
+                    readOnly={true}
+                    context={{ insightProps, suppressSlowQuerySuggestions: true }}
+                    inSharedMode={true}
+                />
             </div>
         </div>
     )

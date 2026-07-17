@@ -13,6 +13,7 @@ from posthog.test.base import (
 )
 from unittest import skip
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -24,6 +25,7 @@ from posthog.schema import (
     FunnelCorrelationQuery,
     FunnelCorrelationResultsType,
     FunnelsActorsQuery,
+    FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
     GroupPropertyFilter,
@@ -171,6 +173,93 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
         with self.assertRaises(Exception):
             self._get_events_for_query(query)
+
+    def test_funnel_correlation_with_properties_and_hogql_aggregation(self):
+        # Property correlation joins funnel_actors onto the persons table on actor_id. When
+        # the funnel aggregates by a HogQL expression, actor_id holds that value (a string)
+        # rather than a person UUID, so the join used to fail with "no supertype for types
+        # UUID, String". It must now run without raising rather than crashing the panel.
+        # Every actor converts here, so failure_total is 0 and the runner short-circuits to [].
+        query = FunnelsQuery(
+            series=[EventsNode(event="user signed up"), EventsNode(event="paid")],
+            dateRange=DateRange(date_from="2020-01-01", date_to="2020-01-14"),
+            funnelsFilter=FunnelsFilter(funnelAggregateByHogQL="properties.session_id"),
+        )
+
+        for i in range(10):
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
+                properties={"session_id": f"session_{i}"},
+            )
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-04T14:00:00Z",
+                properties={"session_id": f"session_{i}"},
+            )
+        flush_persons_and_events()
+
+        result, _ = self._get_events_for_query(
+            query,
+            funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
+            funnelCorrelationNames=["$browser"],
+        )
+        self.assertEqual(result, [])
+
+    @parameterized.expand(
+        [
+            ("properties", FunnelCorrelationResultsType.PROPERTIES, {"funnelCorrelationNames": ["$browser"]}),
+            (
+                "event_with_properties",
+                FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES,
+                {"funnelCorrelationEventNames": ["rick"]},
+            ),
+        ]
+    )
+    def test_correlation_on_empty_funnel_returns_empty(self, _name, correlation_type, kwargs):
+        # A funnel matching no actors produces zero rows for the property and event-property
+        # correlation queries (they arrayJoin over the actors CTE), so there's no totals row.
+        # This used to raise StopIteration / AssertionError; it should return empty instead.
+        query = FunnelsQuery(
+            series=[EventsNode(event="user signed up"), EventsNode(event="paid")],
+            dateRange=DateRange(date_from="2020-01-01", date_to="2020-01-14"),
+        )
+        flush_persons_and_events()
+
+        result, _ = self._get_events_for_query(query, funnelCorrelationType=correlation_type, **kwargs)
+        self.assertEqual(result, [])
+
+    def test_correlation_on_data_warehouse_funnel_returns_empty(self):
+        # Correlation joins the events table onto the funnel actors on person_id, but a
+        # data-warehouse funnel aggregates actors by a warehouse column (a string id), so
+        # there's nothing to correlate against — it used to raise ValidationError ("Data
+        # warehouse nodes are not supported here") or a UUID/String join error. It should
+        # now return empty gracefully rather than crashing the panel.
+        funnels_query = FunnelsQuery(
+            series=[
+                FunnelsDataWarehouseNode(
+                    id="stripe.invoices",
+                    id_field="id",
+                    table_name="stripe.invoices",
+                    timestamp_field="created_at",
+                    aggregation_target_field="customer_id",
+                ),
+                EventsNode(event="paid"),
+            ],
+            dateRange=DateRange(date_from="2020-01-01", date_to="2020-01-14"),
+        )
+        correlation_query = FunnelCorrelationQuery(
+            source=FunnelsActorsQuery(source=funnels_query),
+            funnelCorrelationType=FunnelCorrelationResultsType.EVENTS,
+        )
+
+        response = FunnelCorrelationQueryRunner(query=correlation_query, team=self.team)._calculate()
+        self.assertEqual(response.results.events, [])
 
     def test_basic_funnel_correlation_with_events(self):
         query = FunnelsQuery(
@@ -2106,6 +2195,68 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         #     ),
         #     6,
         # )
+
+    def test_funnel_correlation_with_event_properties_autocapture_no_rows_for_actors_without_events(self):
+        query = FunnelsQuery(
+            series=[
+                EventsNode(event="user signed up"),
+                EventsNode(event="paid"),
+            ],
+            dateRange=DateRange(date_from="2020-01-01", date_to="2020-01-14"),
+        )
+
+        for i in range(6):
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="$autocapture",
+                distinct_id=f"user_{i}",
+                elements=[Element(nth_of_type=1, nth_child=0, tag_name="a", href="/movie")],
+                timestamp="2020-01-03T14:00:00Z",
+                properties={"$event_type": "click"},
+            )
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-04T14:00:00Z",
+            )
+
+        # Enough non-converting users without any $autocapture events to pass the
+        # significance filters, so a synthesized correlation row would show up.
+        for i in range(3):
+            _create_person(distinct_ids=[f"user_fail_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_fail_{i}",
+                timestamp="2020-01-02T14:00:00Z",
+            )
+
+        result, _ = self._get_events_for_query(
+            query,
+            funnelCorrelationType=FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES,
+            funnelCorrelationEventNames=["$autocapture"],
+        )
+
+        self.assertEqual(
+            result,
+            [
+                {
+                    "event": '$autocapture::elements_chain::click__~~__a:href="/movie"nth-child="0"nth-of-type="1"',
+                    "success_count": 6,
+                    "failure_count": 0,
+                    "odds_ratio": 28.0,
+                    "correlation_type": "success",
+                },
+            ],
+        )
 
 
 class TestCorrelationFunctions(unittest.TestCase):

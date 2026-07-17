@@ -192,6 +192,27 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
         assert response.json()["name"] == "Updated"
         assert response.json()["description"] == "New description"
 
+    def test_put_not_allowed(self):
+        # PUT is disabled: it would bypass the field allowlist and shared-row
+        # ownership guard that partial_update (PATCH) enforces.
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            display_name="Original",
+            url="https://mcp.example.com",
+            auth_type="api_key",
+        )
+
+        response = self.client.put(
+            f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/",
+            data={"display_name": "Updated", "url": "https://evil.example.com", "auth_type": "oauth"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+        installation.refresh_from_db()
+        assert installation.url == "https://mcp.example.com"
+        assert installation.auth_type == "api_key"
+
     def test_toggle_installation_enabled(self):
         installation = MCPServerInstallation.objects.create(
             team=self.team,
@@ -713,7 +734,10 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @ALLOW_URL
     @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
-    @patch("products.mcp_store.backend.presentation.views.register_dcr_client", return_value=("dcr-client-id", None))
+    @patch(
+        "products.mcp_store.backend.presentation.views.register_dcr_client",
+        return_value=("dcr-client-id", None, "none"),
+    )
     def test_install_custom_populates_created_by(self, _mock_dcr, mock_discover, _allow):
         """install_custom path must stamp created_by on the MCPOAuthState row."""
         mock_discover.return_value = {
@@ -784,7 +808,7 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
             "token_endpoint": "https://auth.legit.com/token",
             "registration_endpoint": "https://auth.legit.com/register",
         }
-        mock_dcr.return_value = ("per-user-dcr-client", None)
+        mock_dcr.return_value = ("per-user-dcr-client", None, "none")
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -797,6 +821,7 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         installation = MCPServerInstallation.objects.get(url="https://mcp.legit.com/mcp", user=self.user)
         assert installation.oauth_metadata["authorization_endpoint"] == "https://auth.legit.com/authorize"
         assert installation.sensitive_configuration["dcr_client_id"] == "per-user-dcr-client"
+        assert installation.sensitive_configuration["dcr_token_endpoint_auth_method"] == "none"
         # EncryptedJSONField stringifies leaf values on round-trip; accept either bool or str.
         assert installation.sensitive_configuration["dcr_is_user_provided"] in (False, "False")
 
@@ -817,7 +842,7 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
             "token_endpoint": "https://auth.legit.com/token",
             "registration_endpoint": "https://auth.legit.com/register",
         }
-        mock_dcr.return_value = ("dcr-minted-client", "dcr-minted-secret")
+        mock_dcr.return_value = ("dcr-minted-client", "dcr-minted-secret", "client_secret_post")
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -830,6 +855,7 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         sensitive = installation.sensitive_configuration
         assert sensitive["dcr_client_id"] == "dcr-minted-client"
         assert sensitive["dcr_client_secret"] == "dcr-minted-secret"
+        assert sensitive["dcr_token_endpoint_auth_method"] == "client_secret_post"
         assert sensitive["dcr_is_user_provided"] in (False, "False")
 
     @ALLOW_URL
@@ -862,11 +888,43 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         sensitive = installation.sensitive_configuration
         assert sensitive["dcr_client_id"] == "user-supplied-client-id"
         assert sensitive["dcr_client_secret"] == "user-supplied-secret"
+        assert sensitive["dcr_token_endpoint_auth_method"] == "client_secret_basic"
         # EncryptedJSONField stringifies leaf values on round-trip; accept either bool or str.
         assert sensitive["dcr_is_user_provided"] in (True, "True")
 
         params = parse_qs(urlparse(response.json()["redirect_url"]).query)
         assert params["client_id"][0] == "user-supplied-client-id"
+
+    @ALLOW_URL
+    @patch("products.mcp_store.backend.presentation.views.register_dcr_client")
+    @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
+    def test_install_custom_with_user_supplied_creds_rejects_unsupported_auth_method(
+        self, mock_discover, mock_dcr, _allow
+    ):
+        mock_discover.return_value = {
+            "issuer": "https://auth.legit.com",
+            "authorization_endpoint": "https://auth.legit.com/authorize",
+            "token_endpoint": "https://auth.legit.com/token",
+            "registration_endpoint": "https://auth.legit.com/register",
+            "token_endpoint_auth_methods_supported": ["private_key_jwt"],
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={
+                "name": "Legit",
+                "url": "https://mcp.legit.com/mcp",
+                "auth_type": "oauth",
+                "client_id": "user-supplied-client-id",
+                "client_secret": "user-supplied-secret",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "OAuth token endpoint auth method is not supported."
+        assert not MCPServerInstallation.objects.filter(url="https://mcp.legit.com/mcp", user=self.user).exists()
+        mock_dcr.assert_not_called()
 
     @ALLOW_URL
     @patch("products.mcp_store.backend.presentation.views.register_dcr_client")
@@ -883,7 +941,7 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
             "token_endpoint": "https://auth.legit.com/token",
             "registration_endpoint": "https://auth.legit.com/register",
         }
-        mock_dcr.return_value = ("dcr-minted-client", None)
+        mock_dcr.return_value = ("dcr-minted-client", None, "none")
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -902,12 +960,13 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         sensitive = installation.sensitive_configuration
         assert sensitive["dcr_client_id"] == "dcr-minted-client"
         assert "dcr_client_secret" not in sensitive
+        assert sensitive["dcr_token_endpoint_auth_method"] == "none"
         assert sensitive["dcr_is_user_provided"] in (False, "False")
 
     @ALLOW_URL
     @patch(
         "products.mcp_store.backend.presentation.views.register_dcr_client",
-        return_value=("new-dcr-client", None),
+        return_value=("new-dcr-client", None, "none"),
     )
     @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
     def test_reinstall_clears_stale_tokens_and_flags_reauth(self, mock_discover, _mock_dcr, _allow):
@@ -955,6 +1014,7 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         installation.refresh_from_db()
         sensitive = installation.sensitive_configuration
         assert sensitive["dcr_client_id"] == "new-dcr-client"
+        assert sensitive["dcr_token_endpoint_auth_method"] == "none"
         assert sensitive["needs_reauth"] in (True, "True")
         for stale_key in ("access_token", "refresh_token", "token_retrieved_at", "expires_in"):
             assert stale_key not in sensitive, f"{stale_key} should have been cleared on re-install"
@@ -973,6 +1033,9 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
             oauth_metadata={
                 "authorization_endpoint": "https://auth.example.com/authorize",
                 "token_endpoint": "https://auth.example.com/token",
+                "resource": "https://mcp.example.com/",
+                "scopes_supported": ["admin", "read"],
+                "resource_scopes_supported": ["read"],
             },
             sensitive_configuration={"dcr_client_id": "existing-client-id", "dcr_is_user_provided": False},
         )
@@ -987,6 +1050,8 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         mock_discover.assert_not_called()
         params = parse_qs(urlparse(response["Location"]).query)
         assert params["client_id"][0] == "existing-client-id"
+        assert params["resource"][0] == "https://mcp.example.com/"
+        assert params["scope"][0] == "read"
 
     @ALLOW_URL
     def test_authorize_uses_opaque_state_token(self, _allow):
@@ -1046,6 +1111,82 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
             "/api/mcp_store/oauth_redirect/", {"state": state_token, "error": "access_denied"}
         )
         assert second_callback.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestMCPAuthorizePosthogCodeResponse(APIBaseTest):
+    def _create_template(self) -> MCPServerTemplate:
+        return MCPServerTemplate.objects.create(
+            name="Test Template",
+            url="https://mcp.test.example.com/mcp",
+            auth_type="oauth",
+            is_active=True,
+            oauth_metadata={
+                "authorization_endpoint": "https://auth.test.example.com/authorize",
+                "token_endpoint": "https://auth.test.example.com/token",
+            },
+            oauth_credentials={"client_id": "test-client-id"},
+        )
+
+    @ALLOW_URL
+    @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
+    def test_authorize_returns_redirect_url_for_custom_installation(self, mock_discover, _allow):
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            url="https://mcp.example.com",
+            display_name="Test",
+            auth_type="oauth",
+            oauth_issuer_url="https://auth.example.com",
+            oauth_metadata={
+                "authorization_endpoint": "https://auth.example.com/authorize",
+                "token_endpoint": "https://auth.example.com/token",
+            },
+            sensitive_configuration={"dcr_client_id": "existing-client-id", "dcr_is_user_provided": False},
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/mcp_server_installations/authorize/",
+            {
+                "installation_id": str(installation.id),
+                "install_source": "posthog-code",
+                "posthog_code_callback_url": "posthog-code://oauth/callback",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "Location" not in response
+        redirect_url = response.json()["redirect_url"]
+        assert urlparse(redirect_url).netloc == "auth.example.com"
+        mock_discover.assert_not_called()
+        params = parse_qs(urlparse(redirect_url).query)
+        assert params["client_id"][0] == "existing-client-id"
+
+    @ALLOW_URL
+    def test_authorize_returns_redirect_url_for_template_installation(self, _allow):
+        template = self._create_template()
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            template=template,
+            url=template.url,
+            auth_type="oauth",
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/mcp_server_installations/authorize/",
+            {
+                "installation_id": str(installation.id),
+                "install_source": "posthog-code",
+                "posthog_code_callback_url": "posthog-code://oauth/callback",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "Location" not in response
+        redirect_url = response.json()["redirect_url"]
+        assert urlparse(redirect_url).netloc == "auth.test.example.com"
+        params = parse_qs(urlparse(redirect_url).query)
+        assert params["client_id"][0] == "test-client-id"
 
 
 class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -1134,7 +1275,7 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
 
     @patch(
         "products.mcp_store.backend.presentation.views.register_dcr_client",
-        return_value=("minted-per-user-client", None),
+        return_value=("minted-per-user-client", None, "none"),
     )
     @patch(
         "products.mcp_store.backend.presentation.views.discover_oauth_metadata",
@@ -1169,6 +1310,7 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         installation = MCPServerInstallation.objects.get(url=template.url, user=self.user)
         sensitive = installation.sensitive_configuration or {}
         assert sensitive["dcr_client_id"] == "minted-per-user-client"
+        assert sensitive["dcr_token_endpoint_auth_method"] == "none"
         # Discovered metadata is cached on the installation, not written back to the template.
         assert installation.oauth_metadata["token_endpoint"] == "https://auth.discovered.example.com/token"
         template.refresh_from_db()
@@ -1398,3 +1540,585 @@ class TestInstallDispatchesToolSync(ClickhouseTestMixin, APIBaseTest, QueryMatch
 
         assert response.status_code == 302
         mock_task.delay.assert_called_once_with(str(installation.id))
+
+
+class TestMCPInstallationScopeAccess(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    def _api_url(self, suffix: str = "") -> str:
+        base = f"/api/environments/{self.team.id}/mcp_server_installations/"
+        return f"{base}{suffix}" if suffix else base
+
+    def _create_installation(self, user=None, scope="personal", **kwargs) -> MCPServerInstallation:
+        import uuid as _uuid
+
+        defaults: dict = {
+            "team": self.team,
+            "user": user or self.user,
+            "display_name": f"Server-{_uuid.uuid4().hex[:6]}",
+            "url": f"https://mcp.test-{_uuid.uuid4().hex[:8]}.example.com/mcp",
+            "auth_type": "api_key",
+            "is_enabled": True,
+            "scope": scope,
+        }
+        defaults.update(kwargs)
+        return MCPServerInstallation.objects.create(**defaults)
+
+    def test_list_shows_own_personal_and_all_shared(self) -> None:
+        from posthog.models import User
+
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        own_personal = self._create_installation(scope="personal")
+        own_shared = self._create_installation(scope="shared")
+        other_shared = self._create_installation(user=other, scope="shared")
+        self._create_installation(user=other, scope="personal")
+
+        response = self.client.get(self._api_url())
+        assert response.status_code == status.HTTP_200_OK
+        returned_ids = {r["id"] for r in response.json()["results"]}
+        assert returned_ids == {str(own_personal.id), str(own_shared.id), str(other_shared.id)}
+
+    def test_scope_returned_in_serializer(self) -> None:
+        self._create_installation(scope="shared")
+
+        response = self.client.get(self._api_url())
+        assert response.json()["results"][0]["scope"] == "shared"
+
+    def test_non_owner_cannot_delete_shared(self) -> None:
+        from posthog.models import User
+
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        shared = self._create_installation(user=other, scope="shared")
+
+        response = self.client.delete(self._api_url(f"{shared.id}/"))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert MCPServerInstallation.objects.filter(id=shared.id).exists()
+
+    def test_owner_can_delete_shared(self) -> None:
+        shared = self._create_installation(scope="shared")
+
+        response = self.client.delete(self._api_url(f"{shared.id}/"))
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    def test_non_owner_cannot_patch_shared(self) -> None:
+        from posthog.models import User
+
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        shared = self._create_installation(user=other, scope="shared")
+
+        response = self.client.patch(
+            self._api_url(f"{shared.id}/"),
+            data={"display_name": "Hijacked"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_non_owner_admin_can_delete_shared(self) -> None:
+        # Admins may delete another member's shared installation so shared
+        # credentials don't become orphaned when the owner leaves the team.
+        from posthog.models import User
+
+        self._make_admin()
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        shared = self._create_installation(user=other, scope="shared")
+
+        response = self.client.delete(self._api_url(f"{shared.id}/"))
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not MCPServerInstallation.objects.filter(id=shared.id).exists()
+
+    def test_non_owner_admin_still_cannot_patch_shared(self) -> None:
+        # The destroy override is delete-only: reconfiguring how the owner's
+        # credential is used stays strictly owner-only, even for admins.
+        from posthog.models import User
+
+        self._make_admin()
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        shared = self._create_installation(user=other, scope="shared")
+
+        response = self.client.patch(
+            self._api_url(f"{shared.id}/"),
+            data={"display_name": "Hijacked"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_admin_cannot_delete_another_members_personal(self) -> None:
+        # Personal rows behave as before: they aren't even visible to other
+        # members, admin or not.
+        from posthog.models import User
+
+        self._make_admin()
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        personal = self._create_installation(user=other, scope="personal")
+
+        response = self.client.delete(self._api_url(f"{personal.id}/"))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert MCPServerInstallation.objects.filter(id=personal.id).exists()
+
+    def test_share_by_owner_admin_flips_scope(self) -> None:
+        self._make_admin()
+        personal = self._create_installation(scope="personal")
+
+        response = self.client.post(self._api_url(f"{personal.id}/share/"))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["scope"] == "shared"
+        personal.refresh_from_db()
+        assert personal.scope == "shared"
+
+    def test_share_by_owner_non_admin_forbidden(self) -> None:
+        # self.user is a MEMBER by default; sharing carries the same admin
+        # gate as creating a shared install outright.
+        personal = self._create_installation(scope="personal")
+
+        response = self.client.post(self._api_url(f"{personal.id}/share/"))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        personal.refresh_from_db()
+        assert personal.scope == "personal"
+
+    def test_share_by_non_owner_admin_rejected(self) -> None:
+        # Another member's personal installation isn't even addressable: the
+        # queryset only exposes shared rows and your own, so a non-owner admin
+        # gets 404 before the in-action owner check (kept as defense in depth)
+        # could 403.
+        from posthog.models import User
+
+        self._make_admin()
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        personal = self._create_installation(user=other, scope="personal")
+
+        response = self.client.post(self._api_url(f"{personal.id}/share/"))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        personal.refresh_from_db()
+        assert personal.scope == "personal"
+
+    def test_share_conflicts_with_existing_shared_url(self) -> None:
+        from posthog.models import User
+
+        self._make_admin()
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        url = "https://mcp.share-conflict.example.com/mcp"
+        self._create_installation(user=other, scope="shared", url=url)
+        personal = self._create_installation(scope="personal", url=url)
+
+        response = self.client.post(self._api_url(f"{personal.id}/share/"))
+        assert response.status_code == status.HTTP_409_CONFLICT
+        personal.refresh_from_db()
+        assert personal.scope == "personal"
+
+    def test_share_already_shared_returns_400(self) -> None:
+        self._make_admin()
+        shared = self._create_installation(scope="shared")
+
+        response = self.client.post(self._api_url(f"{shared.id}/share/"))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        shared.refresh_from_db()
+        assert shared.scope == "shared"
+
+    def test_unshare_by_owner(self) -> None:
+        shared = self._create_installation(scope="shared")
+
+        response = self.client.post(self._api_url(f"{shared.id}/unshare/"))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["scope"] == "personal"
+        shared.refresh_from_db()
+        assert shared.scope == "personal"
+        assert shared.user_id == self.user.id
+
+    def test_unshare_by_non_owner_admin_keeps_original_owner(self) -> None:
+        from posthog.models import User
+
+        self._make_admin()
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        shared = self._create_installation(user=other, scope="shared")
+
+        response = self.client.post(self._api_url(f"{shared.id}/unshare/"))
+        assert response.status_code == status.HTTP_200_OK
+        shared.refresh_from_db()
+        assert shared.scope == "personal"
+        # The row must stay owned by the ORIGINAL owner — an admin unsharing
+        # someone else's install must not capture their credential.
+        assert shared.user_id == other.id
+
+    def test_unshare_by_non_owner_member_forbidden(self) -> None:
+        from posthog.models import User
+
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        shared = self._create_installation(user=other, scope="shared")
+
+        response = self.client.post(self._api_url(f"{shared.id}/unshare/"))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        shared.refresh_from_db()
+        assert shared.scope == "shared"
+
+    def test_unshare_conflicts_with_owner_personal_duplicate(self) -> None:
+        url = "https://mcp.unshare-conflict.example.com/mcp"
+        self._create_installation(scope="personal", url=url)
+        shared = self._create_installation(scope="shared", url=url)
+
+        response = self.client.post(self._api_url(f"{shared.id}/unshare/"))
+        assert response.status_code == status.HTTP_409_CONFLICT
+        shared.refresh_from_db()
+        assert shared.scope == "shared"
+
+    def test_unshare_personal_returns_400(self) -> None:
+        personal = self._create_installation(scope="personal")
+
+        response = self.client.post(self._api_url(f"{personal.id}/unshare/"))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        personal.refresh_from_db()
+        assert personal.scope == "personal"
+
+    def test_is_owner_flag_in_list(self) -> None:
+        from posthog.models import User
+
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        own_personal = self._create_installation(scope="personal")
+        own_shared = self._create_installation(scope="shared")
+        other_shared = self._create_installation(user=other, scope="shared")
+
+        response = self.client.get(self._api_url())
+        assert response.status_code == status.HTTP_200_OK
+        by_id = {r["id"]: r for r in response.json()["results"]}
+        assert by_id[str(own_personal.id)]["is_owner"] is True
+        assert by_id[str(own_shared.id)]["is_owner"] is True
+        assert by_id[str(other_shared.id)]["is_owner"] is False
+
+    def test_any_member_can_proxy_shared(self) -> None:
+        from unittest.mock import (
+            MagicMock,
+            patch as mock_patch,
+        )
+
+        from posthog.models import User
+
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        shared = self._create_installation(user=other, scope="shared", sensitive_configuration={"api_key": "k"})
+
+        with mock_patch("products.mcp_store.backend.proxy.is_url_allowed", return_value=(True, None)):
+            with mock_patch("products.mcp_store.backend.proxy.httpx.Client") as mock_client_cls:
+                mock_resp = MagicMock()
+                mock_resp.status_code = 200
+                mock_resp.headers = {"content-type": "application/json"}
+                mock_resp.content = b'{"jsonrpc":"2.0","id":1,"result":{}}'
+                mock_client = MagicMock()
+                mock_client.build_request.return_value = MagicMock()
+                mock_client.send.return_value = mock_resp
+                mock_client_cls.return_value = mock_client
+
+                response = self.client.post(
+                    self._api_url(f"{shared.id}/proxy/"),
+                    data={"jsonrpc": "2.0", "method": "tools/list", "id": 1},
+                    format="json",
+                )
+
+        assert response.status_code == 200
+
+    def _make_admin(self, user=None) -> None:
+        from posthog.models import OrganizationMembership
+
+        membership = (user or self.user).organization_memberships.get(organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+
+    @ALLOW_URL
+    def test_install_custom_shared(self, _mock) -> None:
+        self._make_admin()
+        response = self.client.post(
+            self._api_url("install_custom/"),
+            data={
+                "name": "Shared Custom",
+                "url": "https://mcp.shared-custom.example.com/mcp",
+                "auth_type": "api_key",
+                "api_key": "key123",
+                "scope": "shared",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["scope"] == "shared"
+
+    @ALLOW_URL
+    def test_install_custom_shared_requires_admin(self, _mock) -> None:
+        # self.user is a MEMBER by default; shared creation must be admin-gated.
+        response = self.client.post(
+            self._api_url("install_custom/"),
+            data={
+                "name": "Shared Custom",
+                "url": "https://mcp.member-shared.example.com/mcp",
+                "auth_type": "api_key",
+                "api_key": "key123",
+                "scope": "shared",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not MCPServerInstallation.objects.filter(
+            url="https://mcp.member-shared.example.com/mcp", scope="shared"
+        ).exists()
+
+    def test_install_template_shared_requires_admin(self) -> None:
+        template = MCPServerTemplate.objects.create(
+            name="Admin Gate Template",
+            url="https://mcp.admin-gate.example.com/mcp",
+            auth_type="api_key",
+            is_active=True,
+        )
+        response = self.client.post(
+            self._api_url("install_template/"),
+            data={"template_id": str(template.id), "api_key": "k", "scope": "shared"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not MCPServerInstallation.objects.filter(url=template.url, scope="shared").exists()
+
+    def test_install_template_shared_allowed_for_admin(self) -> None:
+        self._make_admin()
+        template = MCPServerTemplate.objects.create(
+            name="Admin OK Template",
+            url="https://mcp.admin-ok.example.com/mcp",
+            auth_type="api_key",
+            is_active=True,
+        )
+        response = self.client.post(
+            self._api_url("install_template/"),
+            data={"template_id": str(template.id), "api_key": "k", "scope": "shared"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["scope"] == "shared"
+
+    def test_non_owner_cannot_change_tool_approval_shared(self) -> None:
+        from django.utils import timezone
+
+        from posthog.models import User
+
+        from products.mcp_store.backend.models import MCPServerInstallationTool
+
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        shared = self._create_installation(user=other, scope="shared")
+        tool = MCPServerInstallationTool.objects.create(
+            installation=shared,
+            tool_name="delete_everything",
+            approval_state="needs_approval",
+            last_seen_at=timezone.now(),
+        )
+
+        response = self.client.patch(
+            self._api_url(f"{shared.id}/tools/{tool.tool_name}/"),
+            data={"approval_state": "approved"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        tool.refresh_from_db()
+        assert tool.approval_state == "needs_approval"
+
+    def test_owner_can_change_tool_approval_shared(self) -> None:
+        from django.utils import timezone
+
+        from products.mcp_store.backend.models import MCPServerInstallationTool
+
+        shared = self._create_installation(scope="shared")
+        tool = MCPServerInstallationTool.objects.create(
+            installation=shared,
+            tool_name="safe_tool",
+            approval_state="needs_approval",
+            last_seen_at=timezone.now(),
+        )
+
+        response = self.client.patch(
+            self._api_url(f"{shared.id}/tools/{tool.tool_name}/"),
+            data={"approval_state": "approved"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        tool.refresh_from_db()
+        assert tool.approval_state == "approved"
+
+    def test_non_owner_cannot_hijack_shared_via_install_template(self) -> None:
+        from posthog.models import User
+
+        # Admin so the request clears the admin gate and exercises the owner guard.
+        self._make_admin()
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        template = MCPServerTemplate.objects.create(
+            name="Shared Template",
+            url="https://mcp.shared-template.example.com/mcp",
+            auth_type="api_key",
+            is_active=True,
+        )
+        shared = self._create_installation(
+            user=other,
+            scope="shared",
+            url=template.url,
+            template=template,
+            sensitive_configuration={"api_key": "owner-key"},
+        )
+
+        response = self.client.post(
+            self._api_url("install_template/"),
+            data={"template_id": str(template.id), "api_key": "attacker-key", "scope": "shared"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        shared.refresh_from_db()
+        assert shared.sensitive_configuration["api_key"] == "owner-key"
+
+    @ALLOW_URL
+    @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
+    def test_non_owner_cannot_hijack_shared_via_install_custom_oauth(self, mock_discover, _allow) -> None:
+        from posthog.models import User
+
+        # Admin so the request clears the admin gate and exercises the owner guard.
+        self._make_admin()
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        shared = self._create_installation(
+            user=other,
+            scope="shared",
+            auth_type="oauth",
+            url="https://mcp.shared-oauth.example.com/mcp",
+            sensitive_configuration={"dcr_client_id": "owner-client", "access_token": "owner-token"},
+        )
+
+        response = self.client.post(
+            self._api_url("install_custom/"),
+            data={
+                "name": "Hijack",
+                "url": shared.url,
+                "auth_type": "oauth",
+                "scope": "shared",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        # Guard must fire before any discovery/DCR work touches the row.
+        mock_discover.assert_not_called()
+        shared.refresh_from_db()
+        assert shared.sensitive_configuration["dcr_client_id"] == "owner-client"
+        assert shared.sensitive_configuration["access_token"] == "owner-token"
+
+    @ALLOW_URL
+    def test_install_custom_defaults_to_personal(self, _mock) -> None:
+        response = self.client.post(
+            self._api_url("install_custom/"),
+            data={
+                "name": "Personal Custom",
+                "url": "https://mcp.personal-custom.example.com/mcp",
+                "auth_type": "api_key",
+                "api_key": "key123",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["scope"] == "personal"
+
+
+class TestMCPScopeAdminGateWithAccessControlFeature(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    """Regression tests for the admin gate on shared-credential management.
+
+    With the ACCESS_CONTROL feature available and a project that has no
+    access-control rows configured, `effective_membership_level` reports
+    every org member as project admin (open-project default). The share /
+    unshare / shared-delete gate must not inherit that default: only org
+    admins and explicitly-granted project admins pass.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from posthog.constants import AvailableFeature
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+    def _api_url(self, suffix: str = "") -> str:
+        base = f"/api/environments/{self.team.id}/mcp_server_installations/"
+        return f"{base}{suffix}" if suffix else base
+
+    def _create_installation(self, user=None, scope="personal") -> MCPServerInstallation:
+        import uuid as _uuid
+
+        return MCPServerInstallation.objects.create(
+            team=self.team,
+            user=user or self.user,
+            display_name=f"Server-{_uuid.uuid4().hex[:6]}",
+            url=f"https://mcp.test-{_uuid.uuid4().hex[:8]}.example.com/mcp",
+            auth_type="api_key",
+            is_enabled=True,
+            scope=scope,
+        )
+
+    def _other_user(self):
+        from posthog.models import User
+
+        return User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+
+    def _make_org_admin(self) -> None:
+        from posthog.models import OrganizationMembership
+
+        membership = self.user.organization_memberships.get(organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+
+    def test_member_cannot_unshare_anothers_shared_on_open_project(self) -> None:
+        shared = self._create_installation(user=self._other_user(), scope="shared")
+
+        response = self.client.post(self._api_url(f"{shared.id}/unshare/"))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        shared.refresh_from_db()
+        assert shared.scope == "shared"
+
+    def test_member_cannot_delete_anothers_shared_on_open_project(self) -> None:
+        shared = self._create_installation(user=self._other_user(), scope="shared")
+
+        response = self.client.delete(self._api_url(f"{shared.id}/"))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert MCPServerInstallation.objects.filter(id=shared.id).exists()
+
+    def test_member_cannot_share_own_personal_on_open_project(self) -> None:
+        personal = self._create_installation(scope="personal")
+
+        response = self.client.post(self._api_url(f"{personal.id}/share/"))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        personal.refresh_from_db()
+        assert personal.scope == "personal"
+
+    def test_org_admin_can_unshare_on_open_project(self) -> None:
+        self._make_org_admin()
+        shared = self._create_installation(user=self._other_user(), scope="shared")
+
+        response = self.client.post(self._api_url(f"{shared.id}/unshare/"))
+
+        assert response.status_code == status.HTTP_200_OK
+        shared.refresh_from_db()
+        assert shared.scope == "personal"
+
+    def test_explicit_project_admin_can_unshare(self) -> None:
+        from ee.models.rbac.access_control import AccessControl
+
+        membership = self.user.organization_memberships.get(organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="admin",
+            organization_member=membership,
+        )
+        shared = self._create_installation(user=self._other_user(), scope="shared")
+
+        response = self.client.post(self._api_url(f"{shared.id}/unshare/"))
+
+        assert response.status_code == status.HTTP_200_OK
+        shared.refresh_from_db()
+        assert shared.scope == "personal"
+
+    def test_owner_can_still_unshare_own_shared_as_member(self) -> None:
+        # The credential owner reclaims their own connection regardless of role.
+        shared = self._create_installation(scope="shared")
+
+        response = self.client.post(self._api_url(f"{shared.id}/unshare/"))
+
+        assert response.status_code == status.HTTP_200_OK
+        shared.refresh_from_db()
+        assert shared.scope == "personal"

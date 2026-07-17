@@ -11,6 +11,7 @@ from posthog.schema import (
     DateRange,
     EventPropertyFilter,
     PropertyOperator,
+    WebAnalyticsPreComputeStrategy,
     WebAnalyticsSampling,
     WebVitalsMetric,
     WebVitalsMetricBand,
@@ -139,7 +140,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         self._seed()
         with self._enable_lazy():
             response = self._run(self._build_query())
-        assert response.usedLazyPrecompute is True
+        assert response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._job_count() > 0, "expected at least one precompute job to be created"
 
     @parameterized.expand(PARITY_MATRIX)
@@ -155,7 +156,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             lazy_response = self._run(self._build_query(metric=metric, percentile=percentile))
         lazy = self._paths_with_values(lazy_response)
 
-        assert lazy_response.usedLazyPrecompute is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert lazy.keys() == raw.keys(), f"path set mismatch for {metric}/{percentile}: raw={raw}, lazy={lazy}"
         for path in raw:
             raw_band, raw_value = raw[path]
@@ -181,7 +182,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             response = self._run(
                 self._build_query(conversion_goal=CustomEventConversionGoal(customEventName="$pageview")),
             )
-        assert response.usedLazyPrecompute is not True
+        assert response.preComputeStrategy != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._job_count() == 0
 
     @freeze_time("2024-01-15T12:00:00Z")
@@ -189,7 +190,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         self._seed()
         with self._enable_lazy():
             response = self._run(self._build_query(sampling=WebAnalyticsSampling(enabled=True)))
-        assert response.usedLazyPrecompute is not True
+        assert response.preComputeStrategy != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._job_count() == 0
 
     @parameterized.expand(
@@ -211,7 +212,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         query.dateRange = DateRange(date_from=date_from, date_to=date_to, explicitDate=True)
         with self._enable_lazy():
             response = self._run(query)
-        assert response.usedLazyPrecompute is not True
+        assert response.preComputeStrategy != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._job_count() == 0
 
     @freeze_time("2024-01-15T12:00:00Z")
@@ -227,14 +228,14 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             lazy_response = self._run(self._build_query())
         lazy = self._paths_with_values(lazy_response)
 
-        assert lazy_response.usedLazyPrecompute is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert raw == lazy, f"lazy/raw mismatch in IST: raw={raw}, lazy={lazy}"
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_query_optin_alone_falls_through_when_org_flag_disabled(self):
         self._seed()
         response = self._run(self._build_query(opt_in_precompute=True))
-        assert response.usedLazyPrecompute is not True
+        assert response.preComputeStrategy != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._job_count() == 0
 
     @freeze_time("2024-01-15T12:00:00Z")
@@ -242,7 +243,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         self._seed()
         with self._enable_lazy():
             response = self._run(self._build_query(opt_in_precompute=False))
-        assert response.usedLazyPrecompute is not True
+        assert response.preComputeStrategy != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._job_count() == 0
 
     @freeze_time("2024-01-15T12:00:00Z")
@@ -297,3 +298,32 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         poor_items = response.results[0].poor
         assert len(poor_items) == 20, f"expected exactly 20 paths in poor band, got {len(poor_items)}"
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_stale_served_enqueues_background_revalidation(self):
+        # Without the `result.stale` hook this family would serve stale for the whole
+        # 6h grace and never refresh (the revalidate half of stale-while-revalidate).
+        from posthog.clickhouse.query_tagging import reset_query_tags, tags_context
+
+        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
+        from products.web_analytics.backend.hogql_queries.web_vitals_paths_lazy_precompute import (
+            execute_lazy_precomputed_read,
+        )
+
+        with (
+            tags_context(),
+            self._enable_lazy(),
+            patch(
+                "products.web_analytics.backend.hogql_queries.web_vitals_paths_lazy_precompute.ensure_web_vitals_paths_precomputed",
+                return_value=LazyComputationResult(ready=True, job_ids=[], stale=True),
+            ),
+            patch(
+                "products.web_analytics.backend.tasks.lazy_precompute_revalidation.revalidate_web_analytics_precompute.delay"
+            ) as delay,
+        ):
+            reset_query_tags()
+            runner = WebVitalsPathBreakdownQueryRunner(team=self.team, query=self._build_query())
+            execute_lazy_precomputed_read(runner)
+
+        assert delay.call_count == 1
+        assert delay.call_args.kwargs["team_id"] == self.team.pk

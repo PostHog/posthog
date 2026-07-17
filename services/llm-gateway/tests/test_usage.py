@@ -1,3 +1,4 @@
+from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
@@ -57,7 +58,7 @@ class TestToCostLimitStatus:
 
 class TestUsageEndpoint:
     @pytest.fixture
-    def authenticated_usage_client(self, mock_db_pool: MagicMock) -> TestClient:
+    def authenticated_usage_client(self, mock_db_pool: MagicMock) -> Generator[TestClient]:
         app = create_test_app(mock_db_pool)
 
         conn = AsyncMock()
@@ -68,6 +69,7 @@ class TestUsageEndpoint:
                 "scopes": ["llm_gateway:read"],
                 "current_team_id": 1,
                 "distinct_id": "test-distinct-id",
+                "is_staff": False,
             }
         )
         mock_db_pool.acquire = AsyncMock(return_value=conn)
@@ -358,15 +360,17 @@ class TestUsageEndpoint:
         assert response.status_code == 200
         assert response.json()["user_id"] == 42
 
-    def test_ai_credits_reported_unlimited_for_non_billable_product(
-        self, authenticated_usage_client: TestClient
-    ) -> None:
-        # posthog_code is not billable; ai_credits should be unlimited and not contribute
-        # to is_rate_limited even if the resolver thinks the team is over.
+    def test_credits_reflect_products_own_bucket(self, authenticated_usage_client: TestClient) -> None:
+        # posthog_code's usage reports the posthog_code_credits bucket (under the
+        # legacy `ai_credits` response field), resolved against its own resource key.
         from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
         app = authenticated_usage_client.app
-        app.state.quota_resolver.get_ai_credits_status = AsyncMock(return_value=QuotaResourceStatus(limited=True))
+        resolver_mock = AsyncMock(return_value=QuotaResourceStatus(limited=True))
+        app.state.quota_resolver.get_resource_status = resolver_mock
+        app.state.plan_resolver.get_plan = AsyncMock(
+            return_value=PlanInfo(plan_key=None, seat_created_at=None, seat_missing=True)
+        )
 
         response = authenticated_usage_client.get(
             "/v1/usage/posthog_code",
@@ -374,14 +378,41 @@ class TestUsageEndpoint:
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["ai_credits"] == {"exhausted": False}
-        assert data["is_rate_limited"] is False
+        assert data["ai_credits"] == {"exhausted": True, "used_usd": None, "limit_usd": None}
+        assert data["is_rate_limited"] is True
+        assert resolver_mock.call_args.args[0] == "posthog_code_credits"
+
+    @pytest.mark.parametrize("plan_key", ["posthog-code-200-20260301", "posthog-code-free-20260301", None])
+    def test_exhausted_bucket_reported_for_every_caller(
+        self, authenticated_usage_client: TestClient, plan_key: str | None
+    ) -> None:
+        # Mirrors BillableCreditThrottle: every posthog_code generation counts into
+        # the org's bucket, so exhaustion blocks (and must be reported to) every
+        # caller regardless of seat state — clients gate on this response, and a
+        # carve-out here would let them keep sending requests enforcement denies.
+        from llm_gateway.services.quota_resolver import QuotaResourceStatus
+
+        app = authenticated_usage_client.app
+        app.state.quota_resolver.get_resource_status = AsyncMock(return_value=QuotaResourceStatus(limited=True))
+        app.state.plan_resolver.get_plan = AsyncMock(
+            return_value=PlanInfo(plan_key=plan_key, seat_created_at="2026-01-01T00:00:00+00:00")
+        )
+
+        response = authenticated_usage_client.get(
+            "/v1/usage/posthog_code",
+            headers={"Authorization": "Bearer phx_test"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ai_credits"] == {"exhausted": True, "used_usd": None, "limit_usd": None}
+        assert data["is_rate_limited"] is True
 
     def test_ai_credits_reflects_resolver_for_billable_product(self, authenticated_usage_client: TestClient) -> None:
         from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
         app = authenticated_usage_client.app
-        app.state.quota_resolver.get_ai_credits_status = AsyncMock(return_value=QuotaResourceStatus(limited=True))
+        resolver_mock = AsyncMock(return_value=QuotaResourceStatus(limited=True))
+        app.state.quota_resolver.get_resource_status = resolver_mock
 
         response = authenticated_usage_client.get(
             "/v1/usage/slack_app",
@@ -389,8 +420,46 @@ class TestUsageEndpoint:
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["ai_credits"] == {"exhausted": True}
+        assert data["ai_credits"] == {"exhausted": True, "used_usd": None, "limit_usd": None}
         assert data["is_rate_limited"] is True
+        assert resolver_mock.call_args.args[0] == "ai_credits"
+
+    def test_ai_credits_carries_org_spend_numbers(self, authenticated_usage_client: TestClient) -> None:
+        """PostHog Code renders "used $X of $Y" (titlebar, plans page) off these
+        numbers; None must stay None so clients read unknown, not $0."""
+        from llm_gateway.services.quota_resolver import QuotaResourceStatus
+
+        app = authenticated_usage_client.app
+        app.state.quota_resolver.get_resource_status = AsyncMock(
+            return_value=QuotaResourceStatus(limited=False, used_usd=12.4, limit_usd=50.0)
+        )
+
+        response = authenticated_usage_client.get(
+            "/v1/usage/posthog_code",
+            headers={"Authorization": "Bearer phx_test"},
+        )
+        assert response.status_code == 200
+        assert response.json()["ai_credits"] == {"exhausted": False, "used_usd": 12.4, "limit_usd": 50.0}
+
+    @pytest.mark.parametrize("billing_active", [True, False])
+    def test_code_usage_subscribed_reflects_billing_bit(
+        self, authenticated_usage_client: TestClient, billing_active: bool
+    ) -> None:
+        """Clients pick billing copy and hide the free-tier meter off this
+        field, so it must carry the same bit enforcement reads."""
+        from llm_gateway.services.quota_resolver import QuotaResourceStatus
+
+        app = authenticated_usage_client.app
+        app.state.quota_resolver.get_resource_status = AsyncMock(
+            return_value=QuotaResourceStatus(limited=False, code_usage_billing_active=billing_active)
+        )
+
+        response = authenticated_usage_client.get(
+            "/v1/usage/posthog_code",
+            headers={"Authorization": "Bearer phx_test"},
+        )
+        assert response.status_code == 200
+        assert response.json()["code_usage_subscribed"] is billing_active
 
     def test_invalidate_plan_cache_calls_resolver(self, authenticated_usage_client: TestClient) -> None:
         app = authenticated_usage_client.app

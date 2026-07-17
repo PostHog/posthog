@@ -1,9 +1,9 @@
 import { Histogram } from 'prom-client'
 
-import { parseJSON } from '~/utils/json-parse'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+import { FetchOptions, FetchResponse } from '~/common/utils/request'
 
-import { logger } from '../../utils/logger'
-import { FetchOptions, FetchResponse } from '../../utils/request'
 import { NATIVE_HOG_FUNCTIONS_BY_ID } from '../templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, Response } from '../types'
 import { destinationE2eLagMsSummary } from '../utils'

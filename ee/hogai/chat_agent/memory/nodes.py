@@ -39,7 +39,7 @@ from posthog.utils import human_list
 from products.posthog_ai.backend.models.assistant import CoreMemory
 
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
-from ee.hogai.core.agent_modes import SlashCommandName
+from ee.hogai.core.agent_modes.const import SlashCommandName
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.llm import MaxChatOpenAI
@@ -105,7 +105,7 @@ class MemoryInitializerContextMixin(AssistantContextMixin):
     ) -> CacheMissResponse | QueryStatusResponse | CachedEventTaxonomyQueryResponse:
         def run_query() -> CacheMissResponse | QueryStatusResponse | CachedEventTaxonomyQueryResponse:
             runner = EventTaxonomyQueryRunner(
-                team=self._team, query=EventTaxonomyQuery(event=event, properties=[property])
+                team=self._team, query=EventTaxonomyQuery(event=event, properties=[property]), user=self._user
             )
             return runner.run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,

@@ -9,12 +9,28 @@ import { resolve } from 'path'
 import { copyInstructions } from './copy-instructions'
 import { honoEsbuildOptions, honoOutfile } from './hono-esbuild-config'
 
-// Populate `shared/guidelines.md` so esbuild can inline it via `@shared/*`.
-copyInstructions()
-
-if (existsSync(resolve(process.cwd(), '.env'))) {
-    process.loadEnvFile(resolve(process.cwd(), '.env'))
+// `.env` is the single local-dev env file (see .env.example). Wrangler reads
+// it natively too (falling back from `.dev.vars`), so hono and the edge-proxy
+// worker boot with the same env.
+const dotEnv = resolve(process.cwd(), '.env')
+if (existsSync(dotEnv)) {
+    process.loadEnvFile(dotEnv)
 }
+
+// Without these the server boots but misbehaves subtly (OAuth metadata
+// advertises production, UI app resources aren't registered) - surface the
+// misconfig loudly, especially for setups still holding config in the
+// removed `.dev.vars` file.
+const requiredVars = ['POSTHOG_API_BASE_URL', 'MCP_APPS_BASE_URL']
+const missingVars = requiredVars.filter((name) => !process.env[name])
+if (missingVars.length > 0) {
+    console.warn(
+        `[dev-hono] missing required env var(s): ${missingVars.join(', ')}. ` +
+            'Support for `.dev.vars` was removed - move your local config to `.env` (see .env.example).'
+    )
+}
+
+copyInstructions()
 
 // flox sets SSL_CERT_FILE; Node's TLS layer only reads NODE_EXTRA_CA_CERTS.
 if (!process.env.NODE_EXTRA_CA_CERTS && process.env.SSL_CERT_FILE) {

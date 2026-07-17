@@ -12,7 +12,7 @@ from posthog.schema import ActorsPropertyTaxonomyResponse, EventTaxonomyItem, Te
 
 from posthog.models import GroupTypeMapping, PropertyDefinition, Team
 
-from products.warehouse_sources.backend.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 T = TypeVar("T", bound=Model)
 
@@ -20,12 +20,12 @@ T = TypeVar("T", bound=Model)
 class BaseSnapshot(AvroBase, ABC, Generic[T]):
     @classmethod
     @abstractmethod
-    def serialize_for_team(cls, *, team_id: int) -> Generator[Self, None, None]:
+    def serialize_for_team(cls, *, team_id: int) -> Generator[Self]:
         raise NotImplementedError
 
     @classmethod
     @abstractmethod
-    def deserialize_for_team(cls, models: Sequence[Self], *, team_id: int, project_id: int) -> Generator[T, None, None]:
+    def deserialize_for_team(cls, models: Sequence[Self], *, team_id: int, project_id: int) -> Generator[T]:
         raise NotImplementedError
 
 
@@ -40,9 +40,7 @@ class TeamSnapshot(BaseSnapshot[Team]):
         yield TeamSnapshot(name=team.name, test_account_filters=json.dumps(team.test_account_filters))
 
     @classmethod
-    def deserialize_for_team(
-        cls, models: Sequence[Self], *, team_id: int, project_id: int
-    ) -> Generator[Team, None, None]:
+    def deserialize_for_team(cls, models: Sequence[Self], *, team_id: int, project_id: int) -> Generator[Team]:
         for model in models:
             yield Team(
                 id=team_id,

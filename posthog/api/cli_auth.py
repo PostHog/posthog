@@ -17,14 +17,17 @@ import secrets
 from django.core.cache import cache
 from django.utils import timezone
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.personal_api_key import validate_personal_api_key_scopes
 from posthog.auth import SessionAuthentication
 from posthog.models import PersonalAPIKey, Team, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
+from posthog.scopes import UNPRIVILEGED_SCOPES
 
 # Device code lives for 10 minutes
 DEVICE_CODE_EXPIRY_SECONDS = 600
@@ -60,6 +63,13 @@ def get_device_cache_key(device_code: str) -> str:
 def get_user_code_cache_key(user_code: str) -> str:
     """Get cache key for user code"""
     return f"cli_user_code:{user_code}"
+
+
+def get_validation_error_description(error: serializers.ValidationError) -> str:
+    detail = error.detail
+    if isinstance(detail, list) and detail:
+        return str(detail[0])
+    return str(detail)
 
 
 class DeviceCodeResponseSerializer(serializers.Serializer):
@@ -98,8 +108,14 @@ class DevicePollResponseSerializer(serializers.Serializer):
     personal_api_key = serializers.CharField(required=False, help_text="The API key (only if authorized)")
     label = serializers.CharField(required=False, help_text="Label of the created key")  # type: ignore[assignment]
     project_id = serializers.CharField(required=False, help_text="The project ID (only if authorized)")
+    scopes = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Scopes granted to the created API key (only if authorized)",
+    )
 
 
+@extend_schema(extensions={"x-product": "core"})
 class CLIAuthViewSet(viewsets.ViewSet):
     """
     OAuth2 Device Authorization Flow for CLI authentication
@@ -126,6 +142,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
 
         return []
 
+    @extend_schema(request=None, responses={200: DeviceCodeResponseSerializer})
     @action(methods=["POST"], detail=False, url_path="device-code")
     def device_code(self, request):
         """
@@ -168,6 +185,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
         serializer = DeviceCodeResponseSerializer(response_data)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(request=DeviceAuthorizationSerializer)
     @action(methods=["POST"], detail=False, url_path="authorize")
     def authorize(self, request):
         """
@@ -182,11 +200,20 @@ class CLIAuthViewSet(viewsets.ViewSet):
         user_code = serializer.validated_data["user_code"]
         project_id = serializer.validated_data["project_id"]
         scopes = serializer.validated_data.get("scopes", CLI_SCOPES)
+        user: User = request.user
 
         # Validate that at least one scope is provided
         if not scopes:
             return Response(
                 {"error": "invalid_request", "error_description": "At least one scope is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            validate_personal_api_key_scopes(scopes, user, allowed_scopes=UNPRIVILEGED_SCOPES)
+        except serializers.ValidationError as error:
+            return Response(
+                {"error": "invalid_scope", "error_description": get_validation_error_description(error)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -215,8 +242,6 @@ class CLIAuthViewSet(viewsets.ViewSet):
             )
 
         # Verify user has access to the project
-        user: User = request.user
-
         try:
             team = Team.objects.get(id=project_id)
             # Check if user has access to this team's organization
@@ -250,6 +275,8 @@ class CLIAuthViewSet(viewsets.ViewSet):
             secure_value=secure_value,
             mask_value=mask_value,
             scopes=scopes,
+            scoped_teams=[team.id],
+            scoped_organizations=[],
         )
 
         # User explicitly authorized this CLI via SessionAuthentication (see
@@ -267,6 +294,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
         device_data["personal_api_key"] = api_key_value
         device_data["label"] = label
         device_data["project_id"] = str(project_id)
+        device_data["scopes"] = scopes
         device_data["authorized_at"] = timezone.now().isoformat()
         device_data["user_id"] = user.id
 
@@ -282,6 +310,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(request=DevicePollSerializer, responses={200: DevicePollResponseSerializer})
     @action(methods=["POST"], detail=False, url_path="poll")
     def poll(self, request):
         """
@@ -321,6 +350,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
                 "personal_api_key": device_data["personal_api_key"],
                 "label": device_data["label"],
                 "project_id": device_data["project_id"],
+                "scopes": device_data.get("scopes", []),
             }
 
             # Clean up - key has been retrieved

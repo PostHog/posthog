@@ -9,26 +9,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Generate AI individual summary for each session, without grouping.
- */
-export const createSessionSummariesIndividuallyBodySessionIdsMax = 300
-
-export const createSessionSummariesIndividuallyBodyFocusAreaMax = 500
-
-export const CreateSessionSummariesIndividuallyBody = /* @__PURE__ */ zod.object({
-    session_ids: zod
-        .array(zod.string())
-        .min(1)
-        .max(createSessionSummariesIndividuallyBodySessionIdsMax)
-        .describe('List of session IDs to summarize (max 300)'),
-    focus_area: zod
-        .string()
-        .max(createSessionSummariesIndividuallyBodyFocusAreaMax)
-        .optional()
-        .describe('Optional focus area for the summarization'),
-})
-
 export const sessionRecordingPlaylistsCreateBodyNameMax = 400
 
 export const sessionRecordingPlaylistsCreateBodyDerivedNameMax = 400
@@ -195,4 +175,43 @@ export const SessionRecordingsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .describe('Timestamp of the last event from this person, or null.'),
         })
         .optional(),
+})
+
+/**
+ * Delete a batch of session recordings by session ID. Deletion is permanent and cannot be undone. IDs that don't match an existing recording are skipped and counted in `total_requested` but not `deleted_count`.
+ */
+export const sessionRecordingsBulkDeleteCreateBodySessionRecordingIdsMax = 100
+
+export const SessionRecordingsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
+    session_recording_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(sessionRecordingsBulkDeleteCreateBodySessionRecordingIdsMax)
+        .describe('Session IDs of the recordings to delete (max 100 per call).'),
+    date_from: zod
+        .string()
+        .nullish()
+        .describe(
+            "Earliest start time of the recordings, as an ISO date or a relative offset like '-30d'. Providing this narrows the lookup and speeds up the request; defaults to the project's recording retention period."
+        ),
+})
+
+/**
+ * Generate AI individual summary for each session, without grouping.
+ */
+export const createSessionSummariesIndividuallyBodySessionIdsMax = 300
+
+export const createSessionSummariesIndividuallyBodyFocusAreaMax = 500
+
+export const CreateSessionSummariesIndividuallyBody = /* @__PURE__ */ zod.object({
+    session_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(createSessionSummariesIndividuallyBodySessionIdsMax)
+        .describe('List of session IDs to summarize (max 300)'),
+    focus_area: zod
+        .string()
+        .max(createSessionSummariesIndividuallyBodyFocusAreaMax)
+        .optional()
+        .describe('Optional focus area for the summarization'),
 })

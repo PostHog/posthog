@@ -1,12 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import * as chartHogPng from '@posthog/brand/hoggies/png/chart-hog'
 import { IconPlus } from '@posthog/icons'
 import { LemonTag, Spinner } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { GraphsHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { urls } from 'scenes/urls'
@@ -24,6 +26,8 @@ import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
 import { dashboardLogic } from './dashboardLogic'
 import { EmptyDashboardAiStarterPrompts } from './emptyDashboardAiStarterPrompts'
+
+const HedgehogChartHog = pngHoggie(chartHogPng)
 
 const DASHBOARD_DOCS_URL = 'https://posthog.com/docs/product-analytics/dashboards'
 
@@ -80,24 +84,34 @@ function DashboardEmptyActions({
                                               Add text card
                                           </LemonButton>
                                       </AccessControlAction>
-                                      {dashboardWidgetsEnabled ? (
-                                          <AccessControlAction
-                                              resourceType={AccessControlResourceType.Dashboard}
-                                              minAccessLevel={AccessControlLevel.Editor}
-                                              userAccessLevel={dashboard.user_access_level}
+                                      <AccessControlAction
+                                          resourceType={AccessControlResourceType.Dashboard}
+                                          minAccessLevel={AccessControlLevel.Editor}
+                                          userAccessLevel={dashboard.user_access_level}
+                                      >
+                                          <LemonButton
+                                              fullWidth
+                                              onClick={
+                                                  dashboardWidgetsEnabled
+                                                      ? onAddWidget
+                                                      : () => push(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS))
+                                              }
+                                              data-attr={
+                                                  dashboardWidgetsEnabled
+                                                      ? 'dashboard-add-widget'
+                                                      : 'dashboard-add-widget-preview'
+                                              }
                                           >
-                                              <LemonButton
-                                                  fullWidth
-                                                  onClick={onAddWidget}
-                                                  data-attr="dashboard-add-widget"
+                                              Add widget
+                                              <LemonTag
+                                                  type={dashboardWidgetsEnabled ? 'success' : 'warning'}
+                                                  size="small"
+                                                  className="ml-2"
                                               >
-                                                  Add widget
-                                                  <LemonTag type="success" size="small" className="ml-2">
-                                                      NEW
-                                                  </LemonTag>
-                                              </LemonButton>
-                                          </AccessControlAction>
-                                      ) : null}
+                                                  {dashboardWidgetsEnabled ? 'NEW' : 'BETA'}
+                                              </LemonTag>
+                                          </LemonButton>
+                                      </AccessControlAction>
                                   </>
                               ),
                           },
@@ -154,7 +168,7 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
             titleOverride="So empty. So much potential."
             description={BASE_TEXT}
             isEmpty={true}
-            customHog={GraphsHog}
+            customHog={HedgehogChartHog}
             hogLayout="responsive"
             useMainContentContainerQueries={true}
             docsURL={DASHBOARD_DOCS_URL}

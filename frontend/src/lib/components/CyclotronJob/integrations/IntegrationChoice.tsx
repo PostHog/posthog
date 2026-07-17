@@ -1,5 +1,8 @@
+// Side-effect import: register all integration setups
+import './integrationSetups'
+
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconExternal, IconTrash, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
@@ -10,10 +13,8 @@ import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { urls } from 'scenes/urls'
 
+import { findIntegrationByFormValue, matchesIntegrationIdValue } from './integrationLookup'
 import { getAllRegisteredIntegrationSetups, getIntegrationSetup } from './integrationSetupRegistry'
-
-// Side-effect import: register all integration setups
-import './integrationSetups'
 
 export type IntegrationConfigureProps = {
     value?: number
@@ -38,7 +39,7 @@ export function IntegrationChoice({
     const kind = integration
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
-    const integrationKind = integrationsOfKind?.find((integration) => integration.id === value)
+    const integrationKind = findIntegrationByFormValue(integrationsOfKind, value)
 
     // The stored value points to an integration that's no longer available (deleted, or
     // re-installed under a new ID). We deliberately do NOT auto-substitute here — that
@@ -46,8 +47,13 @@ export function IntegrationChoice({
     // saves. The UI surfaces a warning below instead so the user picks explicitly.
     const valueIsMissing = !integrationsLoading && !!value && !!integrations && !integrationKind
 
+    // Fire at most once: the consumer's write may take a full state round-trip before it flows
+    // back into `value`, and re-dispatching on every render in that window can amplify into an
+    // infinite update loop (React #185).
+    const autoSelected = useRef(false)
     useEffect(() => {
-        if (!integrationsLoading && !value && integrationsOfKind?.length) {
+        if (!integrationsLoading && !value && integrationsOfKind?.length && !autoSelected.current) {
+            autoSelected.current = true
             onChange?.(integrationsOfKind[0].id)
         }
     }, [integrationsLoading, onChange, integrationsOfKind?.length, value, integrationsOfKind])
@@ -83,11 +89,6 @@ export function IntegrationChoice({
         closeNewIntegrationModal()
     }
 
-    // Stripe sandboxes have a separate client_id from live installs. The Stripe app
-    // forwards is_sandbox=true on the URL it sends users to, so we forward it through
-    // to the authorize endpoint when it's present.
-    const isSandbox = new URLSearchParams(window.location.search).get('is_sandbox') === 'true'
-
     const setupDef = getIntegrationSetup(kind)
     // When the instance doesn't have OAuth credentials for this kind, /integrations/authorize
     // 400s with "Kind not configured". Send users to the settings page instead.
@@ -101,7 +102,7 @@ export function IntegrationChoice({
                 label: `${kindName} is not configured on this instance`,
             }
           : {
-                to: api.integrations.authorizeUrl({ kind, next: redirectUrl, is_sandbox: isSandbox || undefined }),
+                to: api.integrations.authorizeUrl({ kind, next: redirectUrl }),
                 disableClientSideRouting: true,
                 onClick: beforeRedirect,
                 label: integrationsOfKind?.length
@@ -124,7 +125,7 @@ export function IntegrationChoice({
                                       />
                                   ),
                                   onClick: () => onChange?.(integ.id),
-                                  active: integ.id === value,
+                                  active: matchesIntegrationIdValue(integ.id, value),
                                   label: integ.display_name,
                               })) || []),
                           ],

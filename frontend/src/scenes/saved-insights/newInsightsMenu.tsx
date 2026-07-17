@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -19,7 +19,7 @@ function useInsightTypeShortcut(
     disabled: boolean = false
 ): void {
     const metadata = INSIGHT_TYPES_METADATA[type]
-    useAppShortcut({
+    useShortcut({
         name: `NewInsight${type}`,
         keybind: [keybind],
         intent: `New ${metadata.name}`,

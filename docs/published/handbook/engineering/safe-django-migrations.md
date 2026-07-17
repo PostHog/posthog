@@ -12,6 +12,7 @@ This guide explains how to safely perform dangerous Django migration operations 
 
 ## Table of Contents
 
+- [Altering Hot Tables](#altering-hot-tables)
 - [Dropping Tables](#dropping-tables)
 - [Dropping Columns](#dropping-columns)
 - [Renaming Tables](#renaming-tables)
@@ -22,6 +23,72 @@ This guide explains how to safely perform dangerous Django migration operations 
 - [Running Data Migrations](#running-data-migrations)
 - [Using SeparateDatabaseAndState](#using-separatedatabaseandstate)
 - [General Best Practices](#general-best-practices)
+
+## Altering Hot Tables
+
+**Problem:** `posthog_team`, `posthog_user`, `posthog_organization`, and `posthog_project` are read on virtually every request. Every `ALTER TABLE` — including the "safe" patterns elsewhere in this guide, like adding a nullable column — needs an `ACCESS EXCLUSIVE` lock. The danger is not the ALTER itself (a nullable `ADD COLUMN` is metadata-only and takes milliseconds once it runs); it's the **lock queue**: while the ALTER waits behind in-flight queries, Postgres queues every later query on the table behind it. On a hot table that means site-wide request pile-ups and 5xx errors until `lock_timeout` cancels the ALTER — and since `bin/migrate` retries with exponential backoff, the stall repeats in waves until the ALTER finally wins the race.
+
+This is not theoretical: a plain nullable `AddField` on `Team` — exactly what this guide's NOT NULL section recommends as the safe pattern — has caused roughly an hour of recurring 5xx waves in production while it lost the lock race retry after retry.
+
+### Safe Approach: Don't Alter the Table
+
+For `Team`, most new fields shouldn't be on the table at all. Domain-specific fields belong on a **Team extension model** (see `posthog/models/team/README.md`) — that's a `CREATE TABLE`, which takes no lock on `posthog_team` whatsoever.
+
+`CREATE INDEX CONCURRENTLY` (via `SafeAddIndexConcurrently`, see [Adding Indexes](#adding-indexes)) is also fine: it only takes `SHARE UPDATE EXCLUSIVE`, which doesn't block reads or writes.
+
+### If You Genuinely Must Alter a Hot Table
+
+The migration analyzer (`HotTableAlterPolicy`) blocks any DDL on these tables in CI. To accept the risk:
+
+1. Confirm the field really is core (team identity, cross-product settings, SDK config) and not a candidate for an extension model.
+2. Add `<app_label>.<migration_name>` to `posthog/management/migration_analysis/hot_table_acknowledged_migrations.txt` — this is the explicit "I accept the risk" act, and it's visible in review.
+3. Coordinate the deploy with #team-infrastructure for a low-traffic window.
+
+### Foreign Keys to Hot Tables
+
+**Problem:** The hazard above also fires from the _referencing_ side, and from **any** app — a plain `CreateModel` or `AddField` in a product app with a `ForeignKey(to="posthog.team", ...)` (or `to=settings.AUTH_USER_MODEL`, which resolves to `posthog_user`). Creating the FK constraint takes a `SHARE ROW EXCLUSIVE` lock on the _referenced parent_ table, even though the child table is brand new. That lock conflicts with the `ROW EXCLUSIVE` lock every `INSERT`/`UPDATE`/`DELETE` on the parent holds, so under write traffic the lock request queues behind in-flight writes, `lock_timeout` cancels it, and each `bin/migrate` retry repeats the stall. A `CreateModel` with an FK to `posthog_team` has blocked a deploy this way.
+
+`HotTableAlterPolicy` flags `CreateModel` / `AddField` whose FK target resolves to a hot table (it skips FKs declared `db_constraint=False`). Two options:
+
+**Option A — `db_constraint=False` (the only truly lock-free path):**
+
+```python
+# CreateModel / AddField then emit no FK constraint and take NO lock on the parent.
+# Referential integrity is enforced in application code only.
+team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+```
+
+This is the option that avoids the parent lock entirely — reach for it when you can live without database-level enforcement.
+
+**Option B — a real DB constraint, two-phase via the helper:**
+
+Declare the FK `db_constraint=False` (so `CreateModel` / `AddField` take no lock), then add the constraint back in a later migration with `AddForeignKeyNotValid`, and `ValidateForeignKey` after that:
+
+```python
+# 00xx_add_fk_not_valid.py  (brief SHARE ROW EXCLUSIVE on the parent — see caveat below)
+from posthog.migration_helpers import AddForeignKeyNotValid
+
+operations = [
+    AddForeignKeyNotValid(
+        model_name="mymodel",
+        name="mymodel_team_id_fk",
+        column="team_id",
+        to_table="posthog_team",
+        to_column="id",
+    ),
+]
+
+# 00yy_validate_fk.py  (SHARE UPDATE EXCLUSIVE on the child, no parent lock)
+from posthog.migration_helpers import ValidateForeignKey
+
+operations = [
+    ValidateForeignKey(model_name="mymodel", name="mymodel_team_id_fk"),
+]
+```
+
+Be honest about the lock: `ADD CONSTRAINT ... NOT VALID` still takes a **brief** `SHARE ROW EXCLUSIVE` lock on the parent for the catalog metadata add. It skips the row-validation scan, so it shrinks the lock window to metadata-only — but it does **not** eliminate the parent lock. Only `db_constraint=False` (Option A) is truly lock-free. The follow-up `VALIDATE CONSTRAINT` scans child rows under `SHARE UPDATE EXCLUSIVE` and takes no lock on the parent.
+
+If the FK genuinely must lock the hot table on add, acknowledge it the same way as any other hot-table DDL (add the migration to `hot_table_acknowledged_migrations.txt` and coordinate the deploy).
 
 ## Dropping Tables
 
@@ -141,6 +208,25 @@ class Migration(migrations.Migration):
     ]
 ```
 
+### Removing a whole product or app
+
+Removing a product (`products/<name>/`) is the phased table drop above — once per model — plus app teardown. It is **not** a folder delete.
+
+**Do not "remove" a table by deleting its migration file.** The deleted-migration check in the `repo-checks` CI job (the `hogli lint:migration-deletions` command) blocks deleting any migration that exists on master; genuinely intentional, reviewed deletions (a product move, a revert, a squash) are acknowledged in `.github/scripts/migration-deletion-allowlist.txt`. Deleting the file drops nothing:
+
+- The table and its FK constraints stay in every database where the migration already ran.
+- The `django_migrations` rows linger as orphans — harmless (Django ignores migrations for apps not in `INSTALLED_APPS`) but never cleaned up.
+- Fresh databases never create the table, so production and CI diverge.
+- The migration risk analyzer rebuilds master's schema, then checks out each open PR's tree, so any in-flight branch that predates the deletion still carries the file and gets it re-analyzed as a brand-new migration — a phantom "blocked" flag that only clears once that branch merges master.
+
+Safe order:
+
+1. Strip all usage and the model classes, and drop the tables via the [phased approach](#dropping-tables) (state-only `DeleteModel`, wait a deploy cycle, then `DROP TABLE`). Keep the app in `INSTALLED_APPS` so its migrations still run.
+2. Only after the drop migration has deployed everywhere, remove the app from `INSTALLED_APPS` and delete the `products/<name>/` folder.
+3. Optionally `DELETE FROM django_migrations WHERE app = '<app_label>'` to clear the orphan rows.
+
+Leaving the table in place — code gone, table dropped in a follow-up — is a legitimate shortcut for a small retired product: it dodges the rolling-deploy window where in-flight requests hit a dropped table. Just make the leftover table a tracked follow-up, not an accident.
+
 ## Dropping Columns
 
 **Problem:** `RemoveField` operations drop columns immediately. This breaks backwards compatibility during deployment and **cannot be rolled back** - once data is deleted, any rollback deployment will fail because the column no longer exists.
@@ -199,6 +285,8 @@ This gives you a clean Python API without the risk of renaming the database colu
 1. Add column as nullable
 2. Backfill data
 3. Add NOT NULL constraint
+
+> **Note:** "safe" here means no table rewrite. On [hot tables](#altering-hot-tables) even a nullable `ADD COLUMN` can stall traffic while it waits for its lock.
 
 **Step 1: Add column as nullable**
 
@@ -320,16 +408,37 @@ analyzer blocks any migration that uses `AddIndexConcurrently`,
 `RemoveIndexConcurrently`, or a raw `RunSQL` concurrent index without
 `IF [NOT] EXISTS`.
 
-### Safe Approach: `CreateIndexConcurrently` Helper (Recommended)
+### Safe Approach: `SafeAddIndexConcurrently` Helper (Recommended)
 
-The `posthog.migration_helpers.CreateIndexConcurrently` helper handles the
-full safe pattern: disables `lock_timeout` and `statement_timeout` on the
-migration connection, looks the target index up in `pg_index`, drops it if
-it was left in an invalid state by a prior interrupted build, then runs
-`CREATE INDEX CONCURRENTLY IF NOT EXISTS`.
+**Adding an index? Use `SafeAddIndexConcurrently`.**
+It takes a `model_name` + Django `Index` (like Django's `AddIndexConcurrently`), tracks state itself — no `SeparateDatabaseAndState`, no re-spelling the index as raw SQL — and adds the safety the bare Django op lacks: disables `lock_timeout`/`statement_timeout`, skips an already-valid index, and rebuilds an `indisvalid = false` leftover from an interrupted build.
 
-Wrap it in `SeparateDatabaseAndState` so Django model state still tracks the
-index (keeps `makemigrations --check` and the ORM correct):
+```python
+from django.db import migrations, models
+
+from posthog.migration_helpers import SafeAddIndexConcurrently
+
+
+class Migration(migrations.Migration):
+    atomic = False  # Required for CONCURRENTLY
+
+    operations = [
+        SafeAddIndexConcurrently(
+            model_name="mymodel",
+            index=models.Index(fields=["field_name"], name="mymodel_field_idx"),
+        ),
+    ]
+```
+
+Dropping an index uses the mirror helper, `SafeRemoveIndexConcurrently`
+(`model_name` + index `name`).
+
+### Raw-SQL variant: `CreateIndexConcurrently` / `DropIndexConcurrently`
+
+When the index doesn't map cleanly to a Django `Index` (e.g. an expression
+the ORM can't model), use the raw-SQL helpers. They subclass `RunSQL`, which
+doesn't touch Django state, so they must be wrapped in
+`SeparateDatabaseAndState` with a matching `AddIndex` / `RemoveIndex`:
 
 ```python
 from django.db import migrations, models
@@ -359,9 +468,6 @@ class Migration(migrations.Migration):
     ]
 ```
 
-Dropping an index uses the mirror helper, `DropIndexConcurrently`, with
-`RemoveIndex` in `state_operations`.
-
 ### Fallback: Raw `RunSQL` + `lock_timeout = 0` + `IF NOT EXISTS`
 
 For exotic cases the helper doesn't cover (partitioned tables, custom
@@ -389,9 +495,9 @@ helper.
 ### Key Points
 
 - **Never use `AddIndexConcurrently` / `RemoveIndexConcurrently` directly** — they are non-idempotent and the CI policy blocks them
-- **Prefer `CreateIndexConcurrently` / `DropIndexConcurrently` from `posthog.migration_helpers`** — it disables both timeouts and recovers from invalid leftover indexes
-- Raw `RunSQL` with `SET lock_timeout = 0; SET statement_timeout = 0; CREATE INDEX CONCURRENTLY IF NOT EXISTS ...` is acceptable as a fallback but does not recover from invalid leftovers
-- Wrap in `SeparateDatabaseAndState` so Django model state still tracks the index
+- **Prefer `SafeAddIndexConcurrently` / `SafeRemoveIndexConcurrently` from `posthog.migration_helpers`** — they take a `model_name` + Index, track Django state themselves (no `SeparateDatabaseAndState`), disable both timeouts, and recover from invalid leftover indexes
+- Use the raw-SQL `CreateIndexConcurrently` / `DropIndexConcurrently` (wrapped in `SeparateDatabaseAndState`) only when the index doesn't map to a Django `Index`
+- Raw `RunSQL` with `SET lock_timeout = 0; SET statement_timeout = 0; CREATE INDEX CONCURRENTLY IF NOT EXISTS ...` is acceptable as a last-resort fallback but does not recover from invalid leftovers
 - Set `atomic = False` (required for all `CONCURRENTLY` operations)
 - If a prior deploy already left an invalid index (the helper would catch this on next run, but the fallback won't), clean it up with `REINDEX INDEX CONCURRENTLY` or `DROP INDEX CONCURRENTLY IF EXISTS` before re-running
 
@@ -408,44 +514,45 @@ helper.
 
 ### Safe Approach: NOT VALID Pattern
 
-Add constraints in two phases - add without validation, then validate separately.
+Add CHECK constraints in two phases — add without validation, then validate separately — using the `posthog.migration_helpers` helpers.
+They take a `model_name` + Django constraint (so Django builds the SQL and tracks model state, no `SeparateDatabaseAndState` and no hand-written SQL), and both phases are idempotent under `bin/migrate` retries (the add skips if the constraint exists, the validate skips if it's already validated).
 
-**Example: CHECK Constraint**
-
-**Step 1: Add constraint with NOT VALID**
+**Step 1: Add the constraint with NOT VALID** — brief lock, no table scan, enforces new/changed rows only.
 
 ```python
+from django.db import migrations, models
+from django.db.models import Q
+
+from posthog.migration_helpers import AddConstraintNotValid
+
+
 class Migration(migrations.Migration):
     operations = [
-        migrations.RunSQL(
-            sql="""
-                ALTER TABLE mymodel
-                ADD CONSTRAINT mymodel_field_check
-                CHECK (field_value > 0)
-                NOT VALID
-            """,
-            reverse_sql="ALTER TABLE mymodel DROP CONSTRAINT mymodel_field_check",
+        AddConstraintNotValid(
+            model_name="mymodel",
+            constraint=models.CheckConstraint(condition=Q(field_value__gt=0), name="mymodel_field_check"),
         ),
     ]
 ```
 
-This adds the constraint but only validates NEW rows (instant operation).
-
-**Step 2: Validate constraint in separate migration**
+**Step 2: Validate the constraint in a separate migration** — scans existing rows under `SHARE UPDATE EXCLUSIVE` (allows normal reads/writes).
 
 ```python
+from django.db import migrations
+
+from posthog.migration_helpers import ValidateConstraint
+
+
 class Migration(migrations.Migration):
     operations = [
-        migrations.RunSQL(
-            sql="ALTER TABLE mymodel VALIDATE CONSTRAINT mymodel_field_check",
-            reverse_sql=migrations.RunSQL.noop,
-        ),
+        ValidateConstraint(model_name="mymodel", name="mymodel_field_check"),
     ]
 ```
 
-Deploy this separately. Validation scans the table but uses `SHARE UPDATE EXCLUSIVE` lock which allows normal reads and writes but blocks other schema changes on that table.
+Keep the two phases in **separate migrations** (so the add's brief `ACCESS EXCLUSIVE` lock isn't held through the validate scan), or in the same migration with `atomic = False`.
+If validation fails, Django marks the migration unapplied — clean the offending rows and re-run.
 
-**Note:** This pattern applies to `FOREIGN KEY` constraints on existing columns. New nullable FK columns don't need it - the column starts empty, so there's nothing to validate.
+**Note:** The same NOT VALID / VALIDATE pattern applies to `FOREIGN KEY` constraints via `AddForeignKeyNotValid` / `ValidateForeignKey` — don't hand-write the `RunSQL`. This matters most when the FK points at a hot table; see [Foreign Keys to Hot Tables](#foreign-keys-to-hot-tables). New nullable FK columns to non-hot tables don't need it — the column starts empty, so there's nothing to validate.
 
 ### Key Points
 
@@ -454,6 +561,8 @@ Deploy this separately. Validation scans the table but uses `SHARE UPDATE EXCLUS
 - `VALIDATE CONSTRAINT` takes a `SHARE UPDATE EXCLUSIVE` lock that allows normal reads/writes but blocks DDL operations
 - If validation fails, Django marks the migration as unapplied - clean the offending rows and re-run the validation migration
 - Can fix data issues and retry validation without blocking production
+
+The same two-phase pattern exists for **foreign keys** via `AddForeignKeyNotValid` / `ValidateForeignKey` — but note that an FK to a hot table needs extra care, since `ADD CONSTRAINT ... NOT VALID` still briefly locks the _referenced parent_. See [Foreign Keys to Hot Tables](#foreign-keys-to-hot-tables).
 
 ## Running Data Migrations
 

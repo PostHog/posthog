@@ -9,11 +9,16 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
+import type { MockResolverInfo } from '~/mocks/utils'
 import { BaseMathType, DashboardMode, EntityTypes } from '~/types'
 
+import __dashboard1 from './__mocks__/dashboard1.json'
+import __dashboard_template_schema from './__mocks__/dashboard_template_schema.json'
+import __dashboard_templates from './__mocks__/dashboard_templates.json'
+import __dashboards from './__mocks__/dashboards.json'
 import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
 
-const dashboardRaw = require('./__mocks__/dashboard1.json')
+const dashboardRaw = __dashboard1 as any
 
 // Mark all tiles as cached to prevent refresh attempts in storybook
 const dashboard = {
@@ -43,8 +48,8 @@ const insightMocks = dashboard.tiles.reduce((acc: Record<string, any>, tile: any
 }, {})
 
 // Add the generic insight fetching endpoint that requires from_dashboard param
-const insightFetchMock = (req: any): [number, any] => {
-    const insightId = req.params.id
+const insightFetchMock = ({ params }: MockResolverInfo): [number, any] => {
+    const insightId = params.id
 
     // Don't require from_dashboard in storybook to simplify things
     // Find the insight in the dashboard tiles
@@ -74,7 +79,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/dashboards/': require('./__mocks__/dashboards.json'),
+                '/api/environments/:team_id/dashboards/': __dashboards as any,
                 [`/api/environments/:team_id/dashboards/${BASE_DASHBOARD_ID}/`]: dashboard,
                 ...insightMocks,
                 '/api/environments/:team_id/insights/:id/': insightFetchMock,
@@ -83,8 +88,8 @@ const meta: Meta = {
                     500,
                     { detail: 'Server error' },
                 ],
-                '/api/projects/:team_id/dashboard_templates/': require('./__mocks__/dashboard_templates.json'),
-                '/api/projects/:team_id/dashboard_templates/json_schema/': require('./__mocks__/dashboard_template_schema.json'),
+                '/api/projects/:team_id/dashboard_templates/': __dashboard_templates as any,
+                '/api/projects/:team_id/dashboard_templates/json_schema/': __dashboard_template_schema as any,
                 '/api/environments/:team_id/dashboards/:dash_id/sharing/': {
                     created_at: '2023-02-25T13:28:20.454940Z',
                     enabled: false,
@@ -105,6 +110,8 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-01',
         pageUrl: urls.dashboards(),
+        // Suppress async chart canvas painting so these dashboard snapshots are deterministic.
+        testOptions: { skipCanvasDraw: true },
     },
 }
 export default meta

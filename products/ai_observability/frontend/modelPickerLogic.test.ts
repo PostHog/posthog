@@ -54,8 +54,8 @@ describe('modelPickerLogic', () => {
                     '/api/environments/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
-                    '/api/llm_proxy/models/': (req: any) => {
-                        if (req.url.searchParams.get('provider_key_id') === 'key-1') {
+                    '/api/llm_proxy/models/': ({ request }) => {
+                        if (new URL(request.url).searchParams.get('provider_key_id') === 'key-1') {
                             return [200, BYOK_OPENAI_MODELS]
                         }
                         return [200, []]
@@ -88,8 +88,8 @@ describe('modelPickerLogic', () => {
                     '/api/environments/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
-                    '/api/llm_proxy/models/': (req: any) => {
-                        if (req.url.searchParams.get('provider_key_id') === 'key-1') {
+                    '/api/llm_proxy/models/': ({ request }) => {
+                        if (new URL(request.url).searchParams.get('provider_key_id') === 'key-1') {
                             return [200, BYOK_OPENAI_MODELS_MIXED]
                         }
                         return [200, []]
@@ -114,6 +114,7 @@ describe('modelPickerLogic', () => {
         it('should return empty array when no valid keys exist', async () => {
             useMocks({
                 get: {
+                    '/api/llm_proxy/models/': () => [200, []],
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'key-1', provider: 'openai', state: 'invalid' }],
                     },
@@ -142,8 +143,8 @@ describe('modelPickerLogic', () => {
                     '/api/environments/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
-                    '/api/llm_proxy/models/': (req: any) => {
-                        const keyId = req.url.searchParams.get('provider_key_id')
+                    '/api/llm_proxy/models/': ({ request }) => {
+                        const keyId = new URL(request.url).searchParams.get('provider_key_id')
                         if (keyId === 'key-1') {
                             return [200, BYOK_OPENAI_MODELS]
                         }
@@ -177,8 +178,8 @@ describe('modelPickerLogic', () => {
                     '/api/environments/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
-                    '/api/llm_proxy/models/': (req: any) => {
-                        const keyId = req.url.searchParams.get('provider_key_id')
+                    '/api/llm_proxy/models/': ({ request }) => {
+                        const keyId = new URL(request.url).searchParams.get('provider_key_id')
                         if (keyId === 'key-1') {
                             return [500, { error: 'Internal error' }]
                         }
@@ -235,6 +236,7 @@ describe('modelPickerLogic', () => {
         it('should return false when all keys are non-ok', async () => {
             useMocks({
                 get: {
+                    '/api/llm_proxy/models/': () => [200, []],
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [
                             { id: 'key-1', provider: 'openai', state: 'invalid' },
@@ -257,6 +259,7 @@ describe('modelPickerLogic', () => {
         it('should return false when no keys exist', async () => {
             useMocks({
                 get: {
+                    '/api/llm_proxy/models/': () => [200, []],
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [],
                     },
@@ -287,8 +290,8 @@ describe('modelPickerLogic', () => {
                     '/api/environments/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
-                    '/api/llm_proxy/models/': (req: any) => {
-                        const keyId = req.url.searchParams.get('provider_key_id')
+                    '/api/llm_proxy/models/': ({ request }) => {
+                        const keyId = new URL(request.url).searchParams.get('provider_key_id')
                         if (keyId === 'key-1') {
                             return [200, BYOK_OPENAI_MODELS]
                         }
@@ -327,8 +330,8 @@ describe('modelPickerLogic', () => {
                     '/api/environments/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
-                    '/api/llm_proxy/models/': (req: any) => {
-                        const keyId = req.url.searchParams.get('provider_key_id')
+                    '/api/llm_proxy/models/': ({ request }) => {
+                        const keyId = new URL(request.url).searchParams.get('provider_key_id')
                         if (keyId === 'key-1' || keyId === 'key-2') {
                             return [200, BYOK_OPENAI_MODELS]
                         }
@@ -366,6 +369,17 @@ const GROUPS: ProviderModelGroup[] = [
 ]
 
 describe('parseTrialProviderKeyId', () => {
+    // The 'trial:' case exercises the unknown-provider path, which logs a console.error by design.
+    let consoleErrorSpy: jest.SpyInstance
+
+    beforeEach(() => {
+        consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    })
+
+    afterEach(() => {
+        consoleErrorSpy.mockRestore()
+    })
+
     it.each([
         ['trial:openai', 'openai'],
         ['trial:anthropic', 'anthropic'],
@@ -374,6 +388,9 @@ describe('parseTrialProviderKeyId', () => {
         ['trial:', null],
     ])('parseTrialProviderKeyId(%s) => %s', (input, expected) => {
         expect(parseTrialProviderKeyId(input)).toBe(expected)
+        if (input === 'trial:') {
+            expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('Unknown LLM provider'))
+        }
     })
 })
 

@@ -1,4 +1,5 @@
 import random
+import signal
 import asyncio
 
 import pytest
@@ -17,6 +18,23 @@ from posthog.models.user import User
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import configure_logger
+
+
+@pytest.fixture(autouse=True)
+def _ignore_sigpipe():
+    """Keep SIGPIPE non-fatal for temporal tests.
+
+    Importing temporalio pulls in grpc, whose C core can leave SIGPIPE on its
+    default (process-killing) disposition. Some tests here run real HTTP servers
+    whose client disconnects mid-response (e.g. test_handles_temporal_timeout),
+    producing a broken-pipe write — which then kills the whole shard with exit
+    141 instead of raising a catchable BrokenPipeError. This is normally masked
+    because the offending tests are scattered across shards; file-level sharding
+    runs them together. Restore Python's default SIG_IGN so the broken pipe is a
+    normal error, not a process-killer.
+    """
+    signal.signal(signal.SIGPIPE, signal.SIG_IGN)
+    yield
 
 
 @pytest.fixture

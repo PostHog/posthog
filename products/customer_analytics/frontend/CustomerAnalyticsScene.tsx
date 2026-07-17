@@ -4,9 +4,9 @@ import { combineUrl, router } from 'kea-router'
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { NotFound } from 'lib/components/NotFound'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
@@ -28,6 +28,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SessionInsights } from 'products/customer_analytics/frontend/components/Insights/SessionInsights'
 
+import { AccountNotesTabContent } from './components/AccountNotes/AccountNotesTabContent'
 import { AccountsTabContent } from './components/Accounts/AccountsTabContent'
 import { CustomerJourneys } from './components/CustomerJourneys/CustomerJourneys'
 import { CustomerJourneySelect } from './components/CustomerJourneys/CustomerJourneySelect'
@@ -77,9 +78,9 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
         reportCustomerAnalyticsViewed()
     })
 
-    // Accounts is gated by CUSTOMER_ANALYTICS_CSP; without it the tab does not
-    // exist, so a guessed `/customer_analytics/accounts` URL is a 404.
-    if (activeTab === 'accounts' && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
+    // Accounts and Notes are gated by CUSTOMER_ANALYTICS_CSP; without it the tabs do not
+    // exist, so guessed `/customer_analytics/accounts` / `/customer_analytics/notes` URLs are 404s.
+    if ((activeTab === 'accounts' || activeTab === 'notes') && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
         return <NotFound object="page" />
     }
 
@@ -108,6 +109,12 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             label: 'Accounts',
             content: <AccountsTabContent />,
             link: combineUrl(urls.customerAnalyticsAccounts(), searchParams).url,
+        })
+        tabs.push({
+            key: 'notes',
+            label: 'Notes',
+            content: <AccountNotesTabContent />,
+            link: combineUrl(urls.customerAnalyticsNotes(), searchParams).url,
         })
     }
 
@@ -192,7 +199,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
                                     <DeleteJourneyButton />
                                 </>
                             ) : (
-                                <AppShortcut
+                                <Shortcut
                                     name="CustomerAnalyticsSettings"
                                     keybind={[keyBinds.settings]}
                                     intent="Configure customer analytics"
@@ -220,7 +227,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
                                         children="Configure"
                                         data-attr="customer-analytics-config"
                                     />
-                                </AppShortcut>
+                                </Shortcut>
                             )}
                         </>
                     }

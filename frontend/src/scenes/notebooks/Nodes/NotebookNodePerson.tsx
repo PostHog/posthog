@@ -7,10 +7,11 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { compactNumber } from 'lib/utils'
-import { formatCurrency } from 'lib/utils/geography/currency'
+import { formatCurrency } from 'lib/utils/currency'
+import { compactNumber } from 'lib/utils/numbers'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { PersonIcon } from 'scenes/persons/PersonDisplay'
@@ -24,7 +25,6 @@ import { PersonType } from '~/types'
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { DataSourceIcon } from './components/DataSourceIcon'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { OPTIONAL_PROJECT_NON_CAPTURE_GROUP } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttributes>): JSX.Element => {
     const { id, distinctId } = attributes
@@ -165,6 +165,19 @@ function FirstSeen({ person }: { person: PersonType }): JSX.Element {
     )
 }
 
+// `last_seen_at` is floored to the hour, so for a person whose first and last activity
+// fall in the same hour it can resolve to *before* `created_at`. Clamp to `created_at` so
+// "Last seen" never appears earlier than "First seen" — the real last activity is within
+// the rounding hour of first seen anyway.
+function clampLastSeenToFirstSeen(lastSeenAt: string, createdAt?: string): dayjs.Dayjs {
+    const lastSeen = dayjs(lastSeenAt)
+    if (!createdAt) {
+        return lastSeen
+    }
+    const firstSeen = dayjs(createdAt)
+    return lastSeen.isBefore(firstSeen) ? firstSeen : lastSeen
+}
+
 function LastSeen(): JSX.Element {
     const { person, personLoading } = useValues(personLogic)
     return (
@@ -173,7 +186,7 @@ function LastSeen(): JSX.Element {
             {personLoading ? (
                 <LemonSkeleton className="h-4 w-24" />
             ) : person?.last_seen_at ? (
-                <TZLabel time={person.last_seen_at} />
+                <TZLabel time={clampLastSeenToFirstSeen(person.last_seen_at, person.created_at)} />
             ) : (
                 'unknown'
             )}
@@ -226,7 +239,7 @@ function MRR(): JSX.Element | null {
             <span className="text-secondary">MRR:</span>{' '}
             {revenueDataLoading ? (
                 <LemonSkeleton className="h-4 w-24" />
-            ) : revenueData?.mrr ? (
+            ) : revenueData?.mrr != null ? (
                 <div className="flex gap-2 items-center">
                     {formatCurrency(revenueData.mrr, baseCurrency)}
                     <DataSourceIcon source="revenue-analytics" />
@@ -251,7 +264,7 @@ function LifetimeValue(): JSX.Element | null {
             <span className="text-secondary">Lifetime value:</span>{' '}
             {revenueDataLoading ? (
                 <LemonSkeleton className="h-4 w-24" />
-            ) : revenueData?.lifetimeValue ? (
+            ) : revenueData?.lifetimeValue != null ? (
                 <div className="flex gap-2 items-center">
                     {formatCurrency(revenueData.lifetimeValue, baseCurrency)}
                     <DataSourceIcon source="revenue-analytics" />
@@ -285,12 +298,6 @@ export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttr
     attributes: {
         id: {},
         distinctId: {},
-    },
-    pasteOptions: {
-        find: OPTIONAL_PROJECT_NON_CAPTURE_GROUP + urls.personByUUID('(.+)', false),
-        getAttributes: async (match) => {
-            return { distinctId: undefined, id: match[1] }
-        },
     },
     serializedText: (attrs) => {
         const personTitle = attrs?.title || ''

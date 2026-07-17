@@ -58,8 +58,8 @@ describe('QuickSurveyForm API payloads', () => {
         let capturedRequest: any
         useMocks({
             post: {
-                '/api/projects/:team_id/surveys': async (req) => {
-                    capturedRequest = await req.json()
+                '/api/projects/:team_id/surveys': async ({ request }) => {
+                    capturedRequest = await request.json()
                     return [200, { id: 'new-survey' }]
                 },
             },
@@ -67,7 +67,7 @@ describe('QuickSurveyForm API payloads', () => {
 
         render(<QuickSurveyForm context={{ type: QuickSurveyType.FEATURE_FLAG, flag: mockFlag }} />)
 
-        await userEvent.click(screen.getByRole('button', { name: /create & launch/i }))
+        await userEvent.click(screen.getByText(/create & launch/i))
 
         await waitFor(() => {
             expect(capturedRequest).not.toBeUndefined()
@@ -83,8 +83,8 @@ describe('QuickSurveyForm API payloads', () => {
         let capturedRequest: any
         useMocks({
             post: {
-                '/api/projects/:team_id/surveys': async (req) => {
-                    capturedRequest = await req.json()
+                '/api/projects/:team_id/surveys': async ({ request }) => {
+                    capturedRequest = await request.json()
                     return [200, { id: 'new-survey' }]
                 },
             },
@@ -92,7 +92,7 @@ describe('QuickSurveyForm API payloads', () => {
 
         render(<QuickSurveyForm context={{ type: QuickSurveyType.FUNNEL, funnel: mockFunnel }} />)
 
-        await userEvent.click(screen.getByRole('button', { name: /create & launch/i }))
+        await userEvent.click(screen.getByText(/create & launch/i))
 
         await waitFor(() => {
             expect(capturedRequest).not.toBeUndefined()

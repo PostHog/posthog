@@ -3,6 +3,8 @@
  *
  * See `../headless/UX_SPEC.md` for the full design.
  */
+import { AnyPropertyFilter } from '~/types'
+
 import {
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
@@ -21,6 +23,8 @@ export interface MenuFilterEntry {
     group: TaxonomicFilterGroup
     name: string
     friendlyLabel?: string
+    recentPropertyFilter?: AnyPropertyFilter
+    recentLabel?: string
 }
 
 /** Synthetic categories the combobox panel can be drilled into. */

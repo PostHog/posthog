@@ -1,4 +1,17 @@
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    connect,
+    events,
+    isBreakpoint,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
@@ -6,6 +19,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import {
+    expandRecentsForDisplay,
     hasRecentContext,
     recentTaxonomicFiltersLogic,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
@@ -17,7 +31,9 @@ import {
 import { legacyTaxonomicSurface } from 'lib/components/TaxonomicFilter/taxonomicFilterSurface'
 import {
     ExcludedOperators,
+    ExcludedProperties,
     InfiniteListLogicProps,
+    META_GROUP_TYPES,
     QuickFilterItem,
     SkeletonItem,
     isQuickFilterItem,
@@ -28,7 +44,20 @@ import {
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
+    TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import {
+    buildUrlContainsShortcut,
+    COLLAPSED_TO_CONTAINS_ROW,
+    partitionContainsShortcuts,
+} from 'lib/components/TaxonomicFilter/utils/collapsedContainsRow'
+import {
+    floatRecentAndPinnedToTop,
+    groupItemKey,
+    pinnedSourceKey,
+    recentSourceKey,
+} from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
+import { floatToFront } from 'lib/components/TaxonomicFilter/utils/floatToFront'
 import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { createFuse } from 'lib/utils/fuseSearch'
@@ -38,9 +67,8 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CohortType, EventDefinition, GroupTypeIndex, PropertyType } from '~/types'
 
 import { teamLogic } from '../../../scenes/teamLogic'
-import { captureTimeToSeeData } from '../../internalMetrics'
 import { getItemGroup } from './InfiniteList'
-import type { infiniteListLogicType } from './infiniteListLogicType'
+import type { SelectItemMeta, TopMatchItem } from './taxonomicFilterLogic'
 
 function pinnedItemMatchesSearch(
     item: TaxonomicDefinitionTypes,
@@ -82,6 +110,20 @@ function recentItemMatchesSearch(
     return false
 }
 
+function withoutPinnedDuplicatesOfRecents(
+    pinnedItems: TaxonomicDefinitionTypes[],
+    recentItems: TaxonomicDefinitionTypes[]
+): TaxonomicDefinitionTypes[] {
+    const recentKeys = new Set(recentItems.map(recentSourceKey).filter((key): key is string => key != null))
+    if (recentKeys.size === 0) {
+        return pinnedItems
+    }
+    return pinnedItems.filter((item) => {
+        const key = pinnedSourceKey(item)
+        return key == null || !recentKeys.has(key)
+    })
+}
+
 export interface RowInfo {
     startIndex: number
     stopIndex: number
@@ -94,6 +136,14 @@ export interface RowInfo {
  */
 export const NO_ITEM_SELECTED = -1
 
+// Data-warehouse tabs keep their own committed-selection affordance (the pinned,
+// auto-expanded row via `getInitialPinnedRowIndex`), so they are excluded from
+// the generic selection-promotion below.
+const DATA_WAREHOUSE_GROUP_TYPES: TaxonomicFilterGroupType[] = [
+    TaxonomicFilterGroupType.DataWarehouse,
+    TaxonomicFilterGroupType.DataWarehouseSourceTables,
+]
+
 export function getInitialPinnedRowIndex({
     results,
     taxonomicGroups,
@@ -105,7 +155,7 @@ export function getInitialPinnedRowIndex({
 }: {
     results: (TaxonomicDefinitionTypes | SkeletonItem)[]
     taxonomicGroups: TaxonomicFilterGroup[]
-    group: TaxonomicFilterGroup
+    group: TaxonomicFilterGroup | undefined
     listGroupType: TaxonomicFilterGroupType
     groupType: TaxonomicFilterGroupType | undefined
     value: string | number | null | undefined
@@ -113,8 +163,9 @@ export function getInitialPinnedRowIndex({
 }): number | null {
     if (
         !isActiveTab ||
-        listGroupType !== TaxonomicFilterGroupType.DataWarehouse ||
-        groupType !== TaxonomicFilterGroupType.DataWarehouse ||
+        !DATA_WAREHOUSE_GROUP_TYPES.includes(listGroupType) ||
+        groupType === undefined ||
+        !DATA_WAREHOUSE_GROUP_TYPES.includes(groupType) ||
         value == null
     ) {
         return null
@@ -154,13 +205,33 @@ const API_CACHE_TIMEOUT = 60000
 let apiCache: Record<string, ListStorage> = {}
 let apiCacheTimers: Record<string, number> = {}
 
+type ListResponse = unknown[] | { results?: unknown[]; count?: number }
+
+function responseHasResults(response: ListResponse): boolean {
+    if (Array.isArray(response)) {
+        return response.length > 0
+    }
+    return (response?.results?.length ?? 0) > 0 || (response?.count ?? 0) > 0
+}
+
+/** Reset the module-level API cache. */
+export function clearApiCache(): void {
+    Object.values(apiCacheTimers).forEach((timerId) => window.clearTimeout(timerId))
+    apiCache = {}
+    apiCacheTimers = {}
+}
+
 async function fetchCachedListResponse(path: string, searchParams: Record<string, any>): Promise<ListStorage> {
     const url = combineUrl(path, searchParams).url
-    let response
     if (apiCache[url]) {
-        response = apiCache[url]
-    } else {
-        response = await api.get(url)
+        return apiCache[url]
+    }
+    const response = await api.get(url)
+    // Never cache an empty response. A transient empty result (a backend blip, a race) would
+    // otherwise be pinned for the full timeout, so an event that actually exists keeps reading as
+    // "No results" for up to a minute — retrying the same query just re-reads the cached blank.
+    // Only successful, non-empty responses are safe to reuse.
+    if (responseHasResults(response)) {
         apiCache[url] = response
         apiCacheTimers[url] = window.setTimeout(() => {
             delete apiCache[url]
@@ -169,6 +240,560 @@ async function fetchCachedListResponse(path: string, searchParams: Record<string
     }
     return response
 }
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface infiniteListLogicValues {
+    recentFilterItems: TaxonomicDefinitionTypes[] // recentTaxonomicFiltersLogic
+    activeTab: TaxonomicFilterGroupType // taxonomicFilterLogic
+    anyGroupLoading: boolean // taxonomicFilterLogic
+    anyGroupStale: boolean // taxonomicFilterLogic
+    groupType: any // taxonomicFilterLogic
+    includeStaleEvents: boolean // taxonomicFilterLogic
+    searchQuery: string // taxonomicFilterLogic
+    taxonomicGroupTypes: TaxonomicFilterGroupType[] // taxonomicFilterLogic
+    taxonomicGroups: TaxonomicFilterGroup[] // taxonomicFilterLogic
+    topMatchItemsWithSkeletons: (SkeletonItem | TopMatchItem)[] // taxonomicFilterLogic
+    value: any // taxonomicFilterLogic
+    pinnedFilterItems: TaxonomicDefinitionTypes[] // taxonomicFilterPinnedPropertiesLogic
+    currentTeamId: number | null // teamLogic
+    allowNonCapturedEvents: boolean
+    contextFilteredPinnedItems: TaxonomicDefinitionTypes[]
+    contextFilteredRecentItems: TaxonomicDefinitionTypes[]
+    dedupedTopMatches: (SkeletonItem | TaxonomicDefinitionTypes)[]
+    excludedProperties: string[] | undefined
+    expandedCount: number
+    fuse: ListFuse
+    group: TaxonomicFilterGroup | undefined
+    hasAppliedInitialPin: boolean
+    hasMore: boolean
+    hasRemoteDataSource: boolean
+    hasRenderFunction: boolean
+    index: number
+    initialPinnedRowIndex: number | null
+    isActiveTab: boolean
+    isExpandable: boolean
+    isExpandableButtonSelected: boolean
+    isExpanded: boolean
+    isLoading: boolean
+    isLocalDataLoading: boolean
+    isSoleSubstantiveGroup: boolean
+    isSuggestedFilters: boolean
+    items:
+        | {
+              count: number
+              expandedCount?: undefined
+              first: boolean | undefined
+              queryChanged: boolean | undefined
+              results: QuickFilterItem[]
+              searchQuery: string | undefined
+              syntheticSelectedCount: number
+          }
+        | {
+              count: number
+              expandedCount: number | undefined
+              first: boolean | undefined
+              queryChanged: boolean | undefined
+              results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+              searchQuery: string | undefined
+              syntheticSelectedCount: number
+          }
+    keywordShortcutItems: QuickFilterItem[]
+    limit: number
+    listGroupType: TaxonomicFilterGroupType
+    localItems: ListStorage
+    minSearchQueryLength: any
+    needsMoreSearchCharacters: boolean
+    pinnedRowIndex: number | null
+    propertyAllowList: string[] | undefined
+    rawLocalItems: (CohortType | EventDefinition)[]
+    remoteEndpoint: string | null
+    remoteFetchFailed: string | null
+    remoteItems: ListStorage
+    remoteItemsLoading: boolean
+    remoteResultsAreFresh: boolean
+    results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[]
+    rowCount: number
+    scopedRemoteEndpoint: string | null
+    selectedItem: TaxonomicDefinitionTypes | undefined
+    selectedItemInView: boolean
+    selectedItemValue: number | string | null
+    selectionPromotionContext: {
+        group: TaxonomicFilterGroup | undefined
+        groupType: TaxonomicFilterGroupType | undefined
+        value: TaxonomicFilterValue | undefined
+    }
+    showEmptyState: boolean
+    showLoadingState: boolean
+    showNonCapturedEventOption: boolean
+    showPopover: boolean
+    showSuggestedFiltersEmptyState: boolean
+    soleGroupHasGetValue: boolean
+    startIndex: number
+    stopIndex: number
+    suggestedFiltersSettling: boolean
+    suggestedPinnedMatches: TaxonomicDefinitionTypes[]
+    suggestedRecentMatches: TaxonomicDefinitionTypes[]
+    topMatchesForQuery: TaxonomicDefinitionTypes[]
+    totalExtraCount: number
+    totalListCount: number
+    totalResultCount: number
+    trimmedSearchQuery: string
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface infiniteListLogicActions {
+    infiniteListResultsReceived: (
+        groupType: TaxonomicFilterGroupType,
+        results: ListStorage
+    ) => {
+        groupType: TaxonomicFilterGroupType
+        results: ListStorage
+    } // taxonomicFilterLogic
+    selectItem: (
+        group: TaxonomicFilterGroup,
+        value: TaxonomicFilterValue,
+        item: any,
+        meta?: SelectItemMeta | undefined
+    ) => {
+        group: TaxonomicFilterGroup
+        item: any
+        meta: SelectItemMeta | undefined
+        value: TaxonomicFilterValue
+    } // taxonomicFilterLogic
+    setActiveTab: (activeTab: TaxonomicFilterGroupType) => {
+        activeTab: TaxonomicFilterGroupType
+    } // taxonomicFilterLogic
+    setIncludeStaleEvents: (includeStaleEvents: boolean) => {
+        includeStaleEvents: boolean
+    } // taxonomicFilterLogic
+    setSearchQuery: (searchQuery: string) => {
+        searchQuery: string
+    } // taxonomicFilterLogic
+    abortAnyRunningQuery: () => {
+        value: true
+    }
+    applyInitialPinnedRow: (rowIndex: number) => {
+        rowIndex: number
+    }
+    expand: () => {
+        value: true
+    }
+    loadRemoteItems: (options: LoaderOptions) => LoaderOptions
+    loadRemoteItemsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadRemoteItemsSuccess: (
+        remoteItems:
+            | ListStorage
+            | {
+                  count: any
+                  expandedCount: any
+                  loadDurationMs: number | undefined
+                  queryChanged: boolean
+                  results: TaxonomicDefinitionTypes[]
+                  searchQuery: string
+              },
+        payload?: LoaderOptions
+    ) => {
+        remoteItems:
+            | ListStorage
+            | {
+                  count: any
+                  expandedCount: any
+                  loadDurationMs: number | undefined
+                  queryChanged: boolean
+                  results: TaxonomicDefinitionTypes[]
+                  searchQuery: string
+              }
+        payload?: LoaderOptions
+    }
+    moveDown: () => {
+        value: true
+    }
+    moveUp: () => {
+        value: true
+    }
+    onRowsRendered: (rowInfo: RowInfo) => {
+        rowInfo: RowInfo
+    }
+    reconcilePinnedRowState: () => {
+        value: true
+    }
+    remoteItemsFetchFailedForQuery: (searchQuery: string) => {
+        searchQuery: string
+    }
+    resetPinnedRowState: () => {
+        value: true
+    }
+    selectSelected: () => {
+        value: true
+    }
+    setHasMore: (hasMore: boolean) => {
+        hasMore: boolean
+    }
+    setIndex: (index: number) => {
+        index: number
+    }
+    setLimit: (limit: number) => {
+        limit: number
+    }
+    setPinnedRowIndex: (pinnedRowIndex: number | null) => {
+        pinnedRowIndex: number | null
+    }
+    togglePinnedRow: (rowIndex: number) => {
+        rowIndex: number
+    }
+    updateRemoteItem: (item: TaxonomicDefinitionTypes) => {
+        item: TaxonomicDefinitionTypes
+    }
+    updateRemoteItemFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    updateRemoteItemSuccess: (
+        remoteItems: {
+            count: number
+            expandedCount?: number | undefined
+            first?: boolean | undefined
+            loadDurationMs?: number | undefined
+            queryChanged?: boolean | undefined
+            results: TaxonomicDefinitionTypes[]
+            searchQuery?: string | undefined
+        },
+        payload?: {
+            item: TaxonomicDefinitionTypes
+        }
+    ) => {
+        remoteItems: {
+            count: number
+            expandedCount?: number | undefined
+            first?: boolean | undefined
+            loadDurationMs?: number | undefined
+            queryChanged?: boolean | undefined
+            results: TaxonomicDefinitionTypes[]
+            searchQuery?: string | undefined
+        }
+        payload?: {
+            item: TaxonomicDefinitionTypes
+        }
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface infiniteListLogicMeta {
+    key: string
+    __keaTypeGenInternalSelectorTypes: {
+        listGroupType: (listGroupType: TaxonomicFilterGroupType) => TaxonomicFilterGroupType
+        isSuggestedFilters: (listGroupType: TaxonomicFilterGroupType) => boolean
+        trimmedSearchQuery: (searchQuery: string) => string
+        isActiveTab: (listGroupType: TaxonomicFilterGroupType, activeTab: TaxonomicFilterGroupType) => boolean
+        contextFilteredRecentItems: (
+            recentFilterItems: TaxonomicDefinitionTypes[],
+            taxonomicGroupTypes: TaxonomicFilterGroupType[],
+            arg: ExcludedOperators | undefined,
+            arg2: import('lib/components/TaxonomicFilter/types').SelectingKeyOnly | undefined,
+            arg3: import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap | undefined
+        ) => TaxonomicDefinitionTypes[]
+        contextFilteredPinnedItems: (
+            pinnedFilterItems: TaxonomicDefinitionTypes[],
+            taxonomicGroupTypes: TaxonomicFilterGroupType[]
+        ) => TaxonomicDefinitionTypes[]
+        isSoleSubstantiveGroup: (
+            listGroupType: TaxonomicFilterGroupType,
+            taxonomicGroupTypes: TaxonomicFilterGroupType[]
+        ) => boolean
+        soleGroupHasGetValue: (
+            isSoleSubstantiveGroup: boolean,
+            listGroupType: TaxonomicFilterGroupType,
+            taxonomicGroups: TaxonomicFilterGroup[]
+        ) => boolean
+        allowNonCapturedEvents: (arg: any) => boolean
+        isLocalDataLoading: (arg: any) => boolean
+        isLoading: (remoteItemsLoading: boolean) => boolean
+        group: (
+            listGroupType: TaxonomicFilterGroupType,
+            taxonomicGroups: TaxonomicFilterGroup[]
+        ) => TaxonomicFilterGroup | undefined
+        remoteEndpoint: (group: TaxonomicFilterGroup | undefined) => string | null
+        minSearchQueryLength: (group: TaxonomicFilterGroup | undefined, arg: any) => any
+        needsMoreSearchCharacters: (minSearchQueryLength: any, searchQuery: string) => boolean
+        excludedProperties: (group: TaxonomicFilterGroup | undefined) => string[] | undefined
+        propertyAllowList: (group: TaxonomicFilterGroup | undefined) => string[] | undefined
+        scopedRemoteEndpoint: (group: TaxonomicFilterGroup | undefined) => string | null
+        hasRenderFunction: (group: TaxonomicFilterGroup | undefined) => boolean
+        isExpandable: (
+            remoteEndpoint: string | null,
+            scopedRemoteEndpoint: string | null,
+            remoteItems: ListStorage
+        ) => boolean
+        isExpandableButtonSelected: (isExpandable: boolean, index: number, totalListCount: number) => boolean
+        hasRemoteDataSource: (remoteEndpoint: string | null) => boolean
+        remoteResultsAreFresh: (
+            hasRemoteDataSource: boolean,
+            remoteItems: ListStorage,
+            searchQuery: string,
+            remoteFetchFailed: string | null
+        ) => boolean
+        showNonCapturedEventOption: (
+            allowNonCapturedEvents: boolean,
+            listGroupType: TaxonomicFilterGroupType,
+            searchQuery: string,
+            isLoading: boolean,
+            results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[]
+        ) => boolean
+        suggestedFiltersSettling: (
+            isSuggestedFilters: boolean,
+            anyGroupLoading: boolean,
+            anyGroupStale: boolean,
+            searchQuery: string
+        ) => boolean
+        showEmptyState: (
+            totalListCount: number,
+            isLoading: boolean,
+            suggestedFiltersSettling: boolean,
+            searchQuery: string,
+            hasRemoteDataSource: boolean,
+            showNonCapturedEventOption: boolean,
+            needsMoreSearchCharacters: boolean,
+            remoteResultsAreFresh: boolean
+        ) => boolean
+        showLoadingState: (
+            isLoading: boolean,
+            suggestedFiltersSettling: boolean,
+            results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[],
+            searchQuery: string,
+            hasRemoteDataSource: boolean,
+            remoteResultsAreFresh: boolean
+        ) => boolean
+        rawLocalItems: (
+            arg: any,
+            arg2: TaxonomicFilterGroupType,
+            arg3: boolean | undefined
+        ) => (CohortType | EventDefinition)[]
+        fuse: (
+            rawLocalItems: (CohortType | EventDefinition)[],
+            taxonomicGroups: TaxonomicFilterGroup[],
+            group: TaxonomicFilterGroup | undefined
+        ) => ListFuse
+        localItems: (
+            rawLocalItems: (CohortType | EventDefinition)[],
+            searchQuery: string,
+            fuse: ListFuse,
+            group: TaxonomicFilterGroup | undefined
+        ) => ListStorage
+        topMatchesForQuery: (
+            localItems: ListStorage,
+            remoteItems: ListStorage,
+            searchQuery: string,
+            hasRemoteDataSource: boolean,
+            keywordShortcutItems: QuickFilterItem[],
+            listGroupType: TaxonomicFilterGroupType,
+            arg: boolean | undefined
+        ) => TaxonomicDefinitionTypes[]
+        suggestedPinnedMatches: (
+            contextFilteredPinnedItems: TaxonomicDefinitionTypes[],
+            searchQuery: string,
+            listGroupType: TaxonomicFilterGroupType,
+            taxonomicGroups: TaxonomicFilterGroup[]
+        ) => TaxonomicDefinitionTypes[]
+        suggestedRecentMatches: (
+            contextFilteredRecentItems: TaxonomicDefinitionTypes[],
+            searchQuery: string,
+            listGroupType: TaxonomicFilterGroupType,
+            taxonomicGroups: TaxonomicFilterGroup[]
+        ) => TaxonomicDefinitionTypes[]
+        keywordShortcutItems: (
+            group: TaxonomicFilterGroup | undefined,
+            searchQuery: string,
+            arg: any
+        ) => QuickFilterItem[]
+        dedupedTopMatches: (
+            topMatchItemsWithSkeletons: (SkeletonItem | TopMatchItem)[],
+            listGroupType: TaxonomicFilterGroupType,
+            searchQuery: string,
+            contextFilteredRecentItems: TaxonomicDefinitionTypes[],
+            contextFilteredPinnedItems: TaxonomicDefinitionTypes[],
+            suggestedRecentMatches: TaxonomicDefinitionTypes[],
+            suggestedPinnedMatches: TaxonomicDefinitionTypes[],
+            taxonomicGroups: TaxonomicFilterGroup[]
+        ) => (SkeletonItem | TaxonomicDefinitionTypes)[]
+        selectionPromotionContext: (
+            group: TaxonomicFilterGroup | undefined,
+            groupType: any,
+            value: any
+        ) => {
+            group: TaxonomicFilterGroup | undefined
+            groupType: TaxonomicFilterGroupType | undefined
+            value: TaxonomicFilterValue | undefined
+        }
+        items: (
+            remoteItems: ListStorage,
+            localItems: ListStorage,
+            listGroupType: TaxonomicFilterGroupType,
+            dedupedTopMatches: (SkeletonItem | TaxonomicDefinitionTypes)[],
+            searchQuery: string,
+            contextFilteredRecentItems: TaxonomicDefinitionTypes[],
+            contextFilteredPinnedItems: TaxonomicDefinitionTypes[],
+            suggestedPinnedMatches: TaxonomicDefinitionTypes[],
+            suggestedRecentMatches: TaxonomicDefinitionTypes[],
+            keywordShortcutItems: QuickFilterItem[],
+            isSoleSubstantiveGroup: boolean,
+            soleGroupHasGetValue: boolean,
+            taxonomicGroups: TaxonomicFilterGroup[],
+            selectionPromotionContext: {
+                group: TaxonomicFilterGroup | undefined
+                groupType: TaxonomicFilterGroupType | undefined
+                value: TaxonomicFilterValue | undefined
+            },
+            arg: boolean | undefined
+        ) =>
+            | {
+                  count: number
+                  expandedCount?: undefined
+                  first: boolean | undefined
+                  queryChanged: boolean | undefined
+                  results: QuickFilterItem[]
+                  searchQuery: string | undefined
+                  syntheticSelectedCount: number
+              }
+            | {
+                  count: number
+                  expandedCount: number | undefined
+                  first: boolean | undefined
+                  queryChanged: boolean | undefined
+                  results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+                  searchQuery: string | undefined
+                  syntheticSelectedCount: number
+              }
+        totalResultCount: (
+            items:
+                | {
+                      count: number
+                      expandedCount: number | undefined
+                      first: boolean | undefined
+                      queryChanged: boolean | undefined
+                      results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+                      searchQuery: string | undefined
+                      syntheticSelectedCount: number
+                  }
+                | {
+                      count: number
+                      expandedCount?: undefined
+                      first: boolean | undefined
+                      queryChanged: boolean | undefined
+                      results: QuickFilterItem[]
+                      searchQuery: string | undefined
+                      syntheticSelectedCount: number
+                  }
+        ) => number
+        totalExtraCount: (isExpandable: boolean, hasRenderFunction: boolean) => number
+        totalListCount: (totalResultCount: number, totalExtraCount: number) => number
+        expandedCount: (
+            items:
+                | {
+                      count: number
+                      expandedCount: number | undefined
+                      first: boolean | undefined
+                      queryChanged: boolean | undefined
+                      results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+                      searchQuery: string | undefined
+                      syntheticSelectedCount: number
+                  }
+                | {
+                      count: number
+                      expandedCount?: undefined
+                      first: boolean | undefined
+                      queryChanged: boolean | undefined
+                      results: QuickFilterItem[]
+                      searchQuery: string | undefined
+                      syntheticSelectedCount: number
+                  }
+        ) => number
+        results: (
+            items:
+                | {
+                      count: number
+                      expandedCount: number | undefined
+                      first: boolean | undefined
+                      queryChanged: boolean | undefined
+                      results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+                      searchQuery: string | undefined
+                      syntheticSelectedCount: number
+                  }
+                | {
+                      count: number
+                      expandedCount?: undefined
+                      first: boolean | undefined
+                      queryChanged: boolean | undefined
+                      results: QuickFilterItem[]
+                      searchQuery: string | undefined
+                      syntheticSelectedCount: number
+                  }
+        ) => QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[]
+        showSuggestedFiltersEmptyState: (
+            isSuggestedFilters: boolean,
+            trimmedSearchQuery: string,
+            results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[]
+        ) => boolean
+        rowCount: (
+            showNonCapturedEventOption: boolean,
+            results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[],
+            isLoading: boolean,
+            totalListCount: number,
+            showSuggestedFiltersEmptyState: boolean
+        ) => number
+        initialPinnedRowIndex: (
+            results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[],
+            taxonomicGroups: TaxonomicFilterGroup[],
+            group: TaxonomicFilterGroup | undefined,
+            listGroupType: TaxonomicFilterGroupType,
+            groupType: any,
+            value: any,
+            isActiveTab: boolean
+        ) => number | null
+        selectedItem: (
+            index: number,
+            items:
+                | {
+                      count: number
+                      expandedCount: number | undefined
+                      first: boolean | undefined
+                      queryChanged: boolean | undefined
+                      results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+                      searchQuery: string | undefined
+                      syntheticSelectedCount: number
+                  }
+                | {
+                      count: number
+                      expandedCount?: undefined
+                      first: boolean | undefined
+                      queryChanged: boolean | undefined
+                      results: QuickFilterItem[]
+                      searchQuery: string | undefined
+                      syntheticSelectedCount: number
+                  }
+        ) => TaxonomicDefinitionTypes | undefined
+        selectedItemValue: (
+            selectedItem: TaxonomicDefinitionTypes | undefined,
+            group: TaxonomicFilterGroup | undefined
+        ) => number | string | null
+        selectedItemInView: (index: number, startIndex: number, stopIndex: number) => boolean
+    }
+}
+
+export type infiniteListLogicType = MakeLogicType<
+    infiniteListLogicValues,
+    infiniteListLogicActions,
+    InfiniteListLogicProps,
+    infiniteListLogicMeta
+>
 
 export const infiniteListLogic = kea<infiniteListLogicType>([
     props({ showNumericalPropsOnly: false, minSearchQueryLength: undefined } as InfiniteListLogicProps),
@@ -187,6 +812,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 'taxonomicGroupTypes',
                 'topMatchItemsWithSkeletons',
                 'anyGroupLoading',
+                'anyGroupStale',
                 'includeStaleEvents',
             ],
             teamLogic,
@@ -218,6 +844,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         expand: true,
         abortAnyRunningQuery: true,
         setHasMore: (hasMore: boolean) => ({ hasMore }),
+        remoteItemsFetchFailedForQuery: (searchQuery: string) => ({ searchQuery }),
     }),
     loaders(({ actions, values, cache, props }) => ({
         remoteItems: [
@@ -276,64 +903,59 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     let response: any
                     let expandedCountResponse: any = null
 
-                    // Querying groups from /groups/ endpoint may result in query timeouts. Let's query clickhouse instead
-                    const isGroupNamesFilter = values.listGroupType.startsWith(
-                        TaxonomicFilterGroupType.GroupNamesPrefix
-                    )
-                    if (isGroupNamesFilter && values.group?.groupTypeIndex !== undefined) {
-                        const groupsResponse = await api.groups.listClickhouse({
-                            group_type_index: values.group.groupTypeIndex as GroupTypeIndex,
-                            search: searchQuery || '',
-                            limit,
-                        })
+                    try {
+                        // Querying groups from /groups/ endpoint may result in query timeouts. Let's query clickhouse instead
+                        const isGroupNamesFilter = values.listGroupType.startsWith(
+                            TaxonomicFilterGroupType.GroupNamesPrefix
+                        )
+                        if (isGroupNamesFilter && values.group?.groupTypeIndex !== undefined) {
+                            const groupsResponse = await api.groups.listClickhouse({
+                                group_type_index: values.group.groupTypeIndex as GroupTypeIndex,
+                                search: searchQuery || '',
+                                limit,
+                            })
 
-                        const transformedGroups = mapGroupQueryResponse(groupsResponse)
-                        response = {
-                            results: transformedGroups,
-                            count: transformedGroups.length,
+                            const transformedGroups = mapGroupQueryResponse(groupsResponse)
+                            response = {
+                                results: transformedGroups,
+                                count: transformedGroups.length,
+                            }
+                            actions.setHasMore(groupsResponse.hasMore || false)
+                            if (scopedRemoteEndpoint && !isExpanded) {
+                                expandedCountResponse = { count: transformedGroups.length }
+                            }
+                        } else {
+                            // Use the original REST API for non-groups endpoints
+                            const [apiResponse, expandedApiResponse] = await Promise.all([
+                                // get the list of results
+                                fetchCachedListResponse(
+                                    scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
+                                    searchParams
+                                ),
+                                // if this is an unexpanded scoped list, get the count for the full list
+                                scopedRemoteEndpoint && !isExpanded
+                                    ? fetchCachedListResponse(remoteEndpoint, {
+                                          ...searchParams,
+                                          limit: 1,
+                                          offset: 0,
+                                      })
+                                    : null,
+                            ])
+                            response = apiResponse
+                            expandedCountResponse = expandedApiResponse
                         }
-                        actions.setHasMore(groupsResponse.hasMore || false)
-                        if (scopedRemoteEndpoint && !isExpanded) {
-                            expandedCountResponse = { count: transformedGroups.length }
+                    } catch (error: any) {
+                        if (!isBreakpoint(error)) {
+                            // Carry the query that was in flight when this run errored so the
+                            // reducer can attribute the failure to the right query string.
+                            actions.remoteItemsFetchFailedForQuery(searchQuery)
                         }
-                    } else {
-                        // Use the original REST API for non-groups endpoints
-                        const [apiResponse, expandedApiResponse] = await Promise.all([
-                            // get the list of results
-                            fetchCachedListResponse(
-                                scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
-                                searchParams
-                            ),
-                            // if this is an unexpanded scoped list, get the count for the full list
-                            scopedRemoteEndpoint && !isExpanded
-                                ? fetchCachedListResponse(remoteEndpoint, {
-                                      ...searchParams,
-                                      limit: 1,
-                                      offset: 0,
-                                  })
-                                : null,
-                        ])
-                        response = apiResponse
-                        expandedCountResponse = expandedApiResponse
+                        throw error
                     }
                     breakpoint()
 
                     const queryChanged = values.remoteItems.searchQuery !== searchQuery
-
-                    // Cache before the second await — the logic may unmount during captureTimeToSeeData,
-                    // and kea's no-arg breakpoint() does not protect against unmount (only new invocations).
-                    const currentTeamId = values.currentTeamId
                     const existingResults = values.remoteItems.results
-
-                    await captureTimeToSeeData(currentTeamId, {
-                        type: 'properties_load',
-                        context: 'filters',
-                        action: listGroupType,
-                        primary_interaction_id: '',
-                        status: 'success',
-                        time_to_see_data_ms: Math.floor(performance.now() - start),
-                        api_response_bytes: 0,
-                    })
                     cache.abortController = null
 
                     return {
@@ -344,6 +966,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         ),
                         searchQuery,
                         queryChanged,
+                        // Only the initial page times the search; "load more" (offset > 0)
+                        // would otherwise overwrite it with pagination latency.
+                        loadDurationMs: offset === 0 ? Math.floor(performance.now() - start) : undefined,
                         count:
                             response.count ||
                             (Array.isArray(response) ? response.length : 0) ||
@@ -353,8 +978,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 },
                 updateRemoteItem: ({ item }) => {
                     // On updating item, invalidate cache
-                    apiCache = {}
-                    apiCacheTimers = {}
+                    clearApiCache()
                     const popFromResults = 'hidden' in item && item.hidden
                     const results: TaxonomicDefinitionTypes[] = values.remoteItems.results
                         .map((i) => (i.name === item.name ? (popFromResults ? null : item) : i))
@@ -403,18 +1027,30 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         stopIndex: [0, { onRowsRendered: (_, { rowInfo: { stopIndex } }) => stopIndex }],
         isExpanded: [false, { expand: () => true }],
         hasMore: [false, { setHasMore: (_, { hasMore }) => hasMore }],
+        // Tracks the searchQuery whose fetch failed. Using the query (not a boolean) prevents
+        // a stale out-of-order failure from settling a newer in-flight request — only a failure
+        // for the _current_ query should count as settled.
+        remoteFetchFailed: [
+            null as string | null,
+            {
+                loadRemoteItems: () => null,
+                loadRemoteItemsSuccess: () => null,
+                remoteItemsFetchFailedForQuery: (_, { searchQuery }) => searchQuery,
+            },
+        ],
     })),
     selectors({
-        listGroupType: [(_, p) => [p.listGroupType], (listGroupType) => listGroupType],
+        listGroupType: [(_, p) => [p.listGroupType], (listGroupType: TaxonomicFilterGroupType) => listGroupType],
         isSuggestedFilters: [
             (s) => [s.listGroupType],
             (listGroupType: TaxonomicFilterGroupType): boolean =>
                 listGroupType === TaxonomicFilterGroupType.SuggestedFilters,
         ],
-        trimmedSearchQuery: [(s) => [s.searchQuery], (searchQuery) => searchQuery.trim()],
+        trimmedSearchQuery: [(s) => [s.searchQuery], (searchQuery: string) => searchQuery.trim()],
         isActiveTab: [
             (s) => [s.listGroupType, s.activeTab],
-            (listGroupType, activeTab): boolean => listGroupType === activeTab,
+            (listGroupType: TaxonomicFilterGroupType, activeTab: TaxonomicFilterGroupType): boolean =>
+                listGroupType === activeTab,
         ],
         contextFilteredRecentItems: [
             (s) => [
@@ -422,12 +1058,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.taxonomicGroupTypes,
                 (_, props: InfiniteListLogicProps) => props.excludedOperators,
                 (_, props: InfiniteListLogicProps) => props.selectingKeyOnly,
+                (_, props: InfiniteListLogicProps) => props.excludedProperties,
             ],
             (
                 recentFilterItems: TaxonomicDefinitionTypes[],
                 taxonomicGroupTypes: TaxonomicFilterGroupType[],
                 excludedOperators: ExcludedOperators | undefined,
-                selectingKeyOnly: boolean | undefined
+                selectingKeyOnly: boolean | undefined,
+                excludedProperties: ExcludedProperties | undefined
             ): TaxonomicDefinitionTypes[] => {
                 if (!recentFilterItems?.length) {
                     return []
@@ -435,6 +1073,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const availableTypes = new Set(taxonomicGroupTypes)
                 const inScope = recentFilterItems.filter((item) => {
                     if (!hasRecentContext(item) || !availableTypes.has(item._recentContext.sourceGroupType)) {
+                        return false
+                    }
+                    // A group's excluded values (e.g. `message` for the logs group-by picker) must be
+                    // dropped from the Recent tab too, not just the group's own option list — otherwise
+                    // an excluded key recorded elsewhere leaks back in as a selectable recent.
+                    const excludedValues = excludedProperties?.[item._recentContext.sourceGroupType]
+                    if (excludedValues?.length && excludedValues.includes(item._recentContext.sourceValue)) {
                         return false
                     }
                     const excludedForGroup = excludedOperators?.[item._recentContext.sourceGroupType]
@@ -448,27 +1093,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     }
                     return true
                 })
-                if (!selectingKeyOnly) {
-                    return inScope
-                }
-                const seen = new Set<string>()
-                const dedupedItems: TaxonomicDefinitionTypes[] = []
-                for (const item of inScope) {
-                    if (!hasRecentContext(item)) {
-                        continue
-                    }
-                    // Dedup by the persisted storage key (groupType + value), not by item.name —
-                    // for groups like Cohorts/Actions name is a display label that may be unstable
-                    // or duplicated across distinct ids.
-                    const dedupKey = `${item._recentContext.sourceGroupType}::${item._recentContext.sourceValue ?? ''}`
-                    if (seen.has(dedupKey)) {
-                        continue
-                    }
-                    seen.add(dedupKey)
-                    const { propertyFilter: _propertyFilter, ...restContext } = item._recentContext
-                    dedupedItems.push({ ...item, _recentContext: restContext } as unknown as TaxonomicDefinitionTypes)
-                }
-                return dedupedItems
+                return expandRecentsForDisplay(inScope, selectingKeyOnly)
             },
         ],
         contextFilteredPinnedItems: [
@@ -484,6 +1109,33 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return pinnedFilterItems.filter(
                     (item) => hasPinnedContext(item) && availableTypes.has(item._pinnedContext.sourceGroupType)
                 )
+            },
+        ],
+        // This list is the filter's only substantive (non-meta) group. There are no separate
+        // Recent/Pinned tabs leading the filter, so this list floats recent/pinned items to
+        // the top of its own results instead (see `items`).
+        isSoleSubstantiveGroup: [
+            (s) => [s.listGroupType, s.taxonomicGroupTypes],
+            (listGroupType: TaxonomicFilterGroupType, taxonomicGroupTypes: TaxonomicFilterGroupType[]): boolean => {
+                const substantive = taxonomicGroupTypes.filter((t) => !META_GROUP_TYPES.has(t))
+                return substantive.length === 1 && substantive[0] === listGroupType
+            },
+        ],
+        // Whether the sole substantive group has a usable getValue function for
+        // floating recent/pinned items. The `items` selector reads this boolean
+        // (stable reference) rather than a function (unstable closure that would
+        // defeat kea's reference-equality memoisation and cause infinite re-renders).
+        soleGroupHasGetValue: [
+            (s) => [s.isSoleSubstantiveGroup, s.listGroupType, s.taxonomicGroups],
+            (
+                isSoleSubstantiveGroup: boolean,
+                listGroupType: TaxonomicFilterGroupType,
+                taxonomicGroups: TaxonomicFilterGroup[]
+            ): boolean => {
+                if (!isSoleSubstantiveGroup) {
+                    return false
+                }
+                return !!taxonomicGroups.find((g) => g.type === listGroupType)?.getValue
             },
         ],
         allowNonCapturedEvents: [
@@ -508,20 +1160,23 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             ],
             (isLocalDataLoading: boolean) => isLocalDataLoading,
         ],
-        isLoading: [(s) => [s.remoteItemsLoading], (remoteItemsLoading) => remoteItemsLoading],
+        isLoading: [(s) => [s.remoteItemsLoading], (remoteItemsLoading: boolean) => remoteItemsLoading],
         group: [
             (s) => [s.listGroupType, s.taxonomicGroups],
-            (listGroupType, taxonomicGroups): TaxonomicFilterGroup =>
-                taxonomicGroups.find((g) => g.type === listGroupType) as TaxonomicFilterGroup,
+            (
+                listGroupType: TaxonomicFilterGroupType,
+                taxonomicGroups: TaxonomicFilterGroup[]
+            ): TaxonomicFilterGroup | undefined => taxonomicGroups.find((g) => g.type === listGroupType),
         ],
-        remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
+        remoteEndpoint: [(s) => [s.group], (group: TaxonomicFilterGroup | undefined) => group?.endpoint || null],
         minSearchQueryLength: [
             (s) => [s.group, (_, props) => props.minSearchQueryLength],
-            (group, propsMinSearchQueryLength) => propsMinSearchQueryLength ?? group?.minSearchQueryLength ?? 0,
+            (group: TaxonomicFilterGroup | undefined, propsMinSearchQueryLength) =>
+                propsMinSearchQueryLength ?? group?.minSearchQueryLength ?? 0,
         ],
         needsMoreSearchCharacters: [
             (s) => [s.minSearchQueryLength, s.searchQuery],
-            (minSearchQueryLength, searchQuery) => {
+            (minSearchQueryLength, searchQuery: string) => {
                 if (minSearchQueryLength <= 0) {
                     return false
                 }
@@ -529,13 +1184,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return searchQuery.trim().length < minSearchQueryLength
             },
         ],
-        excludedProperties: [(s) => [s.group], (group) => group?.excludedProperties],
-        propertyAllowList: [(s) => [s.group], (group) => group?.propertyAllowList],
-        scopedRemoteEndpoint: [(s) => [s.group], (group) => group?.scopedEndpoint || null],
-        hasRenderFunction: [(s) => [s.group], (group) => !!group?.render],
+        excludedProperties: [(s) => [s.group], (group: TaxonomicFilterGroup | undefined) => group?.excludedProperties],
+        propertyAllowList: [(s) => [s.group], (group: TaxonomicFilterGroup | undefined) => group?.propertyAllowList],
+        scopedRemoteEndpoint: [
+            (s) => [s.group],
+            (group: TaxonomicFilterGroup | undefined) => group?.scopedEndpoint || null,
+        ],
+        hasRenderFunction: [(s) => [s.group], (group: TaxonomicFilterGroup | undefined) => !!group?.render],
         isExpandable: [
             (s) => [s.remoteEndpoint, s.scopedRemoteEndpoint, s.remoteItems],
-            (remoteEndpoint, scopedRemoteEndpoint, remoteItems) =>
+            (remoteEndpoint: string | null, scopedRemoteEndpoint: string | null, remoteItems: ListStorage) =>
                 !!(
                     remoteEndpoint &&
                     scopedRemoteEndpoint &&
@@ -545,9 +1203,28 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
         isExpandableButtonSelected: [
             (s) => [s.isExpandable, s.index, s.totalListCount],
-            (isExpandable, index, totalListCount) => isExpandable && index === totalListCount - 1,
+            (isExpandable: boolean, index: number, totalListCount: number) =>
+                isExpandable && index === totalListCount - 1,
         ],
-        hasRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint) => !!remoteEndpoint],
+        hasRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint: string | null) => !!remoteEndpoint],
+        remoteResultsAreFresh: [
+            (s) => [s.hasRemoteDataSource, s.remoteItems, s.searchQuery, s.remoteFetchFailed],
+            (
+                hasRemoteDataSource: boolean,
+                remoteItems: ListStorage,
+                searchQuery: string,
+                remoteFetchFailed: string | null
+            ): boolean => {
+                // Local-only groups resolve synchronously — always fresh.
+                const isLocalOnly = !hasRemoteDataSource
+                // A failed fetch for *this* query counts as settled. We check the exact query
+                // rather than a bare boolean so that an out-of-order stale failure (run A failing
+                // after run B is already in flight) doesn't incorrectly settle run B's result.
+                const currentQueryFailed = remoteFetchFailed === searchQuery
+                const currentQuerySettled = (remoteItems.searchQuery ?? '') === searchQuery
+                return isLocalOnly || currentQueryFailed || currentQuerySettled
+            },
+        ],
         showNonCapturedEventOption: [
             (s) => [s.allowNonCapturedEvents, s.listGroupType, s.searchQuery, s.isLoading, s.results],
             (
@@ -575,44 +1252,79 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return realResults.length === 0
             },
         ],
+        // True while the aggregated SuggestedFilters ("All") tab is still catching up to the current
+        // query. That tab runs no fetch of its own, so it can only tell it has settled by watching its
+        // sibling groups: they're either still loading (`anyGroupLoading`) or haven't caught up to the
+        // current query yet (`anyGroupStale`, the per-list `remoteResultsAreFresh` guard aggregated).
+        // Both `showEmptyState` and `showLoadingState` gate on this to hold "No results" back until the
+        // aggregate settles, killing the mid-typing flash.
+        suggestedFiltersSettling: [
+            (s) => [s.isSuggestedFilters, s.anyGroupLoading, s.anyGroupStale, s.searchQuery],
+            (
+                isSuggestedFilters: boolean,
+                anyGroupLoading: boolean,
+                anyGroupStale: boolean,
+                searchQuery: string
+            ): boolean => isSuggestedFilters && (anyGroupLoading || anyGroupStale) && searchQuery.trim().length > 0,
+        ],
         showEmptyState: [
             (s) => [
                 s.totalListCount,
                 s.isLoading,
-                s.isSuggestedFilters,
-                s.anyGroupLoading,
+                s.suggestedFiltersSettling,
                 s.searchQuery,
                 s.hasRemoteDataSource,
                 s.showNonCapturedEventOption,
                 s.needsMoreSearchCharacters,
+                s.remoteResultsAreFresh,
             ],
             (
                 totalListCount: number,
                 isLoading: boolean,
-                isSuggestedFilters: boolean,
-                anyGroupLoading: boolean,
+                suggestedFiltersSettling: boolean,
                 searchQuery: string,
                 hasRemoteDataSource: boolean,
                 showNonCapturedEventOption: boolean,
-                needsMoreSearchCharacters: boolean
+                needsMoreSearchCharacters: boolean,
+                remoteResultsAreFresh: boolean
             ): boolean =>
                 (totalListCount === 0 &&
                     !isLoading &&
-                    !(isSuggestedFilters && anyGroupLoading && searchQuery.trim().length > 0) &&
+                    // Don't declare "No results" until the fetch for the *current* query has landed —
+                    // otherwise a stale/empty list from the previous query masquerades as no matches.
+                    remoteResultsAreFresh &&
+                    // Hold "No results" back while the aggregated All tab is still settling (see
+                    // `suggestedFiltersSettling`).
+                    !suggestedFiltersSettling &&
                     (!!searchQuery || !hasRemoteDataSource) &&
                     !showNonCapturedEventOption) ||
                 needsMoreSearchCharacters,
         ],
         showLoadingState: [
-            (s) => [s.isLoading, s.isSuggestedFilters, s.anyGroupLoading, s.results, s.searchQuery],
+            (s) => [
+                s.isLoading,
+                s.suggestedFiltersSettling,
+                s.results,
+                s.searchQuery,
+                s.hasRemoteDataSource,
+                s.remoteResultsAreFresh,
+            ],
             (
                 isLoading: boolean,
-                isSuggestedFilters: boolean,
-                anyGroupLoading: boolean,
+                suggestedFiltersSettling: boolean,
                 results: TaxonomicDefinitionTypes[],
-                searchQuery: string
+                searchQuery: string,
+                hasRemoteDataSource: boolean,
+                remoteResultsAreFresh: boolean
             ): boolean =>
-                (isLoading || (isSuggestedFilters && anyGroupLoading && searchQuery.trim().length > 0)) &&
+                (isLoading ||
+                    // Keep the spinner up while the aggregated All tab is still settling (see
+                    // `suggestedFiltersSettling`).
+                    suggestedFiltersSettling ||
+                    // The current-query remote fetch hasn't landed yet: keep the spinner up rather
+                    // than flash a premature "No results". Gated on there being nothing to show
+                    // (below) so still-valid rows aren't replaced by a spinner on every keystroke.
+                    (hasRemoteDataSource && !remoteResultsAreFresh && searchQuery.trim().length > 0)) &&
                 (!results || results.length === 0),
         ],
         rawLocalItems: [
@@ -668,11 +1380,15 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
         fuse: [
             (s) => [s.rawLocalItems, s.taxonomicGroups, s.group],
-            (rawLocalItems, taxonomicGroups, group): ListFuse => {
+            (
+                rawLocalItems: (CohortType | EventDefinition)[],
+                taxonomicGroups: TaxonomicFilterGroup[],
+                group: TaxonomicFilterGroup | undefined
+            ): ListFuse => {
                 // maps e.g. "selector" to its display value "CSS Selector"
                 // so a search of "css" matches something
                 function asPostHogName(
-                    g: TaxonomicFilterGroup,
+                    g: TaxonomicFilterGroup | undefined,
                     item: EventDefinition | CohortType
                 ): string | undefined {
                     return g ? getCoreFilterDefinition(g.getName?.(item), g.type)?.label : undefined
@@ -700,8 +1416,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
         localItems: [
             (s) => [s.rawLocalItems, s.searchQuery, s.fuse, s.group],
-            (rawLocalItems, searchQuery, fuse, group): ListStorage => {
-                if (group?.localItemsSearch) {
+            (
+                rawLocalItems: (CohortType | EventDefinition)[],
+                searchQuery: string,
+                fuse: ListFuse,
+                group: TaxonomicFilterGroup | undefined
+            ): ListStorage => {
+                if (!group) {
+                    return createEmptyListStorage()
+                }
+                if (group.localItemsSearch) {
                     const filtered = group.localItemsSearch(rawLocalItems || [], searchQuery)
                     return {
                         results: filtered,
@@ -725,18 +1449,36 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             },
         ],
         topMatchesForQuery: [
-            (s) => [s.localItems, s.remoteItems, s.searchQuery, s.hasRemoteDataSource, s.keywordShortcutItems],
+            (s) => [
+                s.localItems,
+                s.remoteItems,
+                s.searchQuery,
+                s.hasRemoteDataSource,
+                s.keywordShortcutItems,
+                s.listGroupType,
+                (_, props: InfiniteListLogicProps) => props.collapseUrlsToContainsRow,
+            ],
             (
-                localItems,
-                remoteItems,
-                searchQuery,
-                hasRemoteDataSource,
-                keywordShortcutItems
+                localItems: ListStorage,
+                remoteItems: ListStorage,
+                searchQuery: string,
+                hasRemoteDataSource: boolean,
+                keywordShortcutItems: QuickFilterItem[],
+                listGroupType: TaxonomicFilterGroupType,
+                collapseUrlsToContainsRow: boolean | undefined
             ): TaxonomicDefinitionTypes[] => {
                 if (!searchQuery) {
                     return []
                 }
                 const remoteIsFresh = remoteItems.searchQuery === searchQuery
+                // Collapsed groups contribute the single "URL contains <query>" shortcut to the
+                // aggregated SuggestedFilters / "All" tab too — not the raw URL matches — so the
+                // common entry path collapses identically to the dedicated group list above.
+                if (collapseUrlsToContainsRow && COLLAPSED_TO_CONTAINS_ROW.has(listGroupType)) {
+                    const trimmed = searchQuery.trim()
+                    const hasMatch = trimmed.length > 0 && remoteIsFresh && remoteItems.results.length > 0
+                    return hasMatch ? [buildUrlContainsShortcut(trimmed, listGroupType)] : []
+                }
                 const results = hasRemoteDataSource ? (remoteIsFresh ? remoteItems.results : []) : localItems.results
                 const realMatches = promoteMatchingProperties(results, searchQuery).slice(0, MAX_TOP_MATCHES_PER_GROUP)
                 // Shortcuts lead the group's top-match contribution so the aggregated SuggestedFilters
@@ -805,31 +1547,38 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.taxonomicGroups,
             ],
             (
-                topMatchItemsWithSkeletons,
-                listGroupType,
-                searchQuery,
-                contextFilteredRecentItems,
-                contextFilteredPinnedItems,
-                suggestedRecentMatches,
-                suggestedPinnedMatches,
-                taxonomicGroups
+                topMatchItemsWithSkeletons: (
+                    | SkeletonItem
+                    | import('lib/components/TaxonomicFilter/taxonomicFilterLogic').TopMatchItem
+                )[],
+                listGroupType: TaxonomicFilterGroupType,
+                searchQuery: string,
+                contextFilteredRecentItems: TaxonomicDefinitionTypes[],
+                contextFilteredPinnedItems: TaxonomicDefinitionTypes[],
+                suggestedRecentMatches: TaxonomicDefinitionTypes[],
+                suggestedPinnedMatches: TaxonomicDefinitionTypes[],
+                taxonomicGroups: TaxonomicFilterGroup[]
             ): (TaxonomicDefinitionTypes | SkeletonItem)[] => {
                 const isSuggested = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
                 if (!isSuggested) {
                     return []
                 }
                 const recentPrefix = !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
-                const pinnedPrefix = !searchQuery ? (contextFilteredPinnedItems || []).slice(0, 3) : []
+                const pinnedPrefix = !searchQuery
+                    ? withoutPinnedDuplicatesOfRecents(contextFilteredPinnedItems || [], recentPrefix).slice(0, 3)
+                    : []
 
                 const dedupeKeys = new Set<string>()
                 const addRecentKey = (item: TaxonomicDefinitionTypes): void => {
-                    if (hasRecentContext(item) && item._recentContext.sourceValue != null) {
-                        dedupeKeys.add(`${item._recentContext.sourceGroupType}::${item._recentContext.sourceValue}`)
+                    const key = recentSourceKey(item)
+                    if (key != null) {
+                        dedupeKeys.add(key)
                     }
                 }
                 const addPinnedKey = (item: TaxonomicDefinitionTypes): void => {
-                    if (hasPinnedContext(item) && item._pinnedContext.value != null) {
-                        dedupeKeys.add(`${item._pinnedContext.sourceGroupType}::${item._pinnedContext.value}`)
+                    const key = pinnedSourceKey(item)
+                    if (key != null) {
+                        dedupeKeys.add(key)
                     }
                 }
                 recentPrefix.forEach(addRecentKey)
@@ -857,6 +1606,22 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 })
             },
         ],
+        // The list's own group plus the committed selection, bundled into one input so
+        // `items` stays within kea's 16-entry `SelectorTuple` cap (every extra input on
+        // `items` also lengthens typegen for downstream logics, per the note on
+        // `dedupedTopMatches`).
+        selectionPromotionContext: [
+            (s) => [s.group, s.groupType, s.value],
+            (
+                group: TaxonomicFilterGroup | undefined,
+                groupType,
+                value
+            ): {
+                group: TaxonomicFilterGroup | undefined
+                groupType: TaxonomicFilterGroupType | undefined
+                value: TaxonomicFilterValue | undefined
+            } => ({ group, groupType, value }),
+        ],
         items: [
             (s) => [
                 s.remoteItems,
@@ -869,22 +1634,64 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.suggestedPinnedMatches,
                 s.suggestedRecentMatches,
                 s.keywordShortcutItems,
+                s.isSoleSubstantiveGroup,
+                s.soleGroupHasGetValue,
+                s.taxonomicGroups,
+                s.selectionPromotionContext,
+                (_, props: InfiniteListLogicProps) => props.collapseUrlsToContainsRow,
             ],
             (
-                remoteItems,
-                localItems,
-                listGroupType,
-                dedupedTopMatches,
-                searchQuery,
-                contextFilteredRecentItems,
-                contextFilteredPinnedItems,
-                suggestedPinnedMatches,
-                suggestedRecentMatches,
-                keywordShortcutItems
+                remoteItems: ListStorage,
+                localItems: ListStorage,
+                listGroupType: TaxonomicFilterGroupType,
+                dedupedTopMatches: (SkeletonItem | TaxonomicDefinitionTypes)[],
+                searchQuery: string,
+                contextFilteredRecentItems: TaxonomicDefinitionTypes[],
+                contextFilteredPinnedItems: TaxonomicDefinitionTypes[],
+                suggestedPinnedMatches: TaxonomicDefinitionTypes[],
+                suggestedRecentMatches: TaxonomicDefinitionTypes[],
+                keywordShortcutItems: QuickFilterItem[],
+                isSoleSubstantiveGroup: boolean,
+                soleGroupHasGetValue: boolean,
+                taxonomicGroups: TaxonomicFilterGroup[],
+                selectionPromotionContext: {
+                    group: TaxonomicFilterGroup | undefined
+                    groupType: TaxonomicFilterGroupType | undefined
+                    value: TaxonomicFilterValue | undefined
+                },
+                collapseUrlsToContainsRow: boolean | undefined
             ) => {
+                const { group, groupType, value } = selectionPromotionContext
+                // Collapse URL groups to a single "URL contains <query>" shortcut row
+                // (mirrors the rebuild menu's `COLLAPSED_TO_CONTAINS_ROW`). Only once
+                // the remote fetch for the *current* query has returned at least one
+                // match — otherwise the list is empty and the standard empty/loading
+                // states apply.
+                if (collapseUrlsToContainsRow && COLLAPSED_TO_CONTAINS_ROW.has(listGroupType)) {
+                    const trimmed = (searchQuery ?? '').trim()
+                    // The remote fetch is debounced and lags the typed query, so guard against a
+                    // stale match from the previous query producing a shortcut for the new one.
+                    const remoteIsFresh = (remoteItems.searchQuery ?? '').trim() === trimmed
+                    const hasMatch = trimmed.length > 0 && remoteIsFresh && remoteItems.results.length > 0
+                    const results = hasMatch ? [buildUrlContainsShortcut(trimmed, listGroupType)] : []
+                    return {
+                        results,
+                        syntheticSelectedCount: 0,
+                        count: results.length,
+                        searchQuery: remoteItems.searchQuery,
+                        queryChanged: remoteItems.queryChanged,
+                        first: remoteItems.first,
+                    }
+                }
                 const isSuggested = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
                 const recentPrefix = isSuggested && !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
-                const pinnedPrefix = isSuggested && !searchQuery ? (contextFilteredPinnedItems || []).slice(0, 3) : []
+                // An item that is both recent and pinned shows once, under the section that
+                // renders first — recents (mirrors the rebuild Combobox's prefix dedupe).
+                const pinnedPrefix =
+                    isSuggested && !searchQuery
+                        ? withoutPinnedDuplicatesOfRecents(contextFilteredPinnedItems || [], recentPrefix).slice(0, 3)
+                        : []
+                const pinnedMatches = withoutPinnedDuplicatesOfRecents(suggestedPinnedMatches, suggestedRecentMatches)
                 const topMatches = isSuggested ? dedupedTopMatches : []
 
                 // Shortcuts lead the list so users searching for the verb they mean (e.g. "click")
@@ -898,19 +1705,170 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     ...recentPrefix,
                     ...pinnedPrefix,
                     ...suggestedRecentMatches,
-                    ...suggestedPinnedMatches,
+                    ...pinnedMatches,
                     ...localItems.results,
                     ...remoteItems.results,
                     ...topMatches,
                 ]
+                // Reordering a windowed list would break onRowsRendered's display-index ->
+                // remote-offset mapping (and sparse holes would crash the keyer), so only float
+                // the sole group's recents/pinned once its list is fully loaded and dense.
+                // Local-only groups (count 0, no remote) are always fully loaded.
+                const soleGroupFullyLoaded =
+                    remoteItems.results.length >= remoteItems.count && !combinedResults.includes(undefined as any)
+                // Build the keyer inline (instead of a separate selector returning a
+                // function) so kea's reference-equality memoisation isn't defeated by a
+                // fresh closure on every evaluation.
+                const shouldFloat =
+                    !searchQuery && isSoleSubstantiveGroup && soleGroupHasGetValue && soleGroupFullyLoaded
+                let orderedBase: typeof combinedResults
+                if (searchQuery) {
+                    orderedBase = promoteMatchingProperties(combinedResults, searchQuery)
+                } else if (shouldFloat) {
+                    const getValue = taxonomicGroups.find(
+                        (g: TaxonomicFilterGroup) => g.type === listGroupType
+                    )?.getValue
+                    if (getValue) {
+                        const keyOf = (item: TaxonomicDefinitionTypes): string | null =>
+                            groupItemKey(listGroupType, getValue(item))
+                        orderedBase = floatRecentAndPinnedToTop(
+                            combinedResults,
+                            keyOf,
+                            contextFilteredRecentItems || [],
+                            contextFilteredPinnedItems || []
+                        )
+                    } else {
+                        orderedBase = combinedResults
+                    }
+                } else {
+                    orderedBase = combinedResults
+                }
+                // Mirrors the rebuild menu's Combobox idle promotion: with no search query,
+                // the committed selection leads the list so the user can see at a glance
+                // what is currently picked — floated in place when the real row is loaded,
+                // otherwise statically inserted as a synthetic row (the selection is known
+                // at open; there's no need to wait for the loader). A leading null-valued
+                // catch-all row (e.g. "All events") keeps its place, per the invariant in
+                // floatRecentPinned.ts — so the selection targets index 1 when one is
+                // present. While searching, relevance wins.
+                let syntheticSelectedCount = 0
+                if (
+                    !searchQuery &&
+                    value != null &&
+                    // An empty string is not a real committed selection: it round-trips through
+                    // `getValue` for name/value-keyed groups and would otherwise float a blank,
+                    // clickable synthetic row that re-commits `''` on click. `0`/`false` are kept.
+                    value !== '' &&
+                    groupType &&
+                    !META_GROUP_TYPES.has(groupType) &&
+                    !DATA_WAREHOUSE_GROUP_TYPES.includes(groupType)
+                ) {
+                    const selectionKey = groupItemKey(groupType, value)
+                    // A leading catch-all row (e.g. "All events") is a real, non-recent/pinned
+                    // group option whose `getValue` resolves to `null` — not merely a recent/
+                    // pinned row whose stripped shape happens to leave `getValue` undefined.
+                    const leadingItem = orderedBase[0]
+                    const leadingCatchAllOffset =
+                        leadingItem != null &&
+                        !isSkeletonItem(leadingItem) &&
+                        !hasRecentContext(leadingItem) &&
+                        !hasPinnedContext(leadingItem) &&
+                        getItemGroup(leadingItem, taxonomicGroups, group)?.getValue?.(leadingItem) === null
+                            ? 1
+                            : 0
+                    // The synthetic stand-in for a selection whose real row isn't loaded —
+                    // shaped like a top match, so `getItemGroup` resolves its source group.
+                    // Only usable when the source group round-trips it back to the committed
+                    // value: id-keyed groups (actions, cohorts) read `.id`, which the
+                    // `{ name, value, group }` shape lacks, so `getValue` returns `undefined`
+                    // and the round-trip fails — keeping their raw ids out of the list, which
+                    // is the intent. `name` stays the raw key, matching how real rows in
+                    // name/value-keyed groups are shaped: it round-trips through `getValue`,
+                    // and consumers that persist `item.name` verbatim don't get a friendly
+                    // label baked in. Renderers already prettify raw keys at render time.
+                    const sourceGroup = taxonomicGroups.find((g: TaxonomicFilterGroup) => g.type === groupType)
+                    const synthetic = {
+                        name: String(value),
+                        value,
+                        group: groupType,
+                    } as unknown as TaxonomicDefinitionTypes
+                    const syntheticRoundTrips = sourceGroup?.getValue?.(synthetic) === value
+                    const insertSynthetic = (list: typeof orderedBase): typeof orderedBase =>
+                        leadingCatchAllOffset > 0 ? [list[0], synthetic, ...list.slice(1)] : [synthetic, ...list]
+                    if (isSuggested) {
+                        // The aggregated list is fully client-side (recents/pinned prefixes),
+                        // so both floating and prepending are safe here.
+                        const selectedIndex = orderedBase.findIndex((item) => {
+                            if (item == null || isSkeletonItem(item)) {
+                                return false
+                            }
+                            if (recentSourceKey(item) === selectionKey || pinnedSourceKey(item) === selectionKey) {
+                                return true
+                            }
+                            const itemGroup = getItemGroup(item, taxonomicGroups, group)
+                            return (
+                                groupItemKey(itemGroup?.type ?? listGroupType, itemGroup?.getValue?.(item) ?? null) ===
+                                selectionKey
+                            )
+                        })
+                        if (selectedIndex >= 0) {
+                            orderedBase = floatToFront(orderedBase, selectedIndex, leadingCatchAllOffset)
+                        } else if (syntheticRoundTrips) {
+                            orderedBase = insertSynthetic(orderedBase)
+                            syntheticSelectedCount = 1
+                        }
+                    } else if (groupType === listGroupType && group?.getValue) {
+                        const getValue = group.getValue
+                        const selectedIndex = orderedBase.findIndex(
+                            (item) => item != null && !isSkeletonItem(item) && getValue(item) === value
+                        )
+                        if (selectedIndex === -1) {
+                            // The selection isn't among the loaded rows (first page still in
+                            // flight, or paginated past it) — insert the synthetic stand-in
+                            // rather than waiting for the loader. Once the page carrying the
+                            // real row lands, the `findIndex` above starts matching, the
+                            // synthetic drops out, and the float below takes over: the loaded
+                            // copy is the dedupe. The loader's display-index -> remote-offset
+                            // mapping stays exact because `onRowsRendered` subtracts
+                            // `syntheticSelectedCount` alongside `localItems.count`.
+                            if (syntheticRoundTrips) {
+                                orderedBase = insertSynthetic(orderedBase)
+                                syntheticSelectedCount = 1
+                            }
+                        } else {
+                            // Floating shifts every row above the selection down by one, so it
+                            // is only safe when those rows are all loaded — a hole changing
+                            // display position would desync the windowed loader's
+                            // display-index -> remote-offset mapping.
+                            const rowsAboveSelectionLoaded = (): boolean => {
+                                for (let i = 0; i < selectedIndex; i++) {
+                                    if (orderedBase[i] == null || isSkeletonItem(orderedBase[i])) {
+                                        return false
+                                    }
+                                }
+                                return true
+                            }
+                            if (selectedIndex > leadingCatchAllOffset && rowsAboveSelectionLoaded()) {
+                                orderedBase = floatToFront(orderedBase, selectedIndex, leadingCatchAllOffset)
+                            }
+                        }
+                    }
+                }
+                // The "URL contains <query>" shortcut leads the aggregated SuggestedFilters list —
+                // ahead of recents/pinned/top-matches — so a URL search surfaces the contains
+                // suggestion first. Everything else keeps its existing order.
+                const [shortcutItems, otherItems] = partitionContainsShortcuts(orderedBase, (item) => item)
+                const orderedResults = shortcutItems.length ? [...shortcutItems, ...otherItems] : orderedBase
                 return {
-                    results: searchQuery ? promoteMatchingProperties(combinedResults, searchQuery) : combinedResults,
+                    results: orderedResults,
+                    syntheticSelectedCount,
                     count:
+                        syntheticSelectedCount +
                         keywordShortcutItems.length +
                         recentPrefix.length +
                         pinnedPrefix.length +
                         suggestedRecentMatches.length +
-                        suggestedPinnedMatches.length +
+                        pinnedMatches.length +
                         localItems.count +
                         remoteItems.count +
                         topMatches.filter((item) => !isSkeletonItem(item)).length,
@@ -921,21 +1879,93 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 }
             },
         ],
-        totalResultCount: [(s) => [s.items], (items) => items.count || 0],
+        totalResultCount: [
+            (s) => [s.items],
+            (
+                items:
+                    | {
+                          count: number
+                          expandedCount: number | undefined
+                          first: boolean | undefined
+                          queryChanged: boolean | undefined
+                          results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+                          searchQuery: string | undefined
+                          syntheticSelectedCount: number
+                      }
+                    | {
+                          count: number
+                          expandedCount?: undefined
+                          first: boolean | undefined
+                          queryChanged: boolean | undefined
+                          results: QuickFilterItem[]
+                          searchQuery: string | undefined
+                          syntheticSelectedCount: number
+                      }
+            ) => items.count || 0,
+        ],
         totalExtraCount: [
             (s) => [s.isExpandable, s.hasRenderFunction],
-            (isExpandable, hasRenderFunction) => (isExpandable ? 1 : 0) + (hasRenderFunction ? 1 : 0),
+            (isExpandable: boolean, hasRenderFunction: boolean) => (isExpandable ? 1 : 0) + (hasRenderFunction ? 1 : 0),
         ],
         totalListCount: [
             (s) => [s.totalResultCount, s.totalExtraCount],
-            (totalResultCount, totalExtraCount) => totalResultCount + totalExtraCount,
+            (totalResultCount: number, totalExtraCount: number) => totalResultCount + totalExtraCount,
         ],
-        expandedCount: [(s) => [s.items], (items) => items.expandedCount || 0],
-        results: [(s) => [s.items], (items) => items.results],
+        expandedCount: [
+            (s) => [s.items],
+            (
+                items:
+                    | {
+                          count: number
+                          expandedCount: number | undefined
+                          first: boolean | undefined
+                          queryChanged: boolean | undefined
+                          results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+                          searchQuery: string | undefined
+                          syntheticSelectedCount: number
+                      }
+                    | {
+                          count: number
+                          expandedCount?: undefined
+                          first: boolean | undefined
+                          queryChanged: boolean | undefined
+                          results: QuickFilterItem[]
+                          searchQuery: string | undefined
+                          syntheticSelectedCount: number
+                      }
+            ) => items.expandedCount || 0,
+        ],
+        results: [
+            (s) => [s.items],
+            (
+                items:
+                    | {
+                          count: number
+                          expandedCount: number | undefined
+                          first: boolean | undefined
+                          queryChanged: boolean | undefined
+                          results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+                          searchQuery: string | undefined
+                          syntheticSelectedCount: number
+                      }
+                    | {
+                          count: number
+                          expandedCount?: undefined
+                          first: boolean | undefined
+                          queryChanged: boolean | undefined
+                          results: QuickFilterItem[]
+                          searchQuery: string | undefined
+                          syntheticSelectedCount: number
+                      }
+            ) => items.results,
+        ],
         showSuggestedFiltersEmptyState: [
             (s) => [s.isSuggestedFilters, s.trimmedSearchQuery, s.results],
-            (isSuggestedFilters, trimmedSearchQuery, results): boolean =>
-                isSuggestedFilters && !trimmedSearchQuery && results.length > 0,
+            (
+                isSuggestedFilters: boolean,
+                trimmedSearchQuery: string,
+                results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[]
+            ): boolean => isSuggestedFilters && !trimmedSearchQuery && results.length > 0,
         ],
         rowCount: [
             (s) => [
@@ -945,7 +1975,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.totalListCount,
                 s.showSuggestedFiltersEmptyState,
             ],
-            (showNonCapturedEventOption, results, isLoading, totalListCount, showSuggestedFiltersEmptyState): number =>
+            (
+                showNonCapturedEventOption: boolean,
+                results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[],
+                isLoading: boolean,
+                totalListCount: number,
+                showSuggestedFiltersEmptyState: boolean
+            ): number =>
                 showNonCapturedEventOption
                     ? 1
                     : Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0) +
@@ -953,7 +1989,15 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
         initialPinnedRowIndex: [
             (s) => [s.results, s.taxonomicGroups, s.group, s.listGroupType, s.groupType, s.value, s.isActiveTab],
-            (results, taxonomicGroups, group, listGroupType, groupType, value, isActiveTab): number | null =>
+            (
+                results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[],
+                taxonomicGroups: TaxonomicFilterGroup[],
+                group: TaxonomicFilterGroup | undefined,
+                listGroupType: TaxonomicFilterGroupType,
+                groupType,
+                value,
+                isActiveTab: boolean
+            ): number | null =>
                 getInitialPinnedRowIndex({
                     results,
                     taxonomicGroups,
@@ -966,7 +2010,28 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
         selectedItem: [
             (s) => [s.index, s.items],
-            (index, items): TaxonomicDefinitionTypes | undefined => {
+            (
+                index: number,
+                items:
+                    | {
+                          count: number
+                          expandedCount: number | undefined
+                          first: boolean | undefined
+                          queryChanged: boolean | undefined
+                          results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+                          searchQuery: string | undefined
+                          syntheticSelectedCount: number
+                      }
+                    | {
+                          count: number
+                          expandedCount?: undefined
+                          first: boolean | undefined
+                          queryChanged: boolean | undefined
+                          results: QuickFilterItem[]
+                          searchQuery: string | undefined
+                          syntheticSelectedCount: number
+                      }
+            ): TaxonomicDefinitionTypes | undefined => {
                 if (index < 0) {
                     return undefined
                 }
@@ -979,11 +2044,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
         selectedItemValue: [
             (s) => [s.selectedItem, s.group],
-            (selectedItem, group) => (selectedItem ? group?.getValue?.(selectedItem) || null : null),
+            (selectedItem: TaxonomicDefinitionTypes | undefined, group: TaxonomicFilterGroup | undefined) =>
+                selectedItem ? group?.getValue?.(selectedItem) || null : null,
         ],
         selectedItemInView: [
             (s) => [s.index, s.startIndex, s.stopIndex],
-            (index, startIndex, stopIndex) => typeof index === 'number' && index >= startIndex && index <= stopIndex,
+            (index: number, startIndex: number, stopIndex: number) =>
+                typeof index === 'number' && index >= startIndex && index <= stopIndex,
         ],
     }),
     listeners(({ values, actions, props, cache }) => ({
@@ -1009,7 +2076,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     }
                 }
                 if (loadFrom !== null) {
-                    const offset = (loadFrom || startIndex) - values.localItems.count
+                    // The synthetic selected row (when present) sits before the remote block,
+                    // so it shifts every remote row's display index by one — subtract it along
+                    // with the local rows to recover the true remote offset.
+                    const offset =
+                        (loadFrom || startIndex) - values.localItems.count - (values.items.syntheticSelectedCount ?? 0)
                     actions.loadRemoteItems({ offset, limit: values.limit })
                 }
             }
@@ -1021,6 +2092,21 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             cache.lastActiveTab = activeTab
             actions.resetPinnedRowState()
             actions.reconcilePinnedRowState()
+
+            // A tab switch can cut short this list's in-flight (debounced) remote search before
+            // it lands, leaving the cached results stale for the current query. Nothing else
+            // re-fires the load, so the stale list surfaces as a false "No results" until a later
+            // render or re-type. Reconcile here: if the cached remote query no longer matches the
+            // active search, re-dispatch so switching to (or back to) a tab always reloads against
+            // the current query. Skip when a load is already in flight — it reads the current
+            // query at fetch time and settles correctly on its own.
+            if (
+                values.hasRemoteDataSource &&
+                !values.remoteItemsLoading &&
+                (values.remoteItems.searchQuery ?? '') !== values.searchQuery
+            ) {
+                actions.loadRemoteItems({ offset: 0, limit: values.limit })
+            }
         },
         setSearchQuery: async () => {
             const searchQueryChanged = cache.lastSearchQuery !== values.searchQuery
@@ -1067,8 +2153,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const itemGroup = getItemGroup(selectedItem, values.taxonomicGroups, values.group)
                 const isDisabledItem = selectedItem && itemGroup?.getIsDisabled?.(selectedItem)
 
-                if (!isDisabledItem) {
-                    const itemValue = selectedItem ? itemGroup?.getValue?.(selectedItem) : null
+                if (!isDisabledItem && itemGroup) {
+                    const itemValue = selectedItem ? itemGroup.getValue?.(selectedItem) : null
                     actions.selectItem(itemGroup, itemValue ?? null, selectedItem, {
                         position: values.index,
                     })
@@ -1077,6 +2163,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         },
         loadRemoteItemsSuccess: ({ remoteItems }) => {
             actions.infiniteListResultsReceived(props.listGroupType, remoteItems)
+
+            // A success ends the failure episode: the next failure for the same query is a
+            // new episode and should capture again, not be deduped against the previous one.
+            cache.lastFetchFailedDedupeKey = null
 
             const trimmedQuery = (remoteItems.searchQuery ?? '').trim()
             const queryReachedBackend = trimmedQuery.length >= values.minSearchQueryLength
@@ -1100,6 +2190,30 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         searchQuery: trimmedQuery,
                     })
                 }
+            }
+        },
+        remoteItemsFetchFailedForQuery: ({ searchQuery }) => {
+            // Failures land on the same empty state as genuine no-matches, so without this
+            // capture the "event exists but the backend blipped" case is invisible in prod.
+            // Only count failures the user can actually see: the current query (a stale
+            // out-of-order failure is rejected by `remoteResultsAreFresh` and never renders),
+            // a real typed search (mount loads with an empty query are a different signal),
+            // and the active tab — every list runs the search in parallel, and background-tab
+            // failures the user never sees would inflate the metric.
+            const trimmedQuery = searchQuery.trim()
+            if (!values.isActiveTab || searchQuery !== values.searchQuery || trimmedQuery.length === 0) {
+                return
+            }
+            const dedupeKey = `${props.listGroupType}::${trimmedQuery}`
+            if (cache.lastFetchFailedDedupeKey !== dedupeKey) {
+                cache.lastFetchFailedDedupeKey = dedupeKey
+                posthog.capture('taxonomic filter fetch failed', {
+                    surface: legacyTaxonomicSurface(
+                        posthog.getFeatureFlag(FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN)
+                    ),
+                    groupType: props.listGroupType,
+                    searchQuery: trimmedQuery,
+                })
             }
         },
         infiniteListResultsReceived: () => {

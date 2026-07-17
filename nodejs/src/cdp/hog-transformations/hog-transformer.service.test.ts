@@ -2,6 +2,7 @@ import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/produc
 
 import { DateTime } from 'luxon'
 
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
@@ -12,24 +13,31 @@ import { createTestMonitoringOutputs } from '../../../tests/helpers/ingestion-ou
 import { forSnapshot } from '../../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
 import { createHogFunction, insertHogFunction } from '../_tests/fixtures'
 import { posthogPluginGeoip } from '../legacy-plugins/_transformations/posthog-plugin-geoip/template'
 import { propertyFilterPlugin } from '../legacy-plugins/_transformations/property-filter-plugin/template'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionTemplate } from '../types'
 import { HogTransformerService, createHogTransformerService } from './hog-transformer.service'
+import { resetHogvmNodeModuleCacheForTests } from './rust-vm'
+
+jest.mock('@posthog/hogvm-node', () => ({
+    init: jest.fn(),
+    executeSync: jest.fn(),
+}))
+
+const mockHogvmNode = jest.mocked(jest.requireMock<typeof import('@posthog/hogvm-node')>('@posthog/hogvm-node'))
 
 const createPluginEvent = (event: Partial<PluginEvent> = {}, teamId: number = 1): PluginEvent => {
     return {
-        ip: '12.87.118.0',
+        ip: '216.160.83.56',
         site_url: 'http://localhost',
         team_id: teamId,
         now: '2024-06-07T12:00:00.000Z',
         uuid: 'event-id',
         event: 'event-name',
         distinct_id: 'distinct-id',
-        properties: { $current_url: 'https://example.com', $ip: '12.87.118.0' },
+        properties: { $current_url: 'https://example.com', $ip: '216.160.83.56' },
         timestamp: '2024-01-01T00:00:00Z',
         ...event,
     }
@@ -86,52 +94,52 @@ describe('HogTransformer', () => {
             expect(result.event?.properties).toMatchInlineSnapshot(`
                 {
                   "$current_url": "https://example.com",
-                  "$geoip_accuracy_radius": 20,
-                  "$geoip_city_name": "Cleveland",
+                  "$geoip_accuracy_radius": 22,
+                  "$geoip_city_name": "Milton",
                   "$geoip_continent_code": "NA",
                   "$geoip_continent_name": "North America",
                   "$geoip_country_code": "US",
                   "$geoip_country_name": "United States",
-                  "$geoip_latitude": 41.5,
-                  "$geoip_longitude": -81.6938,
-                  "$geoip_postal_code": "44192",
-                  "$geoip_subdivision_1_code": "OH",
-                  "$geoip_subdivision_1_name": "Ohio",
-                  "$geoip_time_zone": "America/New_York",
-                  "$ip": "12.87.118.0",
+                  "$geoip_latitude": 47.2513,
+                  "$geoip_longitude": -122.3149,
+                  "$geoip_postal_code": "98354",
+                  "$geoip_subdivision_1_code": "WA",
+                  "$geoip_subdivision_1_name": "Washington",
+                  "$geoip_time_zone": "America/Los_Angeles",
+                  "$ip": "216.160.83.56",
                   "$set": {
-                    "$geoip_accuracy_radius": 20,
+                    "$geoip_accuracy_radius": 22,
                     "$geoip_city_confidence": null,
-                    "$geoip_city_name": "Cleveland",
+                    "$geoip_city_name": "Milton",
                     "$geoip_continent_code": "NA",
                     "$geoip_continent_name": "North America",
                     "$geoip_country_code": "US",
                     "$geoip_country_name": "United States",
-                    "$geoip_latitude": 41.5,
-                    "$geoip_longitude": -81.6938,
-                    "$geoip_postal_code": "44192",
-                    "$geoip_subdivision_1_code": "OH",
-                    "$geoip_subdivision_1_name": "Ohio",
+                    "$geoip_latitude": 47.2513,
+                    "$geoip_longitude": -122.3149,
+                    "$geoip_postal_code": "98354",
+                    "$geoip_subdivision_1_code": "WA",
+                    "$geoip_subdivision_1_name": "Washington",
                     "$geoip_subdivision_2_code": null,
                     "$geoip_subdivision_2_name": null,
-                    "$geoip_time_zone": "America/New_York",
+                    "$geoip_time_zone": "America/Los_Angeles",
                   },
                   "$set_once": {
-                    "$initial_geoip_accuracy_radius": 20,
+                    "$initial_geoip_accuracy_radius": 22,
                     "$initial_geoip_city_confidence": null,
-                    "$initial_geoip_city_name": "Cleveland",
+                    "$initial_geoip_city_name": "Milton",
                     "$initial_geoip_continent_code": "NA",
                     "$initial_geoip_continent_name": "North America",
                     "$initial_geoip_country_code": "US",
                     "$initial_geoip_country_name": "United States",
-                    "$initial_geoip_latitude": 41.5,
-                    "$initial_geoip_longitude": -81.6938,
-                    "$initial_geoip_postal_code": "44192",
-                    "$initial_geoip_subdivision_1_code": "OH",
-                    "$initial_geoip_subdivision_1_name": "Ohio",
+                    "$initial_geoip_latitude": 47.2513,
+                    "$initial_geoip_longitude": -122.3149,
+                    "$initial_geoip_postal_code": "98354",
+                    "$initial_geoip_subdivision_1_code": "WA",
+                    "$initial_geoip_subdivision_1_name": "Washington",
                     "$initial_geoip_subdivision_2_code": null,
                     "$initial_geoip_subdivision_2_name": null,
-                    "$initial_geoip_time_zone": "America/New_York",
+                    "$initial_geoip_time_zone": "America/Los_Angeles",
                   },
                   "$transformations_succeeded": [
                     "GeoIP (d77e792e-0f35-431b-a983-097534aa4767)",
@@ -206,11 +214,11 @@ describe('HogTransformer', () => {
                 {
                   "distinct_id": "modified-distinct-id",
                   "event": "modified-event",
-                  "ip": "12.87.118.0",
+                  "ip": "216.160.83.56",
                   "now": "2024-06-07T12:00:00.000Z",
                   "properties": {
                     "$current_url": "https://example.com",
-                    "$ip": "12.87.118.0",
+                    "$ip": "216.160.83.56",
                     "$transformations_succeeded": [
                       "Modifier (d77e792e-0f35-431b-a983-097534aa4767)",
                     ],
@@ -1090,11 +1098,11 @@ describe('HogTransformer', () => {
                 {
                   "distinct_id": "distinct-id",
                   "event": "keep-me",
-                  "ip": "12.87.118.0",
+                  "ip": "216.160.83.56",
                   "now": "2024-06-07T12:00:00.000Z",
                   "properties": {
                     "$current_url": "https://example.com",
-                    "$ip": "12.87.118.0",
+                    "$ip": "216.160.83.56",
                     "$transformations_succeeded": [
                       "Filter Out Plugin (c342e9ae-9f76-4379-a465-d33b4826bc05)",
                     ],
@@ -1152,48 +1160,48 @@ describe('HogTransformer', () => {
                   "now": "2024-06-07T12:00:00.000Z",
                   "properties": {
                     "$current_url": "https://example.com",
-                    "$geoip_accuracy_radius": 20,
-                    "$geoip_city_name": "Cleveland",
+                    "$geoip_accuracy_radius": 22,
+                    "$geoip_city_name": "Milton",
                     "$geoip_continent_code": "NA",
                     "$geoip_continent_name": "North America",
                     "$geoip_country_name": "United States",
-                    "$geoip_postal_code": "44192",
-                    "$geoip_subdivision_1_code": "OH",
-                    "$geoip_subdivision_1_name": "Ohio",
-                    "$geoip_time_zone": "America/New_York",
+                    "$geoip_postal_code": "98354",
+                    "$geoip_subdivision_1_code": "WA",
+                    "$geoip_subdivision_1_name": "Washington",
+                    "$geoip_time_zone": "America/Los_Angeles",
                     "$set": {
-                      "$geoip_accuracy_radius": 20,
+                      "$geoip_accuracy_radius": 22,
                       "$geoip_city_confidence": null,
-                      "$geoip_city_name": "Cleveland",
+                      "$geoip_city_name": "Milton",
                       "$geoip_continent_code": "NA",
                       "$geoip_continent_name": "North America",
                       "$geoip_country_code": "US",
                       "$geoip_country_name": "United States",
-                      "$geoip_latitude": 41.5,
-                      "$geoip_longitude": -81.6938,
-                      "$geoip_postal_code": "44192",
-                      "$geoip_subdivision_1_code": "OH",
-                      "$geoip_subdivision_1_name": "Ohio",
+                      "$geoip_latitude": 47.2513,
+                      "$geoip_longitude": -122.3149,
+                      "$geoip_postal_code": "98354",
+                      "$geoip_subdivision_1_code": "WA",
+                      "$geoip_subdivision_1_name": "Washington",
                       "$geoip_subdivision_2_code": null,
                       "$geoip_subdivision_2_name": null,
-                      "$geoip_time_zone": "America/New_York",
+                      "$geoip_time_zone": "America/Los_Angeles",
                     },
                     "$set_once": {
-                      "$initial_geoip_accuracy_radius": 20,
+                      "$initial_geoip_accuracy_radius": 22,
                       "$initial_geoip_city_confidence": null,
-                      "$initial_geoip_city_name": "Cleveland",
+                      "$initial_geoip_city_name": "Milton",
                       "$initial_geoip_continent_code": "NA",
                       "$initial_geoip_continent_name": "North America",
                       "$initial_geoip_country_code": "US",
                       "$initial_geoip_country_name": "United States",
-                      "$initial_geoip_latitude": 41.5,
-                      "$initial_geoip_longitude": -81.6938,
-                      "$initial_geoip_postal_code": "44192",
-                      "$initial_geoip_subdivision_1_code": "OH",
-                      "$initial_geoip_subdivision_1_name": "Ohio",
+                      "$initial_geoip_latitude": 47.2513,
+                      "$initial_geoip_longitude": -122.3149,
+                      "$initial_geoip_postal_code": "98354",
+                      "$initial_geoip_subdivision_1_code": "WA",
+                      "$initial_geoip_subdivision_1_name": "Washington",
                       "$initial_geoip_subdivision_2_code": null,
                       "$initial_geoip_subdivision_2_name": null,
-                      "$initial_geoip_time_zone": "America/New_York",
+                      "$initial_geoip_time_zone": "America/Los_Angeles",
                     },
                     "$transformations_succeeded": [
                       "GeoIP (<REPLACED-UUID-0>)",
@@ -1942,6 +1950,68 @@ describe('HogTransformer', () => {
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
             expect(result.invocationResults[0].error).toContain('posthogCapture is not supported in transformations')
+        })
+    })
+
+    describe('rust vm primary execution', () => {
+        let bytecode: any[]
+
+        beforeEach(async () => {
+            resetHogvmNodeModuleCacheForTests()
+
+            hub.CDP_HOG_RUST_VM_EXECUTION_ENABLED = true
+            hogTransformer = createHogTransformerService(hub, {
+                ...hub,
+                monitoringOutputs: createTestMonitoringOutputs(mockProducer),
+            })
+
+            bytecode = await compileHog(defaultTemplate.code)
+            const hogFunction = createHogFunction({
+                type: 'transformation',
+                name: 'Rust routed',
+                team_id: teamId,
+                enabled: true,
+                bytecode,
+                id: 'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb',
+            })
+            await insertHogFunction(hub.postgres, teamId, hogFunction)
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
+        })
+
+        it('executes transformations on the rust vm when the flag is enabled', async () => {
+            mockHogvmNode.executeSync.mockReturnValue({
+                result: { properties: { from_rust: true } },
+                durationUs: 100,
+                logs: [],
+                logsTruncated: false,
+            })
+
+            const result = await hogTransformer.transformEventAndProduceMessages(createPluginEvent({}, teamId))
+
+            expect(mockHogvmNode.executeSync).toHaveBeenCalledTimes(1)
+            expect(mockHogvmNode.executeSync.mock.calls[0][0]).toEqual(bytecode)
+            expect(result.event?.properties).toEqual({
+                from_rust: true,
+                $transformations_succeeded: ['Rust routed (bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb)'],
+            })
+        })
+
+        it('falls back to the node vm when the rust vm cannot run the program', async () => {
+            mockHogvmNode.executeSync.mockReturnValue({
+                error: 'Native call failed: unsupported_ext_fn:geoipLookup',
+                durationUs: 100,
+                logs: [],
+                logsTruncated: false,
+            })
+
+            const result = await hogTransformer.transformEventAndProduceMessages(createPluginEvent({}, teamId))
+
+            expect(mockHogvmNode.executeSync).toHaveBeenCalledTimes(1)
+            // The node vm ran the real bytecode: the event survives with its original properties.
+            expect(result.event?.properties).toMatchObject({
+                $current_url: 'https://example.com',
+                $transformations_succeeded: ['Rust routed (bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb)'],
+            })
         })
     })
 })

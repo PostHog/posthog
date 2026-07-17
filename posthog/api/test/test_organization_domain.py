@@ -6,13 +6,15 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import ANY, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 import dns.rrset
 import dns.resolver
-from rest_framework import status
+from parameterized import parameterized
+from rest_framework import serializers, status
 
-from posthog.constants import AvailableFeature
+from posthog.api.organization_domain import OrganizationDomainSerializer, OrganizationDomainViewset
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Team
 
 from ee.api.test.base import APILicensedTest
@@ -104,7 +106,6 @@ class TestOrganizationDomainsAPI(APIBaseTest):
                     "verification_challenge": "123",  # ignore me
                     "jit_provisioning_enabled": True,  # ignore me
                     "sso_enforcement": "saml",  # ignore me
-                    "scim_enabled": True,  # ignore me
                 },
             )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -112,7 +113,6 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(response_data["domain"], "the.posthog.com")
         self.assertEqual(response_data["verified_at"], None)
         self.assertEqual(response_data["jit_provisioning_enabled"], False)
-        self.assertEqual(response_data["scim_enabled"], False)
         self.assertRegex(response_data["verification_challenge"], r"[0-9A-Za-z_-]{32}")
 
         instance = OrganizationDomain.objects.get(id=response_data["id"])
@@ -120,7 +120,6 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(instance.verified_at, None)
         self.assertEqual(instance.last_verification_retry, None)
         self.assertEqual(instance.sso_enforcement, "")
-        self.assertEqual(instance.scim_enabled, False)
 
         # Verify the domain creation capture event was called
         mock_capture.assert_any_call(
@@ -172,29 +171,23 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(OrganizationDomain.objects.count(), count)
 
     def test_cannot_create_invalid_domain(self):
+        # Wiring guard + no-persist check: the endpoint rejects an invalid domain and writes nothing.
+        # The full invalid/valid matrix is exercised without a DB in TestOrganizationDomainValidationNoDB.
         count = OrganizationDomain.objects.count()
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        invalid_domains = [
-            "test@posthog.com",
-            "🦔🦔🦔.com",
-            "one.two.c",
-            "--alpha.com",
-            "javascript: alert(1)",
-        ]
 
-        for _domain in invalid_domains:
-            response = self.client.post("/api/organizations/@current/domains/", {"domain": _domain})
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "validation_error",
-                    "code": "invalid_input",
-                    "detail": "Please enter a valid domain or subdomain name.",
-                    "attr": "domain",
-                },
-            )
+        response = self.client.post("/api/organizations/@current/domains/", {"domain": "test@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Please enter a valid domain or subdomain name.",
+                "attr": "domain",
+            },
+        )
 
         self.assertEqual(OrganizationDomain.objects.count(), count)
 
@@ -534,221 +527,10 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(response.json(), self.permission_denied_response())
         self.another_domain.refresh_from_db()
 
-    # SCIM configuration
-
-    def test_can_enable_scim(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization.available_product_features = [{"key": AvailableFeature.SCIM, "name": "SCIM"}]
-        self.organization_membership.save()
-        self.organization.save()
-        self.domain.verified_at = timezone.now()
-        self.domain.save()
-
-        response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/",
-            {"scim_enabled": True},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["scim_enabled"], True)
-        self.assertIsNotNone(response.json()["scim_bearer_token"])
-        self.assertIn("scim_base_url", response.json())
-
-        self.domain.refresh_from_db()
-        self.assertEqual(self.domain.scim_enabled, True)
-        self.assertIsNotNone(self.domain.scim_bearer_token)
-
-    def test_cannot_enable_scim_without_available_feature(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.domain.verified_at = timezone.now()
-        self.domain.save()
-
-        response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/",
-            {"scim_enabled": True},
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("not available", response.json()["detail"].lower())
-
-    def test_cannot_enable_scim_on_unverified_domain(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization.available_product_features = [{"key": AvailableFeature.SCIM, "name": "SCIM"}]
-        self.organization_membership.save()
-        self.organization.save()
-
-        response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/",
-            {"scim_enabled": True},
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "verification_required",
-                "detail": "This attribute cannot be updated until the domain is verified.",
-                "attr": "scim_enabled",
-            },
-        )
-
-    def test_can_disable_scim(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization.available_product_features = [{"key": AvailableFeature.SCIM, "name": "SCIM"}]
-        self.organization_membership.save()
-        self.organization.save()
-        self.domain.verified_at = timezone.now()
-        self.domain.save()
-
-        # First enable SCIM
-        enable_response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/",
-            {"scim_enabled": True},
-        )
-        self.assertEqual(enable_response.status_code, status.HTTP_200_OK)
-
-        # Then disable it
-        response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/",
-            {"scim_enabled": False},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["scim_enabled"], False)
-        self.assertIsNone(response.json()["scim_bearer_token"])
-
-        self.domain.refresh_from_db()
-        self.assertEqual(self.domain.scim_enabled, False)
-        self.assertIsNone(self.domain.scim_bearer_token)
-
-    def test_can_regenerate_scim_token(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization.available_product_features = [{"key": AvailableFeature.SCIM, "name": "SCIM"}]
-        self.organization_membership.save()
-        self.organization.save()
-        self.domain.verified_at = timezone.now()
-        self.domain.save()
-
-        # First enable SCIM
-        enable_response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/",
-            {"scim_enabled": True},
-        )
-        self.assertEqual(enable_response.status_code, status.HTTP_200_OK)
-        original_token = enable_response.json()["scim_bearer_token"]
-
-        # Regenerate token
-        response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/scim/token")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["scim_enabled"], True)
-        new_token = response.json()["scim_bearer_token"]
-        self.assertIsNotNone(new_token)
-        self.assertNotEqual(original_token, new_token)
-
-    def test_cannot_regenerate_scim_token_without_available_feature(self):
-        from ee.api.scim.auth import generate_scim_token
-
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.domain.verified_at = timezone.now()
-        self.domain.save()
-
-        # Manually enable SCIM (bypassing validation)
-        plain_token, hashed_token = generate_scim_token()
-        self.domain.scim_enabled = True
-        self.domain.scim_bearer_token = hashed_token
-        self.domain.save()
-
-        # Remove feature
-        self.organization.available_product_features = []
-        self.organization.save()
-
-        response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/scim/token")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    # ID-JAG (XAA) configuration
-
-    def test_can_configure_id_jag(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.domain.verified_at = timezone.now()
-        self.domain.save()
-
-        response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/",
-            {
-                "id_jag_issuer_url": "https://example.com/",
-                "id_jag_jwks_url": "https://example.com/keys.json",
-                "id_jag_allowed_clients": ["client-a", "client-b"],
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-        self.assertEqual(response_data["id_jag_issuer_url"], "https://example.com")
-        self.assertEqual(response_data["id_jag_jwks_url"], "https://example.com/keys.json")
-        self.assertEqual(response_data["id_jag_allowed_clients"], ["client-a", "client-b"])
-        self.assertTrue(response_data["has_id_jag"])
-
-        self.domain.refresh_from_db()
-        self.assertEqual(self.domain.id_jag_issuer_url, "https://example.com")
-        self.assertEqual(self.domain.id_jag_jwks_url, "https://example.com/keys.json")
-        self.assertEqual(self.domain.id_jag_allowed_clients, ["client-a", "client-b"])
-
-    def test_can_clear_id_jag_configuration(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.domain.verified_at = timezone.now()
-        self.domain.id_jag_issuer_url = "https://example.com"
-        self.domain.save()
-
-        response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/",
-            {"id_jag_issuer_url": "", "id_jag_jwks_url": "", "id_jag_allowed_clients": []},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertFalse(response.json()["has_id_jag"])
-        self.assertIsNone(response.json()["id_jag_issuer_url"])
-
-        self.domain.refresh_from_db()
-        self.assertIsNone(self.domain.id_jag_issuer_url)
-
-    def test_cannot_configure_id_jag_on_unverified_domain(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-
-        response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/",
-            {"id_jag_issuer_url": "https://example.com"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "verification_required",
-                "detail": "This attribute cannot be updated until the domain is verified.",
-                "attr": "id_jag_issuer_url",
-            },
-        )
-
-    def test_rejects_disallowed_id_jag_urls(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.domain.verified_at = timezone.now()
-        self.domain.save()
-
-        response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/",
-            {"id_jag_issuer_url": "http://127.0.0.1"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "URL is not allowed: Local/Loopback host not allowed",
-                "attr": "id_jag_issuer_url",
-            },
-        )
+    # SAML, SCIM, and ID-JAG (XAA) configuration are written exclusively through
+    # IdentityProviderConfigViewSet now — see TestIdentityProviderConfigAPI in
+    # posthog/api/test/test_identity_provider_config.py. This domain endpoint no longer declares
+    # those fields at all, so writes to them are silently dropped rather than persisted.
 
 
 class TestSCIMRequestLogsAPI(APILicensedTest):
@@ -760,7 +542,6 @@ class TestSCIMRequestLogsAPI(APILicensedTest):
             organization=self.organization,
             domain="logs-test.com",
             verified_at=timezone.now(),
-            scim_enabled=True,
         )
 
     def _create_log(self, **kwargs):
@@ -866,3 +647,34 @@ class TestSCIMRequestLogsAPI(APILicensedTest):
         assert "identity_provider" in result
         assert "duration_ms" in result
         assert "created_at" in result
+
+
+class TestOrganizationDomainValidationNoDB(SimpleTestCase):
+    # OrganizationDomainSerializer.is_valid() hits the DB (the `domain` field carries a
+    # UniqueValidator), but validate_domain is a pure regex check — call it directly, no DB.
+    # The endpoint path is guarded by test_cannot_create_invalid_domain and the meta test below.
+    @parameterized.expand(
+        [
+            ["email address", "test@posthog.com"],
+            ["emoji", "🦔🦔🦔.com"],
+            ["tld too short", "one.two.c"],
+            ["leading dashes", "--alpha.com"],
+            ["javascript scheme", "javascript: alert(1)"],
+        ]
+    )
+    def test_validate_domain_rejects_invalid(self, _name: str, domain: str) -> None:
+        with self.assertRaises(serializers.ValidationError):
+            OrganizationDomainSerializer().validate_domain(domain)
+
+    @parameterized.expand(
+        [
+            ["bare domain", "posthog.com"],
+            ["subdomain", "eu.posthog.com"],
+        ]
+    )
+    def test_validate_domain_accepts_valid(self, _name: str, domain: str) -> None:
+        assert OrganizationDomainSerializer().validate_domain(domain) == domain
+
+    def test_validation_serializer_is_wired_to_viewset(self) -> None:
+        # Wiring guard (no DB): the ModelViewSet validates input through this serializer.
+        assert OrganizationDomainViewset.serializer_class is OrganizationDomainSerializer

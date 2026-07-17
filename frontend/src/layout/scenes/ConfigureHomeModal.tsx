@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
-import { LemonSegmentedButton, LemonSelect, LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
+import { LemonSearchableSelect, LemonSegmentedButton, LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
@@ -76,8 +76,6 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
         hash: '',
         title: 'Search',
         iconType: 'search',
-        active: false,
-        pinned: true,
         sceneId: Scene.NewTab,
         sceneKey: 'newTab',
         sceneParams: emptySceneParams,
@@ -127,8 +125,6 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
                                             hash: '',
                                             title: 'Default dashboard',
                                             iconType: 'dashboard',
-                                            active: false,
-                                            pinned: true,
                                             sceneId: Scene.Dashboard,
                                             sceneKey: `dashboard-${dashboardId}`,
                                             sceneParams: emptySceneParams,
@@ -179,11 +175,13 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
                                     This dashboard opens by default for everyone who has not set a custom homepage.
                                 </p>
                             </div>
-                            <LemonSelect<number | null>
+                            <LemonSearchableSelect<number | null>
                                 className="w-full"
                                 fullWidth
                                 options={projectDefaultDashboardOptions}
                                 value={projectDefaultDashboardId}
+                                searchPlaceholder="Search dashboards…"
+                                searchInputDataAttr="configure-home-modal-default-dashboard-search"
                                 data-attr="configure-home-modal-set-default-dashboard-select"
                                 onChange={(dashboardId) => {
                                     posthog.capture('homepage configure default dashboard changed')
@@ -197,8 +195,6 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
                                             hash: '',
                                             title: 'Default dashboard',
                                             iconType: 'dashboard',
-                                            active: false,
-                                            pinned: true,
                                             sceneId: Scene.Dashboard,
                                             sceneKey: `dashboard-${dashboardId}`,
                                             sceneParams: emptySceneParams,

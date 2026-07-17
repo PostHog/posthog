@@ -17,6 +17,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
+import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
 import IconSlack from 'public/services/slack.png'
 import IconWebhook from 'public/services/webhook.svg'
 
@@ -24,7 +25,7 @@ import {
     NotificationDestinationTypeEnumApi,
     LogsAlertConfigurationApi,
     LogsAlertConfigurationStateEnumApi,
-    ThresholdOperatorEnumApi,
+    LogsAlertThresholdOperatorEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsAlertingLogic } from './logsAlertingLogic'
@@ -32,9 +33,32 @@ import { LogsAlertStateIndicator } from './LogsAlertStateIndicator'
 import { LogsAlertStateTimeline } from './LogsAlertStateTimeline'
 import { SNOOZE_DURATIONS } from './logsAlertUtils'
 
+const DESTINATION_TAGS = [
+    { type: NotificationDestinationTypeEnumApi.Slack, label: 'Slack', icon: IconSlack },
+    { type: NotificationDestinationTypeEnumApi.Webhook, label: 'Webhook', icon: IconWebhook },
+    { type: NotificationDestinationTypeEnumApi.Teams, label: 'Teams', icon: IconMicrosoftTeams },
+] as const
+
 function formatThreshold(alert: LogsAlertConfigurationApi): string {
-    const operator = alert.threshold_operator === ThresholdOperatorEnumApi.Below ? '<' : '>'
+    const operator = alert.threshold_operator === LogsAlertThresholdOperatorEnumApi.Below ? '<' : '>'
     return `${operator} ${alert.threshold_count} in ${alert.window_minutes}m`
+}
+
+export function LogsAlertDestinationTags({
+    types,
+}: {
+    types: readonly NotificationDestinationTypeEnumApi[]
+}): JSX.Element {
+    return (
+        <div className="flex gap-1">
+            {DESTINATION_TAGS.filter(({ type }) => types.includes(type)).map(({ type, label, icon }) => (
+                <LemonTag key={type}>
+                    <img src={icon} alt="" className="h-3 w-3 object-contain" />
+                    {label}
+                </LemonTag>
+            ))}
+        </div>
+    )
 }
 
 export function LogsAlertList(): JSX.Element {
@@ -138,20 +162,7 @@ export function LogsAlertList(): JSX.Element {
                 }
                 return (
                     <div className="flex items-center gap-1">
-                        <div className="flex gap-1">
-                            {types.includes(NotificationDestinationTypeEnumApi.Slack) && (
-                                <LemonTag>
-                                    <img src={IconSlack} alt="" className="h-3 w-3 object-contain" />
-                                    Slack
-                                </LemonTag>
-                            )}
-                            {types.includes(NotificationDestinationTypeEnumApi.Webhook) && (
-                                <LemonTag>
-                                    <img src={IconWebhook} alt="" className="h-3 w-3 object-contain" />
-                                    Webhook
-                                </LemonTag>
-                            )}
-                        </div>
+                        <LogsAlertDestinationTags types={types} />
                         <LemonButton
                             size="small"
                             type="tertiary"

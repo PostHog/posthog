@@ -23,7 +23,7 @@ class _AssignerExcludingResolver(RecipientsResolver):
         super().__init__()
         self._assigner_id = assigner_id
 
-    def resolve(self, target_type: TargetType, target_id: str, team_id: int) -> list[int]:
+    def resolve(self, target_type: TargetType, target_id: str, team_id: int | None) -> list[int]:
         users = super().resolve(target_type, target_id, team_id)
         return [uid for uid in users if uid != self._assigner_id]
 

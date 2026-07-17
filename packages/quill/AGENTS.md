@@ -53,7 +53,7 @@ const buttonVariants = cva('inline-flex items-center ...', {
     variant: {
       default: 'bg-secondary ...',
       outline: 'border-foreground/10 ...',
-      ghost: 'hover:bg-accent/40 ...',
+      destructive: 'bg-destructive ...',
     },
     size: {
       default: 'h-7 px-2 text-xs',
@@ -97,7 +97,7 @@ Components that need `forwardRef`:
 ```text
 Button
 ├── Chip (default size=sm, variant=outline)
-├── ChipClose (variant=ghost, size=icon-xs)
+├── ChipClose (size=icon-xs)
 ├── InputGroupButton
 ├── TabsTrigger (render prop)
 ├── CollapsibleTrigger (render prop)
@@ -110,7 +110,7 @@ Input
 
 InputGroup
 ├── ComboboxInput (with anchor context)
-└── CommandInput
+└── AutocompleteInput (with anchor context)
 
 Chip + ChipClose
 └── ComboboxChip (via render prop)
@@ -129,11 +129,13 @@ ButtonGroup
 4. Define variants with CVA if the component has visual variants
 5. Accept `className` prop and merge with `cn()`
 6. Export from the component file (barrel export is in `index.ts`)
+7. Update the consumer guide in the same PR — `packages/primitives/AGENTS.md` (catalog row, "Choosing a component" cluster, composition pattern). Same rule applies to `packages/components/AGENTS.md` and `packages/charts/AGENTS.md` for their packages. A lint-staged warning fires if quill sources change without an AGENTS.md update
 
 ### Styling rules
 
 - Use Tailwind utility classes exclusively — no inline styles, no CSS modules
 - Use semantic color tokens: `bg-primary`, `text-foreground`, `border-input` — never raw colors
+- Components that accept icon children own their icon sizing — `flex-shrink: 0` plus a `svg:not([class*='size-'])` size rule in the component's `.css` file (see `button.css`), so consumers drop in bare lucide icons without `size-*` classes; the `:not` guard keeps explicit `size-*` as a deliberate escape hatch
 - Use `group/name` for scoped parent selectors (e.g., `group/tabs`, `group/input-group`)
 - Use `data-[variant=...]` selectors for variant-aware child styling
 - Focus states: `focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30`
@@ -195,10 +197,7 @@ function Parent({ children }) {
 | `class-variance-authority` | Type-safe variant class maps                      |
 | `clsx` + `tailwind-merge`  | Class merging without conflicts                   |
 | `lucide-react`             | Icons                                             |
-| `vaul`                     | Drawer primitive                                  |
 | `react-resizable-panels`   | Resizable panel layout                            |
-| `cmdk`                     | Command palette                                   |
-| `sonner`                   | Toast notifications                               |
 
 ## Token system
 

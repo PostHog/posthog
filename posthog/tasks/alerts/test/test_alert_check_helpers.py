@@ -40,7 +40,7 @@ class TestRunAlertCheck(APIBaseTest):
         self.alert_id = alert["id"]
 
     @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=["user1@example.com"])
-    @patch("posthog.tasks.alerts.utils.check_alert_for_insight")
+    @patch("posthog.tasks.alerts.test.alert_check_helpers.check_alert_for_insight")
     def test_firing_path_unpacks_tuple_and_records_delivery(self, mock_check: MagicMock, mock_send: MagicMock) -> None:
         mock_check.return_value = AlertEvaluationResult(value=5.0, breaches=["breach_message"])
 
@@ -53,7 +53,7 @@ class TestRunAlertCheck(APIBaseTest):
         mock_send.assert_called_once()
 
     @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches")
-    @patch("posthog.tasks.alerts.utils.check_alert_for_insight")
+    @patch("posthog.tasks.alerts.test.alert_check_helpers.check_alert_for_insight")
     def test_not_firing_path_records_check_without_notifying(self, mock_check: MagicMock, mock_send: MagicMock) -> None:
         mock_check.return_value = AlertEvaluationResult(value=0.5, breaches=None)
 
@@ -65,7 +65,7 @@ class TestRunAlertCheck(APIBaseTest):
         mock_send.assert_not_called()
 
     @patch("posthog.tasks.alerts.utils.send_notifications_for_errors")
-    @patch("posthog.tasks.alerts.utils.check_alert_for_insight")
+    @patch("posthog.tasks.alerts.test.alert_check_helpers.check_alert_for_insight")
     def test_errored_path_records_error_and_notifies(self, mock_check: MagicMock, mock_send_err: MagicMock) -> None:
         mock_check.side_effect = RuntimeError("boom")
 

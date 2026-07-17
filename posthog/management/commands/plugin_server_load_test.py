@@ -13,9 +13,10 @@ import structlog
 from kafka import KafkaAdminClient, KafkaConsumer, TopicPartition
 
 from posthog.api.capture import capture_batch_internal
-from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
 from posthog.models import Team
+
+from products.demo.backend.facade.api import HedgeboxMatrix
 
 logging.getLogger("kafka").setLevel(logging.WARNING)  # Hide kafka-python's logspam
 
@@ -112,22 +113,23 @@ class Command(BaseCommand):
                 }
             )
 
-        # as in "classic" capture_internal, ordered_events are submitted async
-        # returning a list of futures (previously ignored!) so final event
-        # ordering in the ingest topic is not guaranteed here
+        logger.info("submitting_events", total=len(events))
+
         start_time = time.monotonic()
-        results = capture_batch_internal(
+        result = capture_batch_internal(
             events=events,
             event_source="plugin_server_load_test",
             token=token,
-            process_person_profile=True,  # allow person profile processing to occur as cfg for this token (team/project)
+            process_person_profile=True,
+            timeout=10.0,
         )
-        for future in results:
-            try:
-                result = future.result()
-                result.raise_for_status()
-            except Exception as e:
-                logger.exception("event_submission_fail", error=e)
+        if not result.succeeded():
+            logger.warning(
+                "submission_partial_failure",
+                dropped=len(result.dropped),
+                retried=len(result.retried),
+                unaccounted=len(result.unaccounted),
+            )
 
         while True:
             offsets = admin.list_consumer_group_offsets(group_id="clickhouse-ingestion")

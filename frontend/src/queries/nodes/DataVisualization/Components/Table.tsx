@@ -8,7 +8,7 @@ import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
 import { execHog } from 'lib/hog'
-import { lightenDarkenColor } from 'lib/utils'
+import { lightenDarkenColor } from 'lib/utils/colors'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -18,6 +18,7 @@ import { QueryContext } from '~/queries/types'
 import { LoadNext } from '../../DataNode/LoadNext'
 import { renderColumn } from '../../DataTable/renderColumn'
 import { renderColumnMeta } from '../../DataTable/renderColumnMeta'
+import { getContrastingTextClass } from '../colorUtils'
 import { TableDataCell, convertTableValue, dataVisualizationLogic } from '../dataVisualizationLogic'
 
 interface TableProps {
@@ -58,6 +59,19 @@ function getDisplayedColumnTitle(
     return label || title || columnName
 }
 
+// Plain-text representation of a cell, used as the hover title so clipped content is
+// still visible on hover. The full value stays in the DOM (CSS ellipsis only), so
+// selecting and copying a cell copies the whole value, not just the clipped portion.
+function getCellTitle(cell: TableDataCell<any>): string | undefined {
+    if (typeof cell.formattedValue === 'string') {
+        return cell.formattedValue
+    }
+    if (typeof cell.value === 'string' || typeof cell.value === 'number') {
+        return String(cell.value)
+    }
+    return undefined
+}
+
 export const Table = (props: TableProps): JSX.Element => {
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -83,6 +97,74 @@ export const Table = (props: TableProps): JSX.Element => {
             const { title, ...columnMeta } = renderColumnMeta(column.name, props.query, props.context)
             const columnTitle = settings?.display?.label || title || column.name
             const formattedTitle = typeof columnTitle === 'string' ? formatColumnTitle(columnTitle) : columnTitle
+
+            const computeConditionalFormattingBackground = (data: TableDataCell<any>[]): string | undefined => {
+                const cell = data[index]
+
+                if (cell.isTransposedHeader) {
+                    return undefined
+                }
+
+                const sourceColumnName = cell.sourceColumnName ?? column.name
+                const sourceColumnType = sourceTabularColumnsByName.get(sourceColumnName)?.column.type.name ?? cell.type
+                const conditionalFormattingMatches = conditionalFormattingRules
+                    .filter((n) => n.columnName === sourceColumnName)
+                    .filter((n) => {
+                        const isValidHog = !!n.bytecode && n.bytecode.length > 0 && n.bytecode[0] === '_H'
+                        if (!isValidHog) {
+                            posthog.captureException(new Error('Invalid hog bytecode for conditional formatting'), {
+                                formatRule: n,
+                            })
+                        }
+
+                        return isValidHog
+                    })
+                    .map((n) => ({
+                        rule: n,
+                        result: execHog(n.bytecode, {
+                            globals: {
+                                value: cell.value,
+                                input: convertTableValue(n.input, sourceColumnType),
+                            },
+                            functions: {},
+                            maxAsyncSteps: 0,
+                        }).result,
+                    }))
+                    .find((n) => Boolean(n.result))
+
+                if (!conditionalFormattingMatches) {
+                    return undefined
+                }
+
+                const ruleColor = conditionalFormattingMatches.rule.color
+                const colorMode = conditionalFormattingMatches.rule.colorMode ?? 'light'
+
+                // If the color mode matches the current theme, use the color as it was saved
+                if ((colorMode === 'dark' && isDarkModeOn) || (colorMode === 'light' && !isDarkModeOn)) {
+                    return ruleColor
+                }
+
+                // If the color mode is dark, but we're in light mode - then lighten the color
+                if (colorMode === 'dark' && !isDarkModeOn) {
+                    return lightenDarkenColor(ruleColor, 30)
+                }
+
+                // If the color mode is light, but we're in dark mode - then darken the color
+                return lightenDarkenColor(ruleColor, -30)
+            }
+
+            // The `style` and `className` cell callbacks are invoked independently for the same cell,
+            // so memoize per row record to run the HogVM rules (and any captureException) only once.
+            // The cache lives in this per-render closure, so it can't go stale across theme/rule changes.
+            const backgroundByRecord = new WeakMap<TableDataCell<any>[], string | undefined>()
+            const resolveConditionalFormattingBackground = (data: TableDataCell<any>[]): string | undefined => {
+                if (backgroundByRecord.has(data)) {
+                    return backgroundByRecord.get(data)
+                }
+                const backgroundColor = computeConditionalFormattingBackground(data)
+                backgroundByRecord.set(data, backgroundColor)
+                return backgroundColor
+            }
 
             return {
                 ...columnMeta,
@@ -130,11 +212,18 @@ export const Table = (props: TableProps): JSX.Element => {
                                   ? sourceColumnTitle
                                   : String(sourceColumnTitle)
 
-                        return <div className="truncate">{renderedSourceColumnTitle}</div>
+                        return (
+                            <div
+                                className="truncate"
+                                title={typeof sourceColumnTitle === 'string' ? sourceColumnTitle : undefined}
+                            >
+                                {renderedSourceColumnTitle}
+                            </div>
+                        )
                     }
 
                     return (
-                        <div className="truncate">
+                        <div className="truncate" title={getCellTitle(cell)}>
                             {renderColumn(
                                 cell.sourceColumnName ?? column.name,
                                 cell.formattedValue,
@@ -150,70 +239,14 @@ export const Table = (props: TableProps): JSX.Element => {
                     )
                 },
                 style: (_, data) => {
-                    const cell = data[index]
-
-                    if (cell.isTransposedHeader) {
-                        return undefined
-                    }
-
-                    const sourceColumnName = cell.sourceColumnName ?? column.name
-                    const sourceColumnType =
-                        sourceTabularColumnsByName.get(sourceColumnName)?.column.type.name ?? cell.type
-                    const cf = conditionalFormattingRules
-                        .filter((n) => n.columnName === sourceColumnName)
-                        .filter((n) => {
-                            const isValidHog = !!n.bytecode && n.bytecode.length > 0 && n.bytecode[0] === '_H'
-                            if (!isValidHog) {
-                                posthog.captureException(new Error('Invalid hog bytecode for conditional formatting'), {
-                                    formatRule: n,
-                                })
-                            }
-
-                            return isValidHog
-                        })
-                        .map((n) => {
-                            const res = execHog(n.bytecode, {
-                                globals: {
-                                    value: cell.value,
-                                    input: convertTableValue(n.input, sourceColumnType),
-                                },
-                                functions: {},
-                                maxAsyncSteps: 0,
-                            })
-
-                            return {
-                                rule: n,
-                                result: res.result,
-                            }
-                        })
-
-                    const conditionalFormattingMatches = cf.find((n) => Boolean(n.result))
-
-                    if (conditionalFormattingMatches) {
-                        const ruleColor = conditionalFormattingMatches.rule.color
-                        const colorMode = conditionalFormattingMatches.rule.colorMode ?? 'light'
-
-                        // If the color mode matches the current theme, return as it was saved
-                        if ((colorMode === 'dark' && isDarkModeOn) || (colorMode === 'light' && !isDarkModeOn)) {
-                            return {
-                                backgroundColor: ruleColor,
-                            }
-                        }
-
-                        // If the color mode is dark, but we're in light mode - then lighten the color
-                        if (colorMode === 'dark' && !isDarkModeOn) {
-                            return {
-                                backgroundColor: lightenDarkenColor(ruleColor, 30),
-                            }
-                        }
-
-                        // If the color mode is light, but we're in dark mode - then darken the color
-                        return {
-                            backgroundColor: lightenDarkenColor(ruleColor, -30),
-                        }
-                    }
-
-                    return undefined
+                    const backgroundColor = resolveConditionalFormattingBackground(data)
+                    return backgroundColor ? { backgroundColor } : undefined
+                },
+                className: (_, data) => {
+                    const backgroundColor = resolveConditionalFormattingBackground(data)
+                    // Pin the text color to the cell background rather than inheriting the theme's text
+                    // color, which is near-white in dark mode and unreadable on light backgrounds
+                    return backgroundColor ? getContrastingTextClass(backgroundColor) : ''
                 },
             }
         }
@@ -242,7 +275,11 @@ export const Table = (props: TableProps): JSX.Element => {
                         }
                     />
                 ) : (
-                    <InsightEmptyState heading="There are no matching rows for this query" detail="" />
+                    <InsightEmptyState
+                        heading="There are no matching rows for this query"
+                        detail=""
+                        sampleDataVariant="table"
+                    />
                 )
             }
             footer={tabularData.length > 0 ? <LoadNext query={props.query} /> : null}

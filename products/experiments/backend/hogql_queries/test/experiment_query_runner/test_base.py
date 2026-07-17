@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -20,12 +21,15 @@ from posthog.schema import (
     PropertyOperator,
 )
 
-from posthog.models.cohort.cohort import Cohort
+from posthog.hogql import ast
+
 from posthog.models.group.util import create_group
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import count_cohort_members
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.utils import (
@@ -35,6 +39,31 @@ from products.experiments.backend.hogql_queries.test.experiment_query_runner.uti
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
+    def test_deleted_feature_flag_tombstone_uses_original_key_for_query_builder(self):
+        feature_flag = self.create_feature_flag(key="deleted-experiment-flag")
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        original_key = feature_flag.key
+        feature_flag.key = f"{original_key}:deleted:{feature_flag.id}"
+        feature_flag.deleted = True
+        feature_flag.save(update_fields=["key", "deleted"])
+
+        metric = ExperimentMeanMetric(source=EventsNode(event="$pageview"))
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        with patch(
+            "products.experiments.backend.hogql_queries.experiment_query_runner.ExperimentQueryBuilder"
+        ) as builder_class:
+            builder_class.return_value.build_query.return_value = ast.SelectQuery(select=[])
+
+            query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+            query_runner._get_experiment_query()
+
+        self.assertEqual(builder_class.call_args.kwargs["feature_flag_key"], original_key)
+
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_query_runner_includes_date_range(self):
@@ -1188,7 +1217,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         if filter_name == "cohort_static" and cohort:
             cohort.insert_users_by_list(["user_control_1", "user_control_2", "user_test_2"])
-            self.assertEqual(cohort.people.count(), 3)
+            self.assertEqual(count_cohort_members(cohort.team_id, cohort.id, consistency="strong"), 3)
         elif filter_name == "cohort_dynamic" and cohort:
             cohort.calculate_people_ch(pending_version=0)
 

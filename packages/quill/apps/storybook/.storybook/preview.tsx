@@ -1,8 +1,8 @@
 import './storybook.css'
 
-import { DocsContainer } from '@storybook/addon-docs'
+import { DocsContainer } from '@storybook/addon-docs/blocks'
 import type { Preview } from '@storybook/react'
-import { themes } from '@storybook/theming'
+import { themes } from 'storybook/theming'
 import React, { useEffect, useState } from 'react'
 import { useDarkMode } from 'storybook-dark-mode'
 
@@ -23,6 +23,21 @@ function ThemedDocsContainer(props: React.ComponentProps<typeof DocsContainer>):
 }
 
 const preview: Preview = {
+    globalTypes: {
+        desktop: {
+            name: 'Desktop mode',
+            description: 'Toggle the Electron desktop app surface (adds `is-desktop` to <body>)',
+            defaultValue: 'web',
+            toolbar: {
+                icon: 'browser',
+                items: [
+                    { value: 'web', icon: 'browser', title: 'Web (pointer cursor)' },
+                    { value: 'desktop', icon: 'box', title: 'Desktop (default cursor)' },
+                ],
+                dynamicTitle: true,
+            },
+        },
+    },
     parameters: {
         controls: {
             matchers: {
@@ -48,8 +63,30 @@ const preview: Preview = {
         docs: {
             container: ThemedDocsContainer,
         },
+        options: {
+            // Deterministic sidebar: without this, order is file-discovery
+            // order, and the dev server appends newly created story files to
+            // the end of the live index until a restart.
+            storySort: {
+                order: ['Tokens', 'Examples', 'Primitives', 'Components'],
+                method: 'alphabetical',
+            },
+        },
     },
     decorators: [
+        // Mirrors the `desktop` toolbar global onto `<body class="is-desktop">`,
+        // matching how the Electron app tags its shell — lets the cursor reset
+        // (and any future desktop-only styling) be previewed live.
+        (Story, context) => {
+            const isDesktop = context.globals.desktop === 'desktop'
+
+            useEffect(() => {
+                document.body.classList.toggle('is-desktop', isDesktop)
+                return () => document.body.classList.remove('is-desktop')
+            }, [isDesktop])
+
+            return <Story />
+        },
         // Hooks must run at the decorator's top level — Storybook's preview
         // hooks context (which `useDarkMode` relies on) is only active here,
         // not inside nested components a decorator renders. Syncs the signal to

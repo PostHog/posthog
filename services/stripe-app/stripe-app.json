@@ -2,7 +2,7 @@
     "$schema": "https://stripe.com/stripe-app.schema.json",
     "id": "com.posthog.stripe",
     "name": "PostHog",
-    "version": "1.2.10",
+    "version": "1.2.11",
     "icon": "./assets/logomark.png",
     "provisioning": {
         "base_url": "https://us.posthog.com/api/agentic/",
@@ -128,6 +128,5 @@
         "https://app.posthog.com/integrations/stripe/callback"
     ],
     "distribution_type": "public",
-    "stripe_api_access_type": "oauth",
-    "sandbox_install_compatible": true
+    "stripe_api_access_type": "oauth"
 }

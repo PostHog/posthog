@@ -2,14 +2,14 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "id": {
-            "description": "A UUID string identifying this ticket.",
+            "description": "The ticket's UUID or its numeric ticket number.",
             "type": "string"
         },
         "priority": {
             "anyOf": [
                 {
-                    "description": "* `low` - Low\n* `medium` - Medium\n* `high` - High",
-                    "enum": ["low", "medium", "high"],
+                    "description": "* `low` - Low\n* `medium` - Medium\n* `high` - High\n* `critical` - Critical",
+                    "enum": ["low", "medium", "high", "critical"],
                     "type": "string"
                 },
                 {
@@ -20,7 +20,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Ticket priority: low, medium, or high. Null if unset.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High"
+            "description": "Ticket priority: low, medium, high, or critical. Null if unset.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High\n* `critical` - Critical"
         },
         "sla_due_at": {
             "anyOf": [

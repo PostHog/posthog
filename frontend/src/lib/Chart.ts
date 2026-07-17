@@ -1,10 +1,11 @@
 /* oxlint-disable no-restricted-imports */
-import { BoxAndWiskers, BoxPlotController } from '@sgratzl/chartjs-chart-boxplot'
+import 'chartjs-adapter-dayjs-3'
+
 import { ChartType, DefaultDataPoint, Chart as RawChart, Tooltip, registerables } from 'chart.js'
 import CrosshairPlugin from 'chartjs-plugin-crosshair'
 import ZoomPlugin from 'chartjs-plugin-zoom'
 
-import { inStorybookTestRunner } from 'lib/utils'
+import { inStorybookTestRunner } from 'lib/utils/dom'
 
 if (registerables) {
     // required for storybook to work, not found in esbuild
@@ -12,7 +13,6 @@ if (registerables) {
 }
 RawChart.register(CrosshairPlugin)
 RawChart.register(ZoomPlugin)
-RawChart.register(BoxPlotController, BoxAndWiskers)
 RawChart.defaults.animation = false
 
 // Create positioner to put tooltip at cursor position

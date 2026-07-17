@@ -6,9 +6,17 @@
     "tasks": {
         "backend:test": {
             "inputs": [
-                "**/*.py",
-                "!**/__pycache__/**",
-                "!frontend/**",
+                "backend/**/*.py",
+                "!backend/**/__pycache__/**",
+                // A few products run pytest against roots outside backend/:
+                // experiments (stats/), logs (skills/), posthog_ai (scripts/).
+                // These globs anchor per-package, so they only match where the
+                // dir exists. Do NOT collapse to a leading "**/*.py" — that
+                // resolves from the workspace root and marks every product's
+                // backend:test affected on any .py change, forcing the full suite.
+                "stats/**/*.py",
+                "skills/**/*.py",
+                "scripts/**/*.py",
                 "../../pyproject.toml",
                 "../../uv.lock",
                 "../../common/**/*.py"
@@ -56,7 +64,11 @@
                 "REDIS_URL",
                 "NODE_OPTIONS",
                 "PERSONS_DATABASE_URL",
-                "PERSONS_READONLY_DATABASE_URL"
+                "PERSONS_READONLY_DATABASE_URL",
+                "JEST_JUNIT_OUTPUT_DIR",
+                "JEST_JUNIT_OUTPUT_NAME",
+                "JEST_JUNIT_SUITE_NAME",
+                "JEST_JUNIT_ADD_FILE_ATTRIBUTE"
             ]
         },
         "start": {

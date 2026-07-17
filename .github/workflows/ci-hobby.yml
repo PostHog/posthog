@@ -25,7 +25,7 @@ permissions:
 
 jobs:
     # Determine if we should run based on changed files or preview label
-    # See https://github.com/dorny/paths-filter#conditional-execution
+    # See .github/actions/paths-filter/README.md for filter semantics
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -44,7 +44,7 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
@@ -102,7 +102,6 @@ jobs:
         if: github.event_name == 'pull_request' && needs.changes.outputs.should_run == 'true'
         outputs:
             preview-mode: ${{ steps.check-preview.outputs.preview }}
-            comment-id: ${{ steps.post-comment.outputs.comment-id }}
             deployment-id: ${{ steps.create-deployment.outputs.deployment-id }}
             conclusion: ${{ steps.wait-for-image.outputs.conclusion }}
         steps:
@@ -141,69 +140,18 @@ jobs:
                           console.log('Defaulting to smoke test mode');
                           fs.appendFileSync(process.env.GITHUB_OUTPUT, 'preview=false\n');
                       }
-            - name: Post initial PR comment
-              id: post-comment
-              if: steps.check-preview.outputs.preview == 'true'
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
-              env:
-                  PREVIEW_MODE: ${{ steps.check-preview.outputs.preview }}
+            - name: Check out CI report scripts
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  script: |
-                      const commentMarker = '<!-- hobby-ci-comment -->';
-                      const previewMode = process.env.PREVIEW_MODE === 'true';
-
-                      // Find existing comment to update (in case of workflow retry)
-                      const { data: comments } = await github.rest.issues.listComments({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          issue_number: context.issue.number,
-                      });
-
-                      const existingComment = comments.find(c => c.body.includes(commentMarker));
-
-                      const initialBody = `${commentMarker}
-                      ## 🦔 Preview instance
-
-                      ${previewMode ? '🔄 **Preview mode** - Reusing or creating persistent droplet' : '🧪 **Smoke test mode** - Creating ephemeral droplet'}
-
-                      ⏳ Setting up instance... (this takes ~30 minutes)
-
-                      **Commit:** \`${context.sha.substring(0, 7)}\`
-                      **Workflow run:** [#${context.runNumber}](${context.payload.repository.html_url}/actions/runs/${context.runId})
-                      `;
-
-                      let commentId;
-                      if (existingComment) {
-                          // Update existing comment
-                          await github.rest.issues.updateComment({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              comment_id: existingComment.id,
-                              body: initialBody,
-                          });
-                          commentId = existingComment.id;
-                          console.log(`Updated existing comment ${commentId}`);
-                      } else {
-                          // Create new comment
-                          const { data: newComment } = await github.rest.issues.createComment({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              issue_number: context.issue.number,
-                              body: initialBody,
-                          });
-                          commentId = newComment.id;
-                          console.log(`Created new comment ${commentId}`);
-                      }
-
-                      // Save comment ID for later update
-                      const fs = require('fs');
-                      const path = require('path');
-                      const outputFile = path.join(process.env.RUNNER_TEMP, 'hobby-comment-id.txt');
-                      fs.writeFileSync(outputFile, commentId.toString());
-
-                      // Also set as step output for the changes job to pick up
-                      const output = `comment-id=${commentId}`;
-                      fs.appendFileSync(process.env.GITHUB_OUTPUT, `${output}\n`);
+                  sparse-checkout: |
+                      .github
+                      frontend/bin/ci-report
+            - name: Post initial hobby preview status
+              if: steps.check-preview.outputs.preview == 'true'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  PREVIEW_MODE: ${{ steps.check-preview.outputs.preview }}
+              run: node .github/scripts/post-hobby-section.mjs initial
             - name: Create GitHub deployment
               id: create-deployment
               if: steps.check-preview.outputs.preview == 'true'
@@ -240,49 +188,21 @@ jobs:
 
                       fs.appendFileSync(process.env.GITHUB_OUTPUT, `deployment-id=${deployment.id}\n`);
             - name: Wait for container image build to complete
-              uses: fountainhead/action-wait-for-check@5a908a24814494009c4bb27c242ea38c93c593be # v1.2.0
+              uses: ./.github/actions/wait-for-check
               id: wait-for-image
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
                   checkName: Build Docker image
                   ref: ${{ github.event.pull_request.head.sha }}
-                  timeoutSeconds: 3600
-                  intervalSeconds: 30
-            - name: Update comment - Docker build failed
+                  timeoutSeconds: '3600'
+                  intervalSeconds: '30'
+            - name: Post Docker build failure to CI report
               if: always() && steps.check-preview.outputs.preview == 'true' && steps.wait-for-image.outputs.conclusion != 'success'
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               env:
-                  COMMENT_ID: ${{ steps.post-comment.outputs.comment-id }}
+                  GITHUB_TOKEN: ${{ github.token }}
+                  PREVIEW_MODE: ${{ steps.check-preview.outputs.preview }}
                   BUILD_CONCLUSION: ${{ steps.wait-for-image.outputs.conclusion }}
-              with:
-                  script: |
-                      const commentMarker = '<!-- hobby-ci-comment -->';
-                      const commentId = process.env.COMMENT_ID;
-                      const buildConclusion = process.env.BUILD_CONCLUSION;
-
-                      const errorBody = `${commentMarker}
-                      ## 🦔 Preview instance
-
-                      ❌ **Docker image build failed**
-
-                      The Docker image build did not complete successfully (status: ${buildConclusion}).
-
-                      **What to do:**
-                      - Check the [Docker build workflow](${context.payload.repository.html_url}/actions/runs/${context.runId})
-                      - Look for build errors in the container image build step
-                      - Fix any Dockerfile syntax errors or dependency issues
-                      - Push a new commit to retry
-
-                      **Commit:** \`${context.sha.substring(0, 7)}\`
-                      **Workflow run:** [#${context.runNumber}](${context.payload.repository.html_url}/actions/runs/${context.runId})
-                      `;
-
-                      await github.rest.issues.updateComment({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          comment_id: parseInt(commentId),
-                          body: errorBody,
-                      });
+              run: node .github/scripts/post-hobby-section.mjs build-failed
             - name: Check Docker image build result
               env:
                   BUILD_CONCLUSION: ${{ steps.wait-for-image.outputs.conclusion }}
@@ -295,35 +215,12 @@ jobs:
                     echo "Docker image build failed with conclusion: $conclusion"
                     exit 1
                   fi
-            - name: Update comment - Docker image ready
+            - name: Post Docker image ready status to CI report
               if: steps.check-preview.outputs.preview == 'true' && steps.wait-for-image.outputs.conclusion == 'success'
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               env:
-                  COMMENT_ID: ${{ steps.post-comment.outputs.comment-id }}
+                  GITHUB_TOKEN: ${{ github.token }}
                   PREVIEW_MODE: ${{ steps.check-preview.outputs.preview }}
-              with:
-                  script: |
-                      const commentMarker = '<!-- hobby-ci-comment -->';
-                      const commentId = process.env.COMMENT_ID;
-                      const previewMode = process.env.PREVIEW_MODE === 'true';
-
-                      const updatedBody = `${commentMarker}
-                      ## 🦔 Preview instance
-
-                      ${previewMode ? '🔄 **Preview mode** - Reusing or creating persistent droplet' : '🧪 **Smoke test mode** - Creating ephemeral droplet'}
-
-                      ✅ Docker image ready, creating instance...
-
-                      **Commit:** \`${context.sha.substring(0, 7)}\`
-                      **Workflow run:** [#${context.runNumber}](${context.payload.repository.html_url}/actions/runs/${context.runId})
-                      `;
-
-                      await github.rest.issues.updateComment({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          comment_id: parseInt(commentId),
-                          body: updatedBody,
-                      });
+              run: node .github/scripts/post-hobby-section.mjs image-ready
 
     hobby-test:
         runs-on: ubuntu-24.04
@@ -343,11 +240,10 @@ jobs:
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
               with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
             - name: Set environment variables from previous job
               run: |
                   echo "PREVIEW_MODE=${{ github.event_name == 'pull_request' && needs.wait-for-docker-image.outputs.preview-mode || 'false' }}" >> $GITHUB_ENV
-                  echo "HOBBY_COMMENT_ID=${{ needs.wait-for-docker-image.outputs.comment-id }}" >> $GITHUB_ENV
                   echo "HOBBY_DEPLOYMENT_ID=${{ needs.wait-for-docker-image.outputs.deployment-id }}" >> $GITHUB_ENV
             - name: Setup DO Hobby Instance
               run: uv run bin/hobby-ci.py create "$BRANCH_NAME" "${{ github.run_id }}-${{ github.run_attempt }}" "${{ github.sha }}" "${{ github.event.pull_request.number || 'unknown' }}" 2>&1 | tee /tmp/hobby-ci-output.txt
@@ -356,45 +252,11 @@ jobs:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
                   DIGITALOCEAN_SSH_PRIVATE_KEY: ${{ secrets.DO_DEPLOY_SSH_PRIVATE_KEY }}
                   INSTALLER_CHANGED: ${{ needs.changes.outputs.installer_changed || 'false' }}
-            - name: Update comment - Instance created
-              if: env.PREVIEW_MODE == 'true' && env.HOBBY_COMMENT_ID
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
-              with:
-                  script: |
-                      const fs = require('fs');
-                      const commentMarker = '<!-- hobby-ci-comment -->';
-                      const commentId = process.env.HOBBY_COMMENT_ID;
-                      const previewMode = process.env.PREVIEW_MODE === 'true';
-
-                      const dropletInfo = fs.existsSync('/tmp/droplet_info.txt')
-                          ? fs.readFileSync('/tmp/droplet_info.txt', 'utf8')
-                          : '';
-
-                      // Parse droplet info for quick access
-                      let instanceUrl = '';
-                      if (dropletInfo) {
-                          const urlMatch = dropletInfo.match(/URL: (.*)/);
-                          if (urlMatch) instanceUrl = urlMatch[1];
-                      }
-
-                      const updatedBody = `${commentMarker}
-                      ## 🦔 Preview instance
-
-                      ${previewMode ? '🔄 **Preview mode** - Reusing or creating persistent droplet' : '🧪 **Smoke test mode** - Creating ephemeral droplet'}
-
-                      ✅ Instance created, running smoke tests...
-                      ${instanceUrl ? `\n🌐 **URL:** ${instanceUrl}` : ''}
-
-                      **Commit:** \`${context.sha.substring(0, 7)}\`
-                      **Workflow run:** [#${context.runNumber}](${context.payload.repository.html_url}/actions/runs/${context.runId})
-                      `;
-
-                      await github.rest.issues.updateComment({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          comment_id: parseInt(commentId),
-                          body: updatedBody,
-                      });
+            - name: Post instance created status to CI report
+              if: env.PREVIEW_MODE == 'true'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: node .github/scripts/post-hobby-section.mjs instance-created
             - name: Update GitHub deployment - instance created
               if: env.PREVIEW_MODE == 'true' && env.HOBBY_DEPLOYMENT_ID
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
@@ -468,134 +330,11 @@ jobs:
               env:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
                   DIGITALOCEAN_SSH_PRIVATE_KEY: ${{ secrets.DO_DEPLOY_SSH_PRIVATE_KEY }}
-            - name: Update PR comment with final status
-              if: always() && env.PREVIEW_MODE == 'true' && env.HOBBY_COMMENT_ID
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
-              with:
-                  script: |
-                      const fs = require('fs');
-                      const commentMarker = '<!-- hobby-ci-comment -->';
-                      const commentId = process.env.HOBBY_COMMENT_ID;
-                      const previewMode = process.env.PREVIEW_MODE === 'true';
-                      const testExitCode = process.env.TEST_EXIT_CODE;
-
-                      let output = '';
-                      try {
-                          output = fs.readFileSync('/tmp/hobby-ci-output.txt', 'utf8');
-                      } catch (error) {
-                          output = 'Could not read hobby-ci output';
-                      }
-
-                      const dropletInfo = fs.existsSync('/tmp/droplet_info.txt')
-                          ? fs.readFileSync('/tmp/droplet_info.txt', 'utf8')
-                          : '';
-
-                      // Parse droplet info for nice display
-                      let instanceUrl = '';
-                      let sshCommand = '';
-                      let dropletIp = '';
-                      if (dropletInfo) {
-                          const urlMatch = dropletInfo.match(/URL: (.*)/);
-                          const sshMatch = dropletInfo.match(/SSH: (.*)/);
-                          const ipMatch = dropletInfo.match(/Droplet IP: (.*)/);
-                          if (urlMatch) instanceUrl = urlMatch[1];
-                          if (sshMatch) sshCommand = sshMatch[1];
-                          if (ipMatch) dropletIp = ipMatch[1];
-                      }
-
-                      // Determine status
-                      const testPassed = testExitCode === '0';
-                      const instanceCreated = dropletInfo !== '';
-
-                      let statusEmoji = '✅';
-                      let statusText = previewMode ? 'Preview deployment ready' : 'Smoke test passed';
-                      let errorSection = '';
-
-                      if (!instanceCreated) {
-                          statusEmoji = '❌';
-                          statusText = 'Instance creation failed';
-                          errorSection = `
-                      ### ❌ Deployment Error
-
-                      The instance could not be created. Check the deployment output below for details.
-
-                      **Troubleshooting:**
-                      - Check if DigitalOcean API is accessible
-                      - Verify DIGITALOCEAN_TOKEN secret is valid
-                      - Review cloud-init logs in the workflow artifacts
-
-                      **Workflow logs:** [View full logs](${context.payload.repository.html_url}/actions/runs/${context.runId})
-                      `;
-                      } else if (!testPassed) {
-                          statusEmoji = '❌';
-                          statusText = 'Smoke tests failed';
-
-                          // Get last 30 lines of cloud-init logs if available
-                          let recentLogs = '';
-                          try {
-                              const cloudInitLogs = fs.readFileSync('/tmp/cloud-init-output.log', 'utf8');
-                              const logLines = cloudInitLogs.trim().split('\n');
-                              recentLogs = logLines.slice(-30).join('\n');
-                          } catch (e) {
-                              recentLogs = 'Could not fetch cloud-init logs';
-                          }
-
-                          errorSection = `
-                      ### ❌ Test Failure
-
-                      The deployment was created but health checks failed.
-
-                      **Quick diagnostics:**
-                      ${instanceUrl ? `- Try accessing manually: ${instanceUrl}` : ''}
-                      ${sshCommand ? `- SSH to debug: \`${sshCommand}\`\n  Then run: \`tail -f /var/log/cloud-init-output.log\`\n  And: \`docker-compose logs\`` : ''}
-
-                      <details>
-                      <summary>Recent cloud-init logs (last 30 lines)</summary>
-
-                      \`\`\`
-                      ${recentLogs}
-                      \`\`\`
-                      </details>
-
-                      **Common issues:**
-                      - Container failed to start (check docker-compose logs)
-                      - Database migration issues (check postgres/clickhouse logs)
-                      - Out of memory (instance needs 4GB+)
-
-                      **Full logs:** Check workflow artifacts or [view logs](${context.payload.repository.html_url}/actions/runs/${context.runId})
-                      `;
-                      }
-
-                      const commentBody = `${commentMarker}
-                      ## 🦔 Preview instance
-
-                      ${statusEmoji} **${statusText}**
-
-                      ${instanceUrl ? `### 🌐 Access the instance\n**URL:** ${instanceUrl}\n` : ''}
-                      ${sshCommand ? `**SSH:** \`${sshCommand}\`\n` : ''}
-                      ${dropletIp ? `**IP:** \`${dropletIp}\`\n` : ''}
-
-                      **Mode:** ${previewMode ? '🔄 Preview (persistent)' : '🧪 Smoke test (ephemeral)'}
-                      **Commit:** \`${context.sha.substring(0, 7)}\`
-                      **Workflow run:** [#${context.runNumber}](${context.payload.repository.html_url}/actions/runs/${context.runId})
-                      ${errorSection}
-                      ${dropletInfo && testPassed ? '\n<details>\n<summary>Full instance details</summary>\n\n```\n' + dropletInfo + '```\n</details>\n' : ''}
-
-                      <details>
-                      <summary>Deployment output</summary>
-
-                      \`\`\`
-                      ${output}
-                      \`\`\`
-                      </details>
-                      `;
-
-                      await github.rest.issues.updateComment({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          comment_id: parseInt(commentId),
-                          body: commentBody,
-                      });
+            - name: Post final hobby preview status to CI report
+              if: always() && env.PREVIEW_MODE == 'true'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: node .github/scripts/post-hobby-section.mjs final
             - name: Update GitHub deployment status
               if: always() && env.PREVIEW_MODE == 'true' && env.HOBBY_DEPLOYMENT_ID
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
@@ -675,4 +414,7 @@ jobs:
             deployments: write
         with:
             pr_number: ${{ github.event.pull_request.number }}
-        secrets: inherit
+        secrets:
+            DIGITAL_OCEAN_HOBBY_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
+            CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+            CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

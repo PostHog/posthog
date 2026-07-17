@@ -5,7 +5,7 @@ from django.db.models import Q, QuerySet
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import SAFE_METHODS
 from rest_framework.response import Response
 
@@ -18,13 +18,22 @@ from posthog.models import ColumnConfiguration
 
 
 class ColumnConfigurationSerializer(serializers.ModelSerializer):
-    filters = serializers.JSONField(required=False, default=dict)
+    filters = serializers.JSONField(
+        required=False,
+        default=dict,
+        help_text="Column filter state persisted with this view configuration.",
+    )
     order_by = serializers.ListField(
         child=serializers.CharField(),
         required=False,
         allow_null=True,
         allow_empty=True,
         help_text="Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.",
+    )
+    properties = serializers.JSONField(
+        required=False,
+        default=dict,
+        help_text="Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display).",
     )
 
     class Meta:
@@ -36,6 +45,7 @@ class ColumnConfigurationSerializer(serializers.ModelSerializer):
             "name",
             "filters",
             "order_by",
+            "properties",
             "visibility",
             "created_by",
             "created_at",
@@ -47,6 +57,13 @@ class ColumnConfigurationSerializer(serializers.ModelSerializer):
         if not filters:
             return []
         return filters
+
+    def validate_properties(self, properties):
+        # create() validates this inline for a uniform error envelope, but that gate
+        # doesn't run on partial updates — guard PATCH here so a non-dict can't be stored.
+        if properties is not None and not isinstance(properties, dict):
+            raise serializers.ValidationError("properties must be an object")
+        return properties
 
     def to_representation(self, instance: ColumnConfiguration):
         values = super().to_representation(instance)
@@ -61,16 +78,21 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ColumnConfigurationSerializer
 
     def safely_get_queryset(self, queryset):
+        # Always visibility-scope (own private + team shared) so a request without a
+        # context_key — or an object lookup by id — can't reach another user's private view.
+        queryset = queryset.filter(Q(visibility="private", created_by=self.request.user) | Q(visibility="shared"))
         context_key = self.request.GET.get("context_key")
         if context_key:
-            queryset = queryset.filter(
-                Q(context_key=context_key)
-                & (Q(visibility="private", created_by=self.request.user) | Q(visibility="shared"))
-            )
+            queryset = queryset.filter(context_key=context_key)
         return queryset.order_by("visibility", "-created_at")
 
     def safely_get_object(self, queryset: QuerySet) -> Any:
-        object = queryset.get(pk=self.kwargs["pk"])
+        try:
+            object = queryset.get(pk=self.kwargs["pk"])
+        except ColumnConfiguration.DoesNotExist:
+            # The queryset is visibility-scoped, so a row outside it (another user's private
+            # view, or a wrong id) is a 404 — not an unhandled 500.
+            raise NotFound("View not found")
 
         if self.request.method not in SAFE_METHODS and object.created_by != self.request.user:
             raise PermissionDenied("You do not have permission to change this view")
@@ -109,6 +131,10 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             if len(order_by) > 100:
                 return Response({"error": "cannot order by more than 100 expressions"}, status=400)
+
+        properties = request.data.get("properties")
+        if properties is not None and not isinstance(properties, dict):
+            return Response({"error": "properties must be an object"}, status=400)
 
         return super().create(request, *args, **kwargs)
 

@@ -57,6 +57,12 @@
     --muted-foreground: var(--color-text-secondary);
     --border: var(--color-border-primary);
     --input: var(--color-border-secondary);
+
+    /* Quill chart canvas tokens (read by useChartTheme) — map onto the host's theme vars
+     * so the canvas tracks light/dark like the rest of the UI. */
+    --color-graph-axis-label: var(--color-text-secondary);
+    --color-graph-axis-line: var(--color-border-primary);
+    --color-graph-crosshair: var(--color-text-secondary);
 }
 
 /* Scan our own source files (apps, components, shared lib) plus product MCP apps and Quill primitives. */
@@ -66,3 +72,4 @@
 @source "../../../../../products/*/mcp/**/*.tsx";
 @source "../../../../../packages/quill/packages/primitives/src/**/*.{ts,tsx}";
 @source "../../../../../packages/quill/packages/components/src/**/*.{ts,tsx}";
+@source "../../../../../packages/quill/packages/charts/src/**/*.{ts,tsx}";

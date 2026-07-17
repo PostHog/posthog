@@ -2,7 +2,7 @@ import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useState } from 'react'
 
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { getCurrencySymbol } from 'lib/utils/currency'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 

@@ -1,6 +1,9 @@
 import { FilterLogicalOperator, HogFunctionType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { LogsAlertConfigurationApi, ThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
+import {
+    LogsAlertConfigurationApi,
+    LogsAlertThresholdOperatorEnumApi,
+} from 'products/logs/frontend/generated/api.schemas'
 
 import { LogsAlertFormType } from '../logsAlertFormLogic'
 import { buildLogsAlertFilterConfig, groupLogsAlertDestinations, runPreEnableChecks } from '../logsAlertUtils'
@@ -17,7 +20,7 @@ const baseForm = (overrides: Partial<LogsAlertFormType> = {}): LogsAlertFormType
     severityLevels: ['error'],
     serviceNames: [],
     filterGroup: { type: FilterLogicalOperator.And, values: [] },
-    thresholdOperator: ThresholdOperatorEnumApi.Above,
+    thresholdOperator: LogsAlertThresholdOperatorEnumApi.Above,
     thresholdCount: 1,
     windowMinutes: 5,
     evaluationPeriods: 1,
@@ -50,6 +53,7 @@ describe('logsAlertUtils', () => {
                 id,
                 name: `slack-${id}`,
                 enabled,
+                template: { id: 'template-slack' },
                 inputs: { channel: { value: channel } },
                 filters: {},
             }) as unknown as HogFunctionType
@@ -59,7 +63,18 @@ describe('logsAlertUtils', () => {
                 id,
                 name: `webhook-${id}`,
                 enabled,
+                template: { id: 'template-webhook' },
                 inputs: { url: { value: url } },
+                filters: {},
+            }) as unknown as HogFunctionType
+
+        const teamsHf = (id: string, url: string, enabled = true): HogFunctionType =>
+            ({
+                id,
+                name: `teams-${id}`,
+                enabled,
+                template: { id: 'template-microsoft-teams' },
+                inputs: { webhookUrl: { value: url } },
                 filters: {},
             }) as unknown as HogFunctionType
 
@@ -92,6 +107,22 @@ describe('logsAlertUtils', () => {
                 key: 'webhook:https://example.com/hook',
                 type: 'webhook',
                 label: 'Webhook https://example.com/hook',
+            })
+            expect(groups[0].hogFunctions).toHaveLength(2)
+        })
+
+        it('collapses multiple HogFunctions for the same teams url into one group', () => {
+            const teamsUrl = 'https://prod-00.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke'
+            const a = teamsHf('hf-1', teamsUrl)
+            const b = teamsHf('hf-2', teamsUrl)
+
+            const groups = groupLogsAlertDestinations([a, b], resolveSlack)
+
+            expect(groups).toHaveLength(1)
+            expect(groups[0]).toMatchObject({
+                key: `teams:${teamsUrl}`,
+                type: 'teams',
+                label: `Microsoft Teams ${teamsUrl}`,
             })
             expect(groups[0].hogFunctions).toHaveLength(2)
         })

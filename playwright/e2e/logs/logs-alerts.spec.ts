@@ -1,7 +1,7 @@
 import { Page } from '@playwright/test'
 
 import { mockFeatureFlags } from '../../utils/mockApi'
-import { expect, test } from '../../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
 const MOCK_ALERT_ID = '019d-mock-alert-id'
 
@@ -125,8 +125,8 @@ async function setupAlertMocks(
     return { alert: handle }
 }
 
-async function gotoAlertsList(page: Page): Promise<void> {
-    await page.goto('/project/1/logs?activeTab=alerts')
+async function gotoAlertsList(page: Page, teamId: string): Promise<void> {
+    await page.goto(`/project/${teamId}/logs?activeTab=alerts`)
     await page.evaluate(() => void (window as any).posthog?.reloadFeatureFlags?.())
     await expect(page.getByTestId('logs-alerts-new')).toBeVisible({ timeout: 15000 })
 }
@@ -148,7 +148,14 @@ async function addErrorSeverityFilter(page: Page): Promise<void> {
 }
 
 test.describe('Logs Alerts', () => {
-    test.beforeEach(async ({ page }) => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await playwrightSetup.login(page, workspace!)
         await mockFeatureFlags(page, { 'logs-tabbed-view': true, 'logs-alerting': true })
     })
 
@@ -156,7 +163,7 @@ test.describe('Logs Alerts', () => {
         await setupAlertMocks(page)
 
         await test.step('click-to-create lands on detail page in draft state', async () => {
-            await gotoAlertsList(page)
+            await gotoAlertsList(page, workspace!.team_id)
             await clickNewAlert(page)
             await expect(page.getByTestId('scene-title-textarea')).toBeVisible()
             await expect(page.getByTestId('logs-alert-enable-primary')).toBeVisible()
@@ -188,7 +195,7 @@ test.describe('Logs Alerts', () => {
     test('disabled-banner Enable button works on a dirty draft (regression for save-then-enable)', async ({ page }) => {
         await setupAlertMocks(page)
 
-        await gotoAlertsList(page)
+        await gotoAlertsList(page, workspace!.team_id)
         await clickNewAlert(page)
         await addErrorSeverityFilter(page)
 

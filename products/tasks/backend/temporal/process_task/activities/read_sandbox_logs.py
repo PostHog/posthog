@@ -6,7 +6,8 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.services.sandbox import Sandbox
+from products.tasks.backend.exceptions import SandboxNotRunningError
+from products.tasks.backend.logic.services.sandbox import Sandbox
 from products.tasks.backend.temporal.observability import log_activity_execution
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,9 @@ class ReadSandboxLogsInput:
     run_id: str | None = None
 
 
+SANDBOX_TERMINATED_MESSAGE = "Sandbox terminated before logs could be captured; no agent-server logs available."
+
+
 @activity.defn
 @asyncify
 def read_sandbox_logs(input: ReadSandboxLogsInput) -> str:
@@ -30,6 +34,9 @@ def read_sandbox_logs(input: ReadSandboxLogsInput) -> str:
     ):
         try:
             sandbox = Sandbox.get_by_id(input.sandbox_id)
+            if not sandbox.is_running():
+                logger.info(f"Sandbox {input.sandbox_id} already terminated; skipping log capture")
+                return SANDBOX_TERMINATED_MESSAGE
             result = sandbox.execute(
                 f"tail -c {MAX_LOG_SIZE} /tmp/agent-server.log 2>/dev/null || echo 'No log file found'",
                 timeout_seconds=10,
@@ -53,7 +60,7 @@ def read_sandbox_logs(input: ReadSandboxLogsInput) -> str:
 
             # agentsh audit events (network policy decisions)
             try:
-                from products.tasks.backend.services.agentsh import build_audit_query_command
+                from products.tasks.backend.logic.services.agentsh import build_audit_query_command
 
                 audit_result = sandbox.execute(build_audit_query_command(), timeout_seconds=10)
                 audit_output = audit_result.stdout.strip()
@@ -75,6 +82,9 @@ def read_sandbox_logs(input: ReadSandboxLogsInput) -> str:
                 logger.debug("agentsh audit query failed for sandbox %s", input.sandbox_id, exc_info=True)
 
             return logs
+        except SandboxNotRunningError:
+            logger.info(f"Sandbox {input.sandbox_id} terminated mid-capture; no logs available")
+            return SANDBOX_TERMINATED_MESSAGE
         except Exception as e:
             logger.warning(f"Failed to read sandbox logs: {e}")
             return f"Failed to read logs: {e}"

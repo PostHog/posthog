@@ -28,13 +28,16 @@ pub struct ParseError {
 pub enum ErrorKind {
     Syntax,
     NotImplemented,
+    /// Parser-layer error → `ParsingError` (cpp parity); emitted by `parse_string_literal_text` on empty input.
+    Parsing,
 }
 
 impl ErrorKind {
-    fn type_str(self) -> &'static str {
+    pub(crate) fn type_str(self) -> &'static str {
         match self {
             ErrorKind::Syntax => "SyntaxError",
             ErrorKind::NotImplemented => "NotImplementedError",
+            ErrorKind::Parsing => "ParsingError",
         }
     }
 }
@@ -56,6 +59,16 @@ impl ParseError {
             start,
             end,
             kind: ErrorKind::NotImplemented,
+            fatal: false,
+        }
+    }
+
+    pub fn parsing(message: impl Into<String>, start: usize, end: usize) -> Self {
+        Self {
+            message: message.into(),
+            start,
+            end,
+            kind: ErrorKind::Parsing,
             fatal: false,
         }
     }

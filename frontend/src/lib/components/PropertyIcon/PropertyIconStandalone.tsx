@@ -23,7 +23,7 @@ import {
     IconWeb,
     IconWindows,
 } from 'lib/lemon-ui/icons'
-import { countryCodeToFlag } from 'lib/utils/geography/country'
+import { countryCodeToFlag } from 'lib/utils/country'
 
 import { PropertyIconProps } from './types'
 

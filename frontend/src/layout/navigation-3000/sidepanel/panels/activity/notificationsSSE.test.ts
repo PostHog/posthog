@@ -18,6 +18,7 @@ function makeNotification(overrides: Partial<InAppNotification> = {}): InAppNoti
         body: '',
         read: false,
         read_at: null,
+        archivable: false,
         resource_type: null,
         resource_id: '',
         target_type: 'user',
@@ -25,6 +26,7 @@ function makeNotification(overrides: Partial<InAppNotification> = {}): InAppNoti
         source_url: '',
         source_type: null,
         source_id: null,
+        metadata: null,
         created_at: '2026-04-01T00:00:00Z',
         ...overrides,
     }

@@ -28,6 +28,11 @@ class TestSampling(TestCase):
         # The same string should have the same sampling decision at the same rate
         assert sample_on_property(test_string, 0.1) is result_at_10_percent
 
+    def test_sample_on_property_sub_one_percent_rate(self):
+        # sub-1% rates used to truncate to 0% and sample nothing
+        sampled = sum(1 for i in range(10_000) if sample_on_property(f"example.com:script-src-{i}", 0.005))
+        assert 0 < sampled < 200
+
     def test_clamp_to_range(self):
         assert clamp_to_range(5, 0, 10) == 5
         assert clamp_to_range(-5, 0, 10) == 0

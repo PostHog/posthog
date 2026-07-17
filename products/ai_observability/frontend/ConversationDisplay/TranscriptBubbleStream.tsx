@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { IconChevronRight } from '@posthog/icons'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { MessageTemplate } from 'scenes/max/messages/MessageTemplate'
+
+import { MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
 
 import { CompatMessage } from '../types'
 import {
@@ -92,7 +93,9 @@ function getInternalLabel(message: CompatMessage): string | undefined {
     if (message.role === INTERNAL_THINKING_ROLE) {
         return 'thinking'
     }
-    if (message.role === INTERNAL_TOOL_RESULT_ROLE) {
+    // `assistant (tool result)` is the normalized role; raw `tool` results (OpenAI chat, LangChain,
+    // OTel, OpenAI Agents SDK) keep `role: 'tool'` and would otherwise leak as visible bubbles.
+    if (message.role === INTERNAL_TOOL_RESULT_ROLE || message.role === 'tool') {
         return 'tool_result'
     }
     const internalTag = getInternalTagName(message)
@@ -105,7 +108,47 @@ function getInternalLabel(message: CompatMessage): string | undefined {
     return undefined
 }
 
-const AGENT_SIDE_LABELS = new Set<string>(['thinking', 'tool_result'])
+// Normalized tool calls are always `undefined` or non-empty (the coercer drops empty arrays).
+function isToolCallMessage(message: CompatMessage): boolean {
+    return Array.isArray(message.tool_calls) && message.tool_calls.length > 0
+}
+
+function isToolResultEntry(message: CompatMessage): boolean {
+    return (
+        message.role === INTERNAL_TOOL_RESULT_ROLE ||
+        message.role === 'tool' ||
+        isInternalToolResultUserMessage(message)
+    )
+}
+
+// A user-authored message — not a framework tool-result-user message and not a tag wrapper.
+function isGenuineUserMessage(message: CompatMessage): boolean {
+    return message.role === 'user' && getInternalLabel(message) === undefined
+}
+
+// An assistant text message is an intermediate "step" (narration/preamble), not the final answer,
+// when it either makes a tool call itself, or is followed by tool activity before the turn yields
+// back to the user. Only the final assistant text (no trailing tool activity) stays a bubble.
+function isIntermediateAssistantText(messages: CompatMessage[], index: number): boolean {
+    const message = messages[index]
+    if (message.role !== 'assistant') {
+        return false
+    }
+    if (isToolCallMessage(message)) {
+        return true
+    }
+    for (let j = index + 1; j < messages.length; j++) {
+        if (isGenuineUserMessage(messages[j])) {
+            return false
+        }
+        if (isToolCallMessage(messages[j]) || isToolResultEntry(messages[j])) {
+            return true
+        }
+    }
+    return false
+}
+
+const AGENT_SIDE_LABELS = new Set<string>(['thinking', 'tool_result', 'reasoning'])
 
 function pillSideFor(labels: string[]): 'left' | 'right' {
     return labels.length > 0 && AGENT_SIDE_LABELS.has(labels[0]) ? 'left' : 'right'
@@ -113,7 +156,8 @@ function pillSideFor(labels: string[]): 'left' | 'right' {
 
 function classifyMessages(messages: CompatMessage[]): SessionEntry[] {
     const result: SessionEntry[] = []
-    for (const message of messages) {
+    for (let i = 0; i < messages.length; i++) {
+        const message = messages[i]
         if (HIDDEN_ROLES.has(message.role)) {
             continue
         }
@@ -125,6 +169,12 @@ function classifyMessages(messages: CompatMessage[]): SessionEntry[] {
         const text = extractText(message)
         const nonText = hasNonTextContent(message)
         if (text.length === 0 && !nonText) {
+            continue
+        }
+        // Assistant narration that precedes/accompanies tool use is an intermediate step, not the
+        // final answer — collapse it into the internal pill alongside thinking and tool results.
+        if (isIntermediateAssistantText(messages, i)) {
+            result.push({ kind: 'internal', message, label: 'reasoning' })
             continue
         }
         result.push({ kind: 'bubble', message, text, nonText })

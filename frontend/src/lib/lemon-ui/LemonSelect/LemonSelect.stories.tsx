@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 

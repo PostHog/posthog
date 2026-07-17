@@ -1,0 +1,118 @@
+;; macOS Seatbelt profile for the dev stack (see bin/dev-sandbox).
+;;
+;; Goal: a malicious npm/pip dependency running inside a dev service must not be
+;; able to read credentials or other personal files from the developer's home
+;; directory. Strategy: deny-by-default for $HOME, then re-allow only the repo +
+;; the toolchain caches that legitimately live under $HOME. Everything outside
+;; $HOME (system libraries, the flox/nix store at /nix/store, /tmp) stays
+;; readable so the stack can actually run.
+;;
+;; Parameters are injected by bin/dev-sandbox via -D:
+;;   HOME      absolute path to the developer's home directory
+;;   PROJECT   canonical (physical) path to the repository root
+;;   MAINREPO  main repo root when PROJECT is a git worktree, else == PROJECT
+;;
+;; SBPL is last-match-wins, so the re-allows below override the broad denies.
+;;
+;; bin/dev-sandbox appends `(allow file-read* (literal ...))` for the directory
+;; chain between $HOME and the repo at runtime — the OS / node / getcwd must
+;; lstat+readdir those dir nodes to reach the repo. Only those specific nodes
+;; become readable; their non-repo contents stay denied by the rule below.
+
+(version 1)
+
+;; Broad base: process exec/fork, network, mach, sysctl, signals, etc.
+;; We only tighten filesystem reads/writes and the docker socket below.
+(allow default)
+
+;; ── Docker daemon socket ──────────────────────────────────────────────
+;; Reaching the docker daemon is a full sandbox escape: a dependency could run
+;; `docker run -v $HOME:/host ...` and the daemon (which runs outside Seatbelt)
+;; would mount the home dir into a container. bin/wait-for-docker runs OUTSIDE
+;; the sandbox instead (see the generator), so sandboxed code never needs this
+;; socket. Covers OrbStack and Docker Desktop.
+(deny network-outbound
+    (subpath (string-append (param "HOME") "/.orbstack/run"))
+    (subpath (string-append (param "HOME") "/.docker/run"))
+    (literal "/var/run/docker.sock")
+    (literal "/private/var/run/docker.sock"))
+
+;; ── Key/secret agent sockets ──────────────────────────────────────────
+;; Reaching an agent lets a dep USE credentials without reading the key files
+;; (sign SSH/GPG challenges, request 1Password secrets) — bypassing the read
+;; block's intent. The SSH agent ($SSH_AUTH_SOCK) is denied at runtime by
+;; bin/dev-sandbox (its path varies per agent); gpg and 1Password are static.
+(deny network-outbound
+    (subpath (string-append (param "HOME") "/.gnupg"))
+    (subpath (string-append (param "HOME") "/Library/Group Containers/2BUA8C4S2C.com.1password")))
+
+;; ── Reads ─────────────────────────────────────────────────────────────
+;; Block every read under $HOME, then re-allow the repo and toolchain caches.
+;; ~/.ssh, ~/.aws, ~/.config/{gcloud,gh,op}, ~/.gnupg, ~/Library/Keychains,
+;; other repos, browser data — none are re-allowed, so all stay unreadable.
+(deny file-read* (subpath (param "HOME")))
+(allow file-read*
+    (subpath (param "PROJECT"))                                   ; repo (incl. .flox/cache/venv, node_modules)
+    (subpath (param "MAINREPO"))                                  ; main repo's .git when PROJECT is a worktree
+    (subpath (string-append (param "HOME") "/.cache"))            ; uv, node, flox caches
+    (subpath (string-append (param "HOME") "/.npm"))              ; npm cache
+    (subpath (string-append (param "HOME") "/Library/Caches/node-gyp")) ; node headers for native builds
+    (subpath (string-append (param "HOME") "/.local/share/uv"))   ; uv-managed Python interpreters (venv links here)
+    (subpath (string-append (param "HOME") "/.local/share/flox")) ; flox metadata
+    (subpath (string-append (param "HOME") "/Library/pnpm"))       ; pnpm content-addressed store
+    (subpath (string-append (param "HOME") "/.local/share/pnpm"))  ; pnpm content-addressed store (PNPM_HOME)
+    ;; turbo global config — turbo reads auth.json on every run to check remote-cache
+    ;; login. A sandbox *deny* surfaces as EPERM, which turbo treats as a fatal "I/O
+    ;; error" (unlike a missing file, which it tolerates), killing the frontend pane /
+    ;; autorestart-looping the stack. Read-only; the remote-cache token is low-value.
+    (subpath (string-append (param "HOME") "/Library/Application Support/com.vercel.cli"))
+    (subpath (string-append (param "HOME") "/Library/Application Support/turborepo"))
+    (subpath (string-append (param "HOME") "/.duckdb"))            ; duckdb extension cache (ducklake warmup installs/stats extensions here)
+    ;; git global config (read by version-detection / git-aware tooling). Config
+    ;; only, by exact path — credentials (~/.git-credentials, keychain) stay blocked.
+    (literal (string-append (param "HOME") "/.gitconfig"))
+    (literal (string-append (param "HOME") "/.config/git/config"))
+    (literal (string-append (param "HOME") "/.gitconfig.local"))   ; common [include] target of ~/.gitconfig
+    ;; cargo registry/git cache — the cyclotron-node native module is built with
+    ;; cargo during the nodejs service prestart. (crates.io token re-denied below.)
+    (subpath (string-append (param "HOME") "/.cargo")))
+
+;; Canonicalization (realpath) lstats every path component, so uv resolving its
+;; managed-interpreter symlinks needs metadata on the dir nodes between $HOME and
+;; ~/.local/share/uv. Metadata only — contents of ~/.local{,/share} stay denied.
+(allow file-read-metadata
+    (literal (string-append (param "HOME") "/.local"))
+    (literal (string-append (param "HOME") "/.local/share")))
+
+;; Keep the crates.io publish token blocked even though ~/.cargo is allowed above.
+(deny file-read*
+    (literal (string-append (param "HOME") "/.cargo/credentials"))
+    (literal (string-append (param "HOME") "/.cargo/credentials.toml")))
+
+;; Keep DuckDB persistent secrets (CREATE PERSISTENT SECRET — unencrypted cloud
+;; credentials) blocked even though ~/.duckdb is allowed above.
+(deny file-read*
+    (subpath (string-append (param "HOME") "/.duckdb/stored_secrets")))
+
+;; ── Writes ────────────────────────────────────────────────────────────
+;; Writes stay broadly allowed (the stack writes caches, build output, /tmp),
+;; but block the obvious persistence vectors so a dependency can't plant a
+;; login hook or background agent.
+(deny file-write*
+    (subpath (string-append (param "HOME") "/.ssh"))
+    (subpath (string-append (param "HOME") "/Library/LaunchAgents"))
+    (literal (string-append (param "HOME") "/.zshrc"))
+    (literal (string-append (param "HOME") "/.zprofile"))
+    (literal (string-append (param "HOME") "/.zshenv"))
+    (literal (string-append (param "HOME") "/.bashrc"))
+    (literal (string-append (param "HOME") "/.bash_profile"))
+    (literal (string-append (param "HOME") "/.profile"))
+    ;; Execute-later targets that run OUTSIDE the sandbox if poisoned. The repo
+    ;; is otherwise writable (build output, caches); these specific paths are not.
+    (subpath (string-append (param "PROJECT") "/bin"))            ; sandbox files + scripts (bin/wait-for-docker runs unsandboxed)
+    (subpath (string-append (param "PROJECT") "/.git/hooks"))     ; git hooks run unsandboxed
+    (subpath (string-append (param "MAINREPO") "/.git/hooks"))    ; worktree main-repo hooks
+    (literal (string-append (param "HOME") "/.gitconfig"))        ; core.hooksPath / credential.helper = !cmd
+    (literal (string-append (param "HOME") "/.gitconfig.local"))  ; included by ~/.gitconfig — same escape if writable
+    (subpath (string-append (param "HOME") "/.config/git"))       ; XDG git config — same hooksPath/helper escape
+    (subpath (string-append (param "HOME") "/.cargo/bin")))       ; binaries on PATH

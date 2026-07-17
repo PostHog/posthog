@@ -3,8 +3,9 @@
 Two queries:
 
 - ``fetch_evaluation_embeddings`` — pulls accumulated eval embeddings for a job
-  via ``endsWith(rendering, '_{job_id}')``, matching the Stage A rendering
-  convention ``{team_id}_{run_ts}_{job_id}``.
+  via ``JSONExtractString(metadata, 'job_id')``, matching the Stage A metadata
+  convention ``{"job_id": ...}`` (with a transitional suffix match on legacy
+  ``rendering`` values — see the function docstring).
 - ``fetch_evaluation_metadata`` — joins the sampled $ai_evaluation rows to their
   target $ai_generation (via $ai_target_event_id) to surface both
   eval-specific metadata (name/result/runtime/reasoning/judge_cost) and
@@ -14,8 +15,10 @@ A LEFT JOIN is used so that a missing / purged generation degrades gracefully:
 eval-only fields populate, operational fields stay None.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
+from uuid import UUID
 
 import structlog
 
@@ -25,10 +28,11 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.trace_id_resolver import resolve_trace_ids_for_generation_uuids
 from posthog.models.team import Team
 from posthog.temporal.ai_observability.evaluation_clustering.constants import (
+    AI_OBSERVABILITY_EVALUATION_DOCUMENT_ID_JOB_DELIMITER,
     AI_OBSERVABILITY_EVALUATION_DOCUMENT_TYPE,
     AI_OBSERVABILITY_EVALUATION_EMBEDDING_MODEL,
 )
@@ -38,6 +42,19 @@ logger = structlog.get_logger(__name__)
 # Matches CLUSTERING_QUERY_MAX_EXECUTION_TIME in trace_clustering/data.py — the default
 # HogQL timeout is 60s, which can be tight for high-volume eval jobs.
 CLUSTERING_QUERY_MAX_EXECUTION_TIME = 120
+
+
+def _canonical_uuid(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return str(UUID(value))
+    except ValueError:
+        return None
+
+
+def _canonical_uuids(values: Iterable[object]) -> list[str]:
+    return sorted({uuid for value in values if (uuid := _canonical_uuid(value)) is not None})
 
 
 @dataclass
@@ -75,10 +92,19 @@ def fetch_evaluation_embeddings(
 ) -> tuple[list[str], dict[str, list[float]]]:
     """Read up to max_samples eval embeddings accumulated by Stage A for this job.
 
-    Stage A writes a new row every hour tagged with
-    ``rendering = {team_id}_{run_ts}_{job_id}``; we match by suffix since only the
-    job id is stable across runs. Random-order sampling keeps the read size bounded
-    when a job has accumulated far more than ``max_samples`` over time.
+    Stage A scopes each embedding to its job via ``metadata.job_id``; we read that back
+    with ``JSONExtractString(metadata, 'job_id')``. Random-order sampling keeps the read
+    size bounded when a job has accumulated far more than ``max_samples`` over time.
+
+    The returned ``document_id`` is ``{event_uuid}::{job_id}`` for rows Stage A wrote per
+    (event, job) — we strip it back to the bare event uuid so the downstream metadata join keys
+    on the real ``$ai_evaluation`` uuid. Pre-suffix rows carry a bare uuid and pass through
+    unchanged (the split is a no-op).
+
+    Transitional dual-match: rows written before the metadata migration carry the job id
+    in ``rendering`` as ``{team_id}_{run_ts}_{job_id}`` (matched by suffix). Both predicates
+    are OR'd so no in-window embeddings are dropped while old rows age out under the table's
+    3-month TTL. Drop the ``endsWith(rendering, ...)`` arm once that TTL has fully elapsed.
 
     ``window_start``/``window_end`` must align with the Stage B metadata lookup
     window — otherwise the random sample can return older eval ids that the
@@ -98,7 +124,7 @@ def fetch_evaluation_embeddings(
             FROM raw_document_embeddings
             WHERE document_type = {document_type}
                 AND model_name = {model_name}
-                AND endsWith(rendering, {job_id_suffix})
+                AND (JSONExtractString(metadata, 'job_id') = {job_id} OR endsWith(rendering, {job_id_suffix}))
                 AND length(embedding) > 0
                 AND timestamp >= {start_dt}
                 AND timestamp < {end_dt}
@@ -113,7 +139,7 @@ def fetch_evaluation_embeddings(
             FROM raw_document_embeddings
             WHERE document_type = {document_type}
                 AND model_name = {model_name}
-                AND endsWith(rendering, {job_id_suffix})
+                AND (JSONExtractString(metadata, 'job_id') = {job_id} OR endsWith(rendering, {job_id_suffix}))
                 AND length(embedding) > 0
             ORDER BY rand()
             LIMIT {max_samples}
@@ -123,6 +149,7 @@ def fetch_evaluation_embeddings(
     placeholders: dict[str, ast.Expr] = {
         "document_type": ast.Constant(value=AI_OBSERVABILITY_EVALUATION_DOCUMENT_TYPE),
         "model_name": ast.Constant(value=AI_OBSERVABILITY_EVALUATION_EMBEDDING_MODEL),
+        "job_id": ast.Constant(value=job_id),
         "job_id_suffix": ast.Constant(value=f"_{job_id}"),
         "max_samples": ast.Constant(value=max_samples),
     }
@@ -140,12 +167,14 @@ def fetch_evaluation_embeddings(
         )
 
     rows = result.results or []
-    eval_ids: list[str] = []
+    # document_id is `{event_uuid}::{job_id}` (or a bare uuid for pre-suffix rows). Strip back to
+    # the event uuid; UUIDs contain no ":", so a single split recovers it. Dedupe via the dict in
+    # case a transition window briefly holds both a bare and a suffixed row for the same event.
     embeddings: dict[str, list[float]] = {}
     for row in rows:
-        eval_id = row[0]
-        eval_ids.append(eval_id)
+        eval_id = row[0].split(AI_OBSERVABILITY_EVALUATION_DOCUMENT_ID_JOB_DELIMITER, 1)[0]
         embeddings[eval_id] = row[1]
+    eval_ids: list[str] = list(embeddings.keys())
 
     logger.info("fetch_evaluation_embeddings_result", job_id=job_id, num_rows=len(rows), team_id=team.id)
     return eval_ids, embeddings
@@ -180,13 +209,13 @@ def fetch_evaluation_metadata(
     if not eval_rows:
         return {}
 
-    # Collect target generation ids so we can batch-fetch them in one query.
-    target_generation_ids = sorted({row["target_generation_id"] for row in eval_rows if row["target_generation_id"]})
+    # $ai_target_event_id comes from user instrumentation; filter before native UUID predicates.
+    target_generation_ids = _canonical_uuids([row["target_generation_id"] for row in eval_rows])
     generations = _fetch_linked_generations(team, target_generation_ids, window_start, window_end)
 
     metadata: dict[str, EvaluationMetadata] = {}
     for row in eval_rows:
-        target_id = row["target_generation_id"]
+        target_id = _canonical_uuid(row["target_generation_id"])
         gen = generations.get(target_id) if target_id else None
         metadata[row["eval_event_id"]] = EvaluationMetadata(
             eval_event_id=row["eval_event_id"],
@@ -197,7 +226,7 @@ def fetch_evaluation_metadata(
             evaluation_runtime=row["evaluation_runtime"] or None,
             evaluation_reasoning=row["evaluation_reasoning"] or None,
             judge_cost_usd=row["judge_cost_usd"],
-            target_generation_id=target_id or None,
+            target_generation_id=target_id,
             target_trace_id=row["target_trace_id"] or None,
             generation_cost_usd=gen["cost_usd"] if gen else None,
             generation_latency_ms=gen["latency_ms"] if gen else None,
@@ -242,7 +271,7 @@ def _fetch_evaluation_rows(
         WHERE event = '$ai_evaluation'
             AND timestamp >= {start_dt}
             AND timestamp < {end_dt}
-            AND toString(uuid) IN {eval_ids}
+            AND uuid IN {eval_ids}
         LIMIT {limit}
         """
     )
@@ -291,6 +320,7 @@ def _fetch_linked_generations(
     then drop to None operational fields for every eval, matching the spec's
     "missing generation degrades gracefully" behavior.
     """
+    generation_ids = _canonical_uuids(generation_ids)
     if not generation_ids:
         return {}
 
@@ -310,7 +340,7 @@ def _fetch_linked_generations(
         WHERE event = '$ai_generation'
             AND timestamp >= {start_dt}
             AND timestamp < {end_dt}
-            AND toString(uuid) IN {ids}
+            AND uuid IN {ids}
         LIMIT {limit}
         """
     )
@@ -370,6 +400,7 @@ def fetch_generation_contents(
     required so the events lookup is bounded by the events sorting key
     `(team_id, toDate(timestamp), event)` instead of full-team scanning.
     """
+    generation_ids = _canonical_uuids(generation_ids)
     if not generation_ids:
         return {}
 
@@ -386,11 +417,11 @@ def fetch_generation_contents(
 
     ids_tuple = ast.Tuple(exprs=[ast.Constant(value=gid) for gid in generation_ids])
     trace_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids])
-    # Read from `posthog.ai_events` so the heavy `input` / `output_choices`
-    # columns survive the strip; the resolver re-runs against the shared
-    # `events` table when ai_events returns zero rows (rollout window /
-    # kill-switch off). `trace_id IN (...)` gets us the full sorting-key
-    # prefix + single-shard reads instead of an N-shard heavy fan-out.
+    # Read the heavy `input` / `output_choices` columns from `posthog.ai_events`,
+    # where they live as native columns; the resolver re-runs against the shared
+    # `events` table when ai_events returns zero rows (data beyond the retention
+    # window). `trace_id IN (...)` gets us the full sorting-key prefix +
+    # single-shard reads instead of an N-shard heavy fan-out.
     query = parse_select(
         """
         SELECT
@@ -401,7 +432,7 @@ def fetch_generation_contents(
         FROM posthog.ai_events AS ai_events
         WHERE event = '$ai_generation'
             AND trace_id IN {trace_ids}
-            AND toString(uuid) IN {ids}
+            AND uuid IN {ids}
         LIMIT {limit}
         """
     )
@@ -413,11 +444,12 @@ def fetch_generation_contents(
     }
 
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team.id):
-        result = execute_with_ai_events_fallback(
+        result = query_ai_events(
             query=query,
             placeholders=placeholders,
             team=team,
             query_type="GenerationContentsForLabeling",
+            fall_back_to_events=True,
             settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
         )
 

@@ -1,5 +1,6 @@
-import { IngestionOutputs } from '../../../ingestion/outputs/ingestion-outputs'
-import { parseJSON } from '../../../utils/json-parse'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT, WarehouseSourceWebhooksOutput } from '../../outputs/outputs'
 import { CyclotronJobInvocationResult, WarehouseWebhookPayload } from '../../types'
 import { WarehouseWebhooksService } from './warehouse-webhooks.service'

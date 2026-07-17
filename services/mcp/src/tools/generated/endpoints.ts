@@ -7,9 +7,13 @@ import {
     EndpointsDestroyParams,
     EndpointsLastExecutionTimesCreateBody,
     EndpointsListQueryParams,
+    EndpointsLogsRetrieveParams,
+    EndpointsLogsRetrieveQueryParams,
     EndpointsMaterializationPreviewCreateBody,
     EndpointsMaterializationPreviewCreateParams,
     EndpointsMaterializationStatusRetrieveParams,
+    EndpointsMaterializationSuggestionCreateBody,
+    EndpointsMaterializationSuggestionCreateParams,
     EndpointsOpenapiSpecRetrieveParams,
     EndpointsOpenapiSpecRetrieveQueryParams,
     EndpointsPartialUpdateBody,
@@ -29,6 +33,7 @@ const EndpointCreateSchema = EndpointsCreateBody.omit({
     version: true,
     bucket_overrides: true,
     deleted: true,
+    optional_breakdown_properties: true,
 })
 
 const endpointCreate = (): ToolBase<typeof EndpointCreateSchema, WithPostHogUrl<Schemas.EndpointResponse>> => ({
@@ -95,6 +100,50 @@ const endpointGet = (): ToolBase<typeof EndpointGetSchema, WithPostHogUrl<Schema
     },
 })
 
+const EndpointLogsSchema = EndpointsLogsRetrieveParams.omit({ project_id: true }).extend(
+    EndpointsLogsRetrieveQueryParams.shape
+)
+
+const endpointLogs = (): ToolBase<typeof EndpointLogsSchema, unknown> => ({
+    name: 'endpoint-logs',
+    schema: EndpointLogsSchema,
+    handler: async (context: Context, params: z.infer<typeof EndpointLogsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/logs/`,
+            query: {
+                after: params.after,
+                before: params.before,
+                instance_id: params.instance_id,
+                level: params.level,
+                limit: params.limit,
+                search: params.search,
+            },
+        })
+        return await withPostHogUrl(context, result, '/endpoints')
+    },
+})
+
+const EndpointMaterializationConditionsSchema = z.object({})
+
+const endpointMaterializationConditions = (): ToolBase<
+    typeof EndpointMaterializationConditionsSchema,
+    Schemas.EndpointMaterializationConditions
+> => ({
+    name: 'endpoint-materialization-conditions',
+    schema: EndpointMaterializationConditionsSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof EndpointMaterializationConditionsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EndpointMaterializationConditions>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/materialization_conditions/`,
+        })
+        return result
+    },
+})
+
 const EndpointMaterializationStatusSchema = EndpointsMaterializationStatusRetrieveParams.omit({ project_id: true })
 
 const endpointMaterializationStatus = (): ToolBase<
@@ -110,6 +159,31 @@ const endpointMaterializationStatus = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/materialization_status/`,
         })
         return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
+    },
+})
+
+const EndpointMaterializationSuggestionSchema = EndpointsMaterializationSuggestionCreateParams.omit({
+    project_id: true,
+}).extend(EndpointsMaterializationSuggestionCreateBody.shape)
+
+const endpointMaterializationSuggestion = (): ToolBase<
+    typeof EndpointMaterializationSuggestionSchema,
+    WithPostHogUrl<Schemas.EndpointMaterializationSuggestion>
+> => ({
+    name: 'endpoint-materialization-suggestion',
+    schema: EndpointMaterializationSuggestionSchema,
+    handler: async (context: Context, params: z.infer<typeof EndpointMaterializationSuggestionSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.version !== undefined) {
+            body['version'] = params.version
+        }
+        const result = await context.api.request<Schemas.EndpointMaterializationSuggestion>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/materialization_suggestion/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/endpoints/${params.name}`)
     },
 })
 
@@ -171,8 +245,13 @@ const endpointRun = (): ToolBase<typeof EndpointRunSchema, WithPostHogUrl<Schema
 })
 
 const EndpointUpdateSchema = EndpointsPartialUpdateParams.omit({ project_id: true }).extend(
-    EndpointsPartialUpdateBody.omit({ name: true, derived_from_insight: true, bucket_overrides: true, deleted: true })
-        .shape
+    EndpointsPartialUpdateBody.omit({
+        name: true,
+        derived_from_insight: true,
+        bucket_overrides: true,
+        deleted: true,
+        optional_breakdown_properties: true,
+    }).shape
 )
 
 const endpointUpdate = (): ToolBase<typeof EndpointUpdateSchema, WithPostHogUrl<Schemas.EndpointResponse>> => ({
@@ -331,7 +410,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'endpoint-create': endpointCreate,
     'endpoint-delete': endpointDelete,
     'endpoint-get': endpointGet,
+    'endpoint-logs': endpointLogs,
+    'endpoint-materialization-conditions': endpointMaterializationConditions,
     'endpoint-materialization-status': endpointMaterializationStatus,
+    'endpoint-materialization-suggestion': endpointMaterializationSuggestion,
     'endpoint-openapi-spec': endpointOpenapiSpec,
     'endpoint-run': endpointRun,
     'endpoint-update': endpointUpdate,

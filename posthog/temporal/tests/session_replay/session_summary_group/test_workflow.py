@@ -70,6 +70,8 @@ from posthog.temporal.session_replay.session_summary_group.workflow import (
 )
 from posthog.temporal.tests.session_replay.session_summary.conftest import AsyncRedisTestContext
 
+from products.replay.backend.models.session_summaries import SessionGroupSummary, SingleSessionSummary
+
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_MODEL
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.prompt_data import SessionSummaryPromptData
@@ -80,7 +82,6 @@ from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPatternStats,
     RawSessionGroupSummaryPatternsList,
 )
-from ee.models.session_summaries import SessionGroupSummary, SingleSessionSummary
 
 pytestmark = pytest.mark.django_db
 
@@ -362,7 +363,7 @@ async def test_assign_events_to_patterns_activity_standalone(
         # Verify the activity completed successfully - now returns just the summary id
         assert isinstance(result, str)
         # Verify the summary was stored in DB
-        from ee.models.session_summaries import SessionGroupSummary
+        from products.replay.backend.models.session_summaries import SessionGroupSummary
 
         session_group_summary = await SessionGroupSummary.objects.aget(id=result)
         assert session_group_summary is not None
@@ -921,7 +922,7 @@ class TestSummarizeSessionGroupWorkflow:
         mock_patterns_assignment_yaml_response: str,
         mock_cached_session_batch_events_query_response_factory: Callable,
         custom_content: str | None = None,  # noqa: ARG002
-    ) -> AsyncGenerator[tuple[WorkflowEnvironment, Worker], None]:
+    ) -> AsyncGenerator[tuple[WorkflowEnvironment, Worker]]:
         """Test environment for Temporal workflow"""
         with self.execute_test_environment(
             session_ids,
@@ -1172,7 +1173,7 @@ class TestSummarizeSessionGroupWorkflow:
             # Verify the result is of the correct type (now returns just summary_id)
             assert isinstance(result, str)
             # Verify the summary was stored in DB and can be fetched
-            from ee.models.session_summaries import SessionGroupSummary
+            from products.replay.backend.models.session_summaries import SessionGroupSummary
 
             session_group_summary = await SessionGroupSummary.objects.aget(id=result)
             patterns_result = EnrichedSessionGroupSummaryPatternsList.model_validate_json(session_group_summary.summary)
@@ -1879,8 +1880,9 @@ async def test_combine_patterns_from_chunks_activity_fails_when_no_chunks(
 
 
 def test_get_persons_for_sessions_from_distinct_ids_maps_session_to_person():
+    from products.replay.backend.models.session_summaries import SingleSessionSummary
+
     from ee.hogai.session_summaries.session_group.patterns import get_persons_for_sessions_from_distinct_ids
-    from ee.models.session_summaries import SingleSessionSummary
 
     person = MagicMock()
     person.uuid = "person-uuid-1"
@@ -1902,8 +1904,9 @@ def test_get_persons_for_sessions_from_distinct_ids_maps_session_to_person():
 
 
 def test_get_persons_for_sessions_from_distinct_ids_handles_multiple_sessions_same_distinct_id():
+    from products.replay.backend.models.session_summaries import SingleSessionSummary
+
     from ee.hogai.session_summaries.session_group.patterns import get_persons_for_sessions_from_distinct_ids
-    from ee.models.session_summaries import SingleSessionSummary
 
     person = MagicMock()
     person.uuid = "person-uuid-shared"
@@ -1927,8 +1930,9 @@ def test_get_persons_for_sessions_from_distinct_ids_handles_multiple_sessions_sa
 
 
 def test_get_persons_for_sessions_from_distinct_ids_excludes_sessions_with_no_distinct_id():
+    from products.replay.backend.models.session_summaries import SingleSessionSummary
+
     from ee.hogai.session_summaries.session_group.patterns import get_persons_for_sessions_from_distinct_ids
-    from ee.models.session_summaries import SingleSessionSummary
 
     person = MagicMock()
     person.uuid = "person-uuid-1"
@@ -1960,8 +1964,9 @@ def test_get_persons_for_sessions_from_distinct_ids_excludes_sessions_with_no_di
 
 
 def test_get_persons_for_sessions_from_distinct_ids_returns_empty_when_all_sessions_lack_distinct_id():
+    from products.replay.backend.models.session_summaries import SingleSessionSummary
+
     from ee.hogai.session_summaries.session_group.patterns import get_persons_for_sessions_from_distinct_ids
-    from ee.models.session_summaries import SingleSessionSummary
 
     summary = MagicMock(spec=SingleSessionSummary)
     summary.distinct_id = None
@@ -1980,8 +1985,9 @@ def test_get_persons_for_sessions_from_distinct_ids_returns_empty_when_all_sessi
 
 
 def test_get_persons_for_sessions_from_distinct_ids_deduplicates_distinct_ids_sent_to_rpc():
+    from products.replay.backend.models.session_summaries import SingleSessionSummary
+
     from ee.hogai.session_summaries.session_group.patterns import get_persons_for_sessions_from_distinct_ids
-    from ee.models.session_summaries import SingleSessionSummary
 
     person = MagicMock()
     summaries: dict[str, SingleSessionSummary] = {}
@@ -2007,8 +2013,9 @@ def test_get_persons_for_sessions_from_distinct_ids_deduplicates_distinct_ids_se
 
 def test_get_persons_for_sessions_from_distinct_ids_handles_db_failure():
     """Test that get_persons_for_sessions_from_distinct_ids returns empty dict on DB failure."""
+    from products.replay.backend.models.session_summaries import SingleSessionSummary
+
     from ee.hogai.session_summaries.session_group.patterns import get_persons_for_sessions_from_distinct_ids
-    from ee.models.session_summaries import SingleSessionSummary
 
     mock_summary = MagicMock(spec=SingleSessionSummary)
     mock_summary.distinct_id = "test-distinct-id"

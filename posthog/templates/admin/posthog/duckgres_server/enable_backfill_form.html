@@ -1,0 +1,28 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<p>Add another team to this organization's existing managed warehouse. Runs the same flow as the
+in-product enable-backfill API: records the team's <code>DuckgresServerTeam</code> membership with its
+own per-environment table suffix. The organization's feature
+flag is not required here.</p>
+
+<p>Organization: <code>{{ server.organization_id }}</code> &mdash; server <code>{{ server.host }}</code></p>
+
+<form method="post">
+    {% csrf_token %}
+    <div style="margin: 20px 0;">
+        <label for="team_id" style="display: block; margin-bottom: 5px; font-weight: bold;">Team ID (must belong to the org above):</label>
+        <input type="text" id="team_id" name="team_id" style="width: 400px; padding: 8px;" required />
+    </div>
+    <div style="margin: 20px 0;">
+        <label for="table_name" style="display: block; margin-bottom: 5px; font-weight: bold;">Table suffix:</label>
+        <input type="text" id="table_name" name="table_name" style="width: 400px; padding: 8px;" required />
+        <p class="help">Lowercase letters, numbers and underscores. Must be unique within the org's warehouse.</p>
+    </div>
+    <div style="margin-top: 20px;">
+        <input type="submit" class="default" value="Enable backfill" style="padding: 10px 20px;" />
+        <a href="{% url 'admin:posthog_duckgresserver_change' server.pk %}" style="margin-left: 10px;">Cancel</a>
+    </div>
+</form>
+{% endblock %}
