@@ -28,6 +28,8 @@ __all__ = [
     "has_replied",
     "is_shared_interviewee_context",
     "parse_interviewee_identifier",
+    "valid_distinct_id",
+    "valid_session_id",
 ]
 
 SHARED_INTERVIEWEE_IDENTIFIER = logic.SHARED_INTERVIEWEE_IDENTIFIER
@@ -35,6 +37,14 @@ SHARED_INTERVIEWEE_IDENTIFIER = logic.SHARED_INTERVIEWEE_IDENTIFIER
 
 def is_shared_interviewee_context(interviewee_identifier: str) -> bool:
     return logic.is_shared_interviewee_context(interviewee_identifier)
+
+
+def valid_distinct_id(value: object) -> str:
+    return logic.valid_distinct_id(value)
+
+
+def valid_session_id(value: object) -> str:
+    return logic.valid_session_id(value)
 
 
 def parse_interviewee_identifier(identifier: str) -> IntervieweeIdentity:

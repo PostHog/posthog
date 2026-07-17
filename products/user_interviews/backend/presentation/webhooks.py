@@ -40,8 +40,7 @@ from posthog.models.team import Team
 from posthog.rate_limit import IPThrottle
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
-from ..facade.api import derive_auto_classifications
-from ..logic import is_shared_interviewee_context, valid_distinct_id, valid_session_id
+from ..facade.api import derive_auto_classifications, is_shared_interviewee_context, valid_distinct_id, valid_session_id
 from ..models import UserInterview, UserInterviewClassification, UserInterviewTopic
 
 logger = structlog.get_logger(__name__)
