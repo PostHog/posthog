@@ -127,6 +127,8 @@ interface DataTableProps {
     dataAttr?: string
     /** Attach ourselves to another logic, such as the scene logic */
     attachTo?: BuiltLogic | LogicWrapper
+    /** Owning internal tab; used to scope per-tab UI state across tab unmounts */
+    tabId?: string
 }
 
 const eventGroupTypes = [
@@ -158,6 +160,7 @@ export function DataTable({
     readOnly,
     dataAttr,
     attachTo,
+    tabId,
 }: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
@@ -209,6 +212,7 @@ export function DataTable({
         dataKey,
         dataNodeLogicKey: dataNodeLogicProps.key,
         context,
+        tabId,
     }
     const {
         dataTableRows,
