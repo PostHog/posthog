@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.models import Loop, TaskRun
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     UpdateTaskRunStatusInput,
     update_task_run_status,
@@ -170,6 +170,35 @@ class TestUpdateTaskRunStatusActivity:
 
         completed = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_completed"]
         assert len(completed) == 1
+
+    @pytest.mark.django_db(transaction=True)
+    def test_terminal_transition_updates_loop_bookkeeping_exactly_once(self, activity_environment, test_task_run):
+        # This activity is how workflow-driven loop runs reach a terminal status, so it must
+        # drive loop bookkeeping (last_run_status, consecutive_failures -> auto-pause) — the
+        # HTTP PATCH path is never taken for these. A repeat of the same terminal update must
+        # not double-count.
+        loop = Loop(
+            team=test_task_run.team,
+            created_by=test_task_run.task.created_by,
+            name="Nightly digest",
+            instructions="Summarize",
+            runtime_adapter="claude",
+        )
+        loop.save()
+        test_task_run.state = {**(test_task_run.state or {}), "loop_id": str(loop.id)}
+        test_task_run.save(update_fields=["state"])
+
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id), status=TaskRun.Status.FAILED, error_message="sandbox crashed"
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        loop.refresh_from_db()
+        assert loop.last_run_status == TaskRun.Status.FAILED
+        assert loop.last_error == "sandbox crashed"
+        assert loop.consecutive_failures == 1
+        assert loop.last_run_at is not None
 
     @pytest.mark.django_db(transaction=True)
     def test_handles_non_existent_task_run(self, activity_environment):

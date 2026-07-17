@@ -87,6 +87,21 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
     if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED] and old_status != input.status:
         _capture_terminal_analytics(task_run, input)
 
+    # This activity is how workflow-driven runs (finish tool, failures, timeouts, cancellations)
+    # reach a terminal status, so loop bookkeeping must hook in here, not only in the HTTP PATCH
+    # path (facade.api.update_task_run). Guarded on the actual transition so repeats and the
+    # PATCH-then-activity dual write don't double-count consecutive_failures; swallowed so a
+    # bookkeeping failure never fails (and re-runs) the status write itself.
+    if old_status != input.status:
+        from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 — breaks the loop_runs -> process_task -> activities import cycle
+            handle_loop_run_terminal,
+        )
+
+        try:
+            handle_loop_run_terminal(task_run)
+        except Exception:
+            activity.logger.warning(f"Failed loop terminal bookkeeping for run {task_run.id}", exc_info=True)
+
     log_with_activity_context(
         "Task run status updated",
         run_id=input.run_id,

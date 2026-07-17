@@ -2051,7 +2051,12 @@ def update_task_run(
         run.publish_stream_state_event()
 
     update_automation_run_result(run)
-    handle_loop_run_terminal(run)
+    # Only on the actual transition: a repeat PATCH with the same terminal status, or an
+    # output-only PATCH on an already-terminal run, must not re-run loop bookkeeping
+    # (consecutive_failures would double-count). The workflow's status-update activity
+    # applies the same guard on its side.
+    if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
+        handle_loop_run_terminal(run)
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
         if new_status == TaskRun.Status.FAILED:
