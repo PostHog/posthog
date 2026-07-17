@@ -1,6 +1,6 @@
 # Loops
 
-Status: draft spec (v1), revised after pressure testing (findings from `LOOPS-PRESSURE-TEST.md` and a second codebase fact-check round are folded in)
+Status: draft spec (v1), revised after pressure testing and a codebase fact-check round
 Backend: this repo, `products/tasks/`
 Frontend: PostHog Code monorepo (`PostHog/code`), desktop + mobile
 Execution: cloud only. Local scheduled execution is out of scope for now.
@@ -190,6 +190,20 @@ Write outputs widen the run's PostHog MCP scopes by exactly `file_system:read` +
 A feed-only attachment grants no extra scope.
 `folder_id` and `canvas_id` are validated against the team's desktop file system on write; the resolved feed channel is always team-scoped, so no cross-team id can be attached.
 A context-attached loop must have `team` visibility: its runs are filed into the context's public feed channel (team-readable regardless of loop visibility) and maintain team-shared artifacts, so `personal` would leak the loop's output while hiding the loop itself. Enforced on the effective post-write state in the facade (`create_loop` / `update_loop`), surfaced as a 400; detaching and downgrading in the same PATCH is allowed.
+
+#### How context outputs are delivered
+
+Nothing a context owns is local to anyone's machine.
+Contexts, `context.md` and canvases are all rows on the cloud `desktop_file_system` surface (`/api/projects/:team_id/desktop_file_system/`); the desktop app is just another API client of them, and a sandboxed run reaches the same rows through the PostHog MCP `desktop-file-system-*` tools, so a loop writes them through the exact path the app does.
+
+The wiring lives in `products/tasks/backend/logic/services/loop_runs.py`:
+
+- Prompt: when a write output is on, `render_context_target_block` appends a publish contract to the run's prompt. For `context.md` the agent reads with `desktop-file-system-instructions-retrieve` (id: folder id), revises, then publishes the full markdown with `desktop-file-system-instructions-partial-update` (id: folder id, `base_version`: the version it just read), a read-modify-write with optimistic concurrency (same contract as the desktop "Build with agent" flow). For a canvas it republishes the complete single-file React source with `desktop-file-system-canvas-partial-update` (id: canvas id), whole file each time.
+- Feed: `post_to_feed` needs no prompt. The run's `Task` is created with `channel_id` resolved from the context name (`_resolve_feed_channel_id`), so the card appears regardless of what the agent does.
+- Scopes: `_augment_scopes_for_context` widens the run's MCP scopes by exactly `file_system:read` + `file_system:write` (defined in `services/mcp/definitions/core.yaml`), never to `full`; a feed-only attachment grants nothing extra.
+- Guardrails: `folder_id` and `canvas_id` are validated against the team's desktop file system on write, context-attached loops must be `team` visibility, and the loop only ever updates an existing canvas, never creates one.
+
+`tests/test_loop_runs.py` covers which tools and scopes each output combination gets. The client schema and form are `packages/api-client/src/loops.ts` and `packages/ui/src/features/loops/components/LoopContextFields.tsx` in the PostHog Code repo.
 
 ## Access control
 
