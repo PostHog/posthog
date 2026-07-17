@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1256_userproductlist_default_reason"),
+        ("workflows", "0008_teamworkflowsconfig"),
     ]
 
     operations = [
