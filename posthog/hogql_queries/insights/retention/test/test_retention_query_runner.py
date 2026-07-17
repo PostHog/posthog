@@ -8287,3 +8287,83 @@ class TestRetentionFirstTimeTwoLegScan(APIBaseTest):
             chains: list = []
             collect_chains(arm.where, chains)
             self.assertIn(["events", "$group_0"], chains)
+
+    def _legacy_base_query(
+        self,
+        retention_type: str,
+        target: dict | None = None,
+        returning: dict | None = None,
+        breakdown_filter: dict | None = None,
+        aggregation_property: str | None = None,
+    ) -> ast.SelectQuery:
+        query: dict = {
+            "kind": "RetentionQuery",
+            "retentionFilter": {
+                "retentionType": retention_type,
+                "targetEntity": target or {"id": "signup", "type": "events"},
+                "returningEntity": returning or {"id": "did_action", "type": "events"},
+            },
+        }
+        if breakdown_filter is not None:
+            query["breakdownFilter"] = breakdown_filter
+        if aggregation_property is not None:
+            query["retentionFilter"]["aggregationType"] = "sum"
+            query["retentionFilter"]["aggregationProperty"] = aggregation_property
+        runner = RetentionQueryRunner(team=self.team, query=query)
+        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=False):
+            return RetentionFixedIntervalBaseQueryBuilder(runner).build_base_query()
+
+    @parameterized.expand(["retention_first_time", "retention_first_ever_occurrence"])
+    def test_legacy_first_time_modes_scan_two_arms_with_bounded_return_arm(self, retention_type):
+        base_query = self._legacy_base_query(retention_type)
+        assert base_query.select_from is not None
+        self.assertEqual(base_query.select_from.alias, "events")
+        table = base_query.select_from.table
+        self.assertIsInstance(table, ast.SelectSetQuery)
+        start_arm, return_arm = list(table.select_queries())  # type: ignore[union-attr]
+
+        start_constants = self._where_constants(start_arm)
+        return_constants = self._where_constants(return_arm)
+        self.assertIn("signup", start_constants)
+        self.assertNotIn("did_action", start_constants)
+        self.assertIn("did_action", return_constants)
+        self.assertNotIn("signup", return_constants)
+
+        self.assertFalse(self._where_has_timestamp_bound(start_arm))
+        self.assertTrue(self._where_has_timestamp_bound(return_arm))
+
+    @parameterized.expand(
+        [
+            ("recurring", "retention_recurring", None, None, None, None),
+            (
+                "same_entity",
+                "retention_first_time",
+                {"id": "signup", "type": "events"},
+                {"id": "signup", "type": "events"},
+                None,
+                None,
+            ),
+            ("all_events_target", "retention_first_time", {"id": None, "type": "events"}, None, None, None),
+            (
+                "breakdown",
+                "retention_first_time",
+                None,
+                None,
+                {"breakdowns": [{"type": "event", "property": "plan"}]},
+                None,
+            ),
+            ("property_aggregation", "retention_first_time", None, None, None, "revenue"),
+        ]
+    )
+    def test_legacy_keeps_single_scan_when_split_cannot_apply(
+        self, _name, retention_type, target, returning, breakdown_filter, aggregation_property
+    ):
+        base_query = self._legacy_base_query(
+            retention_type,
+            target=target,
+            returning=returning,
+            breakdown_filter=breakdown_filter,
+            aggregation_property=aggregation_property,
+        )
+        assert base_query.select_from is not None
+        self.assertIsInstance(base_query.select_from.table, ast.Field)
