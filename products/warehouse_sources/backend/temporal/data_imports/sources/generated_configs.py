@@ -736,7 +736,7 @@ class CampaynSourceConfig(config.Config):
 
 @config.config
 class CampfireSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
