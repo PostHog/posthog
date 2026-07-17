@@ -43,10 +43,14 @@ const QUICK_CREATE_TYPES = [
     { type: InsightType.RETENTION, icon: IconRetention, label: 'Retention' },
 ]
 
-export function InsightPickerEndpointModal(): JSX.Element {
+interface InsightPickerEndpointModalProps {
+    tabId: string
+}
+
+export function InsightPickerEndpointModal({ tabId }: InsightPickerEndpointModalProps): JSX.Element {
     const { isOpen, selectedInsight, showMoreInsightTypes } = useValues(insightPickerEndpointModalLogic)
     const { closeModal, selectInsight, toggleShowMoreInsightTypes } = useActions(insightPickerEndpointModalLogic)
-    const { openCreateFromInsightModal } = useActions(endpointLogic)
+    const { openCreateFromInsightModal } = useActions(endpointLogic({ tabId }))
 
     // Safe cast: unsupported query types (FunnelsQuery, PathsQuery, StickinessQuery)
     // are filtered out via isInsightSupported on the SavedInsightsTable
@@ -147,7 +151,11 @@ export function InsightPickerEndpointModal(): JSX.Element {
             </BindLogic>
 
             {insightQuery && (
-                <EndpointFromInsightModal insightQuery={insightQuery} insightShortId={selectedInsight?.short_id} />
+                <EndpointFromInsightModal
+                    tabId={tabId}
+                    insightQuery={insightQuery}
+                    insightShortId={selectedInsight?.short_id}
+                />
             )}
         </>
     )

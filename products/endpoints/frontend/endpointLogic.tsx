@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -196,8 +196,14 @@ export interface endpointLogicActions {
 
 export type endpointLogicType = MakeLogicType<endpointLogicValues, endpointLogicActions>
 
+export interface EndpointLogicProps {
+    tabId: string
+}
+
 export const endpointLogic = kea<endpointLogicType>([
     path(['products', 'endpoints', 'frontend', 'endpointLogic']),
+    props({} as EndpointLogicProps),
+    key((props) => props.tabId),
     connect(() => ({
         actions: [
             endpointsLogic,

@@ -59,9 +59,9 @@ const endpointsUsageDateMapping: DateMappingOption[] = [
     },
 ]
 
-const EndpointNameFilter = (): JSX.Element => {
-    const { endpointNames, endpointNamesLoading, endpointFilter } = useValues(endpointsUsageLogic)
-    const { setEndpointFilter } = useActions(endpointsUsageLogic)
+const EndpointNameFilter = ({ tabId }: { tabId: string }): JSX.Element => {
+    const { endpointNames, endpointNamesLoading, endpointFilter } = useValues(endpointsUsageLogic({ tabId }))
+    const { setEndpointFilter } = useActions(endpointsUsageLogic({ tabId }))
 
     const options = endpointNames.map((name: string) => ({
         key: name,
@@ -91,9 +91,9 @@ const EndpointNameFilter = (): JSX.Element => {
     )
 }
 
-const MaterializationTypeFilter = (): JSX.Element => {
-    const { materializationType } = useValues(endpointsUsageLogic)
-    const { setMaterializationType } = useActions(endpointsUsageLogic)
+const MaterializationTypeFilter = ({ tabId }: { tabId: string }): JSX.Element => {
+    const { materializationType } = useValues(endpointsUsageLogic({ tabId }))
+    const { setMaterializationType } = useActions(endpointsUsageLogic({ tabId }))
 
     return (
         <LemonSelect
@@ -111,9 +111,9 @@ const MaterializationTypeFilter = (): JSX.Element => {
     )
 }
 
-const IntervalFilter = (): JSX.Element => {
-    const { interval } = useValues(endpointsUsageLogic)
-    const { setInterval } = useActions(endpointsUsageLogic)
+const IntervalFilter = ({ tabId }: { tabId: string }): JSX.Element => {
+    const { interval } = useValues(endpointsUsageLogic({ tabId }))
+    const { setInterval } = useActions(endpointsUsageLogic({ tabId }))
 
     return (
         <LemonSelect
@@ -132,9 +132,9 @@ const IntervalFilter = (): JSX.Element => {
     )
 }
 
-const BreakdownFilter = (): JSX.Element => {
-    const { breakdownBy } = useValues(endpointsUsageLogic)
-    const { setBreakdownBy } = useActions(endpointsUsageLogic)
+const BreakdownFilter = ({ tabId }: { tabId: string }): JSX.Element => {
+    const { breakdownBy } = useValues(endpointsUsageLogic({ tabId }))
+    const { setBreakdownBy } = useActions(endpointsUsageLogic({ tabId }))
 
     return (
         <LemonSelect
@@ -154,9 +154,9 @@ const BreakdownFilter = (): JSX.Element => {
     )
 }
 
-const RefreshButton = (): JSX.Element => {
-    const { canRefresh } = useValues(endpointsUsageLogic)
-    const { refresh } = useActions(endpointsUsageLogic)
+const RefreshButton = ({ tabId }: { tabId: string }): JSX.Element => {
+    const { canRefresh } = useValues(endpointsUsageLogic({ tabId }))
+    const { refresh } = useActions(endpointsUsageLogic({ tabId }))
 
     return (
         <LemonButton
@@ -177,9 +177,9 @@ const RefreshButton = (): JSX.Element => {
     )
 }
 
-export const EndpointsUsageFilters = (): JSX.Element => {
-    const { dateFilter } = useValues(endpointsUsageLogic)
-    const { setDates } = useActions(endpointsUsageLogic)
+export const EndpointsUsageFilters = ({ tabId }: { tabId: string }): JSX.Element => {
+    const { dateFilter } = useValues(endpointsUsageLogic({ tabId }))
+    const { setDates } = useActions(endpointsUsageLogic({ tabId }))
 
     return (
         <FilterBar
@@ -193,15 +193,15 @@ export const EndpointsUsageFilters = (): JSX.Element => {
                         forceGranularity="day"
                         dateOptions={endpointsUsageDateMapping}
                     />
-                    <EndpointNameFilter />
+                    <EndpointNameFilter tabId={tabId} />
                 </>
             }
             right={
                 <>
-                    <RefreshButton />
-                    <MaterializationTypeFilter />
-                    <IntervalFilter />
-                    <BreakdownFilter />
+                    <RefreshButton tabId={tabId} />
+                    <MaterializationTypeFilter tabId={tabId} />
+                    <IntervalFilter tabId={tabId} />
+                    <BreakdownFilter tabId={tabId} />
                 </>
             }
         />

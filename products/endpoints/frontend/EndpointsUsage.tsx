@@ -13,7 +13,7 @@ import { QueryContext } from '~/queries/types'
 import { EndpointsUsageFilters } from './EndpointsUsageFilters'
 import { endpointsUsageLogic } from './endpointsUsageLogic'
 
-export function EndpointsUsage(): JSX.Element {
+export function EndpointsUsage({ tabId }: { tabId: string }): JSX.Element {
     const {
         overviewQuery,
         requestsTrendsQuery,
@@ -24,7 +24,7 @@ export function EndpointsUsage(): JSX.Element {
         endpointTableQuery,
         refreshKey,
         activeEndpointNames,
-    } = useValues(endpointsUsageLogic)
+    } = useValues(endpointsUsageLogic({ tabId }))
 
     const tableContext: QueryContext<DataTableNode> = useMemo(
         () => ({
@@ -68,7 +68,7 @@ export function EndpointsUsage(): JSX.Element {
 
     return (
         <>
-            <EndpointsUsageFilters />
+            <EndpointsUsageFilters tabId={tabId} />
             <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-x-4 gap-y-8">
                 <div className="col-span-1 md:col-span-4 flex flex-col">
                     <h2 className="mb-3">Overview</h2>

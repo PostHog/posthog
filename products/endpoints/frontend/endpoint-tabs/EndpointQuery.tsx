@@ -15,10 +15,14 @@ import { ChartDisplayType } from '~/types'
 import { endpointLogic } from '../endpointLogic'
 import { endpointSceneLogic } from '../endpointSceneLogic'
 
-export function EndpointQuery(): JSX.Element {
-    const { endpoint } = useValues(endpointLogic)
-    const { queryToRender, endpointLoading, viewingVersion } = useValues(endpointSceneLogic)
-    const { setLocalQuery } = useActions(endpointSceneLogic)
+interface EndpointQueryProps {
+    tabId: string
+}
+
+export function EndpointQuery({ tabId }: EndpointQueryProps): JSX.Element {
+    const { endpoint } = useValues(endpointLogic({ tabId }))
+    const { queryToRender, endpointLoading, viewingVersion } = useValues(endpointSceneLogic({ tabId }))
+    const { setLocalQuery } = useActions(endpointSceneLogic({ tabId }))
     // Use the query from the viewed version if set, otherwise fall back to endpoint
     const effectiveQuery = viewingVersion?.query || endpoint?.query
 
@@ -41,7 +45,7 @@ export function EndpointQuery(): JSX.Element {
     // If it's a HogQL query, show the embedded SQL editor with results
     if (effectiveQuery && isHogQLQuery(effectiveQuery)) {
         const hogqlQuery = effectiveQuery as HogQLQuery
-        return <EndpointHogQLQuery version={viewingVersion?.version} query={hogqlQuery} />
+        return <EndpointHogQLQuery tabId={tabId} version={viewingVersion?.version} query={hogqlQuery} />
     }
 
     // For other query types (Insights), show the Query component with editing enabled
@@ -60,9 +64,17 @@ export function EndpointQuery(): JSX.Element {
     )
 }
 
-function EndpointHogQLQuery({ version, query }: { version?: number; query: HogQLQuery }): JSX.Element {
-    const sqlEditorTabId = useMemo(() => `endpoint-query-${version ?? 'latest'}`, [version])
-    const { setLocalQuery, keepSqlEditorMounted } = useActions(endpointSceneLogic)
+function EndpointHogQLQuery({
+    tabId,
+    version,
+    query,
+}: {
+    tabId: string
+    version?: number
+    query: HogQLQuery
+}): JSX.Element {
+    const sqlEditorTabId = useMemo(() => `endpoint-query-${tabId}-${version ?? 'latest'}`, [tabId, version])
+    const { setLocalQuery, keepSqlEditorMounted } = useActions(endpointSceneLogic({ tabId }))
     const { queryInput, sourceQuery } = useValues(
         sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded })
     )

@@ -38,6 +38,10 @@ function isSensitiveBreakdownName(name: string): boolean {
     return SENSITIVE_BREAKDOWN_NAME_PATTERNS.some((p) => lower.includes(p))
 }
 
+interface EndpointConfigurationProps {
+    tabId: string
+}
+
 const DATA_FRESHNESS_OPTIONS: { value: number; label: string }[] = [
     { value: 900, label: '15 minutes' },
     { value: 1800, label: '30 minutes' },
@@ -78,9 +82,9 @@ function getStatusTagType(status: string | undefined): 'success' | 'danger' | 'w
     }
 }
 
-export function EndpointConfiguration(): JSX.Element {
-    const { endpoint } = useValues(endpointLogic)
-    const { setDataFreshness, toggleBreakdownOptional } = useActions(endpointSceneLogic)
+export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JSX.Element {
+    const { endpoint } = useValues(endpointLogic({ tabId }))
+    const { setDataFreshness, toggleBreakdownOptional } = useActions(endpointSceneLogic({ tabId }))
     const {
         dataFreshness,
         viewingVersion,
@@ -89,8 +93,8 @@ export function EndpointConfiguration(): JSX.Element {
         isMaterialized: localIsMaterialized,
         currentQuery,
         optionalBreakdownProperties,
-    } = useValues(endpointSceneLogic)
-    const { loadMaterializationPreview } = useActions(endpointSceneLogic)
+    } = useValues(endpointSceneLogic({ tabId }))
+    const { loadMaterializationPreview } = useActions(endpointSceneLogic({ tabId }))
     const [leftActiveKeys, setLeftActiveKeys] = useState<string[]>(['materialization'])
 
     if (!endpoint) {
@@ -125,7 +129,7 @@ export function EndpointConfiguration(): JSX.Element {
                                     </Tooltip>
                                 </div>
                             ),
-                            content: <MaterializationContent />,
+                            content: <MaterializationContent tabId={tabId} />,
                         },
                         {
                             key: 'data-freshness',
@@ -322,21 +326,23 @@ function ExecutionQueryPanel({
     )
 }
 
-function MaterializationContent(): JSX.Element {
-    const { loadMaterializationStatus } = useActions(endpointLogic)
+function MaterializationContent({ tabId }: { tabId: string }): JSX.Element {
+    const { loadMaterializationStatus } = useActions(endpointLogic({ tabId }))
     const {
         endpoint,
         materializationStatus: loadedMaterializationStatus,
         materializationStatusLoading,
-    } = useValues(endpointLogic)
-    const { setIsMaterialized, setBucketOverride, openMaterializationSuggestionModal } = useActions(endpointSceneLogic)
+    } = useValues(endpointLogic({ tabId }))
+    const { setIsMaterialized, setBucketOverride, openMaterializationSuggestionModal } = useActions(
+        endpointSceneLogic({ tabId })
+    )
     const {
         isMaterialized: localIsMaterialized,
         viewingVersion,
         materializationPreview,
         bucketOverrides,
         localQuery,
-    } = useValues(endpointSceneLogic)
+    } = useValues(endpointSceneLogic({ tabId }))
     const [runsModalOpen, setRunsModalOpen] = useState(false)
     const materializationFixFlagEnabled = useFeatureFlag('ENDPOINTS_AI_MATERIALIZATION_FIX')
 

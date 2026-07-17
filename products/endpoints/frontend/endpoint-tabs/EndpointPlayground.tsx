@@ -17,6 +17,10 @@ import { EndpointVersionType } from '~/types'
 import { CodeExampleTab, endpointLogic } from '../endpointLogic'
 import { endpointSceneLogic, generateEndpointPayload } from '../endpointSceneLogic'
 
+interface EndpointPlaygroundProps {
+    tabId: string
+}
+
 function formatPayloadForCodeExample(payload: Record<string, any>): string {
     const entries = Object.entries(payload)
     if (entries.length === 0) {
@@ -179,13 +183,15 @@ fetch(url, {
 .catch(error => console.error('Error:', error));`
 }
 
-export function EndpointPlayground(): JSX.Element {
-    const { endpoint } = useValues(endpointLogic)
+export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Element {
+    const { endpoint } = useValues(endpointLogic({ tabId }))
     const { payloadJson, payloadJsonError, endpointResult, endpointResultLoading, viewingVersion, debugMode } =
-        useValues(endpointSceneLogic)
-    const { setPayloadJson, setPayloadJsonError, loadEndpointResult, setDebugMode } = useActions(endpointSceneLogic)
-    const { setActiveCodeExampleTab, setSelectedCodeExampleVersion } = useActions(endpointLogic)
-    const { activeCodeExampleTab, selectedCodeExampleVersion } = useValues(endpointLogic)
+        useValues(endpointSceneLogic({ tabId }))
+    const { setPayloadJson, setPayloadJsonError, loadEndpointResult, setDebugMode } = useActions(
+        endpointSceneLogic({ tabId })
+    )
+    const { setActiveCodeExampleTab, setSelectedCodeExampleVersion } = useActions(endpointLogic({ tabId }))
+    const { activeCodeExampleTab, selectedCodeExampleVersion } = useValues(endpointLogic({ tabId }))
     const { superpowersEnabled } = useValues(superpowersLogic)
 
     // When viewing a specific version, use that version for code examples

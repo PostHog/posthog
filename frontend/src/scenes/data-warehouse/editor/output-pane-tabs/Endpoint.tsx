@@ -36,9 +36,11 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
         setSelectedEndpointName,
         createEndpoint,
         updateEndpoint,
-    } = useActions(endpointLogic)
-    const { endpointName, endpointDescription, isUpdateMode, selectedEndpointName } = useValues(endpointLogic)
-    const { endpoints } = useValues(endpointsLogic)
+    } = useActions(endpointLogic({ tabId }))
+    const { endpointName, endpointDescription, isUpdateMode, selectedEndpointName } = useValues(
+        endpointLogic({ tabId })
+    )
+    const { endpoints } = useValues(endpointsLogic({ tabId }))
 
     const { variablesForInsight } = useValues(variablesLogic)
     const { queryInput } = useValues(sqlEditorLogic)

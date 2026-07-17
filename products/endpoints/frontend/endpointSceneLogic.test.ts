@@ -2,13 +2,26 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
 import { endpointSceneLogic, EndpointTab, extractBreakdownPropertyNames } from './endpointSceneLogic'
 import { endpointsMaterializationSuggestionCreate } from './generated/api'
+
+const mockSceneLogic = {
+    isMounted: jest.fn(() => true),
+    findMounted: jest.fn(),
+    values: {
+        activeTabId: 'active-tab',
+        tabs: [] as any[],
+    },
+    actions: {
+        setTabs: jest.fn((tabs) => {
+            mockSceneLogic.values.tabs = tabs
+        }),
+    },
+}
 
 jest.mock('lib/api', () => ({
     __esModule: true,
@@ -66,9 +79,8 @@ jest.mock('scenes/teamLogic', () => ({
 }))
 
 jest.mock('scenes/sceneLogic', () => ({
-    sceneLogic: {
-        isMounted: jest.fn(() => false),
-        findMounted: jest.fn(() => null),
+    get sceneLogic() {
+        return mockSceneLogic
     },
     getTabsSnapshotForHistory: (tabs: any[]) => tabs.map(({ sceneParams: _omit, ...rest }) => ({ ...rest })),
 }))
@@ -99,9 +111,40 @@ describe('endpointSceneLogic', () => {
         localStorage.clear()
         sessionStorage.clear()
 
-        router.actions.push(urls.endpoint('test-endpoint'), { tab: EndpointTab.QUERY, version: '2' })
+        router.actions.push('/insights')
 
-        logic = endpointSceneLogic()
+        mockSceneLogic.findMounted.mockReturnValue(mockSceneLogic)
+        mockSceneLogic.values.activeTabId = 'active-tab'
+        mockSceneLogic.values.tabs = [
+            {
+                id: 'active-tab',
+                active: true,
+                pathname: '/insights',
+                search: '',
+                hash: '',
+                title: 'Insights',
+                iconType: 'insight',
+                pinned: false,
+                sceneParams: { params: {}, searchParams: {}, hashParams: {} },
+            },
+            {
+                id: 'endpoint-tab',
+                active: false,
+                pathname: '/endpoints/test-endpoint',
+                search: '?tab=query&version=2',
+                hash: '',
+                title: 'Test endpoint',
+                iconType: 'endpoints',
+                pinned: false,
+                sceneParams: {
+                    params: { name: 'test-endpoint' },
+                    searchParams: { tab: EndpointTab.QUERY, version: '2' },
+                    hashParams: {},
+                },
+            },
+        ]
+
+        logic = endpointSceneLogic({ tabId: 'endpoint-tab' })
         logic.mount()
         // Let the mount-time load settle with the default mock, so per-test overrides
         // apply cleanly to the fetches each test triggers
@@ -112,9 +155,11 @@ describe('endpointSceneLogic', () => {
         logic?.unmount()
     })
 
-    it('loads the requested version from the URL', async () => {
+    it('loads the requested version from the inactive tab state', async () => {
         const versionData = { ...endpoint, version: 2, description: 'Version 2' }
         ;(api.endpoint.get as jest.Mock).mockResolvedValue(versionData)
+
+        const initialPathname = router.values.location.pathname
 
         logic.actions.loadEndpointSuccess(endpoint)
         await expectLogic(logic).toFinishAllListeners()
@@ -124,10 +169,10 @@ describe('endpointSceneLogic', () => {
         })
 
         expect(api.endpoint.get).toHaveBeenCalledWith('test-endpoint', 2)
-        expect(router.values.location.pathname).toContain(urls.endpoint('test-endpoint'))
+        expect(router.values.location.pathname).toEqual(initialPathname)
     })
 
-    it('updates the URL version param when viewingVersion changes', async () => {
+    it('keeps URL updates scoped to the inactive tab when viewingVersion changes', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadEndpointSuccess(endpoint)
         }).toMatchValues({
@@ -135,6 +180,7 @@ describe('endpointSceneLogic', () => {
         })
 
         const versionData = { ...endpoint, version: 2, description: 'Version 2' }
+        const initialPathname = router.values.location.pathname
 
         await expectLogic(logic, () => {
             logic.actions.setViewingVersion(versionData)
@@ -142,8 +188,12 @@ describe('endpointSceneLogic', () => {
             viewingVersion: versionData,
         })
 
-        expect(router.values.location.pathname).toContain(urls.endpoint('test-endpoint'))
-        expect(router.values.searchParams).toMatchObject({
+        const endpointTab = mockSceneLogic.values.tabs.find((tab) => tab.id === 'endpoint-tab')
+
+        expect(router.values.location.pathname).toEqual(initialPathname)
+        expect(endpointTab?.pathname).toEqual('/endpoints/test-endpoint')
+        expect(endpointTab?.sceneParams?.searchParams).toMatchObject({
+            tab: EndpointTab.QUERY,
             version: 2,
         })
     })

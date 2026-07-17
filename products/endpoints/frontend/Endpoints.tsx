@@ -26,20 +26,28 @@ import { EndpointFromInsightModal } from './EndpointFromInsightModal'
 import { endpointLogic } from './endpointLogic'
 import { endpointsLogic } from './endpointsLogic'
 
-export function Endpoints(): JSX.Element {
+interface EndpointsProps {
+    tabId: string
+}
+
+interface EndpointsTableProps {
+    tabId: string
+}
+
+export function Endpoints({ tabId }: EndpointsProps): JSX.Element {
     return (
         <>
-            <EndpointsTable />
+            <EndpointsTable tabId={tabId} />
         </>
     )
 }
 
-export const EndpointsTable = (): JSX.Element => {
-    const { setFilters, loadEndpoints } = useActions(endpointsLogic)
-    const { endpoints, allEndpointsLoading, filters } = useValues(endpointsLogic)
+export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
+    const { setFilters, loadEndpoints } = useActions(endpointsLogic({ tabId }))
+    const { endpoints, allEndpointsLoading, filters } = useValues(endpointsLogic({ tabId }))
 
-    const { deleteEndpoint, confirmToggleActive, setDuplicateEndpoint } = useActions(endpointLogic)
-    const { duplicateEndpoint } = useValues(endpointLogic)
+    const { deleteEndpoint, confirmToggleActive, setDuplicateEndpoint } = useActions(endpointLogic({ tabId }))
+    const { duplicateEndpoint } = useValues(endpointLogic({ tabId }))
 
     const handleDelete = (endpointName: string): void => {
         LemonDialog.open({
@@ -263,6 +271,7 @@ export const EndpointsTable = (): JSX.Element => {
             />
             {duplicateEndpoint && (
                 <EndpointFromInsightModal
+                    tabId={tabId}
                     insightQuery={duplicateEndpoint.query}
                     insightShortId={duplicateEndpoint.derived_from_insight ?? undefined}
                 />

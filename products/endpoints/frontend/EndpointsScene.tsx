@@ -37,26 +37,26 @@ export const scene: SceneExport = {
     productKey: ProductKey.ENDPOINTS,
 }
 
-export function EndpointsScene(): JSX.Element {
-    const { activeTab } = useValues(endpointsLogic)
+export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
+    const { activeTab } = useValues(endpointsLogic({ tabId: tabId || '' }))
 
     const tabs: LemonTab<string>[] = [
         {
             key: 'endpoints',
             label: 'Endpoints',
-            content: <Endpoints />,
+            content: <Endpoints tabId={tabId || ''} />,
             link: urls.endpoints(),
         },
         {
             key: 'usage',
             label: 'Usage',
-            content: <EndpointsUsage />,
+            content: <EndpointsUsage tabId={tabId || ''} />,
             link: urls.endpointsUsage(),
         },
     ]
     return (
-        <BindLogic logic={endpointsLogic} props={{}}>
-            <BindLogic logic={endpointsUsageLogic} props={{}}>
+        <BindLogic logic={endpointsLogic} props={{ tabId: tabId || '' }}>
+            <BindLogic logic={endpointsUsageLogic} props={{ tabId: tabId || '' }}>
                 <SceneContent>
                     <SceneTitleSection
                         name={sceneConfigurations[Scene.EndpointsScene].name}
@@ -111,7 +111,7 @@ export function EndpointsScene(): JSX.Element {
                         action={() => router.actions.push(urls.sqlEditor({ source: 'endpoint' }))}
                     />
                     <LemonTabs activeKey={activeTab} data-attr="endpoints-tabs" tabs={tabs} sceneInset />
-                    <InsightPickerEndpointModal />
+                    <InsightPickerEndpointModal tabId={tabId || ''} />
                 </SceneContent>
             </BindLogic>
         </BindLogic>

@@ -169,6 +169,7 @@ function InsightEndpointModalWrapper({ insightLogicProps }: { insightLogicProps:
 
     return (
         <EndpointFromInsightModal
+            tabId={insightProps.tabId || ''}
             insightQuery={insightQuery as unknown as HogQLQuery | EndpointQueryNode}
             insightShortId={insight.short_id}
         />

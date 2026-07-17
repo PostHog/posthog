@@ -18,16 +18,23 @@ import { endpointLogic } from './endpointLogic'
 import { endpointsLogic } from './endpointsLogic'
 
 export interface EndpointFromInsightModalProps {
+    tabId: string
     insightQuery: HogQLQuery | EndpointQueryNode
     insightShortId?: string
 }
 
-export function EndpointFromInsightModal({ insightQuery, insightShortId }: EndpointFromInsightModalProps): JSX.Element {
-    const { createEndpoint, setEndpointName, setEndpointDescription, closeCreateFromInsightModal } =
-        useActions(endpointLogic)
-    const { endpointName, endpointDescription, createFromInsightModalOpen, duplicateEndpoint } =
-        useValues(endpointLogic)
-    const { endpoints } = useValues(endpointsLogic)
+export function EndpointFromInsightModal({
+    tabId,
+    insightQuery,
+    insightShortId,
+}: EndpointFromInsightModalProps): JSX.Element {
+    const { createEndpoint, setEndpointName, setEndpointDescription, closeCreateFromInsightModal } = useActions(
+        endpointLogic({ tabId })
+    )
+    const { endpointName, endpointDescription, createFromInsightModalOpen, duplicateEndpoint } = useValues(
+        endpointLogic({ tabId })
+    )
+    const { endpoints } = useValues(endpointsLogic({ tabId }))
 
     const endpointsFromThisInsight = insightShortId
         ? endpoints.filter((endpoint) => endpoint.derived_from_insight === insightShortId)

@@ -17,7 +17,11 @@ import { AccessControlLevel, AccessControlResourceType, EndpointType, EndpointVe
 import { endpointLogic } from './endpointLogic'
 import { endpointSceneLogic, extractBreakdownPropertyNames } from './endpointSceneLogic'
 
-export const EndpointSceneHeader = (): JSX.Element => {
+export interface EndpointSceneHeaderProps {
+    tabId: string
+}
+
+export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.Element => {
     const {
         endpoint,
         endpointLoading,
@@ -28,9 +32,9 @@ export const EndpointSceneHeader = (): JSX.Element => {
         debugInfoExpanded,
         dataFreshness,
         optionalBreakdownProperties,
-    } = useValues(endpointSceneLogic)
-    const { endpointName, endpointDescription, updatingEndpoint } = useValues(endpointLogic)
-    const { setEndpointDescription, updateEndpoint } = useActions(endpointLogic)
+    } = useValues(endpointSceneLogic({ tabId }))
+    const { endpointName, endpointDescription, updatingEndpoint } = useValues(endpointLogic({ tabId }))
+    const { setEndpointDescription, updateEndpoint } = useActions(endpointLogic({ tabId }))
     const {
         setLocalQuery,
         setDataFreshness,
@@ -38,7 +42,7 @@ export const EndpointSceneHeader = (): JSX.Element => {
         resetBucketOverrides,
         resetOptionalBreakdownProperties,
         setDebugInfoExpanded,
-    } = useActions(endpointSceneLogic)
+    } = useActions(endpointSceneLogic({ tabId }))
     const { superpowersEnabled } = useValues(superpowersLogic)
 
     // SceneTitleSection takes a boolean `canEdit` rather than disabled/disabledReason, so we can't
