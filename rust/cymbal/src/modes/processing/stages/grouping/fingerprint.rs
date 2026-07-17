@@ -11,10 +11,9 @@ use crate::{
     metric_consts::{FINGERPRINT_GENERATOR_OPERATOR, FINGERPRINT_LEGACY_VERSION_USED},
     modes::processing::normalization::legacy_wire_order,
     modes::processing::rules::grouping::evaluate_grouping_rules,
-    stages::{grouping::GroupingStage, pipeline::HandledError},
+    stages::grouping::GroupingStage,
     types::{
-        exception_properties::ExceptionProperties,
-        operator::{OperatorResult, ValueOperator},
+        exception_event::{ExceptionEvent, FingerprintData, Fingerprinted, PipelineItem, Resolved},
         ExceptionList,
     },
 };
@@ -22,45 +21,48 @@ use crate::{
 #[derive(Clone, Default)]
 pub struct FingerprintGenerator;
 
-impl ValueOperator for FingerprintGenerator {
-    type Context = GroupingStage;
-    type Item = ExceptionProperties;
-    type HandledError = HandledError;
-    type UnhandledError = UnhandledError;
-
-    fn name(&self) -> &'static str {
-        FINGERPRINT_GENERATOR_OPERATOR
+impl FingerprintGenerator {
+    pub async fn execute(
+        &self,
+        item: PipelineItem<Resolved>,
+        ctx: GroupingStage,
+    ) -> Result<PipelineItem<Fingerprinted>, UnhandledError> {
+        match item {
+            Err(error) => Ok(Err(error)),
+            Ok(event) => self.generate(event, ctx).await.map(Ok),
+        }
     }
 
-    async fn execute_value(
+    async fn generate(
         &self,
-        mut input: ExceptionProperties,
+        mut input: ExceptionEvent<Resolved>,
         ctx: GroupingStage,
-    ) -> OperatorResult<Self> {
+    ) -> Result<ExceptionEvent<Fingerprinted>, UnhandledError> {
         // Selection order:
         // 1. Existing input fingerprint wins and is marked manual.
         // 2. Matching grouping rule wins and is marked custom.
         // 3. Automatic versions use the newest already-saved fingerprint, or the newest version.
         // Manual and rule fingerprints intentionally do not set a fingerprint version.
-        if input.fingerprint.is_some() {
-            apply_manual_fingerprint(&mut input)?;
-            return Ok(Ok(input));
+        if let Some(client_fingerprint) = input.client_fingerprint() {
+            let fingerprint = manual_fingerprint(client_fingerprint);
+            return Ok(input.into_fingerprinted(fingerprint));
         }
 
         // Serializing the event to JSON is only needed when the team has grouping rules, so
         // defer it: `evaluate_grouping_rules` invokes this closure only when rules exist.
         let matched_rule =
-            evaluate_grouping_rules(&ctx.connection, input.team_id, &ctx.team_manager, || {
-                Ok(serde_json::to_value(&input)?)
+            evaluate_grouping_rules(&ctx.connection, input.team_id(), &ctx.team_manager, || {
+                Ok(input.to_grouping_value())
             })
             .await?;
 
         if let Some(rule) = matched_rule {
             let fingerprint = Fingerprint::from_rule(rule);
-            input.fingerprint = Some(fingerprint.value);
-            input.fingerprint_version = None;
-            input.fingerprint_record = Some(fingerprint.record);
-            return Ok(Ok(input));
+            return Ok(input.into_fingerprinted(FingerprintData {
+                value: fingerprint.value,
+                version: None,
+                record: fingerprint.record,
+            }));
         }
 
         // Legacy fingerprint versions keep issues keyed before wire-order
@@ -69,37 +71,46 @@ impl ValueOperator for FingerprintGenerator {
         // SDK's payloads (byte-exact, covers resolution reshaping), or a
         // reconstruction by re-applying the SDK's reversal once the SDK has
         // flipped and only the canonical order arrives.
-        let lib = input.props.get("$lib").and_then(Value::as_str);
+        let lib = input
+            .properties()
+            .get("$lib")
+            .and_then(Value::as_str)
+            .map(str::to_string);
         let legacy_list = input
-            .legacy_order_resolved
-            .take()
-            .or_else(|| legacy_wire_order(lib, &input.exception_list));
+            .take_legacy_order_resolved()
+            .or_else(|| legacy_wire_order(lib.as_deref(), input.exception_list()));
         let (version, fingerprint) =
             select_automatic_fingerprint(&input, legacy_list.as_ref(), &ctx).await?;
         if version.is_legacy() {
             metrics::counter!(FINGERPRINT_LEGACY_VERSION_USED, "version" => version.as_str())
                 .increment(1);
         }
-        input.fingerprint = Some(fingerprint.value);
-        input.fingerprint_record = Some(fingerprint.record);
-        input.fingerprint_version = Some(version);
 
-        Ok(Ok(input))
+        Ok(input.into_fingerprinted(FingerprintData {
+            value: fingerprint.value,
+            version: Some(version),
+            record: fingerprint.record,
+        }))
+    }
+
+    pub fn name(&self) -> &'static str {
+        FINGERPRINT_GENERATOR_OPERATOR
     }
 }
 
-fn apply_manual_fingerprint(input: &mut ExceptionProperties) -> Result<(), UnhandledError> {
-    let Some(fp) = &input.fingerprint else {
-        return Err(UnhandledError::Other("Missing manual fingerprint".into()));
-    };
-    input.fingerprint_version = None;
-    input.fingerprint_record = Some(vec![FingerprintRecordPart::Manual]);
-    if fp.len() > 64 {
+fn manual_fingerprint(value: &str) -> FingerprintData {
+    let value = if value.len() > 64 {
         let mut hasher = Sha512::default();
-        hasher.update(fp);
-        input.fingerprint = Some(format!("{:x}", hasher.finalize()));
+        hasher.update(value);
+        format!("{:x}", hasher.finalize())
+    } else {
+        value.to_string()
+    };
+    FingerprintData {
+        value,
+        version: None,
+        record: vec![FingerprintRecordPart::Manual],
     }
-    Ok(())
 }
 
 // Walks versions newest-first and keeps the first fingerprint that already maps to an issue,
@@ -107,7 +118,7 @@ fn apply_manual_fingerprint(input: &mut ExceptionProperties) -> Result<(), Unhan
 // pre-flip order and participate only in matching: `all()` orders them below the canonical
 // versions, so they can never be the fallback that creates a new issue.
 async fn select_automatic_fingerprint(
-    input: &ExceptionProperties,
+    input: &ExceptionEvent<Resolved>,
     legacy_list: Option<&ExceptionList>,
     ctx: &GroupingStage,
 ) -> Result<(FingerprintVersion, Fingerprint), UnhandledError> {
@@ -117,7 +128,7 @@ async fn select_automatic_fingerprint(
             let list = if version.is_legacy() {
                 legacy_list?
             } else {
-                &input.exception_list
+                input.exception_list()
             };
             Some((*version, version.compute(list)))
         })
@@ -133,7 +144,7 @@ async fn select_automatic_fingerprint(
     let mut known: HashMap<String, Uuid> = HashMap::new();
     let mut uncached: Vec<String> = Vec::new();
     for (_, fingerprint) in fingerprints.iter() {
-        let cache_key = (input.team_id, fingerprint.value.clone());
+        let cache_key = (input.team_id(), fingerprint.value.clone());
         match ctx.issue_cache.get(&cache_key).await {
             Some(issue_id) => {
                 known.insert(fingerprint.value.clone(), issue_id);
@@ -148,17 +159,17 @@ async fn select_automatic_fingerprint(
     }
 
     // One round-trip for every candidate value the cache didn't know, instead
-    // of one sequential lookup per version (the cache stores hits only, so a
-    // per-version walk pays a round-trip per miss — the common case for new
-    // errors). Preference order is applied to the merged cache + DB result
-    // set below, so the outcome is identical to the sequential newest-first
-    // walk.
+    // of one sequential lookup per version. Preference order is applied to the
+    // merged cache + DB result set below.
     if !uncached.is_empty() {
         for record in
-            IssueFingerprintOverride::load_many(&ctx.connection, input.team_id, &uncached).await?
+            IssueFingerprintOverride::load_many(&ctx.connection, input.team_id(), &uncached).await?
         {
             ctx.issue_cache
-                .insert((input.team_id, record.fingerprint.clone()), record.issue_id)
+                .insert(
+                    (input.team_id(), record.fingerprint.clone()),
+                    record.issue_id,
+                )
                 .await;
             known.insert(record.fingerprint, record.issue_id);
         }
