@@ -52,6 +52,7 @@ export interface repoOverviewLogicValues {
     notConnected: boolean // engineeringAnalyticsLogic
     pullRequests: PullRequestRow[] // engineeringAnalyticsLogic
     pullRequestsLoading: boolean // engineeringAnalyticsLogic
+    scopeRepo: string | null // engineeringAnalyticsLogic
     sourceId: string | null // engineeringAnalyticsLogic
     workflowHealth: WorkflowHealthRow[] // engineeringAnalyticsLogic
     workflowHealthLoading: boolean // engineeringAnalyticsLogic
