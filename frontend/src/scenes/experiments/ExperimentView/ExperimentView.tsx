@@ -1,11 +1,13 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
 import { LemonTabs } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from 'scenes/experiments/constants'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
@@ -135,15 +137,9 @@ const VariantsTab = (): JSX.Element => {
 export function ExperimentView(): JSX.Element {
     const { experimentLoading, experimentId, experiment, isExperimentDraft, exposureCriteria, showDebugPanel } =
         useValues(experimentLogic)
-    const {
-        setExperiment,
-        setExposureCriteria,
-        updateExposureCriteria,
-        updateExperimentMetrics,
-        addSharedMetricsToExperiment,
-        removeSharedMetricFromExperiment,
-        removeMetric,
-    } = useActions(experimentLogic)
+    const { setExperiment, setExposureCriteria, updateExposureCriteria } = useActions(experimentLogic)
+    const { updateExperimentMetrics, addSharedMetricsToExperiment, removeSharedMetricFromExperiment, removeMetric } =
+        useAsyncActions(experimentLogic)
 
     const { activeTabKey } = useValues(experimentSceneLogic)
     const { setActiveTabKey } = useActions(experimentSceneLogic)
@@ -241,7 +237,7 @@ export function ExperimentView(): JSX.Element {
                     <ExperimentMetricModal
                         experiment={experiment}
                         exposureCriteria={exposureCriteria}
-                        onSave={(metric, context) => {
+                        onSave={async (metric, context) => {
                             const metrics = experiment[context.field]
                             const isNew = !metrics.some(({ uuid }) => uuid === metric.uuid)
 
@@ -251,29 +247,64 @@ export function ExperimentView(): JSX.Element {
                                     : metrics.map((m) => (m.uuid === metric.uuid ? metric : m)),
                             })
 
-                            updateExperimentMetrics()
-                            closeExperimentMetricModal()
+                            try {
+                                await updateExperimentMetrics()
+                                lemonToast.success(
+                                    `${capitalizeFirstLetter(context.type)} metric ${isNew ? 'added' : 'updated'}`
+                                )
+                                closeExperimentMetricModal()
+                            } catch {
+                                // Restore the metrics so the table doesn't show an unsaved change.
+                                setExperiment({ [context.field]: metrics })
+                                lemonToast.error(
+                                    `Failed to ${isNew ? 'add' : 'update'} ${context.type} metric. Please try again.`
+                                )
+                                throw new Error('Failed to save metric')
+                            }
                         }}
-                        onDelete={(metric, context) => {
+                        onDelete={async (metric, context) => {
                             if (!metric.uuid) {
                                 return
                             }
 
-                            removeMetric(metric.uuid, context.type)
-                            closeExperimentMetricModal()
+                            try {
+                                await removeMetric(metric.uuid, context.type)
+                                lemonToast.success(`${capitalizeFirstLetter(context.type)} metric removed`)
+                                closeExperimentMetricModal()
+                            } catch {
+                                lemonToast.error(`Failed to remove ${context.type} metric. Please try again.`)
+                                throw new Error('Failed to remove metric')
+                            }
                         }}
                     />
                     <SharedMetricModal
                         experiment={experiment}
-                        onSave={(metrics, context) => {
-                            addSharedMetricsToExperiment(
-                                metrics.map(({ id }) => id),
-                                { type: context.type }
-                            )
-                            closeSharedMetricModal()
+                        onSave={async (metrics, context) => {
+                            const metricLabel = pluralize(metrics.length, 'metric', 'metrics', false)
+                            try {
+                                await addSharedMetricsToExperiment(
+                                    metrics.map(({ id }) => id),
+                                    { type: context.type }
+                                )
+                                lemonToast.success(`${capitalizeFirstLetter(context.type)} shared ${metricLabel} added`)
+                                closeSharedMetricModal()
+                            } catch {
+                                lemonToast.error(`Failed to add shared ${metricLabel}. Please try again.`)
+                                throw new Error('Failed to add shared metrics')
+                            }
                         }}
                     />
-                    <SharedMetricDetailsModal onDelete={removeSharedMetricFromExperiment} />
+                    <SharedMetricDetailsModal
+                        onDelete={async (sharedMetricId, context) => {
+                            try {
+                                await removeSharedMetricFromExperiment(sharedMetricId)
+                                lemonToast.success(`${capitalizeFirstLetter(context.type)} shared metric removed`)
+                            } catch {
+                                lemonToast.error(`Failed to remove ${context.type} shared metric. Please try again.`)
+                                throw new Error('Failed to remove shared metric')
+                            }
+                        }}
+                    />
                     <ExposureCriteriaModal
                         onSave={(exposureCriteria) => {
                             setExposureCriteria(exposureCriteria)
