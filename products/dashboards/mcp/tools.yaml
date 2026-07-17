@@ -281,8 +281,8 @@ tools:
         title: Get dashboard template
         description: >
             Get a single dashboard template by ID, including its full `tiles` (each tile's insight query and layout) and
-            `variables`. Use this after dashboard-templates-list to study how a vetted dashboard on a topic is composed —
-            which insights it pairs together and how they are queried — as reference when building or improving a
+            `variables`. Use this after dashboard-templates-list to study how a vetted dashboard on a topic is composed
+            — which insights it pairs together and how they are queried — as reference when building or improving a
             dashboard. Treat the tiles as illustrative examples: adapt the insight queries to the user's events and
             intent rather than reproducing the template verbatim.
     dashboard-templates-update:
