@@ -2831,7 +2831,9 @@ class NetlifySourceConfig(config.Config):
 
 @config.config
 class NewRelicSourceConfig(config.Config):
-    pass
+    api_key: str
+    account_id: int = config.value(converter=int)
+    region: Literal["US", "EU"] = config.value(default="US")
 
 
 @config.config
