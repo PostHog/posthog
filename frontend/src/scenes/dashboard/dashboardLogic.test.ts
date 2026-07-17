@@ -1390,10 +1390,12 @@ describe('dashboardLogic', () => {
                 }
 
                 let intervalCallback: TimerHandler | undefined
-                const setIntervalSpy = jest.spyOn(window, 'setInterval').mockImplementation((callback) => {
-                    intervalCallback = callback
-                    return 1
-                })
+                const setIntervalSpy = jest
+                    .spyOn(window, 'setInterval')
+                    .mockImplementation((callback: TimerHandler) => {
+                        intervalCallback = callback
+                        return 1
+                    })
 
                 try {
                     await expectLogic(logic, () => {
