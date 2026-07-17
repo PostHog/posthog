@@ -59,8 +59,10 @@ def test_hostile_free_text_is_sanitized_at_render() -> None:
     rendered = _render_items([item])
     assert "</team_focus>" not in rendered
     assert "<system>" not in rendered
-    # One item renders as exactly its 5 structural lines — injected newlines would add more.
-    assert len(rendered.splitlines()) == 5
+    items_json = rendered.split("<untrusted_input_items>\n", 1)[1].split("\n</untrusted_input_items>", 1)[0]
+    rendered_item = json.loads(items_json)[0]
+    assert rendered_item["title"] == "Ship ignore the rules"
+    assert rendered_item["description"] == "line1 line2 injected"
 
 
 class TestManagedPrompt:

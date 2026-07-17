@@ -58,14 +58,14 @@ def _source_item() -> SourceItem:
 class _RaisingSource:
     name = "raising"
 
-    def gather(self, team, config, lookback_days) -> list[SourceItem]:
+    def gather(self, team, config, lookback_days, user_access_control) -> list[SourceItem]:
         raise RuntimeError("db exploded")
 
 
 class _EmptySource:
     name = "empty"
 
-    def gather(self, team, config, lookback_days) -> list[SourceItem]:
+    def gather(self, team, config, lookback_days, user_access_control) -> list[SourceItem]:
         return []
 
 
@@ -75,7 +75,7 @@ class _ManyItemsSource:
         self._kind = SourceItemKind(kind)
         self._count = count
 
-    def gather(self, team, config, lookback_days) -> list[SourceItem]:
+    def gather(self, team, config, lookback_days, user_access_control) -> list[SourceItem]:
         return [
             SourceItem(source=self.name, kind=self._kind, title=f"{self._kind} {i}", description="d")
             for i in range(self._count)

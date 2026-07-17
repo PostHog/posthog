@@ -9,7 +9,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models.team import Team
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.schema_enums import AlertState
 
 from products.alerts.backend.models import AlertConfiguration
@@ -21,6 +23,8 @@ from products.product_analytics.backend.models.insight_caching_state import Insi
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem
 from products.pulse.backend.sources.resource_health import STUCK_REFRESH_ATTEMPTS, ResourceHealthSource
 
+from ee.models.rbac.access_control import AccessControl
+
 _TRENDS_QUERY = {
     "kind": "InsightVizNode",
     "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
@@ -28,6 +32,12 @@ _TRENDS_QUERY = {
 
 
 class TestResourceHealthGather(BaseTest):
+    def _access(self, user=None) -> UserAccessControl:
+        return UserAccessControl(user=user or self.user, team=self.team)
+
+    def _gather(self, *, user=None, lookback_days: int = 7) -> list[SourceItem]:
+        return ResourceHealthSource().gather(self.team, None, lookback_days, self._access(user))
+
     def _insight(self, name: str = "Signup funnel") -> Insight:
         return Insight.objects.create(team=self.team, name=name, query=_TRENDS_QUERY)
 
@@ -88,12 +98,12 @@ class TestResourceHealthGather(BaseTest):
         self._delivery(self._subscription(), status=SubscriptionDelivery.Status.COMPLETED)
         self._caching_state(self._insight(), refresh_attempt=0)
 
-        assert ResourceHealthSource().gather(self.team, None, lookback_days=7) == []
+        assert self._gather() == []
 
     def test_errored_alert_yields_health_item(self) -> None:
         alert = self._alert()
 
-        items = ResourceHealthSource().gather(self.team, None, lookback_days=7)
+        items = self._gather()
 
         assert len(items) == 1
         item = items[0]
@@ -120,7 +130,7 @@ class TestResourceHealthGather(BaseTest):
     def test_non_errored_alerts_ignored(self, _name: str, overrides: dict[str, Any]) -> None:
         self._alert(**overrides)
 
-        assert ResourceHealthSource().gather(self.team, None, lookback_days=7) == []
+        assert self._gather() == []
 
     def test_alert_on_soft_deleted_insight_ignored(self) -> None:
         insight = self._insight()
@@ -128,7 +138,7 @@ class TestResourceHealthGather(BaseTest):
         insight.save()
         self._alert(insight=insight)
 
-        assert ResourceHealthSource().gather(self.team, None, lookback_days=7) == []
+        assert self._gather() == []
 
     def test_failed_deliveries_grouped_per_subscription(self) -> None:
         subscription = self._subscription()
@@ -136,7 +146,7 @@ class TestResourceHealthGather(BaseTest):
         self._delivery(subscription, days_ago=2)
         self._delivery(subscription, status=SubscriptionDelivery.Status.COMPLETED, days_ago=1)
 
-        items = ResourceHealthSource().gather(self.team, None, lookback_days=7)
+        items = self._gather()
 
         assert len(items) == 1
         item = items[0]
@@ -163,7 +173,7 @@ class TestResourceHealthGather(BaseTest):
     def test_non_failing_deliveries_ignored(self, _name: str, status: str, days_ago: float) -> None:
         self._delivery(self._subscription(), status=status, days_ago=days_ago)
 
-        assert ResourceHealthSource().gather(self.team, None, lookback_days=7) == []
+        assert self._gather() == []
 
     def test_deleted_subscription_failures_ignored(self) -> None:
         subscription = self._subscription()
@@ -171,7 +181,7 @@ class TestResourceHealthGather(BaseTest):
         subscription.save()
         self._delivery(subscription)
 
-        assert ResourceHealthSource().gather(self.team, None, lookback_days=7) == []
+        assert self._gather() == []
 
     def test_stuck_insight_refresh_yields_health_item(self) -> None:
         insight = self._insight()
@@ -180,7 +190,7 @@ class TestResourceHealthGather(BaseTest):
         self._caching_state(insight, refresh_attempt=STUCK_REFRESH_ATTEMPTS)
         self._caching_state(insight, refresh_attempt=STUCK_REFRESH_ATTEMPTS + 1, dashboard_tile=tile)
 
-        items = ResourceHealthSource().gather(self.team, None, lookback_days=7)
+        items = self._gather()
 
         assert len(items) == 1
         item = items[0]
@@ -199,15 +209,41 @@ class TestResourceHealthGather(BaseTest):
     def test_below_threshold_refresh_attempts_ignored(self) -> None:
         self._caching_state(self._insight(), refresh_attempt=STUCK_REFRESH_ATTEMPTS - 1)
 
-        assert ResourceHealthSource().gather(self.team, None, lookback_days=7) == []
+        assert self._gather() == []
+
+    def test_restricted_insights_are_excluded_from_health_items(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        viewer = self._create_user("viewer@posthog.com")
+        restricted = self._insight("Restricted insight")
+        visible = self._insight("Visible insight")
+        AccessControl.objects.create(resource="insight", resource_id=restricted.id, team=self.team, access_level="none")
+        self._alert(insight=restricted, name="Restricted alert")
+        visible_alert = self._alert(insight=visible, name="Visible alert")
+        self._caching_state(restricted, refresh_attempt=STUCK_REFRESH_ATTEMPTS)
+        self._caching_state(visible, refresh_attempt=STUCK_REFRESH_ATTEMPTS)
+
+        items = self._gather(user=viewer)
+
+        assert {item.fingerprint_hint for item in items} == {
+            f"alert:{visible_alert.id}",
+            f"insight:{visible.short_id}",
+        }
 
     def test_one_failing_detector_does_not_kill_gather(self) -> None:
         self._delivery(self._subscription())
 
-        def _boom(source: ResourceHealthSource, team: Team, lookback_days: int) -> list[SourceItem]:
+        def _boom(
+            source: ResourceHealthSource,
+            team: Team,
+            lookback_days: int,
+            user_access_control: UserAccessControl,
+        ) -> list[SourceItem]:
             raise RuntimeError("db exploded")
 
         with patch.object(ResourceHealthSource, "_errored_alerts", _boom):
-            items = ResourceHealthSource().gather(self.team, None, lookback_days=7)
+            items = self._gather()
 
         assert [item.fingerprint_hint.split(":")[0] for item in items] == ["subscription"]

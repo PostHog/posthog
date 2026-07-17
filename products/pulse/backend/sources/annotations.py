@@ -5,6 +5,7 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from posthog.models.team import Team
+from posthog.rbac.user_access_control import UserAccessControl
 
 from products.annotations.backend.models import Annotation
 from products.pulse.backend.config import BriefSettings
@@ -21,7 +22,9 @@ class AnnotationsSource:
 
     name = "annotations"
 
-    def gather(self, team: Team, config: BriefConfig | None, lookback_days: int) -> list[SourceItem]:
+    def gather(
+        self, team: Team, config: BriefConfig | None, lookback_days: int, user_access_control: UserAccessControl
+    ) -> list[SourceItem]:
         now = timezone.now()
         max_annotations = BriefSettings.from_config(config).max_annotations
         # Visibility matches the annotations AI-context path (team + same-org). Scope is deliberately

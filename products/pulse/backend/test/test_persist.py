@@ -3,9 +3,9 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from parameterized import parameterized
-
 from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 from posthog.schema_enums import AlertState

@@ -8,10 +8,12 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.schema_enums import AlertState
 
 from products.alerts.backend.models import AlertConfiguration
 from products.exports.backend.models.subscription import SubscriptionDelivery
+from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
 from products.pulse.backend.config import MAX_ITEMS_PER_DETECTOR, STUCK_REFRESH_ATTEMPTS
 from products.pulse.backend.models import BriefConfig
@@ -26,8 +28,10 @@ class ResourceHealthSource:
 
     name = "resource_health"
 
-    def gather(self, team: Team, config: BriefConfig | None, lookback_days: int) -> list[SourceItem]:
-        detectors: list[Callable[[Team, int], list[SourceItem]]] = [
+    def gather(
+        self, team: Team, config: BriefConfig | None, lookback_days: int, user_access_control: UserAccessControl
+    ) -> list[SourceItem]:
+        detectors: list[Callable[[Team, int, UserAccessControl], list[SourceItem]]] = [
             self._errored_alerts,
             self._failed_subscription_deliveries,
             self._stuck_insight_refreshes,
@@ -35,7 +39,7 @@ class ResourceHealthSource:
         items: list[SourceItem] = []
         for detector in detectors:
             try:
-                items.extend(detector(team, lookback_days))
+                items.extend(detector(team, lookback_days, user_access_control))
             except Exception as exc:
                 # One broken detector must not kill the brief; the others still report. Capture to
                 # error tracking too (structured logs alone are easy to miss), matching the sibling
@@ -65,11 +69,21 @@ class ResourceHealthSource:
             fingerprint_hint=f"{ref_type}:{ref}",
         )
 
-    def _errored_alerts(self, team: Team, lookback_days: int) -> list[SourceItem]:
+    def _errored_alerts(
+        self, team: Team, lookback_days: int, user_access_control: UserAccessControl
+    ) -> list[SourceItem]:
         # Deliberately current-state, not period-bounded: an alert that started erroring before
         # the period is still broken now. Dismissal suppression is the off-switch.
+        viewable_insights = user_access_control.filter_queryset_by_access_level(
+            Insight.objects.filter(team=team, deleted=False)
+        )
         alerts = (
-            AlertConfiguration.objects.filter(team=team, enabled=True, state=AlertState.ERRORED, insight__deleted=False)
+            AlertConfiguration.objects.filter(
+                team=team,
+                enabled=True,
+                state=AlertState.ERRORED,
+                insight_id__in=viewable_insights.values("id"),
+            )
             .select_related("insight")
             .order_by("-created_at")[:MAX_ITEMS_PER_DETECTOR]
         )
@@ -96,7 +110,9 @@ class ResourceHealthSource:
             )
         return items
 
-    def _failed_subscription_deliveries(self, team: Team, lookback_days: int) -> list[SourceItem]:
+    def _failed_subscription_deliveries(
+        self, team: Team, lookback_days: int, user_access_control: UserAccessControl
+    ) -> list[SourceItem]:
         since = timezone.now() - timedelta(days=lookback_days)
         rows = (
             SubscriptionDelivery.objects.filter(
@@ -144,11 +160,18 @@ class ResourceHealthSource:
             )
         return items
 
-    def _stuck_insight_refreshes(self, team: Team, lookback_days: int) -> list[SourceItem]:
+    def _stuck_insight_refreshes(
+        self, team: Team, lookback_days: int, user_access_control: UserAccessControl
+    ) -> list[SourceItem]:
         # Current-state, not period-bounded (like _errored_alerts): a stuck refresh is still stuck now.
+        viewable_insights = user_access_control.filter_queryset_by_access_level(
+            Insight.objects.filter(team=team, deleted=False)
+        )
         rows = (
             InsightCachingState.objects.filter(
-                team=team, refresh_attempt__gte=STUCK_REFRESH_ATTEMPTS, insight__deleted=False
+                team=team,
+                refresh_attempt__gte=STUCK_REFRESH_ATTEMPTS,
+                insight_id__in=viewable_insights.values("id"),
             )
             .values("insight__short_id", "insight__name", "insight__derived_name")
             # Alias must not reuse the model field name "last_refresh" (annotate redefinition).
