@@ -117,41 +117,34 @@ describe('shouldCaptureDetachedElements', () => {
         expect(shouldCaptureDetachedElements(currentCount, previousCount)).toBe(expected)
     })
 
-    it('captures when the route changes with the same count', () => {
-        expect(shouldCaptureDetachedElements(3, 3, true)).toBe(true)
+    it.each([
+        { count: 3, label: 'same count' },
+        { count: 0, label: 'zero count' },
+    ])('captures a route change with $label', ({ count }) => {
+        expect(shouldCaptureDetachedElements(count, 3, true)).toBe(true)
     })
 })
 
 describe('getDetachedElementTrackingContext', () => {
     it('resets the route baseline when the path changes', () => {
         const firstScan = getDetachedElementTrackingContext(createDetachedElementTrackingState(), 100, '/groups', 1_000)
-        const sameRouteScan = getDetachedElementTrackingContext(firstScan.nextState, 130, '/groups', 4_000)
-        const nextRouteScan = getDetachedElementTrackingContext(
-            sameRouteScan.nextState,
-            150,
-            '/pipeline/new/source',
-            5_000
-        )
+        const sameRouteScan = getDetachedElementTrackingContext(firstScan.nextState, 130, '/groups')
+        const nextRouteScan = getDetachedElementTrackingContext(sameRouteScan.nextState, 150, '/pipeline/new/source')
 
         expect(firstScan).toMatchObject({
             detachedElementsDelta: null,
-            previousPath: null,
-            routeAgeMs: 0,
+            pathChanged: false,
             routeBaselineDetachedElements: 100,
             routeDetachedElementsDelta: 0,
         })
         expect(sameRouteScan).toMatchObject({
             detachedElementsDelta: 30,
-            previousPath: null,
-            routeAgeMs: 3_000,
             routeBaselineDetachedElements: 100,
             routeDetachedElementsDelta: 30,
         })
         expect(nextRouteScan).toMatchObject({
             detachedElementsDelta: 20,
             pathChanged: true,
-            previousPath: '/groups',
-            routeAgeMs: 0,
             routeBaselineDetachedElements: 130,
             routeDetachedElementsDelta: 20,
         })
