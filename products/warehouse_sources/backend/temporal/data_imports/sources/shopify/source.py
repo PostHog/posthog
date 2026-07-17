@@ -21,7 +21,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ShopifySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import SHOPIFY_GRAPHQL_OBJECTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import (
+    SHOPIFY_API_VERSION_2025_10,
+    SHOPIFY_API_VERSION_2026_07,
+    SHOPIFY_GRAPHQL_OBJECTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
@@ -41,8 +45,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
-    supported_versions = ("2025-10",)
-    default_version = "2025-10"
+    supported_versions = (SHOPIFY_API_VERSION_2025_10, SHOPIFY_API_VERSION_2026_07)
+    default_version = SHOPIFY_API_VERSION_2026_07
     api_docs_url = "https://shopify.dev/docs/api/release-notes"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -186,6 +190,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             shopify_client_id=config.shopify_client_id,
             shopify_client_secret=config.shopify_client_secret,
             graphql_object_name=inputs.schema_name,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             db_incremental_field_earliest_value=inputs.db_incremental_field_earliest_value,

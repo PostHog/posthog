@@ -26,7 +26,7 @@ from .constants import (
     SHOPIFY_ACCESS_TOKEN_GRANT,
     SHOPIFY_ACCESS_TOKEN_URL,
     SHOPIFY_API_URL,
-    SHOPIFY_API_VERSION,
+    SHOPIFY_API_VERSION_2026_07,
     SHOPIFY_DEFAULT_PAGE_SIZE,
     SHOPIFY_GRAPHQL_OBJECTS,
     SHOPIFY_PAGE_SIZE_OVERRIDES,
@@ -384,10 +384,11 @@ def shopify_source(
     db_incremental_field_earliest_value: Any | None,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[ShopifyResumeConfig],
+    api_version: str = SHOPIFY_API_VERSION_2026_07,
     should_use_incremental_field: bool = False,
 ):
     store_id = normalize_store_id(shopify_store_id)
-    api_url = SHOPIFY_API_URL.format(store_id, SHOPIFY_API_VERSION)
+    api_url = SHOPIFY_API_URL.format(store_id, api_version)
     shopify_access_token = _get_shopify_access_token(store_id, shopify_client_id, shopify_client_secret)
     schema_name = resolve_schema_name(graphql_object_name)
 
@@ -512,9 +513,15 @@ def _format_graphql_errors(errors: Any) -> str:
     return str(errors)
 
 
-def _authenticated_session(store_id: str, client_id: str, client_secret: str) -> tuple[str, requests.Session]:
-    """Fetch an access token and return the GraphQL URL plus a session that carries it."""
-    api_url = SHOPIFY_API_URL.format(store_id, SHOPIFY_API_VERSION)
+def _authenticated_session(
+    store_id: str, client_id: str, client_secret: str, api_version: str = SHOPIFY_API_VERSION_2026_07
+) -> tuple[str, requests.Session]:
+    """Fetch an access token and return the GraphQL URL plus a session that carries it.
+
+    Credential validation and permission probes run before a source row (and its pin) exists, so
+    they default to the current version — the queries they issue are version-agnostic.
+    """
+    api_url = SHOPIFY_API_URL.format(store_id, api_version)
     access_token = _get_shopify_access_token(store_id, client_id, client_secret)
     sess = make_tracked_session(headers={"Content-Type": "application/json", "X-Shopify-Access-Token": access_token})
     return api_url, sess
