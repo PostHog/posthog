@@ -368,9 +368,12 @@ function applyCollisionAvoidance(candidates: Candidate[], minGap: number, isHori
     if (candidates.length === 0) {
         return candidates
     }
-    const ordered = [...candidates].sort((a, b) =>
-        a.seriesIndex !== b.seriesIndex ? a.seriesIndex - b.seriesIndex : isHorizontal ? a.y - b.y : a.x - b.x
-    )
+    const ordered = [...candidates].sort((a, b) => {
+        if (a.seriesIndex !== b.seriesIndex) {
+            return a.seriesIndex - b.seriesIndex
+        }
+        return isHorizontal ? a.y - b.y : a.x - b.x
+    })
 
     const visible: Candidate[] = []
     const placedRects: Rect[] = []

@@ -186,7 +186,8 @@ describe('ValueLabels', () => {
             { key: 'b', label: 'B', color: '#445566', data: [20] },
         ]
         const ctx = makeContext(series, { labels: ['Mon'] })
-        // Collision avoidance is per-series so both labels should render.
+        // Same x but different values put the two labels at different value-axis coords, so their
+        // boxes don't overlap and both render.
         const { container } = renderInChart(ctx, <ValueLabels />)
         const divs = labelDivs(container)
         expect(divs).toHaveLength(2)
