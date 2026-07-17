@@ -44,9 +44,14 @@ _ROW_LIMIT = 10000
 MAX_QUERY_SPAN = dt.timedelta(days=31)
 
 # These run on the shared logs cluster; cap how much one query may read.
+# max_threads bounds each interactive chart query's fan-out on that shared
+# cluster (the load-shedding kill switch caps at 45/30) while overriding the
+# local-dev profile's max_threads=2 throttle (docker/clickhouse/users-dev.xml),
+# which serializes what is a parallel aggregation everywhere else.
 _QUERY_SETTINGS = HogQLGlobalSettings(
     max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES,
     read_overflow_mode="throw",
+    max_threads=16,
 )
 
 # The OTel service name is a first-class `metrics1` column (extracted at
@@ -327,6 +332,7 @@ class MetricQueryRunner:
             workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
             settings=_QUERY_SETTINGS,
             context=_static_schema_context(self.team),
+            pretty=False,  # response.hogql is never surfaced from this runner
         )
         self._raise_on_truncation(response.results)
 
@@ -355,6 +361,7 @@ class MetricQueryRunner:
             workload=Workload.LOGS,
             settings=_QUERY_SETTINGS,
             context=_static_schema_context(self.team),
+            pretty=False,  # response.hogql is never surfaced from this runner
         )
         self._raise_on_truncation(response.results)
 
