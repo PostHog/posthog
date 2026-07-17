@@ -1160,11 +1160,12 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
 
         entries = list(ActivityLog.objects.filter(team_id=self.team.id, scope="LLMPromptLabel").order_by("created_at"))
         assert [entry.activity for entry in entries] == ["created", "updated", "deleted"]
-        move = entries[1]
-        assert move.detail["name"] == "my-prompt: production"
-        assert move.detail["changes"][0]["before"] == 1
-        assert move.detail["changes"][0]["after"] == 2
-        assert move.user is not None and move.user.id == self.user.id
+        move_detail = entries[1].detail
+        assert move_detail is not None
+        assert move_detail["name"] == "my-prompt: production"
+        assert move_detail["changes"][0]["before"] == 1
+        assert move_detail["changes"][0]["after"] == 2
+        assert entries[1].user is not None and entries[1].user.id == self.user.id
 
     def test_archive_logs_label_deletion(self):
         self.create_prompt_version(version=1)
