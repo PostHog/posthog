@@ -1,4 +1,4 @@
-"""Week-start-day enum, Django-free so the HogQL engine can import it without booting Django.
+"""Week-start-day enum the HogQL engine can import without booting Django (no settings or app registry).
 
 `django.db.models.IntegerChoices` is plain enum machinery — defining a subclass touches neither
 settings nor the app registry, so this module imports cleanly in a bare interpreter.
