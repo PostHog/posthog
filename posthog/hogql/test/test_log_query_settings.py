@@ -11,9 +11,11 @@ from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.errors import (
     CH_TRANSIENT_ERRORS,
+    CHQueryErrorCorruptedParquetMetadata,
     CHQueryErrorTableIsReadOnly,
     CHQueryErrorTooManyBytes,
     ExposedCHQueryError,
+    InternalCHQueryError,
     QueryErrorCategory,
     classify_query_error,
     wrap_clickhouse_query_error,
@@ -136,6 +138,32 @@ class TestTooManyBytesError(ClickhouseTestMixin, APIBaseTest):
         wrapped = wrap_clickhouse_query_error(server_error)
         assert isinstance(wrapped, CHQueryErrorTableIsReadOnly)
         assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
+
+
+class TestCorruptedParquetMetadataError(TestCase):
+    """A Parquet file with oversized/corrupted thrift metadata surfaces as a raw STD_EXCEPTION
+    (code 1001). It must be translated into a friendly, exposed error instead of leaking the raw
+    ClickHouse message into the SQL editor."""
+
+    THRIFT_MESSAGE = (
+        "DB::Exception: parquet::ParquetException: Couldn't deserialize thrift: "
+        "TProtocolException: Exceeded size limit. Stack trace: ..."
+    )
+
+    def test_thrift_deserialization_error_is_exposed_and_friendly(self) -> None:
+        wrapped = wrap_clickhouse_query_error(ServerException(self.THRIFT_MESSAGE, code=1001))
+        assert isinstance(wrapped, CHQueryErrorCorruptedParquetMetadata)
+        assert isinstance(wrapped, ExposedCHQueryError)
+        message = str(wrapped)
+        assert "DB::Exception" not in message
+        assert "thrift" not in message.lower()
+        assert "corrupted or oversized metadata" in message
+
+    def test_unrelated_std_exception_stays_internal(self) -> None:
+        # The translation must be narrow: a generic STD_EXCEPTION should not be exposed to users.
+        wrapped = wrap_clickhouse_query_error(ServerException("DB::Exception: something else.", code=1001))
+        assert not isinstance(wrapped, CHQueryErrorCorruptedParquetMetadata)
+        assert isinstance(wrapped, InternalCHQueryError)
 
 
 class TestArgumentCountErrorsAreUserFacing(TestCase):

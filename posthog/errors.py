@@ -84,6 +84,12 @@ def clickhouse_error_type(e: Exception) -> str:
 
 STORAGE_FILE_URI_PATTERN = re.compile(r"\(in file/uri ([^)]+)\)")
 
+CORRUPTED_PARQUET_METADATA_MESSAGE = (
+    "A Parquet file backing this table has corrupted or oversized metadata and can't be read. "
+    "This usually means the file wasn't written correctly during import. Re-sync the source (or "
+    "re-upload the file if you manage it yourself), and contact support if it keeps happening."
+)
+
 
 def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3FileChangedDuringRead":
     match = STORAGE_FILE_URI_PATTERN.search(err.message)
@@ -135,6 +141,12 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorS3Error(f"S3 error occurred. ({err.message})", code=err.code)
     elif name == "INCORRECT_DATA" and "Not a Parquet file" in err.message and "(in file/uri" in err.message:
         return _wrap_storage_file_changed_error(err)
+    elif name == "STD_EXCEPTION" and "deserialize thrift" in err.message:
+        # A Parquet file with corrupted or oversized thrift metadata (e.g.
+        # "Couldn't deserialize thrift: TProtocolException: Exceeded size limit").
+        # ClickHouse surfaces this as a raw STD_EXCEPTION (code 1001), so translate it
+        # into an actionable message instead of leaking the internals.
+        return CHQueryErrorCorruptedParquetMetadata(CORRUPTED_PARQUET_METADATA_MESSAGE, code=err.code)
     elif name == "TABLE_IS_READ_ONLY":
         # Transient: a replica dropped its ZooKeeper/Keeper session and went read-only; it self-heals.
         return CHQueryErrorTableIsReadOnly(err.message, code=err.code, code_name="table_is_read_only")
@@ -232,6 +244,12 @@ class CHQueryErrorS3FileChangedDuringRead(ExposedCHQueryError):
 
 
 class CHQueryErrorTableIsReadOnly(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorCorruptedParquetMetadata(ExposedCHQueryError):
+    """A Parquet file backing a warehouse table has corrupted or oversized thrift metadata."""
+
     pass
 
 
