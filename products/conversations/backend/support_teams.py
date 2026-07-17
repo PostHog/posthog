@@ -8,6 +8,8 @@ Handles:
 - Save/clear config with activity logging
 """
 
+from __future__ import annotations
+
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urlparse
@@ -512,7 +514,7 @@ def store_teams_service_url(tenant_id: str, service_url: str) -> None:
 def save_teams_token(
     *,
     team: Team,
-    user: "User",
+    user: User,
     is_impersonated_session: bool,
     access_token: str,
     refresh_token: str,
@@ -574,7 +576,7 @@ def save_teams_token(
 def clear_teams_token(
     *,
     team: Team,
-    user: "User",
+    user: User,
     is_impersonated_session: bool,
 ) -> None:
     config = get_or_create_team_extension(team, TeamConversationsTeamsConfig)

@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest
 
 from django.db import connection
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -229,3 +230,14 @@ class TestTrustedTeamsServiceUrl(BaseTest):
     )
     def test_untrusted(self, url: str) -> None:
         assert is_trusted_teams_service_url(url) is False
+
+
+class TestSupportTeamsAnnotationsDeferred(SimpleTestCase):
+    def test_jwks_client_return_annotation_is_not_evaluated_at_import(self) -> None:
+        # `_get_jwks_client` is reachable from the app's `ready()` import chain, so its
+        # annotations must stay lazy: an unquoted `jwt.PyJWKClient` evaluated at import
+        # time would crash the entire Django app boot if `jwt` ever lacked that symbol.
+        # `from __future__ import annotations` keeps annotations as strings — guard it.
+        from products.conversations.backend.support_teams import _get_jwks_client
+
+        assert _get_jwks_client.__annotations__["return"] == "jwt.PyJWKClient"
