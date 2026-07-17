@@ -1911,6 +1911,7 @@ class ExternalDataSourceType(StrEnum):
     PINECONE = "Pinecone"
     PLATFORM_SH = "PlatformSh"
     PROMPTING_COMPANY = "PromptingCompany"
+    PROMPT_WATCH = "PromptWatch"
     QDRANT = "Qdrant"
     RENDER = "Render"
     REPLICATE = "Replicate"

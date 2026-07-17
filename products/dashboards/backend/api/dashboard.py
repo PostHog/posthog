@@ -29,7 +29,7 @@ from django.db.models import (
     Value,
 )
 from django.db.models.functions import Cast
-from django.http import StreamingHttpResponse
+from django.http.response import HttpResponseBase
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 
@@ -84,7 +84,13 @@ from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async
 from posthog.user_permissions import UserPermissionsSerializerMixin
-from posthog.utils import filters_override_requested_by_client, str_to_bool, variables_override_requested_by_client
+from posthog.utils import (
+    filters_override_requested_by_client,
+    safe_cache_add,
+    safe_cache_delete,
+    str_to_bool,
+    variables_override_requested_by_client,
+)
 
 from products.ai_observability.backend.dashboard_templates import get_ai_observability_default_template
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -126,7 +132,16 @@ from products.dashboards.backend.widget_registry import (
     validate_widget_config,
 )
 from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    Priority,
+    TargetType,
+    create_notification,
+    has_been_dispatched,
+)
 from products.product_analytics.backend.api.insight import (
+    INCLUDE_DASHBOARDS_PARAMETER,
     DashboardTileBasicSerializer,
     InsightSerializer,
     InsightViewSet,
@@ -177,6 +192,9 @@ FILTERS_OVERRIDE_PARAM = make_filters_override_param(subject_label="dashboard")
 tracer = trace.get_tracer(__name__)
 
 RUN_WIDGETS_QUERY_CONCURRENCY = 4
+
+# One subscribe-nudge notification per (user, dashboard) within this window.
+SUBSCRIBE_NUDGE_DEDUPE_TTL_SECONDS = 30 * 24 * 60 * 60
 
 WIDGET_TYPE_API_HELP = (
     "Widget type identifier. Supported values: "
@@ -2062,6 +2080,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
         return {**validated_data, "creation_mode": "default"}
 
 
+class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
+    created = serializers.BooleanField(
+        help_text="Whether a nudge notification was created. False when one was already sent recently "
+        "for this user and dashboard, or when in-app notifications are unavailable."
+    )
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -2090,7 +2115,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
             ),
         ],
     ),
-    partial_update=extend_schema(request=PatchedDashboardOpenApiSerializer),
+    # Dashboards nest insight payloads via `tiles[].insight`, so the deprecated-`dashboards`-field
+    # opt-in applies here too — on every action whose response uses DashboardSerializer.
+    create=extend_schema(parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
+    retrieve=extend_schema(parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
+    update=extend_schema(parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
+    partial_update=extend_schema(request=PatchedDashboardOpenApiSerializer, parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
 )
 class DashboardsViewSet(
     TeamAndOrgViewSetMixin,
@@ -2190,6 +2220,13 @@ class DashboardsViewSet(
         # but they are in fact project-level, rather than environment-level
         assert self.team.project_id is not None
         queryset = self.queryset.filter(team__project_id=self.team.project_id)
+
+        # subscribe_nudge only reads the dashboard's pk and name, so skip the detail prefetch
+        # cascade (tiles → insights → their dashboards) and the folder/last-viewed annotations.
+        # Team scoping is preserved by the filter above; the CanEditDashboard object permission
+        # still gates the write.
+        if self.action == "subscribe_nudge":
+            return queryset.exclude(deleted=True)
 
         if self.request.user.is_authenticated:
             queryset = queryset.alias(
@@ -2328,7 +2365,7 @@ class DashboardsViewSet(
         ],
     )
     @action(methods=["GET"], detail=True, url_path="stream_tiles")
-    def stream_tiles(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
+    def stream_tiles(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
         """Stream dashboard metadata and tiles via Server-Sent Events. Sends metadata first, then tiles as they are rendered."""
         dashboard = self.get_object()  # This will raise 404 if not found - let it bubble up normally
 
@@ -2340,9 +2377,11 @@ class DashboardsViewSet(
         metadata_serializer = DashboardMetadataSerializer(dashboard, context=self.get_serializer_context())
         metadata_data = metadata_serializer.data
 
-        # Create serializer context for tiles
+        # Create serializer context for tiles. Tiles are rendered with SafeJSONRenderer below,
+        # so raw cached results (orjson.Fragment) are safe even though the negotiated renderer
+        # is the SSE one.
         context = self.get_serializer_context()
-        context.update({"dashboard": dashboard})
+        context.update({"dashboard": dashboard, "raw_results_supported": True})
 
         # Get tiles with proper prefetch
         tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(
@@ -2769,6 +2808,9 @@ class DashboardsViewSet(
 
         context = self.get_serializer_context()
         context["dashboard"] = dashboard
+        # _format_insight_for_llm consumes results as Python data, so raw cached
+        # result bytes (orjson.Fragment) must not be used here.
+        context["require_parsed_results"] = True
 
         tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(
             Prefetch(
@@ -3271,6 +3313,68 @@ class DashboardsViewSet(
                 DashboardSerializer(dashboard, context=self.get_serializer_context()).data,
                 status=status.HTTP_201_CREATED,
             )
+
+    @extend_schema(
+        request=None,
+        responses={
+            201: DashboardSubscribeNudgeResponseSerializer,
+            200: DashboardSubscribeNudgeResponseSerializer,
+        },
+        description="Send the requesting user an in-app notification suggesting they subscribe to this "
+        "dashboard. Deduplicated server-side: at most one notification per user and dashboard, ever, "
+        "so repeat calls return 200 with created=false.",
+    )
+    @action(methods=["POST"], detail=True, url_path="subscribe_nudge", required_scopes=["dashboard:write"])
+    def subscribe_nudge(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        dashboard = self.get_object()
+        user = cast(User, request.user)
+
+        dedupe_key = f"dashboard_subscribe_nudge:{user.pk}:{dashboard.pk}"
+        if not safe_cache_add(dedupe_key, "1", timeout=SUBSCRIBE_NUDGE_DEDUPE_TTL_SECONDS):
+            return Response({"created": False}, status=status.HTTP_200_OK)
+
+        # Durable backstop behind the cache sentinel: a nudge is once-ever per (user, dashboard),
+        # so losing the sentinel (cache flush, eviction, Redis outage) must not let a second one
+        # through. Mirrors the client's permanent notified marker.
+        if has_been_dispatched(
+            notification_type=NotificationType.SUBSCRIPTION_NUDGE,
+            target_type=TargetType.USER,
+            target_id=str(user.pk),
+            resource_id=str(dashboard.pk),
+        ):
+            return Response({"created": False}, status=status.HTTP_200_OK)
+
+        try:
+            event = create_notification(
+                NotificationData(
+                    team_id=self.team_id,
+                    notification_type=NotificationType.SUBSCRIPTION_NUDGE,
+                    priority=Priority.NORMAL,
+                    title=f"You keep coming back to {dashboard.name or 'this dashboard'}",
+                    body="Get it delivered to your inbox every Monday instead of checking back.",
+                    target_type=TargetType.USER,
+                    target_id=str(user.pk),
+                    resource_type="dashboard",
+                    resource_id=str(dashboard.pk),
+                    # Query params mirror SUBSCRIPTION_PREFILL_PARAMS in
+                    # products/subscriptions/frontend/components/Subscriptions/utils.tsx, which
+                    # consumes them to prefill the new-subscription form.
+                    source_url=f"/dashboard/{dashboard.pk}/subscriptions/new?prefill=nudge&via=notification",
+                )
+            )
+        except Exception:
+            # Release the sentinel so a transient create_notification failure doesn't burn the
+            # nudge for the full dedupe window; then let the error propagate.
+            safe_cache_delete(dedupe_key)
+            raise
+        if event is None:
+            # Notifications disabled or no recipients resolved — report honestly so the caller
+            # doesn't treat this as a delivered nudge, and release the sentinel so the nudge isn't
+            # silently burned for 30 days once the condition clears.
+            safe_cache_delete(dedupe_key)
+            return Response({"created": False}, status=status.HTTP_200_OK)
+
+        return Response({"created": True}, status=status.HTTP_201_CREATED)
 
 
 class LegacyDashboardsViewSet(DashboardsViewSet):

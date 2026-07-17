@@ -13,8 +13,10 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from products.review_hog.backend.models import ReviewSkillConfig
 from products.review_hog.backend.reviewer.lazy_seed import seed_canonicals_tolerantly, sync_canonical_perspectives
 from products.review_hog.backend.reviewer.skill_loader import (
+    CANONICAL_PERSPECTIVE_SKILL_NAMES,
     REVIEW_HOG_PERSPECTIVE_PREFIX,
     register_missing_perspective_configs,
+    visible_skill_names,
 )
 from products.skills.backend.models.skills import LLMSkill
 
@@ -46,11 +48,13 @@ class ReviewPerspectiveConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
     """Per-user enablement of ReviewHog's review perspectives for a project.
 
     A perspective is any team `review-hog-perspective-*` `LLMSkill` (canonical or custom — handled
-    identically). The skill itself is team-level; this surface only controls **which** perspectives
-    run on the requesting user's PR reviews. `list` shows the full perspective menu joined with the
-    user's enable state (the 3 canonicals auto-seed enabled on first read); `partial_update` toggles
-    one by skill name (upserting the config row, so a freshly authored custom perspective is enabled
-    by the same call). At least one perspective must stay enabled.
+    identically at run time). The skill itself is team-level; this surface only controls **which**
+    perspectives run on the requesting user's PR reviews. Visibility is per-user: the menu shows
+    the canonicals plus the customs the requesting user authored — a teammate's custom is neither
+    listed nor enableable (`visible_skill_names`). `list` joins that menu with the user's enable
+    state (the 3 canonicals auto-seed enabled on first read); `partial_update` toggles one by skill
+    name (upserting the config row, so a freshly authored custom perspective is enabled by the same
+    call). At least one perspective must stay enabled.
     """
 
     # llm_skill, not INTERNAL: responses carry skill body/description, so the llm_analytics RBAC
@@ -71,9 +75,10 @@ class ReviewPerspectiveConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         },
         summary="List review perspectives and their enablement",
         description=(
-            "List every `review-hog-perspective-*` skill on this project joined with the requesting "
-            "user's enable state. The 3 canonical perspectives are auto-seeded enabled on the first "
-            "read; a custom perspective the user has not switched on shows as disabled."
+            "List the `review-hog-perspective-*` skills visible to the requesting user — the "
+            "canonical perspectives plus the customs they authored — joined with their enable "
+            "state. The 3 canonical perspectives are auto-seeded enabled on the first read; a "
+            "custom perspective the user has not switched on shows as disabled."
         ),
     )
     def list(self, request: Request, **kwargs) -> Response:
@@ -91,9 +96,14 @@ class ReviewPerspectiveConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
             .filter(user_id=user_id, skill_name__startswith=REVIEW_HOG_PERSPECTIVE_PREFIX)
             .values_list("skill_name", "enabled")
         )
-        skills = LLMSkill.objects.filter(
-            team_id=team_id, name__startswith=REVIEW_HOG_PERSPECTIVE_PREFIX, is_latest=True, deleted=False
-        ).order_by("name")
+        # Per-user visibility: the menu advertises the canonicals plus this user's own customs —
+        # never a teammate's.
+        visible = visible_skill_names(
+            team_id, user_id, prefix=REVIEW_HOG_PERSPECTIVE_PREFIX, canonical_names=CANONICAL_PERSPECTIVE_SKILL_NAMES
+        )
+        skills = LLMSkill.objects.filter(team_id=team_id, name__in=visible, is_latest=True, deleted=False).order_by(
+            "name"
+        )
         items = [
             {
                 "skill_name": s.name,
@@ -112,14 +122,15 @@ class ReviewPerspectiveConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
                 response=ReviewPerspectiveConfigSerializer, description="The perspective's updated enable state."
             ),
             400: OpenApiResponse(description="Not a perspective skill, or disabling the user's last enabled one."),
-            404: OpenApiResponse(description="No such perspective skill on this project."),
+            404: OpenApiResponse(description="No such perspective skill visible to the user on this project."),
         },
         summary="Enable or disable a review perspective",
         description=(
             "Toggle whether a `review-hog-perspective-*` skill runs on the requesting user's PR "
-            "reviews. Upserts the per-user config row, so enabling a freshly authored custom "
-            "perspective works in one call. Rejected if it would leave the user with no enabled "
-            "perspective."
+            "reviews. Only skills visible to the user — the canonicals plus the customs they "
+            "authored — can be toggled; anything else 404s. Upserts the per-user config row, so "
+            "enabling a freshly authored custom perspective works in one call. Rejected if it "
+            "would leave the user with no enabled perspective."
         ),
     )
     def partial_update(self, request: Request, skill_name: str, **kwargs) -> Response:
@@ -134,7 +145,11 @@ class ReviewPerspectiveConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         # 404 without it.
         seed_canonicals_tolerantly(team_id, sync_canonical_perspectives)
         skill = LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).first()
-        if skill is None:
+        # A teammate's custom 404s exactly like a missing skill — visibility is author-only, and a
+        # distinct error would leak that the name exists.
+        if skill is None or skill_name not in visible_skill_names(
+            team_id, user_id, prefix=REVIEW_HOG_PERSPECTIVE_PREFIX, canonical_names=CANONICAL_PERSPECTIVE_SKILL_NAMES
+        ):
             raise NotFound(f"No perspective skill '{skill_name}' on this project")
 
         update = ReviewPerspectiveConfigUpdateSerializer(data=request.data)

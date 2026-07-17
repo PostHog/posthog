@@ -510,6 +510,52 @@ class TestExternalDataSource(APIBaseTest):
         source = ExternalDataSource.objects.get(id=response.json()["id"])
         assert source.created_via == expected_created_via
 
+    @parameterized.expand(
+        [
+            # The MCP server overwrites User-Agent with its own token and forwards the wizard's real
+            # UA in X-Posthog-Mcp-User-Agent. The self-driving marker lives there, not on User-Agent.
+            (
+                "self_driving_marker_in_mcp_header",
+                "posthog/wizard; version: 2.45.0; program: self-driving-setup",
+                ExternalDataSource.CreatedVia.SELF_DRIVING,
+            ),
+            # Same proxy shape, plain wizard run: stays wizard, not self_driving.
+            (
+                "plain_wizard_no_marker",
+                "posthog/wizard; version: 2.45.0",
+                ExternalDataSource.CreatedVia.WIZARD,
+            ),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_self_driving_via_proxied_mcp_user_agent(
+        self, _name, mcp_user_agent, expected_created_via, _mock_validate
+    ):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": ExternalDataSource.CreatedVia.MCP,
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+            headers={
+                "user-agent": "posthog/mcp-server; version: 1.0.0; for posthog/wizard",
+                "x-posthog-mcp-user-agent": mcp_user_agent,
+            },
+        )
+
+        assert response.status_code == 201, response.json()
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+        assert source.created_via == expected_created_via
+
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
@@ -4157,10 +4203,6 @@ class TestExternalDataSource(APIBaseTest):
         with (
             patch.object(source, "validate_credentials_for_access_method", return_value=(True, None)),
             patch.object(source, "get_schemas", return_value=[fake_schema]),
-            patch(
-                "products.data_warehouse.backend.presentation.views.external_data_source.is_xmin_enabled_for_team",
-                return_value=True,
-            ),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
@@ -4557,7 +4599,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_available": True,
                     "append_available": True,
                     "cdc_available": None,
-                    "xmin_available": None,
+                    "xmin_available": False,
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
@@ -4628,7 +4670,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_available": True,
                     "append_available": True,
                     "cdc_available": None,
-                    "xmin_available": None,
+                    "xmin_available": False,
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
@@ -4735,18 +4777,21 @@ class TestExternalDataSource(APIBaseTest):
 
         data = response.json()
 
-        assert response.status_code, status.HTTP_200_OK
+        assert response.status_code == status.HTTP_200_OK
         assert len(data) == 1
         assert data[0]["id"] == str(job.pk)
         assert data[0]["status"] == "Completed"
         assert data[0]["rows_synced"] == 100
         assert data[0]["schema"]["id"] == str(schema.pk)
         assert data[0]["workflow_run_id"] is not None
+        assert data[0]["billable"] is True
 
-    def test_source_jobs_billable_job(self):
+    def test_source_jobs_includes_non_billable(self):
+        # Non-billable jobs (system-initiated runs the customer isn't charged for) must show up
+        # in the sync history, flagged so the UI can tag them.
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
-        ExternalDataJob.objects.create(
+        job = ExternalDataJob.objects.create(
             team=self.team,
             pipeline=source,
             schema=schema,
@@ -4763,8 +4808,10 @@ class TestExternalDataSource(APIBaseTest):
 
         data = response.json()
 
-        assert response.status_code, status.HTTP_200_OK
-        assert len(data) == 0
+        assert response.status_code == status.HTTP_200_OK
+        assert len(data) == 1
+        assert data[0]["id"] == str(job.pk)
+        assert data[0]["billable"] is False
 
     def test_source_jobs_pagination(self):
         source = self._create_external_data_source()
@@ -10782,6 +10829,7 @@ class TestExternalDataSourceSetup(APIBaseTest):
 
     def _store_stripe_credential(self, team=None, **kwargs) -> PendingSourceCredential:
         team = team or self.team
+        kwargs.setdefault("created_by", self.user)
         return PendingSourceCredential.objects.for_team(team.pk).create(
             team=team,
             source_type="Stripe",
@@ -10868,6 +10916,25 @@ class TestExternalDataSourceSetup(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "is for 'Stripe'" in response.json()["message"]
+
+    @parameterized.expand(
+        [
+            ("setup", "setup/"),
+            ("create", ""),
+        ]
+    )
+    def test_consuming_another_team_members_credential_returns_400(self, _name, endpoint):
+        teammate = self._create_user("teammate@posthog.com")
+        credential = self._store_stripe_credential(created_by=teammate)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{endpoint}",
+            data={"source_type": "Stripe", "payload": {"credential_id": str(credential.pk)}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not found" in response.json()["message"]
+        assert not ExternalDataSource.objects.exists()
+        # The teammate's stash must survive untouched.
+        assert PendingSourceCredential.objects.for_team(self.team.pk).filter(pk=credential.pk).exists()
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.ensure_person_join")
     @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
@@ -11003,8 +11070,9 @@ class TestExternalDataSourceStoreCredentials(APIBaseTest):
         assert results[0]["source_type"] == "Stripe"
         assert "sk_test_123" not in json.dumps(list_response.json())
 
-    def test_stored_credentials_list_filters_by_source_type_and_hides_expired_and_other_teams(self):
+    def test_stored_credentials_list_filters_by_source_type_and_hides_expired_other_teams_and_other_users(self):
         def _create(team, source_type, **kwargs):
+            kwargs.setdefault("created_by", self.user)
             return PendingSourceCredential.objects.for_team(team.pk).create(
                 team=team, source_type=source_type, payload={"key": "secret"}, **kwargs
             )
@@ -11014,6 +11082,9 @@ class TestExternalDataSourceStoreCredentials(APIBaseTest):
         _create(self.team, "Stripe", expires_at=timezone.now() - timedelta(minutes=1))
         other_team = Team.objects.create(organization=self.organization, name="other")
         _create(other_team, "Stripe")
+        # A teammate's credential in the same team must not be enumerable — its id would be a
+        # consumable capability.
+        _create(self.team, "Stripe", created_by=self._create_user("teammate@posthog.com"))
 
         response = self.client.get(
             f"/api/environments/{self.team.pk}/external_data_sources/stored_credentials/?source_type=Stripe"
@@ -11024,10 +11095,10 @@ class TestExternalDataSourceStoreCredentials(APIBaseTest):
 
     def test_stored_credentials_list_orders_newest_first(self):
         older = PendingSourceCredential.objects.for_team(self.team.pk).create(
-            team=self.team, source_type="Stripe", payload={"key": "secret"}
+            team=self.team, source_type="Stripe", payload={"key": "secret"}, created_by=self.user
         )
         newer = PendingSourceCredential.objects.for_team(self.team.pk).create(
-            team=self.team, source_type="Stripe", payload={"key": "secret"}
+            team=self.team, source_type="Stripe", payload={"key": "secret"}, created_by=self.user
         )
         PendingSourceCredential.objects.for_team(self.team.pk).filter(pk=older.pk).update(
             created_at=timezone.now() - timedelta(hours=1)

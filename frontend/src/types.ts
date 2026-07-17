@@ -82,6 +82,7 @@ import { AlertType } from 'products/alerts/frontend/types'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import type { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
@@ -6157,6 +6158,7 @@ export interface ExternalDataSourceCreatePayload {
     prefix?: string
     description?: string
     access_method?: 'warehouse' | 'direct'
+    direct_query_enabled?: boolean
     created_via: 'web' | 'api' | 'mcp'
     payload: Record<string, any>
 }
@@ -6178,8 +6180,9 @@ export interface ExternalDataSource {
     prefix: string | null
     description: string | null
     access_method?: 'warehouse' | 'direct'
+    direct_query_enabled?: boolean
     created_via: 'web' | 'api' | 'mcp' | 'wizard' | null
-    engine?: 'duckdb' | 'postgres' | 'mysql' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift' | null
     latest_error: string | null
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
@@ -6429,6 +6432,11 @@ export interface ExternalDataJob {
      * (cdc-only history table). `null` for non-CDC syncs.
      */
     cdc_write_mode?: 'incremental_merge' | 'scd2_append' | null
+    /**
+     * Whether the rows synced by this job count toward billing. `false` for system-initiated
+     * runs the customer isn't charged for. `null` on legacy rows and means billable.
+     */
+    billable?: boolean | null
 }
 
 export interface SimpleDataWarehouseTable {
@@ -7458,7 +7466,7 @@ export interface Conversation {
      */
     agent_runtime?: 'langgraph' | 'sandbox'
     /** Backing products/tasks Task for sandbox conversations. Null until the first message creates it. `latest_run` is the newest TaskRun id used to bootstrap the sandbox stream. */
-    task?: { id: string; latest_run: string | null } | null
+    task?: { id: string; latest_run: string | null; runtime?: RuntimeEnumApi } | null
 }
 
 export interface ConversationDetail extends Conversation {

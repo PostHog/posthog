@@ -9,16 +9,30 @@ import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 
 /**
  * Findings stat card for the scout troop list, above the scratchpad callout. Advertises the troop's
- * recent findings (count · scouts · recency) and links into the cross-fleet findings page. Reads the
- * cheap `emittedFindingsSummary` (a single backend query) so it appears as soon as that lands rather
- * than after the full paginated runs-window walk. Renders nothing until there's at least one finding.
+ * recent output — legacy findings plus reports authored/edited via the report channel — and links
+ * into the cross-fleet findings page. Reads the cheap `emittedFindingsSummary` (a single backend
+ * query) so it appears as soon as that lands rather than after the full paginated runs-window walk.
+ * Renders nothing until there's at least one finding or touched report.
  */
 export function FleetFindingsCallout({ onOpen }: { onOpen: () => void }): JSX.Element | null {
     const { emittedFindingsSummary, fleetFindingsSummaryLoadedOnce } = useValues(scoutFleetLogic)
 
-    // Hold until the cheap summary lands, then only show when there's something to read.
-    if (!fleetFindingsSummaryLoadedOnce || emittedFindingsSummary.count === 0) {
+    const { count, authoredReportCount, editedReportCount, scoutCount, latestAt } = emittedFindingsSummary
+
+    // Hold until the cheap summary lands, then only show when there's something to read on either channel.
+    if (!fleetFindingsSummaryLoadedOnce || (count === 0 && authoredReportCount === 0 && editedReportCount === 0)) {
         return null
+    }
+
+    const outputParts: string[] = []
+    if (count > 0) {
+        outputParts.push(pluralize(count, 'finding'))
+    }
+    if (authoredReportCount > 0) {
+        outputParts.push(`${pluralize(authoredReportCount, 'report')} authored`)
+    }
+    if (editedReportCount > 0) {
+        outputParts.push(`${pluralize(editedReportCount, 'report')} edited`)
     }
 
     return (
@@ -31,12 +45,11 @@ export function FleetFindingsCallout({ onOpen }: { onOpen: () => void }): JSX.El
             <div className="flex min-w-0 flex-col">
                 <span className="text-sm font-medium text-default">Scout findings</span>
                 <span className="truncate text-xs text-secondary leading-snug">
-                    {pluralize(emittedFindingsSummary.count, 'finding')} across{' '}
-                    {pluralize(emittedFindingsSummary.scoutCount, 'scout')}
-                    {emittedFindingsSummary.latestAt ? (
+                    {outputParts.join(' · ')} across {pluralize(scoutCount, 'scout')}
+                    {latestAt ? (
                         <>
                             {' · latest '}
-                            <TZLabel time={emittedFindingsSummary.latestAt} />
+                            <TZLabel time={latestAt} />
                         </>
                     ) : null}
                 </span>
