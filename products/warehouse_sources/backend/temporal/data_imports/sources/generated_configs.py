@@ -2711,7 +2711,7 @@ class MetabaseSourceConfig(config.Config):
 
 @config.config
 class MetaplaneSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
