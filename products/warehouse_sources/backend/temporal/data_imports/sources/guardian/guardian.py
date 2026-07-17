@@ -1,16 +1,20 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode, urlsplit, urlunsplit
-
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    PageNumberPaginator,
+    SinglePagePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.guardian.settings import (
     GUARDIAN_ENDPOINTS,
     GuardianEndpointConfig,
@@ -21,22 +25,12 @@ GUARDIAN_BASE_URL = "https://content.guardianapis.com"
 # The free developer tier caps page-size at 200; larger values are rejected.
 PAGE_SIZE = 200
 
-REQUEST_TIMEOUT_SECONDS = 60
-
-
-class GuardianRetryableError(Exception):
-    pass
-
 
 @dataclasses.dataclass
 class GuardianResumeConfig:
     # The next page number to fetch. The API is 1-indexed. With `order-by=oldest` the result set is
     # ordered ascending and stable within a run, so a page number is a safe resume cursor.
     page: int = 1
-
-
-def _headers() -> dict[str, str]:
-    return {"Accept": "application/json"}
 
 
 def _format_from_date(value: Any) -> str | None:
@@ -55,143 +49,81 @@ def _format_from_date(value: Any) -> str | None:
     return None
 
 
-def _build_base_params(
-    config: GuardianEndpointConfig,
-    api_key: str,
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-) -> dict[str, str]:
-    params: dict[str, str] = {
-        "api-key": api_key,
-        "page-size": str(PAGE_SIZE),
-        "format": "json",
-        **config.extra_params,
-    }
-
-    if config.supports_incremental and should_use_incremental_field:
-        from_date = _format_from_date(db_incremental_field_last_value)
-        if from_date:
-            params["from-date"] = from_date
-
-    return params
-
-
-def _build_url(path: str, params: dict[str, str]) -> str:
-    return f"{GUARDIAN_BASE_URL}{path}?{urlencode(params)}"
-
-
-def _scrub_url(url: str | None) -> str:
-    # The api-key rides in the query string, so strip the query before the URL reaches any error
-    # message or log line — otherwise a non-2xx response would leak the credential into job errors.
-    if not url:
-        return GUARDIAN_BASE_URL
-    parts = urlsplit(url)
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
-
-
-@retry(
-    retry=retry_if_exception_type(
-        (
-            GuardianRetryableError,
-            requests.ReadTimeout,
-            requests.ConnectionError,
-            requests.exceptions.ChunkedEncodingError,
-        )
-    ),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogger) -> dict[str, Any]:
-    response = session.get(url, headers=_headers(), timeout=REQUEST_TIMEOUT_SECONDS)
-
-    # 429 (rate limit — the free tier caps ~12 req/s and a daily quota) and 5xx are transient.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise GuardianRetryableError(f"Guardian API error (retryable): status={response.status_code}")
-
-    if not response.ok:
-        logger.error(f"Guardian API error: status={response.status_code}, body={response.text}, url={_scrub_url(url)}")
-        # Raise with the api-key scrubbed from the URL rather than calling raise_for_status(), whose
-        # message embeds the full credential-bearing URL. The base host stays intact so
-        # `get_non_retryable_errors()` can still match on it.
-        raise requests.HTTPError(
-            f"{response.status_code} Client Error: {response.reason} for url: {_scrub_url(response.url)}",
-            response=response,
-        )
-
-    return response.json()
-
-
-def validate_credentials(api_key: str) -> bool:
-    # /sections is a cheap, single-response endpoint — a genuine key returns 200, a bad one 401.
-    url = _build_url("/sections", {"api-key": api_key, "page-size": "1"})
-    try:
-        # The api-key rides in the query string, so redact it from logged URLs and captured samples.
-        response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_headers(), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[GuardianResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = GUARDIAN_ENDPOINTS[endpoint]
-    # One session reused across pages so urllib3 keeps the connection alive. The api-key lives in the
-    # query string, so redact it from logged URLs and captured samples.
-    session = make_tracked_session(redact_values=(api_key,))
-
-    base_params = _build_base_params(config, api_key, should_use_incremental_field, db_incremental_field_last_value)
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume.page if resume else 1
-
-    while True:
-        url = _build_url(config.path, {**base_params, "page": str(page)})
-        response = _fetch_page(session, url, logger)["response"]
-
-        results = response.get("results", [])
-        if results:
-            yield results
-
-        # `sections` / `editions` return every row in one response with no pagination metadata,
-        # so default to a single page. `search` / `tags` report `pages` and `currentPage`.
-        total_pages = response.get("pages", 1)
-        current_page = response.get("currentPage", page)
-        if current_page >= total_pages:
-            break
-
-        page = current_page + 1
-        # Save AFTER yielding so a crash re-fetches (and merge-dedupes) the last page rather than
-        # skipping it. We persist the next page to fetch.
-        resumable_source_manager.save_state(GuardianResumeConfig(page=page))
+def _build_paginator(config: GuardianEndpointConfig) -> BasePaginator:
+    if config.paginated:
+        # `search` / `tags` report `pages` (total number of pages) and paginate 1-indexed; stop
+        # after the last page rather than paying one extra empty-page request.
+        return PageNumberPaginator(base_page=1, page_param="page", total_path="response.pages")
+    # `sections` / `editions` return everything in one response with no pagination metadata.
+    return SinglePagePaginator()
 
 
 def guardian_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[GuardianResumeConfig],
-    should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = GUARDIAN_ENDPOINTS[endpoint]
 
+    # The api-key rides in the query string via framework auth, so its value is scrubbed from every
+    # raised error message (and logged URL) automatically — no hand-rolled URL redaction needed.
+    params: dict[str, Any] = {"page-size": PAGE_SIZE, "format": "json", **config.extra_params}
+
+    endpoint_config: dict[str, Any] = {
+        "path": config.path,
+        "params": params,
+        "data_selector": "response.results",
+        # A 200 body without the `response` envelope means the shape changed — fail loud instead of
+        # silently syncing 0 rows. A present-but-empty `results` list is still a valid 0-row page.
+        "data_selector_required": True,
+        "paginator": _build_paginator(config),
+    }
+    if config.supports_incremental:
+        # Only /search honors a server-side forward cursor: `from-date` (day granular). `order-by=oldest`
+        # + `order-date=published` (set via extra_params) keeps the watermark advancing.
+        endpoint_config["incremental"] = {"start_param": "from-date", "convert": _format_from_date}
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": GUARDIAN_BASE_URL,
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "api_key", "api_key": api_key, "name": "api-key", "location": "query"},
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": endpoint_config,
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"page": resume.page}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-fetches
+        # (and merge-dedupes) the last page rather than skipping it. We persist the next page to fetch.
+        if state and state.get("page") is not None:
+            resumable_source_manager.save_state(GuardianResumeConfig(page=int(state["page"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -202,4 +134,16 @@ def guardian_source(
         # matching the watermark direction. The full-refresh reference endpoints have no `order-by`, so
         # their row order is unspecified — leave `sort_mode` unset rather than claim ascending.
         sort_mode="asc" if config.supports_incremental else None,
+        column_hints=resource.column_hints,
     )
+
+
+def validate_credentials(api_key: str) -> bool:
+    # /sections is a cheap, single-response endpoint — a genuine key returns 200, a bad one 401/403.
+    # The api-key rides in the query string, so redact it from logged URLs and captured samples.
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{GUARDIAN_BASE_URL}/sections?api-key={api_key}&page-size=1",
+        headers={"Accept": "application/json"},
+    )
+    return ok
