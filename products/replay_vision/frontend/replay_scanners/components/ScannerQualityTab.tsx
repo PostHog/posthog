@@ -1,18 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import {
-    IconChevronDown,
-    IconChevronRight,
-    IconExpand45,
-    IconRefresh,
-    IconRewindPlay,
-    IconSparkles,
-} from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconRefresh, IconRewindPlay, IconSparkles } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
-    LemonModal,
     LemonSegmentedButton,
     LemonTable,
     LemonTag,
@@ -25,7 +17,6 @@ import { BarChart, useChartLayout } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { getColorVar } from 'lib/colors'
-import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -51,6 +42,7 @@ import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
 import { LABEL_CHART_DAYS, QUALITY_PAGE_SIZE, RatedFilterValue, scannerQualityLogic } from '../scannerQualityLogic'
 import { OBSERVATION_CREDITS_BY_MODEL } from '../types'
+import { ConfigChangeCards } from './ConfigChangeCards'
 import { versionTag } from './ScannerObservationsTable'
 
 const RATED_FILTER_OPTIONS: { value: RatedFilterValue; label: string }[] = [
@@ -94,111 +86,17 @@ function SuggestionStatusTag({ status }: { status: string }): JSX.Element | null
     )
 }
 
-/** The bordered side-by-side diff with labeled panes, rendered inline and inside the fullscreen modal. */
-function SuggestionDiffPanes({
-    suggestion,
-    beforeLabel,
-    isDarkModeOn,
-    editorHeight,
-    onExpand,
-}: {
-    suggestion: ReplayScannerPromptSuggestionApi
-    beforeLabel: string
-    isDarkModeOn: boolean
-    editorHeight?: string
-    onExpand?: () => void
-}): JSX.Element {
-    return (
-        <div className="border rounded overflow-hidden">
-            <div className="flex items-center border-b bg-surface-secondary text-xs font-medium">
-                <div className="flex-1 px-3 py-1.5 border-r">{beforeLabel}</div>
-                <div className="flex-1 px-3 py-1.5 flex items-center justify-between">
-                    <span>Suggested prompt</span>
-                    {onExpand && (
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconExpand45 />}
-                            tooltip="Expand diff to full screen"
-                            onClick={onExpand}
-                            data-attr="vision-quality-expand-diff"
-                        />
-                    )}
-                </div>
-            </div>
-            <MonacoDiffEditor
-                original={suggestion.base_prompt}
-                modified={suggestion.suggested_prompt}
-                language="markdown"
-                theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
-                height={editorHeight}
-                options={{
-                    readOnly: true,
-                    renderSideBySide: true,
-                    useInlineViewWhenSpaceIsLimited: false,
-                    // Keep both panes at exactly half width on resize, in lockstep with the header row.
-                    enableSplitViewResizing: false,
-                    splitViewDefaultRatio: 0.5,
-                    automaticLayout: true,
-                    wordWrap: 'on',
-                    lineNumbers: 'off',
-                    folding: false,
-                    renderOverviewRuler: false,
-                    scrollBeyondLastLine: false,
-                    diffAlgorithm: 'advanced',
-                }}
-            />
-        </div>
-    )
-}
-
-/** The pane-labeled prompt diff plus the model's rationale, shared by the current card and history entries. */
+/** The change cards plus the model's rationale, shared by the current card and history entries. */
 function SuggestionDetails({
     suggestion,
-    beforeLabel,
     isDarkModeOn,
 }: {
     suggestion: ReplayScannerPromptSuggestionApi
-    beforeLabel: string
     isDarkModeOn: boolean
 }): JSX.Element {
-    const [isDiffExpanded, setIsDiffExpanded] = useState(false)
     return (
         <>
-            {suggestion.base_prompt ? (
-                <>
-                    <SuggestionDiffPanes
-                        suggestion={suggestion}
-                        beforeLabel={beforeLabel}
-                        isDarkModeOn={isDarkModeOn}
-                        onExpand={() => setIsDiffExpanded(true)}
-                    />
-                    <LemonModal
-                        isOpen={isDiffExpanded}
-                        onClose={() => setIsDiffExpanded(false)}
-                        title="Prompt recommendation"
-                        fullScreen
-                    >
-                        <div className="space-y-4">
-                            <SuggestionDiffPanes
-                                suggestion={suggestion}
-                                beforeLabel={beforeLabel}
-                                isDarkModeOn={isDarkModeOn}
-                                editorHeight="calc(100vh - 16rem)"
-                            />
-                            {suggestion.rationale && (
-                                <div>
-                                    <h4 className="text-sm font-semibold m-0 mb-1">Why</h4>
-                                    <p className="text-sm text-muted m-0">{suggestion.rationale}</p>
-                                </div>
-                            )}
-                        </div>
-                    </LemonModal>
-                </>
-            ) : (
-                <div className="border rounded bg-surface-secondary p-2 font-mono text-xs whitespace-pre-wrap max-h-48 overflow-y-auto">
-                    {suggestion.suggested_prompt}
-                </div>
-            )}
+            <ConfigChangeCards suggestion={suggestion} isDarkModeOn={isDarkModeOn} />
             {suggestion.rationale && (
                 <div>
                     <h4 className="text-sm font-semibold m-0 mb-1">Why</h4>
@@ -352,7 +250,7 @@ function SuggestionEvaluationPanel({
     )
 }
 
-function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.Element {
+function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.Element {
     const logic = scannerQualityLogic({ scannerId })
     const {
         currentSuggestion,
@@ -442,11 +340,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
     } else {
         body = (
             <div className="space-y-3">
-                <SuggestionDetails
-                    suggestion={currentSuggestion}
-                    beforeLabel={`Current prompt (v${currentSuggestion.scanner_version})`}
-                    isDarkModeOn={isDarkModeOn}
-                />
+                <SuggestionDetails suggestion={currentSuggestion} isDarkModeOn={isDarkModeOn} />
                 {currentSuggestion.status === 'pending' && <SuggestionEvaluationPanel suggestion={currentSuggestion} />}
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <SuggestionMeta suggestion={currentSuggestion} />
@@ -531,7 +425,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
     return (
         <div className="border rounded p-4 bg-surface-primary space-y-4">
             <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-medium">Prompt recommendation</span>
+                <span className="text-sm font-medium">Recommendation</span>
                 {currentSuggestion && <SuggestionStatusTag status={currentSuggestion.status} />}
                 {suggestionStale && currentSuggestion && (
                     <Tooltip title="Refreshes automatically about once a day; regenerate to update now">
@@ -590,11 +484,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                             <SuggestionStatusTag status={suggestion.status} />
                                             <SuggestionMeta suggestion={suggestion} />
                                         </div>
-                                        <SuggestionDetails
-                                            suggestion={suggestion}
-                                            beforeLabel={`Prompt then (v${suggestion.scanner_version})`}
-                                            isDarkModeOn={isDarkModeOn}
-                                        />
+                                        <SuggestionDetails suggestion={suggestion} isDarkModeOn={isDarkModeOn} />
                                     </div>
                                 )
                             })}
@@ -860,7 +750,7 @@ function FeedbackThemeChips({
 }
 
 /**
- * The scanner's Quality tab: the current prompt recommendation (with history), quality over time,
+ * The scanner's Quality tab: the current config recommendation (with history), quality over time,
  * and the results still awaiting a rating.
  */
 export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Element {
@@ -986,7 +876,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                 ratings power the AI prompt recommendation below.
             </p>
 
-            <PromptRecommendationPanel scannerId={scannerId} />
+            <ConfigRecommendationPanel scannerId={scannerId} />
 
             <RatingsOverTimePanel scannerId={scannerId} />
 
