@@ -1,7 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -29,16 +29,26 @@ class TestShouldServeDeprecatedDashboardsField(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("session_auth", SessionAuthentication(), {}, True),
-            ("no_authenticator_is_session", None, {}, True),
-            ("personal_api_key_without_opt_in", PersonalAPIKeyAuthentication(), {}, False),
-            ("personal_api_key_with_opt_in", PersonalAPIKeyAuthentication(), {"include_dashboards": "true"}, True),
-            ("sharing_token_without_opt_in", SharingAccessTokenAuthentication(), {}, False),
+            ("session_auth", SessionAuthentication(), {}, False, True),
+            ("no_authenticator_is_first_party", None, {}, True, True),
+            ("sharing_token_is_first_party", SharingAccessTokenAuthentication(), {}, True, True),
+            ("personal_api_key_unenforced_phase", PersonalAPIKeyAuthentication(), {}, False, True),
+            ("personal_api_key_enforced_without_opt_in", PersonalAPIKeyAuthentication(), {}, True, False),
+            (
+                "personal_api_key_enforced_with_opt_in",
+                PersonalAPIKeyAuthentication(),
+                {"include_dashboards": "true"},
+                True,
+                True,
+            ),
         ]
     )
-    def test_serving_by_access_method_and_opt_in(self, _name, authenticator, query_params, expected):
+    def test_serving_by_access_method_opt_in_and_enforcement(
+        self, _name, authenticator, query_params, enforced, expected
+    ):
         context = {"request": _fake_request(authenticator, query_params)}
-        assert should_serve_deprecated_dashboards_field(context) is expected
+        with override_settings(INSIGHT_DASHBOARDS_OPT_IN_ENFORCED=enforced):
+            assert should_serve_deprecated_dashboards_field(context) is expected
 
 
 class TestDeprecatedDashboardsFieldAPI(APIBaseTest):
@@ -56,7 +66,8 @@ class TestDeprecatedDashboardsFieldAPI(APIBaseTest):
         )
         self.token_auth = {"HTTP_AUTHORIZATION": f"Bearer {token}"}
 
-    def test_personal_api_key_must_opt_in_to_deprecated_dashboards_field(self):
+    @override_settings(INSIGHT_DASHBOARDS_OPT_IN_ENFORCED=True)
+    def test_enforced_personal_api_key_must_opt_in_to_deprecated_dashboards_field(self):
         url = f"/api/projects/{self.team.id}/insights/{self.insight.id}/"
 
         default_response = self.client.get(url, **self.token_auth)
@@ -67,6 +78,11 @@ class TestDeprecatedDashboardsFieldAPI(APIBaseTest):
         opted_in_response = self.client.get(url, {"include_dashboards": "true"}, **self.token_auth)
         assert opted_in_response.status_code == status.HTTP_200_OK
         assert opted_in_response.json()["dashboards"] == [self.dashboard.id]
+
+    def test_unenforced_personal_api_key_still_receives_deprecated_dashboards_field(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{self.insight.id}/", **self.token_auth)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["dashboards"] == [self.dashboard.id]
 
     def test_session_auth_still_receives_deprecated_dashboards_field(self):
         response = self.client.get(f"/api/projects/{self.team.id}/insights/{self.insight.id}/")

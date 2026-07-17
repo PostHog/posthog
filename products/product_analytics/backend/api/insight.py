@@ -5,6 +5,7 @@ from datetime import timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Exists, F, Max, OuterRef, Prefetch, QuerySet, Subquery
 from django.db.models.query_utils import Q
@@ -361,20 +362,33 @@ def _is_internal_serialization_context(context: dict) -> bool:
     return context.get("request") is None
 
 
+def _is_first_party_request(request: Request) -> bool:
+    authenticator = getattr(request, "successful_authenticator", None)
+    # Session (and unresolved-auth) requests come from the web app; sharing-token requests render
+    # PostHog's own shared/exporter frontend. Both are our surfaces, not external integrations,
+    # so they keep the field until the frontend fully migrates to dashboard_tiles.
+    return authenticator is None or isinstance(
+        authenticator,
+        SessionAuthentication | SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
+    )
+
+
 def should_serve_deprecated_dashboards_field(context: dict) -> bool:
     """
-    The insight `dashboards` field is deprecated in favor of `dashboard_tiles`, but computing it
-    for every response keeps every caller coupled to it. The web app still reads and writes it,
-    so session-authenticated requests keep receiving it until the frontend migrates; every other
-    caller must opt in with `?include_dashboards=true`.
+    The insight `dashboards` field is deprecated in favor of `dashboard_tiles`. Removal is
+    two-phase: while INSIGHT_DASHBOARDS_OPT_IN_ENFORCED is off, every caller still receives the
+    field and reads are metered by access method so remaining usage can drain; once enforced,
+    non-first-party callers must opt in with `?include_dashboards=true`.
     """
     if _is_internal_serialization_context(context):
         return True
     request = context["request"]
-    is_session = _dashboards_field_access_method(request) in ("no_authenticator", "session")
+    if _is_first_party_request(request):
+        return True
     query_params = getattr(request, "query_params", None)
-    opted_in = query_params is not None and str_to_bool(query_params.get(INCLUDE_DASHBOARDS_PARAM, "0"))
-    return is_session or opted_in
+    if query_params is not None and str_to_bool(query_params.get(INCLUDE_DASHBOARDS_PARAM, "0")):
+        return True
+    return not settings.INSIGHT_DASHBOARDS_OPT_IN_ENFORCED
 
 
 def _record_deprecated_dashboards_field_used(context: dict, usage: str) -> None:
@@ -565,9 +579,9 @@ class InsightSerializer(InsightBasicSerializer):
         help_text="""
         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
         A dashboard ID for each of the dashboards that this insight is displayed on.
-        Session-authenticated (web app) requests receive this field; other callers (personal API
-        keys, OAuth, sharing tokens) must pass the `include_dashboards=true` query parameter to
-        receive it.
+        This field may be omitted from responses: once opt-in enforcement is enabled, API-token
+        callers (personal API keys, OAuth) only receive it when passing the
+        `include_dashboards=true` query parameter. Do not rely on it being present.
         """,
         many=True,
         required=False,
@@ -1396,8 +1410,9 @@ INCLUDE_DASHBOARDS_PARAMETER = OpenApiParameter(
     name=INCLUDE_DASHBOARDS_PARAM,
     type=OpenApiTypes.BOOL,
     description=(
-        "Opt in to receiving the deprecated `dashboards` field in insight payloads. API-token "
-        "callers no longer receive it by default; use `dashboard_tiles` instead."
+        "Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in "
+        "enforcement is enabled, API-token callers stop receiving it by default; use "
+        "`dashboard_tiles` instead."
     ),
 )
 

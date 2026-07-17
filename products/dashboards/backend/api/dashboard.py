@@ -141,6 +141,7 @@ from products.notifications.backend.facade.api import (
     has_been_dispatched,
 )
 from products.product_analytics.backend.api.insight import (
+    INCLUDE_DASHBOARDS_PARAMETER,
     DashboardTileBasicSerializer,
     InsightSerializer,
     InsightViewSet,
@@ -2114,6 +2115,9 @@ class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
             ),
         ],
     ),
+    # Dashboards nest insight payloads, so the deprecated-`dashboards`-field opt-in applies to
+    # `tiles[].insight` here too.
+    retrieve=extend_schema(parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
     partial_update=extend_schema(request=PatchedDashboardOpenApiSerializer),
 )
 class DashboardsViewSet(

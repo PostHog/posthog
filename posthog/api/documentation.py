@@ -1182,6 +1182,18 @@ def custom_postprocessing_hook(result, generator, request, public):
             name: _fix_pydantic_schema_for_openapi(schema) for name, schema in result["components"]["schemas"].items()
         }
 
+    # The deprecated insight `dashboards` field is gated behind an opt-in query parameter, so it
+    # can be absent from any insight payload — but drf-spectacular always marks read-only fields
+    # as required, which would make strict generated clients reject gated responses. Un-require
+    # it wherever it appears alongside its replacement, `dashboard_tiles`.
+    for schema in ((result.get("components") or {}).get("schemas") or {}).values():
+        properties = schema.get("properties") if isinstance(schema, dict) else None
+        if not isinstance(properties, dict) or "dashboards" not in properties or "dashboard_tiles" not in properties:
+            continue
+        required = schema.get("required")
+        if isinstance(required, list) and "dashboards" in required:
+            schema["required"] = [field for field in required if field != "dashboards"]
+
     # Apply the same cleanup to parameter, requestBody, and response schemas at the operation
     # level — single-entry allOf wrappers and vestigial bounds also surface there.  Today
     # every response schema we emit is a ``$ref`` to a component, so the response walk is a
