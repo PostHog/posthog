@@ -8,6 +8,7 @@ import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { useLatest } from '../../core/hooks/useLatest'
 import {
     buildSegmentResolveValue,
+    buildStackedBottomValue,
     buildStackedPositionValue,
     computeDivergingStackData,
     computePercentStackData,
@@ -25,15 +26,17 @@ import type {
     ChartScales,
     ChartTheme,
     CreateScalesFn,
+    DateRangeZoomData,
     DrawHoverResult,
     PointClickData,
     ResolvedSeries,
     Series,
     TooltipContext,
 } from '../../core/types'
+import { resolveAxisLines } from '../../core/types'
 import { BarTooltip } from './BarTooltip'
 import { computeWrapperMinHeight, HORIZONTAL_MIN_BAND_SIZE_DEFAULT } from './utils/bar-config'
-import { groupedBandSlotAtCursor } from './utils/bars-under-cursor'
+import { cursorInInertTrackGap, groupedBandSlotAtCursor } from './utils/bars-under-cursor'
 import { drawBarChartStatic, drawBarHoverItems } from './utils/draw-bar-chart'
 import { resolveBarHoverItems } from './utils/resolve-bar-hover'
 import { resolveClickedBarSeries } from './utils/resolve-clicked-bar-series'
@@ -45,6 +48,9 @@ export interface BarChartProps<Meta = unknown> {
     theme: ChartTheme
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** Enables x-axis drag-to-zoom. Vertical bars only — horizontal bars interact along y,
+     *  where the gesture is disabled by the core. See `ChartProps.onDateRangeZoom`. */
+    onDateRangeZoom?: (data: DateRangeZoomData) => void
     className?: string
     /** `data-attr` applied to the chart wrapper. See `ChartProps.dataAttr`. */
     dataAttr?: string
@@ -67,6 +73,7 @@ function BarChartInner<Meta = unknown>({
     theme,
     tooltip,
     onPointClick,
+    onDateRangeZoom,
     className,
     dataAttr,
     children,
@@ -78,9 +85,12 @@ function BarChartInner<Meta = unknown>({
         barLayout = 'stacked',
         axisOrientation = 'vertical',
         xTickFormatter,
+        barCornerRadius = 0,
+        yAxes: configYAxes,
     } = config ?? {}
+    const { x: xAxisLine, y: yAxisLine } = resolveAxisLines(showAxisLines)
+    const axisLines = useMemo(() => ({ x: xAxisLine, y: yAxisLine }), [xAxisLine, yAxisLine])
     const {
-        cornerRadius: barCornerRadius = 0,
         track: trackConfig = false,
         shadow: barShadow,
         divergingStack = false,
@@ -181,6 +191,7 @@ function BarChartInner<Meta = unknown>({
                 minBandSize: resolvedMinBandSize,
                 valueDomain,
                 valuePadding,
+                axes: configYAxes,
             })
 
             const tickAxisLength = isHorizontal ? dimensions.plotWidth : dimensions.plotHeight
@@ -254,6 +265,7 @@ function BarChartInner<Meta = unknown>({
             resolvedMinBandSize,
             valueDomain,
             valuePadding,
+            configYAxes,
         ]
     )
 
@@ -263,7 +275,7 @@ function BarChartInner<Meta = unknown>({
                 barLayout,
                 isHorizontal,
                 showGrid,
-                showAxisLines,
+                axisLines,
                 xTickFormatter,
                 stackedData,
                 topStackedKeyByAxis,
@@ -275,7 +287,7 @@ function BarChartInner<Meta = unknown>({
             }),
         [
             showGrid,
-            showAxisLines,
+            axisLines,
             stackedData,
             barLayout,
             isHorizontal,
@@ -344,6 +356,7 @@ function BarChartInner<Meta = unknown>({
     // at the stacked top (resolvePositionValue) so a stacked bar doesn't read as a running total.
     const resolveValue = useMemo(() => buildSegmentResolveValue(stackedData), [stackedData])
     const resolvePositionValue = useMemo(() => buildStackedPositionValue(stackedData), [stackedData])
+    const resolveBottomValue = useMemo(() => buildStackedBottomValue(stackedData), [stackedData])
 
     const seriesRef = useLatest(visibleSeries)
     const labelsRef = useLatest(labels)
@@ -372,6 +385,35 @@ function BarChartInner<Meta = unknown>({
         [barLayout, isHorizontal, stackedData, topStackedKeyByAxis, seriesRef, labelsRef]
     )
 
+    // A capped track's blank volume gap (funnel compare) is inert: veto the hover there so the tooltip,
+    // pointer cursor, highlight, and click are all suppressed. Only wired when a series declares a
+    // `trackData` ceiling — with or without a drawn track (stacked funnel bars cap their interactive
+    // extent without one).
+    const seriesHasTrackCeiling = useMemo(() => visibleSeries.some((s) => Array.isArray(s.trackData)), [visibleSeries])
+
+    const resolveHoverIndex = useCallback(
+        (index: number, cursor: { x: number; y: number }, scales: ChartScales): number => {
+            const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
+            if (!d3Scales) {
+                return index
+            }
+            return cursorInInertTrackGap({
+                series: seriesRef.current,
+                label: labelsRef.current[index],
+                dataIndex: index,
+                scales: d3Scales,
+                layout: barLayout,
+                isHorizontal,
+                stackedData,
+                topStackedKeyByAxis,
+                cursor,
+            })
+                ? -1
+                : index
+        },
+        [barLayout, isHorizontal, stackedData, topStackedKeyByAxis, seriesRef, labelsRef]
+    )
+
     const chart = (
         <Chart
             series={visibleSeries}
@@ -390,14 +432,18 @@ function BarChartInner<Meta = unknown>({
                     topStackedKeyByAxis={topStackedKeyByAxis}
                     layout={barLayout}
                     isHorizontal={isHorizontal}
+                    tooltipConfig={config?.tooltip}
                 />
             )}
             onPointClick={onPointClick}
+            onDateRangeZoom={onDateRangeZoom}
             wrapClickData={onPointClick ? wrapClickData : undefined}
+            resolveHoverIndex={seriesHasTrackCeiling ? resolveHoverIndex : undefined}
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}
             resolvePositionValue={resolvePositionValue}
+            resolveBottomValue={resolveBottomValue}
         >
             {children}
         </Chart>

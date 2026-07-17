@@ -8,7 +8,9 @@ from django.conf import settings
 from django.core.cache import cache, caches
 
 import structlog
+import redis.exceptions
 from botocore.exceptions import BotoCoreError, ClientError
+from django_redis.exceptions import ConnectionInterrupted
 from posthoganalytics import capture_exception
 from prometheus_client import Counter, Histogram
 
@@ -18,6 +20,17 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 
 logger = structlog.get_logger(__name__)
+
+# Redis/transport failures the primary cache read degrades on, mirroring the S3/load_fn tiers below.
+# django-redis wraps the underlying redis error in ConnectionInterrupted; we also catch the raw redis
+# errors (and the builtin socket errors under OSError) in case a backend surfaces them directly.
+_REDIS_READ_ERRORS = (
+    ConnectionInterrupted,
+    redis.exceptions.RedisError,
+    ConnectionError,
+    TimeoutError,
+    OSError,
+)
 
 
 DEFAULT_CACHE_MISS_TTL = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
@@ -66,6 +79,12 @@ HYPERCACHE_REBUILD_SKIPPED_COUNTER = Counter(
     "posthog_hypercache_rebuild_skipped",
     "Rebuilds skipped because a dependency was unavailable, keeping the existing entry",
     labelnames=["namespace", "reason"],
+)
+
+HYPERCACHE_WRITE_SKIPPED_UNCHANGED_COUNTER = Counter(
+    "posthog_hypercache_write_skipped_unchanged",
+    "Content-propagation writes skipped because the ETag was unchanged, avoiding a redundant rewrite",
+    labelnames=["namespace", "value"],
 )
 
 CACHE_SYNC_DURATION_HISTOGRAM = Histogram(
@@ -236,7 +255,14 @@ class HyperCache:
 
     def get_from_cache_with_source(self, key: KeyType) -> tuple[dict | None, str]:
         cache_key = self.get_cache_key(key)
-        data = self.cache_client.get(cache_key)
+        try:
+            data = self.cache_client.get(cache_key)
+        except _REDIS_READ_ERRORS as e:
+            # A Redis outage on the primary read must degrade to the S3/DB tiers below, never
+            # bubble a 500 up to the request handler. Capture it for visibility, the way the S3
+            # branch does, then fall through as a cache miss.
+            capture_exception(e)
+            data = None
 
         if data:
             HYPERCACHE_CACHE_COUNTER.labels(result="hit_redis", namespace=self.namespace, value=self.value).inc()
@@ -313,7 +339,13 @@ class HyperCache:
         cache_keys = [self.get_cache_key(team) for team in teams]
         etag_keys = [self.get_etag_key(team) for team in teams] if self.enable_etag else []
 
-        cached_values = self.cache_client.get_many(cache_keys + etag_keys)
+        try:
+            cached_values = self.cache_client.get_many(cache_keys + etag_keys)
+        except _REDIS_READ_ERRORS as e:
+            # Degrade a Redis outage to an all-miss result rather than raising; there is no
+            # S3/DB fallback in batch mode, so every team resolves to a clean "miss" below.
+            capture_exception(e)
+            cached_values = {}
 
         # Map results back to team IDs, counting hits and misses for batch metrics
         results: dict[int, tuple[dict | None, str, str | None]] = {}
@@ -350,7 +382,13 @@ class HyperCache:
         """Get just the ETag for a cached value without loading the full response."""
         if not self.enable_etag:
             return None
-        return self.cache_client.get(self.get_etag_key(key))
+        try:
+            return self.cache_client.get(self.get_etag_key(key))
+        except _REDIS_READ_ERRORS as e:
+            # Degrade a Redis outage to a missing ETag rather than raising; callers treat a
+            # None ETag as a miss/mismatch and fall back to the full response.
+            capture_exception(e)
+            return None
 
     def get_if_none_match(self, key: KeyType, client_etag: str | None) -> tuple[dict | None, str | None, bool]:
         """
@@ -455,14 +493,36 @@ class HyperCache:
             emit_cache_sync_metrics(result, self.namespace, self.value, duration=duration, size=size)
 
     def set_cache_value(
-        self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
+        self,
+        key: KeyType,
+        data: dict | None | HyperCacheStoreMissing,
+        ttl: Optional[int] = None,
+        skip_if_unchanged: bool = False,
     ) -> int | None:
         """
         Set cache value in Redis and S3, returning the serialized size in bytes.
 
         Returns None for None/missing values.
+
+        When ``skip_if_unchanged`` is set, an ETag-enabled dict payload whose ETag matches
+        the stored one is not rewritten (the counter records the skip; the serialized size
+        is still returned). Skipping does not re-stamp expiry, so the cache must own an
+        independent refresh path that does. ``expiry_sorted_set_key`` is the structural marker
+        for that path (the refresh task reads the set to find expiring entries), so a refresh-less
+        cache that opts into skipping raises rather than silently letting entries expire.
         """
-        size = self._set_cache_value_redis(key, data, ttl=ttl)
+        if skip_if_unchanged and not self.expiry_sorted_set_key:
+            raise ValueError(
+                "set_cache_value(skip_if_unchanged=True) requires expiry tracking "
+                "(expiry_sorted_set_key) with a scheduled refresh that re-stamps the TTL"
+            )
+        json_data: str | None = None
+        if skip_if_unchanged and self.enable_etag and isinstance(data, dict):
+            json_data = json.dumps(data, sort_keys=True)
+            if self._compute_etag(json_data) == self.get_etag(key):
+                HYPERCACHE_WRITE_SKIPPED_UNCHANGED_COUNTER.labels(namespace=self.namespace, value=self.value).inc()
+                return len(json_data)
+        size = self._set_cache_value_redis(key, data, ttl=ttl, json_data=json_data)
         self._set_cache_value_s3(key, data, ttl=ttl)
         # Only track expiry when we have a Team object (avoids DB lookup)
         if isinstance(key, Team):
@@ -535,12 +595,19 @@ class HyperCache:
             capture_exception(e)
 
     def _set_cache_value_redis(
-        self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
+        self,
+        key: KeyType,
+        data: dict | None | HyperCacheStoreMissing,
+        ttl: Optional[int] = None,
+        json_data: str | None = None,
     ) -> int | None:
         """
         Set cache value in Redis and return the serialized size in bytes.
 
         Returns None for None/missing values, otherwise returns len(json_data).
+
+        Pass ``json_data`` to reuse an already-serialized payload (a caller that hashed it
+        for an ETag comparison) instead of re-running ``json.dumps`` over a large value.
         """
         cache_key = self.get_cache_key(key)
         etag_key = self.get_etag_key(key)
@@ -554,7 +621,8 @@ class HyperCache:
         else:
             timeout = ttl if ttl is not None else self.cache_ttl
             # Use sort_keys for deterministic serialization (consistent ETags)
-            json_data = json.dumps(data, sort_keys=True)
+            if json_data is None:
+                json_data = json.dumps(data, sort_keys=True)
             if self.enable_etag:
                 etag = self._compute_etag(json_data)
                 # Write data and ETag via pipeline (single Redis round trip)

@@ -186,6 +186,8 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
+        None,             // ai_gateway_signing_secret
+        None,             // ingestion_warning_emitter
     );
 
     TestClient::new(app)

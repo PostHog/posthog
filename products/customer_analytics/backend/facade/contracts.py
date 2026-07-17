@@ -22,12 +22,41 @@ from uuid import UUID
 from pydantic.dataclasses import dataclass
 
 
+class InvalidCustomPropertyOptions(ValueError):
+    """Raised when a select property's options fail validation; the viewset maps it to a 400."""
+
+
 @dataclass(frozen=True)
 class AccountAssignment:
     """A user assigned to an account role (CSM, account executive, account owner)."""
 
     id: int
     email: str
+
+
+@stdlib_dataclass(frozen=True)
+class AccountRelationshipDefinition:
+    """A team-defined account relationship type (CSM, Onboarding manager, ...).
+
+    Stdlib dataclass with defaults so the wrapping ``DataclassSerializer`` can construct it
+    from partial request bodies (see :class:`CustomPropertyDefinitionView`).
+    """
+
+    id: UUID | None = None
+    name: str = ""
+    description: str | None = None
+    is_single_holder: bool = True
+
+
+@dataclass(frozen=True)
+class AccountRelationship:
+    """One assignment of a user to an account relationship, with its effective range."""
+
+    id: UUID
+    definition: AccountRelationshipDefinition
+    user: AccountAssignment | None
+    started_at: datetime
+    ended_at: datetime | None
 
 
 @dataclass(frozen=True)
@@ -98,6 +127,7 @@ class AccountContextData:
     properties: AccountProperties
     tags: list[str] = field(default_factory=list)
     notes: list[AccountNote] = field(default_factory=list)
+    relationships: list[AccountRelationship] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -109,6 +139,11 @@ class ExternalAccount:
     consumes stays byte-identical to the pre-facade response — a validated
     pydantic pass-through, not a re-typed projection. ``id`` is the stringified
     UUID, matching the wire shape.
+
+    ``custom_properties`` contains every team-defined custom property definition
+    keyed by definition name, with the account's current scalar value (or ``None``
+    when unset). Every definition is present so result paths are deterministic even
+    when a property hasn't been set on this account yet.
     """
 
     id: str
@@ -116,6 +151,8 @@ class ExternalAccount:
     name: str
     properties: dict
     tags: list[str] = field(default_factory=list)
+    relationships: dict[str, list[dict]] = field(default_factory=dict)
+    custom_properties: dict[str, float | bool | str | None] = field(default_factory=dict)
 
 
 class ExternalAccountUpdateError(Enum):
@@ -124,6 +161,7 @@ class ExternalAccountUpdateError(Enum):
 
     NOT_FOUND = "not_found"
     USER_NOT_IN_ORGANIZATION = "user_not_in_organization"
+    RELATIONSHIP_DEFINITION_NOT_FOUND = "relationship_definition_not_found"
     INVALID_PROPERTIES = "invalid_properties"
     UPDATE_FAILED = "update_failed"
 
@@ -239,6 +277,81 @@ class CustomerProfileConfigView:
 
 
 @stdlib_dataclass(frozen=True)
+class CustomPropertyReference:
+    """A place that uses a custom property definition. ``type`` discriminates the kind of
+    referrer (``workflow`` for now); ``id``/``name``/``status`` identify the referring entity."""
+
+    id: str
+    name: str
+    status: str
+    type: str = "workflow"
+
+
+@stdlib_dataclass(frozen=True)
+class CustomPropertyOption:
+    """One allowed value of a select custom property. ``id`` is server-assigned and stable across
+    renames so option edits can be diffed; ``color`` is a preset data-color token."""
+
+    label: str = ""
+    color: str = ""
+    id: str | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class CustomPropertyDefinitionView:
+    """A team-scoped custom account-property definition as returned by the
+    custom-property-definitions endpoints.
+
+    Defaults exist so the wrapping serializer can parse partial request bodies (see
+    :class:`AccountView`). ``created_by`` is the creator's user id (or ``None``), matching
+    the old model serializer's ``PrimaryKeyRelatedField`` output. ``references`` lists where the
+    property is used (workflows), resolved by definition id. ``source`` is the read-only
+    view-sync binding when one is configured for this definition, else ``None``.
+    """
+
+    id: UUID | None = None
+    name: str = ""
+    description: str | None = None
+    display_type: str = "text"
+    target_type: str = "account"
+    is_big_number: bool = False
+    created_at: datetime | None = None
+    created_by: int | None = None
+    updated_at: datetime | None = None
+    references: list[CustomPropertyReference] = field(default_factory=list)
+    source: "CustomPropertySourceView | None" = None
+    options: list[CustomPropertyOption] | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class CustomPropertySourceView:
+    """A custom-property source: binds a materialized view's column to a definition, feeding its
+    values on each materialization.
+
+    ``definition`` / ``saved_query`` are ids (the definition this feeds, and the data-warehouse
+    saved query read from). ``last_sync_error`` is null when the last run succeeded or hasn't run.
+    Account-target sources set ``saved_query`` + ``source_column``; person-target sources set
+    ``external_data_schema`` + ``column_property_map`` instead. Defaults exist so the wrapping
+    serializer can parse partial request bodies (see :class:`AccountView`).
+    """
+
+    id: UUID | None = None
+    definition: UUID | None = None
+    saved_query: UUID | None = None
+    external_data_schema: UUID | None = None
+    source_column: str | None = ""
+    key_column: str = ""
+    column_property_map: dict | None = None
+    is_enabled: bool = True
+    consecutive_failures: int = 0
+    last_synced_at: datetime | None = None
+    last_sync_error: str | None = None
+    created_at: datetime | None = None
+    created_by: int | None = None
+    updated_at: datetime | None = None
+
+
+@stdlib_dataclass(frozen=True)
 class AccountNotebookView:
     """An account notebook as returned by the nested account-notebooks endpoints.
 
@@ -255,6 +368,21 @@ class AccountNotebookView:
     created_by: UserBasicInfo | None = None
     last_modified_at: datetime | None = None
     last_modified_by: UserBasicInfo | None = None
+
+
+@dataclass(frozen=True)
+class AccountNoteView:
+    """A row of the team-wide account-notes list: an internal notebook plus the account it's
+    linked to. Read-only (the wrapping serializer never parses request bodies), so fields are
+    strict — no serializer-instantiation defaults like :class:`AccountView` needs."""
+
+    short_id: str
+    title: str | None
+    created_at: datetime
+    last_modified_at: datetime
+    account_id: UUID
+    account_name: str
+    created_by: UserBasicInfo | None = None
 
 
 # --- Presentation wave: input contracts for the CRUD write paths ---
@@ -307,3 +435,42 @@ class CreateAccountNotebookInput:
     content: Any
     text_content: str | None
     synthesized_content: Any = None
+
+
+@dataclass(frozen=True)
+class CustomPropertyValue:
+    """An account's value for a custom property."""
+
+    id: UUID
+    account_id: UUID
+    definition_id: UUID
+    value: float | bool | str | datetime | None
+    created_at: datetime
+    created_by_id: int | None
+
+
+class ExternalAccountCustomPropertiesError(Enum):
+    """Failure modes of the external custom-property write, each mapping to a distinct
+    HTTP response in the view."""
+
+    ACCOUNT_NOT_FOUND = "account_not_found"
+    DEFINITION_NOT_FOUND = "definition_not_found"
+    INVALID_VALUE = "invalid_value"
+    CONFLICT = "conflict"
+    UPDATE_FAILED = "update_failed"
+    SOURCE_MANAGED = "source_managed"
+
+
+@dataclass(frozen=True)
+class ExternalAccountCustomPropertiesResult:
+    """Outcome of the external custom-property write, modeled so the view can map each
+    case to its exact HTTP status and error string without holding write logic.
+
+    Exactly one of ``values`` / ``error`` is set. ``error_field`` carries the offending
+    property name for ``DEFINITION_NOT_FOUND`` / ``INVALID_VALUE`` / ``SOURCE_MANAGED`` failures;
+    it is None otherwise.
+    """
+
+    values: list[CustomPropertyValue] | None = None
+    error: ExternalAccountCustomPropertiesError | None = None
+    error_field: str | None = None

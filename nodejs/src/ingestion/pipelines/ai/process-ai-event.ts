@@ -7,9 +7,9 @@
  * - Cost calculation (for generation/embedding/evaluation events)
  * - Model parameter extraction (for generation/embedding/evaluation events)
  */
-import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
+import { logger } from '~/common/utils/logger'
+import { AI_EVENT_TYPES } from '~/ingestion/common/subpipelines/ai-event-types'
 import { PluginEvent } from '~/plugin-scaffold'
-import { logger } from '~/utils/logger'
 
 import { convertRawEvent } from './convert-raw-event'
 import { EventWithProperties, extractCoreModelParams, processCost } from './costs'

@@ -6,18 +6,20 @@ from django.test import TestCase
 
 from parameterized import parameterized
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.endpoints.backend.models import Endpoint
-from products.endpoints.backend.rate_limit import (
+from products.endpoints.backend.presentation.throttles import (
     EndpointBurstThrottle,
     EndpointSustainedThrottle,
-    _check_and_cache_materialization_status,
     _is_materialized_endpoint_request,
+)
+from products.endpoints.backend.rate_limit import (
+    _check_and_cache_materialization_status,
     clear_endpoint_materialization_cache,
     is_endpoint_materialization_ready,
     set_endpoint_materialization_ready,
 )
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 class TestMaterializationCache(TestCase):

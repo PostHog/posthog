@@ -31,6 +31,11 @@ MAX_SELECT_RETENTION_LIMIT = 100000  # 100k
 MAX_SELECT_HEATMAPS_LIMIT = 1000000  # 1m datapoints
 # Max limit for all cohort calculations
 MAX_SELECT_COHORT_CALCULATION_LIMIT = 1000000000  # 1b persons
+# Max limit for notebook dataframe materialization (the sandbox kernel fetching a whole frame
+# over the object-storage frame store). Tier 1 of the rollout ladder in
+# products/notebooks/backend/sql_v2_frame_store.md — raised toward the kernel executor's
+# _MATERIALIZE_ROW_CAP (2M) on query-log evidence.
+MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT = 500000  # 500k rows
 # Max limit for LLM traces
 MAX_SELECT_TRACES_LIMIT_EXPORT = 10000  # 10k traces
 # Max limit for PostHog AI queries
@@ -48,14 +53,29 @@ BREAKDOWN_VALUES_LIMIT = 25
 BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 BREAKDOWN_VALUE_MAX_LENGTH = 400
 
-type HogQLDialect = Literal["hogql", "clickhouse", "postgres", "duckdb", "mysql"]
+# Event properties that hold a JSON-encoded array of strings. When materialized they are stored
+# as a raw String column, so any array function (hasAny/hasAll/...) run against them must first
+# extract the array via JSONExtract(..., 'Array(String)'). See posthog/hogql/property.py and the
+# PropertySwapper transform, which both apply that wrapping.
+EXCEPTION_STRING_ARRAY_PROPERTIES = frozenset(
+    {
+        "$exception_types",
+        "$exception_values",
+        "$exception_sources",
+        "$exception_functions",
+    }
+)
+
+type HogQLDialect = Literal["hogql", "clickhouse", "postgres", "duckdb", "mysql", "snowflake", "redshift"]
 
 # All dialects that compile to an external SQL database queried directly (as opposed to
 # ClickHouse / HogQL). MySQL shares the standard-SQL keyword surface (CURRENT_DATE & co.)
 # but not Postgres-specific features like PIVOT/UNPIVOT, TRY_CAST, or positional references.
-SQL_TARGET_DIALECTS: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb", "mysql"})
+# Redshift is a Postgres fork: it reuses the Postgres-family lazy-table resolution and
+# property lowering, then its printer blocks the constructs the Redshift engine can't run.
+SQL_TARGET_DIALECTS: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb", "mysql", "redshift"})
 
-type HogQLParserBackend = Literal["python", "cpp-json", "rust-json", "rust-py"]
+type HogQLParserBackend = Literal["cpp-json", "rust-json", "rust-py"]
 
 
 class LimitContext(StrEnum):
@@ -64,6 +84,7 @@ class LimitContext(StrEnum):
     EXPORT = "export"
     COHORT_CALCULATION = "cohort_calculation"
     HEATMAPS = "heatmaps"
+    NOTEBOOK_MATERIALIZE = "notebook_materialize"
     SAVED_QUERY = "saved_query"
     RETENTION = "retention"
     POSTHOG_AI = "posthog_ai"
@@ -81,6 +102,8 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
         return MAX_SELECT_HEATMAPS_LIMIT  # 1M
     elif limit_context == LimitContext.COHORT_CALCULATION:
         return MAX_SELECT_COHORT_CALCULATION_LIMIT  # 1b
+    elif limit_context == LimitContext.NOTEBOOK_MATERIALIZE:
+        return MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT  # 500k
     elif limit_context == LimitContext.RETENTION:
         return MAX_SELECT_RETENTION_LIMIT  # 100k
     elif limit_context == LimitContext.SAVED_QUERY:
@@ -103,6 +126,8 @@ def get_default_limit_for_context(limit_context: LimitContext) -> int:
         return MAX_SELECT_HEATMAPS_LIMIT  # 1M
     elif limit_context == LimitContext.COHORT_CALCULATION:
         return MAX_SELECT_COHORT_CALCULATION_LIMIT  # 1b
+    elif limit_context == LimitContext.NOTEBOOK_MATERIALIZE:
+        return MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT  # 500k
     elif limit_context == LimitContext.SAVED_QUERY:
         return sys.maxsize  # Max python int
     else:
@@ -138,6 +163,10 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     model_config = ConfigDict(extra="forbid")
     readonly: Optional[int] = 2
     max_execution_time: Optional[int] = 60
+    # None inherits the cluster profile's overflow behavior. Set "throw" when a partial
+    # result is worse than an error (e.g. sampling queries whose output feeds further
+    # computation), or "break" to accept partial results on timeout.
+    timeout_overflow_mode: Optional[str] = None
     max_memory_usage: Optional[int] = None  # default value coming from cloud config
     max_threads: Optional[int] = None
     allow_experimental_object_type: Optional[bool] = True
@@ -171,6 +200,13 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     allow_experimental_join_condition: Optional[bool] = True
     preferred_block_size_bytes: Optional[int] = None
     use_hive_partitioning: Optional[int] = 0
+    # Serve repeated scans of the same parts from the server's uncompressed block cache
+    # instead of re-decompressing. Off by default (None): only opt in for interactive
+    # queries that re-read the same narrow data repeatedly, and mind that scans larger
+    # than the two merge_tree_*_to_use_cache guards below bypass the cache entirely.
+    use_uncompressed_cache: Optional[bool] = None
+    merge_tree_max_rows_to_use_cache: Optional[int] = None
+    merge_tree_max_bytes_to_use_cache: Optional[int] = None
 
 
 def get_default_hogql_global_settings(

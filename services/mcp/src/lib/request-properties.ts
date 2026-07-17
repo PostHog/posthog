@@ -1,6 +1,7 @@
 // Shared request-properties extraction. Both runtimes parse the same headers
 // and query params into the same shape, so the logic lives here.
 
+import { resolveEffectiveClientName } from './client-detection'
 import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue, type McpMode } from './utils'
 
 export type Transport = 'streamable-http' | 'sse'
@@ -64,6 +65,7 @@ export function parseRequestProperties(
 
     const token = extractBearerToken(request) ?? ''
     const readOnlyRaw = header(request, 'x-posthog-read-only') || params.get('readonly')
+    const vendorClient = sanitizeHeaderValue(header(request, 'x-anthropic-client'))
 
     return {
         apiToken: token,
@@ -79,10 +81,10 @@ export function parseRequestProperties(
         mcpConsumer: sanitizeHeaderValue(
             header(request, 'x-posthog-mcp-consumer') || params.get('consumer') || undefined
         ),
-        mcpClientName: clientInfo.clientName,
+        mcpClientName: resolveEffectiveClientName(clientInfo.clientName, vendorClient),
         mcpClientVersion: clientInfo.clientVersion,
         mcpProtocolVersion: clientInfo.protocolVersion,
-        mcpVendorClient: sanitizeHeaderValue(header(request, 'x-anthropic-client')),
+        mcpVendorClient: vendorClient,
         mode: parseMcpMode(header(request, 'x-posthog-mcp-mode') || params.get('mode')),
         taskId: sanitizeHeaderValue(header(request, 'x-posthog-task-id')),
         transport,

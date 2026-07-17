@@ -52,14 +52,12 @@ export function LiveEventsTable(): JSX.Element {
     return (
         <SceneContent data-attr="manage-events-table">
             <ActivitySceneTabs activeKey={ActivityTab.LiveEvents} />
-            {featureFlags[FEATURE_FLAGS.LIVESTREAM_TUI] && (
-                <LemonBanner type="info" className="mb-4" icon={<IconTerminal />} dismissKey="livestream-tui-banner">
-                    Stream live events directly in your terminal with <code>posthog-live</code>.{' '}
-                    <Link to="https://posthog.com/docs/live-events/cli" target="_blank">
-                        Learn more
-                    </Link>
-                </LemonBanner>
-            )}
+            <LemonBanner type="info" className="mb-4" icon={<IconTerminal />} dismissKey="livestream-tui-banner">
+                Stream live events directly in your terminal with <code>posthog-live</code>.{' '}
+                <Link to="https://posthog.com/docs/activity#terminal-live-events-posthog-live" target="_blank">
+                    Learn more
+                </Link>
+            </LemonBanner>
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Activity].name}
                 description={sceneConfigurations[Scene.Activity].description}

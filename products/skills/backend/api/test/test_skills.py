@@ -92,6 +92,26 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["allowed_tools"] == ["Bash", "Read"]
         assert data["metadata"] == {"author": "test-org", "version": "1.0"}
 
+    @parameterized.expand(
+        [
+            ("review_hog_prefix", "review-hog-perspective-custom-x", "review_hog"),
+            ("scout_prefix", "signals-scout-custom-x", "scout"),
+            ("plain_name", "my-plain-skill", ""),
+        ]
+    )
+    def test_create_stamps_category_from_name_prefix(self, _label, name, expected_category):
+        # The Skills page's category tabs filter on `category`, which is server-owned (read-only on
+        # the serializer) — without the create-time stamp, a custom scout / review-hog skill never
+        # surfaces on its tab beside the canonical siblings.
+        response = self.client.post(
+            self._url(),
+            data={"name": name, "description": "d", "body": "# B\nDo."},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert LLMSkill.objects.get(team=self.team, name=name).category == expected_category
+
     def test_create_skill_with_duplicate_name_fails(self):
         self.create_skill(name="existing-skill")
 
@@ -116,6 +136,8 @@ class TestLLMSkillAPI(APIBaseTest):
             ("trailing_hyphen", "my-skill-"),
             ("consecutive_hyphens", "my--skill"),
             ("reserved_new", "new"),
+            ("reserved_scouts", "scouts"),
+            ("reserved_review_hog", "review-hog"),
         ]
     )
     def test_create_skill_validates_name_format(self, _label, skill_name):
@@ -233,6 +255,8 @@ class TestLLMSkillAPI(APIBaseTest):
         assert len(results) == 2
         assert all("description" in r for r in results)
         assert all("body" not in r for r in results)
+        # Body-paging metadata is meaningless without the body — it must not leak into the list.
+        assert all("body_total_length" not in r and "body_next_offset" not in r for r in results)
 
     def test_list_skills_search_by_name(self):
         self.create_skill(name="pdf-processing", description="Handles PDFs.")
@@ -322,6 +346,43 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["description"] == "Fetchable."
         assert data["body"] == "# Fetch me body"
         assert "files" in data
+
+    def test_get_skill_by_name_reports_body_total_length_without_paging(self):
+        self.create_skill(name="whole-body", body="0123456789")
+
+        data = self.client.get(self._url("name/whole-body")).json()
+
+        assert data["body"] == "0123456789"
+        assert data["body_total_length"] == 10
+        # Without paging params the whole body is returned, so there is nothing left to fetch.
+        assert data["body_next_offset"] is None
+
+    @parameterized.expand(
+        [
+            # label, query, expected_body, expected_next_offset
+            ("first_page_has_more", "?body_offset=0&body_length=4", "0123", 4),
+            ("middle_page_has_more", "?body_offset=4&body_length=3", "456", 7),
+            ("last_page_exact_end", "?body_offset=8&body_length=2", "89", None),
+            ("length_past_end", "?body_offset=8&body_length=50", "89", None),
+            ("offset_only_returns_remainder", "?body_offset=7", "789", None),
+        ]
+    )
+    def test_get_skill_by_name_pages_through_body(self, _label, query, expected_body, expected_next_offset):
+        self.create_skill(name="paged-body", body="0123456789")
+
+        data = self.client.get(self._url(f"name/paged-body{query}")).json()
+
+        assert data["body"] == expected_body
+        # Total always reflects the full body, so a client can detect a truncated response.
+        assert data["body_total_length"] == 10
+        assert data["body_next_offset"] == expected_next_offset
+
+    def test_get_skill_by_name_rejects_negative_body_offset(self):
+        self.create_skill(name="bad-offset", body="hello")
+
+        response = self.client.get(self._url("name/bad-offset?body_offset=-1"))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_get_skill_by_name_returns_file_manifest(self):
         skill = self.create_skill(name="with-files")

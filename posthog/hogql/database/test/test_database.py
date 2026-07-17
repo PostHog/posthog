@@ -9,6 +9,7 @@ from posthog.test.base import BaseTest, FuzzyInt, QueryMatchingTest, snapshot_po
 from unittest import TestCase
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -22,9 +23,12 @@ from posthog.schema import (
     PersonsOnEventsMode,
 )
 
+from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import (
+    _CATALOG_PICKLE_MODULE_PREFIXES,
+    _CATALOG_PICKLE_MODULES,
     ROOT_TABLES__DO_NOT_ADD_ANY_MORE,
     Database,
     _CatalogUnpickler,
@@ -34,10 +38,15 @@ from posthog.hogql.database.database import (
     build_database_root_node,
     get_data_warehouse_table_name,
 )
+from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
+from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.lazy_join_tags import FOREIGN_KEY
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
+    DatabaseField,
+    DateTimeDatabaseField,
     ExpressionField,
     FieldTraverser,
     LazyJoin,
@@ -60,13 +69,15 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 def _collect_mutable_object_ids(obj: Any, ids: set[int]) -> None:
@@ -146,6 +157,31 @@ class TestBuildDatabaseRootNode(TestCase):
         restored_extra = pickle.loads(pickle.dumps(with_extra, protocol=pickle.HIGHEST_PROTOCOL))
         assert restored_extra.__pydantic_extra__ == {"extra_key": "value"}
 
+    def test_catalog_pickle_allowlist_covers_every_catalog_class(self):
+        # A missing allowlist entry (e.g. a product mounts a static catalog table without touching
+        # _CATALOG_PICKLE_MODULES) already fails the round-trip tests above, but with a bare
+        # UnpicklingError — this failure names the offending module and the fix.
+        modules: set[str] = set()
+
+        class RecordingUnpickler(pickle.Unpickler):
+            def find_class(self, module: str, name: str) -> Any:
+                modules.add(module)
+                return super().find_class(module, name)
+
+        blob = pickle.dumps(_construct_database_root_node(include_posthog_tables=True), pickle.HIGHEST_PROTOCOL)
+        RecordingUnpickler(io.BytesIO(blob)).load()
+
+        unlisted = {
+            module
+            for module in modules
+            if not module.startswith(_CATALOG_PICKLE_MODULE_PREFIXES) and module not in _CATALOG_PICKLE_MODULES
+        }
+        assert not unlisted, (
+            f"The static HogQL catalog pickles classes from modules the restricted unpickler rejects: "
+            f"{sorted(unlisted)}. Add each module to _CATALOG_PICKLE_MODULES in "
+            f"posthog/hogql/database/database.py, or the catalog will fail to load at request time."
+        )
+
     def test_catalog_unpickler_allowlists_catalog_classes_and_rejects_others(self):
         # Restricted unpickler resolves catalog classes but rejects anything else, so a tampered blob
         # can't instantiate code-execution gadgets.
@@ -164,6 +200,15 @@ class TestBuildDatabaseRootNode(TestCase):
 
 class TestDatabase(BaseTest, QueryMatchingTest):
     snapshot: Any
+    allow_dual_schema_snapshots = True
+
+    def assertPrintedSqlMatchesSnapshot(self, printed: str) -> None:
+        normalized_sql = pretty_print_in_tests(printed, self.team.pk)
+        use_new_events_schema_snapshot = (
+            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in normalized_sql.lower()
+        )
+
+        assert normalized_sql == self._schema_snapshot(use_new_events_schema_snapshot)
 
     def test_create_hogql_database_team_id_and_team_must_be_the_same(self):
         with self.assertRaises(ValueError, msg="team_id and team must be the same"):
@@ -964,6 +1009,364 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert direct_table.postgres_schema == "myschema"
 
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
+    def test_build_from_sources_resolves_direct_snowflake_case_insensitively(self, patch_execute):
+        # Snowflake stores object names uppercase but resolves unquoted identifiers case-insensitively.
+        # A natural all-lowercase query must resolve to the canonical uppercase table and columns.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="snowflake_source",
+            source_type=ExternalDataSourceType.SNOWFLAKE,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"database": "DB", "schema": ""},
+        )
+        DataWarehouseTable.objects.create(
+            name="TPCH_SF1.NATION",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            external_data_source_id=source.id,
+            url_pattern="s3://test/*",
+            options={
+                "direct_snowflake_catalog": "DB",
+                "direct_snowflake_schema": "TPCH_SF1",
+                "direct_snowflake_table": "NATION",
+            },
+            columns={"N_NAME": {"clickhouse": "String", "hogql": "string"}},
+        )
+
+        sources = Database._fetch_sources(team=self.team, connection_id=str(source.id))
+        db = Database._build_from_sources(sources)
+
+        canonical = db.get_table("TPCH_SF1.NATION")
+        assert isinstance(canonical, DirectSnowflakeTable)
+        # Any-case table name resolves to the same direct table (Snowflake folds unquoted names).
+        for typed_name in ("tpch_sf1.nation", "Tpch_Sf1.Nation", "TPCH_SF1.nation"):
+            resolved = db.get_table(typed_name)
+            assert isinstance(resolved, DirectSnowflakeTable), typed_name
+        # Columns resolve regardless of case and report their canonical stored name.
+        assert canonical.has_field("n_name")
+        resolved_field = canonical.get_field("N_Name")
+        assert isinstance(resolved_field, DatabaseField)
+        assert resolved_field.name == "N_NAME"
+
+    @patch("posthog.hogql.query.sync_execute", return_value=([], []))
+    def test_build_from_sources_keeps_non_snowflake_tables_case_sensitive(self, patch_execute):
+        # The case-insensitive fallback is opt-in per node, so a non-Snowflake direct table must NOT
+        # resolve under a different case.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="pg_source",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"schema": "public"},
+        )
+        DataWarehouseTable.objects.create(
+            name="accounts",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            external_data_source_id=source.id,
+            url_pattern="s3://test/*",
+            columns={"id": {"clickhouse": "Int64", "hogql": "integer"}},
+        )
+
+        sources = Database._fetch_sources(team=self.team, connection_id=str(source.id))
+        db = Database._build_from_sources(sources)
+
+        assert db.has_table("accounts")
+        assert not db.has_table("ACCOUNTS")
+
+    def _create_dual_mode_postgres_source(self, *, direct_query_enabled: bool = True) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="synced_pg_source",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=direct_query_enabled,
+            prefix="pg",
+            job_inputs={"schema": "public"},
+        )
+
+    def _create_dual_mode_schema_row(
+        self,
+        source: ExternalDataSource,
+        name: str,
+        *,
+        table: DataWarehouseTable | None = None,
+        source_schema: str = "public",
+        source_table_name: str | None = None,
+    ) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(
+            team=self.team,
+            name=name,
+            source=source,
+            table=table,
+            should_sync=True,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [
+                        {"name": "id", "data_type": "integer", "is_nullable": False},
+                        {"name": "email", "data_type": "text", "is_nullable": True},
+                    ],
+                    "source_schema": source_schema,
+                    "source_table_name": source_table_name or name.split(".")[-1],
+                }
+            },
+        )
+
+    def test_dual_mode_database_builds_virtual_tables_from_schema_metadata(self):
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="k", access_secret="s")
+        source = self._create_dual_mode_postgres_source()
+        synced_table = DataWarehouseTable.objects.create(
+            name="pg_users",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            external_data_source=source,
+            url_pattern="s3://bucket/users/*",
+            columns={"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}},
+        )
+        self._create_dual_mode_schema_row(source, "public.users", table=synced_table)
+        # Discovered before metadata persistence shipped — no columns to build from.
+        ExternalDataSchema.objects.create(
+            team=self.team, name="public.legacy", source=source, should_sync=True, sync_type_config={}
+        )
+
+        sources = Database._fetch_sources(team=self.team, connection_id=str(source.id))
+        # The virtual build must honor the fetch/build split: all I/O happens up front.
+        with self.assertNumQueries(0):
+            database = Database._build_from_sources(sources)
+
+        virtual_table = database.get_table("public.users")
+        assert isinstance(virtual_table, DirectPostgresTable)
+        assert virtual_table.postgres_schema == "public"
+        assert virtual_table.postgres_table_name == "users"
+        assert virtual_table.external_data_source_id == str(source.id)
+        id_field = virtual_table.fields["id"]
+        assert isinstance(id_field, DatabaseField)
+        assert id_field.nullable is False
+        email_field = virtual_table.fields["email"]
+        assert isinstance(email_field, DatabaseField)
+        assert email_field.nullable is True
+        assert "properties" in virtual_table.fields
+        # The synced S3 copy must not leak into the direct catalog; metadata-less rows are skipped.
+        assert not database.has_table("pg_users")
+        assert not database.has_table("public.legacy")
+        assert database.get_all_table_names() == ["public.users"]
+
+    def test_dual_mode_database_disabled_toggle_yields_empty_catalog(self):
+        source = self._create_dual_mode_postgres_source(direct_query_enabled=False)
+        self._create_dual_mode_schema_row(source, "public.users")
+
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
+
+        assert not database.has_table("public.users")
+        assert database.get_warehouse_table_names() == []
+
+    def test_dual_mode_database_excludes_row_filtered_schemas(self):
+        # A synced schema's row_filters restrict which rows sync; the live direct query can't
+        # reproduce that filter, so exposing the table would let a user read unsynced rows. It
+        # must be absent from both the build catalog and the serialized schema.
+        source = self._create_dual_mode_postgres_source()
+        self._create_dual_mode_schema_row(source, "public.users")
+        filtered = self._create_dual_mode_schema_row(source, "public.orders")
+        filtered.row_filters = [{"field": "status", "operator": "exact", "value": "shipped"}]
+        filtered.save(update_fields=["row_filters"])
+
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
+
+        assert database.has_table("public.users")
+        assert not database.has_table("public.orders")
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
+        assert set(serialized.keys()) == {"public.users"}
+
+    def test_dual_mode_database_builds_mysql_virtual_tables(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="synced_mysql_source",
+            source_type=ExternalDataSourceType.MYSQL,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=True,
+            prefix="shop",
+            job_inputs={"schema": "shop"},
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name="orders",
+            source=source,
+            should_sync=True,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [{"name": "id", "data_type": "bigint", "is_nullable": False}],
+                    "source_schema": "shop",
+                    "source_table_name": "orders",
+                }
+            },
+        )
+
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
+
+        virtual_table = database.get_table("orders")
+        assert isinstance(virtual_table, DirectMySQLTable)
+        assert virtual_table.mysql_schema == "shop"
+        assert virtual_table.mysql_table_name == "orders"
+
+    def test_dual_mode_database_builds_redshift_virtual_tables(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="synced_redshift_source",
+            source_type=ExternalDataSourceType.REDSHIFT,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=True,
+            prefix="rs",
+            job_inputs={"database": "dev", "schema": "public"},
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name="public.orders",
+            source=source,
+            should_sync=True,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [{"name": "id", "data_type": "integer", "is_nullable": False}],
+                    "source_schema": "public",
+                    "source_table_name": "orders",
+                }
+            },
+        )
+
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
+
+        virtual_table = database.get_table("public.orders")
+        assert isinstance(virtual_table, DirectRedshiftTable)
+        assert virtual_table.postgres_schema == "public"
+        assert virtual_table.postgres_table_name == "orders"
+        assert virtual_table.postgres_catalog == "dev"
+
+    def test_dual_mode_database_resolves_snowflake_case_insensitively(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="synced_snowflake_source",
+            source_type=ExternalDataSourceType.SNOWFLAKE,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=True,
+            prefix="snow",
+            job_inputs={"database": "DB", "schema": ""},
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name="TPCH_SF1.NATION",
+            source=source,
+            should_sync=True,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [{"name": "N_NAME", "data_type": "text", "is_nullable": False}],
+                    "source_schema": "TPCH_SF1",
+                    "source_table_name": "NATION",
+                }
+            },
+        )
+
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
+
+        canonical = database.get_table("TPCH_SF1.NATION")
+        assert isinstance(canonical, DirectSnowflakeTable)
+        assert canonical.snowflake_catalog == "DB"
+        # Snowflake folds unquoted identifiers, and the model's is_direct_snowflake prop is False
+        # for a synced source — this pins the case-insensitive flag keying off source_type instead.
+        resolved = database.get_table("tpch_sf1.nation")
+        assert isinstance(resolved, DirectSnowflakeTable)
+
+    def test_dual_mode_database_serializes_virtual_tables_from_schema_rows(self):
+        source = self._create_dual_mode_postgres_source()
+        schema_row = self._create_dual_mode_schema_row(source, "public.users")
+
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
+
+        # Only the virtual entries serialize in dual mode — no posthog/system tables, no S3 rows.
+        assert list(serialized.keys()) == ["public.users"]
+        entry = serialized["public.users"]
+        assert isinstance(entry, DatabaseSchemaDataWarehouseTable)
+        assert entry.id == str(schema_row.id)
+        assert entry.format is None
+        assert entry.url_pattern is None
+        assert {"id", "email"} <= set(entry.fields.keys())
+        assert entry.schema_ is not None
+        assert entry.schema_.id == str(schema_row.id)
+        assert entry.source is not None
+        assert entry.source.access_method == "warehouse"
+        assert entry.source.id == str(source.id)
+
+    def test_dual_mode_database_applies_warehouse_access_control(self):
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="k", access_secret="s")
+        source = self._create_dual_mode_postgres_source()
+        synced_table = DataWarehouseTable.objects.create(
+            name="pg_users",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            external_data_source=source,
+            url_pattern="s3://bucket/users/*",
+            columns={"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}},
+        )
+        self._create_dual_mode_schema_row(source, "public.users", table=synced_table)
+        self._create_dual_mode_schema_row(source, "public.events", source_table_name="events")
+
+        sources = Database._fetch_sources(team=self.team, connection_id=str(source.id))
+        sources.is_hogql_warehouse_access_control_enabled = True
+        # Userless AC fails closed: any schema row with a backing synced table is denied, and a
+        # row without one (nothing to check permission against) is denied too.
+        database = Database._build_from_sources(sources)
+
+        assert not database.has_table("public.users")
+        assert not database.has_table("public.events")
+
+    def test_dual_mode_strips_introspected_function_passthrough(self):
+        # `available_functions` (scalar passthrough, e.g. query_to_xml) and `available_table_functions`
+        # (FROM func()) both let a query execute arbitrary SQL on the upstream DB. A synced source runs
+        # under warehouse table-level access control, so exposing either would bypass those checks —
+        # both must be dropped from the dual-mode context while other metadata is preserved.
+        source = self._create_dual_mode_postgres_source()
+        source.connection_metadata = {
+            "engine": "postgres",
+            "database": "db",
+            "available_functions": ["query_to_xml"],
+            "available_table_functions": ["some_set_returning_fn"],
+        }
+        source.save(update_fields=["connection_metadata"])
+
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
+
+        assert database._direct_connection_metadata is not None
+        assert "available_functions" not in database._direct_connection_metadata
+        assert "available_table_functions" not in database._direct_connection_metadata
+        assert database._direct_connection_metadata.get("engine") == "postgres"
+
+    def test_direct_source_keeps_introspected_function_passthrough(self):
+        # A DIRECT source is the user's own connected DB (full access by design), so introspected
+        # passthrough is not a privilege escalation and stays available.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="direct_pg_fn_source",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"schema": "public"},
+            connection_metadata={
+                "engine": "postgres",
+                "database": "db",
+                "available_functions": ["query_to_xml"],
+                "available_table_functions": ["some_set_returning_fn"],
+            },
+        )
+
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
+
+        assert database._direct_connection_metadata is not None
+        assert database._direct_connection_metadata.get("available_functions") == ["query_to_xml"]
+        assert database._direct_connection_metadata.get("available_table_functions") == ["some_set_returning_fn"]
+
+    @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     def test_build_from_sources_raises_when_modifier_table_has_no_backing_row(self, patch_execute):
         # A dataWarehouseEventsModifier whose table resolves to a node with no backing row must fail
         # loudly (as the eager .latest() did), not silently skip timestamp-field resolution.
@@ -1146,7 +1549,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             parse_select("select person.some_field.key from events"), context, dialect="clickhouse"
         )
 
-        assert pretty_print_in_tests(printed, self.team.pk) == self.snapshot
+        self.assertPrintedSqlMatchesSnapshot(printed)
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -1175,7 +1578,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             parse_select("select person.some_field.key from events"), context, dialect="clickhouse"
         )
 
-        assert pretty_print_in_tests(printed, self.team.pk) == self.snapshot
+        self.assertPrintedSqlMatchesSnapshot(printed)
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_database_warehouse_joins_persons_poe_v2_source_key_nested_ast_call(self):
@@ -1397,6 +1800,200 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert person_id_field.chain == ["events_data", "person_id"]
 
         prepare_and_print_ast(parse_select("SELECT person_id FROM warehouse_table"), context, dialect="clickhouse")
+
+    def test_data_warehouse_events_modifier_remaps_timestamp_over_existing_column(self):
+        # A warehouse table can have its own DateTime column literally named `timestamp` (e.g. an
+        # ingestion timestamp) while the series is configured to use a different event-time column.
+        # The configured timestamp_field must win: `timestamp` should resolve to the configured column,
+        # not the table's own `timestamp`, so queries don't silently bucket/filter on the wrong column.
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        DataWarehouseTable.objects.create(
+            name="decoy_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="s3://test/*",
+            columns={
+                "id": "String",
+                "event_time": "DateTime64(3, 'UTC')",
+                "timestamp": "DateTime64(3, 'UTC')",
+            },
+        )
+        modifiers = HogQLQueryModifiers(
+            dataWarehouseEventsModifiers=[
+                DataWarehouseEventsModifier(
+                    table_name="decoy_table",
+                    id_field="id",
+                    timestamp_field="event_time",
+                    distinct_id_field="id",
+                )
+            ]
+        )
+
+        db = Database.create_for(team=self.team, modifiers=modifiers)
+
+        timestamp_field = db.get_table("decoy_table").fields["timestamp"]
+        assert isinstance(timestamp_field, ExpressionField)
+        assert isinstance(timestamp_field.expr, ast.Field)
+        assert timestamp_field.expr.chain == ["event_time"]
+
+    def test_data_warehouse_events_modifier_keeps_existing_timestamp_column_when_configured(self):
+        # When the configured timestamp_field is `timestamp` itself, the table's own DateTime column
+        # should be used directly rather than wrapped in a remapping expression.
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        DataWarehouseTable.objects.create(
+            name="native_timestamp_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="s3://test/*",
+            columns={"id": "String", "timestamp": "DateTime64(3, 'UTC')"},
+        )
+        modifiers = HogQLQueryModifiers(
+            dataWarehouseEventsModifiers=[
+                DataWarehouseEventsModifier(
+                    table_name="native_timestamp_table",
+                    id_field="id",
+                    timestamp_field="timestamp",
+                    distinct_id_field="id",
+                )
+            ]
+        )
+
+        db = Database.create_for(team=self.team, modifiers=modifiers)
+
+        timestamp_field = db.get_table("native_timestamp_table").fields["timestamp"]
+        assert isinstance(timestamp_field, DateTimeDatabaseField)
+
+    @parameterized.expand(
+        [
+            ("id", "real_id"),
+            ("distinct_id", "real_distinct_id"),
+        ]
+    )
+    def test_data_warehouse_events_modifier_remaps_identity_field_over_existing_column(
+        self, virtual_field: str, configured_column: str
+    ):
+        # A warehouse table can have its own column literally named `id` / `distinct_id` while the
+        # series is configured to use a different column. The configured `id_field` / `distinct_id_field`
+        # must win, so the virtual field resolves to the configured column rather than the table's own
+        # decoy column (which would otherwise be selected silently).
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        DataWarehouseTable.objects.create(
+            name="decoy_identity_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="s3://test/*",
+            columns={
+                "real_id": "String",
+                "real_distinct_id": "String",
+                "id": "String",
+                "distinct_id": "String",
+                "created_at": "DateTime64(3, 'UTC')",
+            },
+        )
+        modifiers = HogQLQueryModifiers(
+            dataWarehouseEventsModifiers=[
+                DataWarehouseEventsModifier(
+                    table_name="decoy_identity_table",
+                    id_field="real_id",
+                    distinct_id_field="real_distinct_id",
+                    timestamp_field="created_at",
+                )
+            ]
+        )
+
+        db = Database.create_for(team=self.team, modifiers=modifiers)
+
+        field = db.get_table("decoy_identity_table").fields[virtual_field]
+        assert isinstance(field, ExpressionField)
+        assert isinstance(field.expr, ast.Field)
+        assert field.expr.chain == [configured_column]
+
+    @parameterized.expand(
+        [
+            ("id",),
+            ("distinct_id",),
+        ]
+    )
+    def test_data_warehouse_events_modifier_keeps_existing_identity_column_when_configured(self, virtual_field: str):
+        # When the configured field name equals the virtual field name, the table's own column is used
+        # directly rather than wrapped in a remapping expression.
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        DataWarehouseTable.objects.create(
+            name="native_identity_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="s3://test/*",
+            columns={
+                "id": "String",
+                "distinct_id": "String",
+                "created_at": "DateTime64(3, 'UTC')",
+            },
+        )
+        modifiers = HogQLQueryModifiers(
+            dataWarehouseEventsModifiers=[
+                DataWarehouseEventsModifier(
+                    table_name="native_identity_table",
+                    id_field="id",
+                    distinct_id_field="distinct_id",
+                    timestamp_field="created_at",
+                )
+            ]
+        )
+
+        db = Database.create_for(team=self.team, modifiers=modifiers)
+
+        field = db.get_table("native_identity_table").fields[virtual_field]
+        # StringDatabaseField implies the column was not wrapped in a remapping ExpressionField
+        assert isinstance(field, StringDatabaseField)
+
+    def test_data_warehouse_events_modifier_keeps_existing_person_id_column(self):
+        # Unlike id/distinct_id/timestamp, person_id has no configured field on the modifier to remap
+        # from, and a native `person_id` column is treated as authoritative (e.g. an already-resolved
+        # person UUID). It must win over the distinct_id-derived fallback rather than being overridden.
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        DataWarehouseTable.objects.create(
+            name="native_person_id_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="s3://test/*",
+            columns={
+                "id": "String",
+                "user_id": "String",
+                "person_id": "String",
+                "created_at": "DateTime64(3, 'UTC')",
+            },
+        )
+        modifiers = HogQLQueryModifiers(
+            dataWarehouseEventsModifiers=[
+                DataWarehouseEventsModifier(
+                    table_name="native_person_id_table",
+                    id_field="id",
+                    distinct_id_field="user_id",
+                    timestamp_field="created_at",
+                )
+            ]
+        )
+
+        db = Database.create_for(team=self.team, modifiers=modifiers)
+
+        person_id_field = db.get_table("native_person_id_table").fields["person_id"]
+        # StringDatabaseField implies the column was not wrapped in a remapping ExpressionField
+        assert isinstance(person_id_field, StringDatabaseField)
 
     def test_data_warehouse_events_modifiers_with_dot_notation(self):
         credentials = DataWarehouseCredential.objects.create(

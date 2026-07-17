@@ -2,10 +2,10 @@ import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
+import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { BatchWritingStore } from '~/ingestion/common/stores/batch-writing-store'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
-import { CreatePersonResult, MoveDistinctIdsResult } from '~/utils/db/db'
 
 import { PersonsStoreTransaction } from './persons-store-transaction'
 
@@ -16,7 +16,7 @@ export type FlushResult = {
     uuid?: string
 }
 
-export interface PersonsStore extends BatchWritingStore {
+export interface PersonsStore extends BatchWritingStore<FlushResult> {
     /**
      * Executes a function within a transaction
      * @param description - Description of the transaction for logging

@@ -11,6 +11,8 @@ import { Request } from 'express'
 import { createHash } from 'node:crypto'
 import type { z } from 'zod'
 
+import { TRIGGER_ROUTES } from '@posthog/agent-shared'
+
 import { principalDisplay } from '../enqueue/acl'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { defineRoute, type AuthedRouteCtx, type TriggerModule } from './types'
@@ -18,6 +20,11 @@ import { WebhookBodySchema } from './webhook.schemas'
 
 async function webhookHandler(ctx: AuthedRouteCtx<z.infer<typeof WebhookBodySchema>>): Promise<void> {
     const { req, res, deps, resolved } = ctx
+    // A mislabeled urlencoded Content-Type still passes `WebhookBodySchema` (Express parses the raw JSON into a garbage form object), which would silently become the seed message. Reject explicitly.
+    if (req.is('application/json') === false) {
+        res.status(400).json({ error: 'invalid_content_type', expected: 'application/json' })
+        return
+    }
     const body = ctx.parsed
     const externalKeyHeader = req.headers['x-external-key']
     const externalKey = typeof externalKeyHeader === 'string' ? externalKeyHeader : null
@@ -39,7 +46,6 @@ async function webhookHandler(ctx: AuthedRouteCtx<z.infer<typeof WebhookBodySche
             principal: sessionPrincipal,
             trigger: 'webhook',
             requesterDisplay: principalDisplay(sessionPrincipal),
-            isPreview: resolved.isPreview,
         }
     )
     if (outcome.kind === 'elevation_required') {
@@ -100,7 +106,7 @@ export const webhookTrigger: TriggerModule = {
     routes: [
         defineRoute({
             method: 'POST',
-            path: '/webhook',
+            path: TRIGGER_ROUTES.webhook.post,
             auth: 'agent_spec',
             schema: WebhookBodySchema,
             handler: webhookHandler,

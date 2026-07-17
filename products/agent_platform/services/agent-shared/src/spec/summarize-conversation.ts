@@ -41,6 +41,72 @@ export function lastAssistantTextPreview(
     return null
 }
 
+/** Cap for the persisted `search_text` digest — bounds the column + the scan. */
+export const SEARCH_TEXT_MAX = 10_000
+
+/**
+ * Strip the routing/context envelopes the triggers prepend to a user message so
+ * the digest captures what was actually said, not channel ids / page JSON:
+ *  - `[slack]` + `key: value` lines, ended by a blank line (ingress slack trigger)
+ *  - `[console-context] … [/console-context]` JSON block (the console chat client)
+ *  - `<@U…>` Slack mention tokens
+ */
+function stripInjectedContext(text: string): string {
+    return text
+        .replace(/^\s*\[([a-z][a-z0-9-]*)\][\s\S]*?\[\/\1\]\s*/i, '')
+        .replace(/^\s*\[slack\][\s\S]*?\n[ \t]*\n/i, '')
+        .replace(/<@[A-Z0-9]+>/g, ' ')
+        .trim()
+}
+
+/**
+ * Plain-text digest of a conversation (user + assistant text, in order,
+ * whitespace-collapsed and truncated): the value persisted to `search_text` so
+ * search + the list preview never touch the full JSONB transcript. User
+ * messages have their injected context envelope stripped; tool results and
+ * thinking are skipped — noisy and unbounded.
+ */
+export function buildSearchText(conversation: ConversationMessage[], max: number = SEARCH_TEXT_MAX): string {
+    const parts: string[] = []
+    for (const m of conversation) {
+        if (m.role === 'user') {
+            const raw =
+                typeof m.content === 'string'
+                    ? m.content
+                    : m.content
+                          .filter((c) => c.type === 'text')
+                          .map((c) => c.text)
+                          .join(' ')
+            const cleaned = stripInjectedContext(raw)
+            if (cleaned) {
+                parts.push(cleaned)
+            }
+        } else if (m.role === 'assistant') {
+            for (const c of m.content) {
+                if (c.type === 'text') {
+                    parts.push(c.text)
+                }
+            }
+        }
+    }
+    const collapsed = parts.join(' ').replace(/\s+/g, ' ').trim()
+    const chars = Array.from(collapsed)
+    return chars.length > max ? chars.slice(0, max).join('') : collapsed
+}
+
+/** Trim a stored `search_text` to a list-row preview (code-point-safe). */
+export function previewText(searchText: string | null, max: number = PREVIEW_MAX): string | null {
+    if (!searchText) {
+        return null
+    }
+    const collapsed = searchText.replace(/\s+/g, ' ').trim()
+    if (!collapsed) {
+        return null
+    }
+    const chars = Array.from(collapsed)
+    return chars.length > max ? `${chars.slice(0, max - 1).join('')}…` : collapsed
+}
+
 /**
  * Aggregate token + cost numbers across every assistant message in the
  * conversation. Returns all-zeroes when no assistant has run yet (or when the
@@ -62,34 +128,27 @@ export function totalConversationUsage(conversation: ConversationMessage[]): Ses
 }
 
 /**
- * Fold one assistant message's `usage` into a running total. Used by both
- * the runner's per-turn accumulator and the backfill walk.
- *
- * `useGatewayCost: true` means the model went through PostHog's
- * ai-gateway — pi-ai's cost fields in that path are unreliable estimates,
- * so we keep token counts but zero the cost contribution. The gateway is
- * the source of truth for cost on that path; a future revision pulls our
- * own price-table calc in here.
+ * Fold one assistant message's `usage` into a running total (runner per-turn
+ * accumulator + backfill walk). Accumulates tokens but NEVER pi-ai's `cost.*`
+ * estimates — cost is owned by the gateway's settled /v1/usage figure, which
+ * the driver merges into `cost_total` post-turn. Off the gateway path the row
+ * cost stays zero (ingestion prices events from the catalog). Cost fields carry
+ * forward unchanged here.
  */
-export function accumulateUsage(
-    prev: SessionUsageTotal,
-    msg: AssistantMessageRecord,
-    opts: { useGatewayCost?: boolean } = {}
-): SessionUsageTotal {
+export function accumulateUsage(prev: SessionUsageTotal, msg: AssistantMessageRecord): SessionUsageTotal {
     const usage = msg.usage
     if (!usage) {
         return prev
     }
-    const trustCost = !opts.useGatewayCost
     return {
         tokens_in: prev.tokens_in + (usage.input ?? 0),
         tokens_out: prev.tokens_out + (usage.output ?? 0),
         cache_read: prev.cache_read + (usage.cacheRead ?? 0),
         cache_write: prev.cache_write + (usage.cacheWrite ?? 0),
-        cost_input: prev.cost_input + (trustCost ? (usage.cost?.input ?? 0) : 0),
-        cost_output: prev.cost_output + (trustCost ? (usage.cost?.output ?? 0) : 0),
-        cost_cache_read: prev.cost_cache_read + (trustCost ? (usage.cost?.cacheRead ?? 0) : 0),
-        cost_cache_write: prev.cost_cache_write + (trustCost ? (usage.cost?.cacheWrite ?? 0) : 0),
-        cost_total: prev.cost_total + (trustCost ? (usage.cost?.total ?? 0) : 0),
+        cost_input: prev.cost_input,
+        cost_output: prev.cost_output,
+        cost_cache_read: prev.cost_cache_read,
+        cost_cache_write: prev.cost_cache_write,
+        cost_total: prev.cost_total,
     }
 }

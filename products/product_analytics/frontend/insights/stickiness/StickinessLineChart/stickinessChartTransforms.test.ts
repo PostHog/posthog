@@ -2,6 +2,7 @@ import { DEFAULT_Y_AXIS_ID } from '@posthog/quill-charts'
 import type { TooltipConfig, YAxisConfig } from '@posthog/quill-charts'
 
 import { hexToRGBA } from 'lib/utils/colors'
+import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 import { ChartDisplayType } from '~/types'
 
@@ -10,6 +11,7 @@ import {
     buildStickinessLineTimeSeriesConfig,
     buildStickinessMainSeries,
     buildStickinessSeries,
+    buildStickinessTooltipTitle,
     stickinessPercentFormatter,
     toPercentData,
     type StickinessResultLike,
@@ -51,7 +53,7 @@ describe('stickinessChartTransforms', () => {
 
             expect(series).toMatchObject({
                 key: '0',
-                label: '$pageview',
+                label: 'Pageview',
                 data: [50, 30, 15, 5],
                 color: RED,
                 yAxisId: DEFAULT_Y_AXIS_ID,
@@ -59,6 +61,13 @@ describe('stickinessChartTransforms', () => {
             expect(series.stroke).toBeUndefined()
             expect(series.fill).toBeUndefined()
             expect(series.visibility).toBeUndefined()
+        })
+
+        it('humanizes built-in event labels, leaving custom events untouched', () => {
+            const core = buildStickinessMainSeries(makeResult({ label: '$pageview' }), 0, { getColor: () => RED })
+            const custom = buildStickinessMainSeries(makeResult({ label: 'Napped' }), 0, { getColor: () => RED })
+            expect(core.label).toBe('Pageview')
+            expect(custom.label).toBe('Napped')
         })
 
         it.each([
@@ -184,6 +193,28 @@ describe('stickinessChartTransforms', () => {
             [100, '100.0%'],
         ])('formats %s → %s', (value, expected) => {
             expect(stickinessPercentFormatter(value)).toBe(expected)
+        })
+    })
+
+    describe('buildStickinessTooltipTitle', () => {
+        const makeDatum = (date_label?: string): SeriesDatum => ({
+            id: 0,
+            dataIndex: 0,
+            datasetIndex: 0,
+            order: 0,
+            count: 0,
+            date_label,
+        })
+
+        it.each<[string, string | null | undefined, SeriesDatum[], string]>([
+            ['passes the integer day through for a day interval', 'day', [makeDatum('3')], 'Stickiness on day 3'],
+            ['uses the query interval when set', 'week', [makeDatum('2')], 'Stickiness on week 2'],
+            ['defaults the interval to "day" when null', null, [makeDatum('3')], 'Stickiness on day 3'],
+            ['defaults the interval to "day" when undefined', undefined, [makeDatum('3')], 'Stickiness on day 3'],
+            ['renders an empty day when date_label is missing', 'day', [makeDatum(undefined)], 'Stickiness on day '],
+            ['renders an empty day when seriesData is empty', 'day', [], 'Stickiness on day '],
+        ])('%s', (_, interval, seriesData, expected) => {
+            expect(buildStickinessTooltipTitle(interval)(seriesData)).toBe(expected)
         })
     })
 

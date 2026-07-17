@@ -17,4 +17,3 @@ export type {
 
 // Steps
 export { createCymbalProcessingStep } from './cymbal-processing-step'
-export { createFetchPersonBatchStep } from './person-properties-step'

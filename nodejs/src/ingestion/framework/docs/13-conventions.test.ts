@@ -32,7 +32,9 @@
 import { Message } from 'node-rdkafka'
 
 import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput, OVERFLOW_OUTPUT } from '~/common/outputs'
-import { newBatchPipelineBuilder, newPipelineBuilder } from '~/ingestion/framework/builders'
+import { parseJSON } from '~/common/utils/json-parse'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { newChunkPipelineBuilder, newPipelineBuilder } from '~/ingestion/framework/builders'
 import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
@@ -42,8 +44,6 @@ import { createTestMessage } from '~/tests/helpers/kafka-message'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { createTestTeam } from '~/tests/helpers/team'
 import { Team } from '~/types'
-import { parseJSON } from '~/utils/json-parse'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
 
 describe('Factory Functions', () => {
     /**
@@ -82,7 +82,7 @@ describe('Factory Functions', () => {
 
     /**
      * Whole pipelines are also created via factory functions. This is essential
-     * because batch pipelines are stateful (they maintain internal buffers via
+     * because chunk pipelines are stateful (they maintain internal buffers via
      * feed/next) and should only have one caller. Creating pipelines via factory
      * functions ensures each consumer gets its own instance.
      */
@@ -453,11 +453,11 @@ describe('Pipeline Phases', () => {
 
         // Compose subpipelines like joined-ingestion-pipeline:
         // messageAware → concurrently(preTeam) → filterMap(addTeam,
-        //     teamAware(concurrently(postTeam) → groupBy → concurrently(sequentially(processing)))
+        //     teamAware(concurrently(postTeam) → concurrentlyPerGroup(processing))
         //     → handleIngestionWarnings)
         // → handleResults → handleSideEffects
         function createPipeline() {
-            return newBatchPipelineBuilder<RawInput, { message: Message }>()
+            return newChunkPipelineBuilder<RawInput, { message: Message }>()
                 .messageAware((b) =>
                     b
                         // Pre-team preprocessing: parse and resolve team (concurrent)
@@ -474,10 +474,11 @@ describe('Pipeline Phases', () => {
                                         b
                                             // Post-team preprocessing: validate (concurrent)
                                             .concurrently((b) => createPostTeamPreprocessingSubpipeline(b))
-                                            // Processing: group by team and process sequentially within each group
-                                            .groupBy((item) => item.teamId)
-                                            .concurrently((group) =>
-                                                group.sequentially((b) => createProcessingSubpipeline(b))
+                                            // Processing: group by team; groups run concurrently while the
+                                            // explicit `sequentially` step processes items within a group in order
+                                            .concurrentlyPerGroup(
+                                                (item) => item.teamId,
+                                                (group) => group.sequentially((b) => createProcessingSubpipeline(b))
                                             )
                                     )
                                     .handleIngestionWarnings(createMockIngestionOutputs<IngestionWarningsOutput>())

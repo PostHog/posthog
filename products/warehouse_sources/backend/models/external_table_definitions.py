@@ -10,8 +10,9 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     StringJSONDatabaseField,
 )
+from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 
 external_tables: dict[str, dict[str, DatabaseField]] = {
     "*": {
@@ -1464,3 +1465,57 @@ def get_dlt_mapping_for_external_table(table):
         for _, field in external_tables[table].items()
         if type(field) is not ast.ExpressionField
     }
+
+
+class _SingleFieldChainCollector(TraversingVisitor):
+    """Collects the single-segment field references (e.g. `__created`) inside an expression."""
+
+    def __init__(self) -> None:
+        self.names: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> None:
+        if len(node.chain) == 1 and isinstance(node.chain[0], str):
+            self.names.add(node.chain[0])
+
+
+def get_hogql_column_name_mapping(table_name_without_prefix: str) -> dict[str, str]:
+    """Map each raw synced column name to the HogQL-visible field name it surfaces as.
+
+    Curated sources (Stripe, etc.) rename or wrap some raw columns when exposing them via HogQL — for
+    example Stripe's `customer` -> `customer_id` (a direct rename) and `created` -> `created_at` (a
+    computed `ExpressionField` over the hidden `__created` column). Anything downstream that keys off
+    column names — the user-facing column list, and semantic enrichment, which stores annotations that
+    users and the AI agent read back by the *visible* name — needs this raw -> visible mapping. Returns
+    `{}` for tables with no curated definition (arbitrary SQL sources), where raw columns are exposed
+    unchanged.
+    """
+    fields = external_tables.get(table_name_without_prefix)
+    if not fields:
+        return {}
+
+    # Hidden plain fields carry the raw column name (`__created` -> raw `created`) but are never
+    # surfaced directly; a visible ExpressionField wraps them.
+    hidden_raw_by_key = {
+        key: field.name
+        for key, field in fields.items()
+        if isinstance(field, DatabaseField) and not isinstance(field, ast.ExpressionField) and field.hidden
+    }
+
+    mapping: dict[str, str] = {}
+    # ExpressionFields first: attribute the raw column behind each referenced hidden field to the
+    # expression's visible name (`created` -> `created_at`).
+    for key, field in fields.items():
+        if isinstance(field, ast.ExpressionField):
+            collector = _SingleFieldChainCollector()
+            collector.visit(field.expr)
+            for referenced in collector.names:
+                raw = hidden_raw_by_key.get(referenced)
+                if raw is not None:
+                    mapping[raw] = key
+    # Visible plain fields: direct renames (`customer` -> `customer_id`). Don't override an
+    # expression mapping already established for the same raw column.
+    for key, field in fields.items():
+        if isinstance(field, DatabaseField) and not isinstance(field, ast.ExpressionField) and not field.hidden:
+            mapping.setdefault(field.name, key)
+
+    return mapping

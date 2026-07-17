@@ -61,16 +61,25 @@ If the report already has a title that is PR-specific and still accurate after y
     )
     summary: str = Field(
         description="""
-An Axios-style summary in four brief paragraphs:
-- A one-sentence "why it matters" tl;dr of the report. Ideally start with "Users …", explaining how users are being impacted, how many, or how important they are. If users aren't impacted, but the team building the product is, describe that. Otherwise, just describe what's going on.
-- '**What's happening:** …' - a brief description of the concrete facts, expanding on the tl;dr sentence. Reference specific signals, errors, metrics, or patterns. Use available tools to do research here like a product manager would.
-- '**Root cause:** …' - dig as deep as you can into the root cause of the issue, and explain it in plain terms. Use concrete references to problematic APIs or UI elements, so that the engineer familiar with the code understands this.
-- '**How to resolve:** …' - a single, concrete action plan for the code-level fix that addresses the root cause directly and resolves the symptom described in **What's happening** (not merely an adjacent issue). Skip if the report is not actionable.
+Write this the way a sharp colleague would explain it to you – first person, plain Silicon Valley English, direct and easy to read. Approachable and a little casual, never robotic or bureaucratic. The prose inside each section should read like a person talking, not a status report.
 
-Principles:
-- Be direct and specific. Every sentence must carry information.
-- No filler phrases ("various issues detected", "it's worth noting").
-- Bold the section labels exactly as shown above.
+The bar to clear: if someone dropped this report (or the PR) on you and said nothing else, this summary alone should make you get it – what's wrong, why it's worth caring about, and what the fix is. They don't need the line-by-line (the code diff is right there); they need the high-level rationale and the gist of the change.
+
+Start with a one-sentence tl;dr on its very first line, before any heading. This single sentence is shown on its own in the inbox list, so it has to stand alone and make someone get the gist without the rest of the summary. Ideally lead with "Users …", spelling out how they're impacted, how many, or how important they are; if it's not users but the team building the product who's affected, say that instead; otherwise just say plainly what's going on. Keep it to one sentence, no heading, no bold, followed by a blank line.
+
+Then give it light structure so a busy reader can scan the rest, three short sections under H2 headings:
+- '## Problem' – what's actually going wrong. Name the real culprit (the specific API, component, query, or behavior) in plain terms an engineer who knows this code will immediately recognize.
+- '## Impact' – who it hurts and how much: users (how many, how badly, how important), or, if it's not users, the team building the product. Lead with the thing that matters.
+- '## Solution' – what you'd do about it: the shape of the fix, not a spec. Omit this section entirely if the report isn't actionable.
+
+Within each section write a sentence or two of natural, flowing prose, not bullet soup. Bold the few phrases a reader should catch at a glance (the core symptom, the key number, the root cause, the proposed change) so it's scannable without becoming a wall of labels. Don't over-bold: if everything's bold, nothing is.
+
+Hard rules:
+- Everything must be factual, grounded in what you actually researched and what has actually happened. Never invent, never speculate as if it were fact. If something's a hypothesis, say so plainly.
+- Be specific. Reference the concrete signals, errors, metrics, or code paths you found; vagueness reads as not having done the work.
+- No filler ("various issues detected", "it's worth noting", "in conclusion").
+- Never use em dashes (—). Use an en dash (–) where you'd otherwise reach for a dash.
+- Separate sections and paragraphs with blank lines; you don't need any special line-break syntax.
 """
     )
 
@@ -209,6 +218,27 @@ def _render_existing_report_context(previous_report_id: str | None) -> str:
     )
 
 
+def _render_resolved_report_context(resolved_title: str | None, resolved_summary: str | None) -> str:
+    if not resolved_title and not resolved_summary:
+        return ""
+
+    parts = [
+        "\n---\n\n## Previously resolved report",
+        "",
+        "A very similar issue was covered by an earlier report that has already been **resolved** — its fix was "
+        "shipped. This signal is a recurrence, so it's a fresh report rather than a reopening of that one. Take the "
+        "prior resolution into account: figure out whether this is a regression of that fix, a new dimension of the "
+        "same underlying issue, or a genuinely distinct problem, and say which in your findings.",
+        "",
+        "The resolved report was:",
+    ]
+    if resolved_title:
+        parts.append(f"- **Title:** {resolved_title}")
+    if resolved_summary:
+        parts.append(f"- **Summary:** {resolved_summary}")
+    return "\n".join(parts) + "\n"
+
+
 def _render_previous_finding_context(previous_finding: SignalFinding | None) -> str:
     if previous_finding is None:
         return ""
@@ -321,11 +351,18 @@ We use the Oxford comma.
 We always use sentence case rather than title case, including in titles, headings, subheadings, or bold text. However if quoting provided text, we keep the original case.
 When writing numbers in the thousands to the billions, it's acceptable to abbreviate them (like 10M or 100B - capital letter, no space). If you write out the full number, use commas (like 15,000,000).
 We never use the em-dash, only the en-dash (–).
+When naming a PostHog product, we use its real name (for example "error tracking", not a third-party equivalent like "Sentry"). We only name an external vendor if the source data explicitly does.
+Session replay is the product name; the sessions it captures are called session recordings. Refer to them as "session recordings" (not "session replays").
 </writing_guide>
 
 You have two investigation tools:
 1. **The codebase** — the full PostHog repository is available on disk. Use file search, grep, and code reading.
 2. **PostHog MCP** — you can query PostHog analytics data via MCP tools like `execute-sql`, `query-run`, `read-data-schema`, `insights-get-all`, `experiment-get`, `list-errors`, `feature-flag-get-all`, etc.
+
+The cloned repository is your starting point, not a boundary. When the evidence points at code outside this repository, clone that repository and keep investigating there: `gh repo clone <org>/<repo>`.
+Cloning a further repo is cheap — do it the moment a different repo becomes relevant, rather than forcing a finding onto the repo you happen to be in.
+For safety, only clone legit, imperfectly defined by us as: either in the same org as the initial repo OR open-source with dozens+ stars & weeks+ old.
+If the true subject is a repo you genuinely cannot reach, say so in the finding instead of guessing.
 
 The report's history lives in its artefacts (prior findings, judgments, notes, task runs). You can list them with the `inbox-report-artefacts-list` MCP tool when prior context would help. Do not create or modify artefacts yourself — at the end of the session you will be asked for your findings and assessments as structured responses, and the pipeline persists them. Where an existing artefact of a given type is still correct, you will be able to confirm it instead of producing a new one.
 
@@ -377,6 +414,8 @@ def build_initial_research_prompt(
     previous_report_id: str | None = None,
     previous_finding: SignalFinding | None = None,
     has_business_knowledge: bool = False,
+    resolved_report_title: str | None = None,
+    resolved_report_summary: str | None = None,
 ) -> str:
     """Build the opening prompt for the first signal in a multi-turn research session."""
     signal_block = _render_signal_for_research(first_signal, 1, total_signals)
@@ -394,6 +433,7 @@ def build_initial_research_prompt(
             report_context += f"**Summary:** {summary}\n\n"
 
     existing_report_context = _render_existing_report_context(previous_report_id)
+    resolved_report_context = _render_resolved_report_context(resolved_report_title, resolved_report_summary)
     previous_finding_context = _render_previous_finding_context(previous_finding)
     investigation_instruction = (
         "You will investigate **{total_signals} signal(s)** one at a time. I will send each signal in a separate "
@@ -412,6 +452,7 @@ def build_initial_research_prompt(
 {investigation_instruction.format(total_signals=total_signals)}
 {report_context}
 {existing_report_context}
+{resolved_report_context}
 ---
 
 {_RESEARCH_PROTOCOL}
@@ -623,6 +664,8 @@ async def run_multi_turn_research(
     output_fn: OutputFn = None,
     signal_report_id: str | None = None,
     has_business_knowledge: bool = False,
+    resolved_report_title: str | None = None,
+    resolved_report_summary: str | None = None,
 ) -> ReportResearchOutput:
     """Orchestrate a multi-turn sandbox session that investigates each signal individually."""
     from products.tasks.backend.facade import api as tasks_facade
@@ -654,6 +697,8 @@ async def run_multi_turn_research(
         previous_report_id=previous_report_id,
         previous_finding=first_previous,
         has_business_knowledge=has_business_knowledge,
+        resolved_report_title=resolved_report_title,
+        resolved_report_summary=resolved_report_summary,
     )
     first_schema: type[SignalFinding] | type[SignalFindingUpdate] = (
         SignalFindingUpdate if first_previous else SignalFinding

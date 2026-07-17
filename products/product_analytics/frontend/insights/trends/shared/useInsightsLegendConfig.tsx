@@ -3,8 +3,6 @@ import { useMemo, type ReactNode } from 'react'
 
 import type { ChartLegendConfig, LegendItem } from '@posthog/quill-charts'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'scenes/trends/types'
@@ -18,16 +16,13 @@ interface UseInsightsLegendConfigOptions {
     inSharedMode?: boolean
 }
 
-/** Builds the quill in-chart legend config for trends-family charts. Returns `undefined` when the
- *  quill-legend flag is off. Wires toggle persistence and the isolate/show-all context menu through
- *  trendsDataLogic. Lifecycle and funnel charts build their legend config inline (they don't read
- *  from trendsDataLogic or need the flag gate). */
+/** Builds the quill in-chart legend config for trends-family charts. Wires toggle persistence and the
+ *  isolate/show-all context menu through trendsDataLogic. Lifecycle and funnel charts build their
+ *  legend config inline (they don't read from trendsDataLogic). */
 export function useInsightsLegendConfig({
     insightProps,
     inSharedMode = false,
-}: UseInsightsLegendConfigOptions): ChartLegendConfig | undefined {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const quillLegendEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]
+}: UseInsightsLegendConfigOptions): ChartLegendConfig {
     const { canEditInsight } = useValues(insightLogic)
     const { indexedResults, getTrendsHidden, showLegend, legendPosition, legendSeriesIsolationMenuEligible } =
         useValues(trendsDataLogic(insightProps))
@@ -41,16 +36,12 @@ export function useInsightsLegendConfig({
 
     const legendInteractive = canEditInsight && !inSharedMode
 
-    return useMemo<ChartLegendConfig | undefined>(() => {
-        if (!quillLegendEnabled) {
-            return undefined
-        }
-
+    return useMemo<ChartLegendConfig>(() => {
         const hiddenKeys = (indexedResults ?? []).filter((r) => getTrendsHidden(r)).map((r) => String(r.id))
         const showContextMenu = legendInteractive && legendSeriesIsolationMenuEligible
         return {
             show: !!showLegend,
-            position: (legendPosition as ChartLegendConfig['position']) ?? 'bottom',
+            position: (legendPosition as ChartLegendConfig['position']) ?? 'right',
             interactive: legendInteractive,
             hiddenKeys,
             onToggleSeries: (key: string) => {
@@ -74,7 +65,6 @@ export function useInsightsLegendConfig({
                 : undefined,
         }
     }, [
-        quillLegendEnabled,
         indexedResults,
         getTrendsHidden,
         showLegend,

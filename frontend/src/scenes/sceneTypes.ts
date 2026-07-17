@@ -97,7 +97,6 @@ export enum Scene {
     LiveEvents = 'LiveEvents',
     Login = 'Login',
     Login2FA = 'Login2FA',
-    EmailMFAVerify = 'EmailMFAVerify',
     MaterializedColumns = 'MaterializedColumns',
     Max = 'Max',
     Models = 'Models',
@@ -131,6 +130,7 @@ export enum Scene {
     PropertyDefinitions = 'PropertyDefinitions',
     PropertyDefinitionEdit = 'PropertyDefinitionEdit',
     QueryPerformance = 'QueryPerformance',
+    Quickstart = 'Quickstart',
     Replay = 'Replay',
     ReplayFilePlayback = 'ReplayFilePlayback',
     ReplayPlaylist = 'ReplayPlaylist',
@@ -160,6 +160,7 @@ export enum Scene {
     Survey = 'Survey',
     SurveyWizard = 'SurveyWizard',
     SurveyFormBuilder = 'SurveyFormBuilder',
+    SupportTickets = 'SupportTickets',
     Surveys = 'Surveys',
     SystemStatus = 'SystemStatus',
     ToolbarLaunch = 'ToolbarLaunch',
@@ -168,6 +169,8 @@ export enum Scene {
     Transformations = 'Transformations',
     EventFiltering = 'EventFiltering',
     Unsubscribe = 'Unsubscribe',
+    CodeCanvasLink = 'CodeCanvasLink',
+    CodeChannelLink = 'CodeChannelLink',
     UserInterview = 'UserInterview',
     UserInterviewResponse = 'UserInterviewResponse',
     UserInterviews = 'UserInterviews',
@@ -179,6 +182,7 @@ export enum Scene {
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
     WebAnalyticsHealth = 'WebAnalyticsHealth',
     WebAnalyticsLive = 'WebAnalyticsLive',
+    WebAnalyticsRecap = 'WebAnalyticsRecap',
     WebScripts = 'WebScripts',
     Endpoints = 'Endpoints',
     Endpoint = 'Endpoint',
@@ -197,6 +201,7 @@ export enum Scene {
     AIObservabilityTrace = 'AIObservabilityTrace',
     AIObservabilityUsers = 'AIObservabilityUsers',
     Logs = 'Logs',
+    MCPAnalytics = 'MCPAnalytics',
     LogsAlertDetail = 'LogsAlertDetail',
     LogsAlertNotificationDetail = 'LogsAlertNotificationDetail',
     LogsSamplingNew = 'LogsSamplingNew',
@@ -207,7 +212,6 @@ export enum Scene {
     MarketingAnalyticsSettings = 'MarketingAnalyticsSettings',
     MessagingLibraryTemplate = 'MessagingLibraryTemplate',
     NewAction = 'NewAction',
-    TaskDetail = 'TaskDetail',
     TaskTracker = 'TaskTracker',
     SlackTaskContext = 'SlackTaskContext',
     OrganizationDeactivated = 'OrganizationDeactivated',
@@ -245,12 +249,8 @@ export interface SceneTab {
     search: string
     hash: string
     title: string
-    active: boolean
     customTitle?: string
     iconType: FileSystemIconType | 'loading' | 'blank'
-    pinned?: boolean
-    /** Show a small badge indicator on the tab icon */
-    badge?: boolean
 
     sceneId?: string
     sceneKey?: string
@@ -342,9 +342,13 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.WebAnalyticsPageReports]: AccessControlResourceType.WebAnalytics,
     [Scene.WebAnalyticsWebVitals]: AccessControlResourceType.WebAnalytics,
     [Scene.WebAnalyticsHealth]: AccessControlResourceType.WebAnalytics,
+    [Scene.WebAnalyticsRecap]: AccessControlResourceType.WebAnalytics,
 
     // Marketing Analytics
     [Scene.MarketingAnalytics]: AccessControlResourceType.WebAnalytics,
+
+    // Metrics
+    [Scene.Metrics]: AccessControlResourceType.Metrics,
 
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,
@@ -352,6 +356,10 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Endpoints
     [Scene.EndpointsScene]: AccessControlResourceType.Endpoint,
+
+    // Workflows
+    [Scene.Workflow]: AccessControlResourceType.Workflow,
+    [Scene.Workflows]: AccessControlResourceType.Workflow,
 
     // Product Tours
     [Scene.ProductTour]: AccessControlResourceType.ProductTour,
@@ -363,6 +371,10 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Exports
     [Scene.Exports]: AccessControlResourceType.Export,
+
+    // Early access features
+    [Scene.EarlyAccessFeature]: AccessControlResourceType.EarlyAccessFeature,
+    [Scene.EarlyAccessFeatures]: AccessControlResourceType.EarlyAccessFeature,
 
     // Customer analytics (only journey scenes — configuration uses project-level admin)
     [Scene.CustomerJourneyBuilder]: AccessControlResourceType.CustomerAnalytics,

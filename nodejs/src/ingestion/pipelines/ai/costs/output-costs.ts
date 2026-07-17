@@ -1,7 +1,7 @@
 import bigDecimal from 'js-big-decimal'
 
+import { logger } from '~/common/utils/logger'
 import { PluginEvent } from '~/plugin-scaffold'
-import { logger } from '~/utils/logger'
 
 import { numericProperty } from './cost-utils'
 import { ResolvedModelCost } from './providers/types'

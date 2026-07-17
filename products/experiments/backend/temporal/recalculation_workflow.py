@@ -2,13 +2,15 @@ import asyncio
 from datetime import timedelta
 
 import temporalio.workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import Priority, RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
 
 with temporalio.workflow.unsafe.imports_passed_through():
     from products.experiments.backend.temporal.models import (
+        MAX_METRIC_ATTEMPTS,
+        METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS,
         ExperimentMetricsRecalculationWorkflowInputs,
         RecalculationProgressUpdate,
     )
@@ -19,17 +21,18 @@ with temporalio.workflow.unsafe.imports_passed_through():
     )
     from products.experiments.backend.temporal.recalculation_metrics import increment_workflow_finished
 
-MAX_CONCURRENT_METRICS = 10
-
 
 @temporalio.workflow.defn(name="experiment-metrics-recalculation-workflow")
 class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
     """Recalculate all metrics for an experiment on demand.
 
-    Each run discovers all metrics, marks the job in_progress (which also pins the single data-window end), fans
-    out one calc activity per metric with bounded concurrency, then finalizes the job status. Per-metric progress
-    counters and errors are folded into the calc activity itself, so the workflow only writes progress at start
-    and finish.
+    Each run discovers all metrics, marks the job in_progress (which also pins the single data-window end),
+    schedules one calc activity per metric all at once, and finalizes the job status. The workflow imposes no
+    concurrency of its own, pacing is owned by the layers that actually constrain it: worker activity slots
+    (MAX_CONCURRENT_ACTIVITIES, autoscaled on task queue backlog) bound compute, and the per-org ClickHouse
+    app-query limiter bounds query fan-out. Scheduling every metric up front also keeps the task queue backlog
+    honest for the autoscaler. Per-metric progress counters and errors are folded into the calc activity
+    itself, so the workflow only writes progress at start and finish.
     """
 
     @staticmethod
@@ -101,26 +104,36 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
 
         temporalio.workflow.logger.info(f"running recalc {recalculation_id} with {len(metrics)} metrics")
 
-        semaphore = asyncio.Semaphore(MAX_CONCURRENT_METRICS)
-
-        async def _run_metric(metric):
-            async with semaphore:
-                return await temporalio.workflow.execute_activity(
+        calc_retry_policy = RetryPolicy(
+            initial_interval=timedelta(seconds=5),
+            maximum_interval=timedelta(seconds=60),
+            maximum_attempts=MAX_METRIC_ATTEMPTS,
+        )
+        results = await asyncio.gather(
+            *[
+                temporalio.workflow.execute_activity(
                     calculate_experiment_metric_for_recalculation,
-                    args=[metric.experiment_id, metric.metric_uuid, recalculation_id, query_to, metric.metric_type],
-                    # No heartbeat: the activity's only long-running step is one blocking ClickHouse query
-                    # with no progress hooks, so start_to_close_timeout is the real per-attempt ceiling.
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(
-                        maximum_attempts=2,
-                        initial_interval=timedelta(seconds=5),
-                        maximum_interval=timedelta(seconds=30),
-                    ),
+                    args=[
+                        metric.experiment_id,
+                        metric.metric_uuid,
+                        recalculation_id,
+                        query_to,
+                        metric.metric_type,
+                    ],
+                    start_to_close_timeout=timedelta(seconds=METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS),
+                    retry_policy=calc_retry_policy,
+                    # Round-robin dispatch across orgs under backlog; a no-op on namespaces without
+                    # fairness support.
+                    priority=Priority(fairness_key=inputs.fairness_key),
                 )
-
-        results = await asyncio.gather(*[_run_metric(m) for m in metrics], return_exceptions=True)
-        succeeded = sum(1 for r in results if not isinstance(r, BaseException) and r.success)
-        failed = len(metrics) - succeeded
+                for metric in metrics
+            ],
+            return_exceptions=True,
+        )
+        # An exception here means retries were exhausted; the activity already persisted the FAILED row on its
+        # final attempt. A returned result carries success=False for permanent failures recorded without retry.
+        succeeded = sum(1 for result in results if not isinstance(result, BaseException) and result.success)
+        failed = len(results) - succeeded
 
         # Any failure marks the run as "failed"; the succeeded/failed counts carry the partial-vs-total nuance
         # for consumers that need it (the UI shows "N succeeded, M failed" alongside the status). A status-only

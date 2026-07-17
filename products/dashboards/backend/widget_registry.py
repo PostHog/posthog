@@ -12,6 +12,7 @@ from products.dashboards.backend.widget_specs.configs import (
     EXPERIMENT_RESULTS_WIDGET_TYPE,
     EXPERIMENTS_LIST_WIDGET_TYPE,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
+    SURVEY_RESULTS_WIDGET_TYPE,
 )
 from products.dashboards.backend.widget_specs.registry import (
     EXPECTED_WIDGET_TYPES,
@@ -36,6 +37,7 @@ __all__ = [
     "EXPERIMENT_RESULTS_WIDGET_TYPE",
     "EXPERIMENTS_LIST_WIDGET_TYPE",
     "SESSION_REPLAY_LIST_WIDGET_TYPE",
+    "SURVEY_RESULTS_WIDGET_TYPE",
     "EXPECTED_WIDGET_TYPES",
     "DashboardWidgetType",
     "WidgetRegistryEntry",

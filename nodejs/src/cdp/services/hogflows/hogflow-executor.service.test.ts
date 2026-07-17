@@ -1,17 +1,17 @@
 // sort-imports-ignore
-import { DateTime } from 'luxon'
+import { DateTime, Duration } from 'luxon'
 
 import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '~/cdp/_tests/builders/hogflow.builder'
 import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { compileHog } from '~/cdp/templates/compiler'
 import { template as posthogCaptureTemplate } from '~/cdp/templates/_destinations/posthog_capture/posthog-capture.template'
-import { HogFlow } from '~/schema/hogflow'
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { fetch } from '~/utils/request'
-import { logger } from '../../../utils/logger'
+import { fetch } from '~/common/utils/request'
+import { logger } from '~/common/utils/logger'
 import { Hub } from '../../../types'
-import { createHub } from '../../../utils/db/hub'
+import { createHub } from '~/common/utils/db/hub'
 import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { HogExecutorService } from '../hog-executor.service'
@@ -22,13 +22,14 @@ import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 
 // Mock before importing fetch
-jest.mock('~/utils/request', () => {
-    const original = jest.requireActual('~/utils/request')
+jest.mock('~/common/utils/request', () => {
+    const original = jest.requireActual('~/common/utils/request')
     return {
         ...original,
         fetch: jest.fn().mockImplementation((url, options) => {
@@ -62,7 +63,11 @@ describe('Hogflow Executor', () => {
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
         })
-        const hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const hogInputsService = new HogInputsService(
+            hub.integrationManager,
+            new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+            hub.encryptedFields
+        )
         const emailService = new EmailService(
             {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -84,13 +89,12 @@ describe('Hogflow Executor', () => {
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                emailQueueRouting: hub.CDP_EMAIL_QUEUE_ROUTING,
-                selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
             },
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
             hogInputsService,
             emailService,
-            recipientTokensService
+            recipientTokensService,
+            undefined as any
         )
         const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
         const hogFlowFunctionsService = new HogFlowFunctionsService(
@@ -100,6 +104,12 @@ describe('Hogflow Executor', () => {
         )
         const recipientsManager = new RecipientsManagerService(hub.postgres)
         const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
+        // Stubbed to always allow: this suite covers executor routing and flow control,
+        // not MX validation (email-validation.service.test.ts does), and the real
+        // service would fire live DNS lookups for the fixture recipients here.
+        const emailValidationService = {
+            getSkipReason: () => Promise.resolve(null),
+        } as unknown as EmailValidationService
 
         await insertHogFunctionTemplate(hub.postgres, {
             id: 'template-test-hogflow-executor',
@@ -136,7 +146,11 @@ describe('Hogflow Executor', () => {
 
         await insertHogFunctionTemplate(hub.postgres, posthogCaptureTemplate)
 
-        executor = new HogFlowExecutorService(hogFlowFunctionsService, recipientPreferencesService)
+        executor = new HogFlowExecutorService(
+            hogFlowFunctionsService,
+            recipientPreferencesService,
+            emailValidationService
+        )
     })
 
     describe('general event processing', () => {
@@ -188,6 +202,61 @@ describe('Hogflow Executor', () => {
                 .build()
         })
 
+        it('resuming past a completed action does not re-execute it (no double-send on recovery)', async () => {
+            // A recovered poison-pill run resumes from where it stalled. currentAction
+            // sits AFTER function_id_1 (which does a fetch), so replay must resume at
+            // exit and must NOT re-run that fetch — otherwise a recovered flow re-sends
+            // an email/webhook that already went out.
+            const invocation = createExampleHogFlowInvocation(hogFlow, {
+                event: {
+                    ...createHogExecutionGlobals().event,
+                    properties: {
+                        name: 'John Doe',
+                    },
+                    timestamp: '2026-01-30T20:20:20.200Z',
+                },
+            })
+            invocation.state.currentAction = {
+                id: 'exit',
+                startedAtTimestamp: DateTime.now().toMillis(),
+            }
+
+            const result = await executor.execute(invocation)
+
+            expect(result.finished).toBe(true)
+            expect(result.invocation.state.currentAction?.id).toBe('exit')
+            // The fetch-doing action before the resume point must not run again.
+            expect(mockFetch).toHaveBeenCalledTimes(0)
+            expect(result.logs.map((log) => log.message)).not.toContain('Executing action [Action:function_id_1]')
+        })
+
+        it('resuming a rerun onto an action removed by a later flow edit fails safe without re-running anything', async () => {
+            // #70792 restores currentAction on rerun. If the flow was edited after the run
+            // recorded its globals and the resume-point action was deleted, ensureCurrentAction
+            // can't find the id. The safe outcome is a finished, errored result — never a
+            // restart from the trigger (which would re-send) and never a hang.
+            const invocation = createExampleHogFlowInvocation(hogFlow, {
+                event: {
+                    ...createHogExecutionGlobals().event,
+                    properties: {
+                        name: 'John Doe',
+                    },
+                },
+            })
+            invocation.state.currentAction = {
+                id: 'action_removed_by_edit',
+                startedAtTimestamp: DateTime.now().toMillis(),
+            }
+
+            const result = await executor.execute(invocation)
+
+            expect(result.finished).toBe(true)
+            expect(result.error).toContain('action_removed_by_edit')
+            // Nothing already done gets re-run: the fetch-doing action never executes.
+            expect(mockFetch).toHaveBeenCalledTimes(0)
+            expect(result.logs.map((log) => log.message)).not.toContain('Executing action [Action:function_id_1]')
+        })
+
         it('can execute a simple hogflow', async () => {
             const invocation = createExampleHogFlowInvocation(hogFlow, {
                 event: {
@@ -204,6 +273,7 @@ describe('Hogflow Executor', () => {
             expect(result).toEqual({
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
+                emailAssets: [],
                 invocation: {
                     state: {
                         actionStepCount: 1,
@@ -539,6 +609,400 @@ describe('Hogflow Executor', () => {
                 .build()
         }
 
+        describe('workflow definition changed mid-run', () => {
+            const buildFlow = (): HogFlow =>
+                createHogFlow({
+                    actions: {},
+                    edges: [
+                        { from: 'trigger', to: 'delay', type: 'continue' },
+                        { from: 'delay', to: 'exit', type: 'continue' },
+                    ],
+                })
+
+            it.each([
+                [
+                    'the current action was deleted',
+                    (hogFlow: HogFlow) => {
+                        hogFlow.actions = hogFlow.actions.filter((action) => action.id !== 'delay')
+                    },
+                ],
+                [
+                    'the current action no longer has a continue edge',
+                    (hogFlow: HogFlow) => {
+                        hogFlow.edges = hogFlow.edges.filter((edge) => edge.from !== 'delay')
+                    },
+                ],
+            ])('exits gracefully when %s', async (_desc, mutateFlow) => {
+                const hogFlow = buildFlow()
+                const invocation = createExampleHogFlowInvocation(hogFlow)
+                // Parked on the delay long enough that it has elapsed, so the handler advances
+                invocation.state.currentAction = {
+                    id: 'delay',
+                    startedAtTimestamp: DateTime.now().minus({ hours: 3 }).toMillis(),
+                }
+                mutateFlow(hogFlow)
+                // The flow was edited after the run arrived at the step - the live-edit case
+                hogFlow.updated_at = DateTime.now().toMillis()
+
+                const result = await executor.execute(invocation)
+
+                expect(result.finished).toBe(true)
+                expect(result.error).toBeUndefined()
+                const exitMetric = result.metrics.find((m) => m.metric_name === 'exited_workflow_changed')
+                expect(exitMetric).toMatchObject({ metric_kind: 'other', instance_id: 'delay' })
+                expect(result.metrics.map((m) => m.metric_name)).not.toContain('failed')
+                expect(result.logs.filter((l) => l.level === 'error')).toEqual([])
+                expect(result.logs.map((l) => l.message).join('\n')).toContain('Workflow exited')
+            })
+
+            it('still fails the run when the graph was malformed all along (no edit since the step started)', async () => {
+                const hogFlow = buildFlow()
+                const invocation = createExampleHogFlowInvocation(hogFlow)
+                invocation.state.currentAction = {
+                    id: 'delay',
+                    startedAtTimestamp: DateTime.now().minus({ hours: 3 }).toMillis(),
+                }
+                hogFlow.edges = hogFlow.edges.filter((edge) => edge.from !== 'delay')
+                // No edit since the run arrived: the missing edge is a bad definition, not a live edit
+                hogFlow.updated_at = DateTime.now().minus({ hours: 4 }).toMillis()
+
+                const result = await executor.execute(invocation)
+
+                expect(result.finished).toBe(true)
+                expect(result.error).toBe('No next action found for action delay')
+                expect(result.metrics.map((m) => m.metric_name)).toContain('failed')
+                expect(result.metrics.map((m) => m.metric_name)).not.toContain('exited_workflow_changed')
+            })
+        })
+
+        // The follow-live contract: the worker re-reads live config on every wake, so edits made
+        // while a run is parked take effect the next time that run executes. These tests pin the
+        // per-edit-type semantics down as a contract rather than emergent behavior. Note the wake
+        // itself still happens at the originally scheduled time - only what happens ON wake is
+        // recomputed from the edited config.
+        describe('follow-live contract: edits picked up on wake', () => {
+            const parkAt = (
+                hogFlow: HogFlow,
+                actionId: string,
+                agoMs: number
+            ): ReturnType<typeof createExampleHogFlowInvocation> => {
+                const invocation = createExampleHogFlowInvocation(hogFlow)
+                invocation.state.currentAction = {
+                    id: actionId,
+
+                    startedAtTimestamp: DateTime.now().minus({ milliseconds: agoMs }).toMillis(),
+                }
+                return invocation
+            }
+
+            const editFlow = (hogFlow: HogFlow, mutate: (hogFlow: HogFlow) => void): void => {
+                mutate(hogFlow)
+                hogFlow.updated_at = DateTime.now().toMillis()
+            }
+
+            describe('delay duration edits', () => {
+                const buildDelayFlow = (duration: string): HogFlow =>
+                    createHogFlow({
+                        actions: { delay: { type: 'delay', config: { delay_duration: duration } } },
+                        edges: [
+                            { from: 'trigger', to: 'delay', type: 'continue' },
+                            { from: 'delay', to: 'exit', type: 'continue' },
+                        ],
+                    })
+
+                it.each([
+                    // parkedAgo is relative to the fixed test clock; expectedParkOffsetMs is relative
+                    // to the step's startedAtTimestamp (null = the run advances instead of re-parking)
+                    {
+                        name: 'a shortened delay that has already elapsed advances on wake with no extra wait',
+                        initial: '7d',
+                        edited: '1d',
+                        parkedAgo: { days: 3 },
+                        expectedParkOffsetMs: null,
+                    },
+                    {
+                        name: 'a shortened delay still pending re-parks at startedAt + new duration',
+                        initial: '7d',
+                        edited: '5d',
+                        parkedAgo: { days: 3 },
+                        expectedParkOffsetMs: 5 * 24 * 60 * 60 * 1000,
+                    },
+                    {
+                        name: 'a lengthened delay woken at its old expiry re-parks for the remainder',
+                        initial: '1d',
+                        edited: '7d',
+                        parkedAgo: { days: 1, minutes: 1 },
+                        expectedParkOffsetMs: 7 * 24 * 60 * 60 * 1000,
+                    },
+                ])('$name', async ({ initial, edited, parkedAgo, expectedParkOffsetMs }) => {
+                    const hogFlow = buildDelayFlow(initial)
+                    const invocation = parkAt(hogFlow, 'delay', Duration.fromObject(parkedAgo).toMillis())
+                    editFlow(hogFlow, (flow) => {
+                        const delayAction = flow.actions.find((a) => a.id === 'delay')!
+                        ;(delayAction.config as any).delay_duration = edited
+                    })
+
+                    const result = await executor.execute(invocation)
+
+                    if (expectedParkOffsetMs === null) {
+                        expect(result.finished).toBe(true)
+                        expect(result.error).toBeUndefined()
+                        expect(result.invocation.queueScheduledAt).toBeUndefined()
+                        expect(result.invocation.state.currentAction?.id).toBe('exit')
+                    } else {
+                        expect(result.finished).toBe(false)
+                        expect(result.invocation.queueScheduledAt?.toMillis()).toBe(
+                            invocation.state.currentAction!.startedAtTimestamp + expectedParkOffsetMs
+                        )
+                        // Parked without advancing: the run is still standing on the delay step
+                        expect(result.invocation.state.currentAction?.id).toBe('delay')
+                    }
+                })
+            })
+
+            describe('wait_until_time_window edits', () => {
+                // The fixed test clock is 2025-01-01T00:00:00Z (a Wednesday)
+                const buildWindowFlow = (config: Record<string, any>): HogFlow =>
+                    createHogFlow({
+                        actions: { window: { type: 'wait_until_time_window', config } },
+                        edges: [
+                            { from: 'trigger', to: 'window', type: 'continue' },
+                            { from: 'window', to: 'exit', type: 'continue' },
+                        ],
+                    })
+
+                it.each([
+                    {
+                        name: 'a window edited to be open now advances on wake',
+                        edited: { time: 'any', day: 'any', timezone: 'UTC' },
+                        expectedParkIso: null,
+                    },
+                    {
+                        name: 'an edited window re-parks at the new window start',
+                        edited: { time: ['05:00', '06:00'], day: 'any', timezone: 'UTC' },
+                        expectedParkIso: '2025-01-01T05:00:00.000Z',
+                    },
+                ])('$name', async ({ edited, expectedParkIso }) => {
+                    // Parked on a window that is closed at the fixed test time
+                    const hogFlow = buildWindowFlow({ time: ['10:00', '11:00'], day: 'any', timezone: 'UTC' })
+                    const invocation = parkAt(hogFlow, 'window', 60 * 60 * 1000)
+                    editFlow(hogFlow, (flow) => {
+                        const windowAction = flow.actions.find((a) => a.id === 'window')!
+                        windowAction.config = edited as any
+                    })
+
+                    const result = await executor.execute(invocation)
+
+                    if (expectedParkIso === null) {
+                        expect(result.finished).toBe(true)
+                        expect(result.error).toBeUndefined()
+                        expect(result.invocation.state.currentAction?.id).toBe('exit')
+                    } else {
+                        expect(result.finished).toBe(false)
+                        expect(result.invocation.queueScheduledAt?.toUTC().toISO()).toBe(expectedParkIso)
+                        expect(result.invocation.state.currentAction?.id).toBe('window')
+                    }
+                })
+            })
+
+            describe('graph edits around the run position', () => {
+                const buildFlow = (): HogFlow =>
+                    createHogFlow({
+                        actions: {},
+                        edges: [
+                            { from: 'trigger', to: 'delay', type: 'continue' },
+                            { from: 'delay', to: 'exit', type: 'continue' },
+                        ],
+                    })
+
+                const addDelayAction = (hogFlow: HogFlow, id: string): void => {
+                    hogFlow.actions.push({
+                        id,
+                        name: id,
+                        description: id,
+                        type: 'delay',
+                        config: { delay_duration: '2h' },
+                        created_at: Date.now(),
+                        updated_at: Date.now(),
+                        on_error: 'continue',
+                    } as any)
+                }
+
+                it('a step inserted after the run position executes when reached (live edges are followed)', async () => {
+                    const hogFlow = buildFlow()
+                    // Parked on the (2h) delay long enough that it advances on wake
+                    const invocation = parkAt(hogFlow, 'delay', 3 * 60 * 60 * 1000)
+                    editFlow(hogFlow, (flow) => {
+                        addDelayAction(flow, 'delay_b')
+                        flow.edges = [
+                            { from: 'trigger', to: 'delay', type: 'continue' },
+                            { from: 'delay', to: 'delay_b', type: 'continue' },
+                            { from: 'delay_b', to: 'exit', type: 'continue' },
+                        ]
+                    })
+
+                    const result = await executor.execute(invocation)
+
+                    // The run advanced onto the inserted step and parked there for its full duration
+                    expect(result.finished).toBe(false)
+                    expect(result.invocation.state.currentAction?.id).toBe('delay_b')
+                    expect(result.invocation.queueScheduledAt?.toMillis()).toBe(
+                        DateTime.now().plus({ hours: 2 }).toMillis()
+                    )
+                })
+
+                it('a step inserted behind the run position never executes for it (the past does not re-run)', async () => {
+                    const hogFlow = buildFlow()
+                    const invocation = parkAt(hogFlow, 'delay', 3 * 60 * 60 * 1000)
+                    editFlow(hogFlow, (flow) => {
+                        addDelayAction(flow, 'delay_early')
+                        flow.edges = [
+                            { from: 'trigger', to: 'delay_early', type: 'continue' },
+                            { from: 'delay_early', to: 'delay', type: 'continue' },
+                            { from: 'delay', to: 'exit', type: 'continue' },
+                        ]
+                    })
+
+                    const result = await executor.execute(invocation)
+
+                    expect(result.finished).toBe(true)
+                    expect(result.error).toBeUndefined()
+                    expect(result.invocation.queueScheduledAt).toBeUndefined()
+                    expect(result.logs.map((l) => l.message).join('\n')).not.toContain('delay_early')
+                })
+            })
+
+            it('an in-progress function step completes with the inputs rendered before the edit', async () => {
+                // Two fetches so the function pauses mid-execution: the run parks between them
+                // with its rendered inputs stored in hogFunctionState
+                await insertHogFunctionTemplate(hub.postgres, {
+                    id: 'template-test-follow-live-paused',
+                    name: 'Prints an input before and after an async pause',
+                    code: `
+                    print('Rendered as', inputs.name);
+                    fetch('https://posthog.com');
+                    fetch('https://posthog.com');
+                    print('Still', inputs.name);`,
+                    inputs_schema: [{ key: 'name', type: 'string', required: true }],
+                })
+
+                const hogFlow = createHogFlow({
+                    actions: {
+                        function_1: {
+                            type: 'function',
+                            config: {
+                                template_id: 'template-test-follow-live-paused',
+                                inputs: {
+                                    name: { value: 'Original', bytecode: await compileHog(`return 'Original'`) },
+                                },
+                            },
+                        },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'function_1', type: 'continue' },
+                        { from: 'function_1', to: 'exit', type: 'continue' },
+                    ],
+                })
+
+                const invocation = createExampleHogFlowInvocation(hogFlow)
+
+                // First execution renders the inputs and pauses inside the function at the fetch
+                const pausedResult = await executor.execute(invocation)
+                expect(pausedResult.finished).toBe(false)
+                expect(pausedResult.invocation.state.currentAction?.hogFunctionState).toEqual(expect.any(Object))
+                expect(pausedResult.logs.map((l) => l.message).join('\n')).toContain('Rendered as, Original')
+
+                // Edit the input while the run is paused inside the step
+                editFlow(hogFlow, (flow) => {
+                    const action = flow.actions.find((a) => a.id === 'function_1')!
+                    ;(action.config as any).inputs.name.value = 'Edited'
+                })
+                ;(hogFlow.actions.find((a) => a.id === 'function_1')!.config as any).inputs.name.bytecode =
+                    await compileHog(`return 'Edited'`)
+
+                // The continuation completes as prepared: inputs were rendered at step entry
+                const result = await executor.execute(pausedResult.invocation)
+                expect(result.finished).toBe(true)
+                expect(result.error).toBeUndefined()
+                const messages = result.logs.map((l) => l.message).join('\n')
+                expect(messages).toContain('Still, Original')
+                expect(messages).not.toContain('Edited')
+            })
+
+            // The cases above wake at the natural time; these wake EARLY — as the timing-edit
+            // reschedule sweep (#66380) and the subscription matcher do. Early wake must be
+            // behaviourally idempotent: the run re-parks at its unchanged target (never advancing
+            // currentAction, so the job row's action_id keeps naming the wait step), or runs the
+            // step's new handler when the type changed under it. Bulk-rescheduling parked jobs is
+            // only safe while these hold.
+            describe('early wakes (reschedule sweep contract)', () => {
+                it('a delay woken early with unchanged config re-parks at its original target', async () => {
+                    const hogFlow = createHogFlow({
+                        actions: { delay: { type: 'delay', config: { delay_duration: '7d' } } },
+                        edges: [
+                            { from: 'trigger', to: 'delay', type: 'continue' },
+                            { from: 'delay', to: 'exit', type: 'continue' },
+                        ],
+                    })
+                    const invocation = parkAt(hogFlow, 'delay', Duration.fromObject({ days: 2 }).toMillis())
+
+                    const result = await executor.execute(invocation)
+
+                    expect(result.finished).toBe(false)
+                    expect(result.invocation.queueScheduledAt?.toMillis()).toBe(
+                        invocation.state.currentAction!.startedAtTimestamp + Duration.fromObject({ days: 7 }).toMillis()
+                    )
+                    expect(result.invocation.state.currentAction?.id).toBe('delay')
+                })
+
+                it('a time window woken early with unchanged config re-parks at the original window start', async () => {
+                    // The window is closed at the fixed test time (2025-01-01T00:00:00Z)
+                    const hogFlow = createHogFlow({
+                        actions: {
+                            window: {
+                                type: 'wait_until_time_window',
+                                config: { time: ['10:00', '11:00'], day: 'any', timezone: 'UTC' },
+                            },
+                        },
+                        edges: [
+                            { from: 'trigger', to: 'window', type: 'continue' },
+                            { from: 'window', to: 'exit', type: 'continue' },
+                        ],
+                    })
+                    const invocation = parkAt(hogFlow, 'window', 60 * 60 * 1000)
+
+                    const result = await executor.execute(invocation)
+
+                    expect(result.finished).toBe(false)
+                    expect(result.invocation.queueScheduledAt?.toUTC().toISO()).toBe('2025-01-01T10:00:00.000Z')
+                    expect(result.invocation.state.currentAction?.id).toBe('window')
+                })
+
+                it("a step whose type changed while a run was parked on it runs the new type's handler on wake", async () => {
+                    const hogFlow = createHogFlow({
+                        actions: { delay: { type: 'delay', config: { delay_duration: '7d' } } },
+                        edges: [
+                            { from: 'trigger', to: 'delay', type: 'continue' },
+                            { from: 'delay', to: 'exit', type: 'continue' },
+                        ],
+                    })
+                    const invocation = parkAt(hogFlow, 'delay', Duration.fromObject({ days: 2 }).toMillis())
+                    editFlow(hogFlow, (flow) => {
+                        const action = flow.actions.find((a) => a.id === 'delay')!
+                        action.type = 'wait_until_time_window'
+                        action.config = { time: 'any', day: 'any', timezone: 'UTC' } as any
+                    })
+
+                    const result = await executor.execute(invocation)
+
+                    // The always-open window handler runs and the run advances
+                    expect(result.finished).toBe(true)
+                    expect(result.error).toBeUndefined()
+                    expect(result.invocation.state.currentAction?.id).toBe('exit')
+                })
+            })
+        })
+
         describe('early exit conditions', () => {
             let hogFlow: HogFlow
 
@@ -679,7 +1143,8 @@ describe('Hogflow Executor', () => {
                 )
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
-                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
+                // The property-based conversion is also counted on the exit path
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit', 'conversion'])
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
                       "Workflow exited early due to exit condition: exit_on_conversion ([Person:person_id|John Doe] matches conversion filters)",
@@ -794,12 +1259,109 @@ describe('Hogflow Executor', () => {
 
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
-                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
+                // The property-based conversion is also counted on the exit path
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit', 'conversion'])
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
                       "Workflow exited early due to exit condition: exit_on_trigger_not_matched_or_conversion ([Person:person_id|John Doe] matches conversion filters)",
                     ]
                 `)
+            })
+
+            it('counts a property-based conversion without exiting when exit condition is exit_only_at_end', async () => {
+                hogFlow.exit_condition = 'exit_only_at_end'
+                hogFlow.conversion = {
+                    filters: [{ key: '$browser', type: 'person', value: ['Chrome'], operator: 'exact' }],
+                    bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
+                    window_minutes: null,
+                }
+
+                const invocation = createExampleHogFlowInvocation(
+                    hogFlow,
+                    {
+                        event: {
+                            ...createHogExecutionGlobals().event,
+                            event: '$pageview',
+                            properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                        },
+                    },
+                    { properties: { $browser: 'Chrome' } }
+                )
+
+                const result = await executor.execute(invocation)
+                // The run completes normally (no early exit) but the conversion is counted exactly once
+                expect(result.finished).toBe(true)
+                expect(result.metrics.map((m) => m.metric_name)).toEqual([
+                    'conversion',
+                    'fetch',
+                    'billable_invocation',
+                    'succeeded',
+                    'succeeded',
+                ])
+                expect(result.metrics.filter((m) => m.metric_name === 'conversion')).toHaveLength(1)
+                expect(invocation.state.conversionCounted).toBe(true)
+                // The conversion is also surfaced as a billable $workflows_conversion event exactly once.
+                const conversionEvents = result.capturedPostHogEvents.filter((e) => e.event === '$workflows_conversion')
+                expect(conversionEvents).toHaveLength(1)
+                expect(conversionEvents[0]).toMatchObject({
+                    distinct_id: 'distinct_id',
+                    properties: { $workflow_id: hogFlow.id, $workflow_conversion_type: 'property' },
+                })
+            })
+
+            it('does not re-count a property-based conversion on a resume that already counted', async () => {
+                hogFlow.exit_condition = 'exit_only_at_end'
+                hogFlow.conversion = {
+                    filters: [{ key: '$browser', type: 'person', value: ['Chrome'], operator: 'exact' }],
+                    bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
+                    window_minutes: null,
+                }
+
+                const invocation = createExampleHogFlowInvocation(
+                    hogFlow,
+                    {
+                        event: {
+                            ...createHogExecutionGlobals().event,
+                            event: '$pageview',
+                            properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                        },
+                    },
+                    { properties: { $browser: 'Chrome' } }
+                )
+                // Simulate a prior step in this run having already counted the conversion
+                invocation.state.conversionCounted = true
+
+                const result = await executor.execute(invocation)
+                expect(result.finished).toBe(true)
+                expect(result.metrics.map((m) => m.metric_name)).not.toContain('conversion')
+            })
+
+            it('does not count event-based conversions in the executor (counted by the matcher)', async () => {
+                hogFlow.exit_condition = 'exit_only_at_end'
+                // Event-based conversion goal: no property filters/bytecode, so the executor's
+                // property path never matches. The matcher flags the run via conversionMatched.
+                hogFlow.conversion = {
+                    filters: [],
+                    bytecode: [],
+                    window_minutes: null,
+                    events: [{ filters: { bytecode: ['_H', 1, 29] } }],
+                }
+
+                const invocation = createExampleHogFlowInvocation(hogFlow, {
+                    event: {
+                        ...createHogExecutionGlobals().event,
+                        event: '$pageview',
+                        properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                    },
+                })
+                invocation.state.conversionMatched = true
+
+                const result = await executor.execute(invocation)
+                expect(result.finished).toBe(true)
+                // No conversion metric from the executor; the flag is consumed, not double-counted
+                expect(result.metrics.map((m) => m.metric_name)).not.toContain('conversion')
+                expect(invocation.state.conversionMatched).toBe(false)
+                expect(invocation.state.conversionCounted).toBeUndefined()
             })
 
             describe('on_error handling', () => {
@@ -1872,21 +2434,25 @@ describe('Hogflow Executor', () => {
                 },
             })
 
-            // There are 4 async actions, so we need to execute multiple times until finished
+            // Each execute call returns the metrics for one queue segment, and email
+            // actions route through the dedicated email queue — so we accumulate metrics
+            // across every segment to assert the total billing over the whole run.
             let result = await executor.execute(invocation)
+            const metrics = [...result.metrics]
             while (!result.finished) {
                 result = await executor.execute(result.invocation)
+                metrics.push(...result.metrics)
             }
 
             expect(result.finished).toBe(true)
             expect(result.error).toBeUndefined()
 
             // Verify we have billing metrics for both hog functions and email actions
-            const fetchBilling = result.metrics.filter(
+            const fetchBilling = metrics.filter(
                 (m) => m.metric_kind === 'fetch' && m.metric_name === 'billable_invocation'
             )
             expect(fetchBilling).toHaveLength(2)
-            const emailBilling = result.metrics.filter(
+            const emailBilling = metrics.filter(
                 (m) => m.metric_kind === 'email' && m.metric_name === 'billable_invocation'
             )
             expect(emailBilling).toHaveLength(2)
@@ -1894,7 +2460,7 @@ describe('Hogflow Executor', () => {
     })
 
     describe('email queue routing', () => {
-        it('should route email actions to the email queue when routing is configured', async () => {
+        it('should route email actions to the email queue', async () => {
             const team = await getFirstTeam(hub.postgres)
 
             await insertIntegration(hub.postgres, team.id, {
@@ -1934,42 +2500,6 @@ describe('Hogflow Executor', () => {
                 ],
             })
 
-            // Create executor with email queue routing enabled for all teams
-            const routingExecutor = new HogFlowExecutorService(
-                new HogFlowFunctionsService(
-                    hub.SITE_URL,
-                    new HogFunctionTemplateManagerService(hub.postgres),
-                    new HogExecutorService(
-                        {
-                            hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-                            googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-                            fetchRetries: hub.CDP_FETCH_RETRIES,
-                            fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
-                            fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                            emailQueueRouting: '*',
-                            selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
-                        },
-                        { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-                        new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
-                        new EmailService(
-                            {
-                                sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
-                                sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
-                                sesRegion: hub.SES_REGION,
-                                sesEndpoint: hub.SES_ENDPOINT,
-                            },
-                            hub.integrationManager,
-                            new TeamWorkflowsConfigService(hub.postgres),
-                            hub.ENCRYPTION_SALT_KEYS,
-                            hub.SITE_URL,
-                            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
-                        ),
-                        new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-                    )
-                ),
-                new RecipientPreferencesService(new RecipientsManagerService(hub.postgres))
-            )
-
             const hogFlow = new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
                 .withExitCondition('exit_only_at_end')
@@ -2014,7 +2544,7 @@ describe('Hogflow Executor', () => {
                 },
             })
 
-            const result = await routingExecutor.execute(invocation)
+            const result = await executor.execute(invocation)
 
             // Should be routed to email queue, not finished
             expect(result.finished).toBe(false)
@@ -2022,76 +2552,6 @@ describe('Hogflow Executor', () => {
             expect(result.invocation.queueMetadata?.originQueue).toBeDefined()
             expect(result.invocation.queueParameters).toBeDefined()
             expect(result.invocation.queueParameters?.type).toBe('email')
-        })
-
-        it('should send email inline when routing is not configured', async () => {
-            const team = await getFirstTeam(hub.postgres)
-
-            await insertIntegration(hub.postgres, team.id, {
-                id: 1,
-                kind: 'email',
-                config: {
-                    email: 'test@posthog.com',
-                    name: 'Test User',
-                    domain: 'posthog.com',
-                    verified: true,
-                    provider: 'maildev',
-                },
-            })
-
-            const hogFlow = new FixtureHogFlowBuilder()
-                .withTeamId(team.id)
-                .withExitCondition('exit_only_at_end')
-                .withWorkflow({
-                    actions: {
-                        trigger: {
-                            type: 'trigger',
-                            config: {
-                                type: 'event',
-                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
-                            },
-                        },
-                        email_1: {
-                            type: 'function_email',
-                            config: {
-                                template_id: 'template-email-routing-test',
-                                inputs: {
-                                    email: {
-                                        value: {
-                                            to: { email: 'recipient@example.com', name: 'Recipient' },
-                                            from: { integrationId: 1, email: 'test@posthog.com' },
-                                            subject: 'Test Email',
-                                            text: 'Test',
-                                            html: '<p>Test</p>',
-                                        },
-                                    },
-                                },
-                            },
-                        },
-                    },
-                    edges: [
-                        { from: 'trigger', to: 'email_1', type: 'continue' },
-                        { from: 'email_1', to: 'exit', type: 'continue' },
-                    ],
-                })
-                .build()
-
-            const invocation = createExampleHogFlowInvocation(hogFlow, {
-                event: {
-                    ...createHogExecutionGlobals().event,
-                    event: '$pageview',
-                },
-            })
-
-            // Default executor has emailQueueRouting = '' (inline)
-            let result = await executor.execute(invocation)
-            while (!result.finished) {
-                result = await executor.execute(result.invocation)
-            }
-
-            // Should send inline and complete
-            expect(result.finished).toBe(true)
-            expect(result.invocation.queue).not.toBe('email')
         })
 
         it('should complete the full round-trip: hogflow → email queue → email sent → workflow continues', async () => {
@@ -2133,78 +2593,6 @@ describe('Hogflow Executor', () => {
                     },
                 ],
             })
-
-            // Executor with routing enabled (simulates hogflow worker)
-            const hogflowExecutor = new HogFlowExecutorService(
-                new HogFlowFunctionsService(
-                    hub.SITE_URL,
-                    new HogFunctionTemplateManagerService(hub.postgres),
-                    new HogExecutorService(
-                        {
-                            hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-                            googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-                            fetchRetries: hub.CDP_FETCH_RETRIES,
-                            fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
-                            fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                            emailQueueRouting: '*',
-                            selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
-                        },
-                        { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-                        new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
-                        new EmailService(
-                            {
-                                sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
-                                sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
-                                sesRegion: hub.SES_REGION,
-                                sesEndpoint: hub.SES_ENDPOINT,
-                            },
-                            hub.integrationManager,
-                            new TeamWorkflowsConfigService(hub.postgres),
-                            hub.ENCRYPTION_SALT_KEYS,
-                            hub.SITE_URL,
-                            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
-                        ),
-                        new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-                    )
-                ),
-                new RecipientPreferencesService(new RecipientsManagerService(hub.postgres))
-            )
-
-            // Executor with no routing (simulates email worker — emails are inline)
-            const emailExecutor = new HogFlowExecutorService(
-                new HogFlowFunctionsService(
-                    hub.SITE_URL,
-                    new HogFunctionTemplateManagerService(hub.postgres),
-                    new HogExecutorService(
-                        {
-                            hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-                            googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-                            fetchRetries: hub.CDP_FETCH_RETRIES,
-                            fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
-                            fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                            emailQueueRouting: '',
-                            selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
-                        },
-                        { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-                        new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
-                        new EmailService(
-                            {
-                                sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
-                                sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
-                                sesRegion: hub.SES_REGION,
-                                sesEndpoint: hub.SES_ENDPOINT,
-                            },
-                            hub.integrationManager,
-                            new TeamWorkflowsConfigService(hub.postgres),
-                            hub.ENCRYPTION_SALT_KEYS,
-                            hub.SITE_URL,
-                            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
-                        ),
-                        new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-                    )
-                ),
-                new RecipientPreferencesService(new RecipientsManagerService(hub.postgres))
-            )
 
             const hogFlow = new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
@@ -2254,16 +2642,16 @@ describe('Hogflow Executor', () => {
                 },
             })
 
-            // Step 1: Hogflow worker executes — should route to email queue
-            const hogflowResult = await hogflowExecutor.execute(invocation)
+            // Step 1: Hogflow worker executes (queue !== 'email') — should route to email queue
+            const hogflowResult = await executor.execute(invocation)
             expect(hogflowResult.finished).toBe(false)
             expect(hogflowResult.invocation.queue).toBe('email')
             expect(hogflowResult.invocation.queueParameters?.type).toBe('email')
 
-            // Step 2: Email worker picks up the job — should send the email and continue
-            let emailResult = await emailExecutor.execute(hogflowResult.invocation)
+            // Step 2: Email worker picks up the job (queue === 'email') — should send inline and continue
+            let emailResult = await executor.execute(hogflowResult.invocation)
             while (!emailResult.finished) {
-                emailResult = await emailExecutor.execute(emailResult.invocation)
+                emailResult = await executor.execute(emailResult.invocation)
             }
 
             // Workflow should complete

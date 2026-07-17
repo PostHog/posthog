@@ -1,3 +1,5 @@
+import { COST_HINTS } from '@posthog/agent-shared'
+
 import { getNativeTool, hasNativeTool, listNativeTools } from './registry'
 
 describe('native tool registry', () => {
@@ -10,6 +12,7 @@ describe('native tool registry', () => {
                 '@posthog/slack-update-message',
                 '@posthog/slack-react',
                 '@posthog/http-request',
+                '@posthog/web-search',
                 '@posthog/meta-end-turn',
                 '@posthog/meta-end-session',
                 '@posthog/meta-emit-event',
@@ -49,7 +52,7 @@ describe('native tool registry', () => {
                 expect(typeof t.schema.requires.provider.id).toBe('string')
                 expect(Array.isArray(t.schema.requires.provider.scopes)).toBe(true)
             }
-            expect(['cheap', 'medium', 'expensive']).toContain(t.schema.cost_hint)
+            expect(COST_HINTS).toContain(t.schema.cost_hint)
         }
     })
 })

@@ -30,17 +30,6 @@ ENDPOINT_MATERIALIZATION_EVENT_TOTAL = Counter(
     labelnames=["action", "status"],
 )
 
-ENDPOINT_DUCKLAKE_FALLBACK_TOTAL = Counter(
-    "posthog_endpoint_ducklake_fallback_total",
-    "DuckLake executions that fell back to inline",
-)
-
-ENDPOINT_RATE_LIMITED_TOTAL = Counter(
-    "posthog_endpoint_rate_limited_total",
-    "Rate-limited endpoint requests",
-    labelnames=["scope"],
-)
-
 ENDPOINT_CONCURRENCY_REJECTED_TOTAL = Counter(
     "posthog_endpoint_concurrency_rejected_total",
     "Endpoint executions rejected because the concurrency limit was exceeded",

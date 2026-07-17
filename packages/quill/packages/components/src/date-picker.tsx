@@ -29,8 +29,12 @@ export interface DatePickerProps {
     dateFormat?: DateFormatOrder
     weekStartsOn?: Day
     onDateTimeSettings?: () => void
-    /** Show hour/minute inputs and an "Include time" toggle. When off, the value is floored to the start of the day. */
+    /** Include time in the value initially. When off, the value is floored to the start of the day. */
     showTime?: boolean
+    /** Render the "Include time" toggle so the user can switch time on and off. Defaults to `showTime`. Set false for a fixed precision. */
+    showTimeToggle?: boolean
+    /** Fired when the "Include time" toggle changes. */
+    onIncludeTimeChange?: (includeTime: boolean) => void
     className?: string
 }
 
@@ -45,6 +49,8 @@ export function DatePicker({
     weekStartsOn,
     onDateTimeSettings,
     showTime = false,
+    showTimeToggle = showTime,
+    onIncludeTimeChange,
     className,
 }: DatePickerProps): React.ReactElement {
     const maxDate = maxDateProp ?? new Date()
@@ -75,6 +81,11 @@ export function DatePicker({
         }
         setSelected(clamped)
         setViewing(new Date(getYear(clamped), getMonth(clamped), 1))
+    }
+
+    const handleIncludeTimeChange = (next: boolean): void => {
+        setIncludeTime(next)
+        onIncludeTimeChange?.(next)
     }
 
     const handleApply = (): void => {
@@ -144,11 +155,11 @@ export function DatePicker({
                 />
             </div>
 
-            {showTime && (
+            {showTimeToggle && (
                 <div className="flex items-center gap-2 px-3 py-1.5 border-t border-border">
                     <Switch
                         checked={includeTime}
-                        onCheckedChange={setIncludeTime}
+                        onCheckedChange={handleIncludeTimeChange}
                         aria-label="Include time"
                         id={includeTimeId}
                         data-attr="date-picker-include-time"

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use rand::Rng;
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -9,7 +9,10 @@ use sqlx::PgPool;
 use property_defs_rs::{
     batch_ingestion::process_batch,
     config::Config,
-    types::{Event, GroupType, PropertyParentType, Update},
+    types::{
+        Event, EventDefinition, GroupType, PropertyDefinition, PropertyParentType,
+        PropertyValueType, Update,
+    },
     update_cache::Cache,
 };
 
@@ -320,4 +323,187 @@ async fn test_property_definitions_conflict_update(db: PgPool) {
     .unwrap();
 
     assert_eq!(count, Some(1));
+}
+
+fn setup_cache(config: &Config) -> Arc<Cache> {
+    Arc::new(Cache::new(
+        config.eventdefs_cache_capacity,
+        config.eventprops_cache_capacity,
+        config.propdefs_cache_capacity,
+    ))
+}
+
+fn prop(
+    name: &str,
+    property_type: Option<PropertyValueType>,
+    is_numerical: bool,
+    event_type: PropertyParentType,
+) -> Update {
+    Update::Property(PropertyDefinition {
+        team_id: 111,
+        project_id: 111,
+        name: name.to_string(),
+        property_type,
+        is_numerical,
+        event_type,
+        group_type_index: None,
+        property_type_format: None,
+        volume_30_day: None,
+        query_usage_30_day: None,
+    })
+}
+
+fn evt(name: &str, last_seen_at: DateTime<Utc>) -> Update {
+    Update::Event(EventDefinition {
+        name: name.to_string(),
+        team_id: 111,
+        project_id: 111,
+        last_seen_at,
+    })
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn test_property_definitions_dedupe_within_batch(db: PgPool) {
+    // A property name repeated within one batch on differing mutable columns shares the ON CONFLICT
+    // key. Before the SELECT DISTINCT ON dedup this raised SQLSTATE 21000 and rolled back the *whole*
+    // batch - including the unrelated, genuinely-new "current_page" def. All three inputs collapse
+    // to two rows and must persist.
+    let config = Config::init_with_defaults().unwrap();
+    let cache = setup_cache(&config);
+
+    let batch = vec![
+        prop("brand", None, false, PropertyParentType::Event),
+        prop(
+            "brand",
+            Some(PropertyValueType::Numeric),
+            true,
+            PropertyParentType::Event,
+        ),
+        prop("current_page", None, false, PropertyParentType::Event),
+    ];
+    process_batch(&config, cache, &db, batch).await;
+
+    let count: Option<i64> = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) FROM posthog_propertydefinition WHERE name IN ('brand', 'current_page')"#
+    )
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(
+        count,
+        Some(2),
+        "the deduped def and the unrelated new def must both persist"
+    );
+
+    // Typed row wins on the collapsed key, mirroring the DO UPDATE.
+    let brand = sqlx::query!(
+        r#"SELECT property_type, is_numerical FROM posthog_propertydefinition WHERE name = 'brand'"#
+    )
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(brand.property_type, Some("Numeric".to_string()));
+    assert!(brand.is_numerical);
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn test_property_definitions_typed_row_wins_regardless_of_order(db: PgPool) {
+    // The DISTINCT ON survivor is chosen by ORDER BY, not arrival order: rev_a arrives typed-then-null,
+    // rev_b arrives null-then-typed. Both must resolve to the typed row.
+    let config = Config::init_with_defaults().unwrap();
+    let cache = setup_cache(&config);
+
+    let batch = vec![
+        prop(
+            "rev_a",
+            Some(PropertyValueType::Numeric),
+            true,
+            PropertyParentType::Event,
+        ),
+        prop("rev_a", None, false, PropertyParentType::Event),
+        prop("rev_b", None, false, PropertyParentType::Event),
+        prop(
+            "rev_b",
+            Some(PropertyValueType::Numeric),
+            true,
+            PropertyParentType::Event,
+        ),
+    ];
+    process_batch(&config, cache, &db, batch).await;
+
+    for name in ["rev_a", "rev_b"] {
+        let row = sqlx::query!(
+            r#"SELECT property_type, is_numerical FROM posthog_propertydefinition WHERE name = $1"#,
+            name
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        assert_eq!(
+            row.property_type,
+            Some("Numeric".to_string()),
+            "{name} should keep the typed row"
+        );
+        assert!(row.is_numerical, "{name} should keep is_numerical=true");
+    }
+
+    let count: Option<i64> = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) FROM posthog_propertydefinition WHERE name IN ('rev_a', 'rev_b')"#
+    )
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(count, Some(2));
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn test_property_definitions_keeps_rows_that_differ_on_conflict_key(db: PgPool) {
+    // Same name, different parent type => different ON CONFLICT key; dedup must NOT collapse them.
+    let config = Config::init_with_defaults().unwrap();
+    let cache = setup_cache(&config);
+
+    let batch = vec![
+        prop("shared", None, false, PropertyParentType::Event),
+        prop("shared", None, false, PropertyParentType::Person),
+    ];
+    process_batch(&config, cache, &db, batch).await;
+
+    let count: Option<i64> = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) FROM posthog_propertydefinition WHERE name = 'shared'"#
+    )
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(count, Some(2));
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn test_event_definitions_dedupe_within_batch(db: PgPool) {
+    // An event name repeated within one batch shares the ON CONFLICT key; before the dedup this raised
+    // SQLSTATE 21000 and rolled back the whole batch, dropping the unrelated "$autocapture" def too.
+    let config = Config::init_with_defaults().unwrap();
+    let cache = setup_cache(&config);
+
+    // last_seen_at is regenerated server-side to one per-attempt timestamp for every row, so the
+    // value passed here doesn't affect which key-duplicate survives; this asserts the dedup itself
+    // (no SQLSTATE 21000) and that the unrelated new def survives.
+    let now = Utc::now();
+    let batch = vec![
+        evt("$pageview", now),
+        evt("$pageview", now),
+        evt("$autocapture", now),
+    ];
+    process_batch(&config, cache, &db, batch).await;
+
+    let count: Option<i64> = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) FROM posthog_eventdefinition WHERE name IN ('$pageview', '$autocapture')"#
+    )
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(
+        count,
+        Some(2),
+        "the deduped event def and the unrelated new one must both persist"
+    );
 }

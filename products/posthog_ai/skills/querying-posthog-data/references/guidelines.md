@@ -1,6 +1,6 @@
 ### Querying data in PostHog
 
-Use the `posthog:execute-sql` MCP tool to execute HogQL queries. HogQL is PostHog's variant of SQL that supports most of ClickHouse SQL. We use terms "HogQL" and "SQL" interchangeably. References mentioned in this file are relevant to PostHog's skill `querying-posthog-data`.
+Use the `posthog:execute-sql` MCP tool to execute HogQL queries. HogQL is PostHog's variant of SQL that supports most of ClickHouse SQL. We use terms "HogQL" and "SQL" interchangeably. More info is available in the `querying-posthog-data` skill.
 
 Do not assume that data exists. Use the SQL tool proactively to find the right data.
 
@@ -12,6 +12,9 @@ Proactively use different search types depending on a task:
 - Full-text search with `hasToken`, `hasTokenCaseInsensitive`, etc. Make sure you pass string constants to `hasToken*` functions.
 - Dumping results to a file and using bash commands to process potentially large outputs.
 
+Substring search on events-table strings is a full scan: `LIKE '%term%'`, `ILIKE '%term%'`, and `position()` read the column for every row in the time range, and a leading `%` makes indexes useless.
+Before fuzzy-matching a property value, try `read-data-schema` (`event_property_values`) to find common exact values. If the requested value is not returned, or the user needs true contains semantics, keep the timestamp window tight, filter `event` first, and use the substring predicate.
+
 #### Data Groups
 
 PostHog has two distinct groups of data you can query:
@@ -20,27 +23,7 @@ PostHog has two distinct groups of data you can query:
 
 Data created directly in PostHog by users - metadata about PostHog setup.
 
-All system tables are prefixed with `system.`:
-
-Table | Description
-`system.actions` | Named event combinations for filtering
-`system.cohorts` | Groups of persons for segmentation
-`system.dashboards` | Collections of insights
-`system.data_warehouse_sources` | Connected external data sources
-`system.data_warehouse_tables` | Connected tables with their columns and formats
-`system.error_tracking_issues` | Error tracking issues (grouped exceptions)
-`system.experiments` | A/B tests and experiments
-`system.exports` | Export jobs
-`system.feature_flags` | Feature flags for controlling rollouts
-`system.groups` | Group entities
-`system.ingestion_warnings` | Data ingestion issues
-`system.insight_variables` | SQL, dashboard, and insight variables for dynamic query filtering
-`system.insights` | Visual and textual representations of aggregated data
-`system.logs_alerts` | Log alert configurations and their states
-`system.logs_views` | Saved log filter views
-`system.notebooks` | Collaborative documents with embedded insights
-`system.surveys` | Questionnaires and feedback forms
-`system.teams` | Team/project settings
+All these tables are prefixed with `system.`. The most-used entities are `system.insights`, `system.dashboards`, `system.cohorts`, `system.feature_flags`, `system.experiments`, `system.surveys`, `system.actions`, and `system.notebooks` — list the full, current set (it drifts as products are added) via `information_schema`, covered in **Schema discovery** below.
 
 **Example - List insights:**
 
@@ -53,31 +36,6 @@ SELECT id, name, short_id FROM system.insights WHERE NOT deleted LIMIT 10
 ```sql
 SELECT count() AS total FROM system.insight_variables
 ```
-
-**System Models Reference**
-
-Schema reference for PostHog's core system models, organized by domain:
-
-- [Actions](references/models-actions.md)
-- [Cohorts & Persons](references/models-cohorts.md)
-- [Dashboards, Tiles & Insights](references/models-dashboards-insights.md)
-- [Data Warehouse](references/models-data-warehouse.md)
-- [Error Tracking](references/models-error-tracking.md)
-- [Logs](references/models-logs.md)
-- [Flags & Experiments](references/models-flags-experiments.md)
-- [Notebooks](references/models-notebooks.md)
-- [Surveys](references/models-surveys.md)
-- [SQL Variables](references/models-variables.md)
-
-**Entity Relationships**
-
-From | Relation | To | Join
-Experiment | 1:1 | FeatureFlag | `feature_flag_id`
-Experiment | N:1 | Cohort | `exposure_cohort_id`
-Survey | N:1 | FeatureFlag | `linked_flag_id`, `targeting_flag_id`
-Survey | N:1 | Insight | `linked_insight_id`
-Cohort | M:N | Person | via `cohortpeople`
-Person | 1:N | PersonDistinctId | `person_id`
 
 All entities are scoped by a team by default. You cannot access data of another team unless you switch a team.
 
@@ -92,7 +50,7 @@ Table | Description
 `sessions` | Session data captured by the SDK
 Data warehouse tables | Connected external data sources and custom views
 
-Use `posthog:read-data-warehouse-schema` to retrieve the full schema of the tables above.
+Discover the columns and relationships of these tables with `information_schema`, covered in **Schema discovery** below.
 
 **Key concepts:**
 
@@ -129,6 +87,64 @@ ORDER BY cnt DESC
 Run separately for each model. Available models: `'text-embedding-3-small-1536'`, `'text-embedding-3-large-3072'`. You MUST filter on exactly one `model_name` per query — it routes to the correct underlying ClickHouse table. `IN` clauses and cross-model queries will fail.
 
 Use `embedText(text, model_name)` and `cosineDistance()` for semantic search. See the `signals` skill for detailed query patterns around the signals product specifically, including required deduplication and metadata extraction.
+
+#### Schema discovery (information_schema)
+
+Don't guess table or column names — they differ per entity and drift over time. Discover the live schema for **every** data group above (system, captured, and data-warehouse tables) by querying `system.information_schema` via `execute-sql`. It exposes four self-describing virtual tables — every column below is selectable:
+
+- `tables` — table_catalog, table_schema, table_name, table_type, description, row_count. table_type is one of system, data_warehouse, view, posthog (built-in analytics tables like events / persons), or information_schema.
+- `columns` — table_schema, table_name, column_name, ordinal_position, data_type, is_nullable, is_array, field_kind, description.
+- `relationships` — source_table, source_column, target_table, target_column, relationship_kind, via.
+- `data_types` — type_name, description.
+
+It describes itself, so the full column set is always discoverable: `SELECT column_name, data_type FROM system.information_schema.columns WHERE table_name = 'system.information_schema.columns'`.
+
+**List tables** — filter `table_type` to target a group (`system`, `data_warehouse`, `view`, `posthog`):
+
+```sql
+SELECT table_name, description
+FROM system.information_schema.tables
+WHERE table_type = 'system'
+ORDER BY table_name
+```
+
+**Find a table by what its docs say** — names are often opaque (especially data-warehouse tables), so search the `description` text instead of guessing names. The documentation lives in `system.information_schema.tables.description` (the catalog) — not on the `system.data_warehouse_tables` entity, which only holds connection metadata:
+
+```sql
+SELECT table_name, description
+FROM system.information_schema.tables
+WHERE table_type = 'data_warehouse' AND description ILIKE '%canonical mrr%'
+```
+
+Column docs are searchable the same way via `information_schema.columns.description`. Prefer an `ILIKE` filter over dumping the whole catalog and scanning it yourself.
+
+**Inspect a table's columns:**
+
+```sql
+SELECT column_name, data_type, is_nullable, description
+FROM system.information_schema.columns
+WHERE table_name = 'events'
+```
+
+This works for `system.*` entity tables too — query them by full name, e.g. `WHERE table_name = 'system.insights'`. Their column sets differ per entity, so confirm columns before projecting them.
+
+**Discover how a table joins to others:**
+
+```sql
+SELECT source_table, source_column, target_table, target_column, relationship_kind
+FROM system.information_schema.relationships
+WHERE source_table = 'events'
+```
+
+`relationship_kind` is either `lazy_join` (a foreign-key-style join to a related table, e.g. `events.person_id` to persons) or `field_traverser` (an alias that hops to another field on the same row); `via` names the resolver when one applies.
+
+**Interpret a data type** — `data_types` describes the possible values of `columns.data_type` (String, Integer, Float, Decimal, Boolean, Date, DateTime, UUID, JSON, Array, Struct, Expression, VirtualTable, Unknown):
+
+```sql
+SELECT type_name, description FROM system.information_schema.data_types
+```
+
+`information_schema` covers table and column **structure**. To verify which events, properties, and property values actually exist in captured data, use `read-data-schema` (see **Schema verification** below).
 
 #### Querying guidelines
 
@@ -200,6 +216,10 @@ You should use the skipping index signature to write optimized analytical querie
 
 All analytical queries and subqueries must always have time ranges set for supported tables (events). If the user doesn't state it, assume default time range based on the data volume, like a day, week, or month.
 
+The bound must be a `WHERE` predicate on `timestamp`. A time condition that appears only inside an aggregate argument, like `countIf(event = 'x' AND timestamp > now() - INTERVAL 1 DAY)`, filters nothing: every historical row is still read. Put the outer window in `WHERE` and keep only the split inside the aggregate.
+
+Point lookups need a time bound too. Filtering on a session id, trace id, distinct_id, or a property value without a timestamp bound scans the team's entire history, because those filters don't align with the table's date-first sort key. Derive the window from context (the session's day, the incident's date), or start with a recent window and widen only if the result is empty.
+
 **How you should use time ranges**
 
 <example>
@@ -239,6 +259,10 @@ You are allowed joining system data. Insights are the most used entity, so keep 
 **Analytical data**
 
 Prefer using analytical functions and subqueries for joins. Do not use raw joins on the events table.
+
+Scan `events` once per question where you can: conditional aggregates (`countIf`, `sumIf`, `uniqIf`, `argMax`) or a window function over one scan replace a self-join, repeated subqueries over the same rows, and UNIONs of the same range.
+CTEs are inlined, not materialized: a CTE referenced twice executes twice.
+Subqueries that correlate different events (like the example below) are fine.
 
 **How you should join data**
 
@@ -324,6 +348,8 @@ Find the reference for [Sparkline, SemVer, Session replays, Actions, Translation
 - `toStartOfWeek(timestamp, 1)` for Monday start (numeric, not string)
 - Always handle nulls before array functions: `splitByChar(',', coalesce(field, ''))`
 - Performance: always filter `events` by timestamp
+- Correctness: count unique users with `uniq(person_id)` on events, never `uniq(distinct_id)` (one person has many distinct_ids, so distinct_id overcounts users)
+- Memory: avoid `GROUP BY` on unbounded high-cardinality expressions (raw URLs, ids, free text) over wide windows: the aggregation holds every distinct value in memory regardless of `LIMIT`; normalize the value (strip ids from paths) or narrow the window
 
 ##### SQL Variables
 

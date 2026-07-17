@@ -1,6 +1,6 @@
 """Prometheus metrics for the LLMA evaluation reports temporal workflows.
 
-Follows the same pattern as trace_clustering/metrics.py and sentiment/metrics.py.
+Follows the same pattern as trace_clustering/metrics.py.
 Metrics are emitted via Temporal's built-in metric meter (activity/workflow context)
 and scraped by the Prometheus endpoint on the worker pod.
 """
@@ -49,7 +49,8 @@ EVAL_REPORTS_LATENCY_HISTOGRAM_BUCKETS = [
 
 EVAL_REPORTS_ACTIVITY_TYPES = {
     "fetch_due_eval_reports_activity",
-    "fetch_count_triggered_eval_reports_activity",
+    "fetch_count_triggered_eval_report_candidates_activity",
+    "check_count_triggered_eval_report_activity",
     "prepare_report_context_activity",
     "run_eval_report_agent_activity",
     "store_report_run_activity",

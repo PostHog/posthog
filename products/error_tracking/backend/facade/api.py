@@ -7,12 +7,20 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from django.db.models import QuerySet
+
 import posthoganalytics
 
 from posthog.event_usage import groups
 
 from .. import logic, weekly_digest
-from ..models import resolve_fingerprints_for_issues
+from ..models import (
+    ErrorTrackingIssue,
+    override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
+    resolve_fingerprints_for_issues,
+    sync_issues_to_clickhouse as sync_issues_to_clickhouse,
+)
+from ..remote_config import build_error_tracking_config as build_error_tracking_config
 from . import contracts
 
 IssueNotFoundError = logic.ErrorTrackingIssueNotFoundError
@@ -112,6 +120,28 @@ def _to_issue_assignment_notification(assignment) -> contracts.ErrorTrackingIssu
 def list_issues(team_id: int) -> list[contracts.ErrorTrackingIssuePreview]:
     issues = logic.list_issues(team_id)
     return [_to_issue_preview(issue) for issue in issues]
+
+
+def list_issues_created_since(team_id: int, since: datetime, limit: int) -> list[contracts.ErrorTrackingIssuePreview]:
+    issues = logic.list_issues_created_since(team_id=team_id, since=since, limit=limit)
+    return [_to_issue_preview(issue) for issue in issues]
+
+
+def query_new_error_issues(period_start: datetime, period_end: datetime) -> QuerySet:
+    # "New this week" = issue first created within the digest window. Only active issues
+    # (not archived/resolved/suppressed) are worth surfacing as a new production error.
+    # Cross-team batch query for the weekly digest — callers execute it off the request path.
+    # Issue names are attacker-controlled (created from exception ingestion), so callers must
+    # cap how many they surface per team; newest-first ordering makes a per-team slice safe.
+    return (
+        ErrorTrackingIssue.objects.filter(
+            created_at__gt=period_start,
+            created_at__lte=period_end,
+            status=ErrorTrackingIssue.Status.ACTIVE,
+        )
+        .order_by("-created_at")
+        .values("team_id", "name", "id")
+    )
 
 
 def get_issue(issue_id: UUID, team_id: int) -> contracts.ErrorTrackingIssue:
@@ -341,9 +371,15 @@ def get_assignment_rule(team_id: int, rule_id: str) -> contracts.ErrorTrackingAs
     return _to_assignment_rule(rule) if rule is not None else None
 
 
-def create_assignment_rule(team_id: int, *, filters: dict, assignee: dict) -> contracts.ErrorTrackingAssignmentRule:
+def create_assignment_rule(
+    team_id: int, *, filters: dict, assignee: dict, order_key: int = 0
+) -> contracts.ErrorTrackingAssignmentRule:
     rule = logic.create_assignment_rule(
-        team_id, filters=filters, assignee_type=assignee["type"], assignee_id=assignee["id"]
+        team_id,
+        filters=filters,
+        assignee_type=assignee["type"],
+        assignee_id=assignee["id"],
+        order_key=order_key,
     )
     return _to_assignment_rule(rule)
 
@@ -457,6 +493,46 @@ def get_client_safe_suppression_rules(team_id: int) -> list[dict]:
     return logic.get_client_safe_suppression_rules(team_id)
 
 
+def _to_bypass_rule(rule) -> contracts.ErrorTrackingBypassRule:
+    return contracts.ErrorTrackingBypassRule(
+        id=rule.id,
+        filters=rule.filters,
+        order_key=rule.order_key,
+        disabled_data=rule.disabled_data,
+        created_at=rule.created_at,
+        updated_at=rule.updated_at,
+    )
+
+
+def list_bypass_rules(team_id: int) -> list[contracts.ErrorTrackingBypassRule]:
+    return [_to_bypass_rule(rule) for rule in logic.list_bypass_rules(team_id)]
+
+
+def get_bypass_rule(team_id: int, rule_id: str) -> contracts.ErrorTrackingBypassRule | None:
+    rule = logic.get_bypass_rule(team_id, rule_id)
+    return _to_bypass_rule(rule) if rule is not None else None
+
+
+def create_bypass_rule(team_id: int, *, filters: dict) -> contracts.ErrorTrackingBypassRule:
+    rule = logic.create_bypass_rule(team_id, filters=filters)
+    return _to_bypass_rule(rule)
+
+
+def update_bypass_rule(
+    team_id: int, rule_id: str, *, filters: dict | None = None
+) -> contracts.ErrorTrackingBypassRule | None:
+    rule = logic.update_bypass_rule(team_id, rule_id, filters=filters)
+    return _to_bypass_rule(rule) if rule is not None else None
+
+
+def delete_bypass_rule(team_id: int, rule_id: str) -> bool:
+    return logic.delete_bypass_rule(team_id, rule_id)
+
+
+def reorder_bypass_rules(team_id: int, orders: dict[str, int]) -> None:
+    logic.reorder_bypass_rules(team_id, orders)
+
+
 def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
     return logic.get_issue_id_for_fingerprint(team_id=team_id, fingerprint=fingerprint)
 
@@ -466,11 +542,29 @@ def list_fingerprints(team_id: int, issue_id: UUID | None = None) -> list[contra
     return [_to_fingerprint(fingerprint) for fingerprint in fingerprints]
 
 
+def list_first_fingerprints(team_id: int, issue_ids: list[UUID]) -> list[contracts.ErrorTrackingFingerprint]:
+    """Earliest-created fingerprint per issue, one entry per issue."""
+    fingerprints = logic.list_first_fingerprints(team_id=team_id, issue_ids=issue_ids)
+    return [_to_fingerprint(fingerprint) for fingerprint in fingerprints]
+
+
 def get_fingerprint(team_id: int, fingerprint_id: UUID) -> contracts.ErrorTrackingFingerprint | None:
     fingerprint = logic.get_fingerprint(team_id=team_id, fingerprint_id=fingerprint_id)
     if fingerprint is None:
         return None
     return _to_fingerprint(fingerprint)
+
+
+def get_fingerprint_by_value(team_id: int, fingerprint: str) -> contracts.ErrorTrackingFingerprint | None:
+    resolved = logic.get_fingerprint_by_value(team_id=team_id, fingerprint=fingerprint)
+    if resolved is None:
+        return None
+    return _to_fingerprint(resolved)
+
+
+def get_issue_permalink(team_id: int, issue_id: UUID) -> str:
+    """Absolute, merge-stable link to an issue for durable surfaces (emails, external tools)."""
+    return logic.get_issue_permalink_by_fingerprint(team_id=team_id, issue_id=issue_id)
 
 
 def list_external_references(team_id: int) -> list[contracts.ErrorTrackingExternalReference]:
@@ -580,3 +674,19 @@ def get_source_maps_recommendation_for_team(team: Any) -> dict[str, Any] | None:
 
 def build_ingestion_failures_url(team_id: int) -> str:
     return weekly_digest.build_ingestion_failures_url(team_id)
+
+
+def has_resolved_issues(team_id: int) -> bool:
+    return ErrorTrackingIssue.objects.filter(team_id=team_id, status=ErrorTrackingIssue.Status.RESOLVED).exists()
+
+
+def build_team_digest_data(team: Any) -> dict[str, Any] | None:
+    return weekly_digest.build_team_digest_data(team)
+
+
+def build_team_section_payload(data: dict[str, Any]) -> dict[str, Any]:
+    return weekly_digest.build_team_section_payload(data)
+
+
+def send_digest_to_workflow(digest: dict[str, Any], distinct_id: str) -> None:
+    weekly_digest.send_digest_to_workflow(digest, distinct_id)

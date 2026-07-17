@@ -6,20 +6,31 @@ import { context, type Plugin } from 'esbuild'
 import { existsSync } from 'fs'
 import { resolve } from 'path'
 
+import { copyInstructions } from './copy-instructions'
 import { honoEsbuildOptions, honoOutfile } from './hono-esbuild-config'
 
-// Load the same local-dev config the Workers (wrangler) runtime uses, so
-// hono and wrangler boot with the same env. Wrangler reads `.dev.vars`
-// natively; in hono mode we have to load it ourselves. `.env` (if present)
-// still wins because it's the more conventional override slot.
-const dotDevVars = resolve(process.cwd(), '.dev.vars')
-if (existsSync(dotDevVars)) {
-    process.loadEnvFile(dotDevVars)
-}
+// `.env` is the single local-dev env file (see .env.example). Wrangler reads
+// it natively too (falling back from `.dev.vars`), so hono and the edge-proxy
+// worker boot with the same env.
 const dotEnv = resolve(process.cwd(), '.env')
 if (existsSync(dotEnv)) {
     process.loadEnvFile(dotEnv)
 }
+
+// Without these the server boots but misbehaves subtly (OAuth metadata
+// advertises production, UI app resources aren't registered) - surface the
+// misconfig loudly, especially for setups still holding config in the
+// removed `.dev.vars` file.
+const requiredVars = ['POSTHOG_API_BASE_URL', 'MCP_APPS_BASE_URL']
+const missingVars = requiredVars.filter((name) => !process.env[name])
+if (missingVars.length > 0) {
+    console.warn(
+        `[dev-hono] missing required env var(s): ${missingVars.join(', ')}. ` +
+            'Support for `.dev.vars` was removed - move your local config to `.env` (see .env.example).'
+    )
+}
+
+copyInstructions()
 
 // flox sets SSL_CERT_FILE; Node's TLS layer only reads NODE_EXTRA_CA_CERTS.
 if (!process.env.NODE_EXTRA_CA_CERTS && process.env.SSL_CERT_FILE) {

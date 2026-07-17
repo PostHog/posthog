@@ -1,15 +1,16 @@
-import { ClickhouseConfig, getDefaultClickhouseConfig } from '../common/clickhouse-config'
 import {
     KAFKA_APP_METRICS_2,
-    KAFKA_CDP_BATCH_HOGFLOW_REQUESTS,
     KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
     KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
     KAFKA_EVENTS_JSON,
     KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
+    KAFKA_MESSAGE_ASSETS,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
-} from '../config/kafka-topics'
-import { isDevEnv, isProdEnv, isTestEnv } from '../utils/env-utils'
+} from '~/common/config/kafka-topics'
+import { isDevEnv, isProdEnv, isTestEnv } from '~/common/utils/env-utils'
+
+import { ClickhouseConfig, getDefaultClickhouseConfig } from '../common/clickhouse-config'
 import {
     CdpProducerName,
     WAREHOUSE_PRODUCER,
@@ -17,7 +18,6 @@ import {
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from './outputs/producers'
-import { SelfLoopGuardMode } from './services/self-loop-guard'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './types'
 
 // CdpConfig intersects ClickhouseConfig so any consumer reading
@@ -50,17 +50,13 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
     CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: string
-    // Controls which teams route email sends to the dedicated email queue.
-    // Supports team IDs, percentage rollout, or both.
-    // Examples: '' (disabled), '123,456' (specific teams), '*:0.1' (10% of traffic),
-    //           '123,*:0.05' (team 123 + 5% of rest), '*' (all traffic)
-    CDP_EMAIL_QUEUE_ROUTING: string
 
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
     CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: boolean
 
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
+    CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
     CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
     CDP_CYCLOTRON_COMPRESS_VM_STATE: boolean
@@ -95,18 +91,11 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_SES_RATE_LIMIT_CAPACITY: number
     CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: number
 
-    // When true, the email worker dequeues ordered by `dequeue_seq` (per-team
-    // round-robin) instead of FIFO. `dequeue_seq` is always assigned at insert
-    // (cheap), so flipping this on/off is purely a worker-side decision —
-    // rollback is a single env-var change with no SQL revert needed.
-    CDP_CYCLOTRON_EMAIL_FAIR_DEQUEUE: boolean
-
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
     CDP_FETCH_RETRIES: number
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
-    CDP_SELF_LOOP_GUARD_MODE: SelfLoopGuardMode
     CDP_OVERFLOW_QUEUE_ENABLED: boolean
     HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
     HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: CdpProducerName
@@ -115,6 +104,11 @@ export type CdpConfig = ClickhouseConfig & {
     HOG_INVOCATION_RESULTS_TOPIC: string
     HOG_INVOCATION_RESULTS_PRODUCER: CdpProducerName
     HOG_INVOCATION_RESULTS_ENABLED: boolean
+    // Message assets: rendered emails snapshotted to object storage + a metadata
+    // row in the message_assets ClickHouse table, surfaced in the workflow
+    // "Assets" tab.
+    MESSAGE_ASSETS_TOPIC: string
+    MESSAGE_ASSETS_PRODUCER: CdpProducerName
     HOG_INVOCATION_RERUN_MAX_COUNT: number
     // How many rerun wrapper jobs the worker dequeues per cyclotron-v2 poll.
     // Kept small by default — each job runs a full ClickHouse query per page.
@@ -123,8 +117,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_PREFILTERED_EVENTS_PRODUCER: CdpProducerName
     CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: string
     CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER: CdpProducerName
-    CDP_BATCH_HOGFLOW_REQUESTS_TOPIC: string
-    CDP_BATCH_HOGFLOW_REQUESTS_PRODUCER: CdpProducerName
     CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC: string
     CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER: CdpProducerName
 
@@ -143,7 +135,6 @@ export type CdpConfig = ClickhouseConfig & {
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
 
-    CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: number
     CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: number
 
     // Cyclotron Node (node postgres job queue)
@@ -154,6 +145,23 @@ export type CdpConfig = ClickhouseConfig & {
     CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: number
     CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: number
     CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: number
+    // Kill-switch for poison-pill recovery. When false the janitor reverts to
+    // master's pre-recovery behavior — mark poison pills failed with no replay
+    // record (a give-up is lost, exactly as before this change). Flip to false to
+    // roll back the recovery machinery instantly without a redeploy. Default true.
+    CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED: boolean
+    // Timing-edit reschedule sweep (CyclotronV2Manager.rescheduleParkedJobs)
+    // Scoped JWT keys authenticating Django's calls to the reschedule_parked route — comma-separated,
+    // newest first (first signs, all verify). Deliberately NOT the fleet-wide INTERNAL_API_SECRET
+    // (see .agents/security.md): empty in prod means the route fails closed until provisioned.
+    WORKFLOWS_RESCHEDULE_JWT_SECRET: string
+    CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: number
+    CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: number
+    CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: number
+    CYCLOTRON_NODE_RESCHEDULE_MAX_WINDOW_SECONDS: number
+    CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE: number
+    CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: number
+    CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: number
 }
 
 export function getDefaultCdpConfig(): CdpConfig {
@@ -185,13 +193,13 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
         CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
-        CDP_EMAIL_QUEUE_ROUTING: '',
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
         CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: false,
 
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
+        CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 10000,
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
         CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,
         CDP_CYCLOTRON_COMPRESS_VM_STATE: isProdEnv() ? false : true,
@@ -220,17 +228,11 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_SES_RATE_LIMIT_CAPACITY: 50,
         CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: 250,
 
-        CDP_CYCLOTRON_EMAIL_FAIR_DEQUEUE: false,
-
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
-        // Observe-only by default: detect self-loops and emit metrics without blocking.
-        // Valid values: 'disabled' | 'warn'. A blocking 'enforce' mode will be added in a
-        // follow-up PR once cdp_self_loop_guard_total production data is in.
-        CDP_SELF_LOOP_GUARD_MODE: 'warn',
         CDP_OVERFLOW_QUEUE_ENABLED: false,
         HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
         HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
@@ -244,6 +246,10 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Off by default — flip to true once the table is migrated and we want to start writing.
         // Per-team rollout still happens at the call site.
         HOG_INVOCATION_RESULTS_ENABLED: isDevEnv() ? true : false,
+        MESSAGE_ASSETS_TOPIC: KAFKA_MESSAGE_ASSETS,
+        // Same cyclotron Warpstream cluster as hog_invocation_results — ClickHouse
+        // consumes message_assets from the warpstream_cyclotron named collection.
+        MESSAGE_ASSETS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
         // Hard cap on rows a single rerun wrapper job will drain. Mirrors the
         // Django serializer's HOG_INVOCATION_RERUN_MAX_COUNT (same env var).
         HOG_INVOCATION_RERUN_MAX_COUNT: 10000,
@@ -254,8 +260,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_PREFILTERED_EVENTS_PRODUCER: WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
         CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
         CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER: WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
-        CDP_BATCH_HOGFLOW_REQUESTS_TOPIC: KAFKA_CDP_BATCH_HOGFLOW_REQUESTS,
-        CDP_BATCH_HOGFLOW_REQUESTS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
         CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC: KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
         CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER: WAREHOUSE_PRODUCER,
 
@@ -281,8 +285,11 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
 
-        CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: 1,
-        CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 5000,
+        // Fallback cap used only when a batch-resolve API caller does not pass max_audience_size.
+        // Django's batch-job model always passes get_hogflow_batch_trigger_limit(team_id), so
+        // production batches use the per-team value from settings; this is only a safety net for
+        // direct callers (tests, admin tools). Match the fleet-wide default in settings.web.py.
+        CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 50000,
 
         // Cyclotron Node
         CYCLOTRON_NODE_MAX_CONNECTIONS: 10,
@@ -292,5 +299,19 @@ export function getDefaultCdpConfig(): CdpConfig {
         CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: 30000,
         CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: 3,
         CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: 10000,
+        CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED: true,
+        // Floor > the hog flow cache's worst-case staleness (~6 min), so swept jobs
+        // always wake against post-edit config. Rate sized well under hogflow worker
+        // steady-state throughput: the past incident class here is an instantaneous
+        // mass wake, so wakes are trickled (500k parked @ 200/s ≈ 42 min spread).
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOWS_RESCHEDULE_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-reschedule-jwt' : '',
+        CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: 600,
+        CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: 200,
+        CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: 300,
+        CYCLOTRON_NODE_RESCHEDULE_MAX_WINDOW_SECONDS: 14400,
+        CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE: 5000,
+        CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: 20,
+        CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: 100,
     }
 }

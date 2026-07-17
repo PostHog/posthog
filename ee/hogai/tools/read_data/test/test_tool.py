@@ -31,16 +31,21 @@ from products.ai_observability.backend.summarization.llm.schema import (
 )
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import (
+    DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryColumnAnnotation,
+)
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+    WarehouseColumnAnnotation,
+)
 
 from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
@@ -621,6 +626,23 @@ class TestReadDataTool(BaseTest):
         assert "- my_custom_view" in result
         assert "- revenue_summary" in result
 
+    async def test_list_tables_includes_core_table_descriptions(self):
+        """data_warehouse_schema annotates core PostHog table columns with their curated descriptions
+        — a separate path from the per-table detail view, and the one an agent hits when listing."""
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        result, _ = await tool._arun_impl({"kind": "data_warehouse_schema"})
+
+        # uuid carries a curated description in the events schema; assert the separator rather than the
+        # exact text so a reworded description doesn't break the test.
+        assert "- uuid (string) — " in result
+
     async def test_list_tables_omits_empty_warehouse_and_views_sections(self):
         """Test that data_warehouse_schema omits warehouse/views sections when empty."""
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -690,6 +712,60 @@ class TestReadDataTool(BaseTest):
         assert "- created_at (datetime)" in result
         assert artifact is None
 
+    async def test_table_schema_returns_source_backed_table_by_underscore_name(self):
+        # A table linked to an external source serializes under its dotted key (e.g. `stripe.charges`)
+        # but is surfaced/queried by its raw underscore name; reading by that name must still resolve,
+        # including the source-schema description and per-column annotations keyed by the underscore name.
+        credential = await DataWarehouseCredential.objects.acreate(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = await ExternalDataSource.objects.acreate(
+            source_id="src", connection_id="conn", team=self.team, source_type="Stripe"
+        )
+        table = await DataWarehouseTable.objects.acreate(
+            name="stripe_charges",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            external_data_source=source,
+            url_pattern="https://bucket.s3/data/*",
+            columns={
+                "amount": {"hogql": "IntegerDatabaseField", "clickhouse": "Nullable(Int64)", "schema_valid": True},
+                "currency": {
+                    "hogql": "StringDatabaseField",
+                    "clickhouse": "Nullable(String)",
+                    "schema_valid": True,
+                },
+            },
+        )
+        await ExternalDataSchema.objects.acreate(
+            name="stripe_charges", team=self.team, source=source, table=table, description="Stripe charges"
+        )
+        with team_scope(self.team.pk, canonical=True):
+            await WarehouseColumnAnnotation.objects.acreate(
+                team=self.team,
+                table=table,
+                column_name="amount",
+                description="charge amount in cents",
+                description_source=WarehouseColumnAnnotation.DescriptionSource.AI_GENERATED,
+            )
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        result, _ = await tool._arun_impl({"kind": "data_warehouse_table", "table_name": "stripe_charges"})
+
+        assert "Could not serialize" not in result
+        assert "Table `stripe_charges` — Stripe charges with fields:" in result
+        assert "- amount (integer) — charge amount in cents" in result
+        assert "- currency (string)" in result
+
     async def test_table_schema_returns_view_fields(self):
         """Test that data_warehouse_table returns full schema for a view."""
         await DataWarehouseSavedQuery.objects.acreate(
@@ -731,6 +807,49 @@ class TestReadDataTool(BaseTest):
         assert "- total_count (integer)" in result
         assert "- event (string)" in result
 
+    async def test_table_schema_includes_view_descriptions(self):
+        """A saved-query view's descriptions reach read_data via DataWarehouseSavedQueryColumnAnnotation,
+        the same way physical-table annotations do — closing the parity gap where views returned bare fields."""
+        view = await DataWarehouseSavedQuery.objects.acreate(
+            team=self.team,
+            name="revenue_summary",
+            query={"kind": "HogQLQuery", "query": "SELECT count() as total_count, event FROM events GROUP BY event"},
+            columns={
+                "total_count": {"hogql": "IntegerDatabaseField", "clickhouse": "UInt64", "valid": True},
+                "event": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+            },
+        )
+        with team_scope(self.team.pk, canonical=True):
+            await DataWarehouseSavedQueryColumnAnnotation.objects.acreate(
+                team=self.team,
+                saved_query=view,
+                column_name="",
+                description="Event counts per event name.",
+                description_source=DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.USER_EDITED,
+            )
+            await DataWarehouseSavedQueryColumnAnnotation.objects.acreate(
+                team=self.team,
+                saved_query=view,
+                column_name="total_count",
+                description="Number of events with this name.",
+                description_source=DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.AI_GENERATED,
+            )
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        result, _ = await tool._arun_impl({"kind": "data_warehouse_table", "table_name": "revenue_summary"})
+
+        assert "Table `revenue_summary` — Event counts per event name. with fields:" in result
+        assert "- total_count (integer) — Number of events with this name." in result
+        # A column without an annotation stays bare.
+        assert "- event (string)" in result
+
     async def test_table_schema_returns_posthog_table_fields(self):
         """Test that data_warehouse_table returns schema for core PostHog tables."""
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -747,9 +866,15 @@ class TestReadDataTool(BaseTest):
 
         result, _ = await tool._arun_impl({"kind": "data_warehouse_table", "table_name": "events"})
 
-        assert "Table `events` with fields:" in result
+        # Native tables surface their curated schema descriptions too (a table-level description may be
+        # appended to the header), so match name and "with fields:" tolerantly rather than exactly.
+        assert result.startswith("Table `events`")
+        assert "with fields:" in result
         assert "- event (string)" in result
         assert "- timestamp (datetime)" in result
+        # uuid carries a curated description in the events schema — it must now be surfaced. Assert the
+        # separator rather than the exact text so a reworded description doesn't break the test.
+        assert "- uuid (string) — " in result
 
     async def test_table_schema_returns_posthog_field_aliases(self):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -766,7 +891,8 @@ class TestReadDataTool(BaseTest):
 
         result, _ = await tool._arun_impl({"kind": "data_warehouse_table", "table_name": "groups"})
 
-        assert "Table `groups` with fields:" in result
+        assert result.startswith("Table `groups`")
+        assert "with fields:" in result
         assert "- index (integer, aliased from group_type_index)" in result
         assert "- key (string, aliased from group_key)" in result
 
@@ -1573,14 +1699,13 @@ class TestReadDataTool(BaseTest):
             team=self.team, name="Allowed Survey", questions=[{"type": "open", "question": "Test?"}]
         )
 
-        user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
         context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
 
         tool = await ReadDataTool.create_tool_class(
-            team=self.team, user=user, state=state, context_manager=context_manager
+            team=self.team, user=self.user, state=state, context_manager=context_manager
         )
 
         with patch.object(tool, "user_access_control") as mock_uac:

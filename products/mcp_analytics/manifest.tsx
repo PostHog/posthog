@@ -23,18 +23,19 @@ export const manifest: ProductManifest = {
             name: 'MCP analytics',
             layout: 'app-container',
             description: 'Capture user intent and behaviour patterns to understand what AI users need from your tools.',
-            iconType: 'llm_analytics',
+            iconType: 'mcp_analytics',
         },
         MCPAnalyticsToolDetail: {
             import: () => import('./frontend/MCPAnalyticsToolDetail'),
             projectBased: true,
             name: 'MCP tool',
             layout: 'app-container',
-            iconType: 'llm_analytics',
+            iconType: 'mcp_analytics',
         },
     },
     routes: {
         // Define routes here
+        '/mcp-analytics/activity': ['MCPAnalytics', 'mcpAnalyticsActivity'],
         '/mcp-analytics/dashboard': ['MCPAnalytics', 'mcpAnalyticsDashboard'],
         '/mcp-analytics/sessions': ['MCPAnalytics', 'mcpAnalyticsSessions'],
         '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
@@ -42,11 +43,14 @@ export const manifest: ProductManifest = {
         '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
     },
     redirects: {
+        // `landing=auto` marks "arrived via the bare URL": the scene resolves it to the
+        // volume-appropriate default tab, and deep links to /dashboard stay untouched.
         '/mcp-analytics': (_params, searchParams, hashParams) =>
-            combineUrl(urls.mcpAnalyticsDashboard(), searchParams, hashParams).url,
+            combineUrl(urls.mcpAnalyticsDashboard(), { ...searchParams, landing: 'auto' }, hashParams).url,
     },
     urls: {
         // Define URL helpers here
+        mcpAnalyticsActivity: (): string => '/mcp-analytics/activity',
         mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
         mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',
         mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
@@ -62,11 +66,11 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.AI_ENGINEERING,
             visualOrder: 2,
             type: 'mcp_analytics',
-            iconType: 'llm_analytics' as FileSystemIconType,
+            iconType: 'mcp_analytics' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
             href: urls.mcpAnalyticsDashboard(),
             flag: FEATURE_FLAGS.MCP_ANALYTICS,
-            tags: ['alpha'],
+            tags: ['beta'],
             sceneKey: 'MCPAnalytics',
         },
     ],

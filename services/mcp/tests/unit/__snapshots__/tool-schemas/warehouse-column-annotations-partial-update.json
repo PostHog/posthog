@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "column_name": {
-            "description": "Column this annotation describes. Empty string denotes the table-level description.",
+            "description": "Column this annotation describes. Empty string denotes the table/view-level description.",
             "type": "string"
         },
         "description": {

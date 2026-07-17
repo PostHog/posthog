@@ -10,9 +10,12 @@ import 'lib/monaco/monacoEnvironment'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { themeLogic } from 'lib/logic/themeLogic'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
-import { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
+import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogic'
 import { findNextFocusableElement, findPreviousFocusableElement } from 'lib/monaco/domUtils'
+import { trackFindWidgetVisibility } from 'lib/monaco/findWidgetBodyClass'
+import { initCodeownersLanguage } from 'lib/monaco/languages/codeowners'
 import { initHogLanguage } from 'lib/monaco/languages/hog'
 import { initHogJsonLanguage } from 'lib/monaco/languages/hogJson'
 import { initHogQLLanguage } from 'lib/monaco/languages/hogQL'
@@ -22,7 +25,6 @@ import { clearLogicReference, initModel } from 'lib/monaco/modelLogicReference'
 import { sharedMonacoOverflowRoot } from 'lib/monaco/sharedMonacoOverflowRoot'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AnyDataNode, HogLanguage, HogQLMetadataResponse, NodeKind } from '~/queries/schema/schema-general'
 
 export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> {
@@ -52,6 +54,17 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
 }
 let codeEditorIndex = 0
 
+// Monaco measures glyph dimensions when an editor is created. If a web font is still
+// loading at that moment it can latch onto stale (oversized) metrics and never relayout,
+// surfacing as a giant-font editor (notably in visual snapshots). Remeasure once fonts
+// settle so first paint — and the captured snapshot — is deterministic.
+function remeasureFontsWhenReady(monaco: Monaco): void {
+    if (typeof document === 'undefined' || !document.fonts) {
+        return
+    }
+    void document.fonts.ready.then(() => monaco.editor.remeasureFonts())
+}
+
 function initEditor(
     monaco: Monaco,
     editor: importedEditor.IStandaloneCodeEditor,
@@ -79,6 +92,9 @@ function initEditor(
     }
     if (editorProps?.language === 'liquid') {
         initLiquidLanguage(monaco)
+    }
+    if (editorProps?.language === 'codeowners') {
+        initCodeownersLanguage(monaco)
     }
 
     editor.onKeyDown((evt) => {
@@ -189,6 +205,12 @@ export function CodeEditor({
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
     const mutationObserver = useRef<MutationObserver | null>(null)
+    // Tracks whether the component is still mounted. Because CodeEditor is loaded
+    // through a lazy Suspense facade, Monaco's async `onMount` can fire *after*
+    // React has already torn the component down (quick tab switch / unmount).
+    // Doing DOM work or state updates then throws "can't access dead object" in
+    // Firefox, so `editorOnMount` bails out when this is false.
+    const isMountedRef = useRef(true)
     // Track every model this editor instance has been attached to, so we can
     // dispose them on unmount. Monaco models live in a global registry until
     // explicitly disposed; without this, models accumulate forever and retain
@@ -279,7 +301,13 @@ export function CodeEditor({
     }
 
     useOnMountEffect(() => {
+        // Re-arm on (re)mount so a prior cleanup — e.g. React Strict Mode's
+        // mount/unmount/remount in dev — doesn't leave the live component
+        // permanently flagged as unmounted.
+        isMountedRef.current = true
+
         return () => {
+            isMountedRef.current = false
             disposeMonacoDisposables()
             disconnectMutationObserver()
 
@@ -396,10 +424,25 @@ export function CodeEditor({
     }
 
     const editorOnMount = (editor: importedEditor.IStandaloneCodeEditor, monaco: Monaco): void => {
+        // The lazy Suspense facade can resolve after the component has already
+        // unmounted (quick tab switch). Monaco still calls onMount, but touching
+        // DOM or setting state now throws "can't access dead object" in Firefox.
+        // Dispose the orphaned editor and bail before doing any of that.
+        if (!isMountedRef.current) {
+            try {
+                editor.dispose()
+            } catch {
+                // already disposed
+            }
+            return
+        }
+
         editorRef.current = editor
         trackEditorModels(editor, monaco)
         setMonacoAndEditor([monaco, editor])
         initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
+        remeasureFontsWhenReady(monaco)
+        monacoDisposables.current.push(trackFindWidgetVisibility(editor))
 
         // Override Monaco's suggestion widget styling to prevent truncation
         const styleId = 'monaco-suggestion-widget-fix'
@@ -422,9 +465,20 @@ export function CodeEditor({
 
         // Monitor for suggestion widget creation and apply styling
         const observer = new MutationObserver(() => {
-            const suggestWidget = document.querySelector('.monaco-editor .suggest-widget')
-            if (suggestWidget) {
-                overrideSuggestionWidgetStyling()
+            // If the component unmounted after the observer was installed, stop
+            // querying the (now reclaimed) DOM — this is the Firefox "can't
+            // access dead object" crash. Disconnect defensively and bail.
+            if (!isMountedRef.current) {
+                observer.disconnect()
+                return
+            }
+            try {
+                const suggestWidget = document.querySelector('.monaco-editor .suggest-widget')
+                if (suggestWidget) {
+                    overrideSuggestionWidgetStyling()
+                }
+            } catch {
+                observer.disconnect()
             }
         })
 
@@ -505,15 +559,28 @@ export function CodeEditor({
     if (originalValue) {
         // If originalValue is provided, we render a diff editor instead
         const diffEditorOnMount = (diff: importedEditor.IStandaloneDiffEditor, monaco: Monaco): void => {
+            // Same lazy-facade race as editorOnMount: bail if we already unmounted.
+            if (!isMountedRef.current) {
+                try {
+                    diff.dispose()
+                } catch {
+                    // already disposed
+                }
+                return
+            }
+
             const modifiedEditor = diff.getModifiedEditor()
             editorRef.current = modifiedEditor
             diffEditorRef.current = diff
             trackEditorModels(modifiedEditor, monaco)
+            monacoDisposables.current.push(trackFindWidgetVisibility(modifiedEditor))
+            monacoDisposables.current.push(trackFindWidgetVisibility(diff.getOriginalEditor()))
             const original = diff.getOriginalEditor().getModel()
             if (original) {
                 editorModelsRef.current.add(original)
             }
             setMonacoAndEditor([monaco, modifiedEditor])
+            remeasureFontsWhenReady(monaco)
 
             if (editorProps.onChange) {
                 const disposable = modifiedEditor.onDidChangeModelContent((event: editor.IModelContentChangedEvent) => {

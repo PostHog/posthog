@@ -1,4 +1,4 @@
-import { parseJSON } from '~/utils/json-parse'
+import { parseJSON } from '~/common/utils/json-parse'
 
 import { deserializeSessionKey, serializeSessionKey } from './session-key'
 

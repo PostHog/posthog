@@ -138,4 +138,21 @@ describe('traceMessagesLazyLoaderLogic', () => {
             expect(logic.values.getTraceMessages('t1')).toBeNull()
         })
     })
+
+    describe('field truncation', () => {
+        it('truncates message fields with character-aware substringUTF8, never byte-based substring', async () => {
+            const queried: any[] = []
+            jest.spyOn(api, 'query').mockImplementation((node: any) => {
+                queried.push(node)
+                return Promise.resolve({ results: [] } as any)
+            })
+
+            logic.actions.ensureTraceMessagesLoaded([{ id: 't1', createdAt: CREATED_AT }])
+            await settle()
+
+            const query: string = queried[0]?.query ?? ''
+            expect(query).toContain('substringUTF8(')
+            expect(query).not.toContain('substring(')
+        })
+    })
 })

@@ -7,11 +7,11 @@ from posthog.models.activity_logging.external_data_utils import (
 )
 from posthog.models.signals import model_activity_signal, mutable_receiver
 
-from products.warehouse_sources.backend.models.external_data_schema import (
+from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
+    ExternalDataSource,
     sync_frequency_interval_to_sync_frequency,
 )
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 # Lives here, not in the api/external_data_{schema,source}.py viewsets, so these can wire at
 # AppConfig.ready() without dragging those viewsets (which pull dlt via the data-import pipeline

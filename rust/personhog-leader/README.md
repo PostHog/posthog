@@ -113,15 +113,26 @@ broker can't park the runtime thread.
 The pod participates in `personhog-coordination`'s handoff protocol
 via `LeaderHandoffHandler` (see `src/coordination/mod.rs`):
 
-- `drain_partition_inflight` (Draining): waits for `InflightTracker`'s
-  per-partition counter to drop to zero, then writes `PodDrainedAck`.
-  Combined with the produce path's sync-await on Kafka delivery, this
-  gives the protocol the guarantee that "no in-flight" implies
-  "every acked write durable in Kafka."
-- `warm_partition` (Warming): see the section above.
-- `release_partition` (Complete): drops the partition's cache slot
-  via `PartitionedCache::drop_partition` once the routing table has
-  flipped to the new owner.
+- `drain_partition_inflight` (Draining): fences the partition against
+  new writes (`InflightTracker::fence` — fenced writes are refused with
+  `FAILED_PRECONDITION`), *then* waits for the per-partition counter to
+  drop to zero, then writes `PodDrainedAck`. Fencing before waiting is
+  what makes "counter reached zero" final: without the fence a write
+  admitted after the wait could advance the Kafka HWM past the point
+  warming snapshots. Combined with the produce path's sync-await on
+  Kafka delivery, this gives the protocol the guarantee that
+  "no in-flight" implies "every acked write durable in Kafka."
+  Reads are never fenced — until cutover the frozen cache state is
+  still the latest.
+- `warm_partition` (Warming): see the section above. Also lifts any
+  fence left over from a previous ownership of the same partition.
+- `release_partition` (Complete): lifts the write fence and drops the
+  partition's cache slot via `PartitionedCache::drop_partition` once
+  the routing table has flipped to the new owner.
+- `resume_partition` (handoff cancelled): a handoff deleted before
+  `Complete` while this pod still owns the partition is a
+  cancellation — lifts the write fence so the partition serves writes
+  again.
 
 #### Request Path
 

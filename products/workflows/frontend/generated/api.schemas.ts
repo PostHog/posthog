@@ -287,6 +287,9 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface HogFlowMinimalApi {
     readonly id: string
     /** @nullable */
@@ -307,6 +310,11 @@ export interface HogFlowMinimalApi {
     readonly abort_action: string | null
     readonly variables: unknown
     readonly billable_action_types: unknown
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedHogFlowMinimalListApi {
@@ -467,6 +475,9 @@ export interface HogFlowScheduleApi {
     readonly updated_at: string
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface HogFlowApi {
     readonly id: string
     /**
@@ -510,6 +521,18 @@ export interface HogFlowApi {
     readonly billable_action_types: unknown
     /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
     readonly schedules: readonly HogFlowScheduleApi[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
+    readonly draft: unknown
+    /**
+     * When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409.
+     * @nullable
+     */
+    readonly draft_updated_at: string | null
 }
 
 /**
@@ -517,6 +540,9 @@ export interface HogFlowApi {
  */
 export type PatchedHogFlowApiVariablesItem = { [key: string]: string }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface PatchedHogFlowApi {
     readonly id?: string
     /**
@@ -560,6 +586,45 @@ export interface PatchedHogFlowApi {
     readonly billable_action_types?: unknown
     /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
     readonly schedules?: readonly HogFlowScheduleApi[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
+    /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
+    readonly draft?: unknown
+    /**
+     * When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409.
+     * @nullable
+     */
+    readonly draft_updated_at?: string | null
+}
+
+export interface MessageAssetApi {
+    /** The workflow run this email was sent in. */
+    invocation_id: string
+    /** The email step (action node) within the workflow that sent this email. */
+    action_id: string
+    /** The workflow id that sent this email — used to navigate from a person's Emails tab back into the originating workflow. */
+    function_id: string
+    /** Human-readable workflow name for display. Empty when the workflow has been deleted; clients should fall back to function_id in that case. */
+    function_name: string
+    /** The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs. */
+    parent_run_id: string
+    /** Asset kind. Currently always 'email'. */
+    kind: string
+    /** The recipient's distinct_id. */
+    distinct_id: string
+    /** The recipient's person UUID, if resolved. */
+    person_id: string
+    /** The recipient email address. */
+    recipient: string
+    /** The email subject line. */
+    subject: string
+    /** Delivery status at capture time. Currently always 'sent'. */
+    status: string
+    /** When the email was sent. */
+    sent_at: string
 }
 
 /**
@@ -708,6 +773,8 @@ export interface HogFlowInvocationApi {
     mock_async_functions?: boolean
     /** Start execution from this action ID instead of the trigger. Each test run executes a single node and returns the next action id. */
     current_action_id?: string
+    /** Test the workflow's staged draft instead of its live config. Requires an open draft; can't be combined with an explicit configuration override. */
+    use_draft?: boolean
 }
 
 export interface AppMetricSeriesApi {
@@ -724,6 +791,98 @@ export type AppMetricsTotalsResponseApiTotals = { [key: string]: number }
 
 export interface AppMetricsTotalsResponseApi {
     totals: AppMetricsTotalsResponseApiTotals
+}
+
+export interface HogFlowPublishRequestApi {
+    /** False (default) previews the publish: returns how many runs are in flight without changing anything. True applies the staged draft to the live workflow. */
+    confirm?: boolean
+    /** The draft_updated_at you loaded — required when confirm=true. A mismatch returns 409, so you never publish a draft someone else has changed since you read it. */
+    draft_updated_at?: string
+}
+
+export interface HogFlowPublishResponseApi {
+    /** Whether the draft was applied to the live workflow. */
+    published: boolean
+    /**
+     * Runs currently in flight (parked on waits/delays or executing) that will follow the new config once published. Null when the count is unavailable.
+     * @nullable
+     */
+    in_flight_runs: number | null
+    /**
+     * Echo of the staged draft's timestamp — pass it back with confirm=true to publish exactly this draft.
+     * @nullable
+     */
+    draft_updated_at: string | null
+    /** The workflow after publishing (only set when published=true). */
+    workflow?: HogFlowApi | null
+}
+
+/**
+ * * `running` - running
+ * * `succeeded` - succeeded
+ * * `failed` - failed
+ */
+export type HogInvocationRerunFilterStatusEnumApi =
+    (typeof HogInvocationRerunFilterStatusEnumApi)[keyof typeof HogInvocationRerunFilterStatusEnumApi]
+
+export const HogInvocationRerunFilterStatusEnumApi = {
+    Running: 'running',
+    Succeeded: 'succeeded',
+    Failed: 'failed',
+} as const
+
+/**
+ * Filter shape for the rerun endpoint. `window_start`/`window_end` are required.
+ */
+export interface HogInvocationRerunFilterApi {
+    /** Inclusive lower bound on `scheduled_at` (UTC). */
+    window_start: string
+    /** Exclusive upper bound on `scheduled_at` (UTC). */
+    window_end: string
+    /** Restrict to invocations whose latest status is one of these. Defaults to ['failed']. */
+    status?: HogInvocationRerunFilterStatusEnumApi[]
+    /** Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout'). */
+    error_kind?: string[]
+    /**
+     * Skip invocations that have already been attempted this many times or more.
+     * @minimum 1
+     * @maximum 255
+     */
+    max_attempts?: number
+    /**
+     * Maximum number of invocations to rerun in this request. Server-side cap is 10000.
+     * @minimum 1
+     * @maximum 10000
+     */
+    max_count?: number
+    /**
+     * Optional restriction to specific invocation IDs within the window. Capped at 10000 per request. Always combined with `window_start`/`window_end` so the ClickHouse query can be partition-pruned.
+     * @maxItems 10000
+     */
+    invocation_ids?: string[]
+}
+
+/**
+ * Rerun invocations of a hog function or hog flow from their stored payloads.
+ */
+export interface HogInvocationRerunRequestApi {
+    /** Required. `window_start` / `window_end` pin the query to a small set of date partitions on the `hog_invocation_results` table. Optional `invocation_ids` restricts to specific invocations within that window. */
+    filter: HogInvocationRerunFilterApi
+}
+
+/**
+ * Response from the rerun endpoint. The endpoint only enqueues a wrapper
+ * job onto the cyclotron `rerun` queue — the actual ClickHouse paging and
+ * re-enqueue work happens asynchronously in the `cdp-rerun-worker` service.
+ * Use `rerun_job_id` to look up progress on the wrapper job later.
+ */
+export interface HogInvocationRerunResponseApi {
+    /** ID of the cyclotron wrapper job that will run the rerun. Use this to poll status. */
+    rerun_job_id: string
+    /** Always 0 — rerun runs asynchronously. Kept for response shape stability. */
+    queued_count: number
+    /** Always 0 — rerun runs asynchronously. Kept for response shape stability. */
+    skipped_count: number
 }
 
 export interface PatchedHogFlowScheduleApi {
@@ -768,6 +927,15 @@ export interface WorkflowStatsRowApi {
  */
 export type BlastRadiusRequestApiFilters = { [key: string]: unknown }
 
+/**
+ * * `email` - email
+ */
+export type DedupeKeyEnumApi = (typeof DedupeKeyEnumApi)[keyof typeof DedupeKeyEnumApi]
+
+export const DedupeKeyEnumApi = {
+    Email: 'email',
+} as const
+
 export interface BlastRadiusRequestApi {
     /** Property filters to apply */
     filters: BlastRadiusRequestApiFilters
@@ -776,6 +944,10 @@ export interface BlastRadiusRequestApi {
      * @nullable
      */
     group_type_index?: number | null
+    /** When 'email', count unique email addresses instead of persons, matching how batch email sends deduplicate recipients.
+     *
+     * * `email` - email */
+    dedupe_key?: DedupeKeyEnumApi | null
 }
 
 export interface BlastRadiusApi {
@@ -785,6 +957,10 @@ export interface BlastRadiusApi {
     total: number
     /** Maximum allowed audience size for batch triggers for this team. */
     limit: number
+    /** The dedupe key that was actually applied to 'affected'. 'email' means it counts unique email addresses; null means it counts persons.
+     *
+     * * `email` - email */
+    dedupe_key: DedupeKeyEnumApi | null
 }
 
 export type HogFlowTemplatesListParams = {
@@ -858,6 +1034,66 @@ export const HogFlowsListStatus = {
     Archived: 'archived',
     Draft: 'draft',
 } as const
+
+export type HogFlowsAssetsRetrieveParams = {
+    /**
+     * Only return assets sent by this email step (action node id) — used to drill in from a step's metric.
+     * @minLength 1
+     */
+    action_id?: string
+    /**
+     * Start of the time range, matched on sent time. Relative ('-30d', '-24h') or ISO 8601. Defaults to -30d (the retention window) — bounds the ClickHouse partition scan.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the time range, matched on sent time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+    /**
+     * Only return assets sent to this distinct_id.
+     * @minLength 1
+     */
+    distinct_id?: string
+    /**
+     * Only return the asset for this specific workflow run — used to deep-link from a single log entry to the email it sent. Returns 0 rows when the send had no captured asset (text-only, kill-switch off, or standalone email).
+     * @minLength 1
+     */
+    invocation_id?: string
+    /**
+     * Maximum number of assets to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of assets to skip, for pagination.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Only return assets for this batch run (HogFlowBatchJob id). Pass an empty string to return only event-triggered (non-batch) assets; omit to return all.
+     */
+    parent_run_id?: string
+    /**
+     * Case-insensitive substring match on recipient email or subject.
+     * @minLength 1
+     */
+    search?: string
+}
+
+export type HogFlowsAssetContentRetrieveParams = {
+    /**
+     * The email step (action node) that sent the email. Defaults to empty for standalone email sends.
+     */
+    action_id?: string
+    /**
+     * The workflow run the email was sent in.
+     * @minLength 1
+     */
+    invocation_id: string
+}
 
 export type HogFlowsInvocationResultsRetrieveParams = {
     /**

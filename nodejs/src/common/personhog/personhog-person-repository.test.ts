@@ -2,15 +2,15 @@ import { create } from '@bufbuild/protobuf'
 import { Code, ConnectError, createRouterTransport } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
+import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
+import { PersonSchema } from '~/common/generated/personhog/personhog/types/v1/person_pb'
 import { InternalPersonWithDistinctId, PersonRepository } from '~/common/persons/repositories/person-repository'
-import { PersonHogService } from '~/generated/personhog/personhog/service/v1/service_pb'
-import { PersonSchema } from '~/generated/personhog/personhog/types/v1/person_pb'
 import { InternalPerson, TeamId } from '~/types'
 
 import { PersonHogClient } from './client'
 import { PersonHogPersonRepository } from './personhog-person-repository'
 
-jest.mock('../../utils/logger')
+jest.mock('~/common/utils/logger')
 
 const textEncoder = new TextEncoder()
 

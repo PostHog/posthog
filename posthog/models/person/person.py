@@ -1,16 +1,15 @@
 from datetime import UTC, datetime
-from typing import Any, NamedTuple, Optional, cast
+from typing import Any, NamedTuple, Optional
 from uuid import UUID
 
 from django.conf import settings
 from django.core.exceptions import EmptyResultSet
-from django.db import connections, models, router, transaction
+from django.db import connections, models
 from django.db.models import F, Q
 
 import structlog
 
 from posthog.models.utils import UUIDT
-from posthog.person_db_router import PERSONS_DB_FOR_READ
 
 from ..team import Team
 
@@ -30,10 +29,6 @@ class SplitOutcome(NamedTuple):
     new_person_version: int
     pdi_version: int
     new_person_created_at: datetime
-
-
-# Use centralized database routing constant
-READ_DB_FOR_PERSONS = PERSONS_DB_FOR_READ
 
 
 class PersonQuerySet(models.QuerySet):
@@ -133,15 +128,6 @@ class PersonManager(models.Manager):
     #     """Return PersonQuerySet with team_id enforcement."""
     #     return PersonQuerySet(self.model, using=self._db)
 
-    def create(self, *args: Any, **kwargs: Any):
-        with transaction.atomic(using=self.db):
-            if not kwargs.get("distinct_ids"):
-                return super().create(*args, **kwargs)
-            distinct_ids = kwargs.pop("distinct_ids")
-            person = cast("Person", super().create(*args, **kwargs))
-            person._add_distinct_ids(distinct_ids)
-            return person
-
     def bulk_create(
         self,
         objs,
@@ -227,68 +213,11 @@ class Person(models.Model):
             return [id.distinct_id for id in self.distinct_ids_cache]
         if hasattr(self, "_distinct_ids") and self._distinct_ids is not None:
             return self._distinct_ids
-        return [
-            id[0]
-            for id in PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
-            .filter(person=self, team_id=self.team_id)
-            .order_by("id")
-            .values_list("distinct_id")
-        ]
+        raise ValueError("Person.distinct_ids requires _distinct_ids to be populated via personhog")
 
     @property
     def email(self) -> Optional[str]:
         return self.properties.get("email")
-
-    def delete(self, using=None, keep_parents=False):
-        """
-        Override delete to ensure team_id is in WHERE clause for partitioned tables.
-
-        For partitioned tables (posthog_person_new), the default delete generates:
-        DELETE FROM posthog_person WHERE id = X, which scans all 64 partitions.
-
-        This implementation ensures single-partition access:
-        DELETE FROM posthog_person WHERE team_id = Y AND id = X
-        """
-        if self.pk is None:
-            raise ValueError(
-                f"{self._meta.object_name} object can't be deleted because its {self._meta.pk.attname} attribute is set "
-                "to None."
-            )
-
-        # Save pk and team_id before they get cleared by collector
-        person_pk = self.pk
-        person_team_id = self.team_id
-
-        using = using or router.db_for_write(self.__class__, instance=self)
-
-        with transaction.atomic(using=using):
-            # Delete PersonDistinctId records with explicit team_id for partition pruning.
-            # Django's Collector.delete() generates: DELETE FROM posthog_persondistinctid WHERE person_id IN (...)
-            # which misses team_id and would scan all partitions on a partitioned table.
-            PersonDistinctId.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-                team_id=person_team_id, person_id=person_pk
-            ).delete()  # nosemgrep: no-direct-persons-db-orm
-
-            # Now delete the Person itself with explicit team_id for partition pruning
-            db_connection = connections[using]
-            with db_connection.cursor() as cursor:
-                cursor.execute(
-                    f"DELETE FROM {self._meta.db_table} WHERE team_id = %s AND id = %s", [person_team_id, person_pk]
-                )
-
-        # Return the same format as Django's delete: (num_deleted, {model: count})
-        return (1, {self._meta.label: 1})
-
-    # :DEPRECATED: This should happen through the plugin server
-    def add_distinct_id(self, distinct_id: str) -> None:
-        PersonDistinctId.objects.create(  # nosemgrep: no-direct-persons-db-orm
-            person=self, distinct_id=distinct_id, team_id=self.team_id
-        )  # nosemgrep: no-direct-persons-db-orm
-
-    # :DEPRECATED: This should happen through the plugin server
-    def _add_distinct_ids(self, distinct_ids: list[str]) -> None:
-        for distinct_id in distinct_ids:
-            self.add_distinct_id(distinct_id)
 
     def split_person(
         self,
@@ -653,19 +582,6 @@ def get_distinct_ids_for_subquery(person: Person | None, team: Team) -> list[str
                 return ids
             return list(set(ids[:first_ids_limit] + ids[-last_ids_limit:]))
 
-        first_ids = (
-            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
-            .filter(person=person, team=team)
-            .order_by("id")
-            .values_list("distinct_id", flat=True)[:first_ids_limit]
-        )
-        last_ids = (
-            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
-            .filter(person=person, team=team)
-            .order_by("-id")
-            .values_list("distinct_id", flat=True)[:last_ids_limit]
-        )
-        distinct_ids = cast(Any, first_ids).union(last_ids)
-    else:
-        distinct_ids = []
-    return list(map(str, distinct_ids))
+        raise ValueError("get_distinct_ids_for_subquery requires _distinct_ids to be populated via personhog")
+
+    return []

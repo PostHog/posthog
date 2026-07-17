@@ -16,8 +16,14 @@ from posthog.hogql.errors import ResolutionError
 
 ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
-    "fingerprint": StringDatabaseField(name="fingerprint", nullable=False),
-    "issue_id": StringDatabaseField(name="issue_id", nullable=False),
+    "fingerprint": StringDatabaseField(
+        name="fingerprint",
+        nullable=False,
+        description="Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
+    ),
+    "issue_id": StringDatabaseField(
+        name="issue_id", nullable=False, description="Identifier of the error tracking issue this fingerprint maps to."
+    ),
 }
 
 
@@ -62,10 +68,20 @@ def select_from_error_tracking_issue_fingerprint_overrides_table(requested_field
 
 
 class RawErrorTrackingIssueFingerprintOverridesTable(Table):
+    description: str = (
+        "Raw versioned mapping of exception fingerprints to issues, used to override default fingerprint grouping; "
+        "query the deduplicated `error_tracking_issue_fingerprint_overrides` table instead."
+    )
     fields: dict[str, FieldOrTable] = {
         **ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_FIELDS,
-        "is_deleted": BooleanDatabaseField(name="is_deleted", nullable=False),
-        "version": IntegerDatabaseField(name="version", nullable=False),
+        "is_deleted": BooleanDatabaseField(
+            name="is_deleted", nullable=False, description="Whether this version marks the override as deleted."
+        ),
+        "version": IntegerDatabaseField(
+            name="version",
+            nullable=False,
+            description="Monotonic version; the latest version wins after deduplication.",
+        ),
     }
 
     def to_printed_clickhouse(self, context):
@@ -76,6 +92,10 @@ class RawErrorTrackingIssueFingerprintOverridesTable(Table):
 
 
 class ErrorTrackingIssueFingerprintOverridesTable(LazyTable):
+    description: str = (
+        "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, "
+        "overriding default grouping. One row per fingerprint."
+    )
     fields: dict[str, FieldOrTable] = ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_FIELDS
 
     def lazy_select(

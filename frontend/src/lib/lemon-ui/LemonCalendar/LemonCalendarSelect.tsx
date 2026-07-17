@@ -56,8 +56,7 @@ function cloneTimeToDate(targetDate: dayjs.Dayjs, timeSource: dayjs.Dayjs): dayj
 function getDateDisabledReason(
     selectionPeriod: 'past' | 'upcoming',
     date: dayjs.Dayjs,
-    today: dayjs.Dayjs,
-    selectionPeriodLimit?: dayjs.Dayjs | null
+    today: dayjs.Dayjs
 ): string | undefined {
     if (!selectionPeriod) {
         return undefined
@@ -68,18 +67,8 @@ function getDateDisabledReason(
         return 'Cannot select dates in the past'
     }
 
-    // select future dates after a limit
-    if (selectionPeriod === 'upcoming' && selectionPeriodLimit && date.isAfter(selectionPeriodLimit, 'day')) {
-        return 'Cannot select dates after the limit'
-    }
-
     if (selectionPeriod === 'past' && date.isAfter(today)) {
         return 'Cannot select dates in the future'
-    }
-
-    // select past dates before a limit
-    if (selectionPeriod === 'past' && selectionPeriodLimit && date.isBefore(selectionPeriodLimit, 'day')) {
-        return 'Cannot select dates before the limit'
     }
 
     return undefined
@@ -92,7 +81,6 @@ export interface LemonCalendarSelectProps {
     onClose?: () => void
     granularity?: LemonCalendarProps['granularity']
     selectionPeriod?: 'past' | 'upcoming'
-    selectionPeriodLimit?: dayjs.Dayjs | null
     /** Timezone used to determine which past/future dates are selectable (defaults to browser local). */
     selectionPeriodTimezone?: string
     showTimeToggle?: boolean
@@ -108,7 +96,6 @@ export function LemonCalendarSelect({
     onClose,
     granularity = 'day',
     selectionPeriod,
-    selectionPeriodLimit,
     selectionPeriodTimezone,
     showTimeToggle,
     onToggleTime,
@@ -176,7 +163,7 @@ export function LemonCalendarSelect({
                     let disabledReason: string | undefined
 
                     if (selectionPeriod) {
-                        disabledReason = getDateDisabledReason(selectionPeriod, date, today, selectionPeriodLimit)
+                        disabledReason = getDateDisabledReason(selectionPeriod, date, today)
 
                         if (selectValue && date.isSame(today, 'date')) {
                             const selectedTimeOnDate = cloneTimeToDate(date, selectValue)

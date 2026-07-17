@@ -1,13 +1,13 @@
 import { DateTime } from 'luxon'
 
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
+import { captureTeamEvent } from '~/common/utils/posthog'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, ProjectId, TeamId } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { PostgresUse } from '~/utils/db/postgres'
-import { captureTeamEvent } from '~/utils/posthog'
 
-jest.mock('~/utils/posthog', () => ({
+jest.mock('~/common/utils/posthog', () => ({
     captureTeamEvent: jest.fn(),
 }))
 
@@ -131,6 +131,23 @@ describe('GroupTypeManager()', () => {
             ])
 
             expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({ group_name: 0, foo: 1 })
+        })
+    })
+
+    describe('lookupGroupTypeIndex()', () => {
+        it.each([
+            ['an existing group type', 'g0', 0],
+            ['an unknown group type', 'brand-new', null],
+            // Inherited object properties must not resolve to junk values that
+            // poison downstream SQL parameters (and crash prefetch workers).
+            ['__proto__', '__proto__', null],
+            ['constructor', 'constructor', null],
+        ])('resolves %s without creating a mapping', async (_name, groupType, expected) => {
+            await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'g0', 0, TEST_TIMESTAMP)
+            jest.mocked(hub.groupRepository.insertGroupType).mockClear()
+
+            expect(await groupTypeManager.lookupGroupTypeIndex(2 as ProjectId, groupType)).toEqual(expected)
+            expect(hub.groupRepository.insertGroupType).not.toHaveBeenCalled()
         })
     })
 

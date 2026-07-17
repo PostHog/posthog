@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { type MouseEvent, useState } from 'react'
 
-import { IconArchive, IconPullRequest, IconUndo } from '@posthog/icons'
-import { LemonButton, lemonToast } from '@posthog/lemon-ui'
+import { IconArchive, IconPullRequest, IconReceipt, IconUndo } from '@posthog/icons'
+import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
@@ -15,6 +15,23 @@ import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../../types'
 import { useReportArchive } from '../cards/useReportArchive'
+import { useReportRefund } from '../cards/useReportRefund'
+
+/**
+ * One detail-pane action, rendered either inline as a `LemonButton` (wide layouts) or as a
+ * `LemonMenu` item (the "…" overflow on narrow layouts). Keeping actions as data lets both
+ * surfaces share a single source of truth instead of duplicating the button JSX.
+ */
+export interface ReportDetailAction {
+    key: string
+    label: string
+    icon: JSX.Element
+    onClick: (event: MouseEvent) => void
+    loading?: boolean
+    tooltip?: string
+    /** Renders the action disabled with this explanation (e.g. a PR past its refund window). */
+    disabledReason?: string
+}
 
 /**
  * Should the Create PR action be offered? Mirrors desktop `canCreateImplementationPr` /
@@ -37,15 +54,17 @@ function canCreateImplementationPr(report: SignalReport): boolean {
 }
 
 /**
- * Detail-pane actions: Archive (suppress the report out of the inbox, then return to the list)
- * and Create PR (opens an implementation task and navigates to it). Task creation/navigation is
- * owned by `inboxTaskKickoffLogic`; archiving reuses the shared `useReportArchive` dialog flow.
+ * Detail-pane actions as data: Archive/Restore and Create PR. Discuss is rendered separately as a
+ * standalone dropdown button (`DiscussReportButton`) since it opens a question popover rather than
+ * firing on click. Task creation is owned by `inboxTaskKickoffLogic`; archiving reuses the shared
+ * `useReportArchive` dialog flow. Callers render these inline or inside a menu.
  */
-export function ReportDetailActions({ report }: { report: SignalReport }): JSX.Element {
+export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
     const { isCreatingPr } = useValues(inboxTaskKickoffLogic)
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
     const { reportArchived } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
+    const { loadSelectedReport } = useActions(inboxSceneLogic)
     const [isRestoring, setIsRestoring] = useState(false)
 
     const showCreatePr = canCreateImplementationPr(report)
@@ -65,6 +84,33 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
             router.actions.push(urls.inbox(activeTab))
         },
     })
+
+    const { canRefund, refundDisabledReason, isRefunding, onRefundClick } = useReportRefund({
+        report,
+        surface: 'detail_pane',
+        // Refunding archives the report server-side, so reconcile the lists the same way and
+        // return to the list — except for resolved reports, which stay where they are.
+        onRefunded: () => {
+            reportArchived()
+            if (report.status !== SignalReportStatus.RESOLVED) {
+                router.actions.push(urls.inbox(activeTab))
+            } else {
+                // Resolved reports stay on this page, so refetch: the fresh copy carries `refund`,
+                // which surfaces the Refunded badge and drops Refund from the actions.
+                loadSelectedReport({ id: report.id })
+            }
+        },
+    })
+
+    const refund: ReportDetailAction = {
+        key: 'refund',
+        label: 'Refund',
+        icon: <IconReceipt />,
+        loading: isRefunding,
+        tooltip: "Refund this PR – you won't pay for it and it won't count toward your included PRs",
+        disabledReason: refundDisabledReason ?? undefined,
+        onClick: onRefundClick,
+    }
 
     const onRestoreClick = async (): Promise<void> => {
         // Prefer the mounted Archived list logic so it optimistically drops the row and fixes its
@@ -93,55 +139,59 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
         }
     }
 
-    // A resolved report is terminal – its PR already merged, so no detail actions apply.
+    // A resolved report is terminal – its PR already merged, so only Discuss (rendered separately)
+    // and Refund apply. The PR can still be refunded (auto-approved by design; the weekly review
+    // watches refunded-then-merged).
     if (isResolved) {
-        return <></>
+        return canRefund ? [refund] : []
     }
 
-    // An already-archived report offers Restore instead of Archive (and no Create PR).
+    // An already-archived report offers Restore instead of Archive (and no Create PR). A refunded
+    // report can't be restored (its PR can never be billed again), so Restore is hidden for it; an
+    // archived-but-still-charged report can still be refunded.
     if (isArchived) {
-        return (
-            <LemonButton
-                type="secondary"
-                size="small"
-                icon={<IconUndo />}
-                loading={isRestoring}
-                tooltip="Restore this report to your inbox"
-                onClick={() => void onRestoreClick()}
-            >
-                Restore
-            </LemonButton>
-        )
+        return [
+            ...(canRefund ? [refund] : []),
+            ...(report.refund
+                ? []
+                : [
+                      {
+                          key: 'restore',
+                          label: 'Restore',
+                          icon: <IconUndo />,
+                          loading: isRestoring,
+                          tooltip: 'Restore this report to your inbox',
+                          onClick: () => void onRestoreClick(),
+                      },
+                  ]),
+        ]
     }
 
-    return (
-        <>
-            <LemonButton
-                type="secondary"
-                size="small"
-                icon={<IconArchive />}
-                loading={isArchiving}
-                tooltip="Archive this report out of your inbox"
-                onClick={onArchiveClick}
-            >
-                Archive
-            </LemonButton>
+    const actions: ReportDetailAction[] = [
+        {
+            key: 'archive',
+            label: 'Archive',
+            icon: <IconArchive />,
+            loading: isArchiving,
+            tooltip: 'Archive this report out of your inbox',
+            onClick: onArchiveClick,
+        },
+        ...(canRefund ? [refund] : []),
+    ]
 
-            {showCreatePr && (
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    icon={<IconPullRequest />}
-                    loading={isCreatingPr}
-                    tooltip="Have Self-driving open a pull request for this report"
-                    onClick={() => {
-                        captureInboxReportAction({ report, actionType: 'create_pr', surface: 'detail_pane' })
-                        createPrFromReport(report)
-                    }}
-                >
-                    Create PR
-                </LemonButton>
-            )}
-        </>
-    )
+    if (showCreatePr) {
+        actions.push({
+            key: 'create-pr',
+            label: 'Create PR',
+            icon: <IconPullRequest />,
+            loading: isCreatingPr,
+            tooltip: 'Have Self-driving open a pull request for this report',
+            onClick: () => {
+                captureInboxReportAction({ report, actionType: 'create_pr', surface: 'detail_pane' })
+                createPrFromReport(report)
+            },
+        })
+    }
+
+    return actions
 }

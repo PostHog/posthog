@@ -18,7 +18,15 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Team
-from posthog.temporal.data_imports.external_data_job import (
+
+from products.warehouse_sources.backend.facade.models import (
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+    get_all_schemas_for_source_id,
+    get_latest_run_if_exists,
+)
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
     Any_Source_Errors,
     ExternalDataJobWorkflow,
     ExternalDataWorkflowInputs,
@@ -26,32 +34,33 @@ from posthog.temporal.data_imports.external_data_job import (
     create_source_templates,
     update_external_data_job_model,
 )
-from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
-from posthog.temporal.data_imports.settings import import_data_activity_sync
-from posthog.temporal.data_imports.sources.stripe.constants import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
+from products.warehouse_sources.backend.temporal.data_imports.settings import import_data_activity_sync
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
 )
-from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
-from posthog.temporal.data_imports.workflow_activities.calculate_table_size import calculate_table_size_activity
-from posthog.temporal.data_imports.workflow_activities.check_billing_limits import check_billing_limits_activity
-from posthog.temporal.data_imports.workflow_activities.create_job_model import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
+    ENDPOINTS as STRIPE_ENDPOINTS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.calculate_table_size import (
+    calculate_table_size_activity,
+)
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.check_billing_limits import (
+    check_billing_limits_activity,
+)
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
     create_external_data_job_model_activity,
 )
-from posthog.temporal.data_imports.workflow_activities.import_data_sync import ImportDataActivityInputs
-from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
+    ImportDataActivityInputs,
+)
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.sync_new_schemas import (
     SyncNewSchemasActivityInputs,
     sync_new_schemas_activity,
 )
-
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
-from products.warehouse_sources.backend.models.external_data_schema import (
-    ExternalDataSchema,
-    get_all_schemas_for_source_id,
-)
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 BUCKET_NAME = "test-pipeline"
 SESSION = boto3.Session()
@@ -282,7 +291,7 @@ def test_create_external_job_activity_enrichment_enabled_gates_on_flag_and_conse
         team_id=team.id, source_id=new_source.pk, schema_id=schema.id, billable=True
     )
     with mock.patch(
-        "posthog.temporal.data_imports.workflow_activities.enrich_table_semantics.enrichment_enabled",
+        "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.enrich_table_semantics.enrichment_enabled",
         return_value=flag_enabled,
     ):
         result = activity_environment.run(create_external_data_job_model_activity, inputs)
@@ -346,7 +355,7 @@ def test_sync_new_schemas_activity_self_destructs_when_source_unavailable(
     inputs = SyncNewSchemasActivityInputs(source_id=source_id, team_id=team.id)
 
     with mock.patch(
-        "posthog.temporal.data_imports.workflow_activities.sync_new_schemas.delete_discover_schemas_schedule"
+        "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.sync_new_schemas.delete_discover_schemas_schedule"
     ) as mock_delete_schedule:
         with pytest.raises(Exception, match="Source no longer exists"):
             activity_environment.run(sync_new_schemas_activity, inputs)
@@ -400,6 +409,64 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
 
     assert new_job.status == ExternalDataJob.Status.COMPLETED
     assert schema.status == ExternalDataJob.Status.COMPLETED
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_update_external_job_activity_resolves_job_by_workflow_run_id_when_job_id_missing(
+    activity_environment, team, **kwargs
+):
+    # A schema can carry several stranded RUNNING rows, so finalizing a zero-batch run (job_id=None)
+    # must resolve this run's job by workflow_run_id, not the newest RUNNING job for the schema.
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Slack",
+    )
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name="C09M2GF0M8R",
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+    )
+
+    # This run's job, created first so it is NOT the newest RUNNING row for the schema.
+    this_run_job = await _create_external_data_job(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        workflow_id=activity_environment.info.workflow_id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
+        external_data_schema_id=schema.id,
+    )
+    # A newer, unrelated RUNNING job for the same schema — what the positional heuristic would pick.
+    other_run_job = await _create_external_data_job(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        workflow_id=str(uuid.uuid4()),
+        workflow_run_id=str(uuid.uuid4()),
+        external_data_schema_id=schema.id,
+    )
+
+    inputs = UpdateExternalDataJobStatusInputs(
+        job_id=None,
+        status=ExternalDataJob.Status.COMPLETED,
+        latest_error=None,
+        internal_error=None,
+        schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
+        team_id=team.id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
+    )
+
+    await activity_environment.run(update_external_data_job_model, inputs)
+    await sync_to_async(this_run_job.refresh_from_db)()
+    await sync_to_async(other_run_job.refresh_from_db)()
+
+    assert this_run_job.status == ExternalDataJob.Status.COMPLETED
+    assert other_run_job.status == ExternalDataJob.Status.RUNNING
 
 
 @pytest.mark.django_db(transaction=True)
@@ -486,7 +553,7 @@ async def test_update_external_job_activity_with_non_retryable_error(activity_en
     )
     with mock.patch(
         # patched at its defining module: update_should_sync imports it function-locally now
-        "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
+        "products.data_warehouse.backend.logic.data_load.service.external_data_workflow_exists",
         return_value=False,
     ):
         await activity_environment.run(update_external_data_job_model, inputs)
@@ -539,7 +606,7 @@ async def test_update_external_job_activity_with_not_source_sepecific_non_retrya
     )
     with mock.patch(
         # patched at its defining module: update_should_sync imports it function-locally now
-        "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
+        "products.data_warehouse.backend.logic.data_load.service.external_data_workflow_exists",
         return_value=False,
     ):
         await activity_environment.run(update_external_data_job_model, inputs)
@@ -610,7 +677,7 @@ async def test_update_external_job_activity_with_tls_handshake_failure_is_non_re
         team_id=team.id,
     )
     with mock.patch(
-        "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
+        "products.data_warehouse.backend.logic.data_load.service.external_data_workflow_exists",
         return_value=False,
     ):
         await activity_environment.run(update_external_data_job_model, inputs)
@@ -635,7 +702,9 @@ def test_invalid_ssh_tunnel_auth_is_non_retryable_for_any_source(error_msg):
 
 @pytest.fixture
 def mock_stripe_client():
-    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient") as MockStripeClient:
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient"
+    ) as MockStripeClient:
         mock_balance_transaction_list = mock.MagicMock()
         mock_charges_list = mock.MagicMock()
         mock_customers_list = mock.MagicMock()

@@ -1,12 +1,12 @@
 import { Message } from 'node-rdkafka'
 
+import { sanitizeEvent } from '~/common/utils/event'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+import { UUID } from '~/common/utils/utils'
 import { dlq, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { IncomingEvent, PipelineEvent } from '~/types'
-import { sanitizeEvent } from '~/utils/event'
-import { parseJSON } from '~/utils/json-parse'
-import { logger } from '~/utils/logger'
-import { UUID } from '~/utils/utils'
 
 export function createParseKafkaMessageStep<T extends { message: Message }>(): ProcessingStep<
     T,

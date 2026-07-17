@@ -19,7 +19,24 @@ const rateLimitForm = (overrides: Partial<LogsSamplingFormType> = {}): LogsSampl
     ...overrides,
 })
 
-describe('logsSamplingFormLogic rate-limit serialization', () => {
+describe('logsSamplingFormLogic serialization', () => {
+    it('serializes a path_drop rule into filter_group-only config', () => {
+        const innerGroup = {
+            type: FilterLogicalOperator.And,
+            values: [{ key: 'service.name', operator: 'exact', value: 'api', type: 'log_resource_attribute' }],
+        } as LogsSamplingFormType['filter_group']
+
+        const config = buildSamplingConfigPayload(
+            rateLimitForm({ rule_type: RuleTypeEnumApi.PathDrop, filter_group: innerGroup })
+        )
+
+        // The whole config is the wrapped filter group — the worker evaluates
+        // config.filter_group directly, and nothing else belongs in the payload.
+        expect(config).toEqual({
+            filter_group: { type: FilterLogicalOperator.And, values: [innerGroup] },
+        })
+    })
+
     it.each([
         ['1', 'MB/s', 1000],
         ['50', 'KB/s', 50],

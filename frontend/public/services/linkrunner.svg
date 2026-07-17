@@ -1,0 +1,9 @@
+<svg width="256" height="256" viewBox="0 0 360 360" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Linkrunner logo mark">
+  <rect width="360" height="360" rx="80" fill="#4D4BF7"/>
+  <rect x="50" y="50" width="125" height="120" fill="#FFFFFF"/>
+  <rect x="50" y="180" width="125" height="80" fill="#FFFFFF"/>
+  <rect x="50" y="270" width="125" height="40" fill="#FFFFFF"/>
+  <rect x="185" y="50" width="125" height="40" fill="#FFFFFF" opacity="0.4"/>
+  <rect x="185" y="100" width="125" height="80" fill="#FFFFFF" opacity="0.4"/>
+  <rect x="185" y="190" width="125" height="120" fill="#FFFFFF"/>
+</svg>

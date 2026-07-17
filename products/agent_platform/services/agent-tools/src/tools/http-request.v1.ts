@@ -26,7 +26,7 @@
  * API."
  */
 
-import { defineNativeTool, isPreviewSideEffect, secretHostMatches, type ToolContext, Type } from '@posthog/agent-shared'
+import { defineNativeTool, secretHostMatches, type ToolContext, Type } from '@posthog/agent-shared'
 
 import { parseFetchableUrl } from './http-url'
 
@@ -217,6 +217,9 @@ async function readCappedBody(
 
 export const httpRequestV1 = defineNativeTool({
     id: '@posthog/http-request',
+    // Proxy-bound (smokescreen blocks internal SSRF) and author-opt-in — gating
+    // every outbound call would make integration automation unusable, so allow.
+    approval: 'allow',
     description: [
         'Make an arbitrary HTTP request (GET/POST/PUT/PATCH/DELETE) against a URL.',
         'Use this for any service where the platform does not ship a typed tool —',
@@ -290,18 +293,6 @@ export const httpRequestV1 = defineNativeTool({
         // IP filtering).
         const { url, host } = substituteUrlAndExtractHost(args.url, ctx)
         const method = args.method ?? 'GET'
-        // Preview-mode noop for mutating methods: a draft revision shouldn't
-        // be able to POST/PUT/PATCH/DELETE against external systems while the
-        // author iterates. GET is read-only and passes through so the author
-        // can still verify their read-path logic. (The schema only enumerates
-        // GET/POST/PUT/PATCH/DELETE — HEAD/OPTIONS never reach here, so a
-        // simple `!= 'GET'` correctly covers every mutating verb.) The
-        // synthetic 204 lets the model's next turn see a successful call and
-        // keep reasoning naturally, matching the slack write tools' shape.
-        const isMutating = method !== 'GET'
-        if (isMutating && isPreviewSideEffect(ctx, '@posthog/http-request', args)) {
-            return { status: 204, body: '', content_type: '', headers: {}, url, truncated: false }
-        }
         const headersIn = substituteHeaders(args.headers, host, ctx)
         const { body, headers: finalHeaders } = serializeBody(args.body, headersIn, host, ctx)
         const maxBytes = args.max_response_bytes ?? DEFAULT_MAX_RESPONSE_BYTES

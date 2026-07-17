@@ -11,7 +11,7 @@ export const phShotgunProcessEventApp: LegacyTransformationPlugin = {
         id: 'plugin-ph-shotgun-processevent-app',
         name: 'Shotgun Process Event App',
         description: 'Process Shotgun events',
-        icon_url: '/static/hedgehog/builder-hog-01.png',
+        icon_url: 'https://res.cloudinary.com/dmukukwp6/image/upload/q_auto,f_auto/builder_hog_01_955c082cad.png',
         category: ['Transformation'],
         code_language: 'javascript',
         code: `return event`,

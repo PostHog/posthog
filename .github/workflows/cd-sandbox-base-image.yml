@@ -4,7 +4,13 @@ on:
     push:
         branches:
             - master
+    # paths mirror the changes job's dorny filter, which still gates push events.
     pull_request:
+        paths:
+            - '.github/workflows/cd-sandbox-base-image.yml'
+            - 'products/tasks/backend/sandbox/images/**'
+            - 'products/*/skills/**'
+            - 'products/posthog_ai/scripts/**'
     workflow_dispatch:
 
 jobs:
@@ -27,10 +33,11 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  # Keep in sync with the trigger-level pull_request paths above.
                   filters: |
                       sandbox_image:
                         - '.github/workflows/cd-sandbox-base-image.yml'
@@ -69,7 +76,7 @@ jobs:
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14'
+                  version: '0.11.28'
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
@@ -197,6 +204,16 @@ jobs:
                   password: ${{ secrets.GITHUB_TOKEN }}
                   logout: false
 
+            - name: Resolve published agent version
+              id: agent-version
+              run: |
+                  version=$(curl -fsSL --retry 3 https://registry.npmjs.org/@posthog%2fagent/latest | jq -r '.version')
+                  if [[ -z "$version" || "$version" == "null" ]]; then
+                    echo "Could not resolve the latest @posthog/agent version" >&2
+                    exit 1
+                  fi
+                  echo "version=$version" >> "$GITHUB_OUTPUT"
+
             - name: Build and push container image (base)
               id: build
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
@@ -207,7 +224,9 @@ jobs:
                   push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
                   tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-base:master,ghcr.io/posthog/posthog-sandbox-base:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-base:{0}', github.sha) }}
                   platforms: linux/arm64,linux/amd64
-                  build-args: COMMIT_HASH=${{ github.sha }}
+                  build-args: |
+                      AGENT_VERSION=${{ steps.agent-version.outputs.version }}
+                      COMMIT_HASH=${{ github.sha }}
 
             - name: Build and push container image (notebook)
               id: build-notebook
@@ -249,6 +268,10 @@ jobs:
 
     # Single required status check for branch protection. Add future sandbox
     # image jobs to `needs` here rather than reconfiguring GitHub.
+    # NOT registered as required yet: the trigger-level pull_request paths
+    # filter means this check never reports on PRs that don't touch sandbox
+    # paths, and a required check that never reports blocks merging forever.
+    # Before registering it in the ruleset, remove that paths filter.
     sandbox_base_image_check:
         needs: [changes, build_skills, sandbox_base_build]
         name: Sandbox Base Image Pass

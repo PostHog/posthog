@@ -30,7 +30,7 @@ async function seedApp(
         parent_revision_id: null,
         created_by_id: null,
         bundle_uri: 's3://x/',
-        spec: AgentSpecSchema.parse({ model: 'x' }),
+        spec: AgentSpecSchema.parse({ model: 'test/x' }),
     })
     await store.setRevisionState(rev.id, 'live')
     await store.setLiveRevision(app.id, rev.id)
@@ -103,7 +103,7 @@ describe('RevisionResolver', () => {
                 parent_revision_id: null,
                 created_by_id: null,
                 bundle_uri: 's3://x/',
-                spec: AgentSpecSchema.parse({ model: 'x' }),
+                spec: AgentSpecSchema.parse({ model: 'test/x' }),
             })
             await rebrandRevisionId(store, rev.id, '019e6f25-0185-7814-b4d8-882a429da835')
             const resolver = new RevisionResolver({ revisions: store, mode: 'path', pathPrefix: '/agents' })
@@ -119,14 +119,14 @@ describe('RevisionResolver', () => {
                 parent_revision_id: null,
                 created_by_id: null,
                 bundle_uri: 's3://x/',
-                spec: AgentSpecSchema.parse({ model: 'x' }),
+                spec: AgentSpecSchema.parse({ model: 'test/x' }),
             })
             const revB = await store.createRevision({
                 application_id: app.id,
                 parent_revision_id: null,
                 created_by_id: null,
                 bundle_uri: 's3://x/',
-                spec: AgentSpecSchema.parse({ model: 'x' }),
+                spec: AgentSpecSchema.parse({ model: 'test/x' }),
             })
             await rebrandRevisionId(store, revA.id, '019e6f25-0185-7814-b4d8-aaaaaaaaaaaa')
             await rebrandRevisionId(store, revB.id, '019e6f25-0185-7814-b4d8-bbbbbbbbbbbb')
@@ -150,7 +150,7 @@ describe('RevisionResolver', () => {
                 parent_revision_id: null,
                 created_by_id: null,
                 bundle_uri: 's3://x/',
-                spec: AgentSpecSchema.parse({ model: 'x' }),
+                spec: AgentSpecSchema.parse({ model: 'test/x' }),
             })
             await store.setRevisionState(rev.id, 'live')
             await store.setLiveRevision(app.id, rev.id)
@@ -172,7 +172,7 @@ describe('RevisionResolver', () => {
                 parent_revision_id: null,
                 created_by_id: null,
                 bundle_uri: 's3://x/',
-                spec: AgentSpecSchema.parse({ model: 'x' }),
+                spec: AgentSpecSchema.parse({ model: 'test/x' }),
             })
             await rebrandRevisionId(store, rev.id, '019e6f25-0000-0000-0000-000000000000')
             await store.setRevisionState('019e6f25-0000-0000-0000-000000000000', 'archived')
@@ -201,7 +201,7 @@ describe('RevisionResolver', () => {
                 parent_revision_id: null,
                 created_by_id: null,
                 bundle_uri: 's3://x/',
-                spec: AgentSpecSchema.parse({ model: 'x' }),
+                spec: AgentSpecSchema.parse({ model: 'test/x' }),
             })
             await store.setRevisionState(live.id, 'live')
             await store.setLiveRevision(app.id, live.id)
@@ -210,7 +210,7 @@ describe('RevisionResolver', () => {
                 parent_revision_id: null,
                 created_by_id: null,
                 bundle_uri: 's3://x/',
-                spec: AgentSpecSchema.parse({ model: 'x' }),
+                spec: AgentSpecSchema.parse({ model: 'test/x' }),
             })
             // Stamp a UUID-shaped id so the resolver's `<slug>-<8..32 hex>`
             // matcher fires against a deterministic value.

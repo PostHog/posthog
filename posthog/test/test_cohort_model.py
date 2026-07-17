@@ -1,9 +1,10 @@
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from posthog.test.base import BaseTest
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
@@ -11,51 +12,60 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 from posthog.helpers.batch_iterators import FunctionBatchIterator
 from posthog.models import Person, Team
+from posthog.models.person.util import get_person_by_id
+from posthog.test.persons import add_cohort_members, create_person
 
-from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.cohort import Cohort, CohortConditionFlags, CohortType
 from products.cohorts.backend.models.sql import GET_COHORTPEOPLE_BY_COHORT_ID
+from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
+
+
+def _require_person_by_id(team_id: int, person_id: int) -> Person:
+    person = get_person_by_id(team_id, person_id)
+    assert person is not None
+    return person
 
 
 class TestCohort(BaseTest):
     CLASS_DATA_LEVEL_SETUP = False  # So that each test gets a different team_id, ensuring separation of CH data
 
     def test_insert_by_distinct_id(self):
-        Person.objects.create(team=self.team, distinct_ids=["000"])
-        Person.objects.create(team=self.team, distinct_ids=["123"])
-        Person.objects.create(team=self.team)
+        create_person(team=self.team, distinct_ids=["000"])
+        create_person(team=self.team, distinct_ids=["123"])
+        create_person(team=self.team)
         # Team leakage
         team2 = Team.objects.create(organization=self.organization)
-        Person.objects.create(team=team2, distinct_ids=["123"])
+        create_person(team=team2, distinct_ids=["123"])
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
         cohort.insert_users_by_list(["a header or something", "123", "000", "email@example.org"])
         cohort.refresh_from_db()
-        self.assertEqual(cohort.people.count(), 2)
+        self.assertEqual(count_cohort_members(self.team.id, cohort.pk), 2)
         self.assertEqual(cohort.is_calculating, False)
 
         #  If we accidentally call calculate_people it shouldn't erase people
         cohort.calculate_people_ch(pending_version=0)
-        self.assertEqual(cohort.people.count(), 2)
+        self.assertEqual(count_cohort_members(self.team.id, cohort.pk), 2)
 
         # if we add people again, don't increase the number of people in cohort
         cohort.insert_users_by_list(["123"])
         cohort.refresh_from_db()
-        self.assertEqual(cohort.people.count(), 2)
+        self.assertEqual(count_cohort_members(self.team.id, cohort.pk), 2)
         self.assertEqual(cohort.is_calculating, False)
 
     def test_insert_by_distinct_id_in_batches(self):
-        Person.objects.create(team=self.team, distinct_ids=["000"])
-        Person.objects.create(team=self.team, distinct_ids=["001"])
-        Person.objects.create(team=self.team, distinct_ids=["002", "011"])
-        Person.objects.create(team=self.team, distinct_ids=["003", "012"])
-        Person.objects.create(team=self.team, distinct_ids=["004"])
-        Person.objects.create(team=self.team, distinct_ids=["005"])
-        Person.objects.create(team=self.team, distinct_ids=["006"])
-        Person.objects.create(team=self.team, distinct_ids=["007"])
-        Person.objects.create(team=self.team, distinct_ids=["008"])
-        Person.objects.create(team=self.team, distinct_ids=["009"])
-        Person.objects.create(team=self.team, distinct_ids=["010"])
+        create_person(team=self.team, distinct_ids=["000"])
+        create_person(team=self.team, distinct_ids=["001"])
+        create_person(team=self.team, distinct_ids=["002", "011"])
+        create_person(team=self.team, distinct_ids=["003", "012"])
+        create_person(team=self.team, distinct_ids=["004"])
+        create_person(team=self.team, distinct_ids=["005"])
+        create_person(team=self.team, distinct_ids=["006"])
+        create_person(team=self.team, distinct_ids=["007"])
+        create_person(team=self.team, distinct_ids=["008"])
+        create_person(team=self.team, distinct_ids=["009"])
+        create_person(team=self.team, distinct_ids=["010"])
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
         batch_count = cohort.insert_users_by_list(
@@ -63,7 +73,7 @@ class TestCohort(BaseTest):
         )
         self.assertEqual(batch_count, 5)
         cohort.refresh_from_db()
-        self.assertEqual(cohort.people.count(), 11)
+        self.assertEqual(count_cohort_members(self.team.id, cohort.pk), 11)
         self.assertEqual(cohort.is_calculating, False)
 
     @pytest.mark.ee
@@ -73,13 +83,13 @@ class TestCohort(BaseTest):
             groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
             name="cohort1",
         )
-        person1 = Person.objects.create(
+        person1 = create_person(
             distinct_ids=["person1"],
             team_id=self.team.pk,
             properties={"$some_prop": "something"},
         )
-        Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
-        person3 = Person.objects.create(
+        create_person(distinct_ids=["person2"], team_id=self.team.pk, properties={})
+        person3 = create_person(
             distinct_ids=["person3"],
             team_id=self.team.pk,
             properties={"$some_prop": "something"},
@@ -335,7 +345,7 @@ class TestCohort(BaseTest):
             "345b621a-26e1-4888-a9eb-175329f7923b",
         ]
         for person_uuid in uuids:
-            Person.objects.create(team=self.team, uuid=person_uuid)
+            create_person(team=self.team, uuid=person_uuid)
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
 
         # Insert all users into the cohort using batching (batchsize=3)
@@ -344,23 +354,41 @@ class TestCohort(BaseTest):
         # Fetch all persons in the cohort
         cohort.refresh_from_db()
         assert cohort.count == 11
-        assert cohort.people.count() == 11
-        cohort_person_uuids = {str(p.uuid) for p in cohort.people.all()}
+        assert count_cohort_members(self.team.id, cohort.pk) == 11
+        member_ids = list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.pk)
+        cohort_person_uuids = {str(_require_person_by_id(self.team.id, pid).uuid) for pid in member_ids}
         assert cohort_person_uuids == set(uuids)
+
+    def test_insert_users_list_by_id_uuid_pairs_skip_validation(self):
+        persons = [create_person(team=self.team) for _ in range(5)]
+        pairs = [(person.id, str(person.uuid)) for person in persons]
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+
+        cohort.insert_users_list_by_id_uuid_pairs_skip_validation(pairs, team_id=self.team.id)
+
+        cohort.refresh_from_db()
+        assert cohort.count == 5
+        assert set(list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.pk)) == {p.id for p in persons}
+        # The members must also land in the ClickHouse static cohort table, keyed by uuid.
+        ch_rows = sync_execute(
+            "SELECT person_id FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.id, "cohort_id": cohort.pk},
+        )
+        assert {str(row[0]) for row in ch_rows} == {str(p.uuid) for p in persons}
         assert cohort.is_calculating is False
 
     def test_insert_users_by_list_avoids_duplicates_with_batching(self):
         """Test that batching with duplicates works correctly - people already in cohort are not re-inserted."""
         # Create people with distinct IDs
         for i in range(10):
-            Person.objects.create(team=self.team, distinct_ids=[f"user{i}"])
+            create_person(team=self.team, distinct_ids=[f"user{i}"])
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
 
         # First insertion - add users 0-4 (batch size 3 will create batches: [0,1,2], [3,4])
         cohort.insert_users_by_list(["user0", "user1", "user2", "user3", "user4"], batch_size=3)
         cohort.refresh_from_db()
-        self.assertEqual(cohort.people.count(), 5)
+        self.assertEqual(count_cohort_members(self.team.id, cohort.pk), 5)
 
         # Second insertion - try to add users 2-7 (users 2,3,4 are already in cohort)
         # This tests that our LEFT JOIN optimization works across batch boundaries
@@ -368,12 +396,12 @@ class TestCohort(BaseTest):
         cohort.refresh_from_db()
 
         # Should have 8 people total (user0-user7) - no duplicates
-        self.assertEqual(cohort.people.count(), 8)
+        self.assertEqual(count_cohort_members(self.team.id, cohort.pk), 8)
 
         # Verify all expected people are in the cohort
-        cohort_person_distinct_ids = set()
-        for person in cohort.people.all():
-            cohort_person_distinct_ids.update(person.distinct_ids)
+        cohort_person_distinct_ids: set[str] = set()
+        for pid in list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.pk):
+            cohort_person_distinct_ids.update(_require_person_by_id(self.team.id, pid).distinct_ids)
 
         expected_distinct_ids = {f"user{i}" for i in range(8)}
         self.assertEqual(cohort_person_distinct_ids, expected_distinct_ids)
@@ -384,7 +412,7 @@ class TestCohort(BaseTest):
     def test_insert_users_list_by_uuid_with_different_db_aliases(self):
         from unittest.mock import patch
 
-        person = Person.objects.create(team=self.team, distinct_ids=["cross-db-test"])
+        person = create_person(team=self.team, distinct_ids=["cross-db-test"])
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
 
         # Simulate production config where db_for_read returns a different
@@ -398,8 +426,9 @@ class TestCohort(BaseTest):
             )
 
         cohort.refresh_from_db()
-        assert cohort.people.count() == 1
-        assert str(cohort.people.first().uuid) == str(person.uuid)
+        member_ids = list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.pk)
+        assert len(member_ids) == 1
+        assert str(_require_person_by_id(self.team.id, member_ids[0]).uuid) == str(person.uuid)
 
     @override_settings(DEBUG=False)
     def test_insert_re_raises_soft_time_limit_exceeded(self):
@@ -448,7 +477,7 @@ class TestCohort(BaseTest):
         )
 
         for age in excluded_ages:
-            Person.objects.create(
+            create_person(
                 distinct_ids=[str(uuid.uuid4())],
                 team_id=self.team.pk,
                 properties={"age": age},
@@ -456,7 +485,7 @@ class TestCohort(BaseTest):
 
         expected_people = []
         for age in included_ages:
-            person = Person.objects.create(
+            person = create_person(
                 distinct_ids=[str(uuid.uuid4())],
                 team_id=self.team.pk,
                 properties={"age": age},
@@ -484,15 +513,15 @@ class TestCohort(BaseTest):
         from products.cohorts.backend.models.util import get_static_cohort_size
 
         # Create persons
-        person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
-        person2 = Person.objects.create(team=self.team, distinct_ids=["person2"])
-        person3 = Person.objects.create(team=self.team, distinct_ids=["person3"])
+        person1 = create_person(team=self.team, distinct_ids=["person1"])
+        person2 = create_person(team=self.team, distinct_ids=["person2"])
+        person3 = create_person(team=self.team, distinct_ids=["person3"])
 
         # Create a static cohort
         cohort = Cohort.objects.create(team=self.team, name="Test Static Cohort", is_static=True)
 
-        # Add persons to cohort using the many-to-many relationship
-        cohort.people.add(person1, person2, person3)
+        # Add persons to cohort
+        add_cohort_members(cohort, [person1, person2, person3])
 
         # Test that get_static_cohort_size returns the correct count
         size = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id)
@@ -506,11 +535,11 @@ class TestCohort(BaseTest):
         # in count_cohort_members), not by person.team_id. The previous join through
         # posthog_person was a hot per-PK lookup on the write replica that we
         # dropped for IOPS reasons — production cannot reach this state via the
-        # supported APIs, and a raw M2M add() like the one below is what would have
+        # supported APIs, and a cross-team add like the one below is what would have
         # had to break for a count discrepancy to surface in real traffic.
         team2 = Team.objects.create(organization=self.organization)
-        person4 = Person.objects.create(team=team2, distinct_ids=["person4"])
-        cohort.people.add(person4)
+        person4 = create_person(team=team2, distinct_ids=["person4"])
+        add_cohort_members(cohort, [person4])
 
         size = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id)
         assert size == 4, f"Expected 4 cohort rows after cross-team add, got {size}"
@@ -592,3 +621,245 @@ class TestCohort(BaseTest):
         cohort.refresh_from_db()
         self.assertEqual(cohort.version, 1)
         self.assertEqual(cohort.count, 42)
+
+
+_PERSON_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [{"type": "AND", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+    }
+}
+
+_BEHAVIORAL_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [
+            {
+                "type": "AND",
+                "values": [
+                    {"type": "behavioral", "value": "performed_event", "event_type": "events", "key": "$pageview"}
+                ],
+            }
+        ],
+    }
+}
+
+_MIXED_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [
+            {"type": "AND", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]},
+            {
+                "type": "AND",
+                "values": [
+                    {"type": "behavioral", "value": "performed_event", "event_type": "events", "key": "$pageview"}
+                ],
+            },
+        ],
+    }
+}
+
+_COHORT_REF_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [{"type": "AND", "values": [{"key": "id", "value": 1, "type": "cohort"}]}],
+    }
+}
+
+_PERSON_METADATA_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [
+            {"type": "AND", "values": [{"key": "created_at", "value": "2024-01-01", "type": "person_metadata"}]}
+        ],
+    }
+}
+
+_PERSON_METADATA_AND_BEHAVIORAL_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [
+            {"type": "AND", "values": [{"key": "created_at", "value": "2024-01-01", "type": "person_metadata"}]},
+            {
+                "type": "AND",
+                "values": [
+                    {"type": "behavioral", "value": "performed_event", "event_type": "events", "key": "$pageview"}
+                ],
+            },
+        ],
+    }
+}
+
+_LIFECYCLE_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "behavioral",
+                        "value": "performed_event_first_time",
+                        "event_type": "events",
+                        "key": "$pageview",
+                    }
+                ],
+            }
+        ],
+    }
+}
+
+
+def _condition_flags(
+    *, person_properties: bool = False, behavioral: bool = False, lifecycle: bool = False, cohorts: bool = False
+) -> CohortConditionFlags:
+    return {
+        "person_properties": person_properties,
+        "behavioral": behavioral,
+        "lifecycle": lifecycle,
+        "cohorts": cohorts,
+    }
+
+
+_FIXED_TS = datetime(2026, 1, 1, tzinfo=UTC)
+
+
+class TestCohortIsFlagCompatible(BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand(
+        [
+            # (label, cohort_type, filters, person_ts, events_ts, expected)
+            # Non-realtime cohort types are never flag-compatible
+            ("static_never_compatible", CohortType.STATIC, _PERSON_FILTERS, _FIXED_TS, _FIXED_TS, False),
+            ("behavioral_type_never_compatible", CohortType.BEHAVIORAL, _PERSON_FILTERS, _FIXED_TS, _FIXED_TS, False),
+            (
+                "person_property_type_never_compatible",
+                CohortType.PERSON_PROPERTY,
+                _PERSON_FILTERS,
+                _FIXED_TS,
+                None,
+                False,
+            ),
+            # Realtime + person filters: gate on person timestamp
+            ("realtime_person_no_ts", CohortType.REALTIME, _PERSON_FILTERS, None, None, False),
+            ("realtime_person_only_person_ts", CohortType.REALTIME, _PERSON_FILTERS, _FIXED_TS, None, True),
+            ("realtime_person_only_events_ts", CohortType.REALTIME, _PERSON_FILTERS, None, _FIXED_TS, False),
+            ("realtime_person_both_ts", CohortType.REALTIME, _PERSON_FILTERS, _FIXED_TS, _FIXED_TS, True),
+            # Realtime + behavioral filters: gate on events timestamp
+            ("realtime_behavioral_no_ts", CohortType.REALTIME, _BEHAVIORAL_FILTERS, None, None, False),
+            ("realtime_behavioral_only_person_ts", CohortType.REALTIME, _BEHAVIORAL_FILTERS, _FIXED_TS, None, False),
+            ("realtime_behavioral_only_events_ts", CohortType.REALTIME, _BEHAVIORAL_FILTERS, None, _FIXED_TS, True),
+            ("realtime_behavioral_both_ts", CohortType.REALTIME, _BEHAVIORAL_FILTERS, _FIXED_TS, _FIXED_TS, True),
+            # Realtime + mixed filters: require both timestamps
+            ("realtime_mixed_no_ts", CohortType.REALTIME, _MIXED_FILTERS, None, None, False),
+            ("realtime_mixed_only_person_ts", CohortType.REALTIME, _MIXED_FILTERS, _FIXED_TS, None, False),
+            ("realtime_mixed_only_events_ts", CohortType.REALTIME, _MIXED_FILTERS, None, _FIXED_TS, False),
+            ("realtime_mixed_both_ts", CohortType.REALTIME, _MIXED_FILTERS, _FIXED_TS, _FIXED_TS, True),
+            # Realtime + no recognized filter types: never compatible, regardless of timestamps
+            ("realtime_empty_filters_no_ts", CohortType.REALTIME, {}, None, None, False),
+            ("realtime_empty_filters_with_ts", CohortType.REALTIME, {}, _FIXED_TS, _FIXED_TS, False),
+            ("realtime_cohort_ref_with_ts", CohortType.REALTIME, _COHORT_REF_FILTERS, _FIXED_TS, _FIXED_TS, False),
+            # Realtime + person_metadata filters: gate on person timestamp, same as plain person filters
+            ("realtime_person_metadata_no_ts", CohortType.REALTIME, _PERSON_METADATA_FILTERS, None, None, False),
+            (
+                "realtime_person_metadata_only_person_ts",
+                CohortType.REALTIME,
+                _PERSON_METADATA_FILTERS,
+                _FIXED_TS,
+                None,
+                True,
+            ),
+            (
+                "realtime_person_metadata_and_behavioral_only_events_ts",
+                CohortType.REALTIME,
+                _PERSON_METADATA_AND_BEHAVIORAL_FILTERS,
+                None,
+                _FIXED_TS,
+                False,
+            ),
+            (
+                "realtime_person_metadata_and_behavioral_both_ts",
+                CohortType.REALTIME,
+                _PERSON_METADATA_AND_BEHAVIORAL_FILTERS,
+                _FIXED_TS,
+                _FIXED_TS,
+                True,
+            ),
+        ]
+    )
+    def test_is_flag_compatible(self, _label, cohort_type, filters, person_ts, events_ts, expected):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters=filters,
+            cohort_type=cohort_type,
+            last_backfill_person_properties_at=person_ts,
+            last_backfill_events_at=events_ts,
+        )
+        self.assertEqual(cohort.is_flag_compatible, expected)
+
+
+class TestCohortComputeConditionType(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("person_only", _PERSON_FILTERS, _condition_flags(person_properties=True)),
+            ("behavioral_only", _BEHAVIORAL_FILTERS, _condition_flags(behavioral=True)),
+            ("mixed", _MIXED_FILTERS, _condition_flags(person_properties=True, behavioral=True)),
+            ("cohort_reference_only", _COHORT_REF_FILTERS, _condition_flags(cohorts=True)),
+            ("empty_filters", {}, None),
+            ("none_filters", None, None),
+            # person_metadata reads a top-level persons-table column rather than the
+            # properties JSON blob, but it's still a property-style (non-behavioral) condition.
+            ("person_metadata_only", _PERSON_METADATA_FILTERS, _condition_flags(person_properties=True)),
+            (
+                "person_metadata_and_behavioral",
+                _PERSON_METADATA_AND_BEHAVIORAL_FILTERS,
+                _condition_flags(person_properties=True, behavioral=True),
+            ),
+            # Lifecycle-style behavioral values (first-seen/regularly/stopped/restarted) are
+            # distinct from plain event-count behavioral filters.
+            ("lifecycle_only", _LIFECYCLE_FILTERS, _condition_flags(lifecycle=True)),
+        ]
+    )
+    def test_compute_condition_type(self, _label, filters, expected):
+        self.assertEqual(Cohort.compute_condition_type(filters), expected)
+
+
+class TestCohortConditionTypeDerivedOnSave(BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    # A cohort created without going through the API serializer (e.g. a management
+    # command or get_or_create_internal_test_users_cohort) must still get classified.
+    def test_direct_orm_create_derives_condition_type(self):
+        cohort = Cohort.objects.create(team=self.team, filters=_PERSON_FILTERS)
+        self.assertEqual(cohort.condition_type, _condition_flags(person_properties=True))
+
+    # Static cohorts skip cohort_type/realtime computation, but condition_type
+    # classifies filter shape independent of that, so it must still be set.
+    def test_static_cohort_with_filters_derives_condition_type(self):
+        cohort = Cohort.objects.create(team=self.team, is_static=True, filters=_BEHAVIORAL_FILTERS)
+        self.assertEqual(cohort.condition_type, _condition_flags(behavioral=True))
+
+    # Saves that don't touch filters (e.g. toggling is_calculating) must not
+    # recompute or drop condition_type.
+    def test_narrow_update_fields_save_does_not_touch_condition_type(self):
+        cohort = Cohort.objects.create(team=self.team, filters=_PERSON_FILTERS)
+        self.assertEqual(cohort.condition_type, _condition_flags(person_properties=True))
+
+        cohort.is_calculating = True
+        cohort.save(update_fields=["is_calculating"])
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.condition_type, _condition_flags(person_properties=True))
+
+    # A save that updates filters must recompute condition_type even when the caller also
+    # (redundantly) lists "condition_type" in update_fields with a stale value — the presence
+    # of "condition_type" in update_fields must not short-circuit recomputation.
+    def test_update_fields_with_both_filters_and_stale_condition_type_still_recomputes(self):
+        cohort = Cohort.objects.create(team=self.team, filters=_PERSON_FILTERS)
+        self.assertEqual(cohort.condition_type, _condition_flags(person_properties=True))
+
+        cohort.filters = _BEHAVIORAL_FILTERS
+        cohort.condition_type = _condition_flags(person_properties=True)  # stale value
+        cohort.save(update_fields=["filters", "condition_type"])
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.condition_type, _condition_flags(behavioral=True))

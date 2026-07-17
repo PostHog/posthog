@@ -1,5 +1,7 @@
 import { useValues } from 'kea'
 
+import { LemonTag } from '@posthog/lemon-ui'
+
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { dayjs } from 'lib/dayjs'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -17,8 +19,9 @@ import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { FunnelsActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { BreakdownKeyType, FunnelStepWithConversionMetrics } from '~/types'
+
+import { buildFunnelTrendsActorsQuery } from './funnelTrendsTableUtils'
 
 /** Runtime shape of a `funnelDataLogic.indexedSteps` row when the funnel is in trends mode. */
 type FunnelTrendSeries = {
@@ -63,8 +66,8 @@ export function FunnelTrendsTable(): JSX.Element | null {
     const currentSeries = seriesRows.find((row) => row.compare_label !== 'previous') ?? seriesRows[0]
     const previousSeries = seriesRows.find((row) => row.compare_label === 'previous')
 
-    const seriesLabel = (row: FunnelTrendSeries): string => {
-        const label = hasBreakdown(row.breakdown_value)
+    const seriesLabel = (row: FunnelTrendSeries): string =>
+        hasBreakdown(row.breakdown_value)
             ? formatBreakdownLabel(
                   unwrapBreakdownValue(row.breakdown_value),
                   breakdownFilter,
@@ -72,15 +75,12 @@ export function FunnelTrendsTable(): JSX.Element | null {
                   formatPropertyValueForDisplay
               )
             : 'Conversion'
-        return row.compare && row.compare_label ? `${label} (${row.compare_label})` : label
-    }
 
     const openModalForCell = (row: FunnelTrendSeries, index: number): void => {
         const day = row.days?.[index] ?? ''
         const breakdownValue = row.breakdown_value
-        const breakdownLabel = hasBreakdown(breakdownValue)
-            ? formatBreakdownLabel(breakdownValue, breakdownFilter, allCohorts.results, formatPropertyValueForDisplay)
-            : null
+        // No breakdown value in the title: the modal's breakdown dropdown communicates (and can
+        // change) the selected value, so a static title would go stale.
         const title = (
             <>
                 {capitalizeFirstLetter(aggregationTargetLabel.plural)} converted on{' '}
@@ -91,17 +91,14 @@ export function FunnelTrendsTable(): JSX.Element | null {
                     weekStartDay={weekStartDay}
                     date={day.toString()}
                 />
-                {breakdownLabel ? <> • {breakdownLabel}</> : null}
             </>
         )
-        const query: FunnelsActorsQuery = {
-            kind: NodeKind.FunnelsActorsQuery,
+        const query = buildFunnelTrendsActorsQuery({
             source: querySource!,
-            funnelTrendsDropOff: false,
-            includeRecordings: true,
-            funnelTrendsEntrancePeriodStart: dayjs(day).format('YYYY-MM-DD HH:mm:ss'),
-            ...(hasBreakdown(breakdownValue) ? { funnelStepBreakdown: breakdownValue } : {}),
-        }
+            entrancePeriodStart: dayjs(day).format('YYYY-MM-DD HH:mm:ss'),
+            breakdownValue,
+            compare: row.compare_label,
+        })
         openPersonsModal({ title, query })
     }
 
@@ -150,7 +147,12 @@ export function FunnelTrendsTable(): JSX.Element | null {
         {
             title: 'Series',
             key: 'series',
-            render: (_, row) => <span className="font-medium">{seriesLabel(row)}</span>,
+            render: (_, row) => (
+                <span className="font-medium inline-flex items-center gap-2">
+                    {seriesLabel(row)}
+                    {row.compare_label && <LemonTag>{capitalizeFirstLetter(row.compare_label)}</LemonTag>}
+                </span>
+            ),
         },
         ...periodColumns,
     ]

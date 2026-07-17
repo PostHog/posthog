@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Wrapper for the `hclexp` declarative ClickHouse schema tool (../python-clickhouse-schema).
+#
+# Resolution order, most explicit first:
+#   1. $HCLEXP_BIN    — that binary (explicit: a local build, for fast iteration)
+#   2. $HCLEXP_IMAGE  — that image  (explicit: trying another pin)
+#   3. bin/image.txt  — the pin. The default, and what CI runs.
+#
+# An `hclexp` on $PATH is deliberately NOT consulted. It used to win over both the
+# pin and an explicit $HCLEXP_IMAGE, which meant `HCLEXP_IMAGE=<new> bin/hclexp ...`
+# silently ran whatever stale binary happened to be installed. That is not a loud
+# failure — it is a wrong answer, and it cost real time: a released hclexp feature
+# looked missing because an ambient build shadowed the image being tested. Goldens
+# are canonicalization-sensitive, so "whatever is on PATH" is exactly what a pin
+# exists to prevent. Use $HCLEXP_BIN to say so on purpose.
+set -euo pipefail
+
+# Pinned to a concrete build (not :latest) for reproducibility, in bin/image.txt
+# — the one place to bump. Override for a single run via $HCLEXP_IMAGE.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HCLEXP_IMAGE="${HCLEXP_IMAGE:-$(cat "$HERE/image.txt")}"
+
+if [[ -n "${HCLEXP_BIN:-}" ]]; then
+  exec "$HCLEXP_BIN" "$@"
+fi
+
+# Mount the repo (relative layer/golden paths resolve under -w /work) and the temp
+# dir (diff.sh/gen-sql.sh/the generator pass absolute committed-tree and scratch paths
+# under $TMPDIR) so both resolve inside the container.
+TMP="${TMPDIR:-/tmp}"; TMP="${TMP%/}"
+exec docker run --rm -v "$PWD:/work" -v "$TMP:$TMP" -w /work "$HCLEXP_IMAGE" "$@"

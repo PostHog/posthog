@@ -2,6 +2,7 @@
 
 import uuid
 import datetime as dt
+import dataclasses
 import collections.abc
 
 import pytest
@@ -93,7 +94,7 @@ async def _run_activity(
 
     assert insert_inputs.batch_export_id is not None
     # we first need to run the insert_into_internal_stage_activity so that we have data to export
-    stage_folder = await activity_environment.run(
+    stage_result = await activity_environment.run(
         insert_into_internal_stage_activity,
         BatchExportInsertIntoInternalStageInputs(
             team_id=insert_inputs.team_id,
@@ -109,7 +110,8 @@ async def _run_activity(
             destination_default_fields=bigquery_default_fields(),
         ),
     )
-    insert_inputs.stage_folder = stage_folder
+    insert_inputs.stage_folder = stage_result.stage_folder
+    insert_inputs.records_total = stage_result.records_total
     result = await activity_environment.run(insert_into_bigquery_activity_from_stage, insert_inputs)
 
     await assert_clickhouse_records_in_bigquery(
@@ -497,6 +499,9 @@ async def test_insert_into_bigquery_activity_from_stage_merges_persons_data_in_f
             timestamp=old_person["_timestamp"],
         )
 
+    activity_environment.info = dataclasses.replace(
+        activity_environment.info, attempt=activity_environment.info.attempt + 1
+    )
     await _run_activity(
         activity_environment,
         bigquery_client=bigquery_client,
@@ -573,6 +578,9 @@ async def test_insert_into_bigquery_activity_from_stage_merges_sessions_data_in_
         insert_sessions=True,
     )
 
+    activity_environment.info = dataclasses.replace(
+        activity_environment.info, attempt=activity_environment.info.attempt + 1
+    )
     result = await _run_activity(
         activity_environment,
         bigquery_client=bigquery_client,
@@ -678,6 +686,9 @@ async def test_insert_into_bigquery_activity_from_stage_handles_person_new_colum
             timestamp=old_person["_timestamp"],
         )
 
+    activity_environment.info = dataclasses.replace(
+        activity_environment.info, attempt=activity_environment.info.attempt + 1
+    )
     # this time we don't expected there to be a created_at column
     expected_fields = [field for field in EXPECTED_PERSONS_BATCH_EXPORT_FIELDS if field != "created_at"]
     await _run_activity(
@@ -755,6 +766,9 @@ async def test_insert_into_bigquery_activity_from_stage_handles_datetime_to_int(
     )
     _ = query_job.result()
 
+    activity_environment.info = dataclasses.replace(
+        activity_environment.info, attempt=activity_environment.info.attempt + 1
+    )
     await _run_activity(
         activity_environment,
         bigquery_client=bigquery_client,

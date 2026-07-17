@@ -9,6 +9,34 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Surfaces topics the support AI couldn't answer from the knowledge base.
+ *
+ * Two list shapes controlled by the ``ticket_id`` query param:
+ * - **per-ticket** (``?ticket_id=<uuid>``): individual gap rows for that ticket.
+ * - **aggregated** (no ``ticket_id``): gaps grouped by normalized topic with counts,
+ *   for the Business knowledge suggestions panel.
+ */
+export const BusinessKnowledgeGapSuggestionsAcceptCreateBody = /* @__PURE__ */ zod.object({
+    resolved_source_id: zod.uuid().nullish().describe('Optional knowledge source to link when accepting.'),
+})
+
+/**
+ * Accept all pending suggestions for a normalized topic cluster.
+ */
+export const BusinessKnowledgeGapSuggestionsAcceptTopicCreateBody = /* @__PURE__ */ zod.object({
+    normalized_topic: zod.string().describe('The normalized topic key identifying the gap cluster to act on.'),
+    resolved_source_id: zod.uuid().nullish().describe('Optional knowledge source to link when accepting.'),
+})
+
+/**
+ * Dismiss all pending suggestions for a normalized topic cluster.
+ */
+export const BusinessKnowledgeGapSuggestionsDismissTopicCreateBody = /* @__PURE__ */ zod.object({
+    normalized_topic: zod.string().describe('The normalized topic key identifying the gap cluster to act on.'),
+    resolved_source_id: zod.uuid().nullish().describe('Optional knowledge source to link when accepting.'),
+})
+
 export const businessKnowledgeSourcesCreateBodyNameMax = 255
 
 export const businessKnowledgeSourcesCreateBodyAlwaysIncludeDefault = false

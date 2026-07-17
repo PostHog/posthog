@@ -1,6 +1,7 @@
 from posthog.temporal.ai_observability.eval_reports.activities import (
+    check_count_triggered_eval_report_activity,
     deliver_report_activity,
-    fetch_count_triggered_eval_reports_activity,
+    fetch_count_triggered_eval_report_candidates_activity,
     fetch_due_eval_reports_activity,
     prepare_report_context_activity,
     run_eval_report_agent_activity,
@@ -51,7 +52,12 @@ from posthog.temporal.ai_observability.run_tagger import (
     execute_tagger_activity,
     fetch_tagger_activity,
 )
-from posthog.temporal.ai_observability.sentiment import ClassifySentimentWorkflow, classify_sentiment_activity
+from posthog.temporal.ai_observability.run_trace_evaluation import (
+    RunTraceEvaluationWorkflow,
+    emit_trace_evaluation_event_activity,
+    execute_trace_hog_eval_activity,
+    execute_trace_llm_judge_activity,
+)
 from posthog.temporal.ai_observability.shared_activities import (
     fetch_all_clustering_filters_activity,
     fetch_all_clustering_jobs_activity,
@@ -77,6 +83,7 @@ from products.signals.backend.temporal.emit_eval_signal import emit_eval_signal_
 
 EVAL_WORKFLOWS = [
     RunEvaluationWorkflow,
+    RunTraceEvaluationWorkflow,
 ]
 
 EVAL_ACTIVITIES = [
@@ -89,7 +96,10 @@ EVAL_ACTIVITIES = [
     execute_llm_judge_activity,
     execute_hog_eval_activity,
     execute_sentiment_eval_activity,
+    execute_trace_llm_judge_activity,
+    execute_trace_hog_eval_activity,
     emit_evaluation_event_activity,
+    emit_trace_evaluation_event_activity,
     emit_internal_telemetry_activity,
     emit_eval_signal_activity,  # kept for in-flight v1 workflows, then remove
 ]
@@ -104,14 +114,6 @@ TAGGER_ACTIVITIES = [
     execute_hog_tagger_activity,
     emit_tagger_event_activity,
     disable_tagger_activity,
-]
-
-SENTIMENT_WORKFLOWS = [
-    ClassifySentimentWorkflow,
-]
-
-SENTIMENT_ACTIVITIES = [
-    classify_sentiment_activity,
 ]
 
 WORKFLOWS = [
@@ -129,8 +131,6 @@ WORKFLOWS = [
     AIObservabilityEvaluationSamplerWorkflow,
     AIObservabilityEvaluationClusteringCoordinatorWorkflow,
     AIObservabilityEvaluationClusteringWorkflow,
-    # Keep sentiment workflow registered here temporarily so orphaned workflows on general-purpose queue can complete
-    ClassifySentimentWorkflow,
     # Keep eval workflow registered here temporarily so orphaned workflows on general-purpose queue can complete
     RunEvaluationWorkflow,
 ]
@@ -152,7 +152,8 @@ ACTIVITIES = [
     emit_cluster_events_activity,
     # Evaluation report activities
     fetch_due_eval_reports_activity,
-    fetch_count_triggered_eval_reports_activity,
+    fetch_count_triggered_eval_report_candidates_activity,
+    check_count_triggered_eval_report_activity,
     prepare_report_context_activity,
     run_eval_report_agent_activity,
     store_report_run_activity,
@@ -166,8 +167,6 @@ ACTIVITIES = [
     generate_evaluation_cluster_labels_activity,
     compute_evaluation_cluster_aggregates_activity,
     emit_evaluation_cluster_events_activity,
-    # Keep sentiment activity registered here temporarily so orphaned workflows on general-purpose queue can complete
-    classify_sentiment_activity,
     # Keep eval activities registered here temporarily so orphaned workflows on general-purpose queue can complete
     fetch_evaluation_activity,
     increment_trial_eval_count_activity,

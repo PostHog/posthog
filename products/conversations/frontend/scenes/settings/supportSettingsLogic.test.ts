@@ -1,11 +1,14 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { teamLogic } from '~/scenes/teamLogic'
 import { initKeaTests } from '~/test/init'
 import { TeamType } from '~/types'
 
-import { supportSettingsLogic } from './supportSettingsLogic'
+import { aiAllChannelsForFeatureFlags, supportSettingsLogic } from './supportSettingsLogic'
 
 describe('supportSettingsLogic', () => {
     let logic: ReturnType<typeof supportSettingsLogic.build>
@@ -27,6 +30,72 @@ describe('supportSettingsLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+    })
+
+    describe('aiAllChannelsForFeatureFlags', () => {
+        it.each([
+            ['no flags enabled', {}, ['widget', 'email', 'slack']],
+            [
+                'teams and github enabled',
+                {
+                    [FEATURE_FLAGS.PRODUCT_SUPPORT_TEAMS_ENABLED]: true,
+                    [FEATURE_FLAGS.PRODUCT_SUPPORT_GITHUB_CHANNEL]: true,
+                },
+                ['widget', 'email', 'slack', 'teams', 'github'],
+            ],
+        ])('%s', (_label, flags, expected) => {
+            expect(aiAllChannelsForFeatureFlags(flags)).toEqual(expected)
+        })
+    })
+
+    describe('default email channel', () => {
+        const configs = [
+            { id: 'a', from_email: 'a@x.com', domain_verified: true, is_default: true },
+            { id: 'b', from_email: 'b@x.com', domain_verified: true, is_default: false },
+        ] as any[]
+
+        it('moves the primary flag to exactly one channel on setDefaultEmailDone', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners() // let the afterMount load settle first
+            logic.actions.loadEmailConfigsDone(configs)
+            logic.actions.setDefaultEmailDone('b')
+
+            expect(logic.values.emailConfigs.filter((c) => c.is_default).map((c) => c.id)).toEqual(['b'])
+        })
+
+        it('promotes a replacement when the primary is disconnected', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.loadEmailConfigsDone(configs)
+            logic.actions.disconnectEmailDone('a')
+
+            expect(logic.values.emailConfigs.map((c) => ({ id: c.id, is_default: c.is_default }))).toEqual([
+                { id: 'b', is_default: true },
+            ])
+        })
+    })
+
+    describe('aiResolutionChannels selector', () => {
+        it('drops flag-gated channels that are no longer available', async () => {
+            initKeaTests(true, {
+                conversations_settings: {
+                    slack_enabled: true,
+                    teams_enabled: true,
+                    ai_resolution_channels: ['widget', 'slack', 'teams'],
+                },
+            } as unknown as TeamType)
+            featureFlagLogic.mount()
+
+            logic = supportSettingsLogic()
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({
+                aiAllChannels: ['widget', 'email', 'slack'],
+                aiResolutionChannels: ['widget', 'slack'],
+            })
+        })
     })
 
     describe('aiSuggestionsEnabled selector', () => {
@@ -76,6 +145,56 @@ describe('supportSettingsLogic', () => {
 
             logic.actions.updateCurrentTeamFailure('update failed')
             expect(logic.values.aiSuggestionsLoading).toBe(false)
+        })
+    })
+
+    describe('aiDiagnosticsEnabled selector', () => {
+        it.each([
+            ['conversations_settings is undefined', undefined, false],
+            ['ai_diagnostics_enabled is not set', { widget_enabled: true }, false],
+            ['ai_diagnostics_enabled is true', { ai_diagnostics_enabled: true }, true],
+        ])('%s', async (_label, settings, expected) => {
+            if (settings) {
+                initKeaTests(true, { conversations_settings: settings } as unknown as TeamType)
+            }
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toMatchValues({ aiDiagnosticsEnabled: expected })
+        })
+    })
+
+    describe('setAiDiagnosticsEnabled', () => {
+        it('sets loading state and dispatches updateCurrentTeam', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setAiDiagnosticsEnabled(true)
+            })
+                .toDispatchActions(['setAiDiagnosticsLoading', 'updateCurrentTeam'])
+                .toMatchValues({ aiDiagnosticsLoading: true })
+        })
+
+        it('clears loading state on updateCurrentTeamSuccess', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+
+            logic.actions.setAiDiagnosticsLoading(true)
+            expect(logic.values.aiDiagnosticsLoading).toBe(true)
+
+            logic.actions.updateCurrentTeamSuccess({} as TeamType)
+            expect(logic.values.aiDiagnosticsLoading).toBe(false)
+        })
+
+        it('clears loading state on updateCurrentTeamFailure', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+
+            logic.actions.setAiDiagnosticsLoading(true)
+            expect(logic.values.aiDiagnosticsLoading).toBe(true)
+
+            logic.actions.updateCurrentTeamFailure('update failed')
+            expect(logic.values.aiDiagnosticsLoading).toBe(false)
         })
     })
 

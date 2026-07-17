@@ -1037,12 +1037,6 @@ const destinationDefinitions: DestinationConfig[] = [
 
     // User Engagement Platforms
     {
-        name: 'Appcues',
-        id: 'coming-soon-appcues',
-        icon_url: '/static/coming-soon-destinations/Appcues.svg',
-        category: ['User Engagement Platforms'],
-    },
-    {
         name: 'Leanplum',
         id: 'coming-soon-leanplum',
         icon_url: '/static/coming-soon-destinations/Leanplum.svg',

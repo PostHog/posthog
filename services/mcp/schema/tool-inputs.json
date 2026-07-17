@@ -20,7 +20,7 @@
             "properties": {
                 "resource": {
                     "type": "string",
-                    "description": "Which operator playbook to fetch. Accepts either a bare id (one of: auditing-the-fleet, authenticating-as-the-user, authoring-new-agents, choosing-the-model, cost-and-quota-analysis, debugging-sessions, designing-mcp-surfaces, editing-agents-safely, platform-mental-model, querying-ai-observability, reading-an-agent, running-and-evaluating-tests, safety-and-boundaries, secrets-and-integrations, setting-up-slack-app, using-the-console-ui, working-outside-the-console) or its URI form (`posthog://agent-platform/playbooks/<id>`). A playbook is a markdown guide for doing a class of agent-platform operations well — the same skills the agent concierge uses."
+                    "description": "Which builder playbook to fetch. Accepts either a bare id (one of: authenticating-as-the-user, authoring-new-agents, choosing-the-model, cost-and-quota-analysis, debugging-sessions, designing-mcp-surfaces, editing-agents-safely, platform-mental-model, querying-ai-observability, reading-an-agent, running-and-evaluating-tests, secrets-and-integrations, setting-up-slack-app) or its URI form (`posthog://agent-platform/playbooks/<id>`). A playbook is a markdown guide for using the agent-platform authoring tools well; it comes back with the live, scope-aware tool surface for the operation. Fetch the playbook rather than recalling tool names from memory."
                 }
             },
             "required": ["resource"]
@@ -390,7 +390,7 @@
                 "type": "string"
             },
             "additionalProperties": {},
-            "description": "Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. Use external-data-sources-wizard to see required fields per source type."
+            "description": "Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. For source_type \"Custom\" (a user-defined REST API): `manifest_json` (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type declared in the manifest — `auth_token` (bearer), `auth_api_key` (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never inline in manifest_json. Use external-data-sources-wizard (pass source_type) to see required fields per source type. For the advanced external-data-sources-create flow, the per-table 'schemas' array (built from external-data-sources-db-schema) also goes in here, e.g. {\"host\": ..., \"password\": ..., \"schemas\": [{\"name\": \"orders\", \"should_sync\": true, \"sync_type\": \"incremental\", \"incremental_field\": \"updated_at\", \"incremental_field_type\": \"datetime\"}]}. Do not pass unresolved {\"secretRef\": ...} objects — resolve secrets to real values first, or use a credential_id from data-warehouse-source-connect-link."
         },
         "ExternalDataSourceTypeSchema": {
             "type": "string",
@@ -510,13 +510,160 @@
             "required": ["insightId"]
         },
         "OrganizationSetActiveSchema": {
+            "anyOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "orgId": {
+                            "type": "string",
+                            "description": "The organization to switch to: the `id` returned by `organizations-list` (a UUID-like string, not the organization name). Use `organizations-list` to resolve a name to its id."
+                        }
+                    },
+                    "required": ["orgId"]
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "id": {
+                            "type": "string",
+                            "description": "Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`."
+                        }
+                    },
+                    "required": ["id"]
+                }
+            ]
+        },
+        "PathCleaningRulesUpdateSchema": {
             "type": "object",
             "properties": {
-                "orgId": {
-                    "type": "string"
+                "operations": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                        "oneOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "action": {
+                                        "type": "string",
+                                        "const": "append"
+                                    },
+                                    "alias": {
+                                        "type": "string",
+                                        "description": "The human-readable replacement, e.g. \"/users/<id>/profile\". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid — it deletes the matched text (e.g. to strip a \"?page=N\" fragment). Not a regex template — backreferences are not supported."
+                                    },
+                                    "regex": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "description": "A re2 pattern matched against the path, e.g. \"/users/\\\\d+/profile\". No need to escape \"/\". Anchor with ^ / $ when you mean it."
+                                    }
+                                },
+                                "required": ["action", "alias", "regex"],
+                                "description": "Add a new rule at the end of the ordered list (runs last)."
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "action": {
+                                        "type": "string",
+                                        "const": "insert"
+                                    },
+                                    "index": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991,
+                                        "description": "Zero-based position to insert the rule at. Existing rules shift down."
+                                    },
+                                    "alias": {
+                                        "type": "string",
+                                        "description": "The human-readable replacement, e.g. \"/users/<id>/profile\". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid — it deletes the matched text (e.g. to strip a \"?page=N\" fragment). Not a regex template — backreferences are not supported."
+                                    },
+                                    "regex": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "description": "A re2 pattern matched against the path, e.g. \"/users/\\\\d+/profile\". No need to escape \"/\". Anchor with ^ / $ when you mean it."
+                                    }
+                                },
+                                "required": ["action", "index", "alias", "regex"],
+                                "description": "Insert a new rule at a specific position — use when it must run before more general rules."
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "action": {
+                                        "type": "string",
+                                        "const": "replace"
+                                    },
+                                    "target_alias": {
+                                        "type": "string",
+                                        "description": "The alias of the existing rule to target (must match an existing rule exactly). Use \"\" to target a rule whose alias is empty."
+                                    },
+                                    "alias": {
+                                        "description": "New alias. Omit to keep the current alias.",
+                                        "type": "string"
+                                    },
+                                    "regex": {
+                                        "description": "New regex. Omit to keep the current regex.",
+                                        "type": "string",
+                                        "minLength": 1
+                                    }
+                                },
+                                "required": ["action", "target_alias"],
+                                "description": "Replace the alias and/or regex of an existing rule, keeping its position."
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "action": {
+                                        "type": "string",
+                                        "const": "remove"
+                                    },
+                                    "target_alias": {
+                                        "type": "string",
+                                        "description": "The alias of the existing rule to target (must match an existing rule exactly). Use \"\" to target a rule whose alias is empty."
+                                    }
+                                },
+                                "required": ["action", "target_alias"],
+                                "description": "Remove an existing rule by alias."
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "action": {
+                                        "type": "string",
+                                        "const": "reorder"
+                                    },
+                                    "ordered_aliases": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "description": "The full set of current aliases in the new desired order (including \"\" for any empty-alias rule and any duplicates). Must be a permutation of the existing aliases."
+                                    }
+                                },
+                                "required": ["action", "ordered_aliases"],
+                                "description": "Reorder the existing rules. Order matters: rules apply sequentially, each feeding the next."
+                            }
+                        ]
+                    },
+                    "description": "Ordered list of edits to apply to the current path cleaning rules, in sequence."
+                },
+                "sample_paths": {
+                    "description": "Optional real paths (e.g. \"/users/123/profile\") to preview against, up to 25. The response shows how the resulting rule set rewrites each one. Approximate (JS regex, not re2) — use execute-sql with replaceRegexpAll to confirm edge cases.",
+                    "maxItems": 25,
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "maxLength": 2048
+                    }
+                },
+                "confirm": {
+                    "default": false,
+                    "description": "Must be true to persist. When false (default) the tool returns a preview of the resulting rules (and any sample-path rewrites) WITHOUT saving — surface it to the user, then re-run with confirm:true.",
+                    "type": "boolean"
                 }
             },
-            "required": ["orgId"]
+            "required": ["operations"]
         },
         "ProjectGetAllSchema": {
             "type": "object",
@@ -682,11 +829,6 @@
                 }
             },
             "required": ["query"]
-        },
-        "ReadDataWarehouseSchemaSchema": {
-            "type": "object",
-            "properties": {},
-            "description": "No input required. Returns core data warehouse schemas."
         },
         "SavedMetricsAttachSchema": {
             "type": "array",
@@ -887,7 +1029,7 @@
             "properties": {
                 "id": {
                     "type": "string",
-                    "description": "The workflow (HogFlow) id to edit. Draft only — active workflows are read-only via MCP."
+                    "description": "The workflow (HogFlow) id to edit."
                 },
                 "operations": {
                     "minItems": 1,

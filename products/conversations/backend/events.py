@@ -6,7 +6,10 @@ Staff/system actions use the actor's distinct_id; customer actions use the ticke
 Events are sent to the customer's PostHog project via their team's API token.
 """
 
+from datetime import datetime
 from typing import Literal
+
+from django.utils import timezone
 
 import structlog
 
@@ -212,6 +215,11 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
     return False, None
 
 
+def _groups_from_org_id(team: Team, organization_id: str) -> dict:
+    """Rebuild minimal $groups from a stored org id, skipping the expensive resolver."""
+    return {"instance": SITE_URL, "project": str(team.uuid), "organization": organization_id}
+
+
 def _get_ticket_base_properties(ticket: Ticket) -> dict:
     return {
         "ticket_id": str(ticket.id),
@@ -235,6 +243,24 @@ def _get_customer_properties(ticket: Ticket, *, include_distinct_id: bool = Fals
     return properties
 
 
+def _get_sla_properties(ticket: Ticket, now: datetime) -> dict:
+    """SLA state at the moment of the event.
+
+    Stamped on events (rather than derived later) so attainment metrics reflect the
+    deadline that was in force at the time, even if the SLA is reset afterwards.
+    `sla_delta_seconds` is positive when past due, negative when time remains.
+    """
+    if ticket.sla_due_at is None:
+        return {"sla_due_at": None, "sla_active": False, "sla_breached": False, "sla_delta_seconds": None}
+    delta_seconds_float = (now - ticket.sla_due_at).total_seconds()
+    return {
+        "sla_due_at": ticket.sla_due_at.isoformat(),
+        "sla_active": True,
+        "sla_breached": delta_seconds_float > 0,
+        "sla_delta_seconds": int(delta_seconds_float),
+    }
+
+
 def capture_ticket_created(ticket: Ticket) -> None:
     properties = _get_ticket_base_properties(ticket)
     properties.update(_get_customer_properties(ticket))
@@ -246,6 +272,10 @@ def capture_ticket_created(ticket: Ticket) -> None:
         process_person, groups = _resolve_org_groups(ticket, team)
         if groups is not None:
             properties["$groups"] = groups
+            org_id = groups.get("organization")
+            if org_id and not ticket.organization_id:
+                Ticket.objects.filter(id=ticket.id).update(organization_id=org_id)
+                ticket.organization_id = org_id
     except Exception:
         logger.exception("ticket_created_person_lookup_failed", team_id=team_id, ticket_id=str(ticket.id))
 
@@ -271,6 +301,7 @@ def capture_ticket_status_changed(
     properties["old_status"] = old_status
     properties["new_status"] = new_status
     properties.update(_get_actor_properties(actor, actor_type))
+    properties.update(_get_customer_properties(ticket, include_distinct_id=True))
 
     capture_internal(
         token=ticket.team.api_token,
@@ -293,6 +324,7 @@ def capture_ticket_priority_changed(
     properties["old_priority"] = old_priority
     properties["new_priority"] = new_priority
     properties.update(_get_actor_properties(actor, actor_type))
+    properties.update(_get_customer_properties(ticket, include_distinct_id=True))
 
     capture_internal(
         token=ticket.team.api_token,
@@ -315,6 +347,7 @@ def capture_ticket_assigned(
     properties["assignee_type"] = assignee_type
     properties["assignee_id"] = assignee_id
     properties.update(_get_actor_properties(actor, actor_type))
+    properties.update(_get_customer_properties(ticket, include_distinct_id=True))
 
     capture_internal(
         token=ticket.team.api_token,
@@ -339,6 +372,7 @@ def capture_message_sent(
     properties["author_type"] = "team"
     properties.update(_get_actor_properties(author, "user"))
     properties.update(_get_customer_properties(ticket, include_distinct_id=True))
+    properties.update(_get_sla_properties(ticket, timezone.now()))
 
     capture_internal(
         token=ticket.team.api_token,
@@ -361,9 +395,13 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
     team = ticket.team
     process_person = False
     try:
-        process_person, groups = _resolve_org_groups(ticket, team)
-        if groups is not None:
-            properties["$groups"] = groups
+        if ticket.organization_id:
+            properties["$groups"] = _groups_from_org_id(team, ticket.organization_id)
+            process_person = True
+        else:
+            process_person, groups = _resolve_org_groups(ticket, team)
+            if groups is not None:
+                properties["$groups"] = groups
     except Exception:
         logger.exception("message_received_person_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
 

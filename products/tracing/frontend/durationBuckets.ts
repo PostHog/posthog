@@ -1,4 +1,4 @@
-// Pure helpers for the duration-histogram sparkline (JON-36). The list sorted by duration pairs
+// Pure helpers for the duration-histogram sparkline. The list sorted by duration pairs
 // with a histogram of trace counts per logarithmic duration bucket; everything here is pure so it
 // can be unit-tested without the kea logic's import graph.
 
@@ -15,10 +15,13 @@ export interface TracingDurationHistogramData {
     labels: string[]
 }
 
-export interface VisibleDurationRange {
+/** A `[minNs, maxNs)` duration range in nanoseconds — the shared currency of selection and filtering. */
+export interface DurationRange {
     minNs: number
     maxNs: number
 }
+
+export type VisibleDurationRange = DurationRange
 
 const BUCKET_MANTISSAS = [1, 2, 5]
 
@@ -110,6 +113,31 @@ export function pivotDurationHistogram(
         .filter((series) => series.values.reduce((a, b) => a + b, 0) > 0)
 
     return { data, bucketsNs, labels: bucketsNs.map(formatBucketLabel) }
+}
+
+/** Exclusive upper edge of a 1-2-5 bucket — the next bucket on the series (1→2, 2→5, 5→10). */
+export function bucketUpperBound(bucketNs: number): number {
+    return fillBucketSeries(bucketNs, bucketNs * 10)[1]
+}
+
+/**
+ * Duration range covered by an inclusive bar-index selection on the histogram axis.
+ * Bucket b covers [b, nextBucket(b)), so the range's max is the bucket after the last selected
+ * bar (extrapolated on the 1-2-5 series when the selection ends on the last bar).
+ */
+export function selectionToDurationRange(
+    bucketsNs: number[],
+    startIndex: number,
+    endIndex: number
+): DurationRange | null {
+    if (bucketsNs.length === 0) {
+        return null
+    }
+    const start = Math.max(0, Math.min(startIndex, bucketsNs.length - 1))
+    const end = Math.max(start, Math.min(endIndex, bucketsNs.length - 1))
+    const minNs = bucketsNs[start]
+    const maxNs = bucketsNs[end + 1] ?? bucketUpperBound(bucketsNs[end])
+    return { minNs, maxNs }
 }
 
 /**

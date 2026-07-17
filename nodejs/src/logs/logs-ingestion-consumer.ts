@@ -3,20 +3,28 @@ import { Message } from 'node-rdkafka'
 import pLimit from 'p-limit'
 import { Counter, Histogram } from 'prom-client'
 
+import { KafkaConsumerInterface, createKafkaConsumer, parseKafkaHeaders } from '~/common/kafka/consumer'
+import { recordPiiReplacements } from '~/common/metrics/otel-metrics'
 import { AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { QuotaLimiting, QuotaResource } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
-import { KafkaConsumerInterface, createKafkaConsumer, parseKafkaHeaders } from '~/kafka/consumer'
+import { isDevEnv } from '~/common/utils/env-utils'
+import { logger } from '~/common/utils/logger'
+import { TeamManager } from '~/common/utils/team-manager'
 import type { LogsSettings } from '~/types'
 import { HealthCheckResult, PluginServerService } from '~/types'
-import { isDevEnv } from '~/utils/env-utils'
-import { logger } from '~/utils/logger'
-import { TeamManager } from '~/utils/team-manager'
 
 import { LogsIngestionConsumerConfig } from './config'
+import {
+    recordLogMessageDlq,
+    recordLogMessageDropped,
+    recordLogsAllowed,
+    recordLogsDropped,
+    recordLogsReceived,
+} from './ingestion-otel-metrics'
 import { type PiiScrubStats } from './log-pii-scrub'
 import { processLogMessageBuffer } from './log-record-avro'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
@@ -330,7 +338,8 @@ export class LogsIngestionConsumer {
                 message.message.value!,
                 logsSettings,
                 ruleSet,
-                message.teamId
+                message.teamId,
+                message.bytesUncompressed
             )
             if (sampled.recordsDropped > 0) {
                 logsSamplingRecordsDroppedCounter.inc({ team_id: message.teamId.toString() }, sampled.recordsDropped)
@@ -420,6 +429,7 @@ export class LogsIngestionConsumer {
         }
         logsBytesReceivedCounter.inc(totalBytesReceived)
         logsRecordsReceivedCounter.inc(totalRecordsReceived)
+        recordLogsReceived(totalBytesReceived, totalRecordsReceived)
     }
 
     private trackOutgoingTrafficAndBuildUsageStats(
@@ -449,6 +459,7 @@ export class LogsIngestionConsumer {
         // Gross, before the drop-rule billing credit applied in processAndProduceLogMessages (see counter help).
         logsBytesAllowedCounter.inc(totalBytesAllowed)
         logsRecordsAllowedCounter.inc(totalRecordsAllowed)
+        recordLogsAllowed(totalBytesAllowed, totalRecordsAllowed)
 
         for (const message of droppedMessages) {
             const stats = usageStats.get(message.teamId) || { ...DEFAULT_USAGE_STATS }
@@ -467,6 +478,7 @@ export class LogsIngestionConsumer {
             if (stats.recordsDropped > 0) {
                 logsRecordsDroppedCounter.inc({ team_id: teamIdLabel }, stats.recordsDropped)
             }
+            recordLogsDropped(teamId, stats.bytesDropped, stats.recordsDropped)
         }
 
         return usageStats
@@ -476,6 +488,7 @@ export class LogsIngestionConsumer {
         if (delta.piiReplacements === 0) {
             return
         }
+        recordPiiReplacements(this.appSource, delta.piiReplacements)
         const row = usage.get(teamId) || { ...DEFAULT_USAGE_STATS }
         row.piiReplacements += delta.piiReplacements
         usage.set(teamId, row)
@@ -513,6 +526,7 @@ export class LogsIngestionConsumer {
 
         for (const [teamId, count] of droppedCountByTeam) {
             logMessageDroppedCounter.inc({ reason: 'quota_limited', team_id: teamId.toString() }, count)
+            recordLogMessageDropped('quota_limited', teamId.toString(), count)
         }
 
         return { quotaAllowedMessages, quotaDroppedMessages }
@@ -530,6 +544,7 @@ export class LogsIngestionConsumer {
         }
         for (const [teamId, count] of droppedCountByTeam) {
             logMessageDroppedCounter.inc({ reason: 'rate_limited', team_id: teamId.toString() }, count)
+            recordLogMessageDropped('rate_limited', teamId.toString(), count)
         }
 
         return { rateLimiterAllowedMessages: allowed, rateLimiterDroppedMessages: dropped }
@@ -577,6 +592,7 @@ export class LogsIngestionConsumer {
 
                         let bytesUncompressedHeaderOverride: number | undefined
                         let bytesCompressedHeaderOverride: number | undefined
+                        let recordCountHeaderOverride: number | undefined
 
                         // Drop rules removed rows from this message — credit billing by the dropped
                         // content fraction. `bytesReceived` stays gross (what was sent); `bytesAllowed`
@@ -628,8 +644,9 @@ export class LogsIngestionConsumer {
                                     )
                                 }
 
-                                // Scale both size headers down by the same dropped content fraction so
-                                // downstream accounting sees only the surviving bytes.
+                                // Scale both size headers down by the same dropped content fraction, and
+                                // reduce the record count by the exact number of rows dropped, so
+                                // downstream accounting sees only the surviving rows and bytes.
                                 const compressedCredit = billingByteReductionForDrops(
                                     message.bytesCompressed,
                                     resolved.contentBytesDropped,
@@ -637,6 +654,7 @@ export class LogsIngestionConsumer {
                                 )
                                 bytesUncompressedHeaderOverride = Math.max(0, header - contentCredit)
                                 bytesCompressedHeaderOverride = Math.max(0, message.bytesCompressed - compressedCredit)
+                                recordCountHeaderOverride = Math.max(0, message.recordCount - resolved.recordsDropped)
                             }
                         }
 
@@ -645,6 +663,7 @@ export class LogsIngestionConsumer {
                                 { reason: 'sampling_all_dropped', team_id: message.teamId.toString() },
                                 1
                             )
+                            recordLogMessageDropped('sampling_all_dropped', message.teamId.toString())
                             this.addPiiStatsIntoUsage(usageStats, message.teamId, resolved.pii)
                             this.queueSamplingRecordsDroppedByRule(message.teamId, resolved.recordsDroppedByRuleId)
                             this.queueBytesDroppedByRule(message.teamId, resolved.bytesDroppedByRuleId)
@@ -672,6 +691,9 @@ export class LogsIngestionConsumer {
                                     ...(bytesCompressedHeaderOverride !== undefined
                                         ? { bytes_compressed: bytesCompressedHeaderOverride.toString() }
                                         : {}),
+                                    ...(recordCountHeaderOverride !== undefined
+                                        ? { record_count: recordCountHeaderOverride.toString() }
+                                        : {}),
                                 },
                             },
                         ])
@@ -697,6 +719,7 @@ export class LogsIngestionConsumer {
         const errorName = error instanceof Error ? error.name : 'UnknownError'
 
         logMessageDlqCounter.inc({ reason: errorName, team_id: message.teamId.toString() })
+        recordLogMessageDlq(errorName, message.teamId.toString())
 
         try {
             await this.deps.outputs.queueMessages(LOGS_DLQ_OUTPUT, [
@@ -819,6 +842,7 @@ export class LogsIngestionConsumer {
                     if (!token) {
                         logger.error('missing_token')
                         logMessageDroppedCounter.inc({ reason: 'missing_token', team_id: 'unknown' })
+                        recordLogMessageDropped('missing_token', 'unknown')
                         return
                     }
 
@@ -833,12 +857,14 @@ export class LogsIngestionConsumer {
                     } catch (e) {
                         logger.error('team_lookup_error', { error: e })
                         logMessageDroppedCounter.inc({ reason: 'team_lookup_error', team_id: 'unknown' })
+                        recordLogMessageDropped('team_lookup_error', 'unknown')
                         return
                     }
 
                     if (!team) {
                         logger.error('team_not_found', { token_with_no_team: token })
                         logMessageDroppedCounter.inc({ reason: 'team_not_found', team_id: 'unknown' })
+                        recordLogMessageDropped('team_not_found', 'unknown')
                         return
                     }
 
@@ -865,6 +891,7 @@ export class LogsIngestionConsumer {
                 } catch (e) {
                     logger.error('Error parsing message', e)
                     logMessageDroppedCounter.inc({ reason: 'parse_error', team_id: 'unknown' })
+                    recordLogMessageDropped('parse_error', 'unknown')
                     return
                 }
             })

@@ -1,26 +1,35 @@
 import { v7 as uuidv7 } from 'uuid'
 
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
+import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import {
     SessionFeatureBlock,
     SessionFeatureStore,
 } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
-import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
-import { KeyStore, RecordingEncryptor, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
+import { SessionMetadataSink } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
+import { SessionMap } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
+import { RecordingEncryptor, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
-import { logger } from '~/utils/logger'
-import { captureException } from '~/utils/posthog'
 
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
 import { SessionFeatureRecorder } from './session-feature-recorder'
-import { SessionFilter } from './session-filter'
 import { SessionRateLimiter } from './session-rate-limiter'
-import { SessionTracker } from './session-tracker'
 import { SnappySessionRecorder } from './snappy-session-recorder'
+
+/** Per-session recording state held in the batch, keyed by `(teamId, sessionId)`. */
+interface SessionBatchEntry {
+    sessionBlockRecorder: SnappySessionRecorder
+    consoleLogRecorder: SessionConsoleLogRecorder
+    featureRecorder: SessionFeatureRecorder
+    sessionKey: SessionKey
+    retentionPeriod: RetentionPeriod
+}
 
 /**
  * Manages the recording of a batch of session recordings:
@@ -66,11 +75,9 @@ import { SnappySessionRecorder } from './snappy-session-recorder'
  * as only the relevant session block needs to be retrieved and decompressed.
  */
 export class SessionBatchRecorder {
-    private readonly partitionSessions = new Map<
-        number,
-        Map<string, [SnappySessionRecorder, SessionConsoleLogRecorder, SessionFeatureRecorder, SessionKey]>
-    >()
-    private readonly partitionSizes = new Map<number, number>()
+    // Sessions are keyed by (teamId, sessionId) across all partitions. A session is pinned to one
+    // partition, so the key is unique. Not readonly: flush swaps it for a fresh map.
+    private sessions = new SessionMap<SessionBatchEntry>()
     private _size: number = 0
     private readonly batchId: string
     private readonly rateLimiter: SessionRateLimiter
@@ -78,14 +85,12 @@ export class SessionBatchRecorder {
     constructor(
         private readonly offsetManager: KafkaOffsetManager,
         private readonly storage: SessionBatchFileStorage,
-        private readonly metadataStore: SessionMetadataStore,
+        private readonly metadataStore: SessionMetadataSink,
         private readonly consoleLogStore: SessionConsoleLogStore,
         private readonly featureStore: SessionFeatureStore,
-        private readonly sessionTracker: SessionTracker,
-        private readonly sessionFilter: SessionFilter,
-        private readonly keyStore: KeyStore,
         private readonly encryptor: RecordingEncryptor,
-        maxEventsPerSessionPerBatch: number = Number.MAX_SAFE_INTEGER
+        maxEventsPerSessionPerBatch: number = Number.MAX_SAFE_INTEGER,
+        private readonly featuresRolloutPercentage: number = 100
     ) {
         this.batchId = uuidv7()
         this.rateLimiter = new SessionRateLimiter(maxEventsPerSessionPerBatch)
@@ -96,63 +101,34 @@ export class SessionBatchRecorder {
      * Appends events into the appropriate session
      *
      * @param message - The message to record, including team context
+     * @param retentionPeriod - The session's retention, resolved upstream; sets the key expiry and
+     *   routes the flush to the matching per-retention storage.
+     * @param sessionKey - The session's encryption key, resolved upstream by the track-and-gate and
+     *   resolve-key steps (which also drop blocked/deleted sessions before they reach here).
      * @returns Number of raw bytes written (without compression)
      */
-    public async record(message: MessageWithTeam): Promise<number> {
+    public async record(
+        message: MessageWithTeam,
+        retentionPeriod: RetentionPeriod,
+        sessionKey: SessionKey
+    ): Promise<number> {
         const { partition } = message.message.metadata
         const sessionId = message.message.session_id
         const teamId = message.team.teamId
-        const teamSessionKey = `${teamId}$${sessionId}`
 
-        // Check if this is a new session and check if we're in breach of the rate limit
-        const isNewSession = await this.sessionTracker.trackSession(teamId, sessionId)
-        if (isNewSession) {
-            await this.sessionFilter.handleNewSession(teamId, sessionId)
-        }
-
-        // Check if session is blocked
-        if (await this.sessionFilter.isBlocked(teamId, sessionId)) {
-            logger.debug('🔁', 'session_batch_recorder_session_blocked', {
-                partition,
-                sessionId,
-                teamId,
-                batchId: this.batchId,
-            })
-            return this.ignoreMessage(message)
-        }
-
-        const sessionKey = isNewSession
-            ? await this.keyStore.generateKey(sessionId, teamId)
-            : await this.keyStore.getKey(sessionId, teamId)
-
-        if (sessionKey.sessionState === 'deleted') {
-            logger.debug('🔁', 'session_batch_recorder_deleted_session_dropped', {
-                partition,
-                sessionId,
-                teamId,
-                batchId: this.batchId,
-            })
-            return this.ignoreMessage(message)
-        }
-
-        const isEventAllowed = this.rateLimiter.handleMessage(teamSessionKey, partition, message.message)
+        const isEventAllowed = this.rateLimiter.handleMessage(teamId, sessionId, message.message)
 
         if (!isEventAllowed) {
             logger.debug('🔁', 'session_batch_recorder_event_rate_limited', {
                 partition,
                 sessionId,
                 teamId,
-                eventCount: this.rateLimiter.getEventCount(teamSessionKey),
+                eventCount: this.rateLimiter.getEventCount(teamId, sessionId),
                 batchId: this.batchId,
             })
 
-            if (!this.partitionSessions.has(partition)) {
-                return this.ignoreMessage(message)
-            }
-
-            const sessions = this.partitionSessions.get(partition)!
-            if (sessions.has(teamSessionKey)) {
-                sessions.delete(teamSessionKey)
+            if (this.sessions.has(teamId, sessionId)) {
+                this.sessions.delete(teamId, sessionId)
                 logger.info('🔁', 'session_batch_recorder_deleted_rate_limited_session', {
                     partition,
                     sessionId,
@@ -161,19 +137,13 @@ export class SessionBatchRecorder {
                 })
             }
 
-            return this.ignoreMessage(message)
+            return 0
         }
 
-        if (!this.partitionSessions.has(partition)) {
-            this.partitionSessions.set(partition, new Map())
-            this.partitionSizes.set(partition, 0)
-        }
-
-        const sessions = this.partitionSessions.get(partition)!
-        const existingBatchState = sessions.get(teamSessionKey)
+        const existingBatchState = this.sessions.get(teamId, sessionId)
 
         if (existingBatchState) {
-            const [sessionBlockRecorder, _logRecorder, _featureRecorder, existingSessionKey] = existingBatchState
+            const { sessionBlockRecorder, sessionKey: existingSessionKey } = existingBatchState
             if (sessionBlockRecorder.teamId !== teamId) {
                 logger.warn('🔁', 'session_batch_recorder_team_id_mismatch', {
                     sessionId,
@@ -181,7 +151,7 @@ export class SessionBatchRecorder {
                     newTeamId: teamId,
                     batchId: this.batchId,
                 })
-                return this.ignoreMessage(message)
+                return 0
             }
 
             if (!existingSessionKey.encryptedKey.equals(sessionKey.encryptedKey)) {
@@ -190,60 +160,54 @@ export class SessionBatchRecorder {
                     teamId,
                     batchId: this.batchId,
                 })
-                return this.ignoreMessage(message)
+                return 0
             }
         } else {
-            sessions.set(teamSessionKey, [
-                new SnappySessionRecorder(sessionId, teamId, this.batchId),
-                new SessionConsoleLogRecorder(sessionId, teamId, this.batchId, this.consoleLogStore),
-                new SessionFeatureRecorder(sessionId, teamId, this.batchId),
+            this.sessions.set(teamId, sessionId, {
+                sessionBlockRecorder: new SnappySessionRecorder(sessionId, teamId, this.batchId),
+                consoleLogRecorder: new SessionConsoleLogRecorder(
+                    sessionId,
+                    teamId,
+                    this.batchId,
+                    this.consoleLogStore
+                ),
+                featureRecorder: new SessionFeatureRecorder(
+                    sessionId,
+                    teamId,
+                    this.batchId,
+                    this.featuresRolloutPercentage
+                ),
                 sessionKey,
-            ])
+                retentionPeriod,
+            })
         }
 
-        const [sessionBlockRecorder, consoleLogRecorder, featureRecorder] = sessions.get(teamSessionKey)!
+        const { sessionBlockRecorder, consoleLogRecorder, featureRecorder } = this.sessions.get(teamId, sessionId)!
         const bytesWritten = sessionBlockRecorder.recordMessage(message.message)
         await consoleLogRecorder.recordMessage(message)
-        try {
-            featureRecorder.recordMessage(message.message)
-        } catch (e) {
-            logger.warn('🔁', 'session_feature_recorder_error', {
-                error: String(e),
-                sessionId,
-                teamId,
-                partition,
-                batchId: this.batchId,
-            })
-            captureException(e, { tags: { sessionId, teamId: String(teamId), partition: String(partition) } })
+        // Features derive from `eventsByWindowId`, which is empty on native-anonymizer messages —
+        // skip the recorder (which throws on pre-serialized input) rather than catch it per message.
+        if (!message.message.preSerialized) {
+            try {
+                featureRecorder.recordMessage(message.message)
+            } catch (e) {
+                logger.warn('🔁', 'session_feature_recorder_error', {
+                    error: String(e),
+                    sessionId,
+                    teamId,
+                    partition,
+                    batchId: this.batchId,
+                })
+                captureException(e, { tags: { sessionId, teamId: String(teamId), partition: String(partition) } })
+            }
         }
 
-        const currentPartitionSize = this.partitionSizes.get(partition)!
-        this.partitionSizes.set(partition, currentPartitionSize + bytesWritten)
         this._size += bytesWritten
-
-        return this.ackMessage(message, bytesWritten)
-    }
-
-    private ignoreMessage(message: MessageWithTeam): 0 {
-        this.offsetManager.trackOffset({
-            partition: message.message.metadata.partition,
-            offset: message.message.metadata.offset,
-        })
-        return 0
-    }
-
-    private ackMessage(message: MessageWithTeam, bytesWritten: number): number {
-        const { partition } = message.message.metadata
-
-        this.offsetManager.trackOffset({
-            partition: message.message.metadata.partition,
-            offset: message.message.metadata.offset,
-        })
 
         logger.debug('🔁', 'session_batch_recorder_recorded_message', {
             partition,
-            sessionId: message.message.session_id,
-            teamId: message.team.teamId,
+            sessionId,
+            teamId,
             bytesWritten,
             totalSize: this._size,
         })
@@ -252,24 +216,12 @@ export class SessionBatchRecorder {
     }
 
     /**
-     * Discards all sessions for a given partition, so that they are not persisted in this batch
-     * Used when partitions are revoked during Kafka rebalancing
+     * Retention already resolved for a session held in this (unflushed) batch, or undefined if the
+     * batch hasn't seen it. Lets the resolve-retention step skip re-resolving a session a previous
+     * batch already placed here.
      */
-    public discardPartition(partition: number): void {
-        const partitionSize = this.partitionSizes.get(partition)
-        if (partitionSize !== undefined) {
-            logger.info('🔁', 'session_batch_recorder_discarding_partition', {
-                partition,
-                partitionSize,
-            })
-
-            this.rateLimiter.discardPartition(partition)
-
-            this._size -= partitionSize
-            this.partitionSizes.delete(partition)
-            this.partitionSessions.delete(partition)
-            this.offsetManager.discardPartition(partition)
-        }
+    public getRetention(teamId: number, sessionId: string): RetentionPeriod | undefined {
+        return this.sessions.get(teamId, sessionId)?.retentionPeriod
     }
 
     /**
@@ -279,13 +231,16 @@ export class SessionBatchRecorder {
      */
     public async flush(): Promise<SessionBlockMetadata[]> {
         logger.info('🔁', 'session_batch_recorder_flushing', {
-            partitions: this.partitionSessions.size,
+            sessions: this.sessions.size,
             totalSize: this._size,
         })
 
-        // If no sessions, commit offsets but skip writing the file
-        if (this.partitionSessions.size === 0) {
+        // If no sessions, commit offsets but skip writing the file. Sessions can still have been
+        // recorded then dropped (e.g. rate limited), leaving batch state to reset.
+        if (this.sessions.size === 0) {
             await this.offsetManager.commit()
+            this._size = 0
+            this.rateLimiter.clear()
             logger.info('🔁', 'session_batch_recorder_flushed_no_sessions')
             return []
         }
@@ -300,89 +255,89 @@ export class SessionBatchRecorder {
         let totalBytes = 0
 
         try {
-            for (const sessions of this.partitionSessions.values()) {
-                for (const [
-                    sessionBlockRecorder,
-                    consoleLogRecorder,
-                    featureRecorder,
-                    sessionKey,
-                ] of sessions.values()) {
-                    const {
-                        buffer,
-                        eventCount,
-                        startDateTime,
-                        endDateTime,
-                        firstUrl,
-                        urls,
-                        clickCount,
-                        keypressCount,
-                        mouseActivityCount,
-                        activeMilliseconds,
-                        size,
-                        messageCount,
-                        snapshotSource,
-                        snapshotLibrary,
-                        batchId,
-                    } = await sessionBlockRecorder.end()
+            for (const {
+                sessionBlockRecorder,
+                consoleLogRecorder,
+                featureRecorder,
+                sessionKey,
+                retentionPeriod,
+            } of this.sessions.values()) {
+                const {
+                    buffer,
+                    eventCount,
+                    startDateTime,
+                    endDateTime,
+                    firstUrl,
+                    urls,
+                    clickCount,
+                    keypressCount,
+                    mouseActivityCount,
+                    activeMilliseconds,
+                    size,
+                    messageCount,
+                    snapshotSource,
+                    snapshotLibrary,
+                    batchId,
+                } = await sessionBlockRecorder.end()
 
-                    const features = featureRecorder.end()
-                    if (features) {
-                        featureBlocks.push({
-                            sessionId: sessionBlockRecorder.sessionId,
-                            teamId: sessionBlockRecorder.teamId,
-                            distinctId: sessionBlockRecorder.distinctId,
-                            batchId,
-                            features,
-                        })
-                    }
-
-                    const { consoleLogCount, consoleWarnCount, consoleErrorCount } = consoleLogRecorder.end()
-
-                    const { data: encryptedBuffer } = this.encryptor.encryptBlockWithKey(
-                        sessionBlockRecorder.sessionId,
-                        sessionBlockRecorder.teamId,
-                        buffer,
-                        sessionKey
-                    )
-
-                    const { bytesWritten, url, retentionPeriodDays } = await writer.writeSession({
-                        buffer: encryptedBuffer,
-                        teamId: sessionBlockRecorder.teamId,
-                        sessionId: sessionBlockRecorder.sessionId,
-                    })
-
-                    blockMetadata.push({
+                const features = featureRecorder.end()
+                if (features) {
+                    featureBlocks.push({
                         sessionId: sessionBlockRecorder.sessionId,
                         teamId: sessionBlockRecorder.teamId,
                         distinctId: sessionBlockRecorder.distinctId,
-                        blockLength: bytesWritten,
-                        startDateTime,
-                        endDateTime,
-                        blockUrl: url,
-                        firstUrl,
-                        urls,
-                        clickCount,
-                        keypressCount,
-                        mouseActivityCount,
-                        activeMilliseconds,
-                        consoleLogCount,
-                        consoleWarnCount,
-                        consoleErrorCount,
-                        size,
-                        messageCount,
-                        snapshotSource,
-                        snapshotLibrary,
                         batchId,
-                        eventCount,
-                        retentionPeriodDays,
-                        isDeleted: false,
+                        features,
                     })
-
-                    totalEvents += eventCount
-                    totalBytes += bytesWritten
                 }
-                totalSessions += sessions.size
+
+                const { consoleLogCount, consoleWarnCount, consoleErrorCount } = consoleLogRecorder.end()
+
+                const { data: encryptedBuffer } = this.encryptor.encryptBlockWithKey(
+                    sessionBlockRecorder.sessionId,
+                    sessionBlockRecorder.teamId,
+                    buffer,
+                    sessionKey
+                )
+
+                const { bytesWritten, url, retentionPeriodDays } = await writer.writeSession({
+                    buffer: encryptedBuffer,
+                    teamId: sessionBlockRecorder.teamId,
+                    sessionId: sessionBlockRecorder.sessionId,
+                    retentionPeriod,
+                })
+
+                blockMetadata.push({
+                    sessionId: sessionBlockRecorder.sessionId,
+                    teamId: sessionBlockRecorder.teamId,
+                    distinctId: sessionBlockRecorder.distinctId,
+                    blockLength: bytesWritten,
+                    startDateTime,
+                    endDateTime,
+                    blockUrl: url,
+                    firstUrl,
+                    urls,
+                    clickCount,
+                    keypressCount,
+                    mouseActivityCount,
+                    activeMilliseconds,
+                    consoleLogCount,
+                    consoleWarnCount,
+                    consoleErrorCount,
+                    size,
+                    messageCount,
+                    snapshotSource,
+                    snapshotLibrary,
+                    batchId,
+                    eventCount,
+                    retentionPeriodDays,
+                    isDeleted: false,
+                })
+
+                totalEvents += eventCount
+                totalBytes += bytesWritten
             }
+            totalSessions = this.sessions.size
 
             await writer.finish()
             await this.consoleLogStore.flush()
@@ -395,10 +350,19 @@ export class SessionBatchRecorder {
             SessionBatchMetrics.incrementSessionsFlushed(totalSessions)
             SessionBatchMetrics.incrementEventsFlushed(totalEvents)
             SessionBatchMetrics.incrementBytesWritten(totalBytes)
+            const flushedAtMillis = Date.now()
+            for (const block of blockMetadata) {
+                const endMillis = block.endDateTime.toMillis()
+                // endDateTime falls back to epoch 0 when a block somehow has no timestamped
+                // events; skip those rather than record a nonsense multi-year lag. Clock skew
+                // can put an event timestamp slightly in the future, hence the clamp.
+                if (endMillis > 0) {
+                    SessionBatchMetrics.observeE2eLag(Math.max(0, (flushedAtMillis - endMillis) / 1000))
+                }
+            }
 
-            // Clear sessions, partition sizes, total size, and rate limiter state after successful flush
-            this.partitionSessions.clear()
-            this.partitionSizes.clear()
+            // Clear sessions, total size, and rate limiter state after successful flush
+            this.sessions = new SessionMap()
             this._size = 0
             this.rateLimiter.clear()
 

@@ -7,16 +7,17 @@ from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, JsonRes
 from django.views.decorators.csrf import csrf_exempt
 
 import requests
-from loginas.utils import is_impersonated_session
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.rate_limit import SupportSlackOAuthCallbackThrottle
 
 from products.conversations.backend.models import TeamConversationsSlackConfig
 from products.conversations.backend.permissions import IsConversationsAdmin
@@ -116,13 +117,19 @@ class SupportSlackDisconnectView(APIView):
         clear_supporthog_slack_token(
             team=user.current_team,
             user=user,
-            is_impersonated_session=is_impersonated_session(request),
+            is_impersonated_session=is_impersonated(request),
         )
         return Response({"ok": True})
 
 
 @csrf_exempt
 def support_slack_oauth_callback(request: HttpRequest) -> HttpResponse:
+    # IP throttle in front of any Slack token exchange — otherwise a stranger
+    # can loop a valid `state` param and force us to make outbound POSTs.
+    throttle = SupportSlackOAuthCallbackThrottle()
+    if not throttle.allow_request(Request(request), view=None):  # type: ignore[arg-type]
+        return JsonResponse({"error": "Too Many Requests"}, status=429)
+
     request_user = getattr(request, "user", None)
     request_user_id = getattr(request_user, "id", None)
     if not isinstance(request_user, User) or not isinstance(request_user_id, int):
@@ -211,7 +218,7 @@ def support_slack_oauth_callback(request: HttpRequest) -> HttpResponse:
             save_supporthog_slack_token(
                 team=team,
                 user=user,
-                is_impersonated_session=is_impersonated_session(request),
+                is_impersonated_session=is_impersonated(request),
                 bot_token=bot_token,
                 slack_team_id=slack_team_id,
             )

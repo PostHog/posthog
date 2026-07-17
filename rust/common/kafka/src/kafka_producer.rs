@@ -5,7 +5,9 @@ use crate::config::KafkaConfig;
 use common_liveness::SyncLivenessReporter;
 use lz4::EncoderBuilder;
 use rdkafka::error::KafkaError;
-use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
+use rdkafka::producer::{
+    DeliveryResult, FutureProducer, FutureRecord, Producer, ProducerContext, ThreadedProducer,
+};
 use rdkafka::{ClientConfig, ClientContext};
 use serde::Serialize;
 use serde_json::error::Error as SerdeError;
@@ -69,13 +71,10 @@ impl rdkafka::ClientContext for KafkaContext {
     }
 }
 
-pub async fn create_kafka_producer<L>(
-    config: &KafkaConfig,
-    liveness: L,
-) -> Result<FutureProducer<KafkaContext>, KafkaError>
-where
-    L: SyncLivenessReporter + Clone + 'static,
-{
+/// Build the shared rdkafka `ClientConfig` from our `KafkaConfig`. Both the
+/// `FutureProducer` and `ThreadedProducer` builders go through this, so the two
+/// producer styles always apply identical connection and tuning settings.
+fn build_client_config(config: &KafkaConfig) -> ClientConfig {
     let mut client_config = ClientConfig::new();
     client_config
         .set("bootstrap.servers", &config.kafka_hosts)
@@ -97,6 +96,13 @@ where
             "queue.buffering.max.messages",
             config.kafka_producer_queue_messages.to_string(),
         );
+
+    // `client.id` identifies this producer to the broker (shows up in broker
+    // metrics/logs). Only set when non-empty so existing callers keep
+    // librdkafka's default identity.
+    if !config.kafka_client_id.is_empty() {
+        client_config.set("client.id", &config.kafka_client_id);
+    }
 
     // WarpStream producer tuning — only set when explicitly configured, so existing services
     // that don't opt in keep their previous librdkafka defaults.
@@ -121,6 +127,15 @@ where
     if let Some(v) = config.kafka_producer_sticky_partitioning_linger_ms {
         client_config.set("sticky.partitioning.linger.ms", v.to_string());
     }
+    if let Some(ref v) = config.kafka_producer_partitioner {
+        client_config.set("partitioner", v);
+    }
+    if let Some(ref v) = config.kafka_producer_acks {
+        client_config.set("acks", v);
+    }
+    if let Some(v) = config.kafka_producer_retries {
+        client_config.set("retries", v.to_string());
+    }
 
     if config.kafka_tls {
         client_config
@@ -128,12 +143,17 @@ where
             .set("enable.ssl.certificate.verification", "false");
     };
 
-    debug!("rdkafka configuration: {:?}", client_config);
-    let api: FutureProducer<KafkaContext> =
-        client_config.create_with_context(KafkaContext::new(liveness))?;
+    client_config
+}
 
-    // "Ping" the Kafka brokers by requesting metadata
-    match api
+/// Ping the Kafka brokers by fetching metadata, so a broker that's unreachable
+/// at startup surfaces as an error here rather than silently later.
+fn ping_brokers<C, P>(producer: &P) -> Result<(), KafkaError>
+where
+    C: ProducerContext,
+    P: Producer<C>,
+{
+    match producer
         .client()
         .fetch_metadata(None, std::time::Duration::from_secs(15))
     {
@@ -142,14 +162,101 @@ where
                 "Successfully connected to Kafka brokers. Found {} topics.",
                 metadata.topics().len()
             );
+            Ok(())
         }
         Err(error) => {
             error!("Failed to fetch metadata from Kafka brokers: {:?}", error);
-            return Err(error);
+            Err(error)
         }
     }
+}
+
+pub async fn create_kafka_producer<L>(
+    config: &KafkaConfig,
+    liveness: L,
+) -> Result<FutureProducer<KafkaContext>, KafkaError>
+where
+    L: SyncLivenessReporter + Clone + 'static,
+{
+    let client_config = build_client_config(config);
+    debug!("rdkafka configuration: {:?}", client_config);
+    let api: FutureProducer<KafkaContext> =
+        client_config.create_with_context(KafkaContext::new(liveness))?;
+
+    ping_brokers(&api)?;
 
     Ok(api)
+}
+
+/// A producer context that reports liveness (like [`KafkaContext`]) and, for
+/// each produced message, invokes a caller-supplied closure with the delivery
+/// report. This lets a caller observe delivery outcomes — e.g. emit
+/// metrics — from rdkafka's own poll thread, with no per-message task and
+/// without baking caller-specific logic into the shared context.
+///
+/// `K` is the per-message opaque payload the caller attaches via
+/// [`rdkafka::producer::BaseRecord::delivery_opaque`]; it is handed back to the
+/// closure on delivery so labels/context travel with the message.
+/// Shared delivery-report callback for [`ThreadedKafkaContext`]: invoked once
+/// per message with the delivery result and the per-message opaque `K`.
+type DeliveryCallback<K> = Arc<dyn Fn(&DeliveryResult, K) + Send + Sync>;
+
+pub struct ThreadedKafkaContext<K: Send + Sync + 'static> {
+    liveness: Arc<dyn SyncLivenessReporter>,
+    on_delivery: DeliveryCallback<K>,
+}
+
+impl<K: Send + Sync + 'static> ThreadedKafkaContext<K> {
+    pub fn new(
+        liveness: impl SyncLivenessReporter + Clone + 'static,
+        on_delivery: impl Fn(&DeliveryResult, K) + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            liveness: Arc::new(liveness),
+            on_delivery: Arc::new(on_delivery),
+        }
+    }
+}
+
+impl<K: Send + Sync + 'static> ClientContext for ThreadedKafkaContext<K> {
+    fn stats(&self, _: rdkafka::Statistics) {
+        // Signal liveness, as the rdkafka poll thread is running and calling us.
+        self.liveness.report_healthy();
+    }
+}
+
+impl<K: Send + Sync + 'static> ProducerContext for ThreadedKafkaContext<K> {
+    type DeliveryOpaque = Box<K>;
+
+    fn delivery(&self, delivery_result: &DeliveryResult, delivery_opaque: Self::DeliveryOpaque) {
+        (self.on_delivery)(delivery_result, *delivery_opaque);
+    }
+}
+
+/// Create a [`ThreadedProducer`] that reports liveness and calls `on_delivery`
+/// with each message's delivery report (see [`ThreadedKafkaContext`]). The
+/// producer runs its own poll thread, so no manual polling is needed. This is
+/// the opt-in path for fire-and-forget producers that want delivery
+/// observability without a per-message task; existing `FutureProducer` callers
+/// are unaffected.
+pub async fn create_threaded_kafka_producer<K, L, F>(
+    config: &KafkaConfig,
+    liveness: L,
+    on_delivery: F,
+) -> Result<ThreadedProducer<ThreadedKafkaContext<K>>, KafkaError>
+where
+    K: Send + Sync + 'static,
+    L: SyncLivenessReporter + Clone + 'static,
+    F: Fn(&DeliveryResult, K) + Send + Sync + 'static,
+{
+    let client_config = build_client_config(config);
+    debug!("rdkafka configuration (threaded): {:?}", client_config);
+    let producer: ThreadedProducer<ThreadedKafkaContext<K>> =
+        client_config.create_with_context(ThreadedKafkaContext::new(liveness, on_delivery))?;
+
+    ping_brokers(&producer)?;
+
+    Ok(producer)
 }
 
 #[derive(Error, Debug)]
@@ -386,8 +493,32 @@ mod tests {
 
     use lz4::Decoder;
 
-    use super::{compress_lz4_frame, maybe_compress_lz4_frame, EnvelopeEncoding};
+    use super::{
+        build_client_config, compress_lz4_frame, maybe_compress_lz4_frame, EnvelopeEncoding,
+    };
+    use crate::config::KafkaConfig;
     use crate::kafka_consumer::LZ4_FRAME_MAGIC;
+
+    #[test]
+    fn client_id_is_set_only_when_non_empty() {
+        // Empty client_id (every existing caller today) must leave the key
+        // unset so librdkafka keeps its default identity — the behavior-neutral
+        // guarantee the shared helper makes.
+        let config = KafkaConfig {
+            kafka_client_id: String::new(),
+            ..Default::default()
+        };
+        assert_eq!(build_client_config(&config).get("client.id"), None);
+
+        let config = KafkaConfig {
+            kafka_client_id: "capture-ingestion-warnings".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_client_config(&config).get("client.id"),
+            Some("capture-ingestion-warnings")
+        );
+    }
 
     #[test]
     fn lz4_frame_starts_with_magic_and_round_trips() {

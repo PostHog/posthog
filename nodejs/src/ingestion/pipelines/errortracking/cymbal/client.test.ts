@@ -1,10 +1,10 @@
-import { parseJSON } from '~/utils/json-parse'
+import { parseJSON } from '~/common/utils/json-parse'
 
 import { CymbalClient, DnsResolveFunction, FetchFunction } from './client'
 import { CymbalRequest, CymbalResponse } from './types'
 
 // Suppress logger output during tests
-jest.mock('~/utils/logger', () => ({
+jest.mock('~/common/utils/logger', () => ({
     logger: {
         debug: jest.fn(),
         info: jest.fn(),

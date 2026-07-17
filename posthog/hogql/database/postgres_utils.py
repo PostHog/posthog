@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import dataclasses
 from collections.abc import Sequence
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.lazy_join_tags import FOREIGN_KEY
@@ -9,9 +11,8 @@ from posthog.hogql.database.utils import get_join_field_chain
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 
 
 class DatabaseTableLookup(Protocol):
@@ -214,6 +215,9 @@ def _is_same_external_scope(
     target_table_name = target_hogql_table.name if isinstance(target_hogql_table.name, str) else None
     if source_table_name is None or target_table_name is None:
         return False
+
+    # noqa keeps the warehouse ORM off this module's import path — only needed when a Database is built.
+    from products.warehouse_sources.backend.facade.models import ExternalDataSource  # noqa: PLC0415
 
     source = warehouse_table.external_data_source
     if source is not None and source.access_method == ExternalDataSource.AccessMethod.DIRECT:

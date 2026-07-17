@@ -38,7 +38,7 @@ use crate::rayon_dispatcher::RayonDispatcher;
 use crate::utils::graph_utils::PrecomputedDependencyGraph;
 use anyhow::Result;
 use chrono_tz::Tz;
-use common_metrics::{histogram, inc, timing_guard};
+use common_metrics::{histogram, inc, timing_guard, timing_guard_high_precision};
 use common_types::collections::HashMapExt;
 use common_types::{PersonId, TeamId};
 use rayon::prelude::*;
@@ -258,7 +258,12 @@ impl PropertyContext<'_> {
     /// an explicit type distinction.
     pub fn resolve_for_filter(&self, filter: &PropertyFilter) -> &HashMap<String, Value> {
         match filter.prop_type {
-            PropertyType::Person => self.person_properties.unwrap_or(&*EMPTY_PROPERTY_MAP),
+            // PersonMetadata fields (e.g. created_at) are injected into the same map as
+            // regular person properties; see the `result.person` block in
+            // `apply_person_cohort_to_state` (flag_matching_utils.rs).
+            PropertyType::Person | PropertyType::PersonMetadata => {
+                self.person_properties.unwrap_or(&*EMPTY_PROPERTY_MAP)
+            }
             PropertyType::Group => {
                 let gti = filter.group_type_index.or(self.aggregation);
                 gti.and_then(|idx| self.group_properties.get(&idx))
@@ -976,6 +981,7 @@ impl FeatureFlagMatcher {
                         &mut level_evaluated_flags_map,
                         &mut errors_while_computing_flags,
                         person_property_overrides,
+                        group_property_overrides,
                     );
                 });
             }
@@ -998,6 +1004,7 @@ impl FeatureFlagMatcher {
                         &mut level_evaluated_flags_map,
                         &mut errors_while_computing_flags,
                         person_property_overrides,
+                        group_property_overrides,
                     );
                 }
             }
@@ -1026,6 +1033,7 @@ impl FeatureFlagMatcher {
         level_evaluated_flags_map: &mut HashMap<String, FlagDetails>,
         errors_while_computing_flags: &mut bool,
         person_property_overrides: &Option<HashMap<String, Value>>,
+        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
     ) {
         match result {
             Ok(flag_match) => {
@@ -1036,11 +1044,17 @@ impl FeatureFlagMatcher {
                     let merged_person_props = self
                         .get_person_properties(person_property_overrides.as_ref())
                         .ok();
+                    // Merged group properties (DB + overrides, including the injected
+                    // `$group_key`) keyed by group type index, so group-typed condition
+                    // filters resolve against the group rather than the person.
+                    let merged_group_props =
+                        self.merged_group_properties_for_flag(flag, group_property_overrides);
                     FlagDetails::create_with_analysis(
                         flag,
                         flag_match,
                         true,
                         merged_person_props.as_ref(),
+                        Some(&merged_group_props),
                         Some(&self.flag_evaluation_state.flag_evaluation_results),
                         self.timezone,
                     )
@@ -1089,6 +1103,45 @@ impl FeatureFlagMatcher {
         let group_type = index_to_type_map.get(&group_type_index)?;
         let group_overrides = group_property_overrides?;
         group_overrides.get(group_type)
+    }
+
+    /// Builds merged group properties (DB + overrides) keyed by group type index for
+    /// every group type the flag's conditions reference. Used by detailed condition
+    /// analysis so group-typed filters resolve against the group's properties (and the
+    /// `$group_key` injected into overrides) rather than the person's. Every referenced
+    /// group type index is included, backed by an empty map if no properties were found.
+    fn merged_group_properties_for_flag(
+        &self,
+        flag: &FeatureFlag,
+        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
+    ) -> HashMap<GroupTypeIndex, HashMap<String, Value>> {
+        let mut referenced_indexes: HashSet<GroupTypeIndex> = HashSet::new();
+        for group in &flag.filters.groups {
+            // Mirrors the aggregation the real matching path uses (line ~1371 below), so
+            // an explicit person aggregation (`Some(None)`) does not fall back to the
+            // flag-level group index here.
+            let condition_aggregation = group.effective_aggregation(flag.get_group_type_index());
+            if let Some(properties) = &group.properties {
+                for property in properties {
+                    if property.prop_type == PropertyType::Group {
+                        if let Some(gti) = property.group_type_index.or(condition_aggregation) {
+                            referenced_indexes.insert(gti);
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut merged = HashMap::new();
+        for gti in referenced_indexes {
+            let overrides = self.resolve_group_overrides(gti, group_property_overrides.as_ref());
+            merged.insert(
+                gti,
+                self.get_group_properties(gti, overrides)
+                    .unwrap_or_default(),
+            );
+        }
+        merged
     }
 
     /// Pushes CPU-bound flag evaluation onto the Rayon pool via [`RayonDispatcher`],
@@ -1276,7 +1329,7 @@ impl FeatureFlagMatcher {
             let person_properties = self.get_person_properties(person_property_overrides)?;
 
             if let Some(v) = person_properties.get(&enrollment_key) {
-                let is_match = v == "true" || v == &Value::Bool(true);
+                let is_match = FlagFilters::is_enrolled(v);
                 let payload = self.get_matching_payload(None, flag);
                 return Ok(FeatureFlagMatch {
                     matches: is_match,
@@ -1647,7 +1700,7 @@ impl FeatureFlagMatcher {
                     continue;
                 }
                 match prop.prop_type {
-                    PropertyType::Person => needs_person = true,
+                    PropertyType::Person | PropertyType::PersonMetadata => needs_person = true,
                     PropertyType::Group => {
                         if let Some(gti) = prop.group_type_index.or(effective_aggregation) {
                             group_types.insert(gti);
@@ -1710,7 +1763,14 @@ impl FeatureFlagMatcher {
                 .unwrap_or_default()
         };
 
-        // Merge in overrides (overrides take precedence)
+        // Merge in overrides (overrides take precedence).
+        //
+        // PersonMetadata fields are stored under sentinel-prefixed keys (see
+        // `lookup_key_for` in property_matching.rs). A caller could override the canonical
+        // persons-table value by setting that sentinel key in `person_property_overrides`.
+        // That's intentional for testing — no SDK has any reason to set such a key in
+        // production, and overrides are caller-trusted by design. If we ever need to lock
+        // metadata fields to the DB value, filter the prefixed keys out here.
         if let Some(overrides) = property_overrides {
             merged_properties.extend(overrides.iter_owned());
         }
@@ -1804,16 +1864,20 @@ impl FeatureFlagMatcher {
                 }
             }
 
-            // Use hash key overrides for experience continuity
+            // Use hash key overrides for experience continuity. Only consult overrides
+            // when the flag *currently* has continuity enabled — a stored override row
+            // is never deleted when continuity is turned off, so a stale row must not
+            // steer a flag whose continuity is now off (which would keep every distinct_id
+            // of the person bucketing on the old key).
             // Priority: DB override > request's anon_distinct_id > distinct_id
-            if let Some(hash_key_override) = hash_key_overrides
-                .as_ref()
-                .and_then(|h| h.get(&feature_flag.key))
-            {
-                Ok(hash_key_override.clone())
-            } else if feature_flag.has_experience_continuity() {
-                // For EEC flags, use the request's anon_distinct_id as fallback when no DB override exists
-                if let Some(request_override) = request_hash_key_override {
+            if feature_flag.has_experience_continuity() {
+                if let Some(hash_key_override) = hash_key_overrides
+                    .as_ref()
+                    .and_then(|h| h.get(&feature_flag.key))
+                {
+                    Ok(hash_key_override.clone())
+                } else if let Some(request_override) = request_hash_key_override {
+                    // Use the request's anon_distinct_id as fallback when no DB override exists
                     Ok(request_override.clone())
                 } else {
                     Ok(self.distinct_id.clone())
@@ -2055,7 +2119,10 @@ impl FeatureFlagMatcher {
                 self.flag_evaluation_state.get_person_uuid()
             {
                 let query_labels = [("team_id".to_string(), self.team_id.to_string())];
-                let realtime_timer = timing_guard(FLAG_REALTIME_COHORT_QUERY_TIME, &query_labels);
+                // High precision: cache hits complete in microseconds, and plain
+                // timing_guard truncates to integer ms, collapsing them all to 0.
+                let realtime_timer =
+                    timing_guard_high_precision(FLAG_REALTIME_COHORT_QUERY_TIME, &query_labels);
                 let realtime_start = std::time::Instant::now();
 
                 let result = self
@@ -2445,6 +2512,53 @@ mod tests {
             assert!(!stub.deleted);
             assert!(stub.filters.groups.is_empty());
         }
+    }
+
+    /// A stored hash-key override must only steer bucketing while the flag *currently*
+    /// has experience continuity enabled. When continuity is turned off, the row written
+    /// back while it was on is never deleted — so the matcher must fall back to the raw
+    /// distinct_id and ignore the stale override, otherwise every distinct_id of the
+    /// person keeps bucketing on the old key and resolves to the same stale value.
+    #[rstest::rstest]
+    #[case::continuity_off_ignores_stale_override(Some(false), "logged-in-username")]
+    #[case::continuity_unset_ignores_stale_override(None, "logged-in-username")]
+    #[case::continuity_on_applies_override(Some(true), "stale-anon-id")]
+    #[tokio::test]
+    async fn test_hashed_identifier_respects_current_continuity_for_stored_override(
+        #[case] ensure_experience_continuity: Option<bool>,
+        #[case] expected_identifier: &str,
+    ) {
+        use crate::utils::test_utils::{mock_group_type_cache, TestContext};
+
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let matcher = FeatureFlagMatcher::new(
+            "logged-in-username".to_string(),
+            None, // device_id
+            1,
+            context.create_postgres_router(),
+            cohort_cache,
+            mock_group_type_cache(HashMap::new()),
+            None,
+        );
+
+        // Override left behind from when this flag still had continuity enabled.
+        let overrides = HashMap::from([("my_flag".to_string(), "stale-anon-id".to_string())]);
+        let flag = FeatureFlag {
+            key: "my_flag".to_string(),
+            ensure_experience_continuity,
+            ..Default::default()
+        };
+
+        let identifier = matcher
+            .hashed_identifier(&flag, None, Some(&overrides), &None)
+            .unwrap();
+
+        assert_eq!(identifier, expected_identifier);
     }
 
     #[rstest::rstest]

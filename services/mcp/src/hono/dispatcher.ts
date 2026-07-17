@@ -205,7 +205,7 @@ class McpDispatcher {
                 : LATEST_PROTOCOL_VERSION
 
             await this.resourceCatalog.revalidateContextMillResources('initialize')
-            const instructions = await this.instructionsBuilder.build(props, state)
+            const instructions = this.instructionsBuilder.build(state)
 
             initDurationSeconds.observe(props.requestStartTime ? (Date.now() - props.requestStartTime) / 1000 : 0)
             initTotal.inc({ status: 'success' })

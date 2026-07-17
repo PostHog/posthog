@@ -4,22 +4,53 @@ Any MCP server instrumented with the `@posthog/mcp` SDK — and PostHog's own MC
 
 Query the canonical `$`-prefixed event name. Servers instrumented with the `@posthog/mcp` SDK emit only `$mcp_tool_call` / `$mcp_initialize`; PostHog's own hosted server additionally dual-emits legacy un-prefixed `mcp_tool_call` / `mcp_initialize` aliases through a transition shim. Match the canonical name only — an `event IN ('mcp_tool_call', '$mcp_tool_call')` would double-count PostHog's own server.
 
-**HogQL is the primary path here.** Session listing, per-session tool calls, tool-level metrics (error rate, latency, adoption), harness breakdowns, time series, and co-occurrence are all just aggregations over this event — query them with `execute-sql`. The only typed tools are for things SQL can't express: `posthog:mcp-analytics-intent-clusters-retrieve` / `...-recompute` (embedding-based intent clustering) and `posthog:mcp-analytics-sessions-generate-intent` (LLM session summary).
+**For a single tool, prefer the typed tools.** Each takes a `toolName` plus a `dateRange`, runs the same query runner the tool-detail UI uses, and is gated behind the `mcp-analytics` flag, so results match the UI exactly and you don't re-derive the SQL below. `toolName` is the effective name (resolved server-side — the inner tool of a single-exec wrapper call) for all of them, including `posthog:query-mcp-tool-failures`:
+
+| question about one tool                                             | tool                                    |
+| ------------------------------------------------------------------- | --------------------------------------- |
+| headline numbers (calls, errors, p50/p95, users, sessions, intents) | `posthog:query-mcp-tool-stats`          |
+| day-by-day trend                                                    | `posthog:query-mcp-tool-daily-stats`    |
+| top failure buckets, by harness                                     | `posthog:query-mcp-tool-failures`       |
+| top callers (incl. person email/name)                               | `posthog:query-mcp-tool-top-users`      |
+| tools called before/after it (`neighborDirection: before`/`after`)  | `posthog:query-mcp-tool-neighbors`      |
+| recent agent intents                                                | `posthog:query-mcp-tool-sample-intents` |
+| distinct descriptions seen                                          | `posthog:query-mcp-tool-descriptions`   |
+
+And `posthog:query-mcp-harness-breakdown` for the cross-tool harness cut (see below).
+
+**Sessions have typed tools too.** A session is one agent run — the `$mcp_tool_call` events sharing a `$session_id`:
+
+| question about sessions                                 | tool                                             |
+| ------------------------------------------------------- | ------------------------------------------------ |
+| list sessions (calls, start/end, tools, client, person) | `posthog:mcp-analytics-sessions-list`            |
+| one session's calls, chronological                      | `posthog:mcp-analytics-sessions-tool-calls`      |
+| LLM summary of one session's goal                       | `posthog:mcp-analytics-sessions-generate-intent` |
+
+Three things to know before using them:
+
+- **7-day lookback by default.** `posthog:mcp-analytics-sessions-tool-calls` and `posthog:mcp-analytics-sessions-generate-intent` both scan 7 days back, so an older session returns empty unless you pass its `session_start` as `date_from`. Carry that value forward from the list row.
+- **They report the raw `$mcp_tool_name`**, not the effective inner tool of a single-exec wrapper call — unlike the per-tool tools above.
+- **The session list has no error filter or error count.** "Which sessions failed?" is a SQL question.
+
+And two tools cover what SQL can't express at all: `posthog:mcp-analytics-intent-clusters-retrieve` and `posthog:mcp-analytics-intent-clusters-recompute` (embedding-based intent clustering).
+
+**HogQL is the path for everything else** — cross-tool rankings (the tool-quality matrix), custom breakdowns, errored-session filtering, effective tool names within a session — query them with `execute-sql`. It is also the fallback when the `mcp-analytics` flag is off: every typed tool above is gated behind it, `execute-sql` is not.
 
 ## Key properties
 
-| Property                   | Meaning                                                                                                                                  |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `$mcp_tool_name`           | Registered tool name.                                                                                                                    |
-| `$mcp_exec_tool_call_name` | Inner tool name when the call went through the new-SDK single-exec wrapper. See effective-tool-name note below.                          |
-| `$mcp_is_error`            | Whether the call failed. Always read via `toBool(properties.$mcp_is_error)`.                                                             |
-| `$mcp_error_message`       | Error text when `$mcp_is_error` is true.                                                                                                 |
-| `$mcp_duration_ms`         | Wall-clock duration; cast with `toFloat(...)`.                                                                                           |
-| `$session_id`              | Session/conversation id — the grouping key for a single agent run. Use the bare `$session_id` field, not `properties.$session_id`.       |
-| `$mcp_intent`              | The agent's stated intent for the call, when supplied.                                                                                   |
-| `$mcp_client_name`         | Raw client string (e.g. `claude-code/1.2.3`). The dashboard buckets these into harnesses in the frontend; there is no `category` column. |
-| `$mcp_tool_category`       | Tool category, when tagged.                                                                                                              |
-| `$mcp_tool_description`    | Tool description as seen by the agent (revisions over time).                                                                             |
+| Property                   | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `$mcp_tool_name`           | Registered tool name.                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `$mcp_exec_tool_call_name` | Inner tool name when the call went through the new-SDK single-exec wrapper. See effective-tool-name note below.                                                                                                                                                                                                                                                                                                                                                                                   |
+| `$mcp_is_error`            | Whether the call failed. Always read via `toBool(properties.$mcp_is_error)`.                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `$mcp_error_type`          | Semantic failure bucket when `$mcp_is_error` is true (`internal`, `validation`, `api_4xx`, `api_5xx`, `permission`, `timeout`, `rate_limited`, `missing_context`). Only newer SDK/server paths set it.                                                                                                                                                                                                                                                                                            |
+| `$mcp_error_status`        | HTTP status code for an errored call, when the failure came from an HTTP call.                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `$mcp_duration_ms`         | Wall-clock duration; cast with `toFloat(...)`.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `$session_id`              | Session id — the grouping key for a single agent run, and the same id as `$mcp_session_id` (`$session_id` is its materialised column). Use the bare `$session_id` field, not `properties.$session_id`: the `properties.` accessor renders null-wrapped in SELECT but as the raw column in HAVING/ORDER, so a search HAVING would mismatch the GROUP BY key. Some per-tool runners still read `coalesce(properties.$mcp_session_id, properties.$session_id)` — same id, just a defensive fallback. |
+| `$mcp_intent`              | The agent's stated intent for the call, when supplied.                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `$mcp_client_name`         | Raw client string (e.g. `claude-code/1.2.3`). Bucketed into harnesses **server-side** by `products/mcp_analytics/backend/mcp_harness.py` (`HARNESS_TOKEN_SQL` / `harness_label_sql`) — the single source of truth. The frontend only maps the resolved label to a logo. There is no `category` column.                                                                                                                                                                                            |
+| `$mcp_tool_category`       | Tool category, when tagged.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `$mcp_tool_description`    | Tool description as seen by the agent (revisions over time).                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 **Effective tool name.** New-SDK events wrap the real tool in a single-exec call, so to filter/group by the tool the agent actually invoked, use:
 
@@ -27,11 +58,13 @@ Query the canonical `$`-prefixed event name. Servers instrumented with the `@pos
 coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name))
 ```
 
-**Failures with detail.** `$mcp_tool_call` carries `$mcp_is_error` + `$mcp_error_message`; richer stack/exception data is on `$exception` events (`$exception_message`), correlated by `$mcp_session_id` / `$session_id` and timestamp.
+**Failures with detail.** `$mcp_tool_call` carries `$mcp_is_error` plus a semantic `$mcp_error_type` and, for HTTP failures, `$mcp_error_status`. `posthog:query-mcp-tool-failures` groups errored tool calls by these two fields. A free-text `$mcp_error_message` / `$mcp_response` exists in the SDK schema but PostHog's hosted server leaves both empty, so don't rely on them for tool-failure detail. PostHog's own tool calls also don't emit `$exception` events — those only exist for separately-instrumented MCP servers.
 
 ## Example queries
 
-**Error rate of one tool:**
+The SQL below is the fallback for cross-tool rankings and custom cuts. For a single tool's numbers, call the typed tool from the table above instead of re-deriving these.
+
+**Error rate of one tool** (single-tool headline numbers are `posthog:query-mcp-tool-stats`; use this for a custom predicate):
 
 ```sql
 SELECT
@@ -45,7 +78,7 @@ WHERE event = '$mcp_tool_call'
     AND timestamp >= now() - INTERVAL 7 DAY
 ```
 
-**Tool-quality matrix** (error rate + latency percentiles + reach, one row per tool):
+**Tool-quality matrix** (error rate + latency percentiles + reach, one row per tool) — this cross-tool ranking has no typed tool; once you've picked a tool, drill into it with `posthog:query-mcp-tool-stats`, `posthog:query-mcp-tool-failures`, or `posthog:query-mcp-tool-daily-stats`:
 
 ```sql
 SELECT
@@ -66,7 +99,7 @@ GROUP BY tool
 ORDER BY total_calls DESC
 ```
 
-**Daily activity** (success/error split for a time series):
+**Daily activity** (success/error split for a time series) — for one tool's daily series prefer `posthog:query-mcp-tool-daily-stats`; this all-tools version is the custom cut:
 
 ```sql
 SELECT toDate(timestamp) AS day,
@@ -79,7 +112,11 @@ GROUP BY day ORDER BY day
 
 ### Harness (client) bucketing
 
-`$mcp_client_name` is the raw client string the MCP client sends (`claude-code/1.2.3`, `Anthropic/ClaudeAI`, `windsurf`, sometimes with a `(via mcp-remote …)` suffix), but newer Anthropic clients stopped sending it — they report identity only via the `x-anthropic-client` header (`mcp_vendor_client`: `ClaudeCode`, `ClaudeAI`, `Cowork`, `ClaudeDesign`) or the User-Agent (`$mcp_client_user_agent`). Grouping on `$mcp_client_name` alone therefore drops nearly all Claude traffic into "Other". Resolve an effective client first — prefer `$mcp_client_name`, then the vendor header (matched case-insensitively), then the User-Agent's leading product token plus its first parenthetical token as a surface suffix (e.g. `claude-code cli`, `claude-code claude-desktop`, `openai-mcp chatgpt`); the version segment between them is dropped so `claude-code/2.1.x` folds to one token. Then bucket with `multiIf`, listing surface-specific tokens before the generic prefix match. Clients whose parenthetical is platform/arch noise (e.g. `cursor darwin arm64`) still fold to one bucket via the generic `startsWith`. This mapping mirrors `HARNESS_REGISTRY` / `categorizeHarness()` in `products/mcp_analytics/frontend/dashboard/harnessRegistry.ts` — keep the two in sync until a materialized `$mcp_harness` property exists. (HogQL has no `WITH <expr> AS alias`, so the normalized name `h` is computed in a subquery, not a CTE.)
+A "harness" is the friendly product label for the MCP client that made a call — "Claude Agent SDK", "OpenAI Codex", "Cursor", … It is resolved **server-side** by `MCPHarnessBreakdownQueryRunner`, the single source of truth (`products/mcp_analytics/backend/mcp_harness.py`).
+
+**Prefer the typed tool.** For "which harnesses use our MCP, and how reliably?", call the `posthog:query-mcp-harness-breakdown` tool (gated behind the `mcp-analytics` flag). It returns calls / errors / error-rate / sessions per harness and accepts the same `dateRange` / `properties` / `filterTestAccounts` filters as the dashboard, so results match the UI exactly — no hand-written bucketing needed. It also accepts an optional `toolName` to scope the breakdown to one effective tool — but note that scoping **also restricts the result to new-SDK events** (`$mcp_source = 'posthog_mcp_analytics'`), so old-SDK and third-party calls for that tool are excluded and a harness can be undercounted. For a one-tool harness cut across all SDK sources, use `execute-sql`. Anything the typed tools don't express drops to `execute-sql` below.
+
+**Use `execute-sql` for custom cuts** the typed tool doesn't cover (share-of-users, latency percentiles, per-tool, a trends breakdown). Resolution is two steps: resolve a normalized token from the strongest signal available, then bucket it. An event carries only raw signals — the `x-anthropic-client` header (`mcp_vendor_client`) is the only thing separating Anthropic's pooled surfaces (Cowork / Claude.ai / Claude Design); Claude Code's build (cli / sdk / vscode / desktop) rides in the User-Agent; the posthog-node MCP analytics SDK reports its `clientInfo.name` as `$mcp_client_name`, and the hosted server's session-pinned `mcp_session_client_name` covers everyone else; `$mcp_client_user_agent` and `$mcp_oauth_client_name` are last fallbacks. The SQL below mirrors `harness_label_sql` / `HARNESS_TOKEN_SQL` in `mcp_harness.py`; keep them in step until a materialized `$mcp_harness` property exists. (HogQL has no `WITH <expr> AS alias`, so the normalized name `h` is computed in a subquery, not a CTE.)
 
 **Share of users by harness** (answers "what % of my users are on Claude Code"):
 
@@ -108,6 +145,7 @@ FROM (
             h = 'openai-mcp responses api', 'OpenAI Responses API',
             startsWith(h, 'openai-mcp'), 'OpenAI',
             startsWith(h, 'codex'), 'OpenAI Codex',
+            startsWith(h, 'grok'), 'Grok',
             startsWith(h, 'cursor'), 'Cursor',
             startsWith(h, 'visual studio code'), 'VS Code',
             h = 'windsurf', 'Windsurf',
@@ -116,6 +154,10 @@ FROM (
             h = 'manus', 'Manus',
             h = 'coderabbit', 'CodeRabbit',
             startsWith(h, 'notion'), 'Notion',
+            startsWith(h, 'linear'), 'Linear',
+            position(h, 'librechat') > 0, 'LibreChat',
+            startsWith(h, 'pi-client'), 'Pi',
+            startsWith(h, 'antigravity'), 'Antigravity',
             h = 'poke', 'Poke',
             h = 'opencode', 'opencode',
             startsWith(h, 'kiro'), 'Kiro',
@@ -125,24 +167,34 @@ FROM (
     FROM (
         SELECT
             distinct_id,
-            lower(trim(replaceRegexpOne(
+            trim(replaceRegexpAll(lower(
                 coalesce(
-                    nullIf(toString(properties.$mcp_client_name), ''),
                     multiIf(
                         lower(toString(properties.mcp_vendor_client)) = 'claudecode', 'claude-code',
                         lower(toString(properties.mcp_vendor_client)) = 'claudeai', 'claude-ai',
                         lower(toString(properties.mcp_vendor_client)) = 'cowork', 'cowork',
                         lower(toString(properties.mcp_vendor_client)) = 'claudedesign', 'claude-design',
-                        nullIf(toString(properties.mcp_vendor_client), '')
+                        NULL
                     ),
+                    if(lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')) = 'claude-code',
+                       trim(concat(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'), ' ', extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)'))),
+                       NULL),
+                    -- grok.com Connectors carries `grok-` only in the UA; its clientInfo.name
+                    -- is the generic "connectors-manager", so promote the grok UA above it.
+                    if(startsWith(lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')), 'grok'),
+                       trim(concat(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'), ' ', extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)'))),
+                       NULL),
+                    nullIf(nullIf(toString(properties.$mcp_client_name), ''), 'mcp'),
+                    nullIf(nullIf(toString(properties.mcp_session_client_name), ''), 'mcp'),
                     nullIf(trim(concat(
                         extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'),
                         ' ',
                         extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)')
                     )), ''),
+                    nullIf(toString(properties.$mcp_oauth_client_name), ''),
                     ''
-                ),
-                '\\s*\\(via mcp-remote[^)]*\\)\\s*', ''))) AS h
+                )
+            ), '\\s*\\(via mcp-remote[^)]*\\)\\s*', '')) AS h
         FROM events
         WHERE event = '$mcp_tool_call' AND timestamp >= now() - INTERVAL 30 DAY
     )
@@ -153,7 +205,7 @@ ORDER BY users DESC
 
 The `multiIf` above is the canonical bucket list. The denominator is total distinct users, so per-harness shares can sum past 100% (one user may use several harnesses). Swap the outer aggregate for other harness cuts — `count()` for call volume, `quantile(0.95)(toFloat(properties.$mcp_duration_ms))` for latency. For `query-trends`, pass the inner `multiIf(...)` over the normalized client name as a **HogQL breakdown** to get the same buckets in a trends series.
 
-**Tool co-occurrence** (which tool tends to run right before a given tool, within a session):
+**Tool co-occurrence** (which tool tends to run right before a given tool, within a session) — prefer `posthog:query-mcp-tool-neighbors` (`neighborDirection: before`/`after`); this SQL is the recipe behind it, for custom window logic:
 
 ```sql
 SELECT prev_tool AS tool, count() AS co_occurrences

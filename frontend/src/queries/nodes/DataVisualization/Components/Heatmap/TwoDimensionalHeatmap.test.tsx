@@ -53,7 +53,11 @@ const response = {
     ],
 }
 
-const setup = (nullLabel = '(header null)', nullValue = ''): ReturnType<typeof dataVisualizationLogic.build> => {
+const setup = (
+    nullLabel = '(header null)',
+    nullValue = '',
+    responseOverride: typeof response = response
+): ReturnType<typeof dataVisualizationLogic.build> => {
     logicCounter += 1
     const testKey = `test-two-dimensional-heatmap-${logicCounter}`
     const query = makeQuery(nullLabel, nullValue)
@@ -65,7 +69,7 @@ const setup = (nullLabel = '(header null)', nullValue = ''): ReturnType<typeof d
 
     const logic = dataVisualizationLogic(props)
     logic.mount()
-    dataNodeLogic({ key: testKey, query: query.source, dataNodeCollectionId }).actions.setResponse(response)
+    dataNodeLogic({ key: testKey, query: query.source, dataNodeCollectionId }).actions.setResponse(responseOverride)
 
     render(
         <Provider>
@@ -81,10 +85,33 @@ const setup = (nullLabel = '(header null)', nullValue = ''): ReturnType<typeof d
 describe('TwoDimensionalHeatmap', () => {
     afterEach(() => {
         cleanup()
+        // Guard against any pollution leaking into other tests if a regression reintroduces it
+        delete (Object.prototype as any).disableClientSideRouting
     })
 
     beforeEach(() => {
         initKeaTests()
+    })
+
+    it('does not pollute Object.prototype when row labels contain __proto__', async () => {
+        // Attacker-controlled query results: a Y-axis label of `__proto__` and an X-axis label that
+        // is a sensitive global key. With a plain-object accumulator, cellValues['__proto__'][key] = 1
+        // writes straight to Object.prototype, which the Link component then reads to bypass URL sanitization.
+        const maliciousResponse = {
+            columns: ['region', 'segment', 'count'],
+            types: [
+                ['region', 'String'],
+                ['segment', 'String'],
+                ['count', 'Int64'],
+            ] as [string, string][],
+            results: [['disableClientSideRouting', '__proto__', 1]],
+        }
+
+        setup('(header null)', '', maliciousResponse)
+
+        expect(await screen.findByText('disableClientSideRouting')).toBeInTheDocument()
+        expect(({} as any).disableClientSideRouting).toBeUndefined()
+        expect('disableClientSideRouting' in Object.prototype).toBe(false)
     })
 
     it('uses the null label in headers and the null value in cell contents', async () => {

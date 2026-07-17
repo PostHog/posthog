@@ -1,5 +1,5 @@
+import { parseJSON } from '~/common/utils/json-parse'
 import { SerializedSessionKey, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
-import { parseJSON } from '~/utils/json-parse'
 
 export function serializeSessionKey(key: SessionKey): string {
     const serialized: SerializedSessionKey = {

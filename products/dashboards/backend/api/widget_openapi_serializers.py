@@ -15,6 +15,7 @@ from products.dashboards.backend.widget_specs.openapi import (
     DashboardWidgetConfigField,
     DashboardWidgetConfigOpenApi,
     PatchedDashboardOpenApiSerializer,
+    UpdateDashboardWidgetRequestOpenApi,
     WidgetCatalogEntryOpenApi,
     WidgetCatalogResponseSerializer,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "DashboardWidgetConfigField",
     "DashboardWidgetConfigOpenApi",
     "PatchedDashboardOpenApiSerializer",
+    "UpdateDashboardWidgetRequestOpenApi",
     "WidgetCatalogEntryOpenApi",
     "WidgetCatalogResponseSerializer",
     "WIDGET_BATCH_ADD_OPENAPI_HELP",

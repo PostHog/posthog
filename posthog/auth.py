@@ -34,7 +34,7 @@ from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, get_oidc_verification_keys
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import (
     LEGACY_PERSONAL_API_KEY_SALT,
     PERSONAL_API_KEY_AUTH_COUNTER,
@@ -47,6 +47,7 @@ from posthog.models.user import User
 from posthog.models.utils import hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import verify_passkey_authentication_response
+from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
 
@@ -68,13 +69,6 @@ structlog_logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 _SECRET_API_KEY_RE = re.compile(r"^phs_[a-zA-Z0-9]+$")
-
-SECRET_API_KEY_BODY_FIELD = "secret_api_key"
-
-SECRET_API_KEY_BODY_COUNTER = Counter(
-    "api_auth_secret_api_key_body",
-    "Requests where the team secret token is provided in the request body instead of the Authorization header",
-)
 
 PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
     "api_auth_personal_api_key_query_param",
@@ -332,11 +326,10 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         return cls.keyword
 
 
-def _extract_phs_token(request: Union[HttpRequest, Request], allow_body_token: bool = False) -> Optional[str]:
+def _extract_phs_token(request: Union[HttpRequest, Request]) -> Optional[str]:
     """
-    Find a `phs_` secret token in the request. Checks the Authorization header first
-    (Bearer scheme), then the request body field `secret_api_key`. Used by both
-    TeamSecretTokenAuthentication (legacy Team.secret_api_token) and
+    Find a `phs_` secret token in the request Authorization header (Bearer scheme).
+    Used by both TeamSecretTokenAuthentication (legacy Team.secret_api_token) and
     ProjectSecretAPIKeyAuthentication (PSAK model).
     """
     if "authorization" in request.headers:
@@ -345,17 +338,6 @@ def _extract_phs_token(request: Union[HttpRequest, Request], allow_body_token: b
             token = authorization_match.group(1).strip()
             if _SECRET_API_KEY_RE.match(token):
                 return token
-
-    if allow_body_token:
-        # Wrap HttpRequest in a DRF Request only when we actually need to read the parsed body.
-        if not isinstance(request, Request):
-            request = Request(request)
-        data = request.data
-        if isinstance(data, dict):
-            candidate = data.get(SECRET_API_KEY_BODY_FIELD)
-            if isinstance(candidate, str) and _SECRET_API_KEY_RE.match(candidate):
-                SECRET_API_KEY_BODY_COUNTER.inc()
-                return candidate
 
     return None
 
@@ -382,15 +364,13 @@ class TeamSecretTokenAuthentication(authentication.BaseAuthentication):
     attached, so downstream permission code can resolve team context without a
     real User.
 
-    Only the first key candidate found in the request is tried, and the order is:
-    1. Request Authorization header of type Bearer.
-    2. Request body (`secret_api_key` field).
+    The token is read from the Authorization header (Bearer scheme) only.
     """
 
     keyword = "Bearer"
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        secret_api_token = _extract_phs_token(request, allow_body_token=True)
+        secret_api_token = _extract_phs_token(request)
 
         if not secret_api_token:
             return None
@@ -448,7 +428,7 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     keyword = "Bearer"
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        token = _extract_phs_token(request, allow_body_token=False)
+        token = _extract_phs_token(request)
         if not token:
             return None
 
@@ -591,6 +571,13 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
             if not site_url:
                 raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
 
+            # The token's `aud` is the resource it was minted for (id_jag._construct_access_token_payload).
+            # Accept SITE_URL plus any advertised resource identifier; `iss` stays SITE_URL (we mint it).
+            # Function-level import keeps the heavier id_jag module off auth.py's foundational import path.
+            from posthog.api.id_jag import get_allowed_resources  # noqa: PLC0415
+
+            allowed_resources = get_allowed_resources()
+
             # Try the active signing key first, then any keys being rotated out. A wrong
             # key fails the signature check, so we move on; a key that matches but fails
             # claim validation (expiry, audience, …) raises the real error to report.
@@ -601,7 +588,7 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
                         token,
                         verification_key,
                         algorithms=["RS256"],
-                        audience=site_url,
+                        audience=allowed_resources,
                         issuer=site_url,
                         leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
                         options={
@@ -720,7 +707,9 @@ def _organization_disallows_public_sharing(sharing_configuration: SharingConfigu
     ORGANIZATION_SECURITY_SETTINGS feature. Sharing tokens must fail closed in that case,
     even though individual `SharingConfiguration` rows remain `enabled=True`.
     """
-    organization = sharing_configuration.team.organization
+    # Fetch the organization directly via the team FK rather than `sharing_configuration.team.organization`,
+    # which would lazy-load the entire wide `posthog_team` row just to hop to the organization.
+    organization = Organization.objects.get(team=sharing_configuration.team_id)
     return (
         organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
         and not organization.allow_publicly_shared_resources
@@ -755,7 +744,7 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
                     raise AuthenticationFailed(detail="Sharing access token is invalid.")
 
                 self.sharing_configuration = sharing_configuration
-                return (AnonymousUser(), None)
+                return (SharedLinkUser(sharing_configuration), None)
         return None
 
 
@@ -817,7 +806,7 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
 
             self.sharing_configuration = sharing_configuration
             self.share_password = share_password
-            return (AnonymousUser(), None)
+            return (SharedLinkUser(sharing_configuration), None)
 
         except jwt.InvalidTokenError:
             # Expected: JWT decode failed (likely a personal API key was passed)

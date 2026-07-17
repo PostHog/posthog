@@ -2,7 +2,7 @@ import json
 import asyncio
 from typing import Any
 
-import temporalio
+from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
@@ -61,7 +61,7 @@ def _build_sentiment_activity_result(
     }
 
 
-@temporalio.activity.defn
+@activity.defn
 async def execute_sentiment_eval_activity(
     evaluation: dict[str, Any], event_data: dict[str, Any]
 ) -> EvaluationActivityResult:

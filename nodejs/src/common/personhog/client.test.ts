@@ -2,24 +2,24 @@ import { create } from '@bufbuild/protobuf'
 import { Code, ConnectError, type ServiceImpl, createRouterTransport } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
-import { PersonHogService } from '~/generated/personhog/personhog/service/v1/service_pb'
-import { ConsistencyLevel } from '~/generated/personhog/personhog/types/v1/common_pb'
+import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
+import { ConsistencyLevel } from '~/common/generated/personhog/personhog/types/v1/common_pb'
 import {
     GroupSchema,
     GroupTypeMappingSchema,
     GroupTypeMappingsByKeySchema,
-} from '~/generated/personhog/personhog/types/v1/group_pb'
+} from '~/common/generated/personhog/personhog/types/v1/group_pb'
 import type {
     GetGroupRequest,
     GetGroupTypeMappingsByProjectIdsRequest,
     GetGroupTypeMappingsByTeamIdsRequest,
     GetGroupsBatchRequest,
-} from '~/generated/personhog/personhog/types/v1/group_pb'
-import { PersonSchema } from '~/generated/personhog/personhog/types/v1/person_pb'
+} from '~/common/generated/personhog/personhog/types/v1/group_pb'
+import { PersonSchema } from '~/common/generated/personhog/personhog/types/v1/person_pb'
 import type {
     GetPersonsByDistinctIdsRequest,
     GetPersonsByUuidsRequest,
-} from '~/generated/personhog/personhog/types/v1/person_pb'
+} from '~/common/generated/personhog/personhog/types/v1/person_pb'
 
 import {
     PersonHogClient,
@@ -356,8 +356,22 @@ describe('PersonHogClient', () => {
                 const result = await client.groups.fetchGroupsByKeys([1, 2], [0, 1], ['acme', 'globex'])
 
                 expect(result).toEqual([
-                    { team_id: 1, group_type_index: 0, group_key: 'acme', group_properties: { name: 'Acme' } },
-                    { team_id: 2, group_type_index: 1, group_key: 'globex', group_properties: { name: 'Globex' } },
+                    {
+                        team_id: 1,
+                        group_type_index: 0,
+                        group_key: 'acme',
+                        group_properties: { name: 'Acme' },
+                        created_at: DateTime.fromMillis(Number(CREATED_AT_MS), { zone: 'utc' }),
+                        version: 3,
+                    },
+                    {
+                        team_id: 2,
+                        group_type_index: 1,
+                        group_key: 'globex',
+                        group_properties: { name: 'Globex' },
+                        created_at: DateTime.fromMillis(Number(CREATED_AT_MS), { zone: 'utc' }),
+                        version: 3,
+                    },
                 ])
             })
 
@@ -380,7 +394,14 @@ describe('PersonHogClient', () => {
                 const result = await client.groups.fetchGroupsByKeys([1, 1], [0, 1], ['found', 'missing'])
 
                 expect(result).toEqual([
-                    { team_id: 1, group_type_index: 0, group_key: 'found', group_properties: { x: 1 } },
+                    {
+                        team_id: 1,
+                        group_type_index: 0,
+                        group_key: 'found',
+                        group_properties: { x: 1 },
+                        created_at: DateTime.fromMillis(Number(CREATED_AT_MS), { zone: 'utc' }),
+                        version: 3,
+                    },
                 ])
             })
 

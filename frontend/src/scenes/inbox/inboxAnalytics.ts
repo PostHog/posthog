@@ -39,8 +39,10 @@ export type InboxReportCloseMethod = 'next_report' | 'deselected' | 'unmount'
  */
 export type InboxReportActionType =
     | 'dismiss'
+    | 'discuss'
     | 'restore'
     | 'create_pr'
+    | 'refund'
     | 'add_suggested_reviewer'
     | 'remove_suggested_reviewer'
 
@@ -65,10 +67,10 @@ interface BaseReportProperties {
 }
 
 /**
- * Identity + classification for a report. Deliberately excludes free-form content (the report
- * title, dismissal notes): reports are generated from a customer's own data, so their titles can
- * carry proprietary detail, and these events flow to first-party app analytics. We keep events to
- * opaque ids, enums, ages, and counts.
+ * Identity + classification for a report. Kept to opaque ids, enums, ages, and counts — it never
+ * includes the agent-generated report title, which can echo proprietary detail from a customer's
+ * own data. A user-authored dismissal reason note is a different case: it is the actionable signal
+ * we want, so the relevant capture call attaches it explicitly.
  */
 function baseReportProperties(report: SignalReport): BaseReportProperties {
     return {

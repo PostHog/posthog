@@ -9,20 +9,20 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
 
 
 INVALID_CONNECTION_ID_ERROR = (
-    "Invalid connectionId: not a direct external data source (access_method='direct') in this team. "
-    "Warehouse import sources are not valid here."
+    "Invalid connectionId: no direct-query-capable data source with this id in this team, "
+    "or you don't have access to it."
 )
 
 
 def get_direct_connection_source(
-    team: "Team", connection_id: str | None, *, user: Optional["User"] = None
+    team: "Team", connection_id: str | None, *, user: Optional["User"] = None, require_pure_direct: bool = False
 ) -> ExternalDataSource | None:
     if not connection_id:
         return None
@@ -32,16 +32,25 @@ def get_direct_connection_source(
     except ValueError:
         return None
 
+    # Function-local: keeps the direct-SQL driver imports off the django.setup() path (startup-import-budget).
+    from posthog.hogql.direct_sql.capability import is_direct_capable  # noqa: PLC0415
+
     source = (
         ExternalDataSource.objects.filter(
             team_id=team.pk,
             id=source_uuid,
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
         )
         .exclude(deleted=True)
         .first()
     )
-    if source is None:
+    if source is None or not is_direct_capable(source):
+        return None
+
+    # Synced (warehouse) sources only expose their `should_sync` catalog — raw SQL bypasses that
+    # boundary and reads any upstream table, so raw queries are pure-direct only. Pure-direct
+    # sources have no restricted catalog to bypass; the whole external database is the intended
+    # surface.
+    if require_pure_direct and source.access_method != ExternalDataSource.AccessMethod.DIRECT:
         return None
 
     if user is not None and not UserAccessControl(user=user, team=team).check_access_level_for_object(
@@ -58,8 +67,9 @@ def get_direct_connection_source_none_or_raise(
     *,
     user: Optional["User"] = None,
     error_factory: Callable[[str], Exception],
+    require_pure_direct: bool = False,
 ) -> ExternalDataSource | None:
-    source = get_direct_connection_source(team, connection_id, user=user)
+    source = get_direct_connection_source(team, connection_id, user=user, require_pure_direct=require_pure_direct)
     if connection_id and source is None:
         raise error_factory(INVALID_CONNECTION_ID_ERROR)
     return source

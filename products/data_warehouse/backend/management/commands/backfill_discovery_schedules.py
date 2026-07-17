@@ -32,11 +32,10 @@ from django.core.management.base import BaseCommand
 
 import structlog
 
-from posthog.temporal.data_imports.sources import SourceRegistry
-
-from products.data_warehouse.backend.data_load.service import bulk_sync_discover_schemas_schedules
-from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.data_warehouse.backend.logic.data_load.service import bulk_sync_discover_schemas_schedules
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.source_management import SourceRegistry
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 

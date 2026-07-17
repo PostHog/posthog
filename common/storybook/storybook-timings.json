@@ -19,17 +19,13 @@
         "chromium": 10.737,
         "webkit": 2.788
     },
-    "frontend/src/layout/navigation-3000/components/KeyboardShortcut.stories.tsx": {
+    "frontend/src/lib/components/KeyboardShortcut/KeyboardShortcut.stories.tsx": {
         "chromium": 9.89,
         "webkit": 3.264
     },
     "frontend/src/layout/navigation-3000/sidepanel/SidePanel.stories.tsx": {
         "chromium": 49.554,
         "webkit": 18.815
-    },
-    "frontend/src/layout/panel-layout/PinnedFolder/EditCustomProductsModal.stories.tsx": {
-        "chromium": 2.156,
-        "webkit": 2.142
     },
     "frontend/src/layout/panel-layout/ProjectTree/ProjectTree.stories.tsx": {
         "chromium": 14.621,

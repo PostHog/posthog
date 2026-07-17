@@ -56,7 +56,6 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.activities.fail_materialization import (
     CONSECUTIVE_TIMEOUTS_TO_PAUSE,
     should_pause_schedule_for_timeout,
@@ -66,15 +65,20 @@ from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_me
 from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import DuckLakeCopyDataModelingWorkflow
 from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
-from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
-from products.data_warehouse.backend.data_load.saved_query_service import a_pause_saved_query_schedule
-from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
-from products.endpoints.backend.rate_limit import update_materialization_ready_for_saved_query
-from products.endpoints.backend.services.materialization import prepare_executable_query
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
+from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_warehouse.backend.facade.api import (
+    a_pause_saved_query_schedule,
+    create_table_from_saved_query,
+    ensure_bucket_exists,
+    get_s3_client,
+)
+from products.endpoints.backend.facade.temporal import (
+    prepare_executable_query,
+    update_materialization_ready_for_saved_query,
+)
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.temporal import prepare_s3_files_for_querying
 
 LOGGER = get_logger(__name__)
 

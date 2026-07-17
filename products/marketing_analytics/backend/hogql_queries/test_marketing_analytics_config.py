@@ -38,7 +38,7 @@ class TestMarketingAnalyticsConfig(BaseTest):
         assert not config.is_multi_touch
 
     @patch(
-        "products.marketing_analytics.backend.hogql_queries.marketing_analytics_config.posthoganalytics.feature_enabled",
+        "products.marketing_analytics.backend.hogql_queries.marketing_analytics_config.feature_enabled_or_false",
         return_value=True,
     )
     def test_from_team_multi_touch_flag_enabled_keeps_mode(self, mock_ff):
@@ -50,7 +50,7 @@ class TestMarketingAnalyticsConfig(BaseTest):
         assert len(self._multi_touch_flag_calls(mock_ff)) == 1
 
     @patch(
-        "products.marketing_analytics.backend.hogql_queries.marketing_analytics_config.posthoganalytics.feature_enabled",
+        "products.marketing_analytics.backend.hogql_queries.marketing_analytics_config.feature_enabled_or_false",
         return_value=False,
     )
     def test_from_team_multi_touch_flag_disabled_falls_back_to_last_touch(self, mock_ff):
@@ -61,7 +61,7 @@ class TestMarketingAnalyticsConfig(BaseTest):
         assert not config.is_multi_touch
 
     @patch(
-        "products.marketing_analytics.backend.hogql_queries.marketing_analytics_config.posthoganalytics.feature_enabled",
+        "products.marketing_analytics.backend.hogql_queries.marketing_analytics_config.feature_enabled_or_false",
         return_value=None,
     )
     def test_from_team_multi_touch_flag_returns_none_falls_back(self, mock_ff):
@@ -77,7 +77,7 @@ class TestMarketingAnalyticsConfig(BaseTest):
         self._set_attribution_mode(AttributionMode.FIRST_TOUCH)
 
         with patch(
-            "products.marketing_analytics.backend.hogql_queries.marketing_analytics_config.posthoganalytics.feature_enabled",
+            "products.marketing_analytics.backend.hogql_queries.marketing_analytics_config.feature_enabled_or_false",
         ) as mock_ff:
             config = MarketingAnalyticsConfig.from_team(self.team)
 

@@ -28,6 +28,8 @@ from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.scoping.product_mixin import ProductTeamModel
 from posthog.models.utils import UUIDModel
 
+from .logic.generated import APPROVAL_REQUEST_STATES
+
 REVISION_STATE_CHOICES = [
     ("draft", "draft"),
     ("ready", "ready"),
@@ -127,6 +129,15 @@ class AgentRevision(ProductTeamModel, UUIDModel):
 
     spec = models.JSONField(default=dict)
 
+    # Draft references to versioned skills in the llma-skill store. Each entry
+    # is {from_template, alias, version?}. Freeze resolves them against the
+    # store at the pinned version, materializes the skill (SKILL.md + any
+    # companion files) into the bundle under skills/<alias>/, and stamps
+    # provenance onto the frozen spec — so a frozen revision never re-resolves a
+    # possibly-changed skill at runtime. Authoring-time only; carried forward
+    # when a new draft is forked from a parent.
+    skill_refs = models.JSONField(default=list, db_default=Value("[]"))
+
     # Encrypted JSON env block — the secret values this revision runs with.
     # Decrypted at runtime by the worker via `EncryptedFields` (see
     # services/agent-shared/src/runtime/encryption.ts). Lives on the revision
@@ -177,19 +188,17 @@ class AgentSession(ProductTeamModel, UUIDModel):
     pending_elevation_requests = models.JSONField(default=list, db_default=Value("[]"))
     claimed_at = models.DateTimeField(null=True, blank=True)
     retry_count = models.IntegerField(default=0, db_default=0)
-    # Set to true when the session was created via the preview ingress path
-    # (preview-proxy or direct ingress with a valid `aud=agent-ingress.preview`
-    # JWT). Output adapters (slack reply, webhook publish) noop on preview; the
-    # analytics sink tags `$ai_*` events so author iteration doesn't skew prod
-    # observability dashboards. Cron is implicitly safe (janitor only schedules
-    # off `live_revision_id`), so preview sessions never originate from cron.
-    is_preview = models.BooleanField(default=False, db_default=False)
     usage_total = models.JSONField(
         default=dict,
         db_default=Value(
             '{"tokens_in": 0, "tokens_out": 0, "cache_read": 0, "cache_write": 0, "cost_input": 0, "cost_output": 0, "cost_cache_read": 0, "cost_cache_write": 0, "cost_total": 0}'
         ),
     )
+    # Derived on every conversation write by the node SessionQueue so the list
+    # view + search never read the full `conversation` JSONB. search_text is a
+    # truncated user+assistant text digest; turn_count is len(conversation).
+    search_text = models.TextField(null=True, blank=True)
+    turn_count = models.IntegerField(default=0, db_default=0)
     created_at = models.DateTimeField(auto_now_add=True, db_default=Now())
     updated_at = models.DateTimeField(auto_now=True, db_default=Now())
 
@@ -281,13 +290,6 @@ class AgentToolApprovalRequest(ProductTeamModel, UUIDModel):
     decision_reason = models.TextField(null=True, blank=True)
     decided_args = models.JSONField(null=True, blank=True)
     dispatch_outcome = models.JSONField(null=True, blank=True)
-    # Mirrors `agent_session.is_preview` for the owning session. Approval rows
-    # are emitted from the runner with the session's value copied at insert
-    # time, so the listing serializer can render a preview badge without an
-    # additional join. Same flag drives the approval-dispatch path: a preview
-    # approval that resolves still routes its outcome through the runner's
-    # preview-aware adapter set, never the live publish surface.
-    is_preview = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True, db_default=Now())
     expires_at = models.DateTimeField()
 
@@ -296,16 +298,10 @@ class AgentToolApprovalRequest(ProductTeamModel, UUIDModel):
         constraints = [
             models.CheckConstraint(
                 name="agent_tool_approval_request_state_valid",
-                condition=Q(
-                    state__in=[
-                        "queued",
-                        "approving",
-                        "dispatched",
-                        "dispatched_failed",
-                        "rejected",
-                        "expired",
-                    ]
-                ),
+                # Imported from the generated artifact (source: approval-store.ts). Changing it
+                # needs a migration, deploy-ordered vs the runner: widen the CHECK before a new
+                # state, narrow after it stops being written.
+                condition=Q(state__in=APPROVAL_REQUEST_STATES),
             ),
             models.UniqueConstraint(
                 fields=["session_id", "tool_name", "args_hash"],
@@ -409,4 +405,37 @@ class AgentIdentityLinkState(ProductTeamModel, UUIDModel):
         db_table = "agent_identity_link_state"
         indexes = [
             models.Index(fields=["expires_at"], name="ails_expires_idx"),
+        ]
+
+
+class AgentTransportBinding(ProductTeamModel, UUIDModel):
+    """Durable transport→canonical-identity binding.
+
+    Records that a transport principal (a Slack/Discord/HTTP agent_user) was
+    authenticated, via the agent's authoritative provider, AS a canonical
+    identity (another agent_user keyed `identity:<provider>` / subject). The
+    ingress resolves this at admission so a session only runs once a verified
+    identity exists. One canonical identity may have many bindings (the same
+    person across transports); unlink = delete a binding.
+    """
+
+    application_id = models.UUIDField()
+    # The transport principal (agent_user.id, principal_kind = transport).
+    transport_agent_user_id = models.UUIDField()
+    # The canonical identity (agent_user.id, principal_kind = identity:<provider>).
+    canonical_agent_user_id = models.UUIDField()
+    # Authoritative provider that established the binding.
+    provider = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True, db_default=Now())
+
+    class Meta:
+        db_table = "agent_transport_binding"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["application_id", "transport_agent_user_id"],
+                name="agent_transport_binding_unique_transport",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["application_id", "canonical_agent_user_id"], name="atb_canonical_idx"),
         ]

@@ -1,14 +1,17 @@
 import asyncio
 import os
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.datastructures import Headers
 
+from llm_gateway.api.anthropic import _is_anthropic_billing_block
+from llm_gateway.api.handler import ProviderError
 from llm_gateway.request_context import (
     extract_posthog_flags_from_headers,
     extract_posthog_properties_from_headers,
@@ -502,6 +505,160 @@ class TestAnthropicMessagesEndpoint:
         assert "provider" not in call_kwargs
         assert "use_bedrock_fallback" not in call_kwargs
 
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_cloudflare_provider_routes_to_cloudflare(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        provider_mock_response: dict,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
+
+        with patch(
+            "llm_gateway.glm_routing.make_cloudflare_anthropic_call",
+        ) as mock_make_call:
+            mock_llm_call = AsyncMock(return_value=mock_response)
+            mock_make_call.return_value = mock_llm_call
+
+            with patch(
+                "llm_gateway.glm_routing.ensure_cloudflare_configured",
+                return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
+            ):
+                response = authenticated_client.post(
+                    "/v1/messages",
+                    json={
+                        "model": "@cf/moonshotai/kimi-k2.6",
+                        "messages": [{"role": "user", "content": "Hello"}],
+                    },
+                    headers={
+                        "Authorization": "Bearer phx_test_key",
+                        "X-PostHog-Provider": "cloudflare",
+                    },
+                )
+
+            assert response.status_code == 200
+            mock_make_call.assert_called_once()
+            mock_anthropic.assert_not_called()
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_cf_model_routes_to_cloudflare_without_provider_header(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        provider_mock_response: dict,
+    ) -> None:
+        # Real scout case: the harness derives the provider header from the runtime (claude->anthropic)
+        # and never sends "cloudflare", so a claude-runtime scout on GLM arrives as provider="anthropic".
+        # Without id-based routing it would hit the real Anthropic API with a @cf/... model and 404.
+        # Tools are forwarded — the Anthropic->chat/completions adapter translates them (unlike Responses).
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
+
+        with patch("llm_gateway.glm_routing.make_cloudflare_anthropic_call") as mock_make_call:
+            mock_make_call.return_value = AsyncMock(return_value=mock_response)
+            with patch(
+                "llm_gateway.glm_routing.ensure_cloudflare_configured",
+                return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
+            ):
+                response = authenticated_client.post(
+                    "/v1/messages",
+                    json={
+                        "model": "@cf/zai-org/glm-5.2",
+                        "messages": [{"role": "user", "content": "find issues"}],
+                        "tools": [
+                            {
+                                "name": "emit_signal",
+                                "description": "emit a finding",
+                                "input_schema": {"type": "object", "properties": {"title": {"type": "string"}}},
+                            }
+                        ],
+                    },
+                    # No X-PostHog-Provider header -> defaults to anthropic, as a claude-runtime scout sends.
+                    headers={"Authorization": "Bearer phx_test_key"},
+                )
+
+        assert response.status_code == 200
+        mock_make_call.assert_called_once()
+        # Must never reach the real Anthropic path with a `@cf/` model.
+        mock_anthropic.assert_not_called()
+        forwarded = mock_make_call.return_value.call_args.kwargs
+        assert forwarded["model"] == "@cf/zai-org/glm-5.2"
+        assert forwarded["tools"][0]["name"] == "emit_signal"
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_cloudflare_provider_streams_through_cloudflare(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+    ) -> None:
+        """Exercises the streaming branch of the Cloudflare Anthropic route end to end:
+        the routed llm_call returns an async iterator of Anthropic-shaped events,
+        format_sse_stream forwards them, and the gateway emits SSE chunks to the client.
+        """
+
+        async def fake_stream():
+            yield b'event: message_start\ndata: {"type":"message_start"}\n\n'
+            yield b'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"text":"hi"}}\n\n'
+            yield b'event: message_stop\ndata: {"type":"message_stop"}\n\n'
+
+        with patch(
+            "llm_gateway.glm_routing.make_cloudflare_anthropic_call",
+        ) as mock_make_call:
+            mock_make_call.return_value = AsyncMock(return_value=fake_stream())
+
+            with patch(
+                "llm_gateway.glm_routing.ensure_cloudflare_configured",
+                return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
+            ):
+                with authenticated_client.stream(
+                    "POST",
+                    "/v1/messages",
+                    json={
+                        "model": "@cf/moonshotai/kimi-k2.6",
+                        "messages": [{"role": "user", "content": "Hello"}],
+                        "stream": True,
+                    },
+                    headers={
+                        "Authorization": "Bearer phx_test_key",
+                        "X-PostHog-Provider": "cloudflare",
+                    },
+                ) as response:
+                    assert response.status_code == 200
+                    body = "".join(response.iter_text())
+
+            assert "message_start" in body
+            assert "content_block_delta" in body
+            assert "message_stop" in body
+            mock_make_call.assert_called_once()
+            mock_anthropic.assert_not_called()
+
+    def test_cloudflare_provider_rejects_unpriced_model(
+        self,
+        authenticated_client: TestClient,
+    ) -> None:
+        with patch("llm_gateway.glm_routing.ensure_cloudflare_configured") as mock_ensure_configured:
+            with patch("llm_gateway.glm_routing.make_cloudflare_anthropic_call") as mock_make_call:
+                response = authenticated_client.post(
+                    "/v1/messages",
+                    json={
+                        "model": "@cf/meta/llama-3.3-70b-instruct",
+                        "messages": [{"role": "user", "content": "Hello"}],
+                    },
+                    headers={
+                        "Authorization": "Bearer phx_test_key",
+                        "X-PostHog-Provider": "cloudflare",
+                    },
+                )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["type"] == "invalid_request_error"
+        assert "@cf/meta/llama-3.3-70b-instruct" in response.json()["error"]["message"]
+        # Rejection must happen before we hand the model off to CF, otherwise the
+        # gateway eats the real CF bill while billing the user $0.01 fallback.
+        mock_ensure_configured.assert_not_called()
+        mock_make_call.assert_not_called()
+
     def test_invalid_provider_header_returns_400(
         self,
         authenticated_client: TestClient,
@@ -515,7 +672,7 @@ class TestAnthropicMessagesEndpoint:
 
         assert response.status_code == 400
         assert response.json()["error"]["type"] == "invalid_request_error"
-        assert "Expected one of: anthropic, bedrock" in response.json()["error"]["message"]
+        assert "Expected one of: anthropic, bedrock, cloudflare" in response.json()["error"]["message"]
 
     def test_invalid_fallback_header_returns_400(
         self,
@@ -697,6 +854,209 @@ class TestSanitizeForBedrock:
         result = self._call(data)
         assert len(result["tools"]) == 1
         assert result["tools"][0]["name"] == "read_data"
+
+    def test_strips_output_config_format_keeps_effort(self) -> None:
+        data: dict[str, Any] = {"model": "m", "output_config": {"effort": "high", "format": {"type": "json_schema"}}}
+        result = self._call(data)
+        assert result["output_config"] == {"effort": "high"}
+
+    def test_drops_output_config_when_only_unsupported_keys(self) -> None:
+        data: dict[str, Any] = {"model": "m", "output_config": {"format": {"type": "json_schema"}}}
+        result = self._call(data)
+        assert "output_config" not in result
+
+    def test_scrubs_server_side_tool_blocks_from_messages(self) -> None:
+        data: dict[str, Any] = {
+            "model": "m",
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "server_tool_use", "id": "srvtoolu_1", "name": "web_search", "input": {"query": "x"}},
+                        {"type": "web_search_tool_result", "tool_use_id": "srvtoolu_1", "content": []},
+                        {"type": "text", "text": "Here is the answer."},
+                    ],
+                }
+            ],
+        }
+        result = self._call(data)
+        assert "tools" not in result
+        assert result["messages"][0]["content"] == [{"type": "text", "text": "Here is the answer."}]
+
+    def test_drops_tool_choice_referencing_stripped_tool(self) -> None:
+        data: dict[str, Any] = {
+            "model": "m",
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+            "tool_choice": {"type": "tool", "name": "web_search"},
+        }
+        result = self._call(data)
+        assert "tool_choice" not in result
+
+    def test_drops_auto_tool_choice_when_all_tools_stripped(self) -> None:
+        # Stripping the only (server-side) tool deletes the tools key entirely; tool_choice must go
+        # with it or Bedrock rejects a tool_choice with nothing to choose from.
+        data: dict[str, Any] = {
+            "model": "m",
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+            "tool_choice": {"type": "auto"},
+        }
+        result = self._call(data)
+        assert "tools" not in result
+        assert "tool_choice" not in result
+
+    def test_increments_metric_for_message_and_tool_choice_strips(self) -> None:
+        from llm_gateway.api.anthropic import sanitize_for_bedrock
+        from llm_gateway.metrics.prometheus import BEDROCK_PARAM_STRIPPED
+
+        def counter(param: str) -> float:
+            return BEDROCK_PARAM_STRIPPED.labels(param=param, product="test")._value.get()
+
+        before = {param: counter(param) for param in ("messages.server_tool_blocks", "tool_choice")}
+        sanitize_for_bedrock(
+            {
+                "model": "m",
+                "tool_choice": {"type": "any"},
+                "messages": [
+                    {"role": "assistant", "content": [{"type": "server_tool_use", "name": "web_search", "input": {}}]}
+                ],
+            },
+            model="test-model",
+            product="test",
+        )
+        assert counter("messages.server_tool_blocks") == before["messages.server_tool_blocks"] + 1
+        assert counter("tool_choice") == before["tool_choice"] + 1
+
+
+class TestStripStructuredOutputFormat:
+    """Unit tests for strip_structured_output_format — prunes Bedrock-rejected output_config sub-keys."""
+
+    def _call(self, data: dict[str, Any]) -> None:
+        from llm_gateway.api.anthropic import strip_structured_output_format
+
+        strip_structured_output_format(data, model="test-model", product="test")
+
+    def test_removes_format_keeps_other_keys(self) -> None:
+        data: dict[str, Any] = {"output_config": {"effort": "low", "format": {"type": "json_schema"}}}
+        self._call(data)
+        assert data["output_config"] == {"effort": "low"}
+
+    def test_removes_output_config_when_emptied(self) -> None:
+        data: dict[str, Any] = {"output_config": {"format": {}}}
+        self._call(data)
+        assert "output_config" not in data
+
+    def test_noop_without_unsupported_keys(self) -> None:
+        data: dict[str, Any] = {"output_config": {"effort": "high"}}
+        self._call(data)
+        assert data["output_config"] == {"effort": "high"}
+
+    @pytest.mark.parametrize("output_config", [None, "not-a-dict", 5])
+    def test_noop_when_output_config_absent_or_not_dict(self, output_config: Any) -> None:
+        data: dict[str, Any] = {"model": "m"} if output_config is None else {"output_config": output_config}
+        self._call(data)
+        assert data.get("output_config") == output_config
+
+
+class TestStripServerSideToolUsesFromMessages:
+    """Unit tests for strip_server_side_tool_uses_from_messages — scrubs dangling server-side references."""
+
+    def _call(self, data: dict[str, Any]) -> None:
+        from llm_gateway.api.anthropic import strip_server_side_tool_uses_from_messages
+
+        strip_server_side_tool_uses_from_messages(data, model="test-model", product="test")
+
+    def test_keeps_client_tool_result_blocks(self) -> None:
+        content = [
+            {"type": "tool_result", "tool_use_id": "toolu_1", "content": "ok"},
+            {"type": "text", "text": "done"},
+        ]
+        data: dict[str, Any] = {"messages": [{"role": "user", "content": list(content)}]}
+        self._call(data)
+        assert data["messages"][0]["content"] == content
+
+    @pytest.mark.parametrize(
+        "block",
+        [
+            {"type": "server_tool_use", "name": "web_search", "input": {}},
+            {"type": "web_search_tool_result", "tool_use_id": "srvtoolu_1", "content": []},
+            {"type": "code_execution_tool_result", "tool_use_id": "srvtoolu_2", "content": {}},
+            {"type": "mcp_tool_use", "name": "mcp_thing", "input": {}},
+        ],
+    )
+    def test_strips_server_side_blocks(self, block: dict[str, Any]) -> None:
+        data: dict[str, Any] = {
+            "messages": [{"role": "assistant", "content": [block, {"type": "text", "text": "answer"}]}]
+        }
+        self._call(data)
+        assert data["messages"][0]["content"] == [{"type": "text", "text": "answer"}]
+
+    def test_drops_message_when_content_emptied(self) -> None:
+        data: dict[str, Any] = {
+            "messages": [
+                {"role": "user", "content": "hi"},
+                {"role": "assistant", "content": [{"type": "server_tool_use", "name": "web_search", "input": {}}]},
+            ]
+        }
+        self._call(data)
+        assert data["messages"] == [{"role": "user", "content": "hi"}]
+
+    def test_noop_on_string_content(self) -> None:
+        data: dict[str, Any] = {"messages": [{"role": "user", "content": "just text"}]}
+        self._call(data)
+        assert data["messages"] == [{"role": "user", "content": "just text"}]
+
+    def test_dropping_tool_only_turn_keeps_roles_alternating(self) -> None:
+        # A tool-only assistant turn between two user turns: dropping it must not leave two user
+        # messages back to back (Bedrock 400s on non-alternating roles) — they coalesce into one.
+        data: dict[str, Any] = {
+            "messages": [
+                {"role": "user", "content": "search for X"},
+                {"role": "assistant", "content": [{"type": "server_tool_use", "name": "web_search", "input": {}}]},
+                {"role": "user", "content": [{"type": "text", "text": "and also Y"}]},
+            ]
+        }
+        self._call(data)
+        roles = [message["role"] for message in data["messages"]]
+        assert roles == ["user"]
+        assert data["messages"][0]["content"] == [
+            {"type": "text", "text": "search for X"},
+            {"type": "text", "text": "and also Y"},
+        ]
+
+
+class TestReconcileToolChoice:
+    """Unit tests for reconcile_tool_choice — drops a tool_choice Bedrock can't satisfy."""
+
+    def _call(self, data: dict[str, Any]) -> None:
+        from llm_gateway.api.anthropic import reconcile_tool_choice
+
+        reconcile_tool_choice(data, model="test-model", product="test")
+
+    def test_drops_tool_choice_naming_absent_tool(self) -> None:
+        data: dict[str, Any] = {"tool_choice": {"type": "tool", "name": "web_search"}, "tools": []}
+        self._call(data)
+        assert "tool_choice" not in data
+
+    def test_keeps_tool_choice_naming_present_tool(self) -> None:
+        data: dict[str, Any] = {
+            "tool_choice": {"type": "tool", "name": "read_data"},
+            "tools": [{"name": "read_data"}],
+        }
+        self._call(data)
+        assert data["tool_choice"] == {"type": "tool", "name": "read_data"}
+
+    @pytest.mark.parametrize("choice_type", ["any", "auto", "none"])
+    def test_drops_tool_choice_when_no_tools_remain(self, choice_type: str) -> None:
+        data: dict[str, Any] = {"tool_choice": {"type": choice_type}}
+        self._call(data)
+        assert "tool_choice" not in data
+
+    @pytest.mark.parametrize("choice_type", ["any", "auto", "none"])
+    def test_keeps_non_named_tool_choice_when_tools_remain(self, choice_type: str) -> None:
+        data: dict[str, Any] = {"tool_choice": {"type": choice_type}, "tools": [{"name": "read_data"}]}
+        self._call(data)
+        assert data["tool_choice"] == {"type": choice_type}
 
 
 class TestAnthropicCountTokensEndpoint:
@@ -1037,7 +1397,66 @@ class TestAnthropicCountTokensEndpoint:
 
         assert response.status_code == 400
         assert response.json()["error"]["type"] == "invalid_request_error"
-        assert "Expected one of: anthropic, bedrock" in response.json()["error"]["message"]
+        assert "Expected one of: anthropic, bedrock, cloudflare" in response.json()["error"]["message"]
+
+    def test_cloudflare_provider_approximates_count(
+        self,
+        authenticated_client: TestClient,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json={
+                "model": "@cf/moonshotai/kimi-k2.6",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "cloudflare"},
+        )
+
+        assert response.status_code == 200
+        # Don't lock the exact value — litellm's tokenizer is the source of truth.
+        # Just assert it's a positive integer so the Claude Agent SDK gets a usable budget.
+        assert isinstance(response.json()["input_tokens"], int)
+        assert response.json()["input_tokens"] > 0
+
+    def test_cf_model_approximates_count_without_provider_header(
+        self,
+        authenticated_client: TestClient,
+    ) -> None:
+        # The claude-runtime scout calls count_tokens with provider="anthropic"; CF has no
+        # count_tokens endpoint, so route a @cf/ model by id and approximate rather than POST a
+        # @cf/... id to the real Anthropic count_tokens API (which would 404).
+        with patch("llm_gateway.api.anthropic._anthropic_count_tokens_impl") as mock_real_count:
+            response = authenticated_client.post(
+                "/v1/messages/count_tokens",
+                json={
+                    "model": "@cf/zai-org/glm-5.2",
+                    "messages": [{"role": "user", "content": "Hello"}],
+                },
+                # No X-PostHog-Provider header -> defaults to anthropic, as a claude-runtime scout sends.
+                headers={"Authorization": "Bearer phx_test_key"},
+            )
+
+        assert response.status_code == 200
+        assert isinstance(response.json()["input_tokens"], int)
+        assert response.json()["input_tokens"] > 0
+        mock_real_count.assert_not_called()
+
+    def test_cloudflare_provider_rejects_unpriced_model(
+        self,
+        authenticated_client: TestClient,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json={
+                "model": "@cf/meta/llama-3.3-70b-instruct",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "cloudflare"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["type"] == "invalid_request_error"
+        assert "@cf/meta/llama-3.3-70b-instruct" in response.json()["error"]["message"]
 
     def test_invalid_fallback_header_returns_400(
         self,
@@ -1340,6 +1759,127 @@ class TestAnthropicCircuitBreakerIntegration:
         assert "context_management" in anthropic_kwargs
         assert "context_management" not in bedrock_kwargs
 
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_anthropic_billing_block_with_fallback_routes_to_bedrock(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        mock_response_dict: dict,
+    ) -> None:
+        """A workspace usage-limit / out-of-funds block arrives as HTTP 400 invalid_request_error,
+        not 5xx/429 — it must still fail over to Bedrock instead of being passed back to the caller."""
+        request_body = {"model": "claude-opus-4-8", "messages": [{"role": "user", "content": "Hi"}]}
+        breaker = install_breaker(bypass=False)
+        error = Exception("billing")
+        error.status_code = 400  # type: ignore[attr-defined]
+        error.message = '{"type":"error","error":{"type":"invalid_request_error","message":"You have reached your specified workspace API usage limits. You will regain access on 2026-07-01 at 00:00 UTC."}}'  # type: ignore[attr-defined]
+        error.type = "invalid_request_error"  # type: ignore[attr-defined]
+
+        bedrock_response = MagicMock()
+        bedrock_response.model_dump = MagicMock(return_value=mock_response_dict)
+        mock_anthropic.side_effect = [error, bedrock_response]
+
+        with patch(
+            "llm_gateway.api.anthropic.get_settings",
+            return_value=MagicMock(bedrock_region_name="us-east-1", request_timeout=300.0),
+        ):
+            response = authenticated_client.post(
+                "/v1/messages",
+                json=request_body,
+                headers={
+                    "Authorization": "Bearer phx_test_key",
+                    "X-PostHog-Use-Bedrock-Fallback": "true",
+                },
+            )
+
+        assert response.status_code == 200
+        breaker.record_outcome.assert_awaited_with(success=False)
+        assert mock_anthropic.call_count == 2
+        assert mock_anthropic.call_args_list[1].kwargs["model"] == "bedrock/us.anthropic.claude-opus-4-8"
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_anthropic_billing_block_recorded_as_failure(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+    ) -> None:
+        """Even without the fallback header, a billing block is provider-attributable, so the breaker
+        must record it as a failure (so it can open) rather than as a caller-side success."""
+        breaker = install_breaker(bypass=False)
+        error = Exception("billing")
+        error.status_code = 400  # type: ignore[attr-defined]
+        error.message = "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."  # type: ignore[attr-defined]
+        error.type = "invalid_request_error"  # type: ignore[attr-defined]
+        mock_anthropic.side_effect = error
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 400
+        breaker.record_outcome.assert_awaited_with(success=False)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_gateway_validation_400_does_not_poison_breaker(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+    ) -> None:
+        """A gateway-generated unsupported-model 400 echoes the caller's model name. A crafted name
+        containing a billing phrase must NOT be recorded as an Anthropic provider failure — otherwise
+        an authenticated caller could open the shared circuit breaker (breaker poisoning)."""
+        breaker = install_breaker(bypass=False)
+        request_body = {"model": "gemini/credit balance is too low", "messages": [{"role": "user", "content": "Hi"}]}
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={
+                "Authorization": "Bearer phx_test_key",
+                "X-PostHog-Use-Bedrock-Fallback": "true",
+            },
+        )
+
+        assert response.status_code == 400
+        assert mock_anthropic.call_count == 0  # rejected before any provider call
+        breaker.record_outcome.assert_awaited_with(success=True)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_generic_400_not_routed_to_bedrock(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+    ) -> None:
+        """A genuinely malformed request (also HTTP 400 invalid_request_error) must NOT fail over —
+        Bedrock would reject it identically, so it stays a caller error and a breaker success."""
+        request_body = {"model": "claude-opus-4-8", "messages": [{"role": "user", "content": "Hi"}]}
+        breaker = install_breaker(bypass=False)
+        error = Exception("bad request")
+        error.status_code = 400  # type: ignore[attr-defined]
+        error.message = "prompt is too long: 1010381 tokens > 1000000 maximum"  # type: ignore[attr-defined]
+        error.type = "invalid_request_error"  # type: ignore[attr-defined]
+        mock_anthropic.side_effect = error
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={
+                "Authorization": "Bearer phx_test_key",
+                "X-PostHog-Use-Bedrock-Fallback": "true",
+            },
+        )
+
+        assert response.status_code == 400
+        assert mock_anthropic.call_count == 1
+        breaker.record_outcome.assert_awaited_with(success=True)
+
     def test_streaming_success_records_after_stream_completes(
         self,
         authenticated_client: TestClient,
@@ -1358,7 +1898,7 @@ class TestAnthropicCircuitBreakerIntegration:
         wrapped = _wrap_stream_with_breaker(StreamingResponse(ok_iter()), breaker)
 
         async def consume() -> list[bytes]:
-            return [chunk async for chunk in wrapped.body_iterator]
+            return cast(list[bytes], [chunk async for chunk in wrapped.body_iterator])
 
         chunks = asyncio.run(consume())
         assert len(chunks) == 2
@@ -1392,3 +1932,67 @@ class TestAnthropicCircuitBreakerIntegration:
 
         asyncio.run(consume())
         breaker.record_outcome.assert_awaited_with(success=False)
+
+
+class TestAnthropicBillingBlockDetection:
+    """`_is_anthropic_billing_block` must separate Anthropic's financial blocks (fail over to Bedrock)
+    from genuinely malformed requests (don't) — both arrive as HTTP 400 invalid_request_error, so the
+    only signal is the upstream message. Fixtures are real messages captured in production. Detection
+    is gated on ProviderError so a gateway-local 400 that echoes caller input can't be misread."""
+
+    @pytest.mark.parametrize(
+        "case,status_code,message,expected",
+        [
+            (
+                "workspace_usage_limit",
+                400,
+                '{"type":"error","error":{"type":"invalid_request_error","message":"You have reached your specified workspace API usage limits. You will regain access on 2026-07-01 at 00:00 UTC."}}',
+                True,
+            ),
+            (
+                "credit_balance_too_low",
+                400,
+                "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.",
+                True,
+            ),
+            ("prompt_too_long", 400, "prompt is too long: 1010381 tokens > 1000000 maximum", False),
+            (
+                "image_dimensions",
+                400,
+                "messages.77.content.7.image.source.base64.data: At least one of the image dimensions exceed max allowed size for many-image requests: 2000 pixels",
+                False,
+            ),
+            (
+                "bad_role_order",
+                400,
+                "messages.2: role 'system' must follow a 'user' message or an 'assistant' message ending in a server tool result",
+                False,
+            ),
+            ("could_not_process_image", 400, "Could not process image", False),
+            ("billing_text_but_5xx", 500, "Your credit balance is too low to access the Anthropic API.", False),
+        ],
+    )
+    def test_billing_block_detection(self, case: str, status_code: int, message: str, expected: bool) -> None:
+        exc = ProviderError(
+            status_code=status_code, detail={"error": {"message": message, "type": "invalid_request_error"}}
+        )
+        assert _is_anthropic_billing_block(exc) is expected
+
+    def test_non_dict_detail_is_not_billing(self) -> None:
+        assert _is_anthropic_billing_block(ProviderError(status_code=400, detail="opaque string")) is False
+
+    def test_gateway_origin_billing_text_is_not_billing(self) -> None:
+        """A gateway-local 400 (plain HTTPException, not ProviderError) that echoes a caller model
+        name containing a billing phrase must not be treated as a provider billing block — otherwise
+        a crafted model name could poison the shared circuit breaker."""
+        exc = HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "message": "Model 'gemini/credit balance is too low' is not supported by this gateway",
+                    "type": "invalid_request_error",
+                    "code": "model_not_supported",
+                }
+            },
+        )
+        assert _is_anthropic_billing_block(exc) is False

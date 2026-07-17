@@ -37,6 +37,9 @@ ACCESS_TOKEN_TYPE = "at+jwt"
 # RFC 7521/7523 — JWT Bearer grant type identifier.
 JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 
+# draft-ietf-oauth-identity-assertion-authz-grant §7.2 — advertised in metadata for ID-JAG discovery.
+ID_JAG_GRANT_PROFILE = "urn:ietf:params:oauth:grant-profile:id-jag"
+
 
 GENERIC_ID_JAG_REJECTION = "ID-JAG could not be verified"
 
@@ -123,11 +126,29 @@ def _get_site_url() -> str:
     return site_url
 
 
+def _id_jag_allowlist(extra: list[str] | None) -> list[str]:
+    """SITE_URL plus the trailing-slash-normalized `extra` values."""
+    return [_get_site_url(), *[v.rstrip("/") for v in (extra or []) if v]]
+
+
+def _get_allowed_audiences() -> list[str]:
+    """Accepted ID-JAG `aud` values — the authorization-server issuer the client discovered.
+    Always includes SITE_URL; Cloud adds the OAuth proxy via ID_JAG_ALLOWED_AUDIENCES."""
+    return _id_jag_allowlist(settings.ID_JAG_ALLOWED_AUDIENCES)
+
+
+def get_allowed_resources() -> list[str]:
+    """Accepted ID-JAG `resource` values — the resource identifier the client discovered.
+    Always includes SITE_URL; Cloud adds extra resource servers via ID_JAG_ALLOWED_RESOURCES.
+    Also used by the resource server (posthog.auth) to validate the minted token's `aud`."""
+    return _id_jag_allowlist(settings.ID_JAG_ALLOWED_RESOURCES)
+
+
 def _get_jwks_client(issuer: str, jwks_url: str | None = None) -> jwt.PyJWKClient:
     """Resolve a `PyJWKClient` for the given IdP issuer.
 
-    If `jwks_url` is provided (set on the `OrganizationDomain.id_jag_jwks_url`
-    field), skip OIDC discovery and point PyJWKClient at it directly. Otherwise
+    If `jwks_url` is provided (from the linked `IdentityProviderConfig.id_jag_jwks_url`),
+    skip OIDC discovery and point PyJWKClient at it directly. Otherwise
     do OIDC discovery against `<issuer>/.well-known/openid-configuration` and
     cache the resulting `jwks_uri` for `ID_JAG_JWKS_CACHE_TTL_SECONDS`. We
     don't cache the `PyJWKClient` object itself because it already does
@@ -259,16 +280,17 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
         )
         raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
 
-    expected_issuer = (org_domain.id_jag_issuer_url or "").rstrip("/")
+    idp_config = org_domain.idp_config
+    expected_issuer = (idp_config.id_jag_issuer_url or "").rstrip("/")
     provider_name = org_domain.domain
 
     try:
-        jwks_client = _get_jwks_client(expected_issuer, jwks_url=org_domain.id_jag_jwks_url or None)
+        jwks_client = _get_jwks_client(expected_issuer, jwks_url=idp_config.id_jag_jwks_url or None)
         signing_key = jwks_client.get_signing_key_from_jwt(assertion)
     except jwt.PyJWTError as e:
         raise InvalidGrantError(f"ID-JAG signing key resolution failed: {e}")
 
-    expected_audience = _get_site_url()
+    allowed_audiences = _get_allowed_audiences()
 
     try:
         claims = cast(
@@ -277,7 +299,7 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
                 assertion,
                 signing_key.key,
                 algorithms=["RS256", "RS384", "RS512"],
-                audience=expected_audience,
+                audience=allowed_audiences,
                 leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
                 options={
                     "require": ["iss", "sub", "aud", "exp", "iat", "client_id"],
@@ -322,15 +344,18 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
     resource = claims.get("resource")
     if not resource:
         raise InvalidGrantError("ID-JAG is missing the resource claim (RFC 8707)")
-    if resource.rstrip("/") != expected_audience:
+    resource = resource.rstrip("/")
+    if resource not in get_allowed_resources():
         raise InvalidTargetError(f"ID-JAG resource {resource!r} does not match this resource server")
+    # Store the normalized value back so the minted token's `aud` is consistent.
+    claims["resource"] = resource
 
     client_id = claims.get("client_id")
     if not client_id:
         raise InvalidGrantError("ID-JAG is missing the client_id claim")
 
     # validate allowed clients if set in config
-    if org_domain.id_jag_allowed_clients and client_id not in org_domain.id_jag_allowed_clients:
+    if idp_config.id_jag_allowed_clients and client_id not in idp_config.id_jag_allowed_clients:
         raise InvalidClientError(f"client_id {client_id!r} is not allowed for this domain")
 
     # prevent replayed tokens from being used again

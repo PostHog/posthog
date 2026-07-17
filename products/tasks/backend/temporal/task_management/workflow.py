@@ -12,6 +12,7 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.temporal.constants import (
     ACK_TIMEOUT,
     CI_FOLLOW_UP_DELAY,
@@ -33,7 +34,12 @@ from products.tasks.backend.temporal.execute_sandbox.workflow import (
     ChildCompletionPayload,
     ExecuteSandboxInput,
 )
-from products.tasks.backend.temporal.process_task.activities.get_pr_context import GetPrContextInput, get_pr_context
+from products.tasks.backend.temporal.patches import ci_follow_up_actionable_gate
+from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
+    GetPrContextInput,
+    get_pr_context,
+    is_pr_actionable,
+)
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
@@ -198,6 +204,9 @@ class TaskManagementWorkflow(PostHogWorkflow):
         self._last_active_time: Optional[datetime] = None
         self._ci_repetitions: int = 0
         self._pr_fingerprint: Optional[str] = None
+        # Last observed unresolved review-thread count. Starting at 0 means
+        # feedback posted before the first poll still reads as new.
+        self._pr_unresolved_threads: int = 0
 
     # ------------------------------------------------------------------
     # Input parsing
@@ -381,7 +390,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
             raise
 
         except Exception as e:
-            error_message = str(e)[:500]
+            error_message = truncate_error_message(str(e))
             await self._track_workflow_event(
                 "task_management_failed",
                 {
@@ -391,7 +400,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
                     "error_message": error_message,
                 },
             )
-            await self._update_task_run_status("failed", error_message=error_message)
+            await self._update_task_run_status("failed", error_message=error_message, error_type=type(e).__name__)
             return TaskRunManagementOutput(
                 success=False,
                 error=error_message,
@@ -639,6 +648,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         self._sandbox_alive = False
         self._ci_repetitions = 0
         self._pr_fingerprint = None
+        self._pr_unresolved_threads = 0
         self._heartbeat_received = False
         self._last_active_time = None
 
@@ -907,28 +917,46 @@ class TaskManagementWorkflow(PostHogWorkflow):
         )
         if not pr_context:
             return CIFollowUpDecision.NO_PR
-        if pr_context.pr_state == "closed":
+        if pr_context.pr_state in ("closed", "merged"):
             workflow.logger.info(
                 "task_management_ci_skipped_pr_closed",
                 run_id=self._run_id,
                 pr_url=pr_context.pr_url,
             )
             return CIFollowUpDecision.SKIP
-        if self._pr_fingerprint != pr_context.fingerprint:
+        fingerprint_changed = self._pr_fingerprint != pr_context.fingerprint
+        if not ci_follow_up_actionable_gate():
+            # Legacy replay path: any fingerprint change fires; feedback is not consulted.
+            if not fingerprint_changed:
+                return CIFollowUpDecision.SKIP
             self._pr_fingerprint = pr_context.fingerprint
+            return CIFollowUpDecision.FIRE
+        # New unresolved review threads are feedback for the agent, and comparing
+        # against the last-seen count means its own thread replies (which never
+        # resolve anything) can't re-trigger it.
+        new_feedback = pr_context.unresolved_threads > self._pr_unresolved_threads
+        self._pr_unresolved_threads = pr_context.unresolved_threads
+        if not fingerprint_changed and not new_feedback:
             workflow.logger.info(
-                "task_management_ci_fire",
+                "task_management_ci_skipped_pr_unchanged",
                 run_id=self._run_id,
                 pr_url=pr_context.pr_url,
-                repetitions=self._ci_repetitions,
             )
-            return CIFollowUpDecision.FIRE
+            return CIFollowUpDecision.SKIP
+        self._pr_fingerprint = pr_context.fingerprint
+        fire = (fingerprint_changed and is_pr_actionable(pr_context)) or new_feedback
         workflow.logger.info(
-            "task_management_ci_skipped_pr_unchanged",
+            "task_management_ci_decision",
             run_id=self._run_id,
             pr_url=pr_context.pr_url,
+            ci_status=pr_context.ci_status,
+            changes_requested=pr_context.changes_requested,
+            unresolved_threads=pr_context.unresolved_threads,
+            new_feedback=new_feedback,
+            fire=fire,
+            repetitions=self._ci_repetitions,
         )
-        return CIFollowUpDecision.SKIP
+        return CIFollowUpDecision.FIRE if fire else CIFollowUpDecision.SKIP
 
     async def _dispatch_ci_follow_up(self) -> None:
         self._ci_repetitions += 1
@@ -971,6 +999,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         self,
         status: str,
         error_message: Optional[str] = None,
+        error_type: Optional[str] = None,
     ) -> None:
         run_id = self._run_id
         if run_id is None:
@@ -981,6 +1010,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 run_id=run_id,
                 status=status,
                 error_message=error_message,
+                error_type=error_type,
             ),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),

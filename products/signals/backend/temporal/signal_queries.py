@@ -18,13 +18,13 @@ from posthog.models import Team
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
 from products.signals.backend.temporal.types import SignalCandidate, SignalData, SignalTypeExample
 
 logger = structlog.get_logger(__name__)
 
-EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
 
 WAIT_POLL_INTERVAL_SECONDS = 10
 
@@ -43,8 +43,24 @@ def _ensure_tz_aware(value: Union[datetime, str]) -> datetime:
 # ---------------------------------------------------------------------------
 
 
-def _deduped_signals_subquery(*, include_embedding: bool = False, extra_where: str | None = None) -> str:
-    """Build the shared signal dedup subquery with an optional extra document_embeddings filter."""
+def _deduped_signals_subquery(
+    *, include_embedding: bool = False, extra_where: str | None = None, candidate_document_filter: str | None = None
+) -> str:
+    """Build the shared signal dedup subquery with an optional extra document_embeddings filter.
+
+    `candidate_document_filter` bounds the dedup to documents that ever matched the filter, via a
+    `document_id IN (SELECT DISTINCT ... WHERE <filter>)` prefilter — so the argMax aggregation runs
+    over that slice instead of the team's whole signal history (its memory otherwise scales with the
+    team's total signal count). Unlike `extra_where`, the filter selects candidate documents but does
+    NOT restrict which versions feed the argMax, so "latest version wins" is preserved and the caller's
+    own outer filter stays authoritative. Use it for re-groupable fields like `report_id`; use
+    `extra_where` only for fields that are stable across a document's versions (e.g. `source_id`).
+
+    Raises ValueError if both extra_where and candidate_document_filter are supplied — they are
+    mutually exclusive (the extra_where branch returns early and silently drops candidate_document_filter).
+    """
+    if extra_where and candidate_document_filter:
+        raise ValueError("_deduped_signals_subquery: extra_where and candidate_document_filter are mutually exclusive")
     selected_columns = [
         "document_id",
         "argMax(content, inserted_at) as content",
@@ -83,20 +99,31 @@ def _deduped_signals_subquery(*, include_embedding: bool = False, extra_where: s
         GROUP BY document_id
     """
 
+    candidate_bound = ""
+    if candidate_document_filter:
+        candidate_bound = f"""
+          AND document_id IN (
+              SELECT DISTINCT document_id
+              FROM document_embeddings
+              WHERE model_name = {{model_name}}
+                AND product = 'signals'
+                AND document_type = 'signal'
+                AND {candidate_document_filter}
+          )"""
+
     return f"""
         SELECT
             {selected_columns_sql}
         FROM document_embeddings
         WHERE model_name = {{model_name}}
           AND product = 'signals'
-          AND document_type = 'signal'
+          AND document_type = 'signal'{candidate_bound}
         GROUP BY document_id
     """
 
 
 # Backwards-compatible aliases for callers that import the shared query constants directly.
 _DEDUPED_SIGNALS_SUBQUERY = _deduped_signals_subquery()
-_DEDUPED_SIGNALS_WITH_EMBEDDING_SUBQUERY = _deduped_signals_subquery(include_embedding=True)
 
 
 def _signals_for_report_query(*, include_deleted: bool = False, limit: int | None = None) -> str:
@@ -116,7 +143,7 @@ def _signals_for_report_query(*, include_deleted: bool = False, limit: int | Non
             content,
             metadata,
             timestamp
-        FROM ({_deduped_signals_subquery()})
+        FROM ({_deduped_signals_subquery(candidate_document_filter="JSONExtractString(metadata, 'report_id') = {report_id}")})
         WHERE JSONExtractString(metadata, 'report_id') = {{report_id}}{deleted_filter}
         ORDER BY timestamp ASC{limit_clause}
     """
@@ -574,49 +601,6 @@ def fetch_report_ids_for_source_products(team: Team, source_products: list[str])
     )
 
     return {row[0] for row in (result.results or []) if row[0]}
-
-
-# ---------------------------------------------------------------------------
-# fetch_source_products_for_reports — synchronous, for the serializer list view
-# ---------------------------------------------------------------------------
-
-
-def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict[str, list[str]]:
-    """Return a mapping of report_id -> distinct source_products for those reports.
-
-    Only includes non-deleted signals. Source products are returned in sorted order.
-    """
-    if not report_ids:
-        return {}
-
-    ch_query = f"""
-        SELECT report_id, arraySort(groupUniqArray(source_product)) as source_products
-        FROM (
-            SELECT
-                JSONExtractString(metadata, 'report_id') as report_id,
-                JSONExtractBool(metadata, 'deleted') as is_deleted,
-                JSONExtractString(metadata, 'source_product') as source_product
-            FROM ({_deduped_signals_subquery()})
-        )
-        WHERE NOT is_deleted
-          AND report_id != ''
-          AND report_id IN ({{report_ids}})
-          AND source_product != ''
-        GROUP BY report_id
-    """
-
-    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
-    result = execute_hogql_query(
-        query_type="SignalsFetchSourceProductsForReports",
-        query=ch_query,
-        team=team,
-        placeholders={
-            "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
-            "report_ids": ast.Tuple(exprs=[ast.Constant(value=rid) for rid in report_ids]),
-        },
-    )
-
-    return {row[0]: row[1] for row in (result.results or []) if row[0]}
 
 
 # ---------------------------------------------------------------------------

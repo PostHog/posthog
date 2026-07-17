@@ -1,10 +1,11 @@
-import { PluginServerMode } from '../src/common/config'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
     KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
     KAFKA_INGESTION_WARNINGS,
-} from '../src/config/kafka-topics'
+} from '~/common/config/kafka-topics'
+
+import { PluginServerMode } from '../src/common/config'
 import { IngestionGeneralServer } from '../src/servers/ingestion-general-server'
 import { ensureKafkaTopics } from './helpers/kafka'
 import { resetTestDatabase } from './helpers/sql'

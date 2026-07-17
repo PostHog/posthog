@@ -1,5 +1,5 @@
-import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
-import { LazyLoader } from '../../../utils/lazy-loader'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { LazyLoader } from '~/common/utils/lazy-loader'
 
 export type TeamWorkflowsConfig = {
     capture_workflows_engagement_events: boolean

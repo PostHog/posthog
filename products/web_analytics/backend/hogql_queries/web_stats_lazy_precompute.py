@@ -38,7 +38,10 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     test_account_filter_expr,
     user_filter_expr,
 )
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import web_ensure_precomputed
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    handle_stale_served,
+    web_ensure_precomputed,
+)
 
 _FAMILY = "web_stats"
 
@@ -322,9 +325,12 @@ GROUP BY breakdown_value
 #
 # `m` computes the prefix-level visitor/view metrics: `uniqMergeIf` over a GROUP BY
 # prefix dedups users across regions exactly (no double-count), matching the raw
-# query's prefix-level `uniq`. `r` derives the most-common region per prefix via
-# `argMax(region, region_views)` — the precompute-side equivalent of the raw query's
-# `topK(1)` over the region part. The `splitByChar('-', ..., 2)` limit mirrors the raw
+# query's prefix-level `uniq`. `r` derives the displayed region per prefix via
+# `argMax(region, region_views)` — a best-effort *approximation* of the raw query's
+# `topK(1)` over the region part, NOT an exact equivalent: `topK(1)` weights by session
+# count, which the precompute does not store, so the region *suffix* on a multi-region
+# language (e.g. `cs-CZ` vs `cs-`) can differ from raw. Counts are unaffected; see the
+# module-level LANGUAGE note above for why this is accepted. The `splitByChar('-', ..., 2)` limit mirrors the raw
 # query's exact split signature so the prefix/region split stays identical to the raw
 # path for multi-part BCP-47 tags (e.g. `zh-Hans-CN`) regardless of the cluster's
 # `splitby_max_substrings_includes_remaining_string` setting. Empty/null languages are
@@ -406,6 +412,26 @@ def _resolve_sort_metric(query: WebStatsTableQuery) -> tuple[str, bool]:
     return sort_metric, descending
 
 
+# Breakdowns where the raw query keeps NULL rows (surfaced as a "(none)" row) instead
+# of dropping them — must stay in lockstep with the `outer_where_breakdown() is None`
+# cases in `WebStatsTableQueryRunner`. `test_breakdown_having_matches_live_null_handling`
+# enforces the parity so the two can't drift.
+_KEEP_NULL_BREAKDOWNS = {
+    WebStatsBreakdown.COUNTRY,
+    WebStatsBreakdown.BROWSER,
+    WebStatsBreakdown.OS,
+    WebStatsBreakdown.DEVICE_TYPE,
+    WebStatsBreakdown.LANGUAGE,
+    WebStatsBreakdown.TIMEZONE,
+    WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
+    WebStatsBreakdown.INITIAL_UTM_SOURCE,
+    WebStatsBreakdown.INITIAL_UTM_CAMPAIGN,
+    WebStatsBreakdown.INITIAL_UTM_MEDIUM,
+    WebStatsBreakdown.INITIAL_UTM_TERM,
+    WebStatsBreakdown.INITIAL_UTM_CONTENT,
+}
+
+
 def _breakdown_having_expr(breakdown_by: WebStatsBreakdown) -> ast.Expr:
     """HAVING-clause equivalent of the raw query's `outer_where_breakdown()` —
     operates on the JSON-encoded `breakdown_value` column produced by the INSERT.
@@ -424,14 +450,10 @@ def _breakdown_having_expr(breakdown_by: WebStatsBreakdown) -> ast.Expr:
             "JSONExtractRaw(breakdown_value, 1) NOT IN ('null', '0') "
             "AND JSONExtractRaw(breakdown_value, 2) NOT IN ('null', '0')"
         )
-    if breakdown_by in {
-        WebStatsBreakdown.INITIAL_UTM_SOURCE,
-        WebStatsBreakdown.INITIAL_UTM_CAMPAIGN,
-        WebStatsBreakdown.INITIAL_UTM_MEDIUM,
-        WebStatsBreakdown.INITIAL_UTM_TERM,
-        WebStatsBreakdown.INITIAL_UTM_CONTENT,
-    }:
-        # The raw query intentionally keeps null UTM values.
+    if breakdown_by in _KEEP_NULL_BREAKDOWNS:
+        # Mirror the raw query's `outer_where_breakdown() is None` set: missing data is
+        # real for these dimensions and surfaces as a "(none)" row, so it must not be
+        # dropped. Source of truth is `WebStatsTableQueryRunner.outer_where_breakdown`.
         return ast.Constant(value=True)
     if breakdown_by == WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
         # JSON scalars: 'null' is genuine null, '""' is empty string.
@@ -598,6 +620,8 @@ def execute_lazy_precomputed_read(
             time_range_start=time_range_start,
             time_range_end=time_range_end,
         )
+        if result.stale:
+            handle_stale_served(runner=runner, family=_FAMILY)
 
         if not result.job_ids:
             WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="no_job_ids").inc()
@@ -646,6 +670,10 @@ def execute_lazy_precomputed_read(
                         time_range_start=prev_range_start,
                         time_range_end=prev_range_end,
                     )
+                    if prev_result.stale:
+                        # handle_stale_served enqueues at most once per request; one
+                        # revalidation re-runs the whole query, covering both periods.
+                        handle_stale_served(runner=runner, family=_FAMILY)
 
                     if not prev_result.ready:
                         WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="previous_not_ready").inc()

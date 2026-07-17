@@ -9,7 +9,7 @@
  *
  * Resources:
  *   - `agent_md`            ← the system prompt (string)
- *   - `skills/<id>`         ← { description, body }  (stored at skills/<id>/SKILL.md)
+ *   - `skills/<id>`         ← { description, body, files? }  (SKILL.md + companions under skills/<id>/)
  *   - `tools/<id>`          ← { description, args_schema, source }
  *   - `spec`                ← author-facing slice (no skills[]/tools[])
  *
@@ -23,6 +23,7 @@
  */
 
 import { Router } from 'express'
+import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 
 import {
@@ -34,9 +35,13 @@ import {
     RESOURCE_ID_REGEX,
     RevisionState,
     RevisionStore,
+    SandboxPool,
     skillBodyPath,
+    skillCompanionPath,
     syncBundleToStore,
+    toolCapabilitiesPath,
     toolCompiledPath,
+    toolSchemaPath,
     TypedBundleSchema,
     TypedSkillSchema,
     TypedSpecSchema,
@@ -53,7 +58,21 @@ const ResourceIdParamSchema = z
     .max(64)
     .regex(RESOURCE_ID_REGEX, { message: 'id must be lowercase letters, digits, hyphens, or underscores' })
 
-const SkillPutBodySchema = TypedSkillSchema.omit({ id: true })
+// A skill companion file (e.g. `references/api.md`, `scripts/setup.sh`) shipped
+// alongside SKILL.md. `path` is relative to the skill folder; it's resolved +
+// safety-checked against `skillCompanionPath` in the handler. Limits mirror the
+// llma-skill store (≤50 files, ≤1 MB each) so a store skill round-trips cleanly.
+const SkillFilePutSchema = z.object({
+    path: z.string().min(1).max(255),
+    content: z.string().max(1_000_000),
+})
+const SkillPutBodySchema = TypedSkillSchema.omit({ id: true }).extend({
+    // Store skills allow a ≤1 MB body and render_skill_md prepends frontmatter,
+    // so allow headroom above the store cap. (Limits mirror the llma-skill store
+    // so a resolved store skill round-trips cleanly into the bundle.)
+    body: z.string().max(1_100_000),
+    files: z.array(SkillFilePutSchema).max(50).default([]),
+})
 const ToolPutBodySchema = TypedToolSchema.omit({ id: true })
 
 const AgentMdPutBodySchema = z.object({
@@ -64,12 +83,73 @@ const SpecPutBodySchema = z.object({
     spec: TypedSpecSchema,
 })
 
-const TypedBundlePutBodySchema = TypedBundleSchema
+const TypedBundlePutBodySchema = TypedBundleSchema.omit({ skills: true })
 
 export interface TypedBundleRouterOpts {
     revisions: RevisionStore
     bundles: BundleStore
+    /**
+     * Single-shot sandbox pool for `POST /tools/:tool_id/dry_run`. Same
+     * `selectSandboxPool` impl the runner uses; lifecycle is per-call
+     * (acquire → invoke → release) rather than per-session. Omitted →
+     * the dry-run route 503s.
+     */
+    sandboxes?: SandboxPool
+    /** Wall-clock cap per dry-run invocation (ms). Default: 10 000. */
+    dryRunWallMs?: number
+    /** Memory cap per dry-run sandbox (MB). Default: 256. */
+    dryRunMemoryMb?: number
+    /** Max dry-run sandboxes in flight at once (janitor-wide). Default: 2. */
+    dryRunMaxConcurrent?: number
 }
+
+const DEFAULT_DRY_RUN_WALL_MS = 10_000
+const DEFAULT_DRY_RUN_MEMORY_MB = 256
+const DEFAULT_DRY_RUN_MAX_CONCURRENT = 2
+// Extra headroom past the in-sandbox `timeoutMs` before the janitor-side
+// wall clock trips, so the dispatcher's cooperative timeout gets first
+// chance to report the friendlier per-tool error.
+const DRY_RUN_TIMEOUT_GRACE_MS = 1_000
+
+const WALL_CLOCK_EXCEEDED = Symbol('wall_clock_exceeded')
+
+/**
+ * Race a promise against a hard wall clock. The in-sandbox dispatcher
+ * enforces `timeoutMs` cooperatively (a Promise.race inside the sandbox
+ * process), so a tool whose body is a synchronous busy-loop blocks the
+ * sandbox event loop and the invoke never returns — without this outer
+ * race the handler would hang, its `finally` would never run, and the
+ * in-flight slot would stay pinned until the janitor restarts.
+ */
+function raceWallClock<T>(promise: Promise<T>, ms: number): Promise<T | typeof WALL_CLOCK_EXCEEDED> {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => resolve(WALL_CLOCK_EXCEEDED), ms)
+        promise.then(
+            (value) => {
+                clearTimeout(timer)
+                resolve(value)
+            },
+            (err: unknown) => {
+                clearTimeout(timer)
+                reject(err)
+            }
+        )
+    })
+}
+
+const DryRunBodySchema = z.object({
+    /** Synthetic args the tool's `actions.default` is called with. */
+    args: z.unknown(),
+    /**
+     * Optional `{secret_name → opaque_nonce}` map plumbed into the
+     * sandbox the same way the runner injects nonces during a real
+     * session. The plaintext value never enters the sandbox, so the
+     * stub only needs *some* string the tool's `ctx.secrets.ref(name)`
+     * can return. Authors typically pass placeholder strings here just
+     * to confirm the tool runs without throwing `secret not provisioned`.
+     */
+    mock_secrets: z.record(z.string(), z.string()).optional(),
+})
 
 /**
  * Build the router that owns the typed-bundle endpoints. Mounted by the main
@@ -132,6 +212,13 @@ export function buildTypedBundleRouter(opts: TypedBundleRouterOpts): Router {
             for (const { tool, result } of compileResults) {
                 await writeToolSourceAndSchema(req.params.id, opts.bundles, tool)
                 await opts.bundles.write(req.params.id, toolCompiledPath(tool.id), result.compiled_js!)
+                if (result.capabilities) {
+                    await opts.bundles.write(
+                        req.params.id,
+                        toolCapabilitiesPath(tool.id),
+                        JSON.stringify(result.capabilities, null, 2)
+                    )
+                }
             }
 
             // Persist the author-facing spec onto agent_revision.spec.
@@ -195,12 +282,26 @@ export function buildTypedBundleRouter(opts: TypedBundleRouterOpts): Router {
                 return
             }
             const id = idCheck.data
-            // Clear the skill folder first so a re-PUT also sweeps any stray
-            // legacy files (e.g. old `skills/<id>/files/*` companions) before
-            // writing the fresh SKILL.md body.
+            // Resolve + safety-check every companion path BEFORE touching the
+            // store, so invalid input can't half-clear an existing skill folder.
+            let companions: { path: string; content: string }[]
+            try {
+                companions = parsed.data.files.map((f) => ({
+                    path: skillCompanionPath(id, f.path),
+                    content: f.content,
+                }))
+            } catch (e) {
+                res.status(400).json({ error: 'invalid_skill_file_path', message: (e as Error).message })
+                return
+            }
+            // Clear the skill folder first so a re-PUT sweeps SKILL.md plus any
+            // stale companions before writing the fresh body + companion set.
             await deleteSkillFiles(req.params.id, opts.bundles, id)
             await opts.bundles.write(req.params.id, skillBodyPath(id), parsed.data.body)
-            res.json({ ok: true, skill_id: id })
+            for (const c of companions) {
+                await opts.bundles.write(req.params.id, c.path, c.content)
+            }
+            res.json({ ok: true, skill_id: id, files_written: companions.length })
         })
     )
 
@@ -255,7 +356,14 @@ export function buildTypedBundleRouter(opts: TypedBundleRouterOpts): Router {
 
             await writeToolSourceAndSchema(req.params.id, opts.bundles, tool)
             await opts.bundles.write(req.params.id, toolCompiledPath(id), compile.compiled_js!)
-            res.json({ ok: true, tool_id: id })
+            if (compile.capabilities) {
+                await opts.bundles.write(
+                    req.params.id,
+                    toolCapabilitiesPath(id),
+                    JSON.stringify(compile.capabilities, null, 2)
+                )
+            }
+            res.json({ ok: true, tool_id: id, capabilities: compile.capabilities })
         })
     )
 
@@ -279,6 +387,180 @@ export function buildTypedBundleRouter(opts: TypedBundleRouterOpts): Router {
             }
             await deleteToolFiles(req.params.id, opts.bundles, idCheck.data)
             res.json({ ok: true, tool_id: idCheck.data })
+        })
+    )
+
+    // ─── POST /tools/:tool_id/dry_run  (single-shot sandbox execution) ──
+    //
+    // Runs the persisted compiled.js once with caller-supplied args + a
+    // stubbed ctx (mock nonces only — no real secrets ever leave Django).
+    // Per-call lifecycle (acquire → invoke → release) so we don't carry
+    // session-shaped sandbox state. May split out into `agent-exec` later
+    // if execution duties grow enough to crowd out CRUD.
+    //
+    // In-flight cap: dry-run spawns sandboxes outside the session
+    // execution queue, so without a bound a caller with agents:write
+    // could exhaust the sandbox backend by hammering this route. A
+    // process-wide counter is the right scope — this is an availability
+    // guard for the janitor host / shared backend, not per-team fairness
+    // (revisit if dry-run traffic ever justifies a per-team quota).
+    let dryRunsInFlight = 0
+    router.post(
+        '/tools/:tool_id/dry_run',
+        asyncHandler(async (req, res) => {
+            const idCheck = ResourceIdParamSchema.safeParse(req.params.tool_id)
+            if (!idCheck.success) {
+                res.status(400).json({ error: 'invalid_resource_id', issues: idCheck.error.issues })
+                return
+            }
+            if (!opts.sandboxes) {
+                res.status(503).json({ error: 'sandbox_pool_not_configured' })
+                return
+            }
+            if (!(await assertDraft(opts, req.params.id, res))) {
+                return
+            }
+            const parsed = DryRunBodySchema.safeParse(req.body)
+            if (!parsed.success) {
+                res.status(400).json({ error: 'invalid_request', issues: parsed.error.issues })
+                return
+            }
+            const toolId = idCheck.data
+
+            // Confirm the tool exists in the bundle. We could load and pass
+            // through the sandbox, but the explicit check produces a 404
+            // instead of a cryptic `tool_not_found` runtime error.
+            const compiledPath = toolCompiledPath(toolId)
+            const compiledJs = await opts.bundles.readText(req.params.id, compiledPath).catch(() => null)
+            if (compiledJs === null) {
+                res.status(404).json({ error: 'tool_not_found', tool_id: toolId })
+                return
+            }
+            const schemaText = await opts.bundles.readText(req.params.id, toolSchemaPath(toolId)).catch(() => '{}')
+            let schemaJson: unknown = {}
+            try {
+                schemaJson = JSON.parse(schemaText)
+            } catch {
+                // Schema is informational at the sandbox boundary; carry on.
+                schemaJson = {}
+            }
+
+            // We need a teamId for the AcquireOpts contract; the dry-run is
+            // tied to the revision's owning team. Revisions don't carry
+            // team_id directly — resolve it through the parent application.
+            const rev = await opts.revisions.getRevisionRaw(req.params.id)
+            if (!rev) {
+                res.status(404).json({ error: 'revision_not_found' })
+                return
+            }
+            const app = await opts.revisions.getApplication(rev.application_id)
+            if (!app) {
+                res.status(404).json({ error: 'application_not_found' })
+                return
+            }
+
+            const wallMs = opts.dryRunWallMs ?? DEFAULT_DRY_RUN_WALL_MS
+            const memoryMb = opts.dryRunMemoryMb ?? DEFAULT_DRY_RUN_MEMORY_MB
+            const sessionId = `dry-run-${randomUUID()}`
+            const startedAt = Date.now()
+
+            // Build the response in stages so `duration_ms` is captured
+            // consistently — after `release()` runs in the finally — on
+            // every path (acquire failure, invoke throw, invoke not-ok,
+            // invoke ok). Each failure mode gets its own stable `code`
+            // so authors can tell infrastructure problems
+            // (`sandbox_acquire_failed`) from tool-side problems
+            // (`sandbox_invoke_failed`, or the dispatcher's own code on
+            // an `ok:false` invoke result like `secret_not_provisioned`
+            // / `timeout`).
+            let status = 200
+            let body: {
+                ok: boolean
+                result?: unknown
+                error?: { code: string; message: string }
+            } = { ok: false, error: { code: 'dry_run_unknown', message: 'no response produced' } }
+            let sandbox: Awaited<ReturnType<SandboxPool['acquireForSession']>> | undefined
+
+            // Admission control before any sandbox is acquired. 429 (not a
+            // queue) — dry-run is interactive; the author just retries.
+            const maxConcurrent = opts.dryRunMaxConcurrent ?? DEFAULT_DRY_RUN_MAX_CONCURRENT
+            if (dryRunsInFlight >= maxConcurrent) {
+                res.status(429).json({ error: 'dry_run_throttled', max_concurrent: maxConcurrent })
+                return
+            }
+            dryRunsInFlight++
+            try {
+                try {
+                    sandbox = await opts.sandboxes.acquireForSession({
+                        sessionId,
+                        teamId: app.team_id,
+                        tools: [
+                            {
+                                id: toolId,
+                                compiledJs,
+                                schemaJson,
+                            },
+                        ],
+                        nonces: parsed.data.mock_secrets ?? {},
+                        sessionTimeoutMs: wallMs,
+                        limits: { wallMs, memoryMb },
+                    })
+                } catch (err) {
+                    status = 500
+                    body = {
+                        ok: false,
+                        error: { code: 'sandbox_acquire_failed', message: (err as Error).message },
+                    }
+                }
+                if (sandbox) {
+                    try {
+                        const invokeResult = await raceWallClock(
+                            sandbox.invoke({
+                                toolId,
+                                action: 'default',
+                                args: parsed.data.args,
+                                timeoutMs: wallMs,
+                            }),
+                            wallMs + DRY_RUN_TIMEOUT_GRACE_MS
+                        )
+                        if (invokeResult === WALL_CLOCK_EXCEEDED) {
+                            // Same stable code the dispatcher reports for a
+                            // cooperative timeout, so authors see one shape.
+                            // The finally's release destroys the wedged
+                            // sandbox, which also unblocks the abandoned
+                            // invoke promise.
+                            body = {
+                                ok: false,
+                                error: {
+                                    code: 'timeout',
+                                    message: `tool did not return within ${wallMs}ms (janitor-side wall clock)`,
+                                },
+                            }
+                        } else {
+                            body = invokeResult.ok
+                                ? { ok: true, result: invokeResult.result }
+                                : { ok: false, error: invokeResult.error }
+                        }
+                    } catch (err) {
+                        status = 500
+                        body = {
+                            ok: false,
+                            error: { code: 'sandbox_invoke_failed', message: (err as Error).message },
+                        }
+                    }
+                }
+            } finally {
+                if (sandbox) {
+                    await opts.sandboxes.release(sessionId).catch(() => {
+                        // Sandbox release is best-effort cleanup; the sweep
+                        // reaper catches anything we miss. Don't let a slow
+                        // release surface as a request failure.
+                    })
+                }
+                dryRunsInFlight--
+                const durationMs = Date.now() - startedAt
+                res.status(status).json({ tool_id: toolId, ...body, duration_ms: durationMs })
+            }
         })
     )
 

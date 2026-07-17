@@ -128,7 +128,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
 
 def _cleanup_old_s3_extractions(today: date, errors: list[str]) -> list[str]:
     """Delete S3 date-partitioned extraction prefixes older than RETENTION_DAYS."""
-    from products.data_warehouse.backend.s3 import get_s3_client
+    from products.data_warehouse.backend.facade.api import get_s3_client
 
     s3 = get_s3_client()
     base_prefix = f"{settings.DATAWAREHOUSE_BUCKET}/data_pipelines_extract"

@@ -26,6 +26,7 @@
 
 import { PostHog } from 'posthog-node'
 
+import { assertGatewayProvenance, type GatewaySettledCost } from './gateway-wire'
 import { createLogger } from './logger'
 
 /**
@@ -60,17 +61,6 @@ interface AnalyticsEventBase {
     is_error?: boolean
     /** Free-form failure detail; only set when `is_error` is true. */
     error?: string
-    /**
-     * `true` when emitted from a preview-mode session
-     * (`agent_session.is_preview = true`). Stamped onto every `$ai_*` event
-     * as `$agent_is_preview` so PostHog's LLM Analytics dashboards can
-     * filter author-iteration noise out of production observability — the
-     * preview run still emits events (so the author can inspect their own
-     * generations), but it's marked for downstream filtering. Optional so
-     * tests + the analytics-sink unit tests can omit it; missing reads as
-     * "not preview" via a truthy check.
-     */
-    is_preview?: boolean
 }
 
 export interface AnalyticsGenerationEvent extends AnalyticsEventBase {
@@ -90,10 +80,18 @@ export interface AnalyticsGenerationEvent extends AnalyticsEventBase {
     total_tokens?: number
     /** Wall-clock duration of the pi-ai call, milliseconds. */
     latency_ms: number
-    /** Total cost in USD as reported by pi-ai. Suppressed when the gateway path is in use (see useGatewayCost). */
-    cost_usd?: number
+    /**
+     * Settled cost, when known. Provenance-tagged (see `./gateway-wire`) so a
+     * pi-ai/provider estimate can't be assigned without a type error;
+     * `buildAnalyticsProperties` also throws on a wrong-provenance value cast in.
+     */
+    cost?: GatewaySettledCost
     /** pi-ai stopReason — `stop`, `length`, `toolUse`, `error`, `aborted`. */
     stop_reason?: string
+    /** 0-based index of the model in the policy list that answered. >0 means a fallback. */
+    model_attempt?: number
+    /** Model id we fell back FROM (the primary that failed), when a fallback happened. */
+    fallback_from?: string
 }
 
 export interface AnalyticsSpanEvent extends AnalyticsEventBase {
@@ -197,13 +195,6 @@ export function buildAnalyticsProperties(event: AnalyticsEvent): Record<string, 
             base.$ai_error = event.error
         }
     }
-    if (event.is_preview) {
-        // Preview-mode marker. PostHog's LLM Analytics dashboards filter on
-        // this so author iteration doesn't skew production observability.
-        // Emitted only when true (absent ≡ live), keeping the property bag
-        // tight and the dashboard default uncluttered.
-        base.$agent_is_preview = true
-    }
     if (event.kind === 'generation') {
         base.$ai_model = event.model
         base.$ai_provider = event.provider
@@ -221,11 +212,20 @@ export function buildAnalyticsProperties(event: AnalyticsEvent): Record<string, 
             base.$ai_total_tokens = event.total_tokens
         }
         base.$ai_latency = event.latency_ms / 1000
-        if (event.cost_usd !== undefined) {
-            base.$ai_total_cost_usd = event.cost_usd
+        if (event.cost !== undefined) {
+            // Throws (caught by the sinks around this call) on anything that
+            // isn't a genuine gateway-settled figure — the single choke point
+            // that keeps a client-side cost estimate out of analytics.
+            base.$ai_total_cost_usd = assertGatewayProvenance(event.cost).usd
         }
         if (event.stop_reason) {
             base.$ai_stop_reason = event.stop_reason
+        }
+        if (event.model_attempt !== undefined) {
+            base.$agent_model_attempt = event.model_attempt
+        }
+        if (event.fallback_from) {
+            base.$ai_fallback_from = event.fallback_from
         }
     } else if (event.kind === 'span') {
         base.$ai_span_name = event.tool_name
@@ -482,7 +482,17 @@ export class RoutingAnalyticsSink implements AnalyticsSink {
             const resolved = keyByTeam.get(event.team_id) ?? null
             const apiKey = resolved ?? this.opts.fallbackApiKey ?? null
             const eventName = eventNameFor(event)
-            const properties = buildAnalyticsProperties(event)
+            let properties: Record<string, unknown>
+            try {
+                // Can throw — e.g. the cost-provenance guard rejecting a
+                // non-gateway-settled figure. Drop just this event rather than
+                // letting a bad property bag reach `tap`/`capture`.
+                properties = buildAnalyticsProperties(event)
+            } catch (err) {
+                this.log.error('dropping event: invalid properties', { event: eventName, error: String(err) })
+                dropped++
+                continue
+            }
             this.opts.tap?.({ apiKey, eventName, event, properties })
             if (!apiKey) {
                 dropped++

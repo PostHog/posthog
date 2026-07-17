@@ -18,6 +18,7 @@ import type {
     AgentApplicationSessionsRetrieveResponseApi,
     AgentApplicationsApprovalsListParams,
     AgentApplicationsListParams,
+    AgentApplicationsListenParams,
     AgentApplicationsPreviewProxyGetParams,
     AgentApplicationsPreviewProxyParams,
     AgentApplicationsPreviewTokenMintParams,
@@ -26,12 +27,16 @@ import type {
     AgentApplicationsSessionLogsParams,
     AgentApplicationsSessionsListParams,
     AgentApplicationsSessionsRetrieveParams,
+    AgentApplicationsSpecSchemaParams,
     AgentApplicationsStatsParams,
     AgentApprovalsDecideResponseApi,
     AgentFleetApprovalsListParams,
     AgentFleetLiveSessionsParams,
     AgentFleetLiveSessionsResponseApi,
     AgentFleetStatsParams,
+    AgentInvokeRequestApi,
+    AgentInvokeResponseApi,
+    AgentListenResponseApi,
     AgentMemoryDeleteFileParams,
     AgentMemoryFileApi,
     AgentMemoryGetFileParams,
@@ -47,16 +52,21 @@ import type {
     AgentRevisionApi,
     AgentRevisionCronFireRequestApi,
     AgentRevisionCronFireResponseApi,
+    AgentRevisionDryRunToolResponseApi,
     AgentRevisionEnvKeyStatusApi,
     AgentRevisionEnvKeysResponseApi,
     AgentRevisionSlackManifestResponseApi,
     AgentRevisionSystemPromptResponseApi,
     AgentRevisionValidateResponseApi,
+    AgentSendRequestApi,
+    AgentSendResponseApi,
     AgentTableRowsResponseApi,
     AgentTablesListResponseApi,
     AgentUsersListApi,
     CloneFromRequestApi,
     DecideApprovalRequestApi,
+    DryRunToolRequestApi,
+    ImportBundleRequestApi,
     NewDraftRevisionRequestApi,
     PaginatedAgentApplicationListApi,
     PaginatedAgentRevisionListApi,
@@ -66,8 +76,9 @@ import type {
     PreviewProxyInvokeRequestApi,
     SetEnvKeyRequestApi,
     SetEnvRequestApi,
+    SetSkillRefsRequestApi,
+    UpdateBundleFileRequestApi,
     WriteAgentMdRequestApi,
-    WriteSkillRequestApi,
     WriteSpecRequestApi,
     WriteToolRequestApi,
     WriteTypedBundleRequestApi,
@@ -808,6 +819,82 @@ export const agentApplicationsRevisionsBundleUpdate = async (
     })
 }
 
+export const getAgentApplicationsRevisionsBundleFileUpdateUrl = (
+    projectId: string,
+    applicationId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/bundle/file/`
+}
+
+/**
+ * Update one `.md` file on a draft revision.
+ *
+ * `agent.md` writes go to the draft bundle. `skills/<id>/SKILL.md`
+ * writes are store-backed — skills are materialized from the skill
+ * store at freeze, so the edit publishes a new version of the
+ * referenced store skill and re-pins the draft's `skill_refs` entry
+ * to it. `<id>` must be a ref alias on this revision; add new skills
+ * via `bundle/import/` or `skill_refs`. Tool source / schema editing
+ * is out of scope here — use the per-tool endpoints. Returns the
+ * updated revision so the caller can refresh in one round-trip.
+ */
+export const agentApplicationsRevisionsBundleFileUpdate = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    updateBundleFileRequestApi: UpdateBundleFileRequestApi,
+    options?: RequestInit
+): Promise<AgentRevisionApi> => {
+    return apiMutator<AgentRevisionApi>(
+        getAgentApplicationsRevisionsBundleFileUpdateUrl(projectId, applicationId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(updateBundleFileRequestApi),
+        }
+    )
+}
+
+export const getAgentApplicationsRevisionsBundleImportCreateUrl = (
+    projectId: string,
+    applicationId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/bundle/import/`
+}
+
+/**
+ * Bulk-merge a set of `.md` files into a draft revision.
+ *
+ * Sets `agent_md` on the draft bundle if present. `skills[]` are
+ * store-backed and merge by `id`: an id already referenced by the
+ * draft publishes a new version of its store skill; an unreferenced
+ * id attaches the store skill of that name (publishing the payload's
+ * body to it), or creates it when no such skill exists — and each
+ * ref is (re-)pinned to the published version. Skills not mentioned
+ * are left alone, so the import is safe to retry. Draft-only;
+ * non-draft revisions return 409 untouched.
+ */
+export const agentApplicationsRevisionsBundleImportCreate = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    importBundleRequestApi?: ImportBundleRequestApi,
+    options?: RequestInit
+): Promise<AgentRevisionApi> => {
+    return apiMutator<AgentRevisionApi>(
+        getAgentApplicationsRevisionsBundleImportCreateUrl(projectId, applicationId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(importBundleRequestApi),
+        }
+    )
+}
+
 export const getAgentApplicationsRevisionsCloneFromCreateUrl = (
     projectId: string,
     applicationId: string,
@@ -1082,107 +1169,31 @@ export const agentApplicationsRevisionsSetEnvCreate = async (
     })
 }
 
-export const getAgentApplicationsRevisionsSkillsUpdateUrl = (
+export const getAgentApplicationsRevisionsSkillRefsUpdateUrl = (
     projectId: string,
     applicationId: string,
-    id: string,
-    skillId: string
+    id: string
 ) => {
-    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/skills/${skillId}/`
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/skill_refs/`
 }
 
 /**
- * Revisions of an agent. Created in `draft`, promoted through
- * `ready → live` once the bundle has been uploaded + frozen.
- *
- * URLs (nested under an application):
- *
- *     Model CRUD:
- *         GET   .../revisions/                       list
- *         POST  .../revisions/                       create draft
- *         GET   .../revisions/<id>/                  retrieve
- *         PATCH .../revisions/<id>/                  update spec (draft only)
- *
- *     Lifecycle:
- *         POST  .../revisions/<id>/promote/          ready → live
- *         POST  .../revisions/<id>/archive/          → archived
- *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
- *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
- *         POST  .../revisions/new_draft/             create draft + clone_from atomically
- *
- *     Bundle authoring (proxied to the janitor):
- *         GET    .../revisions/<id>/manifest/        list paths + sha256
- *         GET    .../revisions/<id>/file/?path=…     read one file
- *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
- *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
- *         GET    .../revisions/<id>/bundle/          bulk pull all files
- *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * Full-replace the draft's store-skill references. They are resolved
+ * and materialized into the bundle at freeze, not here — this only records
+ * which skills (and pinned versions) the freeze should pull in.
  */
-export const agentApplicationsRevisionsSkillsUpdate = async (
+export const agentApplicationsRevisionsSkillRefsUpdate = async (
     projectId: string,
     applicationId: string,
     id: string,
-    skillId: string,
-    writeSkillRequestApi: WriteSkillRequestApi,
+    setSkillRefsRequestApi: SetSkillRefsRequestApi,
     options?: RequestInit
 ): Promise<AgentRevisionApi> => {
-    return apiMutator<AgentRevisionApi>(
-        getAgentApplicationsRevisionsSkillsUpdateUrl(projectId, applicationId, id, skillId),
-        {
-            ...options,
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(writeSkillRequestApi),
-        }
-    )
-}
-
-export const getAgentApplicationsRevisionsSkillsDestroyUrl = (
-    projectId: string,
-    applicationId: string,
-    id: string,
-    skillId: string
-) => {
-    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/skills/${skillId}/`
-}
-
-/**
- * Revisions of an agent. Created in `draft`, promoted through
- * `ready → live` once the bundle has been uploaded + frozen.
- *
- * URLs (nested under an application):
- *
- *     Model CRUD:
- *         GET   .../revisions/                       list
- *         POST  .../revisions/                       create draft
- *         GET   .../revisions/<id>/                  retrieve
- *         PATCH .../revisions/<id>/                  update spec (draft only)
- *
- *     Lifecycle:
- *         POST  .../revisions/<id>/promote/          ready → live
- *         POST  .../revisions/<id>/archive/          → archived
- *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
- *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
- *         POST  .../revisions/new_draft/             create draft + clone_from atomically
- *
- *     Bundle authoring (proxied to the janitor):
- *         GET    .../revisions/<id>/manifest/        list paths + sha256
- *         GET    .../revisions/<id>/file/?path=…     read one file
- *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
- *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
- *         GET    .../revisions/<id>/bundle/          bulk pull all files
- *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
- */
-export const agentApplicationsRevisionsSkillsDestroy = async (
-    projectId: string,
-    applicationId: string,
-    id: string,
-    skillId: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getAgentApplicationsRevisionsSkillsDestroyUrl(projectId, applicationId, id, skillId), {
+    return apiMutator<AgentRevisionApi>(getAgentApplicationsRevisionsSkillRefsUpdateUrl(projectId, applicationId, id), {
         ...options,
-        method: 'DELETE',
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(setSkillRefsRequestApi),
     })
 }
 
@@ -1392,6 +1403,42 @@ export const agentApplicationsRevisionsToolsDestroy = async (
     })
 }
 
+export const getAgentApplicationsRevisionsToolsDryRunCreateUrl = (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    toolId: string
+) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/tools/${toolId}/dry_run/`
+}
+
+/**
+ * Execute one persisted custom tool in a single-shot sandbox.
+ *
+ * Authoring loop's "test this tool" button. The tool's source must
+ * already be PUT (compiled.js is what runs); this just invokes it
+ * with the caller-supplied args and a stubbed ctx. No real secrets
+ * leave Django — `mock_secrets` is a `{name → placeholder}` map.
+ */
+export const agentApplicationsRevisionsToolsDryRunCreate = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    toolId: string,
+    dryRunToolRequestApi: DryRunToolRequestApi,
+    options?: RequestInit
+): Promise<AgentRevisionDryRunToolResponseApi> => {
+    return apiMutator<AgentRevisionDryRunToolResponseApi>(
+        getAgentApplicationsRevisionsToolsDryRunCreateUrl(projectId, applicationId, id, toolId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(dryRunToolRequestApi),
+        }
+    )
+}
+
 export const getAgentApplicationsRevisionsValidateCreateUrl = (
     projectId: string,
     applicationId: string,
@@ -1401,7 +1448,7 @@ export const getAgentApplicationsRevisionsValidateCreateUrl = (
 }
 
 /**
- * Pre-flight checks before freeze + promote: entrypoint file exists,
+ * Pre-flight checks before freeze + promote: agent.md exists,
  * every native tool id is registered, every custom tool has its
  * compiled.js + schema.json, every skill path exists, every declared
  * secret has a value set in this revision's env block. Returns
@@ -1658,6 +1705,67 @@ export const agentApplicationsApprovalsDecide = async (
     )
 }
 
+export const getAgentApplicationsInvokeUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/agent_applications/${id}/invoke/`
+}
+
+/**
+ * Start a new session on this agent's LIVE (promoted) revision.
+ *
+ * Bridges to ingress `POST /agents/<slug>/run`, forwarding the caller's PAT
+ * so the session principal is the real caller. Returns the new `session_id`;
+ * drive the conversation with `agent-applications-send` and read progress with
+ * `agent-applications-listen`. For non-live / draft revisions use `preview_proxy` instead.
+ */
+export const agentApplicationsInvoke = async (
+    projectId: string,
+    id: string,
+    agentInvokeRequestApi: AgentInvokeRequestApi,
+    options?: RequestInit
+): Promise<AgentInvokeResponseApi> => {
+    return apiMutator<AgentInvokeResponseApi>(getAgentApplicationsInvokeUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(agentInvokeRequestApi),
+    })
+}
+
+export const getAgentApplicationsListenUrl = (projectId: string, id: string, params: AgentApplicationsListenParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/${id}/listen/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/${id}/listen/`
+}
+
+/**
+ * Poll a LIVE session's progress as a single JSON digest (non-streaming,
+ * MCP-friendly). Bridges to the internal ingress digest RPC — the digest is
+ * built node-side (never in Python). Tenancy is enforced by the team-scoped
+ * `get_object()` here plus the ingress digest's `application_id` re-scope;
+ * there is no janitor pre-check on this polled path (see the comment below).
+ */
+export const agentApplicationsListen = async (
+    projectId: string,
+    id: string,
+    params: AgentApplicationsListenParams,
+    options?: RequestInit
+): Promise<AgentListenResponseApi> => {
+    return apiMutator<AgentListenResponseApi>(getAgentApplicationsListenUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getAgentApplicationsPreviewProxyGetUrl = (
     projectId: string,
     id: string,
@@ -1842,6 +1950,35 @@ export const agentApplicationsPreviewTokenMint = async (
     )
 }
 
+export const getAgentApplicationsSendUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/agent_applications/${id}/send/`
+}
+
+/**
+ * Append a message to an existing LIVE session and re-queue it.
+ *
+ * Bridges to ingress `POST /agents/<slug>/send`, forwarding the caller's PAT
+ * so the ACL principal-match passes. A `completed` session is NOT terminal —
+ * it's a per-turn idle state for a multi-turn agent, so send re-queues it for
+ * another turn; only truly-terminal states (failed / cancelled / closed) 410,
+ * which passes through as a 410. A janitor ownership pre-check runs first, but
+ * it's redundant defense-in-depth (ingress `/send` already app-scopes the
+ * load), kept for a clean early 404.
+ */
+export const agentApplicationsSend = async (
+    projectId: string,
+    id: string,
+    agentSendRequestApi: AgentSendRequestApi,
+    options?: RequestInit
+): Promise<AgentSendResponseApi> => {
+    return apiMutator<AgentSendResponseApi>(getAgentApplicationsSendUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(agentSendRequestApi),
+    })
+}
+
 export const getAgentApplicationsSessionsListUrl = (
     projectId: string,
     id: string,
@@ -1863,7 +2000,7 @@ export const getAgentApplicationsSessionsListUrl = (
 }
 
 /**
- * List sessions for this application, newest first. Strips the
+ * List sessions for this application, most recently active first. Strips the
  * conversation transcript from each summary, but includes a `preview`
  * (last assistant text, ~120 chars) and `usage_total` (token + cost
  * aggregate). Use `agent-applications-sessions-retrieve` for the full
@@ -2041,6 +2178,53 @@ export const agentApplicationsUsersConnectionDelete = async (
     return apiMutator<void>(getAgentApplicationsUsersConnectionDeleteUrl(projectId, id, agentUserId, provider), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAgentApplicationsModelsUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/agent_applications/models/`
+}
+
+/**
+ * Served-model catalog — each model's id, provider, context window, and USD-per-million-token pricing — plus the curated auto-level → model map. Project-agnostic; sourced from the AI gateway catalog. Powers the config UI model browser and the agent builder's model-choosing skill.
+ */
+export const agentApplicationsModels = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AgentApplicationApi> => {
+    return apiMutator<AgentApplicationApi>(getAgentApplicationsModelsUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentApplicationsSpecSchemaUrl = (projectId: string, params?: AgentApplicationsSpecSchemaParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/spec_schema/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/spec_schema/`
+}
+
+/**
+ * The canonical JSON Schema for an agent `spec` — every field, type, enum, default, and the discriminated unions for `models` / `triggers[]` / `tools[]`, each with an inline description. Emitted from the same source the runner validates against (fields with a default are optional on write), so read it BEFORE composing a spec for create / revisions-spec-update instead of guessing the shape. Pass `section` to fetch just one part.
+ */
+export const agentApplicationsSpecSchema = async (
+    projectId: string,
+    params?: AgentApplicationsSpecSchemaParams,
+    options?: RequestInit
+): Promise<AgentApplicationApi> => {
+    return apiMutator<AgentApplicationApi>(getAgentApplicationsSpecSchemaUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

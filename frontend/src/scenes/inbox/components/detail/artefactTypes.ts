@@ -58,6 +58,16 @@ export interface DismissalContent {
     note?: string
 }
 
+export interface TitleChangeContent {
+    old_title?: string | null
+    new_title: string
+}
+
+export interface SummaryChangeContent {
+    old_summary?: string | null
+    new_summary: string
+}
+
 // ── Type labels ──────────────────────────────────────────────────────────────────────────────
 
 /** Human label for each artefact type as it reads in the activity log header. */
@@ -75,6 +85,9 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     repo_selection: 'Repo selected',
     dismissal: 'Report dismissed',
     video_segment: 'Video segment',
+    title_change: 'Title edited',
+    summary_change: 'Summary edited',
+    related_to: 'Related report',
 }
 
 export function artefactTypeLabel(type: string): string {
@@ -151,6 +164,9 @@ export function deriveTaskPurpose(content: TaskRunArtefactContent): DerivedPurpo
         if (content.type === 'repo_selection') {
             return null
         }
+        if (content.type === 'scout') {
+            return { purpose: 'other', purposeLabel: 'Scout' }
+        }
         return { purpose: 'other', purposeLabel: `Signals — ${identifierToHuman(content.type)}` }
     }
     return {
@@ -170,6 +186,7 @@ export function taskRunTypeLabel(content: TaskRunArtefactContent): string {
             research: 'Research',
             implementation: 'Implementation',
             repo_selection: 'Repo selection',
+            scout: 'Scout',
         }
         return labels[content.type] ?? identifierToHuman(content.type)
     }

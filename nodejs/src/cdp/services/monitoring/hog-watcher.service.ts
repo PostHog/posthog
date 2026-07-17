@@ -2,10 +2,10 @@ import { Counter } from 'prom-client'
 
 import { RedisClientPipeline, RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
 import { KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
-import { LazyLoader } from '~/utils/lazy-loader'
-import { logger } from '~/utils/logger'
-import { captureTeamEvent } from '~/utils/posthog'
-import { TeamManager } from '~/utils/team-manager'
+import { LazyLoader } from '~/common/utils/lazy-loader'
+import { logger } from '~/common/utils/logger'
+import { captureTeamEvent } from '~/common/utils/posthog'
+import { TeamManager } from '~/common/utils/team-manager'
 
 import {
     CyclotronJobInvocation,

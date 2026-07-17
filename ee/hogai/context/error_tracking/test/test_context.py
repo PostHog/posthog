@@ -2,13 +2,18 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
+from django.apps import apps
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
-
 from ee.hogai.context.error_tracking.context import ErrorTrackingIssueContext
+
+# Test-fixture setup only — the code under test (ErrorTrackingIssueContext) reads issues through
+# the facade. Issues have no create-contract (they come from ingestion), so the test seeds the row
+# directly; apps.get_model avoids an import edge into error_tracking internals that tach would flag.
+ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
+ErrorTrackingIssueFingerprintV2 = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
 
 
 @freeze_time("2025-01-15T12:00:00Z")
@@ -105,6 +110,7 @@ class TestErrorTrackingIssueContext(ClickhouseTestMixin, APIBaseTest):
     def _create_context(self, issue_id: str, issue_name: str | None = None) -> ErrorTrackingIssueContext:
         return ErrorTrackingIssueContext(
             team=self.team,
+            user=self.user,
             issue_id=issue_id,
             issue_name=issue_name,
         )

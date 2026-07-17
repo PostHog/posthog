@@ -1,6 +1,7 @@
 pub mod api;
 pub mod api_proxy;
 pub mod commands;
+pub mod debug_symbols;
 pub mod download;
 pub mod dsym;
 pub mod error;

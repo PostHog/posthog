@@ -17,8 +17,12 @@ findings (and so left no `Signal` row to query against) — plus the
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
+
+from django.db.models import Q
+from django.db.models.functions import Coalesce
+from django.utils import timezone
 
 from products.signals.backend.models import SignalScoutRun
 from products.tasks.backend.facade import api as tasks_facade
@@ -29,6 +33,16 @@ if TYPE_CHECKING:
 # Defensive caps so a runaway agent loop can't pull thousands of rows in one call.
 DEFAULT_RUN_SEARCH_LIMIT = 20
 MAX_RUN_SEARCH_LIMIT = 100
+
+# The "Scout findings" callout summary tallies findings over a fixed lookback window. The default
+# window, the run cap, and the report cap mirror the cloud/desktop frontend
+# (`SCOUT_RUNS_WINDOW_HOURS = 72` / `MAX_FLEET_EMITTED_RUNS = 120` / `MAX_FLEET_TOUCHED_REPORTS = 50`)
+# so the callout counts match the set the findings page renders; the max window bounds a
+# pathological lookback.
+DEFAULT_FINDINGS_WINDOW_HOURS = 72
+MAX_FINDINGS_WINDOW_HOURS = 168
+FLEET_FINDINGS_SUMMARY_RUN_CAP = 120
+FLEET_FINDINGS_SUMMARY_REPORT_CAP = 50
 
 # `failure_reason` is the concise, list-safe derived signal; `error` carries the full
 # `TaskRun.error_message`. Bound the derived reason so it stays cheap to scan in bulk.
@@ -52,6 +66,14 @@ class RunSummary:
     summary: str
     emitted_count: int = 0
     emitted_finding_ids: list[str] = field(default_factory=list)
+    # Reports authored via the `emit_report` channel — separate from `emitted_count`/`emitted_finding_ids`
+    # (which count weak `emit_signal` findings), so a run that only authored a report still reads as
+    # having emitted something.
+    emitted_report_ids: list[str] = field(default_factory=list)
+    # Reports this run *mutated* via the `edit_report` channel (rewrote title/summary and/or appended a
+    # note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are
+    # generally not reports the run authored. Lets "which reports did this run edit?" be a column lookup.
+    edited_report_ids: list[str] = field(default_factory=list)
     task_id: str | None = None
     task_run_id: str | None = None
     task_url: str | None = None
@@ -83,6 +105,14 @@ class RunDetail:
     summary: str
     emitted_count: int = 0
     emitted_finding_ids: list[str] = field(default_factory=list)
+    # Reports authored via the `emit_report` channel — separate from `emitted_count`/`emitted_finding_ids`
+    # (which count weak `emit_signal` findings), so a run that only authored a report still reads as
+    # having emitted something.
+    emitted_report_ids: list[str] = field(default_factory=list)
+    # Reports this run *mutated* via the `edit_report` channel (rewrote title/summary and/or appended a
+    # note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are
+    # generally not reports the run authored. Lets "which reports did this run edit?" be a column lookup.
+    edited_report_ids: list[str] = field(default_factory=list)
     task_id: str | None = None
     task_run_id: str | None = None
     task_url: str | None = None
@@ -115,8 +145,9 @@ def search_recent_runs(
     `text` is a case-insensitive substring match on the agent's end-of-run
     `summary` — the primary dedupe path for runs that didn't emit findings.
     `emitted` filters on emit outcome: `True` keeps only runs that emitted at least
-    one finding (`emitted_count > 0`), `False` keeps only runs that emitted nothing;
-    omit it for both. `skill_name` is an exact-match filter that narrows the dump to
+    one finding *or* authored a report (`emitted_count > 0` or a non-empty
+    `emitted_report_ids`), `False` keeps only runs that emitted nothing on either
+    channel; omit it for both. `skill_name` is an exact-match filter that narrows the dump to
     a single scout — the primary scoping path for a specialist deduping against its
     own past work; pair it with `skill_version` to pin a specific version. Results
     are capped at `MAX_RUN_SEARCH_LIMIT`.
@@ -130,13 +161,111 @@ def search_recent_runs(
     if text:
         qs = qs.filter(summary__icontains=text)
     if emitted is not None:
-        qs = qs.filter(emitted_count__gt=0) if emitted else qs.filter(emitted_count=0)
+        # A run "emitted" if it surfaced a weak finding (emitted_count) or authored a report
+        # (emitted_report_ids). Treat null/[] report lists as empty for the negative case.
+        emitted_a_report = ~Q(emitted_report_ids=[]) & ~Q(emitted_report_ids__isnull=True)
+        if emitted:
+            qs = qs.filter(Q(emitted_count__gt=0) | emitted_a_report)
+        else:
+            qs = qs.filter(emitted_count=0).filter(Q(emitted_report_ids=[]) | Q(emitted_report_ids__isnull=True))
     if skill_name:
         qs = qs.filter(skill_name=skill_name)
     if skill_version is not None:
         qs = qs.filter(skill_version=skill_version)
     qs = qs[:clamped_limit]
     return [_to_summary(row, team_id=team_id) for row in qs]
+
+
+@dataclass(frozen=True)
+class FleetFindingsSummary:
+    """Cheap fleet-wide tally of recent scout output — what the "Scout findings" callout reads.
+
+    Covers both emit channels: weak `emit_signal` findings (`count`) and the report channel
+    (`authored_report_count` / `edited_report_count`), so a fleet of report-channel scouts
+    doesn't read as silent.
+    """
+
+    count: int
+    scout_count: int
+    authored_report_count: int
+    edited_report_count: int
+    latest_at: str | None
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS_WINDOW_HOURS) -> FleetFindingsSummary:
+    """Summarise the output the fleet produced in the recent window, in a single query.
+
+    Replaces the client-side tally that walked the whole paginated runs window just to count
+    findings for the callout. Counts runs that produced output on either channel — emitted a
+    finding (`emitted_count > 0`) or authored/edited an inbox report (non-empty
+    `emitted_report_ids` / `edited_report_ids`) — whose `created_at` falls in the last
+    `window_hours`, capped to the most recent `FLEET_FINDINGS_SUMMARY_RUN_CAP` runs by completion
+    time (falling back to creation) — the same set the findings page renders, so the callout
+    can't over-advertise. Returns the finding total (sum of `emitted_count`), the distinct scout
+    count, the distinct reports authored and edited (edits of a report also authored *within the
+    capped run set* fold into authored, matching the scout detail view — a report whose authoring
+    run ages out of the cap while a later edit survives counts as edited, the same classification
+    the findings page derives from its identically-capped window), and the most recent output time.
+    The report tallies are additionally capped at the `FLEET_FINDINGS_SUMMARY_REPORT_CAP` most
+    recently touched reports — the same 50 the findings page slices `touchedReports` to — so the
+    callout never advertises reports the page won't list.
+    """
+    window_hours = max(1, min(window_hours, MAX_FINDINGS_WINDOW_HOURS))
+    window_start = timezone.now() - timedelta(hours=window_hours)
+    touched_a_report = (~Q(emitted_report_ids=[]) & ~Q(emitted_report_ids__isnull=True)) | (
+        ~Q(edited_report_ids=[]) & ~Q(edited_report_ids__isnull=True)
+    )
+    # Order by completion (fall back to creation) so the cap keeps the *most recently emitted* runs,
+    # matching the frontend's `completed_at ?? created_at` sort; `-id` tie-breaks on the time-ordered PK.
+    rows = (
+        SignalScoutRun.objects.filter(team_id=team_id, created_at__gte=window_start)
+        .filter(Q(emitted_count__gt=0) | touched_a_report)
+        .annotate(_emitted_at=Coalesce("task_run__completed_at", "created_at"))
+        .order_by("-_emitted_at", "-id")
+        .values_list("emitted_count", "skill_name", "_emitted_at", "emitted_report_ids", "edited_report_ids")[
+            :FLEET_FINDINGS_SUMMARY_RUN_CAP
+        ]
+    )
+    materialized = list(rows)
+    count = 0
+    scouts: set[str] = set()
+    latest_at: datetime | None = None
+    for emitted_count, skill_name, emitted_at, _emitted_report_ids, _edited_report_ids in materialized:
+        count += emitted_count or 0
+        # Finding-emitting scouts always count (findings aren't report-capped); report-only scouts
+        # are added below only when a report they touched survives the report cap — the same rule
+        # the findings page uses for its scout filter, so the callout can't advertise a scout the
+        # page won't show.
+        if emitted_count:
+            scouts.add(skill_name)
+        if emitted_at is not None and (latest_at is None or emitted_at > latest_at):
+            latest_at = emitted_at
+    # Distinct touched reports, most recently touched first (rows are newest-first), capped at the
+    # same 50 the findings page keeps (`MAX_FLEET_TOUCHED_REPORTS`) — so the callout never
+    # advertises reports the page has sliced away. Dict preserves insertion (recency) order.
+    kept_report_ids: dict[str, None] = {}
+    for _, _, _, emitted_report_ids, edited_report_ids in materialized:
+        for report_id in [*(edited_report_ids or []), *(emitted_report_ids or [])]:
+            if report_id not in kept_report_ids and len(kept_report_ids) < FLEET_FINDINGS_SUMMARY_REPORT_CAP:
+                kept_report_ids[report_id] = None
+    for _, skill_name, _, emitted_report_ids, edited_report_ids in materialized:
+        if any(report_id in kept_report_ids for report_id in [*(emitted_report_ids or []), *(edited_report_ids or [])]):
+            scouts.add(skill_name)
+    # Authoring supersedes an edit of the same report — one report, one bucket.
+    authored_reports: set[str] = set()
+    for _, _, _, emitted_report_ids, _edited_report_ids in materialized:
+        authored_reports.update(report_id for report_id in emitted_report_ids or [] if report_id in kept_report_ids)
+    edited_reports = {report_id for report_id in kept_report_ids if report_id not in authored_reports}
+    return FleetFindingsSummary(
+        count=count,
+        scout_count=len(scouts),
+        authored_report_count=len(authored_reports),
+        edited_report_count=len(edited_reports),
+        latest_at=latest_at.isoformat() if latest_at is not None else None,
+    )
 
 
 def get_run(*, team_id: int, run_id: str) -> RunDetail | None:
@@ -167,6 +296,8 @@ def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
         summary=row.summary,
         emitted_count=row.emitted_count or 0,
         emitted_finding_ids=list(row.emitted_finding_ids or []),
+        emitted_report_ids=list(row.emitted_report_ids or []),
+        edited_report_ids=list(row.edited_report_ids or []),
         task_id=task_id,
         task_run_id=task_run_id,
         task_url=_build_task_url(team_id=team_id, task_id=task_id, task_run_id=task_run_id),

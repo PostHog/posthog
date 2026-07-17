@@ -51,9 +51,9 @@ from posthog.hogql.visitor import clear_locations
 class _SharedParserSnapshotExtension(AmberSnapshotExtension):
     """One shared `.ambr` across all backend subclasses, keyed by test-method name only.
 
-    Every backend (cpp-json / python / rust-json / rust-py) must construct the identical
+    Every backend (cpp-json / rust-json / rust-py) must construct the identical
     AST — including source positions — so there is exactly one expected snapshot per
-    assertion, recorded once and asserted by all four. Default syrupy would key by class
+    assertion, recorded once and asserted by all three. Default syrupy would key by class
     (`TestParserCppJson` vs `TestParserRustJson`) and write a `.ambr` per test file.
     """
 
@@ -94,7 +94,7 @@ def _snapshot_key(src: str) -> str:
 
 
 def parser_test_factory(backend: HogQLParserBackend):
-    base_classes = (BaseTest,) if backend == "python" else (MemoryLeakTestMixin, BaseTest)
+    base_classes = (MemoryLeakTestMixin, BaseTest)
 
     class TestParser(*base_classes):  # type: ignore
         MEMORY_INCREASE_PER_PARSE_LIMIT_B = 10_000
@@ -114,8 +114,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             # Parse `src` on this backend and check it against the shared cross-backend snapshot.
             # cpp-json / rust-json / rust-py assert the FULL positioned AST (one recorded `.ambr`
             # entry per source — positions verified, cpp regressions caught, no live self-compare).
-            # python is the legacy backend and not a position-parity target, so it only verifies
-            # STRUCTURE against the live cpp parse (clear_locations) — no position-divergence noise.
             parse_fn = {
                 "expr": parse_expr,
                 "select": parse_select,
@@ -128,15 +126,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 kwargs["placeholders"] = placeholders
             # Parse on every rerun so the leak mixin still exercises the parser 102x and a real
             # per-parse leak is caught. Only COMPARE on the first run: syrupy / pretty_dataclasses
-            # / the cpp oracle parse allocate per call, so comparing on every rerun would trip the
-            # leak check with test-machinery growth that isn't a parser leak.
+            # allocate per call, so comparing on every rerun would trip the leak check with
+            # test-machinery growth that isn't a parser leak.
             parsed = parse_fn(src, **kwargs)
-            # python has no leak mixin (runs once), so the attr is absent → treat as run 0.
             if getattr(self, "_memory_leak_run_index", 0) != 0:
-                return
-            if backend == "python":
-                oracle_kwargs = {**kwargs, "backend": "cpp-json"}
-                assert clear_locations(parsed) == clear_locations(parse_fn(src, **oracle_kwargs))
                 return
             if not hasattr(self, "_shared_ast_snapshot"):
                 self._shared_ast_snapshot = self.snapshot.use_extension(_SharedParserSnapshotExtension)
@@ -185,8 +178,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ("hex_negative", "-0x1F", -31),
                 ("hex_positive_sign", "+0x1F", 31),
                 # Hex digits include 'e' — must be dispatched before the float guard,
-                # or "0xfe" routes through float()/stod and either raises (Python)
-                # or silently returns a double (C++) instead of an int64.
+                # or "0xfe" is misparsed as a float (a double) instead of an int64.
                 ("hex_with_e_digit", "0xfe", 254),
                 ("hex_negative_with_e_digit", "-0xae", -174),
                 # Near 2^60 the double mantissa is 8 bits short, so a stod-based hex parse rounds wrong.
@@ -2535,7 +2527,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             )
 
         def test_select_set_level_limit_offset_divergences(self):
-            # Set-level LIMIT/OFFSET on a SelectSetQuery initial query — Python dropped both. C++ was already correct.
+            # Set-level LIMIT/OFFSET on a SelectSetQuery initial query must land on the set query, not be dropped.
             parsed = self._select("((select 1) intersect (select 2)) limit 3, 4")
             assert isinstance(parsed, ast.SelectSetQuery)
             self.assertEqual(parsed.limit, ast.Constant(value=3))
@@ -2919,7 +2911,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertIn("synthetic post_init failure", str(caught.exception))
 
         def test_deeply_nested_input_does_not_stack_overflow(self):
-            # Deeply-nested input must surface a clean `SyntaxError`, not a host stack overflow (an uncatchable SIGSEGV) in the recursive-descent loop. One shared counter caps all three recursion dimensions — expression nesting, subquery / set nesting, and Hog statement / block nesting — at `MAX_RECURSION_DEPTH = 1000`, mirroring ClickHouse's `max_parser_depth`. cpp / python have their own stack characteristics so the assertion is rust-specific. Which guard fires (and so the exact message) depends on how the input routes through the descent, hence the loose substring check.
+            # Deeply-nested input must surface a clean `SyntaxError`, not a host stack overflow (an uncatchable SIGSEGV) in the recursive-descent loop. One shared counter caps all three recursion dimensions — expression nesting, subquery / set nesting, and Hog statement / block nesting — at `MAX_RECURSION_DEPTH = 1000`, mirroring ClickHouse's `max_parser_depth`. cpp has its own stack characteristics so the assertion is rust-specific. Which guard fires (and so the exact message) depends on how the input routes through the descent, hence the loose substring check.
             if backend not in ("rust-json", "rust-py"):
                 self.skipTest("rust-specific recursion cap")
             parse_fns = {"expr": parse_expr, "select": parse_select, "program": parse_program}
@@ -3420,7 +3412,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(tag, ast.HogQLXTag(kind="em", attributes=[]))
 
         def test_return_hogqlx_tag_value(self):
-            # `return <Tag/>` is a returnStmt whose value is a HogQLX tag, not the `<` less-than operator binding `return` as a Field. The rust parser's return-guard read the following `<` as less-than and rejected the tag while cpp and python accept it; bare `<Tag/>` and `let x := <Tag/>` already worked, so only the return-value position needed the fix (`execute_hog` wraps a bare expression as `return <expr>;`, which is how this surfaced).
+            # `return <Tag/>` is a returnStmt whose value is a HogQLX tag, not the `<` less-than operator binding `return` as a Field. The rust parser's return-guard read the following `<` as less-than and rejected the tag while cpp accepts it; bare `<Tag/>` and `let x := <Tag/>` already worked, so only the return-value position needed the fix (`execute_hog` wraps a bare expression as `return <expr>;`, which is how this surfaced).
             prog = cast(ast.Program, self._program("return <Sparkline />"))
             stmt = cast(ast.ReturnStatement, prog.declarations[0])
             self.assertIsInstance(stmt, ast.ReturnStatement)
@@ -5348,15 +5340,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             for src in cases:
                 self._assert_ast(src, "expr")
 
-        def test_between_not_lambda_lower_bound(self):
-            # `BETWEEN <low>`'s AND-reservation must propagate through a `NOT`-wrapped lambda low bound so the lambda doesn't over-consume `…and c`.
-            cases = (
-                "a between not lambda x: b and c",
-                "a between not x -> y and z",
-            )
-            for src in cases:
-                self._assert_ast(src, "expr")
-
         def test_chained_between_inner_end_position(self):
             # Left-recursive `between`: `a between L1 and H1 between L2 and H2` parses as `BetweenExpr(BetweenExpr(a, L1, H1), L2, H2)`.
             # The inner BetweenExpr's `.end` must stop at H1 (offset of `2` here), not extend through H2.
@@ -5370,6 +5353,112 @@ def parser_test_factory(backend: HogQLParserBackend):
             # H1 is the constant `2`, which ends at offset 24 in the source.
             self.assertEqual(inner.end, 24, msg=f"{backend}: inner.end={inner.end}, expected 24")
             self.assertEqual(outer.end, 40, msg=f"{backend}: outer.end={outer.end}, expected 40")
+
+        def test_between_binds_tighter_than_and_or(self):
+            # BETWEEN binds at the comparison tier, so its tested expression and both
+            # bounds never swallow a surrounding AND/OR chain. The reported bug was
+            # `x BETWEEN a AND b AND rest` parsing as `x BETWEEN (a AND b) AND rest`
+            # (making the low bound a boolean → a runtime type error). Each case must
+            # group the same as its explicitly-parenthesized equivalent.
+            cases = (
+                ("a between 1 and 2 and c", "(a between 1 and 2) and c"),
+                ("a between 1 and 2 and 3 and 4", "(a between 1 and 2) and 3 and 4"),
+                ("x = 1 and a between 1 and 2 and c = 3", "(x = 1) and (a between 1 and 2) and (c = 3)"),
+                ("a between b and c or d", "(a between b and c) or d"),
+                ("a not between 1 and 2 and c", "(a not between 1 and 2) and c"),
+                (
+                    "timestamp between 'x' and 'y' and uuid in ('u1', 'u2')",
+                    "(timestamp between 'x' and 'y') and (uuid in ('u1', 'u2'))",
+                ),
+            )
+            for src, parenthesized in cases:
+                self.assertEqual(self._expr(src), self._expr(parenthesized), msg=f"{backend}: {src!r}")
+            # BETWEEN also binds tighter than prefix NOT now (matching ClickHouse
+            # and standard SQL); it used to parse as `(not a) between 1 and 2`.
+            # Constructed expectations because `not (…)` parses as a `not()` call.
+            between = self._expr("a between 1 and 2")
+            self.assertEqual(self._expr("not a between 1 and 2"), ast.Not(expr=between))
+            self.assertEqual(
+                self._expr("not a between 1 and 2 and c"),
+                ast.And(exprs=[ast.Not(expr=between), ast.Field(chain=["c"])]),
+            )
+
+        def test_between_bound_rejects_lambda_and_named_argument(self):
+            # A lambda or named argument is meaningless as a BETWEEN bound, and as
+            # the LOW bound its trailing body competes with the bound separator
+            # `AND` (an ambiguity ALL(*) resolves adaptively, which a deterministic
+            # parser can't reproduce). Both backends reject the bare shape —
+            # through NOT / unary-minus wrappers too. Parenthesized bounds and
+            # trailing-position (high) bounds have no ambiguity and stay accepted.
+            for query in (
+                "x between lambda a : a and b",
+                "x between a -> a and b",
+                "x between (a, b) -> a and c",
+                "x between p := 1 and b",
+                "x between not lambda a : a and b",
+                "x between - lambda a : a and b",
+                "x between not not lambda a : a and b",
+                "x between not p := 1 and b",
+            ):
+                with self.assertRaises(BaseHogQLError, msg=f"{backend}: {query!r}"):
+                    parse_expr(query, backend=backend)
+            for src in (
+                "x between (lambda a : a) and b",
+                "x between 1 and lambda a : a",
+                "x between 1 and p := 2",
+                "x between interval 1 day and interval 2 day",
+                "x between case when a then b else c end and d",
+            ):
+                self._assert_ast(src, "expr")
+
+        def test_named_argument_reroots_trailing_value_operator(self):
+            # `ColumnExprNamedArg` is a value-tier primary, so when its value parse
+            # stops at a bare-alias boundary a trailing value-tier operator attaches
+            # to the NamedArgument itself: `y := 1 as x [1]` is ONE ExprStatement
+            # `ArrayAccess(NamedArgument(y, Alias(1, x)), 1)` — not a
+            # VariableAssignment followed by a stray array statement. The bare
+            # NamedArgument statement (nothing trailing) still promotes to a
+            # VariableAssignment.
+            for src in (
+                "y := 1 as x [1]",
+                "y := 1 as x :: Int",
+                "y := 1 as x + 2",
+                "y := 1 as x between 1 and 2",
+                "y := 1 as x not in (1,2)",
+                "for (y := 1 as x [1]; a; b) {}",
+                # Guards: promotion to VariableAssignment and statement-splitting
+                # recovery are unaffected.
+                "y := 1",
+                "y := 1 as x",
+                "y := 1 as x and 2",
+                "y := x *= 2",
+                "a := 1 := 2",
+            ):
+                self._assert_ast(src, "program")
+            for src in (
+                "f(y := 1 as x [1])",
+                "f(y := 1 [1])",
+                "f(y := 1 as x + 2, z)",
+                "(y := 1 as x [1])",
+                "arr[w := 1 as x + 2]",
+            ):
+                self._assert_ast(src, "expr")
+            for src in ("select 1 from f(y := 1 as x [1])", "select f(y := 1 as x [1])"):
+                self._assert_ast(src, "select")
+
+        def test_between_alias_ternary_and_paren_grouping(self):
+            # An alias / ternary / OR applies to the whole BetweenExpr (they live in
+            # the outer tier), and parenthesized bounds keep their spans — coverage
+            # carried over from the pre-two-tier positional tests.
+            for src in (
+                "1 between 2 and 3 as l",
+                "1 between 2 and 3 as l or w",
+                "1 between 2 and 3 as l ? x : y",
+                "x between (1) and (2) or y",
+                "1 between 2 and (3) and 4",
+                "x between 1 and (2) * (3) and 4",
+            ):
+                self._assert_ast(src, "expr")
 
         def test_parenthesized_between_high_end_position_with_hoist(self):
             # A BETWEEN whose high operand is parenthesized spans through the
@@ -6462,12 +6551,36 @@ def parser_test_factory(backend: HogQLParserBackend):
         def test_interval_combined_string_validates_count_and_unit(self):
             # `INTERVAL '<count> <unit>'` requires an ASCII-digit count and a literal-lowercase unit; each invalid input must surface the same error string in both parsers.
             cases = (
-                ("INTERVAL 'twenty days'", "Unsupported interval count: twenty"),
-                ("INTERVAL '-1 day'", "Unsupported interval count: -1"),
-                ("INTERVAL '1.5 days'", "Unsupported interval count: 1.5"),
-                # `stoi`'s `out_of_range::what()` differs by stdlib (libc++ adds `: out of range`, libstdc++ doesn't); match the platform-independent prefix only.
-                ("INTERVAL '99999999999999999999 day'", "Unknown error: stoi"),
+                ("INTERVAL 'twenty days'", "Unsupported interval count: 'twenty' is not a valid integer"),
+                ("INTERVAL '-1 day'", "Unsupported interval count: '-1' is not a valid integer"),
+                ("INTERVAL '1.5 days'", "Unsupported interval count: '1.5' is not a valid integer"),
+                # A space-but-empty count (`' '`, `' day'`) is reported the same way — the count before the space isn't a valid integer.
+                ("INTERVAL ' '", "Unsupported interval count: '' is not a valid integer"),
+                ("INTERVAL ' day'", "Unsupported interval count: '' is not a valid integer"),
+                # ClickHouse stores intervals as Int64, so both parsers convert the count with `std::stoll` (i64); a value past Int64 max is rejected as too large. Both parsers emit this exact message (no leaked stdlib `stoll` text), so assert it in full.
+                (
+                    "INTERVAL '9223372036854775808 day'",
+                    "Unsupported interval count: '9223372036854775808' is too large",
+                ),
+                (
+                    "INTERVAL '99999999999999999999 day'",
+                    "Unsupported interval count: '99999999999999999999' is too large",
+                ),
                 ("INTERVAL '1 SECOND'", "Unsupported interval unit: SECOND"),
+                # cpp accepts only the singular or single-`s` plural unit; a doubled plural is rejected. rust used to strip every trailing `s` and silently accept `dayss` as `day`.
+                ("INTERVAL '1 dayss'", "Unsupported interval unit: dayss"),
+                ("INTERVAL '1 secondss'", "Unsupported interval unit: secondss"),
+                # A string with no internal space can't be `<count> <unit>`: cpp commits to ColumnExprIntervalString and its visitor rejects with this message. rust used to fall through to the expr+unit form and raise a "expected interval unit keyword" SyntaxError instead — same base class, so only the message asserts the divergence.
+                ("INTERVAL ''", "Unsupported interval type: must be in the format '<count> <unit>'"),
+                ("INTERVAL 'x'", "Unsupported interval type: must be in the format '<count> <unit>'"),
+                ("now() - INTERVAL ''", "Unsupported interval type: must be in the format '<count> <unit>'"),
+                # A nested string-valued interval (`INTERVAL INTERVAL '<count> <unit>' <unit>`) reaches the same count/unit validation through a different call site; assert the edge cases there too so the two sites can't drift.
+                ("INTERVAL INTERVAL ' day' MONTH", "Unsupported interval count: '' is not a valid integer"),
+                (
+                    "INTERVAL INTERVAL '9223372036854775808 day' MONTH",
+                    "Unsupported interval count: '9223372036854775808' is too large",
+                ),
+                ("INTERVAL INTERVAL '1 dayss' MONTH", "Unsupported interval unit: dayss"),
             )
             for src, expected_msg in cases:
                 with self.assertRaises(ExposedHogQLError, msg=src) as cpp_cm:
@@ -6479,6 +6592,19 @@ def parser_test_factory(backend: HogQLParserBackend):
             # Guard: valid combined-string and expr+unit forms still parse.
             for src in ("INTERVAL '1 day'", "INTERVAL '5 days'", "INTERVAL 1 day", "INTERVAL 1 DAY"):
                 self._assert_ast(src, "expr")
+            # Guard: a no-space string that is only the HEAD of a longer
+            # unit-terminated value still parses as `ColumnExprInterval` (expr+unit)
+            # on both backends — the fall-back to the string-form rejection must not
+            # pre-empt these. `interval 'x' day` takes the same path with the unit
+            # immediately after the string.
+            # Counts past int32 (`2147483648`) up to Int64 max (`9223372036854775807`) must parse — ClickHouse stores intervals as Int64, so `std::stoll` accepts the whole range. This guards the boundary against the out_of_range reject case above.
+            for src in (
+                "INTERVAL 'a' || 'b' hour",
+                "INTERVAL 'x' day",
+                "INTERVAL '2147483648 day'",
+                "INTERVAL '9223372036854775807 day'",
+            ):
+                self.assertEqual(parse_expr(src, backend="cpp-json"), parse_expr(src, backend=backend), msg=src)
 
         def test_in_cohort_falls_back_to_identifier_when_rhs_missing(self):
             # `IN COHORT` only commits when a columnExpr follows; otherwise `cohort` is the IN rhs identifier (`a IN cohort` → Compare(a, "in", Field('cohort'))).
@@ -6949,32 +7075,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "(((* replace(a as b))))",
                 "(columns(* replace(a as b)))",
                 "((columns(* replace(a as b))))",
-            ):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
-
-        def test_between_hoist_inner_wrapper_spans(self):
-            # When 2+ wrappers stack outside a BETWEEN (`1 between 2 and 3 as l :: Int`),
-            # the hoist-apply loop built each position-less and only the OUTERMOST got
-            # the outer pratt `wrap_pos` — the inner wrappers (here the Alias) stayed
-            # position-less. cpp spans each at `[lhs_start, end-of-its-own-token]`.
-            # The split now records each hoist's end and the apply loop stamps it.
-            for query in (
-                "1 between 2 and 3 as l :: Int",
-                "1 between 2 and 3 as l :: Int :: Float",
-                "1 between 2 and 3 as l [ 1 ]",
-                "1 between 2 and 3 as l . 1",
-                "1 between 2 and 3 as l ( x )",
-                "1 between 2 and 3 as l is null",
-                "1 between 2 and 3 as l or w",
-                "1 between 2 and 3 as l ? x : y",
-                "1 between 2 and 3 as l + 5",
-                "1 between 2 and 3 as l is distinct from w",
-                "1 between 2 and 3 as l",
-                "1 between 2 and 3 :: Int",
             ):
                 self.assertEqual(
                     parse_expr(query, backend="cpp-json"),
@@ -7710,8 +7810,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "1 + 1 as lambda",
                 "[1 as lambda]",
                 "f(1 as lambda)",
-                "1 as lambda()",
-                "1 as lambda + 2",
             ):
                 self.assertEqual(
                     parse_expr(query, backend="cpp-json"),
@@ -7726,7 +7824,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 )
             # A real lambda body after `AS` is not a valid alias and rejects on both
             # in plain expression context (the alias absorbs `lambda`, the `:` trails).
-            for query in ("1 as lambda: 2", "1 as lambda x: x", "1 as lambda x"):
+            # `AS`/aliases live in the loosest (boolean) precedence tier, so a value-tier
+            # operator (call `()`, arithmetic `+`, …) cannot bind to a bare alias — it
+            # needs parentheses (`(1 as lambda) + 2`). This matches ClickHouse/SQL.
+            for query in ("1 as lambda: 2", "1 as lambda x: x", "1 as lambda x", "1 as lambda()", "1 as lambda + 2"):
                 with self.assertRaises(BaseHogQLError):
                     parse_expr(query, backend=backend)
 
@@ -7746,14 +7847,11 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(self._expr(r"f'\é'"), ast.Constant(value=""))
             self.assertEqual(self._expr(r"f'\😀z'"), ast.Constant(value="z"))
             self.assertEqual(self._expr(r"f'\éxyz'"), ast.Constant(value="xyz"))
-            # Full position parity against cpp for the position-carrying backends; python spans f-strings over the whole token, so it only checks structure.
+            # Full position parity against cpp for the position-carrying backends.
             for src in (r"f'\é'", r"f'\éxyz'", r"f'\😀z'", r"f'ab\écd'", r"f'\é{1}\😀'"):
                 expected = parse_expr(src, backend="cpp-json")
                 actual = parse_expr(src, backend=backend)
-                if backend == "python":
-                    self.assertEqual(clear_locations(actual), clear_locations(expected), msg=src)
-                else:
-                    self.assertEqual(actual, expected, msg=src)
+                self.assertEqual(actual, expected, msg=src)
 
         def test_interpolate_expr_carries_positions(self):
             # The INTERPOLATE item node (InterpolateExpr) was built without a position
@@ -7997,9 +8095,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
             # Guard: a bad inner string with a SINGLE trailing unit has no
-            # value-expr escape hatch, so it rejects when VISITED. (The empty
-            # `''` single-unit form is left out — the legacy python backend
-            # surfaces it as a bare ValueError, an unrelated pre-existing quirk.)
+            # value-expr escape hatch, so it rejects when VISITED.
             with self.assertRaises((BaseHogQLError, SyntaxError), msg="interval interval 'bm ' day"):
                 parse_expr("interval interval 'bm ' day", backend=backend)
 
@@ -8023,40 +8119,13 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        def test_between_split_synthetic_node_positions(self):
-            # When the greedy BETWEEN-body parse is split at the rightmost AND, the
-            # rebuilt And/Or (and the wrappers it descends through) must carry cpp's
-            # ctx-derived span, not the children's inner (paren-stripped) span. cpp
-            # positions a boolean node from its FIRST operand's `(` and LAST operand's
-            # `)`, and a stay-in-place wrapper (Lambda / Not / arith.right / the
-            # if-call else-branch) ends where its now-shorter child ends. A no_pos
-            # NamedArgument operand still contributes its `value`'s end.
-            for query in (
-                "x between (1) and (2) or y",  # synthetic Or start = `(` of `(2)`
-                "1 between 2 and (3) and 4",  # synthetic And end = `)` of `(3)`
-                "x between (1) and lambda z: (2) and (3)",  # Lambda body end shrinks
-                "a between not lambda x: (b) and (c) and d",  # Not + Lambda descent
-                "x between 1 and (2) * (3) and 4",  # arith.right end shrinks
-                "a between b ? c : (d) and (e) and f",  # if-call else-branch end
-                "1 between 2 between 3 and (4) and 5",  # nested BETWEEN low peel
-                "x between y between z and (w) and v",
-                "p between (q) and r := (s) and (t)",  # no_pos NamedArgument last operand
-                "m between (n) and o := (p) and q := (r) and (s)",
-                "x between (1) and ((2) or (3)) and (4)",
-            ):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
-
         def test_between_parenthesized_group_high(self):
-            # `a and (b and c)` flattens to `And([a,b,c])` (cpp does too for a standalone
-            # expr), but in a BETWEEN body cpp keeps `(b and c)` as one high operand: the
-            # rightmost AND at paren-depth 0 is the one BEFORE the parens, so
-            # `1 between a and (b and c)` is `low=a, high=And(b,c)`. rust used to descend
-            # into the flattened inner AND and mis-split to `low=And(a,b), high=c`. The
-            # split now skips ANDs inside parens (paren-depth-0 rule).
+            # Parenthesized AND groups next to BETWEEN: `(b and c)` stays one operand
+            # (an unflattened And node), while an unparenthesized trailing `and …` /
+            # `or …` wraps the whole BetweenExpr — `1 between a and (b and c)` is
+            # `BetweenExpr(low=a, high=And(b,c))`, and `1 between x and y and (b and c)`
+            # is `And([BetweenExpr(x, y), And(b, c)])`. Pinned cpp-vs-rust because the
+            # pre-two-tier rust split machinery used to mis-handle exactly these.
             for query in (
                 "1 between a and (b and c)",
                 "1 between a and ((b) and (c))",
@@ -8163,14 +8232,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             # never visits it, so DATE/TIMESTAMP/INTERVAL string literals and
             # ColumnTypeExprEnum cast types accept; aggregate FILTER (no OVER)
             # visits and rejects them. Pin both arms of the cpp/rust boundary.
-            # python is excluded: its visitor visits the window-FILTER body
-            # (diverging from cpp) and has a pre-existing `interval ''` crash
-            # (`text.split(" ")` ValueError), neither of which this rust-parity
-            # test is about.
-            if backend == "python":
-                self.skipTest(
-                    "python visits the window-FILTER body and pre-existing interval-'' crash; cpp/rust are the parity targets"
-                )
             for query in (
                 "f() FILTER (WHERE date '') OVER w",
                 "f() FILTER (WHERE timestamp '') OVER w",

@@ -37,7 +37,7 @@ export const getCategoryDisplayName = (category: string): string => {
     const displayNames: Record<string, string> = {
         create: 'Create new',
         'create-new': 'Create new',
-        apps: 'Apps',
+        tools: 'Tools',
         'data-management': 'Data management',
         settings: 'Settings',
         early_access_feature: 'Early access features',

@@ -10,7 +10,8 @@ import { cn } from 'lib/utils/css-classes'
 export interface LemonSwitchProps {
     className?: string
     onChange?: (newChecked: boolean) => void
-    checked: boolean
+    /** `'indeterminate'` shows a mixed state (centered handle with a dash); clicking it resolves to checked. */
+    checked: boolean | 'indeterminate'
     label?: string | JSX.Element
     labelClassName?: string
     id?: string
@@ -84,14 +85,15 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
                 id={id}
                 className={`LemonSwitch__button ${
                     sliderColorOverrideChecked || sliderColorOverrideUnchecked
-                        ? `bg-${checked ? sliderColorOverrideChecked : sliderColorOverrideUnchecked}`
+                        ? `bg-${checked === true ? sliderColorOverrideChecked : sliderColorOverrideUnchecked}`
                         : ''
                 }`}
                 type="button"
                 role="switch"
+                aria-checked={checked === 'indeterminate' ? 'mixed' : checked}
                 onClick={() => {
                     if (onChange && !loading) {
-                        onChange(!checked)
+                        onChange(checked !== true)
                     }
                 }}
                 onMouseDown={() => !loading && setIsActive(true)}
@@ -128,7 +130,8 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
             <div
                 ref={ref}
                 className={clsx('LemonSwitch', className, `LemonSwitch--${size}`, {
-                    'LemonSwitch--checked': checked,
+                    'LemonSwitch--checked': checked === true,
+                    'LemonSwitch--indeterminate': checked === 'indeterminate',
                     'LemonSwitch--active': isActive,
                     'LemonSwitch--bordered': bordered,
                     'LemonSwitch--disabled': isDisabled,

@@ -25,9 +25,11 @@ import {
     principalsMatch,
     SessionPrincipal,
     SLACK_BOT_TOKEN_KEY,
+    TRIGGER_ROUTES,
 } from '@posthog/agent-shared'
 
 import { applyElevationDecline, applyElevationGrant, authorizeGrant } from '../enqueue/acl'
+import { buildAdmission } from '../enqueue/admission-gate'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { getOwnedSession } from './session-access'
 import { verifySlackSignature } from './slack-signature'
@@ -40,7 +42,11 @@ export { verifySlackSignature }
 
 async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
     const { req, res, deps, resolved } = ctx
-    // Signature already verified by the slack_signing guard.
+    // Signature guard hashes raw bytes, so a mislabeled Content-Type passes it; under urlencoded Express mis-parses the JSON and drops the event behind a bare 200. Reject explicitly.
+    if (req.is('application/json') === false) {
+        res.status(400).json({ error: 'invalid_content_type', expected: 'application/json' })
+        return
+    }
     const slackSpecTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'slack')
     const body = req.body as {
         type?: string
@@ -89,14 +95,15 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
     // message events lack event.team; fall back to the envelope team_id.
     const workspaceId = event.team ?? body.team_id ?? 'unknown'
     if (trusted !== '*' && (!Array.isArray(trusted) || !trusted.includes(workspaceId))) {
-        // The rejected workspace id is otherwise only in the 403 body — surface
-        // it (plus the configured allowlist) so "why is Slack getting a 403?"
+        // The rejected workspace id is otherwise only in the log line — surface
+        // it (plus the configured allowlist) so "why did Slack get dropped?"
         // is answerable from the logs alone.
         log.warn(
             { slug: resolved.application.slug, workspace: workspaceId, trusted_workspaces: trusted ?? null },
             'slack_event_rejected_workspace_not_trusted'
         )
-        res.status(403).json({ error: 'workspace_not_trusted', workspace: workspaceId })
+        // Ack-and-drop, not 4xx: an untrusted-workspace delivery is a routing decision, not a failure. Providers retry non-2xx, so ack like the other drop paths (dm_not_enabled, mention_only).
+        res.json({ ok: true, dropped: 'workspace_not_trusted', workspace: workspaceId })
         return
     }
 
@@ -164,13 +171,10 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
             res.json({ ok: true, dropped: 'mention_only' })
             return
         }
-        // Mention-only continuity is per-scope: a preview mention into a
-        // thread that only has a live owned session must not short-circuit,
-        // and vice versa. Same discriminator as `enqueueOrResume`.
-        const existing = await deps.queue.findByExternalKey(resolved.application.id, externalKey, {
-            isPreview: resolved.isPreview,
-            revisionId: resolved.revision.id,
-        })
+        // Mention-only continuity is revision-scoped: a mention into a thread
+        // whose only owned session is on another revision must not
+        // short-circuit. Same scope as `enqueueOrResume`.
+        const existing = await deps.queue.findByExternalKey(resolved.application.id, externalKey, resolved.revision.id)
         if (!existing) {
             log.info(
                 { slug: resolved.application.slug, channel: event.channel, thread_ts: event.thread_ts },
@@ -186,34 +190,23 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
     // resolution + enqueue — so the user sees the emoji within Slack's 3s ack
     // window. Fails open: a revoked/missing bot token, a slack.com 5xx, an
     // `already_reacted`, or a missing channel must NOT break the handler.
-    //
-    // Preview-mode short-circuit: a draft revision must never write to a real
-    // Slack workspace. Matches the contract enforced by the runner-side native
-    // slack tools (see `isPreviewSideEffect`).
     if (ackReaction) {
-        if (resolved.isPreview) {
-            log.info(
-                { slug: resolved.application.slug, channel: event.channel, ts: event.ts, reaction: ackReaction },
-                'ack_reaction_skipped_preview'
+        void postAckReaction(deps, resolved.application, resolved.revision, {
+            channel: event.channel,
+            ts: event.ts,
+            name: ackReaction,
+        }).catch((err) => {
+            log.warn(
+                {
+                    slug: resolved.application.slug,
+                    channel: event.channel,
+                    ts: event.ts,
+                    reaction: ackReaction,
+                    err: err instanceof Error ? err.message : String(err),
+                },
+                'ack_reaction_threw'
             )
-        } else {
-            void postAckReaction(deps, resolved.application, resolved.revision, {
-                channel: event.channel,
-                ts: event.ts,
-                name: ackReaction,
-            }).catch((err) => {
-                log.warn(
-                    {
-                        slug: resolved.application.slug,
-                        channel: event.channel,
-                        ts: event.ts,
-                        reaction: ackReaction,
-                        err: err instanceof Error ? err.message : String(err),
-                    },
-                    'ack_reaction_threw'
-                )
-            })
-        }
+        })
     } else {
         log.debug({ slug: resolved.application.slug }, 'ack_reaction_not_configured')
     }
@@ -233,11 +226,61 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
         agentUserId = agentUser.id
     }
 
+    // Edge admission: if the agent declares an authoritative provider, the Slack
+    // claim must resolve a verified identity before we run. Unauthenticated →
+    // deliver an auth link and enqueue nothing.
+    let canonicalAgentUserId: string | undefined
+    const admission = buildAdmission(deps, resolved.revision, resolved.application.slug)
+    if (admission) {
+        const result = await admission.resolve(
+            {
+                transport: 'slack',
+                subjectId: principalId,
+                attributes: { workspace: workspaceId, slack_user: event.user },
+            },
+            { application: resolved.application, revision: resolved.revision }
+        )
+        if (result.kind === 'auth_required') {
+            // Deliver the link privately with chat.postEphemeral so only the
+            // original sender sees it — otherwise any channel member could open
+            // the state-bearing URL and bind their provider account to the
+            // sender's Slack transport principal. A thread fallback would
+            // re-open that hijack, so on delivery failure we return non-2xx
+            // instead — Slack retries the event (recovers from transient
+            // errors) and ops gets an error log for persistent failures.
+            const delivered = await postEphemeralMessage(deps, resolved.application, resolved.revision, {
+                channel: event.channel,
+                user: event.user,
+                thread_ts: event.thread_ts ?? event.ts,
+                text: `Before I can help, please connect your account: ${result.authorizeUrl}`,
+            }).catch(() => false)
+            if (!delivered) {
+                log.error(
+                    { slug: resolved.application.slug, provider: result.provider },
+                    'slack_admission_link_delivery_failed'
+                )
+                res.status(500).json({ error: 'auth_link_delivery_failed' })
+                return
+            }
+            res.json({ ok: true, auth_required: true, provider: result.provider, authorize_url: result.authorizeUrl })
+            return
+        }
+        if (result.kind === 'error') {
+            log.warn({ slug: resolved.application.slug, reason: result.reason }, 'slack_admission_error')
+            res.status(500).json({ error: 'admission_failed' })
+            return
+        }
+        if (result.kind === 'admitted') {
+            canonicalAgentUserId = result.identity.canonicalId
+        }
+    }
+
     const slackPrincipal: SessionPrincipal = {
         kind: 'slack',
         workspace_id: workspaceId,
         slack_user_id: event.user,
         agent_user_id: agentUserId,
+        ...(canonicalAgentUserId ? { canonical_agent_user_id: canonicalAgentUserId } : {}),
     }
     // Embed the Slack envelope context in the seed message so the model knows
     // which channel/ts/thread_ts to use when calling Slack APIs.
@@ -274,13 +317,12 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
             // Stash the originating thread coordinates so the runner can post a
             // sanitized failure reply if the session dies before answering.
             triggerMetadata: {
-                type: 'slack',
+                kind: 'slack',
                 workspace_id: workspaceId,
                 channel: event.channel,
                 ts: event.ts,
                 thread_ts: event.thread_ts ?? event.ts,
             },
-            isPreview: resolved.isPreview,
         }
     )
     if (outcome.kind === 'elevation_required') {
@@ -288,27 +330,13 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
         // own. The message is parked as an elevation request; tell them
         // in-thread why nothing happened. Awaited so the reply lands before we
         // ack, but error-swallowed so it can never break the 200 Slack needs.
-        //
-        // Preview-mode short-circuit: no real Slack write from a draft session.
-        if (resolved.isPreview) {
-            log.info(
-                {
-                    slug: resolved.application.slug,
-                    channel: event.channel,
-                    thread_ts: event.thread_ts ?? event.ts,
-                    elevation_request_id: outcome.elevationRequestId,
-                },
-                'elevation_message_skipped_preview'
-            )
-        } else {
-            await postThreadMessage(deps, resolved.application, resolved.revision, {
-                channel: event.channel,
-                thread_ts: event.thread_ts ?? event.ts,
-                text:
-                    'I can only act on messages from the person who started this thread. ' +
-                    '@-mention me in a new message to start your own.',
-            })
-        }
+        await postThreadMessage(deps, resolved.application, resolved.revision, {
+            channel: event.channel,
+            thread_ts: event.thread_ts ?? event.ts,
+            text:
+                'I can only act on messages from the person who started this thread. ' +
+                '@-mention me in a new message to start your own.',
+        })
         res.json({
             ok: true,
             session_id: outcome.sessionId,
@@ -654,6 +682,63 @@ async function postAckReaction(
 }
 
 /**
+ * Post an ephemeral message visible only to `user` using the agent's bot token.
+ * Used to deliver admission auth links privately so the state-bearing URL is
+ * not visible to other channel members. Same error-swallow contract as
+ * `postThreadMessage`. Returns true if the message posted.
+ */
+async function postEphemeralMessage(
+    deps: TriggerDeps,
+    application: AgentApplication,
+    revision: AgentRevision,
+    opts: { channel: string; user: string; thread_ts: string; text: string }
+): Promise<boolean> {
+    const token = await deps.signingSecretResolver.resolve(SLACK_BOT_TOKEN_KEY, revision)
+    if (!token || !deps.http) {
+        log.warn(
+            { slug: application.slug, has_token: Boolean(token), has_http: Boolean(deps.http) },
+            'ephemeral_message_skipped'
+        )
+        return false
+    }
+    try {
+        const res = await deps.http.fetch('https://slack.com/api/chat.postEphemeral', {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json; charset=utf-8',
+            },
+            body: JSON.stringify({
+                channel: opts.channel,
+                user: opts.user,
+                thread_ts: opts.thread_ts,
+                text: opts.text,
+            }),
+        })
+        let body: { ok?: boolean; error?: string } = {}
+        try {
+            body = (await res.json()) as { ok?: boolean; error?: string }
+        } catch {
+            // Non-JSON response — treat as failure but don't throw.
+        }
+        if (!res.ok || body.ok === false) {
+            log.warn(
+                { slug: application.slug, channel: opts.channel, status: res.status, slack_error: body.error ?? null },
+                'ephemeral_message_failed'
+            )
+            return false
+        }
+        return true
+    } catch (err) {
+        log.warn(
+            { slug: application.slug, channel: opts.channel, err: err instanceof Error ? err.message : String(err) },
+            'ephemeral_message_threw'
+        )
+        return false
+    }
+}
+
+/**
  * Post a plain text reply into a thread using the agent's bot token. Used to
  * tell a rejected non-owner (owner-only threads) why their message did
  * nothing. Errors are swallowed (a missing token / unwired http / slack.com
@@ -755,14 +840,14 @@ export const slackTrigger: TriggerModule = {
     routes: [
         {
             method: 'POST',
-            path: '/slack/events',
+            path: TRIGGER_ROUTES.slack.events,
             bodySchema: z.toJSONSchema(SlackEventBodySchema),
             auth: 'slack_signing',
             handler: slackEventsHandler,
         },
         {
             method: 'POST',
-            path: '/slack/interactivity',
+            path: TRIGGER_ROUTES.slack.interactivity,
             // Slack posts urlencoded `payload=<json>` — published schema is the
             // decoded JSON so authoring tools see the actual interactivity
             // contract, not just an opaque form-data envelope.

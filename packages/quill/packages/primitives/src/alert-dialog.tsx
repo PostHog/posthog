@@ -55,7 +55,7 @@ function AlertDialogContent({ className, children, ...props }: AlertDialogPrimit
                 data-quill
                 data-quill-portal="modal-content"
                 data-slot="alert-dialog-content"
-                className={cn('quill-dialog__content grid gap-4', className)}
+                className={cn('quill-dialog__content', className)}
                 {...props}
             >
                 {children}

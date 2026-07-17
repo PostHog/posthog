@@ -240,7 +240,7 @@ export function TeamAuthorizedURLs(): JSX.Element {
     const canEdit =
         inStorybook() || inStorybookTestRunner()
             ? true
-            : userHasAccess(AccessControlResourceType.WebAnalytics, AccessControlLevel.Manager)
+            : userHasAccess(AccessControlResourceType.WebAnalytics, AccessControlLevel.Editor)
 
     return (
         <AuthorizedUrlList

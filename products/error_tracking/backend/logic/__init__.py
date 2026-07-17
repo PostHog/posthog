@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import Any, TypeVar, cast
+from urllib.parse import quote
 from uuid import UUID
 
+from django.conf import settings
 from django.db.models import Count, Q, QuerySet
 
 from posthog.models.integration import (
@@ -15,6 +17,7 @@ from posthog.models.utils import UUIDT
 
 from products.error_tracking.backend.models import (
     ErrorTrackingAssignmentRule,
+    ErrorTrackingBypassRule,
     ErrorTrackingExternalReference,
     ErrorTrackingGroupingRule,
     ErrorTrackingIssue,
@@ -80,9 +83,61 @@ SUPPORTED_EXTERNAL_ISSUE_PROVIDERS = frozenset(
     }
 )
 
+EXTERNAL_REFERENCE_REQUIRED_CONFIG_FIELDS = {
+    Integration.IntegrationKind.GITHUB.value: ("repository", "title", "body"),
+    Integration.IntegrationKind.GITLAB.value: ("title", "body"),
+    Integration.IntegrationKind.LINEAR.value: ("team_id", "title", "description"),
+    Integration.IntegrationKind.JIRA.value: ("project_key", "title", "description"),
+}
+
+EXTERNAL_REFERENCE_NON_BLANK_CONFIG_FIELDS = {
+    Integration.IntegrationKind.GITHUB.value: ("repository", "title"),
+    Integration.IntegrationKind.GITLAB.value: ("title",),
+    Integration.IntegrationKind.LINEAR.value: ("team_id", "title"),
+    Integration.IntegrationKind.JIRA.value: ("project_key", "title"),
+}
+
 
 def is_supported_external_issue_provider(kind: str) -> bool:
     return kind in SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
+
+
+def _validate_external_reference_config(integration: Integration, config: Any) -> None:
+    if not isinstance(config, dict):
+        raise ErrorTrackingExternalReferenceValidationError("External reference config must be an object.")
+
+    required_fields = EXTERNAL_REFERENCE_REQUIRED_CONFIG_FIELDS.get(integration.kind)
+    if required_fields is None:
+        raise ErrorTrackingExternalReferenceValidationError("Provider not supported")
+
+    missing_fields = [field for field in required_fields if field not in config]
+    if missing_fields:
+        raise ErrorTrackingExternalReferenceValidationError(
+            f"Missing required config fields for {integration.kind}: {', '.join(missing_fields)}."
+        )
+
+    non_string_fields = [field for field in required_fields if not isinstance(config[field], str)]
+    if non_string_fields:
+        raise ErrorTrackingExternalReferenceValidationError(
+            f"Config fields for {integration.kind} must be strings: {', '.join(non_string_fields)}."
+        )
+
+    blank_fields = [
+        field for field in EXTERNAL_REFERENCE_NON_BLANK_CONFIG_FIELDS[integration.kind] if not config[field].strip()
+    ]
+    if blank_fields:
+        raise ErrorTrackingExternalReferenceValidationError(
+            f"Config fields for {integration.kind} cannot be blank: {', '.join(blank_fields)}."
+        )
+
+    if integration.kind == Integration.IntegrationKind.LINEAR:
+        team_id = config["team_id"]
+        teams = LinearIntegration(integration).list_teams() or []
+        valid_team_ids = {str(team["id"]) for team in teams if isinstance(team, dict) and team.get("id")}
+        if team_id not in valid_team_ids:
+            raise ErrorTrackingExternalReferenceValidationError(
+                "Invalid Linear team_id. Use integrations-linear-teams-retrieve to choose a team from this integration."
+            )
 
 
 def get_issue_list_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
@@ -101,6 +156,10 @@ def get_issue_detail_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
 
 def list_issues(team_id: int) -> QuerySet[ErrorTrackingIssue]:
     return get_issue_list_queryset(team_id)
+
+
+def list_issues_created_since(team_id: int, since: datetime, limit: int) -> list[ErrorTrackingIssue]:
+    return list(get_issue_list_queryset(team_id).filter(created_at__gte=since).order_by("-created_at")[:limit])
 
 
 def get_issue(issue_id: UUID, team_id: int) -> ErrorTrackingIssue:
@@ -141,8 +200,49 @@ def list_fingerprints(team_id: int, issue_id: UUID | None = None) -> QuerySet[Er
     return queryset
 
 
+def list_first_fingerprints(team_id: int, issue_ids: list[UUID]) -> list[ErrorTrackingIssueFingerprintV2]:
+    """Earliest-created fingerprint per issue (one row per issue), via Postgres DISTINCT ON."""
+    return list(
+        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id__in=issue_ids)
+        .order_by("issue_id", "created_at")
+        .distinct("issue_id")
+    )
+
+
 def get_fingerprint(team_id: int, fingerprint_id: UUID) -> ErrorTrackingIssueFingerprintV2 | None:
     return ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, id=fingerprint_id).first()
+
+
+def get_fingerprint_by_value(team_id: int, fingerprint: str) -> ErrorTrackingIssueFingerprintV2 | None:
+    return ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, fingerprint=fingerprint).first()
+
+
+def get_canonical_fingerprint(team_id: int, issue_id: UUID) -> str | None:
+    """Oldest fingerprint of an issue — the stable one to link by, since merges keep it."""
+    return (
+        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id=issue_id)
+        .order_by("created_at")
+        .values_list("fingerprint", flat=True)
+        .first()
+    )
+
+
+def build_issue_permalink_path(*, project_id: int, issue_id: UUID | str, fingerprint: str | None) -> str:
+    """Relative app path to an issue for durable surfaces (issue trackers, emails, notifications).
+
+    Prefers the fingerprint redirect URL, which survives issue merges; falls back to the
+    plain issue URL when the issue has no fingerprints.
+    """
+    if fingerprint is None:
+        return f"/project/{project_id}/error_tracking/{issue_id}"
+    return f"/project/{project_id}/error_tracking/fingerprint/{quote(fingerprint, safe='')}"
+
+
+def get_issue_permalink_by_fingerprint(team_id: int, issue_id: UUID) -> str:
+    fingerprint = get_canonical_fingerprint(team_id=team_id, issue_id=issue_id)
+    return settings.SITE_URL + build_issue_permalink_path(
+        project_id=team_id, issue_id=issue_id, fingerprint=fingerprint
+    )
 
 
 def list_external_references(team_id: int) -> QuerySet[ErrorTrackingExternalReference]:
@@ -168,14 +268,18 @@ def create_external_reference(
     if integration is None:
         raise ErrorTrackingExternalReferenceValidationError("Integration does not belong to this team.")
 
+    _validate_external_reference_config(integration, config)
+    provider_config = dict(config)
+
     if integration.kind == Integration.IntegrationKind.GITHUB:
-        external_context = GitHubIntegration(integration).create_issue(config)
+        external_context = GitHubIntegration(integration).create_issue(provider_config)
     elif integration.kind == Integration.IntegrationKind.GITLAB:
-        external_context = GitLabIntegration(integration).create_issue(config)
+        external_context = GitLabIntegration(integration).create_issue(provider_config)
     elif integration.kind == Integration.IntegrationKind.LINEAR:
-        external_context = LinearIntegration(integration).create_issue(str(team_id), issue.id, config)
+        attachment_url = get_issue_permalink_by_fingerprint(team_id=team_id, issue_id=issue.id)
+        external_context = LinearIntegration(integration).create_issue(attachment_url, provider_config)
     elif integration.kind == Integration.IntegrationKind.JIRA:
-        external_context = JiraIntegration(integration).create_issue(config)
+        external_context = JiraIntegration(integration).create_issue(provider_config)
     else:
         raise ErrorTrackingExternalReferenceValidationError("Provider not supported")
 
@@ -380,16 +484,19 @@ def create_release(
 ) -> ErrorTrackingRelease:
     release_id = UUIDT()
     resolved_hash_id = hash_id or str(release_id)
-    if release_hash_exists(team_id, resolved_hash_id):
-        raise ErrorTrackingReleaseHashInUseError(resolved_hash_id)
-    return ErrorTrackingRelease.objects.create(
-        id=release_id,
+    release, created = ErrorTrackingRelease.objects.get_or_create(
         team_id=team_id,
         hash_id=resolved_hash_id,
-        metadata=metadata,
-        project=str(project),
-        version=str(version),
+        defaults={
+            "id": release_id,
+            "metadata": metadata,
+            "project": str(project),
+            "version": str(version),
+        },
     )
+    if not created:
+        raise ErrorTrackingReleaseHashInUseError(resolved_hash_id)
+    return release
 
 
 def update_release(
@@ -471,6 +578,7 @@ def match_all_bytecode() -> list[Any]:
 _ReorderableRule = TypeVar(
     "_ReorderableRule",
     ErrorTrackingAssignmentRule,
+    ErrorTrackingBypassRule,
     ErrorTrackingGroupingRule,
     ErrorTrackingSuppressionRule,
 )
@@ -515,13 +623,13 @@ def get_assignment_rule(team_id: int, rule_id: str) -> ErrorTrackingAssignmentRu
 
 
 def create_assignment_rule(
-    team_id: int, *, filters: dict, assignee_type: str, assignee_id: int | UUID
+    team_id: int, *, filters: dict, assignee_type: str, assignee_id: int | UUID, order_key: int = 0
 ) -> ErrorTrackingAssignmentRule:
     return ErrorTrackingAssignmentRule.objects.create(
         team_id=team_id,
         filters=filters,
         bytecode=_rule_bytecode(team_id, filters),
-        order_key=0,
+        order_key=order_key,
         user_id=cast(int, assignee_id) if assignee_type == "user" else None,
         role_id=cast(UUID, assignee_id) if assignee_type == "role" else None,
     )
@@ -659,6 +767,49 @@ def delete_suppression_rule(team_id: int, rule_id: str) -> bool:
 
 def reorder_suppression_rules(team_id: int, orders: dict[str, int]) -> None:
     _reorder_rules(ErrorTrackingSuppressionRule, team_id, orders)
+
+
+def list_bypass_rules(team_id: int) -> QuerySet[ErrorTrackingBypassRule]:
+    return ErrorTrackingBypassRule.objects.filter(team_id=team_id).order_by("order_key")
+
+
+def get_bypass_rule(team_id: int, rule_id: str) -> ErrorTrackingBypassRule | None:
+    return ErrorTrackingBypassRule.objects.filter(team_id=team_id, id=rule_id).first()
+
+
+def create_bypass_rule(team_id: int, *, filters: dict) -> ErrorTrackingBypassRule:
+    return ErrorTrackingBypassRule.objects.create(
+        team_id=team_id,
+        filters=filters,
+        bytecode=_rule_bytecode(team_id, filters),
+        order_key=0,
+    )
+
+
+def update_bypass_rule(
+    team_id: int,
+    rule_id: str,
+    *,
+    filters: dict | None = None,
+) -> ErrorTrackingBypassRule | None:
+    rule = get_bypass_rule(team_id, rule_id)
+    if rule is None:
+        return None
+    if filters is not None:
+        rule.filters = filters
+        rule.bytecode = _rule_bytecode(team_id, filters)
+    rule.disabled_data = None
+    rule.save()
+    return rule
+
+
+def delete_bypass_rule(team_id: int, rule_id: str) -> bool:
+    deleted, _ = ErrorTrackingBypassRule.objects.filter(team_id=team_id, id=rule_id).delete()
+    return deleted > 0
+
+
+def reorder_bypass_rules(team_id: int, orders: dict[str, int]) -> None:
+    _reorder_rules(ErrorTrackingBypassRule, team_id, orders)
 
 
 def get_client_safe_filters(filters: dict) -> dict | None:

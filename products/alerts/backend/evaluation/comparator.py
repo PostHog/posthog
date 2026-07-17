@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from posthog.schema import (
     AlertCondition,
     AlertConditionType,
@@ -28,9 +30,23 @@ def _breach_messages(
     interval_type: IntervalType | None = None,
     series: str | None = None,
     is_current_interval: bool = False,
+    unit: str = "",
+    value_formatter: Callable[[float], str] | None = None,
 ) -> list[str]:
     is_percentage = threshold_type == InsightThresholdType.PERCENTAGE
-    formatted_value = f"{calculated_value:.2%}" if is_percentage else calculated_value
+
+    # PERCENTAGE thresholds render the relative-change ratio as their own % and take precedence.
+    # Otherwise a trends ``value_formatter`` mirrors the insight's axis format (currency, prefix,
+    # decimals). Falls back to raw value + ``unit`` (e.g. "%" for funnel conversion rates, which are
+    # absolute 0–100 values) to keep the notification consistent with the configure-time UI.
+    def _fmt(value: float) -> str:
+        if is_percentage:
+            return f"{value:.2%}"
+        if value_formatter is not None:
+            return value_formatter(value)
+        return f"{value}{unit}"
+
+    formatted_value = _fmt(calculated_value)
 
     match condition_type:
         case AlertConditionType.ABSOLUTE_VALUE:
@@ -53,12 +69,14 @@ def _breach_messages(
         context = ""
 
     if bounds.lower is not None and calculated_value < bounds.lower:
-        lower_value = f"{bounds.lower:.2%}" if is_percentage else bounds.lower
-        return [f"{subject}{context} ({formatted_value}) {condition_text} less than lower threshold ({lower_value})"]
+        return [
+            f"{subject}{context} ({formatted_value}) {condition_text} less than lower threshold ({_fmt(bounds.lower)})"
+        ]
 
     if bounds.upper is not None and calculated_value > bounds.upper:
-        upper_value = f"{bounds.upper:.2%}" if is_percentage else bounds.upper
-        return [f"{subject}{context} ({formatted_value}) {condition_text} more than upper threshold ({upper_value})"]
+        return [
+            f"{subject}{context} ({formatted_value}) {condition_text} more than upper threshold ({_fmt(bounds.upper)})"
+        ]
 
     return []
 
@@ -133,6 +151,8 @@ def evaluate_threshold(
             interval_type=result.interval_type,
             series=s.label,
             is_current_interval=s.is_current_interval,
+            unit=result.unit,
+            value_formatter=result.value_formatter,
         )
         if breaches:
             if not result.aggregate_breaches:

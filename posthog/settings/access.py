@@ -36,7 +36,7 @@ CSRF_TRUSTED_ORIGINS += get_list(os.getenv("EXTRA_CSRF_TRUSTED_ORIGINS", ""))
 # Proxy settings
 IS_BEHIND_PROXY = get_from_env("IS_BEHIND_PROXY", False, type_cast=str_to_bool)
 TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", None)
-TRUST_ALL_PROXIES = os.getenv("TRUST_ALL_PROXIES", False)
+TRUST_ALL_PROXIES = get_from_env("TRUST_ALL_PROXIES", False, type_cast=str_to_bool)
 
 
 if IS_BEHIND_PROXY:
@@ -130,11 +130,26 @@ TASKS_AGENT_PROXY_INGEST_URL: str | None = os.getenv("TASKS_AGENT_PROXY_INGEST_U
 # is set AND the read-via-proxy flag is enabled for the user; unset means clients read from Django.
 TASKS_AGENT_PROXY_PUBLIC_URL: str | None = os.getenv("TASKS_AGENT_PROXY_PUBLIC_URL") or None
 
+# In-cluster base URL of the agent-proxy for backend consumers (e.g. the Temporal worker relaying a
+# run's live stream to Slack) that read the stream leg without going through the ingress/CDN. Points
+# at the ClusterIP service (e.g. http://agent-proxy.agent-proxy.svc.cluster.local:8003). Unset falls
+# back to TASKS_AGENT_PROXY_PUBLIC_URL, then to reading the Django-side Redis stream directly.
+TASKS_AGENT_PROXY_INTERNAL_URL: str | None = os.getenv("TASKS_AGENT_PROXY_INTERNAL_URL") or None
+
 # Shared service-to-service secret proving a call to the agent-proxy side-effect callback came from the
 # agent-proxy and not directly from a sandbox (which also holds the event-ingest JWT). When set, the
 # callback requires a matching X-Agent-Proxy-Secret header. Provision the same value to Django and the
 # agent-proxy in production; unset (local/CI) disables the check.
 AGENT_PROXY_CALLBACK_SECRET: str | None = os.getenv("AGENT_PROXY_CALLBACK_SECRET") or None
+
+# ReviewHog production label trigger. The trigger endpoint (POST /api/review_hog/trigger) authenticates
+# CI by comparing the request's bearer token to REVIEWHOG_TRIGGER_TOKEN (a shared secret provisioned to
+# both Django and the GitHub Action). Unset fails closed outside local dev/test. REVIEWHOG_TEAM_ID is the
+# team the review runs and publishes under; REVIEWHOG_RUN_USER_ID is the user the sandbox tasks run as
+# (falls back to the team's GitHub integration creator when unset).
+REVIEWHOG_TRIGGER_TOKEN: str | None = os.getenv("REVIEWHOG_TRIGGER_TOKEN") or None
+REVIEWHOG_TEAM_ID: int | None = get_from_env("REVIEWHOG_TEAM_ID", optional=True, type_cast=int)
+REVIEWHOG_RUN_USER_ID: int | None = get_from_env("REVIEWHOG_RUN_USER_ID", optional=True, type_cast=int)
 
 # These are legacy values only kept around for backwards compatibility with self hosted versions
 SALT_KEY = get_list(os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"))
@@ -150,3 +165,8 @@ else:
     CORS_ORIGIN_ALLOW_ALL = True
 
 BLOCKED_GEOIP_REGIONS = get_list(os.getenv("BLOCKED_GEOIP_REGIONS", ""))
+
+# SSRF protection: in dev/DEBUG, is_url_allowed() short-circuits and allows every URL so local
+# development can reach localhost services. Set this to run the production validation path in dev —
+# e.g. to reproduce or test SSRF fixes — without flipping DEBUG globally.
+FORCE_URL_VALIDATION: bool = get_from_env("POSTHOG_FORCE_URL_VALIDATION", False, type_cast=str_to_bool)

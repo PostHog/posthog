@@ -11,11 +11,15 @@ if TYPE_CHECKING:
     from posthog.schema import DataWarehouseSyncWarning, HogQLNotice, HogQLQueryModifiers
 
     from posthog.hogql.database.database import Database
+    from posthog.hogql.database.models import Table
     from posthog.hogql.observability import HogQLTypeObservability
+    from posthog.hogql.property_metadata import PropertyMetadata
     from posthog.hogql.transforms.property_types import PropertySwapper
 
+    from posthog.clickhouse.client.execute import ClickHouseExternalTable
     from posthog.models import Team, User
     from posthog.rbac.user_access_control import UserAccessControl
+    from posthog.scopes import APIScopeObject
 
 
 def _default_modifiers() -> "HogQLQueryModifiers":
@@ -60,13 +64,13 @@ class HogQLContext:
     direct_postgres_connection_metadata: dict[str, Any] | None = None
     # If set, will save string constants to this dict. Inlines strings into the query if None.
     values: dict = field(default_factory=dict)
+    # Query-scoped ClickHouse external data tables accumulated during printing (keyed by table name).
+    # Lets `system.information_schema` ship its rows out-of-band instead of inlining them; read by the
+    # executor and passed to `sync_execute`.
+    external_tables: dict[str, "ClickHouseExternalTable"] = field(default_factory=dict, compare=False, repr=False)
     # Are we small part of a non-HogQL query? If so, use custom syntax for accessed person properties.
     within_non_hogql_query: bool = False
-    # Temporary (June 2026 MaxMind incident): the geoip dict fallback decision, evaluated exactly once per query in
-    # `prepare_ast_for_printing` so the transform and the printer's `_lookupGeoip*` gate can never disagree mid-query
-    # (the underlying probe is a background-refreshed cache that may flip between evaluations). Remove with the
-    # transform in posthog/hogql/transforms/geoip_dict_fallback.py.
-    geoip_dict_fallback_enabled: bool = False
+    use_new_events_schema: Optional[bool] = None
     # Enable full SELECT queries and subqueries in ClickHouse
     enable_select_queries: bool = False
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
@@ -77,6 +81,7 @@ class HogQLContext:
     output_format: str | None = None
     # Globals that will be resolved in the context of the query
     globals: Optional[dict] = None
+    property_type_overrides: Optional[dict[str, str]] = None
     # Per-query data that query runners want to ingest into the HogQL resolution (e.g. pending updates
     # merged into a table via UNION ALL in error tracking).
     data_to_ingest: dict[str, Any] = field(default_factory=dict)
@@ -92,6 +97,12 @@ class HogQLContext:
     # Keyed by (table_id, schema_name) to dedupe when a table is referenced multiple times.
     data_warehouse_sync_warnings: dict[tuple[str, str], "DataWarehouseSyncWarning"] = field(default_factory=dict)
 
+    # Resources with object-level access restrictions referenced by the query, collected while printing
+    # system tables. A set dedupes when several system tables share an access scope (e.g. system.dashboards
+    # and system.dashboard_tiles both scope "dashboard"). Turned into a single AccessControlFilterWarning
+    # on the response by build_access_control_warning.
+    access_control_restricted_resources: set["APIScopeObject"] = field(default_factory=set)
+
     # Timings in seconds for different parts of the HogQL query
     timings: HogQLTimings = field(default_factory=HogQLTimings)
     # Modifications requested by the HogQL client
@@ -106,22 +117,46 @@ class HogQLContext:
     # Bounded source/surface label for type-system observability metrics.
     observability_source: str = "unknown"
 
+    # Property-definition metadata for the properties this query touches, loaded from Postgres by
+    # load_property_metadata during property-type resolution (None until build_property_swapper runs).
+    property_metadata: Optional["PropertyMetadata"] = None
     property_swapper: Optional["PropertySwapper"] = None
     # Workload detected during AST resolution (set by prepare_ast_for_printing)
     workload: Optional[Workload] = None
     # Per-query cache of the `system.information_schema` introspection result (populated lazily in
-    # posthog/hogql/database/schema/information_schema.py). Shared across the information_schema
-    # tables so a single query touching several of them walks the database (and fires the warehouse
-    # metadata ORM queries) only once.
+    # posthog/hogql/database/schema/information_schema.py). A dict keyed by the pushed-down table
+    # filter and holding lazy introspection objects, so tables resolving to the same bound walk the
+    # database only once while surface-specific catalog metadata is fetched only when requested.
     information_schema_introspection: Optional[Any] = field(default=None, compare=False, repr=False)
     # Property-level access control: set of (property_name, PropertyDefinition.Type) tuples
     # that the current user is denied access to. Populated before type resolution so that
     # FieldType.get_child() can raise QueryError for restricted properties.
     restricted_properties: Optional[set[tuple[str, int]]] = None
 
+    # Per-query cache of CTE synthetic tables, keyed by id() of the CTE's SelectQueryType. Value pins a
+    # strong ref to the keyed type so its id can't be reused while cached; lookups verify identity.
+    cte_database_table_cache: dict[int, tuple[Any, "Table"]] = field(default_factory=dict, compare=False, repr=False)
+
+    # Cohort-gated events data retention: when set, the ClickHouse printer floors every events-table scan to
+    # now() - toIntervalMonth(this). Computed once per query in prepare_ast_for_printing; None means not enforced.
+    events_retention_months: Optional[int] = None
+    # Backend-only switch for the events-retention floor. Defaults on; server-side paths that must act on all rows
+    # regardless of retention — notably the GDPR data-deletion mutation path — set this False. Deliberately NOT a
+    # HogQLQueryModifier, so a query can't disable enforcement.
+    apply_events_retention_floor: bool = True
+
     def __post_init__(self):
         if self.team:
             self.team_id = self.team.id
+
+    def uses_new_events_schema(self) -> bool:
+        if self.use_new_events_schema is None:
+            # Deferred: keeps posthog.models off this module's import path (see _default_modifiers).
+            from posthog.models.event.new_events_schema import use_new_events_schema  # noqa: PLC0415
+
+            # Pin per context so an instance-setting flip can't mix schemas within one query.
+            self.use_new_events_schema = use_new_events_schema(self.team_id)
+        return self.use_new_events_schema
 
     def add_value(self, value: Any) -> str:
         key = f"hogql_val_{len(self.values)}"

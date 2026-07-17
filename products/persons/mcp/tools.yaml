@@ -55,6 +55,9 @@ tools:
     persons-deletion-status-list:
         operation: persons_deletion_status_list
         enabled: false
+    persons-emails-list:
+        operation: persons_emails_list
+        enabled: false
     persons-funnel-create:
         operation: persons_funnel_create
         enabled: false

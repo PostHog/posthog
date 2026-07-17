@@ -32,7 +32,8 @@ This scans millions of events. If the experiment results page is viewed 10 times
 self.experiment = Experiment.objects.get(id=self.query.experiment_id)
 self.feature_flag = self.experiment.feature_flag
 self.variants = [variant["key"] for variant in self.feature_flag.variants]
-self.date_range = get_experiment_date_range(self.experiment, self.team, self.override_end_date)
+self.as_of = as_of if as_of is not None else (self.experiment.end_date or datetime.now(UTC))
+self.date_range = experiment_window(self.experiment, self.team, self.as_of)
 ```
 
 ---
@@ -46,7 +47,7 @@ def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> Lazy
     query_string, placeholders = builder.get_exposure_query_for_precomputation()
 
     date_from = self.experiment.start_date
-    date_to = self.override_end_date or self.experiment.end_date or datetime.now(UTC)
+    date_to = experiment_window_end(self.experiment, self.as_of)
 
     return ensure_precomputed(
         team=self.team,
@@ -259,6 +260,8 @@ GROUP BY variant
 
 3. **TTL and expiration**: Jobs use variable TTL based on data age (current day: 15 min, yesterday: 1 hour, 2-4 days ago: 18 hours, 5+ days: 60 days). The 2-4 day band stays recomputable so the daily warmer folds in late-arriving exposure events before a window freezes — a frozen window keeps a stale `first_exposure_time` if an earlier exposure event arrives after it was computed. This avoids recomputing genuinely frozen historical data while still re-folding the late-arrival tail. The system ignores jobs expiring within 1 hour to avoid race conditions. ClickHouse TTL automatically deletes expired rows.
 
-4. **Fallback**: If precomputation fails or isn't ready, the query falls back to scanning the events table directly.
+4. **Job width cap**: Missing ranges are split into jobs of at most `PRECOMPUTE_MAX_WINDOW_DAYS` (7) days via `TtlSchedule.max_window_days` (see `experiment_precompute_ttl_schedule`). Without the cap, the frozen band (everything older than 4 days shares one TTL) merges into a single INSERT, so a cold or expired long-running experiment would scan its entire history in one query and hit the per-query bytes-to-read cap, timeout, or memory limit on high-volume teams. Completed chunk jobs persist even when a later chunk fails, so wide backfills converge across successive runs.
 
-5. **Future: GROUP BY (entity_id, variant)**: Currently the query groups by entity_id only and resolves the variant during precomputation (e.g., argMin for first-seen). This bakes the variant handling strategy into the stored data, so switching between "first seen" and "exclude multiple" requires recomputation. A better approach is to GROUP BY (entity_id, variant) so we store one row per user-variant pair, then resolve multiple variants at query time.
+5. **Fallback**: If precomputation fails or isn't ready, the query falls back to scanning the events table directly.
+
+6. **Future: GROUP BY (entity_id, variant)**: Currently the query groups by entity_id only and resolves the variant during precomputation (e.g., argMin for first-seen). This bakes the variant handling strategy into the stored data, so switching between "first seen" and "exclude multiple" requires recomputation. A better approach is to GROUP BY (entity_id, variant) so we store one row per user-variant pair, then resolve multiple variants at query time.

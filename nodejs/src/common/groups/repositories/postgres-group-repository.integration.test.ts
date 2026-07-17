@@ -1,5 +1,8 @@
 import { DateTime } from 'luxon'
 
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { UUIDT } from '~/common/utils/utils'
 import { insertRow, resetTestDatabase } from '~/tests/helpers/sql'
 import {
     GroupTypeIndex,
@@ -10,9 +13,6 @@ import {
     PropertyUpdateOperation,
     TeamId,
 } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
-import { UUIDT } from '~/utils/utils'
 
 import { PostgresGroupRepository } from './postgres-group-repository'
 
@@ -857,6 +857,56 @@ describe('PostgresGroupRepository Integration', () => {
             // Verify the group was NOT updated
             const fetchedGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
             expect(fetchedGroup?.version).toBe(0) // Version should remain unchanged
+        })
+    })
+
+    describe('updateGroupsBatch', () => {
+        it('merges properties server-side, backdates created_at, bumps version, and omits missing groups', async () => {
+            await insertTestTeam(teamId)
+            await insertTestGroup({ group_key: 'group-a', group_properties: JSON.stringify({ name: 'A', keep: 1 }) })
+            await insertTestGroup({ group_key: 'group-b', group_properties: JSON.stringify({ name: 'B' }), version: 3 })
+
+            const earlierCreatedAt = createdAt.minus({ days: 1 })
+            const result = await repository.updateGroupsBatch([
+                {
+                    teamId,
+                    groupTypeIndex,
+                    groupKey: 'group-a',
+                    propertiesToSet: { name: 'A2', added: true },
+                    createdAt: earlierCreatedAt,
+                },
+                {
+                    teamId,
+                    groupTypeIndex,
+                    groupKey: 'group-b',
+                    propertiesToSet: { plan: 'scale' },
+                    createdAt: createdAt.plus({ days: 1 }),
+                },
+                {
+                    teamId,
+                    groupTypeIndex,
+                    groupKey: 'does-not-exist',
+                    propertiesToSet: { x: 1 },
+                    createdAt,
+                },
+            ])
+
+            expect(result).toHaveLength(2)
+            const byKey = new Map(result.map((g) => [g.group_key, g]))
+
+            // Set keys win, untouched keys survive, version bumps, created_at backdates.
+            expect(byKey.get('group-a')).toMatchObject({
+                group_properties: { name: 'A2', keep: 1, added: true },
+                created_at: earlierCreatedAt,
+                version: 2,
+            })
+            // A later createdAt never moves created_at forward.
+            expect(byKey.get('group-b')).toMatchObject({
+                group_properties: { name: 'B', plan: 'scale' },
+                created_at: createdAt,
+                version: 4,
+            })
+            expect(byKey.has('does-not-exist')).toBe(false)
         })
     })
 
@@ -1831,22 +1881,7 @@ describe('PostgresGroupRepository Integration', () => {
         })
 
         it('should return empty array for empty inputs', async () => {
-            expect(await repository.fetchGroupsByKeys([], [], [])).toEqual([])
-        })
-
-        it('should throw error for mismatched array lengths', async () => {
-            await expect(repository.fetchGroupsByKeys([teamId], [], [])).rejects.toThrow(
-                'fetchGroupsByKeys: array lengths must match'
-            )
-            await expect(repository.fetchGroupsByKeys([], [0 as GroupTypeIndex], [])).rejects.toThrow(
-                'fetchGroupsByKeys: array lengths must match'
-            )
-            await expect(repository.fetchGroupsByKeys([], [], ['key1'])).rejects.toThrow(
-                'fetchGroupsByKeys: array lengths must match'
-            )
-            await expect(
-                repository.fetchGroupsByKeys([teamId, teamId], [0 as GroupTypeIndex], ['key1'])
-            ).rejects.toThrow('fetchGroupsByKeys: array lengths must match')
+            expect(await repository.fetchGroupsByKeys([])).toEqual([])
         })
 
         it('should fetch single group by keys', async () => {
@@ -1863,7 +1898,9 @@ describe('PostgresGroupRepository Integration', () => {
                 propertiesLastOperation
             )
 
-            const result = await repository.fetchGroupsByKeys([teamId], [0 as GroupTypeIndex], ['posthog'])
+            const result = await repository.fetchGroupsByKeys([
+                { teamId, groupTypeIndex: 0 as GroupTypeIndex, groupKey: 'posthog' },
+            ])
 
             expect(result).toHaveLength(1)
             expect(result[0]).toEqual({
@@ -1871,6 +1908,8 @@ describe('PostgresGroupRepository Integration', () => {
                 group_type_index: 0,
                 group_key: 'posthog',
                 group_properties: groupProperties,
+                created_at: createdAt,
+                version: 1,
             })
         })
 
@@ -1884,11 +1923,11 @@ describe('PostgresGroupRepository Integration', () => {
             await repository.insertGroup(teamId, 0 as GroupTypeIndex, 'acme', company2Props, createdAt, {}, {})
             await repository.insertGroup(teamId, 1 as GroupTypeIndex, 'eng-team', org1Props, createdAt, {}, {})
 
-            const result = await repository.fetchGroupsByKeys(
-                [teamId, teamId, teamId],
-                [0 as GroupTypeIndex, 0 as GroupTypeIndex, 1 as GroupTypeIndex],
-                ['posthog', 'acme', 'eng-team']
-            )
+            const result = await repository.fetchGroupsByKeys([
+                { teamId, groupTypeIndex: 0 as GroupTypeIndex, groupKey: 'posthog' },
+                { teamId, groupTypeIndex: 0 as GroupTypeIndex, groupKey: 'acme' },
+                { teamId, groupTypeIndex: 1 as GroupTypeIndex, groupKey: 'eng-team' },
+            ])
 
             expect(result).toHaveLength(3)
             expect(result).toEqual(
@@ -1898,25 +1937,33 @@ describe('PostgresGroupRepository Integration', () => {
                         group_type_index: 0,
                         group_key: 'posthog',
                         group_properties: company1Props,
+                        created_at: createdAt,
+                        version: 1,
                     },
                     {
                         team_id: teamId,
                         group_type_index: 0,
                         group_key: 'acme',
                         group_properties: company2Props,
+                        created_at: createdAt,
+                        version: 1,
                     },
                     {
                         team_id: teamId,
                         group_type_index: 1,
                         group_key: 'eng-team',
                         group_properties: org1Props,
+                        created_at: createdAt,
+                        version: 1,
                     },
                 ])
             )
         })
 
         it('should handle non-existent groups', async () => {
-            const result = await repository.fetchGroupsByKeys([teamId], [0 as GroupTypeIndex], ['non-existent'])
+            const result = await repository.fetchGroupsByKeys([
+                { teamId, groupTypeIndex: 0 as GroupTypeIndex, groupKey: 'non-existent' },
+            ])
 
             expect(result).toEqual([])
         })
@@ -1927,11 +1974,10 @@ describe('PostgresGroupRepository Integration', () => {
             // Insert only one group
             await repository.insertGroup(teamId, 0 as GroupTypeIndex, 'posthog', groupProperties, createdAt, {}, {})
 
-            const result = await repository.fetchGroupsByKeys(
-                [teamId, teamId],
-                [0 as GroupTypeIndex, 0 as GroupTypeIndex],
-                ['posthog', 'non-existent']
-            )
+            const result = await repository.fetchGroupsByKeys([
+                { teamId, groupTypeIndex: 0 as GroupTypeIndex, groupKey: 'posthog' },
+                { teamId, groupTypeIndex: 0 as GroupTypeIndex, groupKey: 'non-existent' },
+            ])
 
             expect(result).toHaveLength(1)
             expect(result[0]).toEqual({
@@ -1939,6 +1985,8 @@ describe('PostgresGroupRepository Integration', () => {
                 group_type_index: 0,
                 group_key: 'posthog',
                 group_properties: groupProperties,
+                created_at: createdAt,
+                version: 1,
             })
         })
 
@@ -1954,11 +2002,10 @@ describe('PostgresGroupRepository Integration', () => {
             await repository.insertGroup(teamId, 0 as GroupTypeIndex, 'company1', team1Props, createdAt, {}, {})
             await repository.insertGroup(localTeamId2, 0 as GroupTypeIndex, 'company2', team2Props, createdAt, {}, {})
 
-            const result = await repository.fetchGroupsByKeys(
-                [teamId, localTeamId2],
-                [0 as GroupTypeIndex, 0 as GroupTypeIndex],
-                ['company1', 'company2']
-            )
+            const result = await repository.fetchGroupsByKeys([
+                { teamId, groupTypeIndex: 0 as GroupTypeIndex, groupKey: 'company1' },
+                { teamId: localTeamId2, groupTypeIndex: 0 as GroupTypeIndex, groupKey: 'company2' },
+            ])
 
             expect(result).toHaveLength(2)
             expect(result).toEqual(
@@ -1968,12 +2015,16 @@ describe('PostgresGroupRepository Integration', () => {
                         group_type_index: 0,
                         group_key: 'company1',
                         group_properties: team1Props,
+                        created_at: createdAt,
+                        version: 1,
                     },
                     {
                         team_id: localTeamId2,
                         group_type_index: 0,
                         group_key: 'company2',
                         group_properties: team2Props,
+                        created_at: createdAt,
+                        version: 1,
                     },
                 ])
             )
@@ -1984,7 +2035,9 @@ describe('PostgresGroupRepository Integration', () => {
 
             await repository.insertGroup(teamId, 0 as GroupTypeIndex, 'posthog', groupProperties, createdAt, {}, {})
 
-            const result = await repository.fetchGroupsByKeys([teamId], [0 as GroupTypeIndex], ['posthog'])
+            const result = await repository.fetchGroupsByKeys([
+                { teamId, groupTypeIndex: 0 as GroupTypeIndex, groupKey: 'posthog' },
+            ])
 
             // Verify types are correctly cast (will fail at compile time if not)
             const teamIdResult: TeamId = result[0].team_id

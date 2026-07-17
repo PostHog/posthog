@@ -22,6 +22,8 @@ import {
 import { initKeaTests } from '~/test/init'
 import { BaseMathType, InsightShortId } from '~/types'
 
+import { attachedContextLogic } from 'products/posthog_ai/frontend/api/logics'
+
 import { EditorFilters } from './EditorFilters'
 
 // MaxTool has AI integration that requires additional setup — render children directly in tests
@@ -90,8 +92,10 @@ function makePathsQuery(): PathsQuery {
 }
 
 function setupAndRender(
-    query: TrendsQuery | LifecycleQuery | StickinessQuery | RetentionQuery | FunnelsQuery | PathsQuery
-): void {
+    query: TrendsQuery | LifecycleQuery | StickinessQuery | RetentionQuery | FunnelsQuery | PathsQuery,
+    showing = true,
+    embedded = false
+): ReturnType<typeof render> {
     insightLogic(insightProps).mount()
     insightDataLogic(insightProps).mount()
     funnelDataLogic(insightProps).mount()
@@ -99,10 +103,10 @@ function setupAndRender(
     vizDataLogic.mount()
     vizDataLogic.actions.updateQuerySource(query)
 
-    render(
+    return render(
         <Provider>
             <BindLogic logic={insightLogic} props={insightProps}>
-                <EditorFilters query={query} showing embedded={false} />
+                <EditorFilters query={query} showing={showing} embedded={embedded} />
             </BindLogic>
         </Provider>
     )
@@ -177,10 +181,36 @@ describe('EditorFilters', () => {
         expect(screen.queryByText('Enable formula mode')).not.toBeInTheDocument()
     })
 
+    it('only attaches query context while the editor is visible and not embedded', () => {
+        const query = makeTrendsQuery()
+        const { rerender } = setupAndRender(query)
+        const renderEditorFilters = (showing: boolean, embedded: boolean): JSX.Element => (
+            <Provider>
+                <BindLogic logic={insightLogic} props={insightProps}>
+                    <EditorFilters query={query} showing={showing} embedded={embedded} />
+                </BindLogic>
+            </Provider>
+        )
+
+        expect(attachedContextLogic.findMounted()?.values.contextItems).toEqual([
+            {
+                type: 'insight_query',
+                value: JSON.stringify(insightVizDataLogic(insightProps).values.querySource),
+                label: 'Current query',
+            },
+        ])
+
+        rerender(renderEditorFilters(false, false))
+        expect(attachedContextLogic.findMounted()?.values.contextItems).toEqual([])
+
+        rerender(renderEditorFilters(true, true))
+        expect(attachedContextLogic.findMounted()?.values.contextItems).toEqual([])
+    })
+
     it('expands advanced options section on click', async () => {
         setupAndRender(makeFunnelsQuery())
 
-        const advancedButton = screen.getByRole('button', { name: /Advanced options/ })
+        const advancedButton = screen.getByText('Advanced options').closest('button')!
         expect(advancedButton).toHaveAttribute('title', 'Show more')
 
         await userEvent.click(advancedButton)
@@ -191,7 +221,7 @@ describe('EditorFilters', () => {
     it('disables query-time person properties for data warehouse insights', async () => {
         setupAndRender(makeDataWarehouseTrendsQuery())
 
-        await userEvent.click(screen.getByRole('button', { name: /Advanced options/ }))
+        await userEvent.click(screen.getByText('Advanced options'))
 
         const disabledArea = screen.getByText('Use person properties from query time').closest('.LemonDisabledArea')
         expect(disabledArea).toHaveAttribute('aria-disabled', 'true')
@@ -207,7 +237,7 @@ describe('EditorFilters', () => {
     it('shows funnel settings collapsed by default and expandable', async () => {
         setupAndRender(makeFunnelsQuery())
 
-        const settingsButton = screen.getByRole('button', { name: /Funnel settings/ })
+        const settingsButton = screen.getByText('Funnel settings').closest('button')!
         expect(settingsButton).toBeInTheDocument()
         expect(settingsButton).toHaveAttribute('title', 'Show more')
 

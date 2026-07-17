@@ -3,11 +3,9 @@ import { Form } from 'kea-forms'
 import posthog from 'posthog-js'
 import { useMemo, useState } from 'react'
 
-import { IconFilter, IconGlobe, IconPhone, IconPlus, IconShare } from '@posthog/icons'
+import { IconFilter, IconGlobe, IconPhone, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonSelect, Popover, Tooltip } from '@posthog/lemon-ui'
 
-import { baseModifier } from 'lib/components/AppShortcuts/shortcuts'
-import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -19,6 +17,8 @@ import {
     isEventPersonOrSessionPropertyFilter,
     isWebAnalyticsPropertyFilter,
 } from 'lib/components/PropertyFilters/utils'
+import { baseModifier } from 'lib/components/Shortcuts/shortcuts'
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconLink, IconMonitor, IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -29,10 +29,11 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
 import MaxTool from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
-import { shareNudgeLogic } from 'scenes/web-analytics/shareNudgeLogic'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { PropertyFilterType, PropertyMathType } from '~/types'
+
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { ProductTab, faviconUrl } from './common'
 import { webAnalyticsDateMapping } from './constants'
@@ -161,6 +162,20 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
     } = useValues(webAnalyticsLogic)
     const { setDates, setWebAnalyticsFilters, setIsPathCleaningEnabled, setCompareFilter } =
         useActions(webAnalyticsLogic)
+
+    useAttachedContext([
+        {
+            type: 'web_analytics_filters',
+            value: JSON.stringify({
+                date_from: dateFrom,
+                date_to: dateTo,
+                properties: rawWebAnalyticsFilters,
+                doPathCleaning: isPathCleaningEnabled,
+                compareFilter,
+            }),
+            label: 'Current filters',
+        },
+    ])
 
     return (
         <MaxTool
@@ -373,7 +388,7 @@ const WebAnalyticsDeviceToggle = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
 
     // Device toggle shortcuts (Web Analytics-specific)
-    useAppShortcut({
+    useShortcut({
         name: 'WebAnalyticsDesktop',
         keybind: [[...baseModifier, 'p']],
         intent: 'Filter desktop devices',
@@ -381,7 +396,7 @@ const WebAnalyticsDeviceToggle = (): JSX.Element => {
         callback: () => setDeviceTypeFilter(deviceTypeFilter === 'Desktop' ? null : 'Desktop'),
         scope: Scene.WebAnalytics,
     })
-    useAppShortcut({
+    useShortcut({
         name: 'WebAnalyticsMobile',
         keybind: [[...baseModifier, 'm']],
         intent: 'Filter mobile devices',
@@ -464,7 +479,6 @@ export const WebAnalyticsCompareFilter = (): JSX.Element | null => {
 
 const ShareButton = (): JSX.Element => {
     const { activePreset } = useValues(webAnalyticsFilterPresetsLogic)
-    const { emphasizeShareButton } = useValues(shareNudgeLogic)
 
     const handleShare = (): void => {
         const url = new URL(window.location.href)
@@ -482,14 +496,12 @@ const ShareButton = (): JSX.Element => {
         <LemonButton
             type="secondary"
             size="small"
-            icon={emphasizeShareButton ? <IconShare /> : <IconLink />}
-            tooltip={emphasizeShareButton ? undefined : 'Share'}
+            icon={<IconLink />}
+            tooltip="Share"
             tooltipPlacement="top"
             onClick={handleShare}
             data-attr="web-analytics-share-button"
-        >
-            {emphasizeShareButton ? 'Share' : undefined}
-        </LemonButton>
+        />
     )
 }
 
@@ -501,7 +513,7 @@ function FiltersPopover(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
     // Toggle filters shortcut
-    useAppShortcut({
+    useShortcut({
         name: 'WebAnalyticsFilters',
         keybind: [[...baseModifier, 'f']],
         intent: 'Toggle filters',

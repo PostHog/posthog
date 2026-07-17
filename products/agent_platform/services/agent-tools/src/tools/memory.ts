@@ -17,7 +17,6 @@
 
 import {
     defineNativeTool,
-    isPreviewSideEffect,
     MAX_DESCRIPTION_LEN,
     MemoryConflictError,
     MemoryFile,
@@ -83,6 +82,7 @@ function asError(thrown: unknown): string {
 
 export const memoryListV1 = defineNativeTool({
     id: '@posthog/memory-list',
+    approval: 'allow',
     description:
         'List memory files this agent has stored. Returns one entry per file with its path and short description (no body). Optional `prefix` narrows to a sub-folder, e.g. `incidents/`.',
     args: Type.Object({
@@ -118,6 +118,7 @@ export const memoryListV1 = defineNativeTool({
 
 export const memorySearchV1 = defineNativeTool({
     id: '@posthog/memory-search',
+    approval: 'allow',
     description:
         "Substring + tag/path weighted search across this agent's memory files. Describe what you're looking for in plain language — the cue is tokenised and scored against descriptions, tags, paths, and bodies. Returns top matches with a one-line snippet.",
     args: Type.Object({
@@ -146,6 +147,7 @@ export const memorySearchV1 = defineNativeTool({
 
 export const memoryReadV1 = defineNativeTool({
     id: '@posthog/memory-read',
+    approval: 'allow',
     description:
         'Read one memory file in full — returns its description, tags, timestamps, and full markdown body. Use after `memory-list` or `memory-search` returns a path.',
     args: Type.Object({
@@ -177,20 +179,11 @@ export const memoryReadV1 = defineNativeTool({
 // =====================================================================
 // MUTATING TOOLS — requires_approval=true by default
 // (set via the spec.tools entry; the tool def itself doesn't carry the flag)
-//
-// Each mutating tool short-circuits in preview mode via `isPreviewSideEffect`
-// and returns a shape-valid synthetic envelope. The memory store is scoped on
-// `(team_id, application_id)` and not forked per revision, so without this
-// gate a draft revision's `memory-write`/`memory-update`/`memory-delete` would
-// mutate the same files the live revision reads. The approval gate (which
-// fires before `run`) doesn't help — a human approver in preview would still
-// reach this code path and hit live storage. The synthetic response shape
-// matches the live one so the model's next turn keeps reasoning naturally;
-// `tool_preview_skipped` lands in the log for the author to inspect.
 // =====================================================================
 
 export const memoryWriteV1 = defineNativeTool({
     id: '@posthog/memory-write',
+    approval: 'allow',
     description:
         'Create a new memory file. `description` is a one-line summary (<= 280 chars). `content` is the full markdown body. Fails if a file already exists at `path` — use `memory-update` to overwrite. WRITE OPERATIONS ARE APPROVAL-GATED BY DEFAULT — the model will see a synthetic queued result until a human approves.',
     args: Type.Object({
@@ -215,9 +208,6 @@ export const memoryWriteV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error)
         }
-        if (isPreviewSideEffect(ctx, '@posthog/memory-write', args)) {
-            return ok({ path: args.path, created_at: new Date().toISOString() })
-        }
         try {
             validateMemoryPath(args.path)
             validateForWrite({ description: args.description, tags: args.tags })
@@ -240,6 +230,7 @@ export const memoryWriteV1 = defineNativeTool({
 
 export const memoryUpdateV1 = defineNativeTool({
     id: '@posthog/memory-update',
+    approval: 'allow',
     description:
         'Overwrite an existing memory file. Any field omitted is taken from the existing file. Fails if the file does not exist. WRITE OPERATIONS ARE APPROVAL-GATED BY DEFAULT.',
     args: Type.Object({
@@ -254,9 +245,6 @@ export const memoryUpdateV1 = defineNativeTool({
         const s = storeOrError(ctx)
         if ('error' in s) {
             return err(s.error)
-        }
-        if (isPreviewSideEffect(ctx, '@posthog/memory-update', args)) {
-            return ok({ path: args.path, updated_at: new Date().toISOString() })
         }
         try {
             validateMemoryPath(args.path)
@@ -284,6 +272,7 @@ export const memoryUpdateV1 = defineNativeTool({
 
 export const memoryDeleteV1 = defineNativeTool({
     id: '@posthog/memory-delete',
+    approval: 'allow',
     description: 'Hard-delete a memory file. APPROVAL-GATED BY DEFAULT.',
     args: Type.Object({
         path: Type.String(),
@@ -294,9 +283,6 @@ export const memoryDeleteV1 = defineNativeTool({
         const s = storeOrError(ctx)
         if ('error' in s) {
             return err(s.error)
-        }
-        if (isPreviewSideEffect(ctx, '@posthog/memory-delete', args)) {
-            return ok({ path: args.path, deleted: true })
         }
         try {
             validateMemoryPath(args.path)

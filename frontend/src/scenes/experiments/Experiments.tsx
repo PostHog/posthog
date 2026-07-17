@@ -3,15 +3,16 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
+import * as experimentPng from '@posthog/brand/hoggies/png/experiment'
 import { LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -63,6 +64,8 @@ import { StatusTag } from './ExperimentView/StatusTag'
 import { Holdouts } from './Holdouts'
 import { SharedMetrics } from './SharedMetrics/SharedMetrics'
 
+const HedgehogExperiment = pngHoggie(experimentPng)
+
 export const scene: SceneExport = {
     component: Experiments,
     logic: experimentsLogic,
@@ -110,7 +113,7 @@ const ExperimentsTableFilters = ({
     return (
         <div className="flex justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-6">
-                <AppShortcut
+                <Shortcut
                     name="SearchExperiments"
                     keybind={[keyBinds.filter]}
                     intent="Search experiments"
@@ -123,7 +126,7 @@ const ExperimentsTableFilters = ({
                         onChange={(search) => onFiltersChange({ search, page: 1 })}
                         value={filters.search || ''}
                     />
-                </AppShortcut>
+                </Shortcut>
                 <div className="flex items-center gap-2">
                     <span>
                         <b>Status</b>
@@ -144,6 +147,7 @@ const ExperimentsTableFilters = ({
                                 { label: 'Draft', value: ExperimentStatus.Draft },
                                 { label: 'Running', value: ExperimentStatus.Running },
                                 { label: 'Paused', value: ExperimentStatus.Paused },
+                                { label: 'Exposure frozen', value: ExperimentStatus.ExposureFrozen },
                                 { label: 'Complete', value: ExperimentStatus.Stopped },
                             ] as { label: string; value: string }[]
                         }
@@ -332,7 +336,8 @@ const ExperimentsTable = ({
                     [ExperimentStatus.Draft]: 1,
                     [ExperimentStatus.Running]: 2,
                     [ExperimentStatus.Paused]: 3,
-                    [ExperimentStatus.Stopped]: 4,
+                    [ExperimentStatus.ExposureFrozen]: 4,
+                    [ExperimentStatus.Stopped]: 5,
                 }
                 return score[statusA] > score[statusB] ? 1 : -1
             },
@@ -499,7 +504,7 @@ const ExperimentsTable = ({
                         docsURL="https://posthog.com/docs/experiments"
                         action={() => router.actions.push(urls.experiment('new'))}
                         isEmpty={shouldShowEmptyState}
-                        customHog={ExperimentsHog}
+                        customHog={HedgehogExperiment}
                         className="my-0"
                         mcpSurfaceKey="experiments.create"
                     />
@@ -603,7 +608,7 @@ export function Experiments(): JSX.Element {
                                     active={true}
                                     context={{}}
                                 >
-                                    <AppShortcut
+                                    <Shortcut
                                         name="NewExperiment"
                                         keybind={[keyBinds.new]}
                                         intent="New experiment"
@@ -619,7 +624,7 @@ export function Experiments(): JSX.Element {
                                         >
                                             <span className="pr-3">New experiment</span>
                                         </LemonButton>
-                                    </AppShortcut>
+                                    </Shortcut>
                                 </MaxTool>
                             </div>
                         </AccessControlAction>

@@ -1,9 +1,24 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
+
+import { externalDataSourcesDraftCustomManifestCreate } from 'products/warehouse_sources/frontend/generated/api'
 
 import { parseManifestIntoState } from '../customSourceManifest'
 import { customSourceManifestBuilderLogic } from '../customSourceManifestBuilderLogic'
+
+jest.mock('lib/lemon-ui/LemonToast', () => ({
+    lemonToast: { success: jest.fn(), warning: jest.fn(), error: jest.fn() },
+}))
+jest.mock('products/warehouse_sources/frontend/generated/api', () => ({
+    externalDataSourcesDraftCustomManifestCreate: jest.fn(),
+}))
+
+const mockDraft = externalDataSourcesDraftCustomManifestCreate as jest.Mock
 
 const savedManifest = JSON.stringify({
     client: { base_url: 'https://saved.example.com', auth: { type: 'bearer' } },
@@ -14,6 +29,9 @@ const pushedFields = (setValue: jest.Mock): Record<string, unknown> =>
     Object.fromEntries(setValue.mock.calls.map(([path, value]) => [(path as (string | number)[]).join('.'), value]))
 
 describe('customSourceManifestBuilderLogic', () => {
+    // Safety net for tests that call silenceKeaLoadersErrors() inline
+    afterEach(resumeKeaLoadersErrors)
+
     let logic: ReturnType<typeof customSourceManifestBuilderLogic.build>
     let setValue: jest.Mock
 
@@ -82,6 +100,10 @@ describe('customSourceManifestBuilderLogic', () => {
             expect(logic.values.manifestState.tables[0].name).toBe('users')
         })
 
+        it('opens directly in the builder, never the AI intro, when a manifest already exists', () => {
+            expect(logic.values.showBuilder).toBe(true)
+        })
+
         it('mirrors the saved manifest into the outer form on mount', () => {
             const pushed = pushedFields(setValue)
             expect(JSON.parse(pushed['payload.manifest_json'] as string).client.base_url).toBe(
@@ -98,6 +120,8 @@ describe('customSourceManifestBuilderLogic', () => {
 
         it('replaces form state and unblocks the outer-form sync', () => {
             expect(logic.values.manifestState.base_url).toBe('')
+            // A fresh source (no manifest yet) starts on the AI intro, not the builder.
+            expect(logic.values.showBuilder).toBe(false)
 
             logic.actions.setManifestState(parseManifestIntoState(savedManifest))
 
@@ -122,6 +146,8 @@ describe('customSourceManifestBuilderLogic', () => {
             customSourceManifestBuilderLogic({ setValue, initialManifestJson: savedManifest })
 
             expect(logic.values.manifestState.base_url).toBe('https://saved.example.com')
+            // The late manifest also moves the user off the AI intro into the builder.
+            expect(logic.values.showBuilder).toBe(true)
         })
     })
 
@@ -170,5 +196,83 @@ describe('customSourceManifestBuilderLogic', () => {
             logic.actions.removeHeader(0)
             expect(logic.values.manifestState.headers).toEqual([])
         })
+    })
+
+    describe('AI draft from docs (generateFromDocs)', () => {
+        beforeEach(() => {
+            mockDraft.mockReset()
+            ;(lemonToast.success as jest.Mock).mockClear()
+            ;(lemonToast.warning as jest.Mock).mockClear()
+            ;(lemonToast.error as jest.Mock).mockClear()
+            logic = customSourceManifestBuilderLogic({ setValue })
+            logic.mount()
+        })
+
+        it('rejects an empty docs URL without calling the backend', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.generateFromDocs()
+            }).toDispatchActions(['generateFromDocsSuccess'])
+
+            expect(mockDraft).not.toHaveBeenCalled()
+            expect(lemonToast.error).toHaveBeenCalledWith('Enter a documentation URL first')
+            expect(logic.values.showBuilder).toBe(false)
+        })
+
+        it('populates the builder and confirms on a validated draft', async () => {
+            mockDraft.mockResolvedValue({
+                draft_status: 'ok',
+                manifest_json: savedManifest,
+                resource_names: ['users'],
+                attempts: 1,
+                error: null,
+            })
+            logic.actions.setDocsUrl('https://docs.example.com')
+
+            await expectLogic(logic, () => {
+                logic.actions.generateFromDocs()
+            }).toDispatchActions(['generateFromDocsSuccess', 'setShowBuilder'])
+
+            expect(logic.values.manifestState.base_url).toBe('https://saved.example.com')
+            expect(logic.values.showBuilder).toBe(true)
+            expect(lemonToast.success).toHaveBeenCalled()
+        })
+
+        it('still opens the draft for hand-editing when it did not fully validate', async () => {
+            // The repair-loop fix means an `invalid` result can still carry a manifest to hand off.
+            mockDraft.mockResolvedValue({
+                draft_status: 'invalid',
+                manifest_json: savedManifest,
+                resource_names: [],
+                attempts: 4,
+                error: 'resources: must not be empty',
+            })
+            logic.actions.setDocsUrl('https://docs.example.com')
+
+            await expectLogic(logic, () => {
+                logic.actions.generateFromDocs()
+            }).toDispatchActions(['generateFromDocsSuccess', 'setShowBuilder'])
+
+            expect(logic.values.showBuilder).toBe(true)
+            expect(lemonToast.warning).toHaveBeenCalledWith('resources: must not be empty')
+        })
+
+        it.each([
+            ['429 throttle detail', 429, { detail: 'Request was throttled. Expected available in 30 seconds.' }],
+            ['400 error message', 400, { message: 'Could not fetch the docs URL.' }],
+        ] as [string, number, Record<string, string>][])(
+            'surfaces the backend reason (%s) instead of a generic failure',
+            async (_label, status, data) => {
+                // Deliberate loader failure — kea-loaders would log it
+                silenceKeaLoadersErrors()
+                mockDraft.mockRejectedValue(new ApiError('failed', status, undefined, data))
+                logic.actions.setDocsUrl('https://docs.example.com')
+
+                await expectLogic(logic, () => {
+                    logic.actions.generateFromDocs()
+                }).toDispatchActions(['generateFromDocsFailure'])
+
+                expect(lemonToast.error).toHaveBeenCalledWith(data.detail ?? data.message)
+            }
+        )
     })
 })

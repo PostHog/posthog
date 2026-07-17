@@ -1,10 +1,9 @@
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { getScoutOrigin } from '../../../utils/scoutRunsWindow'
+import { ScoutOrigin } from '../../../types'
 
 /** Canonical (PostHog-maintained) vs Custom (team-authored) scout badge. */
-export function ScoutOriginBadge({ skillName }: { skillName: string }): JSX.Element {
-    const origin = getScoutOrigin(skillName)
+export function ScoutOriginBadge({ origin }: { origin: ScoutOrigin }): JSX.Element {
     return (
         <Tooltip
             title={

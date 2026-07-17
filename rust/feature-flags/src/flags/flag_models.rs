@@ -287,14 +287,14 @@ pub struct FeatureFlag {
     /// Defaults to `true` (rather than the usual `#[serde(default)]` bool false) so cache
     /// entries written by older Django without the field over-preserve properties instead of
     /// stripping them. A spurious `true` only wastes bytes; a spurious `false` would strip
-    /// unrecoverable experiment-exposure data. The fallback query paths share this default via
-    /// `default_has_experiment()`.
+    /// unrecoverable experiment-exposure data. The panic fallback shares this default via
+    /// `default_has_experiment()`; the PG fallback query computes the real value.
     #[serde(default = "default_has_experiment")]
     pub has_experiment: bool,
 }
 
 /// Default for `FeatureFlag::has_experiment` when experiment linkage is unknowable — an
-/// older-Django cache payload missing the field, or a fallback query path that can't compute
+/// older-Django cache payload missing the field, or the panic fallback that can't compute
 /// it. See the field doc for why this is `true` rather than `false`.
 pub(crate) fn default_has_experiment() -> bool {
     true
@@ -330,6 +330,9 @@ pub struct FeatureFlagRow {
     pub evaluation_tags: Option<Vec<String>>,
     #[serde(default)]
     pub bucketing_identifier: Option<String>,
+    /// Populated by the from_pg fallback query via a correlated EXISTS over posthog_experiment.
+    #[serde(default)]
+    pub has_experiment: bool,
 }
 
 /// Request-scoped view of flag definitions plus the per-request filter set.

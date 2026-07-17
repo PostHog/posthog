@@ -14,14 +14,14 @@ import {
     KAFKA_LOG_ENTRIES,
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
-} from '~/config/kafka-topics'
+} from '~/common/config/kafka-topics'
+import type { PostgresRouterConfig } from '~/common/utils/db/postgres'
+import { isDevEnv, isProdEnv } from '~/common/utils/env-utils'
 import {
     INGESTION_DOWNSTREAM_PRODUCER,
     INGESTION_UPSTREAM_PRODUCER,
     type ProducerName,
-} from '~/ingestion/common/producers'
-import type { PostgresRouterConfig } from '~/utils/db/postgres'
-import { isDevEnv, isProdEnv } from '~/utils/env-utils'
+} from '~/ingestion/common/outputs/producers'
 
 /** Default for FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '' disables the personless default so it is opt-in per team via config. */
 export const DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS = ''
@@ -78,10 +78,30 @@ export type KafkaConsumerBaseConfig = Pick<
 export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
-export type IngestionLane = 'main' | 'overflow' | 'historical' | 'async'
+/**
+ * Real-time lanes process live events and share `main`'s processing-time SLO.
+ * Delayed lanes process backfilled or async events on their own timeline. The
+ * distinction is load-bearing for processing-time logic like dedup, so the lane
+ * type is derived from these two sets to keep the categorization in one place.
+ */
+export const REALTIME_INGESTION_LANES = ['main', 'overflow', 'turbo', 'team2'] as const
+export const DELAYED_INGESTION_LANES = ['historical', 'async'] as const
+
+export type IngestionLane = (typeof REALTIME_INGESTION_LANES)[number] | (typeof DELAYED_INGESTION_LANES)[number]
+
+/**
+ * How a consumer participates in overflow handling. Explicit and independent of
+ * the lane name:
+ *   - `redirect`  redirect hot partitions to the overflow topic (main lane).
+ *   - `consume`   drain the overflow topic and refresh its stateful TTLs (overflow lane).
+ *   - `disabled`  no overflow handling.
+ */
+export const INGESTION_OVERFLOW_MODES = ['redirect', 'consume', 'disabled'] as const
+export type IngestionOverflowMode = (typeof INGESTION_OVERFLOW_MODES)[number]
 
 export type IngestionConsumerConfig = {
     INGESTION_LANE: IngestionLane | null
+    INGESTION_OVERFLOW_MODE: IngestionOverflowMode
 
     // Kafka consumer config
     INGESTION_CONSUMER_GROUP_ID: string
@@ -100,6 +120,15 @@ export type IngestionConsumerConfig = {
     // both values MUST agree, otherwise either the Rust consumer over-limits
     // (idle worker capacity) or the worker rejects with HTTP 503.
     INGESTION_WORKER_CONCURRENT_BATCHES: number
+
+    // Feed-order sentinel (ingestion API server only): checks that each
+    // routing key's messages enter the pipeline in Kafka offset order. The
+    // Rust consumer's sentinels have their own flag
+    // (CONSUMER_ORDER_SENTINEL_ENABLED).
+    INGESTION_API_FEED_ORDER_SENTINEL_ENABLED: boolean
+    // LRU capacity of the sentinel's per-key state; at capacity the
+    // least-recently-seen key is dropped and rebaselines unchecked.
+    INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS: number
 
     // Person batch writing config
     PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode
@@ -122,18 +151,30 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_ASYNC_TOPIC: string
     PERSON_MERGE_ASYNC_ENABLED: boolean
     PERSON_MERGE_SYNC_BATCH_SIZE: number
+    // Kill switch for emitting person_merge_events to the cohort-stream-processor.
+    // Enable ordering: (1) create the topic, (2) set INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC
+    // (startup topic verification is then fatal by design), (3) flip this on. Flipping this on before
+    // the topic env is set is a no-op — see effectivePersonMergeEventsEnabled.
+    PERSON_MERGE_EVENTS_ENABLED: boolean
+    // Must equal the person_merge_events topic partition count and the Rust COHORT_PARTITION_COUNT.
+    PERSON_MERGE_EVENTS_PARTITION_COUNT: number
+    // Which teams to emit person_merge_events for: comma-separated team IDs, or '*' for all teams.
+    // Defaults to team 2 only. Unlike the Rust REALTIME_COHORT_TEAM_ALLOWLIST, an empty value here
+    // means "no teams", not "all teams"; use '*' to open the gate.
+    PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: string
 
     // Group batch writing config
+    GROUP_BATCH_WRITING_USE_BATCH_UPDATES: boolean
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
+    GROUPS_PREFETCH_ENABLED: boolean
 
     // Event overflow config
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
 
     // Stateful overflow config
-    INGESTION_STATEFUL_OVERFLOW_ENABLED: boolean
     INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
     INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: number
 
@@ -161,22 +202,6 @@ export type IngestionConsumerConfig = {
     /** Dedicated Redis host for dedup claims; empty reuses the ingestion Redis */
     INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_HOST: string
     INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_PORT: number
-
-    // AI event splitting config
-    INGESTION_AI_EVENT_SPLITTING_ENABLED: boolean
-    /** '*' for all teams, or comma-separated team IDs always routed to ai_events */
-    INGESTION_AI_EVENT_SPLITTING_TEAMS: string
-    /**
-     * Sticky percentage rollout (0-100), unioned with INGESTION_AI_EVENT_SPLITTING_TEAMS.
-     * Bucketed deterministically on team_id so increases are monotonic and per-team writes don't flap.
-     */
-    INGESTION_AI_EVENT_SPLITTING_PERCENTAGE: number
-    /**
-     * Teams whose events copy should have heavy AI properties stripped — i.e. the post-migration final state
-     * where heavy columns live only in the AI events table. '*' for all teams, or comma-separated team IDs.
-     * Defaults to '' (no stripping → double-write the full event for everyone).
-     */
-    INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS: string
 
     // Clickhouse topics
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
@@ -213,6 +238,7 @@ export type IngestionConsumerConfig = {
 export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
     return {
         INGESTION_LANE: null,
+        INGESTION_OVERFLOW_MODE: 'disabled',
 
         // Kafka consumer config
         INGESTION_CONSUMER_GROUP_ID: 'events-ingestion-consumer',
@@ -226,6 +252,8 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: '',
         INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
         INGESTION_WORKER_CONCURRENT_BATCHES: 1,
+        INGESTION_API_FEED_ORDER_SENTINEL_ENABLED: true,
+        INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS: 200_000,
 
         // Person batch writing config
         PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT',
@@ -248,18 +276,22 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_ASYNC_TOPIC: '',
         PERSON_MERGE_ASYNC_ENABLED: false,
         PERSON_MERGE_SYNC_BATCH_SIZE: 0,
+        PERSON_MERGE_EVENTS_ENABLED: false,
+        PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
+        PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',
 
         // Group batch writing config
+        GROUP_BATCH_WRITING_USE_BATCH_UPDATES: false,
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
+        GROUPS_PREFETCH_ENABLED: false,
 
         // Event overflow config
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
 
         // Stateful overflow config
-        INGESTION_STATEFUL_OVERFLOW_ENABLED: false,
         INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300,
         INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60,
 
@@ -283,12 +315,6 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_TTL_SECONDS: 60 * 60,
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_HOST: '',
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_PORT: 6379,
-
-        // AI event splitting config
-        INGESTION_AI_EVENT_SPLITTING_ENABLED: false,
-        INGESTION_AI_EVENT_SPLITTING_TEAMS: '*',
-        INGESTION_AI_EVENT_SPLITTING_PERCENTAGE: 0,
-        INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS: '',
 
         // Clickhouse topics
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
@@ -355,6 +381,9 @@ export type IngestionOutputsConfig = {
     INGESTION_OUTPUT_PERSON_DISTINCT_IDS_TOPIC: string
     INGESTION_OUTPUT_PERSON_DISTINCT_IDS_PRODUCER: ProducerName
 
+    INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC: string
+    INGESTION_OUTPUT_PERSON_MERGE_EVENTS_PRODUCER: ProducerName
+
     INGESTION_OUTPUT_APP_METRICS_TOPIC: string
     INGESTION_OUTPUT_APP_METRICS_PRODUCER: ProducerName
 
@@ -387,6 +416,9 @@ export function getDefaultIngestionOutputsConfig(): IngestionOutputsConfig {
         INGESTION_OUTPUT_PERSONS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_PERSON_DISTINCT_IDS_TOPIC: KAFKA_PERSON_DISTINCT_ID,
         INGESTION_OUTPUT_PERSON_DISTINCT_IDS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
+        // Empty topic skips the startup topic-existence check.
+        INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC: '',
+        INGESTION_OUTPUT_PERSON_MERGE_EVENTS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
         INGESTION_OUTPUT_APP_METRICS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_LOG_ENTRIES_TOPIC: KAFKA_LOG_ENTRIES,

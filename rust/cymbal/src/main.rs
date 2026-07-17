@@ -1,3 +1,4 @@
+use cymbal::modes::notifications::NotificationsConfig;
 use cymbal::modes::processing::ProcessingConfig;
 use cymbal::modes::resolution::ResolutionConfig;
 use cymbal::modes::{self, CymbalMode};
@@ -12,7 +13,8 @@ fn setup_tracing() {
         EnvFilter::builder()
             .with_default_directive(LevelFilter::INFO.into())
             .from_env_lossy()
-            .add_directive("pyroscope=warn".parse().unwrap()),
+            .add_directive("pyroscope=warn".parse().unwrap())
+            .add_directive("rdkafka=warn".parse().unwrap()),
     );
     tracing_subscriber::registry().with(log_layer).init();
 }
@@ -55,6 +57,17 @@ async fn main() {
                 error!("cymbal-resolution server error: {e}");
                 std::process::exit(1);
             }
+        }
+        CymbalMode::Notifications => {
+            let config = NotificationsConfig::init_with_defaults().unwrap();
+            let _profiling_agent = start_profiling(&config.continuous_profiling);
+            init_posthog(
+                "cymbal-notifications",
+                &config.posthog_api_key,
+                &config.posthog_endpoint,
+            )
+            .await;
+            modes::notifications::run(config).await;
         }
     }
 }

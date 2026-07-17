@@ -1,3 +1,4 @@
+import type { WidgetDateFromValue } from '../widget_types/widgetConfigShared'
 import type { DashboardWidgetEditModalProps } from './registry'
 
 type ValidationResult = { success: true } | { success: false; fieldErrors: Record<string, string> }
@@ -64,7 +65,7 @@ export const widgetEditModalTileReducers = {
 
 export const widgetEditModalListFieldActions = {
     setLimit: (limit: number) => ({ limit }),
-    setDateFrom: (dateFrom: string) => ({ dateFrom }),
+    setDateFrom: (dateFrom: WidgetDateFromValue) => ({ dateFrom }),
 }
 
 export const widgetEditModalListFieldReducers = {
@@ -75,9 +76,9 @@ export const widgetEditModalListFieldReducers = {
         },
     ],
     dateFrom: [
-        '-7d',
+        '-7d' as WidgetDateFromValue,
         {
-            setDateFrom: (_: string, { dateFrom }: { dateFrom: string }) => dateFrom,
+            setDateFrom: (_: WidgetDateFromValue, { dateFrom }: { dateFrom: WidgetDateFromValue }) => dateFrom,
         },
     ],
 }

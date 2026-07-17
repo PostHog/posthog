@@ -1,7 +1,6 @@
 import crypto from 'crypto'
 import { DateTime } from 'luxon'
 
-import { defaultConfig } from '~/config/config'
 import { ParsedMessageData, SnapshotEvent } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import {
     MouseInteractions,
@@ -331,7 +330,8 @@ export class SessionFeatureRecorder {
     constructor(
         public readonly sessionId: string,
         public readonly teamId: number,
-        public readonly batchId: string
+        public readonly batchId: string,
+        public readonly rolloutPercentage: number
     ) {
         this._run = this.shouldRun(sessionId)
     }
@@ -351,6 +351,12 @@ export class SessionFeatureRecorder {
 
         if (this.ended) {
             throw new Error('Cannot record message after end() has been called')
+        }
+
+        // `eventsByWindowId` is empty on pre-serialized messages, so this would silently emit
+        // zeroed feature blocks; the native path must keep features off.
+        if (message.preSerialized) {
+            throw new Error('SessionFeatureRecorder cannot process pre-serialized messages')
         }
 
         if (!this._distinctId) {
@@ -374,7 +380,7 @@ export class SessionFeatureRecorder {
 
     /** Ad-hoc rollout md5 gate */
     private shouldRun(sessionId: string): boolean {
-        const rolloutPercentage = defaultConfig.SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE
+        const rolloutPercentage = this.rolloutPercentage
         if (rolloutPercentage >= 100) {
             return true
         }

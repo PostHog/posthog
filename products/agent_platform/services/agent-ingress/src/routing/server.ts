@@ -4,7 +4,7 @@
  * mounted at root in domain mode.
  */
 
-import express, { Express, Request, Response } from 'express'
+import express, { Express, Request, RequestHandler, Response } from 'express'
 import { z } from 'zod'
 
 import type {
@@ -16,18 +16,26 @@ import type {
     IdentityLinkStateStore,
     IdentityStore,
     SecretResolver,
+    TransportBindingStore,
 } from '@posthog/agent-shared'
 import {
     applyApprovalDecision,
     buildIdentityRegistry,
     createLogger,
+    DIGEST_MAX_CHARS_DEFAULT,
     effectiveApprovalType,
     handleMetricsRequest,
+    INTERNAL_JWT_AUDIENCE,
+    InternalJwtVerifyError,
     isDev,
+    renderSessionDigest,
     RevisionStore,
+    serializeApprovalRequest,
     type SessionPrincipal,
     SessionQueue,
+    TERMINAL_SESSION_STATES,
     triggerAuthConfig,
+    verifyInternalJwt,
 } from '@posthog/agent-shared'
 
 const log = createLogger('ingress')
@@ -35,6 +43,7 @@ const log = createLogger('ingress')
 import { SessionEventBus } from '@posthog/agent-shared'
 import type { AuthConfig } from '@posthog/agent-shared'
 
+import { buildAdmission } from '../enqueue/admission-gate'
 import { authorize, AuthProvider, principalsMatch, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
 import { chatTrigger } from '../triggers/chat'
 import { mcpTrigger } from '../triggers/mcp'
@@ -107,8 +116,8 @@ export interface BuildAppOpts {
      */
     slackSigningSecretResolver?: SecretResolver
     authProvider?: AuthProvider
-    /** Optional identity store — Slack trigger uses this to mint stable AgentUser ids. */
-    identities?: IdentityStore
+    /** Identity store — mints stable AgentUser ids for transport principals. */
+    identities: IdentityStore
     /**
      * Approval store — backs the principal-decision surfaces (the Slack
      * interactivity handler today; the `POST /approvals/:id/decide` route).
@@ -133,20 +142,20 @@ export interface BuildAppOpts {
     /**
      * Outbound HTTP for a trigger's outbound calls (the slack trigger's
      * bot-token Slack calls). Wired at the ingress entrypoint from
-     * `config.httpsProxy` so the call dispatches through smokescreen in
-     * prod. Optional — falls back to a direct HttpClient in tests.
+     * `config.httpsProxy` so the call dispatches through smokescreen in prod.
      */
-    http?: import('@posthog/agent-shared').HttpFetcher
+    http: import('@posthog/agent-shared').HttpFetcher
     /**
-     * Identity-linking stores + env decryptor. When all three are wired, the
-     * ingress serves `GET /link/:provider/callback`: it consumes the OAuth
-     * link-state row, rebuilds the provider from the app's spec + decrypted
-     * encrypted_env, and persists the credential. Optional — omitted in tests
-     * that don't exercise the callback.
+     * Identity-linking stores + env decryptor. The ingress serves
+     * `GET /link/:provider/callback`: it consumes the OAuth link-state row,
+     * rebuilds the provider from the app's spec + decrypted encrypted_env, and
+     * persists the credential.
      */
-    identityCredentials?: IdentityCredentialStore
-    identityLinks?: IdentityLinkStateStore
-    envEncryption?: EncryptedFields
+    identityCredentials: IdentityCredentialStore
+    identityLinks: IdentityLinkStateStore
+    /** Durable transport→canonical-identity bindings; backs edge admission. */
+    transportBindings: TransportBindingStore
+    envEncryption: EncryptedFields
     /** PostHog API base — the `{kind:posthog}` provider builds its OAuth
      *  endpoints from this in the link callback. Without it the callback can't
      *  rebuild the posthog provider ("Unknown provider"). */
@@ -188,6 +197,17 @@ async function authenticatePrincipalDecider(
     return null
 }
 
+/**
+ * A real, identifiable caller — not the shared `anonymous` principal a
+ * public-auth agent hands every caller. `principalsMatch` treats all anonymous
+ * principals as equal, so it's no gate on a public agent: the principal-authed
+ * read surfaces (transcript, approval detail) require an identified principal,
+ * else one anonymous caller could read another anonymous session's data.
+ */
+function isIdentifiedPrincipal(p: SessionPrincipal): boolean {
+    return p.kind !== 'anonymous'
+}
+
 /** Stable id of the decider, by principal kind — stored as the approval's `decided_by`. */
 function principalDeciderId(p: SessionPrincipal): string {
     switch (p.kind) {
@@ -207,6 +227,17 @@ function linkResultPage(message: string): string {
     const safe = message.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c] ?? c)
     return `<!doctype html><meta charset="utf-8"><title>PostHog agent linking</title><body style="font-family:system-ui;max-width:32rem;margin:4rem auto;padding:0 1rem;color:#111"><h2>PostHog agent</h2><p style="font-size:1.05rem">${safe}</p></body>`
 }
+
+// Request body for the internal /internal/session-digest route (below). The pure
+// digest builders (renderSessionDigest et al.) live in @posthog/agent-shared
+// (spec/session-digest.ts) so the janitor / MCP read paths can share them.
+const SessionDigestBodySchema = z.object({
+    application_id: z.string().min(1),
+    session_id: z.string().min(1),
+    /** Exclusive index into conversation[]; the poll returns conversation[cursor:]. */
+    cursor: z.number().int().nonnegative().optional(),
+    max_chars: z.number().int().positive().max(20_000).optional(),
+})
 
 export function buildApp(opts: BuildAppOpts): Express {
     const app = express()
@@ -267,10 +298,6 @@ export function buildApp(opts: BuildAppOpts): Express {
         '/link/:provider/callback',
         asyncHandler(async (req: Request, res: Response) => {
             const { identityLinks, identityCredentials, envEncryption, http } = opts
-            if (!identityLinks || !identityCredentials || !envEncryption || !http) {
-                res.status(500).send(linkResultPage('Identity linking is not configured on this ingress.'))
-                return
-            }
             const providerId = req.params.provider
             const stateId = typeof req.query.state === 'string' ? req.query.state : ''
             const code = typeof req.query.code === 'string' ? req.query.code : undefined
@@ -308,7 +335,15 @@ export function buildApp(opts: BuildAppOpts): Express {
                 return
             }
             try {
-                await provider.complete({ stateId, query: { code, error: errorParam } })
+                // Authoritative-provider callback → admission.complete (writes the
+                // canonical identity + transport binding). Any other provider is a
+                // per-asker capability link → the provider persists its own credential.
+                const admission = buildAdmission(opts, revision, application?.slug ?? '')
+                if (admission && providerId === revision.spec.authoritative_provider) {
+                    await admission.complete(providerId, stateId, { code, error: errorParam })
+                } else {
+                    await provider.complete({ stateId, query: { code, error: errorParam } })
+                }
             } catch (err) {
                 log.warn(
                     { provider: providerId, err: err instanceof Error ? err.message : String(err) },
@@ -340,8 +375,48 @@ export function buildApp(opts: BuildAppOpts): Express {
         routingMode: opts.routingMode,
         domainSuffix: opts.domainSuffix,
         publicBaseUrl: opts.publicBaseUrl,
+        // Edge admission (Slack trigger).
+        identityLinks: opts.identityLinks,
+        identityCredentials: opts.identityCredentials,
+        transportBindings: opts.transportBindings,
+        envEncryption: opts.envEncryption,
+        posthogApiBaseUrl: opts.posthogApiBaseUrl,
     } as const
-    const mount = opts.routingMode === 'path' ? `${opts.pathPrefix ?? '/agents'}/:slug` : ''
+    const pathMount = `${opts.pathPrefix ?? '/agents'}/:slug`
+    // In path mode (dev) agent routes live only under the path mount. In
+    // domain mode (prod) they mount at root, with the slug riding in the Host
+    // header, and the path mount stays registered as an alias: in-cluster
+    // callers that address the ingress Service directly (the Django
+    // preview-proxy and IngressClient) cannot present a public
+    // *.domainSuffix Host, so without the alias every /agents/<slug>/...
+    // call from Django 404s before resolution runs. `resolveAgent` prefers
+    // the mount's `:slug` param over Host parsing, so the alias needs no
+    // resolver changes.
+    //
+    // The alias is for in-cluster callers only: requests arriving with a
+    // public *.domainSuffix Host must keep using host routing, so the public
+    // URL contract stays single-shape per agent.
+    const publicHostGuard: RequestHandler = (req, res, next) => {
+        const host = (req.headers.host ?? '').split(':')[0]
+        if (opts.domainSuffix && host.endsWith(opts.domainSuffix)) {
+            res.status(404).json({ error: 'use_host_routing' })
+            return
+        }
+        next()
+    }
+    const mounts: { mount: string; guards: RequestHandler[] }[] =
+        opts.routingMode === 'path'
+            ? [{ mount: pathMount, guards: [] }]
+            : [
+                  { mount: '', guards: [] },
+                  { mount: pathMount, guards: [publicHostGuard] },
+              ]
+    // Register one handler (or trigger router) at every active mount.
+    const agentRoute = (method: 'get' | 'post', suffix: string, handler: RequestHandler): void => {
+        for (const { mount, guards } of mounts) {
+            app[method](`${mount}${suffix}`, ...guards, handler)
+        }
+    }
 
     // Principal tool-approval decisions — the lightweight, identity-matched
     // counterpart to the Slack interactivity handler, for posthog (PostHog Code)
@@ -358,9 +433,10 @@ export function buildApp(opts: BuildAppOpts): Express {
     // same per-agent ingress base it uses for `/send` (PostHog Code does). The
     // `:slug` is unused — the row is resolved from the approval id, not the
     // slug — but keeping the path under the mount matches how clients address
-    // the ingress. In domain mode `mount` is '' so it's `/approvals/:id/decide`.
-    app.post(
-        `${mount}/approvals/:id/decide`,
+    // the ingress. In domain mode the root mount makes it `/approvals/:id/decide`.
+    agentRoute(
+        'post',
+        '/approvals/:id/decide',
         asyncHandler(async (req: Request, res: Response) => {
             if (!opts.approvals) {
                 res.status(500).json({ error: 'approvals_not_configured' })
@@ -421,13 +497,181 @@ export function buildApp(opts: BuildAppOpts): Express {
         })
     )
 
+    // Read side of the principal-decision surface — the deep-link approval modal
+    // fetches one approval straight from the ingress, authenticated as the session
+    // principal, so it never touches the project-scoped Django endpoint. This is
+    // what makes the approval loop work from any project (the ingress is
+    // slug-routed, the row is resolved under the route's resolved application).
+    // The inline chat card doesn't use this — it's fed by `approval_required` /
+    // `approval_resolved` frames on `/listen` (push, no poll). Only
+    // principal-decidable rows are returned — `agent`-scope stays in the console.
+    const respondWithApproval = async (req: Request, res: Response): Promise<void> => {
+        if (!opts.approvals) {
+            res.status(500).json({ error: 'approvals_not_configured' })
+            return
+        }
+        const resolved = await resolveAgent(resolver, req, res)
+        if (!resolved) {
+            return
+        }
+        // Tenant-scope the lookup to the resolved application so a leaked id can't
+        // resolve another agent's request; `agent`-scope collapses to not-found,
+        // exactly as the decide route does.
+        const row = await opts.approvals.getForApplication(req.params.id, resolved.application.id)
+        if (!row || effectiveApprovalType(row.approver_scope) === 'agent') {
+            res.status(404).json({ error: 'not_found' })
+            return
+        }
+        const session = await opts.queue.getForApplication(row.session_id, resolved.application.id)
+        if (!session) {
+            res.status(404).json({ error: 'not_found' })
+            return
+        }
+        const caller = await authenticatePrincipalDecider(req, resolved.application, resolved.revision, authProvider)
+        if (!caller) {
+            res.status(401).json({ error: 'unauthenticated' })
+            return
+        }
+        if (!isIdentifiedPrincipal(caller)) {
+            res.status(403).json({ error: 'forbidden' })
+            return
+        }
+        if (!principalsMatch(session.principal, caller)) {
+            res.status(403).json({ error: 'not_session_principal' })
+            return
+        }
+        res.json(serializeApprovalRequest(row))
+    }
+    agentRoute('get', '/approvals/:id', asyncHandler(respondWithApproval))
+
+    // Transcript reload, principal-authed: "prove you own the session" lets a
+    // client rehydrate a session's conversation from any project (the dock on
+    // reopen, a web chat-list opening a past session, repainting a pending
+    // approval card after a reconnect). Mirrors the janitor session-detail shape
+    // (`AgentApplicationSessionDetail`) so the same client mapper consumes it,
+    // including the optional `?last_n=` tail. Read-only — does not attach to or
+    // resume the live `/listen` stream; that stays a separate concern.
+    const respondWithSession = async (req: Request, res: Response): Promise<void> => {
+        const resolved = await resolveAgent(resolver, req, res)
+        if (!resolved) {
+            return
+        }
+        const session = await opts.queue.getForApplication(req.params.id, resolved.application.id)
+        if (!session) {
+            res.status(404).json({ error: 'not_found' })
+            return
+        }
+        const caller = await authenticatePrincipalDecider(req, resolved.application, resolved.revision, authProvider)
+        if (!caller) {
+            res.status(401).json({ error: 'unauthenticated' })
+            return
+        }
+        if (!isIdentifiedPrincipal(caller)) {
+            res.status(403).json({ error: 'forbidden' })
+            return
+        }
+        if (!principalsMatch(session.principal, caller)) {
+            res.status(403).json({ error: 'not_session_principal' })
+            return
+        }
+        const lastNRaw = typeof req.query.last_n === 'string' ? Number.parseInt(req.query.last_n, 10) : undefined
+        // `> 0`, not `>= 0`: `slice(-0)` is `slice(0)` (the whole array), so a
+        // `last_n=0` must fall through to the no-trim branch, not "return zero".
+        const lastN = lastNRaw !== undefined && Number.isFinite(lastNRaw) && lastNRaw > 0 ? lastNRaw : undefined
+        if (lastN !== undefined && lastN < session.conversation.length) {
+            res.json({
+                ...session,
+                conversation: session.conversation.slice(-lastN),
+                conversation_total_turns: session.conversation.length,
+                conversation_trimmed: true,
+            })
+            return
+        }
+        res.json({ ...session, conversation_trimmed: false })
+    }
+    agentRoute('get', '/sessions/:id', asyncHandler(respondWithSession))
+
+    // Internal-only session digest — backs the `agent-applications-listen` MCP tool via the
+    // Django bridge. NOT a per-agent public surface: it is a root-level route
+    // (never rendered on `/schemas`) gated by an audience-bound internal JWT
+    // (aud=agent-ingress.rpc, `x-internal-secret`), exactly like the Django↔janitor
+    // RPCs. Django is the sole caller — it enforces the team/app gate on its side,
+    // and `getForApplication` re-scopes at the store layer as a backstop.
+    app.post(
+        '/internal/session-digest',
+        asyncHandler(async (req: Request, res: Response): Promise<void> => {
+            if (!opts.internalSigningKey) {
+                // Fail closed: this route shares the public listener, so a missing
+                // key is a misconfig, never an open door. `requiredInProd` guarantees
+                // the key in prod (config.ts).
+                res.status(500).json({ error: 'internal_auth_not_configured' })
+                return
+            }
+            const rawSecret = req.headers['x-internal-secret']
+            const token = Array.isArray(rawSecret) ? rawSecret[0] : rawSecret
+            if (!token) {
+                res.status(401).json({ error: 'unauthorized', reason: 'missing_token' })
+                return
+            }
+            try {
+                await verifyInternalJwt({
+                    token,
+                    audience: INTERNAL_JWT_AUDIENCE.INGRESS_RPC,
+                    signingKey: opts.internalSigningKey,
+                })
+            } catch (e) {
+                res.status(401).json({ error: 'unauthorized', reason: (e as InternalJwtVerifyError).reason })
+                return
+            }
+
+            const parsed = SessionDigestBodySchema.safeParse(req.body)
+            if (!parsed.success) {
+                res.status(400).json({ error: 'invalid_body', issues: parsed.error.issues })
+                return
+            }
+            const { application_id, session_id, cursor, max_chars } = parsed.data
+
+            // One atomic read: state, conversation and usage_total are columns of
+            // the same `agent_session` row, so `next_cursor` (= conversation.length)
+            // and the slice always come from one consistent snapshot — a turn landing
+            // mid-poll is either fully visible or not yet, never half-served.
+            const session = await opts.queue.getForApplication(session_id, application_id)
+            if (!session) {
+                // Collapses "no such session" and "belongs to another app" — no
+                // cross-tenant existence leak (mirrors getOwnedSession).
+                res.status(404).json({ error: 'session_not_found' })
+                return
+            }
+
+            const total = session.conversation.length
+            const from = Math.min(Math.max(cursor ?? 0, 0), total)
+            const slice = session.conversation.slice(from)
+            const { digest, truncated } = renderSessionDigest(
+                session,
+                slice,
+                total,
+                max_chars ?? DIGEST_MAX_CHARS_DEFAULT
+            )
+            res.json({
+                session_id: session.id,
+                state: session.state,
+                turns: total,
+                next_cursor: total,
+                digest,
+                truncated,
+                done: TERMINAL_SESSION_STATES.has(session.state),
+            })
+        })
+    )
+
     // Self-describing schemas. The response cascades from `spec.triggers` ∩
     // `TRIGGER_MODULES`: only modules whose type is configured on this agent
     // appear, and each route is rendered with its auth concretely resolved
     // against the agent's `spec.auth`. There is no hand-maintained map of
     // "which triggers have schemas" — it falls out of the module registry.
-    app.get(
-        `${mount}/schemas`,
+    agentRoute(
+        'get',
+        '/schemas',
         asyncHandler(async (req: Request, res: Response) => {
             const resolved = await resolveAgent(resolver, req, res)
             if (!resolved) {
@@ -467,7 +711,10 @@ export function buildApp(opts: BuildAppOpts): Express {
     )
 
     for (const m of TRIGGER_MODULES) {
-        app.use(mount, mountTrigger(triggerDeps, m))
+        const router = mountTrigger(triggerDeps, m)
+        for (const { mount, guards } of mounts) {
+            app.use(mount, ...guards, router)
+        }
     }
 
     // Last in the chain. Catches rejections from `asyncHandler`-wrapped

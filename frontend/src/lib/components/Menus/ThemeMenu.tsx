@@ -5,12 +5,12 @@ import { IconDay, IconLaptop, IconNight, IconPalette } from '@posthog/icons'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link/Link'
+import { themeLogic } from 'lib/logic/themeLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { UserTheme } from '~/types'
 
 export function ThemeMenu(): JSX.Element {
@@ -26,7 +26,7 @@ export function ThemeMenu(): JSX.Element {
         <Menu.SubmenuRoot>
             <Menu.SubmenuTrigger
                 render={
-                    <ButtonPrimitive menuItem>
+                    <ButtonPrimitive menuItem data-attr="more-menu-theme-button">
                         <IconPalette />
                         Color theme
                         <div className="ml-auto flex items-center gap-1">

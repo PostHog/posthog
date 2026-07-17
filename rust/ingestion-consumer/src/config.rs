@@ -100,6 +100,17 @@ pub struct Config {
     #[envconfig(from = "HOSTNAME")]
     pub pod_hostname: Option<String>,
 
+    /// Enable Kafka static membership (pins `group.instance.id` to the pod
+    /// hostname). Off by default: this runs as a Deployment, so pod names — and
+    /// thus instance IDs — already change on every rollout, meaning static
+    /// membership never avoids a deploy rebalance, yet it makes an in-place
+    /// container restart fail fatally with `UnreleasedInstanceId` (the broker
+    /// still holds the previous incarnation's slot until its session expires).
+    /// Dynamic membership rejoins cleanly on restart. Only enable for pods with
+    /// stable names (e.g. a StatefulSet).
+    #[envconfig(from = "KAFKA_CONSUMER_STATIC_MEMBERSHIP", default = "false")]
+    pub kafka_consumer_static_membership: bool,
+
     // ---- Batching ----
     /// Maximum number of messages to collect before dispatching a batch.
     /// Matches Node.js CONSUMER_BATCH_SIZE default.
@@ -110,10 +121,45 @@ pub struct Config {
     #[envconfig(default = "500")]
     pub consumer_batch_timeout_ms: u64,
 
+    /// Upper bound on retrying a batch's deferred messages (held because no
+    /// worker was routable) before failing the batch (milliseconds). Bounds how
+    /// long a full worker outage holds offsets before the process exits and
+    /// restarts.
+    #[envconfig(default = "60000")]
+    pub consumer_deferred_flush_timeout_ms: u64,
+
     /// Maximum Kafka batches to process concurrently. Matches the Node.js
     /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
     pub consumer_max_background_tasks: usize,
+
+    // ---- Debug API ----
+    /// Serve the real-time debug API (`/debug/load`, `/debug/state`,
+    /// `/debug/events` SSE) on the health server, recording structured events
+    /// (batch lifecycle, deferrals, retries, worker health) into a bounded
+    /// in-memory buffer. Consumed by the ingestion control plane UI. A pure
+    /// observer for dev and incident debugging; off by default. Requires
+    /// DEBUG_API_SECRET — enabling without a secret mounts nothing.
+    #[envconfig(from = "DEBUG_API_ENABLED", default = "false")]
+    pub debug_api_enabled: bool,
+
+    /// Shared secret callers must present as `X-Debug-Api-Secret` on every
+    /// `/debug/*` request. Dedicated to this one control-plane→consumer hop
+    /// (deliberately not `INTERNAL_API_SECRET` — see .agents/security.md).
+    /// Empty fails closed: the debug API is not mounted without it.
+    #[envconfig(from = "DEBUG_API_SECRET", default = "")]
+    pub debug_api_secret: String,
+
+    // ---- Ordering sentinels ----
+    /// Kill switch for the ordering sentinels (per-partition commit
+    /// contiguity/monotonicity checks and per-key send-order checks). They are
+    /// pure observers with per-batch lock/state overhead bounded by in-flight
+    /// work; disable only if that overhead is ever implicated. The commit-result
+    /// and rebalance metrics from the consumer context stay on regardless. The
+    /// worker-side feed-order sentinel has its own flag
+    /// (INGESTION_API_FEED_ORDER_SENTINEL_ENABLED on the Node.js side).
+    #[envconfig(from = "CONSUMER_ORDER_SENTINEL_ENABLED", default = "true")]
+    pub consumer_order_sentinel_enabled: bool,
 
     // ---- Worker transport ----
     /// Comma-separated list of worker HTTP URLs
@@ -226,6 +272,20 @@ pub struct Config {
 
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
+
+    // ---- Metric labels (match Node.js global default labels) ----
+    /// Ingestion pipeline this consumer serves (e.g. `analytics`). Emitted as a
+    /// global `ingestion_pipeline` label on every metric, mirroring the Node.js
+    /// `initializePrometheusLabels` default labels so dashboards, alerts, and
+    /// KEDA lag triggers select this consumer's series the same way.
+    #[envconfig(from = "INGESTION_PIPELINE")]
+    pub ingestion_pipeline: Option<String>,
+
+    /// Ingestion lane this consumer serves (e.g. `main`, `overflow`). Emitted as
+    /// a global `ingestion_lane` label on every metric, matching the Node.js
+    /// default labels. The lag-based KEDA autoscaler selects on this label.
+    #[envconfig(from = "INGESTION_LANE")]
+    pub ingestion_lane: Option<String>,
 }
 
 /// Parse `KAFKA_CONSUMER_*` env vars into rdkafka config key-value pairs.
@@ -288,7 +348,10 @@ impl Config {
         .with_fetch_wait_max_ms(self.kafka_consumer_fetch_wait_max_ms)
         .with_queued_min_messages(self.kafka_consumer_queued_min_messages)
         .with_queued_max_messages_kbytes(self.kafka_consumer_queued_max_messages_kbytes)
-        .with_sticky_partition_assignment(self.pod_hostname.as_deref())
+        .with_sticky_partition_assignment(
+            self.pod_hostname.as_deref(),
+            self.kafka_consumer_static_membership,
+        )
         .set("security.protocol", &self.kafka_security_protocol)
         .set(
             "socket.timeout.ms",

@@ -7,9 +7,9 @@ from typing import Optional, Union
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
-from django.core.cache import cache
 
 import structlog
+from prometheus_client import Counter
 from structlog.contextvars import bound_contextvars
 
 from posthog.schema import (
@@ -18,7 +18,6 @@ from posthog.schema import (
     CustomEventConversionGoal,
     EventPropertyFilter,
     PersonPropertyFilter,
-    SamplingRate,
     SessionPropertyFilter,
     WebExternalClicksTableQuery,
     WebGoalsQuery,
@@ -30,6 +29,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, apply_path_cleaning, property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -43,7 +43,6 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPr
 from posthog.models import User
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.rbac.user_access_control import UserAccessControl
-from posthog.utils import generate_cache_key, get_safe_cache
 
 from products.actions.backend.models.action import Action
 from products.web_analytics.backend.hogql_queries.metrics import (
@@ -55,6 +54,22 @@ from products.web_analytics.backend.hogql_queries.traffic_type import get_traffi
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_filters_eligibility_hash
 
 logger = structlog.get_logger(__name__)
+
+# Tracks how often a web analytics query is served without the events↔sessions join,
+# so the trial rollout can be monitored per query family against the join path.
+WEB_ANALYTICS_NO_JOIN_SERVED = Counter(
+    "web_analytics_no_join_served_total",
+    "Web analytics queries served by a no-session-join fast path.",
+    ["family"],
+)
+
+# Ceiling on the number of matching session ids a session-id-set fast path may ship
+# to shards via GLOBAL IN. Cross-team prod validation: memory scales ~linearly at
+# ~190 MiB per million ids on the sessions side; the id-set shape beats the join at
+# 4-5M ids (3.8s/727MiB vs 6.8s/4.5GiB at 3.8M); the extrapolated crossover where
+# the shipped set stops paying is ~20M. 10M caps session-id-set memory at ~2 GiB —
+# under half the join's typical footprint — with margin before the crossover.
+SESSION_ID_SET_MAX_MATCHING_SESSIONS = 10_000_000
 
 WebQueryNode = Union[
     WebOverviewQuery,
@@ -70,6 +85,11 @@ WAR = typing.TypeVar("WAR", bound=AnalyticsQueryResponseProtocol)
 
 
 class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
+    # The `sampling`/`samplingFactor` query fields are accepted for API schema
+    # compatibility but intentionally ignored: web analytics always returns
+    # exact numbers. Sampling was never exposed in the product UI and prod
+    # query_log shows zero queries requesting it, so runners neither inject
+    # SAMPLE clauses nor scale results.
     query: WebQueryNode
     query_type: type[WebQueryNode]
 
@@ -176,7 +196,6 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                         error_type=error_type,
                     ).inc()
 
-                sampling = getattr(self.query, "sampling", None)
                 logger.info(
                     "web_analytics_query",
                     team_id=self.team.pk,
@@ -194,8 +213,106 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                     filter_count=len(self.query.properties),
                     date_from=self.query_date_range.date_from_str,
                     date_to=self.query_date_range.date_to_str,
-                    sampling_enabled=sampling.enabled if sampling else False,
                 )
+
+    @cached_property
+    def should_skip_session_join(self) -> bool:
+        """Whether this query can be served by independent events/sessions scans.
+
+        The events↔sessions join exists so filters on events can constrain which
+        sessions contribute to session-level metrics (duration, bounce rate). When
+        nothing in the query constrains session membership, both sides can be
+        aggregated independently — the join only multiplies cost, because the
+        sessions-side subquery is re-executed on every shard of the events cluster
+        (10× read amplification on US prod; measured 5.5-14.7× latency and 8-25×
+        memory vs the two-scan variants).
+
+        Runners that support a no-join query shape check this gate; anything not
+        covered falls through to the join path untouched.
+        """
+        if not self._team_in_no_join_rollout():
+            return False
+        if getattr(self.query, "conversionGoal", None):
+            return False
+        if getattr(self.query, "properties", None):
+            return False
+        # Test-account filters are event/person property filters, so they constrain
+        # session membership the same way user filters do.
+        if self._test_account_filters:
+            return False
+        return True
+
+    def _team_in_no_join_rollout(self) -> bool:
+        if self.team.pk in settings.WEB_ANALYTICS_NO_JOIN_TEAM_IDS:
+            return True
+        percent = settings.WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT
+        # Deterministic per-team bucketing: query results must come from one code
+        # path for everyone on a team, so the rollout unit is the team, not the user.
+        return percent > 0 and self.team.pk % 100 < percent
+
+    def _session_id_set_common_eligibility(self) -> bool:
+        """Shared gates for the session-id-set fast paths (filtered two-scan shape).
+
+        A filter is only evaluable events-side when it's an event property filter
+        (user filters) or an event/person test-account filter (person props via
+        person-on-events). Session/cohort filters can't feed the id collection
+        and keep the join path. Runners add their own shape-specific gates on top.
+        """
+        if self.team.pk not in settings.WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS:
+            return False
+        if getattr(self.query, "conversionGoal", None):
+            return False
+        properties = getattr(self.query, "properties", None) or []
+        if not properties and not self._test_account_filters:
+            return False
+        if not all(isinstance(p, EventPropertyFilter) for p in properties):
+            return False
+        if not all(f.get("type") in ("event", "person") for f in self._test_account_filters):
+            return False
+        return True
+
+    def _run_session_id_set_preflight(self, filters: ast.Expr, query_type: str) -> bool:
+        """Preflight: is the filtered session-id set small enough to ship to shards?
+
+        A cheap count over the filtered events (materialized columns only) — the
+        events scan is work the id collection does anyway, so this bounds the
+        worst case at one extra sub-second query for eligible teams. Fails closed
+        to the join path on error.
+        """
+        count_query = parse_select(
+            """
+SELECT uniq(events.$session_id_uuid) AS matching_sessions
+FROM events
+WHERE and(
+    events.$session_id_uuid IS NOT NULL,
+    {event_type_expr},
+    {inside_timestamp_period},
+    {filters},
+)
+            """,
+            placeholders={
+                "event_type_expr": self.event_type_expr,
+                "inside_timestamp_period": self._periods_expression("timestamp"),
+                "filters": filters,
+            },
+        )
+        try:
+            response = execute_hogql_query(
+                query_type=query_type,
+                query=count_query,
+                team=self.team,
+                user=self.user,
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
+            matching = response.results[0][0] if response.results else None
+            if matching is None:
+                return False
+            return matching <= SESSION_ID_SET_MAX_MATCHING_SESSIONS
+        except Exception as e:
+            logger.exception("web_analytics_session_id_set_preflight_failed", error=e, query_type=query_type)
+            return False
 
     @cached_property
     def filters_eligibility_hash(self) -> Optional[str]:
@@ -314,7 +431,14 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
     @cached_property
     def conversion_goal_expr(self) -> Optional[ast.Expr]:
         if isinstance(self.query.conversionGoal, ActionConversionGoal):
-            action = Action.objects.get(pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id)
+            try:
+                action = Action.objects.get(
+                    pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id
+                )
+            except Action.DoesNotExist:
+                raise QueryError(
+                    f"Conversion goal action with id={self.query.conversionGoal.actionId} not found in this project."
+                )
             return action_to_expr(action)
         elif isinstance(self.query.conversionGoal, CustomEventConversionGoal):
             return ast.CompareOperation(
@@ -520,116 +644,31 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
 
         return refresh_frequency
 
-    def _sample_rate_cache_key(self) -> str:
-        return generate_cache_key(
-            self.team.pk,
-            f"web_analytics_sample_rate_{self.query.dateRange.model_dump_json() if self.query.dateRange else None}_{self.team.pk}_{self.team.timezone}",
-        )
-
-    def _get_or_calculate_sample_ratio(self) -> SamplingRate:
-        if not self.query.sampling or not self.query.sampling.enabled:
-            return SamplingRate(numerator=1)
-        if self.query.sampling.forceSamplingRate:
-            return self.query.sampling.forceSamplingRate
-
-        cache_key = self._sample_rate_cache_key()
-        cached_response = get_safe_cache(cache_key)
-        if cached_response:
-            return SamplingRate(**cached_response)
-
-        # To get the sample rate, we need to count how many page view events there were over the time period.
-        # This would be quite slow if there were a lot of events, so use sampling to calculate this!
-
-        with self.timings.measure("event_count_query"):
-            event_count = parse_select(
-                """
-SELECT
-    count() as count
-FROM
-    events
-SAMPLE 1/1000
-WHERE
-    {where}
-                """,
-                timings=self.timings,
-                placeholders={
-                    "where": self.events_where_data_range(),
-                },
-            )
-
-        with self.timings.measure("event_count_query_execute"):
-            response = execute_hogql_query(
-                query_type="event_count_query",
-                query=event_count,
-                team=self.team,
-                user=self.user,
-                timings=self.timings,
-                limit_context=self.limit_context,
-            )
-
-        if not response.results or not response.results[0] or not response.results[0][0]:
-            return SamplingRate(numerator=1)
-
-        count = response.results[0][0] * 1000
-        fresh_sample_rate = _sample_rate_from_count(count)
-
-        cache.set(cache_key, fresh_sample_rate, settings.CACHED_RESULTS_TTL)
-
-        return fresh_sample_rate
-
-    @cached_property
-    def _sample_rate(self) -> SamplingRate:
-        return self._get_or_calculate_sample_ratio()
-
-    @cached_property
-    def _sample_ratio(self) -> ast.RatioExpr:
-        sample_rate = self._sample_rate
-        return ast.RatioExpr(
-            left=ast.Constant(value=sample_rate.numerator),
-            right=ast.Constant(value=sample_rate.denominator) if sample_rate.denominator else None,
-        )
-
     def _apply_path_cleaning(self, path_expr: ast.Expr) -> ast.Expr:
         if not self.query.doPathCleaning:
             return path_expr
 
         return apply_path_cleaning(path_expr, self.team)
 
-    def _get_traffic_type_expr(self, user_agent_expr: ast.Expr | None = None) -> ast.Expr:
-        return get_traffic_type_expr(user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"]))
-
-    def _get_traffic_category_expr(self, user_agent_expr: ast.Expr | None = None) -> ast.Expr:
-        return get_traffic_category_expr(
-            user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"])
+    def _get_traffic_type_expr(
+        self, user_agent_expr: ast.Expr | None = None, ip_expr: ast.Expr | None = None
+    ) -> ast.Expr:
+        return get_traffic_type_expr(
+            user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"]),
+            ip_expr or ast.Field(chain=["events", "properties", "$ip"]),
         )
 
-    def _unsample(self, n: Optional[int | float], _row: Optional[list[int | float]] = None):
-        if n is None:
-            return None
-
-        return (
-            n * self._sample_rate.denominator / self._sample_rate.numerator
-            if self._sample_rate.denominator
-            else n / self._sample_rate.numerator
+    def _get_traffic_category_expr(
+        self, user_agent_expr: ast.Expr | None = None, ip_expr: ast.Expr | None = None
+    ) -> ast.Expr:
+        return get_traffic_category_expr(
+            user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"]),
+            ip_expr or ast.Field(chain=["events", "properties", "$ip"]),
         )
 
     def get_cache_key(self) -> str:
         original = super().get_cache_key()
         return f"{original}_{self.team.path_cleaning_filters}"
-
-    def _events_prefilter_date_bounds(self) -> tuple[str, str]:
-        lower = self.query_date_range.date_from()
-        upper = self.query_date_range.date_to()
-
-        if self.query_compare_to_date_range:
-            lower = min(lower, self.query_compare_to_date_range.date_from())
-            upper = max(upper, self.query_compare_to_date_range.date_to())
-
-        utc = ZoneInfo("UTC")
-        date_from = (lower.astimezone(utc) - timedelta(days=1)).strftime("%Y-%m-%d")
-        date_to = (upper.astimezone(utc) + timedelta(days=1)).strftime("%Y-%m-%d")
-
-        return date_from, date_to
 
     @cached_property
     def events_session_property(self):
@@ -639,17 +678,18 @@ WHERE
         else:
             return parse_expr("events.$session_id")
 
+    @cached_property
+    def events_session_id_present(self) -> ast.Expr:
+        """True when the event carries a usable session id.
 
-def _sample_rate_from_count(count: int) -> SamplingRate:
-    # Change the sample rate so that the query will sample about 100_000 to 1_000_000 events, but use defined steps of
-    # sample rate. These numbers are just a starting point, and we can tune as we get feedback.
-    sample_target = 10_000
-    sample_rate_steps = [1_000, 100, 10]
-
-    for step in sample_rate_steps:
-        if count / sample_target >= step:
-            return SamplingRate(numerator=1, denominator=step)
-    return SamplingRate(numerator=1)
+        Uses the nullable-UUID materialized column in both join modes: a missing
+        `$session_id` materializes as an empty string (not NULL) and a malformed
+        one isn't a UUID — both become NULL here and are excluded, which is
+        exactly what the join path does implicitly (their NULL session start
+        fails the period HAVING). The no-join query shapes need the explicit
+        guard to match.
+        """
+        return parse_expr("events.$session_id_uuid IS NOT NULL")
 
 
 def map_columns(results, mapper: dict[int, typing.Callable]):

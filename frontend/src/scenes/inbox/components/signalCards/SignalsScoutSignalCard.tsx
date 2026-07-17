@@ -9,7 +9,10 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress/LemonProgress'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { urls } from 'scenes/urls'
 
-import type { SignalsScoutEvidenceEntry, SignalsScoutSignalExtra } from '~/queries/schema/schema-signals'
+import type {
+    SignalsScoutEvidenceEntryApi,
+    SignalsScoutSignalExtraApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import { INBOX_SOURCE_OPTIONS } from '../../filterOptions'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
@@ -25,27 +28,12 @@ const SOURCE_BY_VALUE: Record<string, { label: string; icon: JSX.Element }> = Ob
 )
 
 /** Narrows a raw `extra` payload to the live Signals scout shape. */
-export function isSignalsScoutExtra(
-    extra: Record<string, unknown>
-): extra is Record<string, unknown> & SignalsScoutSignalExtra {
-    return Array.isArray(extra.evidence) && typeof extra.skill_name === 'string' && typeof extra.confidence === 'number'
-}
-
-/**
- * Humanizes a scout skill slug into a label: strips the `signals-scout-` prefix, turns dashes into
- * spaces, Sentence-cases the result, and appends " scout" (e.g. `signals-scout-error-tracking` →
- * "Error tracking scout"). A bare `signals-scout` becomes "Scout".
- */
-export function humanizeScoutSkillName(skillName: string): string {
-    const rest = skillName
-        .replace(/^signals-scout-?/, '')
-        .replace(/-/g, ' ')
-        .trim()
-    if (!rest) {
-        return 'Scout'
+export function isSignalsScoutExtra(value: unknown): value is Record<string, unknown> & SignalsScoutSignalExtraApi {
+    if (typeof value !== 'object' || value === null) {
+        return false
     }
-    const sentenceCased = rest.charAt(0).toUpperCase() + rest.slice(1)
-    return `${sentenceCased} scout`
+    const extra = value as Record<string, unknown>
+    return Array.isArray(extra.evidence) && typeof extra.skill_name === 'string' && typeof extra.confidence === 'number'
 }
 
 /**
@@ -68,9 +56,9 @@ export function scoutEvidenceUrl(sourceProduct: string, entityId?: string): stri
 }
 
 /** A single evidence row: source icon + eyebrow, the summary, and an optional deep link. */
-function EvidenceRow({ entry }: { entry: SignalsScoutEvidenceEntry }): JSX.Element {
+function EvidenceRow({ entry }: { entry: SignalsScoutEvidenceEntryApi }): JSX.Element {
     const meta = SOURCE_BY_VALUE[entry.source_product]
-    const url = scoutEvidenceUrl(entry.source_product, entry.entity_id)
+    const url = scoutEvidenceUrl(entry.source_product, entry.entity_id ?? undefined)
     return (
         <li className="flex items-start gap-2 py-0.5">
             <span className="inline-flex shrink-0 items-center text-tertiary mt-0.5" aria-hidden>
@@ -113,9 +101,8 @@ function MonoId({ label, value, to }: { label: string; value: string; to?: strin
 export function SignalsScoutSignalCard({ signal }: SignalCardProps): JSX.Element {
     const [showAllEvidence, setShowAllEvidence] = useState(false)
 
-    const extra = signal.extra as Record<string, unknown> & SignalsScoutSignalExtra
+    const extra = signal.extra as Record<string, unknown> & SignalsScoutSignalExtraApi
 
-    const skillLabel = humanizeScoutSkillName(extra.skill_name)
     const confidencePercent = Math.round(extra.confidence * 100)
     const hypothesis = extra.hypothesis?.trim() || signal.content
 
@@ -134,11 +121,12 @@ export function SignalsScoutSignalCard({ signal }: SignalCardProps): JSX.Element
     return (
         <SignalCardShell
             signal={signal}
+            // The scout's name now lives in the shared source line ("Scout · <name>"); keep just a
+            // linked version here so the header doesn't repeat the name.
             label={
-                <span>
-                    {skillLabel}
-                    <span className="text-tertiary font-normal"> · v{extra.skill_version}</span>
-                </span>
+                <Link to={urls.inboxScout(extra.skill_name)} className="text-tertiary font-normal">
+                    v{extra.skill_version}
+                </Link>
             }
             rightSlot={<SignalReportPriorityBadge priority={extra.severity} />}
         >

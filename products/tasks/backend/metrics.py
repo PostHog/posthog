@@ -1,12 +1,16 @@
 from typing import TYPE_CHECKING, Literal
 
+import structlog
 from prometheus_client import Counter, Histogram
+
+logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
 
 
 TaskWorkflowStartOutcome = Literal["attempted", "blocked", "failed", "started"]
+CustomImageBuildOutcome = Literal["started", "succeeded", "failed", "scan_rejected"]
 # Outcome of an SSE task-run stream connection when it closes.
 #   completed         — stream reached its completion sentinel
 #   stream_error      — Redis/stream error sentinel ended the connection
@@ -22,7 +26,7 @@ _ALLOWED_RUNTIME_ADAPTERS = {"claude", "codex"}
 TASK_RUN_CREATED_TOTAL = Counter(
     "posthog_tasks_task_run_created_total",
     "TaskRun rows created by the Tasks product",
-    labelnames=["origin_product", "run_environment", "mode", "run_source", "runtime_adapter"],
+    labelnames=["origin_product", "run_environment", "mode", "run_source", "runtime_adapter", "prewarmed"],
 )
 
 TASK_RUN_WORKFLOW_START_TOTAL = Counter(
@@ -34,9 +38,31 @@ TASK_RUN_WORKFLOW_START_TOTAL = Counter(
         "mode",
         "run_source",
         "runtime_adapter",
+        "prewarmed",
         "outcome",
         "reason",
     ],
+)
+
+TASK_RUN_DISPATCH_CALLBACK_TOTAL = Counter(
+    "posthog_tasks_task_run_dispatch_callback_total",
+    "on_commit workflow-dispatch callback lifecycle: 'scheduled' when registered, 'fired' when it runs. "
+    "scheduled minus fired is the count of lost callbacks that strand a run in QUEUED.",
+    labelnames=[
+        "origin_product",
+        "run_environment",
+        "mode",
+        "run_source",
+        "runtime_adapter",
+        "prewarmed",
+        "phase",
+    ],
+)
+
+PREWARMED_ACTIVATED_TOTAL = Counter(
+    "posthog_tasks_prewarmed_activated_total",
+    "Pre-warmed Runs that received their first user message (the warm sandbox got used, not reaped)",
+    labelnames=["origin_product"],
 )
 
 TASK_RUN_FAILED_TOTAL = Counter(
@@ -52,6 +78,12 @@ TASK_RUN_FAILED_TOTAL = Counter(
         "temporal_activity_retry_state",
         "cause_error_type",
     ],
+)
+
+CUSTOM_IMAGE_BUILD_TOTAL = Counter(
+    "posthog_tasks_custom_image_build_total",
+    "Custom sandbox image build lifecycle events",
+    labelnames=["outcome"],
 )
 
 
@@ -73,7 +105,7 @@ STREAM_CONNECTION_DURATION_BUCKETS = [
     7_200.0,
     21_600.0,
 ]
-# Stream length is capped at TASK_RUN_STREAM_MAX_LENGTH (~20k); the top buckets
+# Stream length is capped at TASK_RUN_STREAM_MAX_LENGTH (~5k); the top buckets
 # show how close real runs get to the trim threshold.
 STREAM_LENGTH_BUCKETS = [10.0, 50.0, 100.0, 500.0, 1_000.0, 2_500.0, 5_000.0, 10_000.0, 15_000.0, 20_000.0]
 
@@ -107,6 +139,24 @@ TASK_RUN_STREAM_RESUME_GAP_TOTAL = Counter(
     "posthog_tasks_task_run_stream_resume_gap_total",
     "SSE reconnects whose Last-Event-ID was already trimmed from Redis (events lost for that client)",
     labelnames=["origin_product"],
+)
+
+TASK_RUN_AGENT_FAILURE_TOTAL = Counter(
+    "posthog_tasks_agent_turn_failed_total",
+    "TaskRun transitions to FAILED via the API facade (agent-server turn failures)",
+    labelnames=["origin_product", "mode", "run_source", "runtime_adapter"],
+)
+
+TASK_RUN_FOLLOWUP_DELIVERY_FAILED_TOTAL = Counter(
+    "posthog_tasks_followup_delivery_failed_total",
+    "Follow-up user message deliveries to a live sandbox that failed",
+    labelnames=["origin_product", "retryable"],
+)
+
+TASK_RUN_WIZARD_UNBOUND_TOTAL = Counter(
+    "posthog_tasks_wizard_run_unbound_total",
+    "Wizard cloud runs that reached a terminal status without an output.pr_url binding",
+    labelnames=["status"],
 )
 
 PUSH_DISPATCHER_FAILURES_TOTAL = Counter(
@@ -146,6 +196,7 @@ def _task_run_labels(task_run: "TaskRun | None") -> dict[str, str]:
             "mode": "unknown",
             "run_source": "unknown",
             "runtime_adapter": "unknown",
+            "prewarmed": "unknown",
         }
 
     state = task_run.state if isinstance(task_run.state, dict) else {}
@@ -155,11 +206,16 @@ def _task_run_labels(task_run: "TaskRun | None") -> dict[str, str]:
         "mode": _bounded_metric_label(state.get("mode"), _ALLOWED_MODES),
         "run_source": _bounded_metric_label(state.get("run_source"), _ALLOWED_RUN_SOURCES),
         "runtime_adapter": _bounded_metric_label(state.get("runtime_adapter"), _ALLOWED_RUNTIME_ADAPTERS),
+        "prewarmed": "true" if state.get("prewarmed") else "false",
     }
 
 
 def observe_task_run_created(task_run: "TaskRun") -> None:
     TASK_RUN_CREATED_TOTAL.labels(**_task_run_labels(task_run)).inc()
+
+
+def observe_task_run_dispatch_callback(task_run: "TaskRun | None", *, phase: Literal["scheduled", "fired"]) -> None:
+    TASK_RUN_DISPATCH_CALLBACK_TOTAL.labels(**_task_run_labels(task_run), phase=phase).inc()
 
 
 def observe_task_run_workflow_start(
@@ -173,6 +229,17 @@ def observe_task_run_workflow_start(
         outcome=outcome,
         reason=reason,
     ).inc()
+
+
+def observe_prewarmed_activated(task_run: "TaskRun") -> None:
+    PREWARMED_ACTIVATED_TOTAL.labels(origin_product=origin_product_label(task_run)).inc()
+
+
+def observe_custom_image_build(outcome: CustomImageBuildOutcome) -> None:
+    try:
+        CUSTOM_IMAGE_BUILD_TOTAL.labels(outcome=outcome).inc()
+    except Exception:
+        logger.exception("custom_image_build_metric_failed", outcome=outcome)
 
 
 def origin_product_label(task_run: "TaskRun | None") -> str:
@@ -213,4 +280,49 @@ def observe_task_run_failed(properties: dict[str, object]) -> None:
         temporal_activity_type=_failure_metric_label(properties.get("temporal_activity_type")),
         temporal_activity_retry_state=_failure_metric_label(properties.get("temporal_activity_retry_state")),
         cause_error_type=_failure_metric_label(properties.get("cause_error_type")),
+    ).inc()
+
+
+def observe_agent_turn_failed(task_run: "TaskRun") -> None:
+    labels = _task_run_labels(task_run)
+    TASK_RUN_AGENT_FAILURE_TOTAL.labels(
+        origin_product=labels["origin_product"],
+        mode=labels["mode"],
+        run_source=labels["run_source"],
+        runtime_adapter=labels["runtime_adapter"],
+    ).inc()
+
+
+_WIZARD_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+
+
+def observe_wizard_run_unbound(task_run: "TaskRun") -> None:
+    """Record a wizard run ending without its PR ever binding.
+
+    Safe to call on any status write; only terminal wizard runs without an
+    output.pr_url count. Every binding failure mode is silent (agent used a
+    different branch, webhook undelivered, write swallowed), so this counter
+    is the only signal that the wizard PR pipeline regressed.
+    """
+    if task_run.status not in _WIZARD_TERMINAL_STATUSES:
+        return
+    state = task_run.state if isinstance(task_run.state, dict) else {}
+    if not state.get("wizard_head_branch"):
+        return
+    output = task_run.output if isinstance(task_run.output, dict) else {}
+    if output.get("pr_url"):
+        return
+    TASK_RUN_WIZARD_UNBOUND_TOTAL.labels(status=task_run.status).inc()
+    logger.warning(
+        "wizard_run_terminal_without_pr",
+        run_id=str(task_run.id),
+        status=task_run.status,
+        wizard_head_branch=state.get("wizard_head_branch"),
+    )
+
+
+def observe_followup_delivery_failed(task_run: "TaskRun", *, retryable: bool) -> None:
+    TASK_RUN_FOLLOWUP_DELIVERY_FAILED_TOTAL.labels(
+        origin_product=origin_product_label(task_run),
+        retryable="true" if retryable else "false",
     ).inc()

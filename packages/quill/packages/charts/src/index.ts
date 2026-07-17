@@ -1,6 +1,10 @@
 // Components
 export { BarChart } from './charts/BarChart/BarChart'
 export type { BarChartProps } from './charts/BarChart/BarChart'
+export { FunnelChart, FUNNEL_BAND_PADDING } from './charts/FunnelChart/FunnelChart'
+export type { FunnelChartConfig, FunnelChartProps, FunnelStepClickData } from './charts/FunnelChart/FunnelChart'
+export { funnelConversionRate, funnelFromCounts, RATE_TO_PERCENT } from './charts/FunnelChart/funnel-data'
+export type { FunnelFromCountsOptions, FunnelStepCount } from './charts/FunnelChart/funnel-data'
 export { LineChart } from './charts/LineChart/LineChart'
 export type { LineChartProps } from './charts/LineChart/LineChart'
 export { ComboChart } from './charts/ComboChart/ComboChart'
@@ -25,6 +29,13 @@ export { Sparkline } from './charts/Sparkline/Sparkline'
 export type { SparklineProps } from './charts/Sparkline/Sparkline'
 export { MetricCard } from './components/MetricCard/MetricCard'
 export type { MetricCardProps, ChangeColor, MetricChange } from './components/MetricCard/MetricCard'
+// Headless metric helpers — the "metric engine" shared by `MetricCard` and reused by higher layers
+// (quill-components' composable `Metric`) to build metric tiles on top of `Sparkline`.
+export { resolveDelta } from './components/MetricCard/resolveDelta'
+export type { ResolvedDelta } from './components/MetricCard/resolveDelta'
+export { computeFallbackChangePercent } from './components/MetricCard/internals'
+export { useAnimatedNumber } from './components/MetricCard/useAnimatedNumber'
+export { useHoverIntent } from './components/MetricCard/useHoverIntent'
 
 // Base chart (for building new chart types)
 export { Chart } from './core/Chart'
@@ -47,6 +58,17 @@ export type { BoxPlotDatum, BoxPlotSeries } from './charts/BoxPlot/types'
 export type { BoxRect } from './core/types'
 export { BoxPlotTooltip } from './charts/BoxPlot/BoxPlotTooltip'
 export type { BoxPlotTooltipProps } from './charts/BoxPlot/BoxPlotTooltip'
+
+// Heatmap
+export { Heatmap } from './charts/Heatmap/Heatmap'
+export type {
+    HeatmapCellDatum,
+    HeatmapConfig,
+    HeatmapProps,
+    HeatmapRowMeta,
+    HeatmapTooltipContext,
+} from './charts/Heatmap/Heatmap'
+export type { HeatmapColorScale } from './charts/Heatmap/heatmap-layout'
 
 // Slope chart
 export { SlopeChart } from './charts/SlopeChart/SlopeChart'
@@ -82,6 +104,7 @@ export type { Gutter } from './core/y-axis-gutters'
 
 // Core types
 export type {
+    AxisLinesConfig,
     BarChartConfig,
     BarsConfig,
     ChartConfig,
@@ -107,7 +130,7 @@ export type {
     YAxis,
     YAxisScale,
 } from './core/types'
-export { DEFAULT_Y_AXIS_ID } from './core/types'
+export { DEFAULT_Y_AXIS_ID, resolveAxisLines } from './core/types'
 
 // Theme: read a ChartTheme from quill data-viz CSS vars (with a built-in fallback palette)
 export { themeFromCssVars, useChartTheme, DEFAULT_CHART_COLORS } from './core/theme'
@@ -129,6 +152,8 @@ export type {
     ReferenceLineStyle,
     ReferenceLineVariant,
 } from './overlays/ReferenceLine'
+export { HighlightedRange } from './overlays/HighlightedRange'
+export type { HighlightedRangeProps } from './overlays/HighlightedRange'
 export { ValueLabels } from './overlays/ValueLabels'
 export type { ValueLabelContext, ValueLabelFormatter, ValueLabelsProps } from './overlays/ValueLabels'
 export { AxisTitles } from './overlays/AxisTitles'
@@ -139,7 +164,7 @@ export { computeVisibleXLabels } from './overlays/AxisLabels'
 
 export { AnomalyPointsLayer } from './overlays/AnomalyPointsLayer'
 export type { AnomalyMarker } from './overlays/AnomalyPointsLayer'
-export { movingAverageKey } from './charts/TimeSeriesLineChart/utils/derived-series'
+export { movingAverageKey } from './charts/utils/derived-series'
 
 // Timeseries utils
 export { createXAxisTickCallback } from './utils/dates'

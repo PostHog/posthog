@@ -132,7 +132,7 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
     This workflow orchestrates 4 activities:
     1. Compute: Fetch embeddings, perform k-means clustering, compute distances
     2. Label: Generate LLM-based cluster labels (long timeout for API call)
-    3. Aggregates: Compute per-cluster metrics and sentiment (best-effort, non-blocking)
+    3. Aggregates: Compute per-cluster metrics (best-effort, non-blocking)
     4. Emit: Write clustering results to ClickHouse
 
     The workflow calculates window_start/window_end from lookback_days and
@@ -241,7 +241,7 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
             retry_policy=LLM_ACTIVITY_RETRY_POLICY,
         )
 
-        # Activity 3: Compute aggregate metrics + sentiment (best-effort, non-blocking on failure)
+        # Activity 3: Compute aggregate metrics (best-effort, non-blocking on failure)
         cluster_metrics: dict[int, ClusterAggregateMetrics] = {}
         try:
             cluster_metrics = await workflow.execute_activity(

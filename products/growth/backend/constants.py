@@ -22,6 +22,8 @@ SdkTypes = Literal[
     "web",
     "posthog-ios",
     "posthog-android",
+    "posthog-java",
+    "posthog-server",
     "posthog-node",
     "posthog-python",
     "posthog-php",
@@ -29,6 +31,7 @@ SdkTypes = Literal[
     "posthog-go",
     "posthog-flutter",
     "posthog-react-native",
+    "posthog-kmp",
     "posthog-dotnet",
     "posthog-elixir",
 ]
@@ -36,6 +39,8 @@ SDK_TYPES: list[SdkTypes] = [
     "web",
     "posthog-ios",
     "posthog-android",
+    "posthog-java",
+    "posthog-server",
     "posthog-node",
     "posthog-python",
     "posthog-php",
@@ -43,13 +48,15 @@ SDK_TYPES: list[SdkTypes] = [
     "posthog-go",
     "posthog-flutter",
     "posthog-react-native",
+    "posthog-kmp",
     "posthog-dotnet",
     "posthog-elixir",
 ]
+LEGACY_JAVA_SDK = "posthog-java"
 
 
 class SdkVersionEntry(TypedDict):
-    lib_version: str
+    lib_version: str | None
     max_timestamp: str
     count: int
 
@@ -77,6 +84,27 @@ IDENTITY_MATCHING_LINKS_DATASET = "links"
 IDENTITY_MATCHING_RULES_MODEL_VERSION = "rules_v1"
 IDENTITY_MATCHING_LOGREG_MODEL_VERSION = "logreg_v1"
 IDENTITY_MATCHING_TIERS = ["high", "medium", "low"]
+
+# Person properties surfaced per link so a reviewer can sanity-check a match at a glance: identity
+# (email/name) plus the dimensions the models score on — geo, device, and campaign attribution.
+# Maps raw person-property keys to clean API field names (the `$`-prefixed keys can't be serializer
+# field names). Kept curated rather than dumping every property: the payload stays bounded, and the
+# chosen fields mirror the match signals so "same city? same browser? same campaign?" is one glance.
+IDENTITY_MATCHING_PERSON_PROPERTY_MAP: dict[str, str] = {
+    "email": "email",
+    "name": "name",
+    "$geoip_city_name": "city",
+    "$geoip_country_code": "country",
+    "$browser": "browser",
+    "$os": "os",
+    "$device_type": "device_type",
+    "$timezone": "timezone",
+    "$initial_utm_source": "utm_source",
+    "$initial_utm_medium": "utm_medium",
+    "$initial_utm_campaign": "utm_campaign",
+    "$initial_referring_domain": "referring_domain",
+    "$initial_gclid": "gclid",
+}
 
 # Parquet column schemas, passed as the explicit `structure` argument to `s3(...)`. They are
 # *required* for the VALUES-based writes (person_timeline, logreg links) and used on every read
@@ -222,5 +250,5 @@ def github_sdk_versions_key(sdk_type: str) -> str:
     return f"github:sdk_versions:{sdk_type}"
 
 
-def team_sdk_versions_key(team_id: int) -> str:
-    return f"sdk_versions:team:{team_id}"
+def team_sdk_versions_v2_key(team_id: int) -> str:
+    return f"sdk_versions:team:v2:{team_id}"

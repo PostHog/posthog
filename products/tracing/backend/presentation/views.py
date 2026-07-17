@@ -39,13 +39,16 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 
 from ..facade.api import (
+    FACET_COLUMNS,
     annotate_self_time,
     run_attribute_breakdown_query,
     run_count_query,
     run_duration_histogram_query,
+    run_latency_heatmap_query,
     run_symbol_stats_query,
 )
 from ..has_spans_query_runner import team_has_spans
@@ -58,6 +61,7 @@ from ..logic import (
     run_tree_query,
 )
 from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
+from .date_window import normalize_tracing_date_range
 
 # Serializers below are used exclusively for OpenAPI spec generation via
 # drf-spectacular. They are NOT used for request validation — the existing
@@ -185,9 +189,8 @@ class _TracingQueryRequestSerializer(serializers.Serializer):
 
 
 class _TracingTimeseriesQueryBodySerializer(serializers.Serializer):
-    # The sparkline and duration-histogram actions read only these filter fields. They deliberately do
-    # NOT subclass the span-query body: that body's result-shaping fields (orderBy, limit, pagination,
-    # rootSpans, flatSpans, …) are silently ignored here, so advertising them would mislead callers.
+    # Shared filter fields for the timeseries actions; deliberately not a subclass of the span-query
+    # body, whose result-shaping fields (orderBy, limit, pagination, flatSpans, …) don't apply here.
     dateRange = _TracingDateRangeSerializer(
         required=False,
         help_text="Date range for the query. Defaults to last hour.",
@@ -210,8 +213,62 @@ class _TracingTimeseriesQueryBodySerializer(serializers.Serializer):
     )
 
 
-class _TracingTimeseriesRequestSerializer(serializers.Serializer):
-    query = _TracingTimeseriesQueryBodySerializer(help_text="The sparkline / duration-histogram query to execute.")
+class _TracingDurationHistogramQueryBodySerializer(_TracingTimeseriesQueryBodySerializer):
+    rootSpans = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "When true (default), bucket root-span durations only — a distribution of traces. "
+            "When false, bucket every matching span — used with a span name filter for "
+            "operation-scoped distributions."
+        ),
+    )
+
+
+class _TracingDurationHistogramRequestSerializer(serializers.Serializer):
+    query = _TracingDurationHistogramQueryBodySerializer(help_text="The duration-histogram query to execute.")
+
+
+class _TracingLatencyHeatmapRequestSerializer(serializers.Serializer):
+    query = _TracingDurationHistogramQueryBodySerializer(help_text="The latency-heatmap query to execute.")
+
+
+class _TracingLatencyHeatmapCellSerializer(serializers.Serializer):
+    time = serializers.CharField(help_text="ISO 8601 UTC start of the time bucket.")
+    bucket_ns = serializers.IntegerField(
+        help_text=(
+            "Lower edge of the 1-2-5 series duration bucket in nanoseconds (1ms, 2ms, 5ms, 10ms, ...). "
+            "0 on the sentinel row that enumerates a time bucket with no matching spans."
+        ),
+    )
+    count = serializers.IntegerField(
+        help_text="Spans (or traces when rootSpans is true) in this cell. 0 only on sentinel rows.",
+    )
+
+
+class _TracingLatencyHeatmapResponseSerializer(serializers.Serializer):
+    results = _TracingLatencyHeatmapCellSerializer(
+        many=True,
+        help_text=(
+            "Sparse heatmap cells ordered by time then duration bucket. Every time bucket in the "
+            "window appears in at least one row, so the full x axis can be derived from the response."
+        ),
+    )
+
+
+class _TracingSparklineQueryBodySerializer(_TracingTimeseriesQueryBodySerializer):
+    rootSpans = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "When true, count only root spans (one per trace) so the bars reflect the Traces view. "
+            "When false (default), count every matching span — the Spans view's volume."
+        ),
+    )
+
+
+class _TracingSparklineRequestSerializer(serializers.Serializer):
+    query = _TracingSparklineQueryBodySerializer(help_text="The sparkline query to execute.")
 
 
 class _TracingTraceRequestSerializer(serializers.Serializer):
@@ -334,11 +391,22 @@ class _TracingAggregationRequestSerializer(serializers.Serializer):
 class _TracingAttributeBreakdownQueryBodySerializer(serializers.Serializer):
     breakdownKey = serializers.CharField(
         required=True,
-        help_text='Attribute key to group by (e.g. "server.address", "http.response.status_code"). Discover keys with apm-attributes-list.',
+        help_text='Attribute key to group by (e.g. "server.address", "http.response.status_code"). Discover keys with apm-attributes-list. For the "span" breakdown type, must be one of the allowlisted top-level columns: "service_name", "status_code".',
     )
     breakdownType = serializers.ChoiceField(
-        choices=["span_attribute", "span_resource_attribute"],
-        help_text='Where the key lives: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.',
+        choices=["span", "span_attribute", "span_resource_attribute"],
+        help_text='Where the key lives: "span" for allowlisted top-level span columns, "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.',
+    )
+    excludeBreakdownFilter = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Drop filters targeting the breakdown key itself (including serviceNames for a service_name breakdown), so a facet's value list stays complete while one of its values is selected.",
+    )
+    facetSearch = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Type-ahead filter over the breakdown field's own values (case-insensitive substring match). "
+        "An empty string means no filter. Lets a facet's value search reach past the row limit.",
     )
     orderBy = serializers.ChoiceField(
         choices=["count", "error_count"],
@@ -368,6 +436,28 @@ class _TracingAttributeBreakdownQueryBodySerializer(serializers.Serializer):
 
 class _TracingAttributeBreakdownRequestSerializer(serializers.Serializer):
     query = _TracingAttributeBreakdownQueryBodySerializer(help_text="The attribute breakdown query to execute.")
+
+
+class _TracingAttributeBreakdownRowSerializer(serializers.Serializer):
+    value = serializers.CharField(
+        help_text="The attribute's value for this group. Spans without the attribute group under ''."
+    )
+    count = serializers.IntegerField(help_text="Number of matching spans with this value.")
+    error_count = serializers.IntegerField(help_text="Number of matching error spans (status_code = 2).")
+    p50_duration_nano = serializers.FloatField(help_text="Median span duration in nanoseconds.")
+    p95_duration_nano = serializers.FloatField(help_text="95th percentile span duration in nanoseconds.")
+
+
+class _TracingAttributeBreakdownResponseSerializer(serializers.Serializer):
+    results = _TracingAttributeBreakdownRowSerializer(
+        many=True,
+        help_text="One row per distinct attribute value, ordered by the requested column descending.",
+    )
+    compare = _TracingAttributeBreakdownRowSerializer(
+        many=True,
+        allow_null=True,
+        help_text="Rows for the comparison window when compareFilter.compare is true, else null.",
+    )
 
 
 class _TracingTreeQueryBodySerializer(serializers.Serializer):
@@ -446,6 +536,9 @@ class _TracingCountRequestSerializer(serializers.Serializer):
 
 class _TracingCountResponseSerializer(serializers.Serializer):
     count = serializers.IntegerField(help_text="Number of spans matching the filters.")
+    traceCount = serializers.IntegerField(
+        help_text="Number of distinct traces whose root span matches the filters — the trace count shown in the Traces view."
+    )
 
 
 # Upper bound on symbols per request; each becomes a multiIf branch in the generated query.
@@ -576,15 +669,23 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return filter_group
         return {"type": "AND", "values": []}
 
+    def _report_usage(self, request: Request, event: str, properties: dict) -> None:
+        # Usage telemetry must never turn a successful read into a 5xx, so swallow and record any failure.
+        try:
+            report_user_action(request.user, event, properties, team=self.team, request=request)
+        except Exception as e:
+            capture_exception(e)
+
     @extend_schema(parameters=[_TracingServiceNamesQuerySerializer])
     @action(detail=False, methods=["GET"], url_path="service-names", required_scopes=["tracing:read"])
     def service_names(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         search = request.GET.get("search", "")
         try:
-            date_range = self.get_model(json.loads(request.GET.get("dateRange", '{"date_from": "-1h"}')), DateRange)
-        except (json.JSONDecodeError, Exception):
-            date_range = DateRange(date_from="-1h")
+            raw_date_range = json.loads(request.GET.get("dateRange", '{"date_from": "-1h"}'))
+        except json.JSONDecodeError:
+            raw_date_range = {"date_from": "-1h"}
+        date_range = self.get_model(normalize_tracing_date_range(raw_date_range), DateRange)
 
         results = run_service_names_query(team=self.team, date_range=date_range, search=search)
         return Response({"results": results}, status=status.HTTP_200_OK)
@@ -612,7 +713,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         query_data = request.data.get("query", {})
 
         after_cursor = query_data.get("after", None)
-        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
+        date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
 
         order_by = query_data.get("orderBy")
         if order_by not in ("timestamp", "duration"):
@@ -727,7 +828,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
 
-        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
+        date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
         filter_group = (
             self.get_model(self._normalize_filter_group(query_data.get("filterGroup")), PropertyGroupFilter)
             if query_data.get("filterGroup")
@@ -805,7 +906,9 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-24h"}), DateRange)
+        date_range = self.get_model(
+            normalize_tracing_date_range(query_data.get("dateRange"), default_date_from="-24h"), DateRange
+        )
 
         response = run_symbol_stats_query(team=self.team, file_path=file_path, date_range=date_range, symbols=symbols)
         granularity = response.granularity.value
@@ -827,12 +930,12 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(request=_TracingTimeseriesRequestSerializer)
+    @extend_schema(request=_TracingSparklineRequestSerializer)
     @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
-        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
+        date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
 
         try:
             filter_group = (
@@ -848,6 +951,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             serviceNames=query_data.get("serviceNames", None),
             statusCodes=query_data.get("statusCodes", None),
             filterGroup=filter_group,
+            rootSpans=query_data.get("rootSpans", False),
         )
 
         runner = TraceSpansSparklineQueryRunner(spans_query, self.team)
@@ -856,12 +960,12 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         return Response({"results": response.results}, status=status.HTTP_200_OK)
 
-    @extend_schema(request=_TracingTimeseriesRequestSerializer)
+    @extend_schema(request=_TracingDurationHistogramRequestSerializer)
     @action(detail=False, methods=["POST"], url_path="duration-histogram", required_scopes=["tracing:read"])
     def duration_histogram(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
-        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
+        date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
 
         try:
             filter_group = (
@@ -872,12 +976,56 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except (ValidationError, ValueError, ParseError):
             filter_group = None
 
+        root_spans = query_data.get("rootSpans", True)
         response = run_duration_histogram_query(
             team=self.team,
             date_range=date_range,
             service_names=query_data.get("serviceNames", None),
             status_codes=query_data.get("statusCodes", None),
             filter_group=filter_group,
+            root_spans=root_spans,
+        )
+
+        self._report_usage(
+            request,
+            "tracing duration histogram queried",
+            {
+                "buckets_count": len(response.results),
+                "root_spans": root_spans,
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "service_names_count": len(query_data.get("serviceNames") or []),
+                "status_codes_count": len(query_data.get("statusCodes") or []),
+            },
+        )
+
+        return Response({"results": response.results}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=_TracingLatencyHeatmapRequestSerializer,
+        responses={200: _TracingLatencyHeatmapResponseSerializer},
+    )
+    @action(detail=False, methods=["POST"], url_path="latency-heatmap", required_scopes=["tracing:read"])
+    def latency_heatmap(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        query_data = request.data.get("query", {}) or {}
+        date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
+
+        try:
+            filter_group = (
+                self.get_model(self._normalize_filter_group(query_data["filterGroup"]), PropertyGroupFilter)
+                if query_data.get("filterGroup")
+                else None
+            )
+        except (ValidationError, ValueError, ParseError):
+            filter_group = None
+
+        response = run_latency_heatmap_query(
+            team=self.team,
+            date_range=date_range,
+            service_names=query_data.get("serviceNames", None),
+            status_codes=query_data.get("statusCodes", None),
+            filter_group=filter_group,
+            root_spans=query_data.get("rootSpans", True),
         )
 
         return Response({"results": response.results}, status=status.HTTP_200_OK)
@@ -887,7 +1035,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def aggregate(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         query_data = request.data.get("query", {}) or {}
-        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
+        date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
 
         try:
             filter_group = (
@@ -912,6 +1060,17 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             compare_filter=compare_filter,
             filter_group=filter_group,
             service_names=query_data.get("serviceNames", None),
+        )
+
+        self._report_usage(
+            request,
+            "tracing aggregation queried",
+            {
+                "results_count": len(response.results),
+                "has_compare": bool(query_data.get("compareFilter")),
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "service_names_count": len(query_data.get("serviceNames") or []),
+            },
         )
 
         return Response(
@@ -941,7 +1100,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
+        date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
 
         try:
             filter_group = (
@@ -978,7 +1137,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(request=_TracingAttributeBreakdownRequestSerializer)
+    @extend_schema(
+        request=_TracingAttributeBreakdownRequestSerializer,
+        responses={200: _TracingAttributeBreakdownResponseSerializer},
+    )
     @action(detail=False, methods=["POST"], url_path="attribute-breakdown", required_scopes=["tracing:read"])
     def attribute_breakdown(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -995,7 +1157,13 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             breakdown_type = TraceSpanBreakdownType(query_data.get("breakdownType") or "")
         except ValueError:
             return Response(
-                {"detail": '`breakdownType` must be "span_attribute" or "span_resource_attribute".'},
+                {"detail": '`breakdownType` must be "span", "span_attribute" or "span_resource_attribute".'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if breakdown_type == TraceSpanBreakdownType.SPAN and breakdown_key not in FACET_COLUMNS:
+            return Response(
+                {"detail": f"`breakdownKey` for a span column breakdown must be one of: {sorted(FACET_COLUMNS)}."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1009,7 +1177,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
+        date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
 
         try:
             filter_group = (
@@ -1037,6 +1205,8 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             compare_filter=compare_filter,
             filter_group=filter_group,
             service_names=query_data.get("serviceNames", None),
+            exclude_breakdown_filter=bool(query_data.get("excludeBreakdownFilter")),
+            facet_search=query_data.get("facetSearch") or None,
         )
 
         return Response(
@@ -1054,7 +1224,9 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def trace(self, request: Request, trace_id: str, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         query_data = request.data or {}
-        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-24h"}), DateRange)
+        date_range = self.get_model(
+            normalize_tracing_date_range(query_data.get("dateRange"), default_date_from="-24h"), DateRange
+        )
         try:
             # verify the trace_id is valid
             bytes.fromhex(trace_id)
@@ -1102,6 +1274,17 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         # spans whose children fall on a later page — an accepted bound, same as the prior 2000 cap.
         annotate_self_time(results)
 
+        self._report_usage(
+            request,
+            "tracing trace fetched",
+            {
+                "spans_count": len(results),
+                "has_more": has_more,
+                "is_paginated": offset > 0,
+                "has_filter_group": bool(query_data.get("filterGroup")),
+            },
+        )
+
         return Response(
             {
                 "results": results,
@@ -1124,9 +1307,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         offset = int(request.GET.get("offset", "0"))
 
         try:
-            date_range = self.get_model(json.loads(request.GET.get("dateRange", "{}")), DateRange)
-        except (json.JSONDecodeError, ValidationError, ValueError):
-            date_range = DateRange(date_from="-1h")
+            raw_date_range = json.loads(request.GET.get("dateRange", "{}"))
+        except json.JSONDecodeError:
+            raw_date_range = {}
+        date_range = self.get_model(normalize_tracing_date_range(raw_date_range), DateRange)
 
         attribute_type = request.GET.get("attribute_type", "span_attribute")
         if attribute_type not in ("span_attribute", "span_resource_attribute"):
@@ -1157,9 +1341,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         offset = int(request.GET.get("offset", "0"))
 
         try:
-            date_range = self.get_model(json.loads(request.GET.get("dateRange", "{}")), DateRange)
-        except (json.JSONDecodeError, ValidationError, ValueError):
-            date_range = DateRange(date_from="-1h")
+            raw_date_range = json.loads(request.GET.get("dateRange", "{}"))
+        except json.JSONDecodeError:
+            raw_date_range = {}
+        date_range = self.get_model(normalize_tracing_date_range(raw_date_range), DateRange)
 
         attribute_type = request.GET.get("attribute_type", "span_attribute")
         if attribute_type not in ("span", "span_attribute", "span_resource_attribute"):

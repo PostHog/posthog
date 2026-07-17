@@ -1,17 +1,18 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 
 import { IconArrowRight, IconChevronDown, IconExternal } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { LinkedSignalReport, SignalScoutEmission, SignalScoutRunSummary } from '../../../types'
+import { prettifyScoutSkillName } from '../../../utils/scoutRunsWindow'
 import { SignalReportPriorityBadge } from '../../badges/SignalReportPriorityBadge'
+import { ScoutTimestamp } from './ScoutTimestamp'
 
 /** Truncated mono identifier rendering for the footer finding id. */
 function MonoId({ label, value }: { label: string; value: string }): JSX.Element {
@@ -30,13 +31,18 @@ function MonoId({ label, value }: { label: string; value: string }): JSX.Element
  *
  * `isDeepLinked` marks the finding the current `/inbox/scouts/<skill>/<finding>` URL points at — it
  * auto-expands, highlights, and scrolls itself into view so a shared link lands on the right card.
+ *
+ * Memoized because the 60s runs-window poll re-renders the Signals list; the `emission` and `run`
+ * props keep stable references across polls (emissions don't refetch on no-op polls, and
+ * `loadRunsWindow` reconciles run identity), so unchanged cards skip re-rendering here.
  */
-export function ScoutEmissionCard({
+export const ScoutEmissionCard = memo(function ScoutEmissionCard({
     skillName,
     emission,
     run,
     report,
     isDeepLinked = false,
+    showScout = false,
 }: {
     skillName: string
     emission: SignalScoutEmission
@@ -45,6 +51,8 @@ export function ScoutEmissionCard({
     report: LinkedSignalReport | null
     /** True when this finding is the one the current URL deep-links to. */
     isDeepLinked?: boolean
+    /** Cross-fleet listings set this to surface the scout (name in the header, "View scout" footer link). */
+    showScout?: boolean
 }): JSX.Element {
     const [expanded, setExpanded] = useState(isDeepLinked)
     const confidencePercent = Math.round((emission.confidence ?? 0) * 100)
@@ -86,13 +94,16 @@ export function ScoutEmissionCard({
                         className={`size-4 shrink-0 text-muted transition-transform ${expanded ? '' : '-rotate-90'}`}
                     />
                     <SignalReportPriorityBadge priority={emission.severity} />
+                    {showScout && (
+                        <span className="truncate text-xs font-medium text-default">
+                            {prettifyScoutSkillName(skillName)}
+                        </span>
+                    )}
                     <span className="whitespace-nowrap text-[11px] text-muted tabular-nums">
                         {confidencePercent}% confidence
                     </span>
                     <span className="flex-1" />
-                    <span className="whitespace-nowrap text-[11px] text-muted">
-                        {humanFriendlyDetailedTime(emission.emitted_at)}
-                    </span>
+                    <ScoutTimestamp time={emission.emitted_at} />
                 </button>
                 <LemonButton
                     size="xsmall"
@@ -111,6 +122,16 @@ export function ScoutEmissionCard({
                     {emission.description || '_No description._'}
                 </LemonMarkdown>
 
+                {emission.tags?.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                        {emission.tags.map((tag) => (
+                            <LemonTag key={tag} size="small" type="muted">
+                                {tag}
+                            </LemonTag>
+                        ))}
+                    </div>
+                )}
+
                 {report && (
                     <Link
                         to={urls.inboxReport('reports', report.id)}
@@ -125,6 +146,14 @@ export function ScoutEmissionCard({
                 {expanded && (
                     <div className="flex items-center flex-wrap gap-x-3 gap-y-1 border-t pt-2 mt-2 text-xs text-tertiary">
                         <MonoId label="Finding" value={emission.finding_id} />
+                        {showScout && (
+                            <Link
+                                to={urls.inboxScout(skillName)}
+                                className="flex items-center gap-1 font-medium shrink-0"
+                            >
+                                View {prettifyScoutSkillName(skillName)} <IconArrowRight className="size-3" />
+                            </Link>
+                        )}
                         {run.task_url && (
                             <>
                                 <span className="flex-1" />
@@ -138,4 +167,4 @@ export function ScoutEmissionCard({
             </div>
         </div>
     )
-}
+})

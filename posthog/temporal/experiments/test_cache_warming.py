@@ -20,11 +20,85 @@ from products.experiments.backend.hogql_queries.experiment_metric_fingerprint im
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
-from products.experiments.backend.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
+from products.experiments.backend.models.experiment import (
+    ExperimentMetricResult,
+    ExperimentSavedMetric,
+    ExperimentToSavedMetric,
+)
 
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
+    @freeze_time("2020-01-10T12:00:00Z")
+    def test_regular_metric_activity_pins_runner_to_stored_query_to(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 1, 0, 0, 0),
+            end_date=datetime(2020, 1, 5, 0, 0, 0),
+        )
+        metric = ExperimentMeanMetric(uuid=str(uuid4()), source=EventsNode(event="purchase"))
+        metric_dict = metric.model_dump(mode="json")
+        experiment.metrics = [metric_dict]
+        experiment.save()
+        expected_query_to = datetime.fromisoformat("2020-01-05T00:00:00+00:00")
+
+        with (
+            patch("posthog.temporal.experiments.activities.close_old_connections"),
+            patch("posthog.temporal.experiments.activities.ExperimentQueryRunner") as mock_runner_class,
+        ):
+            mock_runner_class.return_value.run.return_value.model_dump.return_value = {"variant_results": []}
+
+            activity_result = _calculate_experiment_regular_metric_sync.func(  # type: ignore[attr-defined]
+                experiment.id, metric_dict["uuid"], "fingerprint"
+            )
+
+        self.assertTrue(activity_result.success, msg=activity_result.error_message)
+        mock_runner_class.assert_called_once()
+        assert mock_runner_class.call_args.kwargs["as_of"] == expected_query_to
+        result_row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid=metric_dict["uuid"])
+        assert result_row.query_to == expected_query_to
+
+    @freeze_time("2020-01-10T12:00:00Z")
+    def test_saved_metric_activity_pins_runner_to_stored_query_to(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 1, 0, 0, 0),
+            end_date=datetime(2020, 1, 5, 0, 0, 0),
+        )
+        metric = ExperimentMeanMetric(uuid=str(uuid4()), source=EventsNode(event="purchase"))
+        metric_dict = metric.model_dump(mode="json")
+        expected_query_to = datetime.fromisoformat("2020-01-05T00:00:00+00:00")
+
+        saved_metric = ExperimentSavedMetric.objects.create(
+            name="test saved metric",
+            team=self.team,
+            query=metric_dict,
+            created_by=self.user,
+        )
+        ExperimentToSavedMetric.objects.create(
+            experiment=experiment,
+            saved_metric=saved_metric,
+            metadata={"type": "primary"},
+        )
+
+        with (
+            patch("posthog.temporal.experiments.activities.close_old_connections"),
+            patch("posthog.temporal.experiments.activities.ExperimentQueryRunner") as mock_runner_class,
+        ):
+            mock_runner_class.return_value.run.return_value.model_dump.return_value = {"variant_results": []}
+
+            activity_result = _calculate_experiment_saved_metric_sync.func(  # type: ignore[attr-defined]
+                experiment.id, metric_dict["uuid"], "fingerprint"
+            )
+
+        self.assertTrue(activity_result.success, msg=activity_result.error_message)
+        mock_runner_class.assert_called_once()
+        assert mock_runner_class.call_args.kwargs["as_of"] == expected_query_to
+        result_row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid=metric_dict["uuid"])
+        assert result_row.query_to == expected_query_to
+
     @freeze_time("2020-01-10T12:00:00Z")
     def test_temporal_activity_warms_query_cache(self):
         """

@@ -1,7 +1,7 @@
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
-import { logger } from '../../utils/logger'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
@@ -92,6 +92,14 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 // defaulting to `{event.distinct_id}` resolve at hog runtime.
                 if (!hogFlowInvocationState.event.distinct_id && person?.distinct_id) {
                     hogFlowInvocationState.event.distinct_id = person.distinct_id
+                }
+
+                // Persist the resolved person UUID into state so a re-parked wait keeps its person_id
+                // even when a later re-resolution transiently misses. clickhouse_person wakes match on
+                // person_id only, so a wait parked with person_id = null could never be woken by a
+                // person-property change — it would depend entirely on the polling backstop.
+                if (person?.id && !hogFlowInvocationState.personId) {
+                    hogFlowInvocationState.personId = person.id
                 }
 
                 const filterGlobals = convertToHogFunctionFilterGlobal({

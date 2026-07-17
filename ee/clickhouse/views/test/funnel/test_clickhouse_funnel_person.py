@@ -17,7 +17,7 @@ from rest_framework import status
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.person import Person
+from posthog.test.persons import create_person, delete_person
 
 
 class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
@@ -31,7 +31,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
 
         for i in range(num):
             if delete:
-                person = Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+                person = create_person(distinct_ids=[f"user_{i}"], team=self.team)
             else:
                 _create_person(distinct_ids=[f"user_{i}"], team=self.team)
             _create_event(
@@ -56,7 +56,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
                 properties={"$browser": "Chrome", "$group_0": "g0"},
             )
             if delete:
-                person.delete()
+                delete_person(person)
 
     def test_basic_format(self):
         self._create_sample_data(5)

@@ -1,4 +1,4 @@
-from typing import Optional, Self, cast
+from typing import TYPE_CHECKING, Optional, Self, cast
 
 import posthoganalytics
 
@@ -29,8 +29,10 @@ from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 
-from posthog.models.organization import Organization
 from posthog.schema_enums import PersonsArgMaxVersion
+
+if TYPE_CHECKING:
+    from posthog.models.organization import Organization
 
 PERSONS_FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(
@@ -294,6 +296,10 @@ def join_with_persons_table(
 
 
 class RawPersonsTable(Table):
+    description: str = (
+        "Raw, un-deduplicated persons rows (one per version). Query `persons` instead unless you need to "
+        "resolve the latest version yourself via `is_deleted`/`version`."
+    )
     fields: dict[str, FieldOrTable] = {
         **PERSONS_FIELDS,
         "is_deleted": BooleanDatabaseField(name="is_deleted", nullable=False),

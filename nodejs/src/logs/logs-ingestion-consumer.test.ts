@@ -1,21 +1,29 @@
 import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
+import { metrics as metricsApi } from '@opentelemetry/api'
+import {
+    type DataPoint,
+    InMemoryMetricExporter,
+    MeterProvider,
+    PeriodicExportingMetricReader,
+} from '@opentelemetry/sdk-metrics'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { KAFKA_APP_METRICS_2, KAFKA_LOGS_CLICKHOUSE, KAFKA_LOGS_INGESTION_DLQ } from '~/common/config/kafka-topics'
 import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
-import { KAFKA_APP_METRICS_2, KAFKA_LOGS_CLICKHOUSE, KAFKA_LOGS_INGESTION_DLQ } from '~/config/kafka-topics'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { PostgresUse } from '~/utils/db/postgres'
-import { parseJSON } from '~/utils/json-parse'
 
 import { getDefaultTracesIngestionConsumerConfig } from './config'
+import { resetLogsIngestionInstrumentsForTests } from './ingestion-otel-metrics'
 import { LogRecord, encodeLogRecords } from './log-record-avro'
 import {
     DEFAULT_LOGS_RETENTION_DAYS,
@@ -41,8 +49,8 @@ import { TracesIngestionConsumer } from './traces-ingestion-consumer'
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
 
-jest.mock('~/utils/posthog', () => {
-    const original = jest.requireActual('~/utils/posthog')
+jest.mock('~/common/utils/posthog', () => {
+    const original = jest.requireActual('~/common/utils/posthog')
     return {
         ...original,
         captureException: jest.fn(),
@@ -741,6 +749,68 @@ describe('LogsIngestionConsumer', () => {
                 { reason: 'rate_limited', team_id: team.id.toString() },
                 1
             )
+        })
+
+        it('dual-emits usage counters into the OTel metrics push', async () => {
+            // Wiring guard: the unit tests on ingestion-otel-metrics prove the record
+            // functions work; this proves the consumer actually calls them.
+            const otelExporter = new InMemoryMetricExporter(0)
+            const otelReader = new PeriodicExportingMetricReader({
+                exporter: otelExporter,
+                exportIntervalMillis: 60_000,
+            })
+            const otelProvider = new MeterProvider({ readers: [otelReader] })
+            metricsApi.setGlobalMeterProvider(otelProvider)
+            resetLogsIngestionInstrumentsForTests()
+
+            try {
+                hub.LOGS_LIMITER_BUCKET_SIZE_KB = 2
+                hub.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND = 1
+                hub.LOGS_LIMITER_TTL_SECONDS = 3600
+
+                await consumer.stop()
+                consumer = await createLogsIngestionConsumer(hub)
+
+                const messages = [
+                    ...(await createKafkaMessages([createLogMessage({ message: 'First' })], {
+                        token: team.api_token,
+                        bytes_uncompressed: '1024',
+                        bytes_compressed: '512',
+                        record_count: '5',
+                    })),
+                    ...(await createKafkaMessages([createLogMessage({ message: 'Second' })], {
+                        token: team.api_token,
+                        bytes_uncompressed: '2048',
+                        bytes_compressed: '1024',
+                        record_count: '10',
+                    })),
+                ]
+
+                await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+                await otelReader.forceFlush()
+
+                const pointsByMetric = new Map(
+                    otelExporter
+                        .getMetrics()
+                        .flatMap((rm) => rm.scopeMetrics)
+                        .flatMap((sm) => sm.metrics)
+                        .map((m) => [m.descriptor.name, m.dataPoints as readonly DataPoint<number>[]])
+                )
+                expect(pointsByMetric.get('logs_ingestion_bytes_received_total')?.[0]?.value).toEqual(3072)
+                expect(pointsByMetric.get('logs_ingestion_bytes_allowed_total')?.[0]?.value).toEqual(1024)
+                expect(pointsByMetric.get('logs_ingestion_bytes_dropped_total')?.[0]).toMatchObject({
+                    attributes: { team_id: team.id.toString() },
+                    value: 2048,
+                })
+                expect(pointsByMetric.get('logs_ingestion_message_dropped_count')?.[0]).toMatchObject({
+                    attributes: { reason: 'rate_limited', team_id: team.id.toString() },
+                    value: 1,
+                })
+            } finally {
+                await otelProvider.shutdown()
+                metricsApi.disable()
+                resetLogsIngestionInstrumentsForTests()
+            }
         })
 
         it('should handle missing header values with defaults', async () => {
@@ -1775,9 +1845,11 @@ describe('LogsIngestionConsumer', () => {
 
                 const uncompressed = parseInt(outputHeaders()!.bytes_uncompressed, 10)
                 const compressed = parseInt(outputHeaders()!.bytes_compressed, 10)
+                const recordCount = parseInt(outputHeaders()!.record_count, 10)
                 if (!enabled) {
                     expect(uncompressed).toBe(1000)
                     expect(compressed).toBe(500)
+                    expect(recordCount).toBe(2)
                     return
                 }
                 expect(uncompressed).toBeGreaterThan(0)
@@ -1785,6 +1857,8 @@ describe('LogsIngestionConsumer', () => {
                 expect(compressed).toBeGreaterThan(0)
                 expect(compressed).toBeLessThan(500)
                 expect(compressed / uncompressed).toBeCloseTo(0.5, 5)
+                // The dropped info row is removed from the count exactly; only the error row survives.
+                expect(recordCount).toBe(1)
             })
         })
     })

@@ -178,4 +178,4 @@ RUN chrome-headless-shell --version && ffmpeg -version
 
 EXPOSE 6740
 
-CMD ["node", "nodejs/dist/recording-rasterizer/index.js"]
+CMD ["node", "nodejs/dist/session-replay/recording-rasterizer/index.js"]

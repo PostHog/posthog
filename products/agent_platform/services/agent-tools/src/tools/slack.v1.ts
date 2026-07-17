@@ -1,11 +1,4 @@
-import {
-    defineNativeTool,
-    HttpFetcher,
-    isPreviewSideEffect,
-    SLACK_BOT_TOKEN_KEY,
-    ToolContext,
-    Type,
-} from '@posthog/agent-shared'
+import { defineNativeTool, HttpFetcher, SLACK_BOT_TOKEN_KEY, ToolContext, Type } from '@posthog/agent-shared'
 
 /**
  * Resolve the agent's Slack bot token from `encrypted_env` via `ctx.secret`.
@@ -117,6 +110,7 @@ function projectMessage(m: RawSlackMessage): {
 
 export const slackPostMessageV1 = defineNativeTool({
     id: '@posthog/slack-post-message',
+    approval: 'allow',
     description: "Post a message to a Slack channel or thread using the agent's bot token.",
     args: Type.Object({
         channel: Type.String(),
@@ -130,15 +124,6 @@ export const slackPostMessageV1 = defineNativeTool({
     requires: { provider: { id: 'slack', scopes: ['chat:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
-        // Preview-mode noop: don't post into the real channel attached to the
-        // live revision while the author is iterating. The synthetic `ts` is
-        // shape-valid so a follow-up `slack-update-message` / `slack-react`
-        // in the same preview turn doesn't blow up on a missing ts — though
-        // those write tools also short-circuit on preview, so the synthetic
-        // value never reaches slack.com regardless.
-        if (isPreviewSideEffect(ctx, '@posthog/slack-post-message', args)) {
-            return { ts: `preview-noop:${Date.now()}`, channel: args.channel }
-        }
         const token = slackBotToken(ctx)
         const res = (await slackCall(ctx.http, token, 'chat.postMessage', {
             channel: args.channel,
@@ -151,6 +136,7 @@ export const slackPostMessageV1 = defineNativeTool({
 
 export const slackUpdateMessageV1 = defineNativeTool({
     id: '@posthog/slack-update-message',
+    approval: 'allow',
     description: 'Edit a previously-posted Slack message.',
     args: Type.Object({
         channel: Type.String(),
@@ -161,9 +147,6 @@ export const slackUpdateMessageV1 = defineNativeTool({
     requires: { provider: { id: 'slack', scopes: ['chat:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
-        if (isPreviewSideEffect(ctx, '@posthog/slack-update-message', args)) {
-            return { ok: true }
-        }
         const token = slackBotToken(ctx)
         await slackCall(ctx.http, token, 'chat.update', { channel: args.channel, ts: args.ts, text: args.text })
         return { ok: true }
@@ -172,6 +155,7 @@ export const slackUpdateMessageV1 = defineNativeTool({
 
 export const slackReadChannelV1 = defineNativeTool({
     id: '@posthog/slack-read-channel',
+    approval: 'allow',
     description:
         'Read recent messages from a Slack channel. Returns top-level messages only (use @posthog/slack-read-thread for replies). Paginate with next_cursor; narrow with oldest/latest (slack ts).',
     args: Type.Object({
@@ -217,6 +201,7 @@ export const slackReadChannelV1 = defineNativeTool({
 
 export const slackReadThreadV1 = defineNativeTool({
     id: '@posthog/slack-read-thread',
+    approval: 'allow',
     description: 'Read a Slack thread — the parent message plus all replies. thread_ts is the parent message ts.',
     args: Type.Object({
         channel: Type.String(),
@@ -258,6 +243,7 @@ export const slackReadThreadV1 = defineNativeTool({
 
 export const slackReactV1 = defineNativeTool({
     id: '@posthog/slack-react',
+    approval: 'allow',
     description: 'Add an emoji reaction to a Slack message.',
     args: Type.Object({
         channel: Type.String(),
@@ -268,9 +254,6 @@ export const slackReactV1 = defineNativeTool({
     requires: { provider: { id: 'slack', scopes: ['reactions:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
-        if (isPreviewSideEffect(ctx, '@posthog/slack-react', args)) {
-            return { ok: true }
-        }
         const token = slackBotToken(ctx)
         await slackCall(ctx.http, token, 'reactions.add', {
             channel: args.channel,

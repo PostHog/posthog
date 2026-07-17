@@ -17,7 +17,7 @@ from unittest.mock import patch
 from django.db import transaction
 from django.utils import timezone
 
-from parameterized import parameterized, parameterized_class
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import HogQLQueryModifiers, MaterializationMode
@@ -26,8 +26,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import ActivityLog, Comment, Organization, Tag, User
-from posthog.models.person import Person
-from posthog.personhog_client.test_helpers import PersonhogTestMixin
+from posthog.test.persons import create_person
 
 from products.conversations.backend.api.tickets import TicketReplyRequestSerializer
 from products.conversations.backend.models import Ticket, TicketAssignment
@@ -688,7 +687,7 @@ class TestTicketAPI(APIBaseTest):
                 distinct_id=f"user-{i}",
             )
             # Create person for this ticket
-            Person.objects.create(
+            create_person(
                 team=self.team,
                 distinct_ids=[f"user-{i}"],
                 properties={"email": f"user{i}@example.com"},
@@ -713,11 +712,10 @@ class TestTicketAPI(APIBaseTest):
 
         # Query count should be constant regardless of number of tickets
         # Includes: session, user, org, team, permissions, feature flag permission org lookup,
-        # count query, tickets query, persons query (batch), distinct_ids prefetch,
-        # tagged_items prefetch, and the session-activity metadata write (deferred to on_commit,
-        # which this test class patches to run synchronously)
-        # Note: message stats are denormalized, no subqueries needed
-        with self.assertNumQueries(14):
+        # count query, tickets query, tagged_items prefetch, and the session-activity metadata
+        # write (deferred to on_commit, which this test class patches to run synchronously)
+        # Note: person reads go through personhog (no DB queries)
+        with self.assertNumQueries(12):
             response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should have original ticket + 10 new tickets = 11 total
@@ -1301,12 +1299,8 @@ class TestTicketManager(BaseTest):
         self.assertEqual(ticket2.ticket_number, 2)
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
-class TestTicketPersonData(PersonhogTestMixin, APIBaseTest):
-    """Tests that ticket person enrichment produces identical results
-    via the ORM and personhog paths."""
-
+class TestTicketPersonData(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.ticket = Ticket.objects.create_with_number(
@@ -1318,7 +1312,7 @@ class TestTicketPersonData(PersonhogTestMixin, APIBaseTest):
         )
 
     def test_retrieve_ticket_includes_person_data(self, mock_on_commit):
-        person = self._seed_person(
+        person = create_person(
             team=self.team,
             distinct_ids=["user-123", "user@example.com", "another-id"],
             properties={"email": "test@example.com", "name": "Test User"},
@@ -1340,7 +1334,7 @@ class TestTicketPersonData(PersonhogTestMixin, APIBaseTest):
         assert response.json()["person"] is None
 
     def test_list_tickets_includes_person_data(self, mock_on_commit):
-        self._seed_person(
+        create_person(
             team=self.team,
             distinct_ids=["user-123", "user@example.com"],
             properties={"email": "test@example.com"},
@@ -1354,7 +1348,6 @@ class TestTicketPersonData(PersonhogTestMixin, APIBaseTest):
         assert person_data is not None
         assert person_data["properties"]["email"] == "test@example.com"
         assert set(person_data["distinct_ids"]) == {"user-123", "user@example.com"}
-        self._assert_personhog_called("get_persons_by_distinct_ids_in_team")
 
     def test_list_tickets_person_null_when_no_person(self, mock_on_commit):
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
@@ -1365,7 +1358,7 @@ class TestTicketPersonData(PersonhogTestMixin, APIBaseTest):
 
     def test_person_data_scoped_to_team(self, mock_on_commit):
         other_team = self.organization.teams.create(name="Other Team")
-        self._seed_person(
+        create_person(
             team=other_team,
             distinct_ids=["user-123"],
             properties={"email": "other@example.com"},
@@ -1500,6 +1493,30 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"][0]["person"] is None
+
+    def test_lookup_prefers_identified_person_when_email_is_shared(self, mock_on_commit):
+        # The stub is inserted first so that, without deterministic ordering, an
+        # unordered read would return it first and win the first-match pick. Its only
+        # distinct_id is the email address itself, which resolves no membership or
+        # analytics groups downstream — the identified person must win.
+        _create_person(
+            team=self.team,
+            distinct_ids=["shared@example.com"],
+            properties={"email": "shared@example.com"},
+            immediate=True,
+        )
+        identified = _create_person(
+            team=self.team,
+            distinct_ids=["real-app-distinct-id"],
+            properties={"email": "shared@example.com"},
+            is_identified=True,
+            immediate=True,
+        )
+
+        person = _get_persons_by_email(self.team, ["shared@example.com"]).get("shared@example.com")
+
+        assert person is not None
+        assert str(person.uuid) == str(identified.uuid)
 
     @snapshot_clickhouse_queries
     def test_email_fallback_uses_bloom_filter_lower_skip_index(self, mock_on_commit):
@@ -1646,6 +1663,20 @@ class TestComposeTicketAPI(APIBaseTest):
         assert response.status_code == expected_status
         if expected_detail:
             assert expected_detail in response.json()["detail"]
+
+    def test_composed_ticket_is_not_born_verified(self, mock_on_commit):
+        # The team typed the recipient address; the recipient never proved they control it,
+        # so an outbound ticket must start with unknown identity (None) — never verified.
+        response = self._compose(
+            {
+                "recipient_email": "someone@test.com",
+                "email_config_id": str(self.email_config.id),
+                "message": "Hello!",
+            }
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.identity_verified is None
 
 
 class TestTicketPersonalAPIKeyScopes(APIBaseTest):
@@ -1853,14 +1884,45 @@ class TestTicketMessagesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("customer_with_name", {"name": "Bob", "email": "bob@example.com"}, "customer", "Bob"),
-            ("customer_email_fallback", {"email": "bob@example.com"}, "customer", "bob@example.com"),
-            ("customer_default", {}, "customer", "Customer"),
-            ("ai_author", {}, "AI", "PostHog Assistant"),
-            ("support_without_user", {}, "support", "Support"),
+            ("customer_with_name", {"name": "Bob", "email": "bob@example.com"}, "customer", {}, "Bob"),
+            ("customer_email_fallback", {"email": "bob@example.com"}, "customer", {}, "bob@example.com"),
+            ("customer_default", {}, "customer", {}, "Customer"),
+            ("ai_author", {}, "AI", {}, "PostHog Assistant"),
+            ("support_without_user", {}, "support", {}, "Support"),
+            # Per-comment author overrides the ticket requester (thread replies from other participants)
+            (
+                "teams_thread_reply_author",
+                {"name": "Mark"},
+                "customer",
+                {"teams_author_name": "Chris"},
+                "Chris",
+            ),
+            (
+                "slack_thread_reply_author",
+                {"name": "Mark"},
+                "customer",
+                {"slack_author_name": "Chris"},
+                "Chris",
+            ),
+            (
+                "zendesk_import_author",
+                {"name": "Mark"},
+                "customer",
+                {"author_name": "Chris"},
+                "Chris",
+            ),
+            (
+                "context_author_on_support_comment",
+                {},
+                "support",
+                {"teams_author_name": "Chris"},
+                "Chris",
+            ),
         ]
     )
-    def test_messages_author_name_resolution(self, mock_on_commit, _name, traits, author_type, expected_name):
+    def test_messages_author_name_resolution(
+        self, mock_on_commit, _name, traits, author_type, extra_context, expected_name
+    ):
         self.ticket.anonymous_traits = traits
         self.ticket.save(update_fields=["anonymous_traits"])
         Comment.objects.create(
@@ -1868,7 +1930,7 @@ class TestTicketMessagesAPI(APIBaseTest):
             scope="conversations_ticket",
             item_id=str(self.ticket.id),
             content="msg",
-            item_context={"author_type": author_type},
+            item_context={"author_type": author_type, **extra_context},
         )
 
         response = self.client.get(self.url)
@@ -1985,7 +2047,12 @@ class TestTicketReplyAPI(APIBaseTest):
         assert comment.created_by == self.user
         assert comment.scope == "conversations_ticket"
         assert comment.item_id == str(self.ticket.id)
-        assert comment.item_context == {"author_type": "support", "is_private": is_private}
+        expected_context = {"author_type": "support", "is_private": is_private}
+        if not is_private:
+            # Public replies on an email ticket always get an outbox row; this team has no
+            # email channel, so delivery fails immediately and stamps the comment.
+            expected_context["email_delivery_status"] = "failed"
+        assert comment.item_context == expected_context
 
     def test_reply_defaults_is_private_to_false(self, mock_on_commit):
         response = self.client.post(self.url, {"message": "Hi"}, format="json")
@@ -2069,3 +2136,78 @@ class TestTicketReplyAPI(APIBaseTest):
         serializer = TicketReplyRequestSerializer(data={"message": "hi", "rich_content": {"amount": Decimal("1.2")}})
         assert not serializer.is_valid()
         assert "rich_content" in serializer.errors
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestAiFeedbackAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="ai-feedback-session",
+            distinct_id="user-123",
+            status=Status.OPEN,
+            ai_triage={
+                "status": "done",
+                "result": "persisted",
+                "confidence": 0.92,
+                "ai_trace_id": "trace-abc",
+            },
+        )
+        self.url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/ai_feedback/"
+
+    @patch("products.conversations.backend.api.tickets.posthoganalytics.capture")
+    def test_ai_feedback_captures_metric_on_rating(self, mock_capture, mock_on_commit):
+        response = self.client.post(
+            self.url,
+            {"message_id": "msg-1", "rating": "good"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        mock_capture.assert_called_once()
+        _, kwargs = mock_capture.call_args
+        assert kwargs["event"] == "$ai_metric"
+        assert kwargs["properties"]["$ai_metric_name"] == "reviewer_quality"
+        assert kwargs["properties"]["$ai_metric_value"] == 1
+        assert kwargs["properties"]["$ai_trace_id"] == "trace-abc"
+        assert kwargs["properties"]["ticket_id"] == str(self.ticket.id)
+        assert kwargs["properties"]["message_id"] == "msg-1"
+        assert kwargs["properties"]["ai_triage_result"] == "persisted"
+        assert kwargs["properties"]["confidence"] == 0.92
+
+    @parameterized.expand(
+        [
+            ("bad_without_text", {"message_id": "msg-1", "rating": "bad"}, "$ai_metric", 0),
+            (
+                "bad_with_text",
+                {"message_id": "msg-1", "rating": "bad", "feedback_text": "Wrong answer"},
+                "$ai_feedback",
+                None,
+            ),
+        ]
+    )
+    @patch("products.conversations.backend.api.tickets.posthoganalytics.capture")
+    def test_ai_feedback_metric_vs_text_are_mutually_exclusive(
+        self, _name, payload, expected_event, expected_metric_value, mock_capture, mock_on_commit
+    ):
+        response = self.client.post(self.url, payload, format="json")
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        mock_capture.assert_called_once()
+        _, kwargs = mock_capture.call_args
+        assert kwargs["event"] == expected_event
+        if expected_event == "$ai_metric":
+            assert kwargs["properties"]["$ai_metric_value"] == expected_metric_value
+            assert "$ai_feedback_text" not in kwargs["properties"]
+        else:
+            assert kwargs["properties"]["$ai_feedback_text"] == "Wrong answer"
+            assert "$ai_metric_name" not in kwargs["properties"]
+            assert kwargs["properties"]["$ai_trace_id"] == "trace-abc"
+
+    def test_ai_feedback_rejects_invalid_rating(self, mock_on_commit):
+        response = self.client.post(
+            self.url,
+            {"message_id": "msg-1", "rating": "meh"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

@@ -1,14 +1,15 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconDownload, IconGear, IconRevert } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType, appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
-import { DetectiveHog } from 'lib/components/hedgehogs'
+import { heatmapDataLogic, MAX_HEATMAP_HEIGHT } from 'lib/components/heatmaps/heatmapDataLogic'
 import { dayjs } from 'lib/dayjs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -20,9 +21,13 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { ClickmapSettings } from './ClickmapSettings'
 import { FilterPanel } from './FilterPanel'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
+import { recordingClickmapLogic } from './recordingClickmapLogic'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 function ExportButton({
     iframeRef,
@@ -34,11 +39,11 @@ function ExportButton({
     const { dataUrl } = useValues(logic)
     const { startHeatmapExport } = useActions(exportsLogic)
 
-    const { heatmapFilters, heatmapColorPalette, heatmapFixedPositionMode, commonFilters } = useValues(
+    const { heatmapFilters, heatmapColorPalette, heatmapFixedPositionMode, commonFilters, heightOverride } = useValues(
         heatmapDataLogic({ context: 'in-app' })
     )
 
-    const { width: iframeWidth, height: iframeHeight } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
+    const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
 
     // Creating an export requires editor access to the export resource.
     const exportAccessControlDisabledReason = getAccessControlDisabledReason(
@@ -51,7 +56,7 @@ function ExportButton({
             startHeatmapExport({
                 heatmap_url: dataUrl,
                 width: iframeWidth,
-                height: iframeHeight,
+                height: heightOverride,
                 heatmap_color_palette: heatmapColorPalette,
                 heatmap_fixed_position_mode: heatmapFixedPositionMode,
                 common_filters: commonFilters,
@@ -247,7 +252,7 @@ function HeatmapsBrowserIntro(): JSX.Element {
             <div className="max-w-[50rem] py-6 px-3 h-full w-full">
                 <div className="flex items-center flex-wrap gap-6">
                     <div className="w-50">
-                        <DetectiveHog className="w-full h-full" />
+                        <HedgehogMagnifyingGlass className="w-full h-full" />
                     </div>
 
                     <div className="flex-1">
@@ -345,8 +350,11 @@ export function HeatmapsBrowser(): JSX.Element {
     const logicProps = { ref: iframeRef }
 
     const logic = heatmapsBrowserLogic({ iframeRef })
+    const clickmapLogic = recordingClickmapLogic({ iframeRef })
 
-    const { displayUrl, isBrowserUrlAuthorized, hasValidReplayIframeData, isBrowserUrlValid } = useValues(logic)
+    const { displayUrl, isBrowserUrlAuthorized, hasValidReplayIframeData, isBrowserUrlValid, isHeightCapped } =
+        useValues(logic)
+    const { clickmapAvailable } = useValues(clickmapLogic)
 
     return (
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
@@ -355,9 +363,21 @@ export function HeatmapsBrowser(): JSX.Element {
                 <div className="w-full">
                     <UrlSearchHeader iframeRef={iframeRef} />
                     <LemonDivider className="my-4" />
-                    <FilterPanel />
+                    <FilterPanel
+                        clickmapSettings={
+                            hasValidReplayIframeData && clickmapAvailable ? (
+                                <ClickmapSettings iframeRef={iframeRef} />
+                            ) : undefined
+                        }
+                    />
                     <LemonDivider className="my-4" />
                     <div className="relative border">
+                        {isHeightCapped && (
+                            <LemonBanner type="info">
+                                This heatmap is capped at {MAX_HEATMAP_HEIGHT.toLocaleString()}px tall to keep rendering
+                                fast, so data below that point isn't shown.
+                            </LemonBanner>
+                        )}
                         {hasValidReplayIframeData ? (
                             <FixedReplayHeatmapBrowser iframeRef={iframeRef} />
                         ) : displayUrl ? (

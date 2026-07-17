@@ -21,6 +21,7 @@ use crate::otel;
 use crate::test_endpoint;
 use crate::v0_request::DataType;
 use crate::{ai_endpoint, sinks, time::TimeSource, v0_endpoint};
+use common_ingestion_warnings::WarningEmitter;
 use common_redis::Client;
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::RedisLimiter;
@@ -83,6 +84,13 @@ pub struct State {
     /// When present, the v1 analytics handler publishes events through this.
     pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     pub capture_v1_scatter_gather_min_batch: usize,
+    pub ai_gateway_signing_secret: Option<String>,
+    /// Best-effort v2 ingestion warnings emitter (fire-and-forget Kafka
+    /// producer behind a per-(token, type) throttle). `None` when disabled —
+    /// emit points skip on `is_none()`, same optionality pattern as
+    /// `overflow_limiter` / `event_restriction_service`. Never awaited and
+    /// never allowed to fail a request.
+    pub ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
 }
 
 #[derive(Clone, Copy)]
@@ -151,6 +159,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     capture_v1_scatter_gather_min_batch: usize,
+    ai_gateway_signing_secret: Option<String>,
+    ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
 ) -> Router {
     let state = State {
         sink,
@@ -177,6 +187,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         replay_overflow_limiter,
         v1_sink_router,
         capture_v1_scatter_gather_min_batch,
+        ai_gateway_signing_secret,
+        ingestion_warning_emitter,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -211,6 +223,20 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         )
         .route(
             "/batch/",
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
+                .options(v0_endpoint::options),
+        )
+        // `$ai_*` events: same batch handler, dedicated path so the ingress can route
+        // them to the capture-ai deployment and keep AI/analytics workloads isolated.
+        .route(
+            "/i/v0/ai/batch",
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/i/v0/ai/batch/",
             post(v0_endpoint::event)
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),

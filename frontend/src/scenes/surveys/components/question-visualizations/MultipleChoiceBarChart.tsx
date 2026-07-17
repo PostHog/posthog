@@ -1,17 +1,15 @@
-import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { BarChart, ValueLabels } from '@posthog/quill-charts'
 import type { BarChartConfig, Series, TooltipContext } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import {
     ChoiceTooltip,
     ChoiceTooltipContextData,
 } from 'scenes/surveys/components/question-visualizations/questionVizTooltips'
 import { formatCountWithPercentage } from 'scenes/surveys/components/question-visualizations/questionVizTransforms'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ChoiceQuestionResponseData } from '~/types'
 
 const CATEGORY_LABEL_WIDTH = 280
@@ -38,8 +36,7 @@ export function MultipleChoiceBarChart({
     tooltipContextByIndex,
     onBarClick,
 }: Props): JSX.Element {
-    const { isDarkModeOn } = useValues(themeLogic)
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
 
     // Bars encode the share of respondents who picked each choice against a fixed 0–100% domain;
     // counts surface in the labels and tooltip. Per-bar overrides carry the colors — the series
@@ -61,7 +58,7 @@ export function MultipleChoiceBarChart({
     // rendered through the category-axis formatter instead.
     const labels = useMemo(() => chartData.map((_, i) => String(i)), [chartData])
 
-    const config = useMemo<BarChartConfig>(
+    const config = useChartConfig<BarChartConfig>(
         () => ({
             axisOrientation: 'horizontal',
             barLayout: 'grouped',
@@ -71,8 +68,8 @@ export function MultipleChoiceBarChart({
             maxCategoryLabelWidth: CATEGORY_LABEL_WIDTH,
             xTickFormatter: (_label, index) => chartData[index]?.label ?? '',
             margins: { top: 4, right: 20, bottom: 4 },
+            barCornerRadius: 3,
             bars: {
-                cornerRadius: 3,
                 minBandSize: 32,
                 valueDomain: [0, 100],
             },

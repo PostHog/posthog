@@ -219,6 +219,30 @@ impl RedisClient {
 
         Self::maybe_compress(bytes, &self.compression)
     }
+
+    /// Evaluate a Lua script (EVALSHA with EVAL fallback) and decode the reply
+    /// as a list of integers. Used by the error-tracking rate limiter, whose
+    /// fused script returns `{ issue_admitted, team_admitted }`. Bypasses this
+    /// client's value (de)serialization and compression — the script operates
+    /// on raw Redis types directly.
+    pub async fn eval_int_vec(
+        &self,
+        script: &str,
+        keys: Vec<String>,
+        args: Vec<String>,
+    ) -> Result<Vec<i64>, CustomRedisError> {
+        let script = redis::Script::new(script);
+        let mut invocation = script.prepare_invoke();
+        for key in keys {
+            invocation.key(key);
+        }
+        for arg in args {
+            invocation.arg(arg);
+        }
+        let mut conn = self.connection.clone();
+        let result: Vec<i64> = invocation.invoke_async(&mut conn).await?;
+        Ok(result)
+    }
 }
 
 #[async_trait]

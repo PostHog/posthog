@@ -1,0 +1,25 @@
+rules:
+    - id: no-direct-streaming-http-response
+      message: >-
+          Do not construct `StreamingHttpResponse` directly. Use
+          `streaming_response(...)` (or `sse_streaming_response(...)` for SSE) from
+          `posthog.api.streaming`. The wrapper releases the request thread's DB
+          connections before streaming starts — PostHog runs with `CONN_MAX_AGE = 0`,
+          so a connection left open when a long-lived stream begins stays pinned to a
+          pgbouncer slot for the entire stream and exhausts the pool at scale.
+          Importing the class for a type hint (e.g. `-> StreamingHttpResponse`) is fine
+          — only direct construction is flagged.
+      severity: ERROR
+      languages: [python]
+      pattern-either:
+          - pattern: StreamingHttpResponse(...)
+          - pattern: django.http.StreamingHttpResponse(...)
+      paths:
+          exclude:
+              # The wrappers live here — the only allowed construction site.
+              - /posthog/api/streaming.py
+              # Rule fixtures and tests construct it directly on purpose.
+              - '**/.semgrep/**'
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'

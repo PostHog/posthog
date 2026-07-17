@@ -1,10 +1,11 @@
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
+import { LazyLoader } from '~/common/utils/lazy-loader'
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
+import { PubSub } from '~/common/utils/pubsub'
+
 import { Team } from '../../../types'
-import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
-import { parseJSON } from '../../../utils/json-parse'
-import { LazyLoader } from '../../../utils/lazy-loader'
-import { logger } from '../../../utils/logger'
-import { captureException } from '../../../utils/posthog'
-import { PubSub } from '../../../utils/pubsub'
 import { HogFunctionType, HogFunctionTypeType } from '../../types'
 import { EncryptedFields } from '../../utils/encryption-utils'
 
@@ -210,7 +211,7 @@ export class HogFunctionManagerService {
 
         const response = await this.postgres.query<HogFunctionType>(
             PostgresUse.COMMON_READ,
-            `SELECT ${HOG_FUNCTION_FIELDS.join(', ')} FROM posthog_hogfunction WHERE id = ANY($1)`,
+            `SELECT ${HOG_FUNCTION_FIELDS.join(', ')} FROM posthog_hogfunction WHERE id = ANY($1) AND deleted = FALSE`,
             [ids],
             'fetchHogFunctions'
         )

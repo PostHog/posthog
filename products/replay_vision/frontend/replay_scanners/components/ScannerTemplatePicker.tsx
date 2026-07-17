@@ -1,19 +1,7 @@
 import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import {
-    IconBolt,
-    IconBug,
-    IconCheckCircle,
-    IconMagicWand,
-    IconNotebook,
-    IconPlus,
-    IconSearch,
-    IconStar,
-    IconTarget,
-    IconThumbsDown,
-    IconWarning,
-} from '@posthog/icons'
+import { IconCheckCircle, IconNotebook, IconPlus, IconTarget, IconThumbsDown, IconWarning } from '@posthog/icons'
 
 import { urls } from 'scenes/urls'
 
@@ -21,34 +9,12 @@ import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ScannerTemplate, ScannerTemplateIcon, defaultScannerTemplates, newScanner } from '../scannerTemplates'
 
-function getTemplateIcon(icon: ScannerTemplateIcon): JSX.Element {
-    const iconClass = 'w-6 h-6 text-primary-3000'
-    switch (icon) {
-        case 'bolt':
-            return <IconBolt className={iconClass} />
-        case 'warning':
-            return <IconWarning className={iconClass} />
-        case 'notebook':
-            return <IconNotebook className={iconClass} />
-        case 'target':
-            return <IconTarget className={iconClass} />
-        case 'thumbs-down':
-            return <IconThumbsDown className={iconClass} />
-        case 'star':
-            return <IconStar className={iconClass} />
-        case 'search':
-            return <IconSearch className={iconClass} />
-        case 'magic':
-            return <IconMagicWand className={iconClass} />
-        case 'bug':
-            return <IconBug className={iconClass} />
-        case 'check':
-            return <IconCheckCircle className={iconClass} />
-        default: {
-            const exhaustiveCheck: never = icon
-            return exhaustiveCheck
-        }
-    }
+const TEMPLATE_ICONS: Record<ScannerTemplateIcon, JSX.Element> = {
+    warning: <IconWarning />,
+    notebook: <IconNotebook />,
+    target: <IconTarget />,
+    'thumbs-down': <IconThumbsDown />,
+    check: <IconCheckCircle />,
 }
 
 function TemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JSX.Element {
@@ -71,7 +37,9 @@ function TemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JS
         >
             <div className="flex flex-col items-center text-center gap-4 h-full">
                 <div className="bg-primary-3000/10 rounded-lg flex-shrink-0 size-12 flex items-center justify-center">
-                    {isBlank ? <IconPlus className="w-6 h-6 text-primary-3000" /> : getTemplateIcon(template.icon)}
+                    <span className="w-6 h-6 text-primary-3000 [&_svg]:w-6 [&_svg]:h-6">
+                        {isBlank ? <IconPlus /> : TEMPLATE_ICONS[template.icon]}
+                    </span>
                 </div>
                 <div className="flex-1 flex flex-col justify-start">
                     <div className="flex items-center justify-center gap-2 mb-2">

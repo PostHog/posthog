@@ -15,11 +15,11 @@ import {
     CyclotronWorker,
 } from '@posthog/cyclotron'
 
-import { CyclotronInvocationQueueParametersType } from '~/schema/cyclotron'
+import { CyclotronInvocationQueueParametersType } from '~/cdp/schema/cyclotron'
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '../../../types'
-import { logger } from '../../../utils/logger'
-import { captureException } from '../../../utils/posthog'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { JobQueue } from './job-queue.interface'
@@ -207,6 +207,9 @@ export class CyclotronJobQueuePostgres implements JobQueue {
             })
         )
     }
+
+    // Legacy V1 has no per-job heartbeat API; stall recovery works differently there.
+    public async heartbeatInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
 
     public async releaseInvocations(invocations: CyclotronJobInvocation[]) {
         // Called specially for jobs that came from postgres but are being requeued to kafka

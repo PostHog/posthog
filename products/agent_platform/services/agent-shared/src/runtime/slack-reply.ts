@@ -13,28 +13,6 @@
 import { HttpFetcher } from './http-client'
 import { markdownToMrkdwn } from './slack-mrkdwn'
 
-export interface SlackTriggerMetadata {
-    type: 'slack'
-    workspace_id: string
-    channel: string
-    ts: string
-    thread_ts: string
-}
-
-export function isSlackTriggerMetadata(meta: unknown): meta is SlackTriggerMetadata {
-    if (!meta || typeof meta !== 'object') {
-        return false
-    }
-    const m = meta as Record<string, unknown>
-    return (
-        m.type === 'slack' &&
-        typeof m.channel === 'string' &&
-        typeof m.thread_ts === 'string' &&
-        m.channel.length > 0 &&
-        m.thread_ts.length > 0
-    )
-}
-
 /** Join the text blocks of an assistant message into one Slack message body. */
 export function slackTextFromContent(content: ReadonlyArray<{ type: string; text?: string }>): string {
     return content

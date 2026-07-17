@@ -1,14 +1,20 @@
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
-import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
+import { logger } from '~/common/utils/logger'
+import {
+    PRE_SERIALIZED_FLAG_ACTIVE,
+    PRE_SERIALIZED_FLAG_CLICK,
+    PRE_SERIALIZED_FLAG_KEYPRESS,
+    PRE_SERIALIZED_FLAG_MOUSE_ACTIVITY,
+    ParsedMessageData,
+} from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { hrefFrom, isClick, isKeypress, isMouseActivity } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 import {
     SegmentationEvent,
     activeMillisecondsFromSegmentationEvents,
     toSegmentationEvent,
 } from '~/ingestion/pipelines/sessionreplay/segmentation'
-import { logger } from '~/utils/logger'
 
 const MAX_SNAPSHOT_FIELD_LENGTH = 1000
 const MAX_URL_LENGTH = 4 * 1024 // 4KB
@@ -134,6 +140,10 @@ export class SnappySessionRecorder {
             this.endDateTime = message.eventsRange.end
         }
 
+        if (message.preSerialized) {
+            return this.recordPreSerialized(message)
+        }
+
         for (const [windowId, events] of Object.entries(message.eventsByWindowId)) {
             for (const event of events) {
                 const serializedLine = JSON.stringify([windowId, event]) + '\n'
@@ -168,6 +178,39 @@ export class SnappySessionRecorder {
 
         this.messageCount += 1
         return rawBytesWritten
+    }
+
+    /**
+     * Fast path for messages the native anonymizer already serialized: the JSONL block lines are
+     * appended as one chunk, and the counts/segmentation/urls come from the per-event metadata
+     * instead of walking parsed events.
+     */
+    private recordPreSerialized(message: ParsedMessageData): number {
+        const { lines, events } = message.preSerialized!
+
+        this.uncompressedChunks.push(lines)
+        for (const event of events) {
+            this.segmentationEvents.push({
+                timestamp: event.ts,
+                isActive: (event.flags & PRE_SERIALIZED_FLAG_ACTIVE) !== 0,
+            })
+            if (event.href) {
+                this.addUrl(event.href)
+            }
+            if (event.flags & PRE_SERIALIZED_FLAG_CLICK) {
+                this.clickCount += 1
+            }
+            if (event.flags & PRE_SERIALIZED_FLAG_KEYPRESS) {
+                this.keypressCount += 1
+            }
+            if (event.flags & PRE_SERIALIZED_FLAG_MOUSE_ACTIVITY) {
+                this.mouseActivityCount += 1
+            }
+            this.eventCount++
+        }
+        this.size += lines.length
+        this.messageCount += 1
+        return lines.length
     }
 
     private addUrl(url: string): void {

@@ -8,7 +8,8 @@ use crate::{
     error::UnhandledError, metric_consts::ANCILLARY_CACHE,
     modes::processing::config::ProcessingConfig,
     modes::processing::rules::assignment::AssignmentRule,
-    modes::processing::rules::grouping::GroupingRule,
+    modes::processing::rules::bypass::BypassRule, modes::processing::rules::grouping::GroupingRule,
+    modes::processing::rules::rate_limit::RateLimitSettings,
     modes::processing::rules::spike::SpikeDetectionConfig,
     modes::processing::rules::suppression::SuppressionRule,
 };
@@ -19,8 +20,10 @@ pub struct TeamManager {
     pub assignment_rules: Cache<TeamId, Vec<AssignmentRule>>,
     pub grouping_rules: Cache<TeamId, Vec<GroupingRule>>,
     pub suppression_rules: Cache<TeamId, Vec<SuppressionRule>>,
+    pub bypass_rules: Cache<TeamId, Vec<BypassRule>>,
     pub group_type_indices: Cache<TeamId, Vec<GroupType>>,
     pub spike_detection_configs: Cache<TeamId, Option<SpikeDetectionConfig>>,
+    pub rate_limit_settings: Cache<TeamId, Option<RateLimitSettings>>,
 }
 
 impl TeamManager {
@@ -60,7 +63,20 @@ impl TeamManager {
             })
             .build();
 
+        let bypass_rules = CacheBuilder::new(config.max_bypass_rule_cache_size)
+            .time_to_live(Duration::from_secs(config.bypass_rule_cache_ttl_secs))
+            .weigher(|_, v: &Vec<BypassRule>| {
+                v.iter()
+                    .map(|rule| rule.bytecode.as_array().map_or(0, Vec::len) as u32)
+                    .sum()
+            })
+            .build();
+
         let spike_detection_configs = CacheBuilder::new(config.max_team_cache_size)
+            .time_to_live(Duration::from_secs(config.team_cache_ttl_secs))
+            .build();
+
+        let rate_limit_settings = CacheBuilder::new(config.max_team_cache_size)
             .time_to_live(Duration::from_secs(config.team_cache_ttl_secs))
             .build();
 
@@ -69,8 +85,10 @@ impl TeamManager {
             assignment_rules,
             grouping_rules,
             suppression_rules,
+            bypass_rules,
             group_type_indices,
             spike_detection_configs,
+            rate_limit_settings,
         }
     }
 
@@ -161,6 +179,26 @@ impl TeamManager {
         Ok(rules)
     }
 
+    pub async fn get_bypass_rules<'c, E>(
+        &self,
+        e: E,
+        team_id: TeamId,
+    ) -> Result<Vec<BypassRule>, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        if let Some(rules) = self.bypass_rules.get(&team_id) {
+            metrics::counter!(ANCILLARY_CACHE, "type" => "bypass_rules", "outcome" => "hit")
+                .increment(1);
+            return Ok(rules.clone());
+        }
+        metrics::counter!(ANCILLARY_CACHE, "type" => "bypass_rules", "outcome" => "miss")
+            .increment(1);
+        let rules = BypassRule::load_for_team(e, team_id).await?;
+        self.bypass_rules.insert(team_id, rules.clone());
+        Ok(rules)
+    }
+
     pub async fn get_spike_detection_config<'c, E>(
         &self,
         e: E,
@@ -210,6 +248,65 @@ impl TeamManager {
                 }
             };
             result.insert(team_id, config);
+        }
+        result
+    }
+
+    pub async fn get_rate_limit_setting<'c, E>(
+        &self,
+        e: E,
+        team_id: TeamId,
+    ) -> Result<Option<RateLimitSettings>, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        if let Some(cached) = self.rate_limit_settings.get(&team_id) {
+            metrics::counter!(ANCILLARY_CACHE, "type" => "rate_limit_settings", "outcome" => "hit")
+                .increment(1);
+            return Ok(cached);
+        }
+        metrics::counter!(ANCILLARY_CACHE, "type" => "rate_limit_settings", "outcome" => "miss")
+            .increment(1);
+        // We cache the "no settings row" result too (None), so opt-out teams don't re-query.
+        let settings = RateLimitSettings::load_for_team(e, team_id).await?;
+        self.rate_limit_settings.insert(team_id, settings.clone());
+        Ok(settings)
+    }
+
+    /// Batch-load rate-limit settings for the teams in a request. Teams with no
+    /// settings row (opted out) or a load error are omitted from the map, so the
+    /// rate-limiting stage simply skips them.
+    pub async fn get_rate_limit_settings(
+        &self,
+        pool: &sqlx::PgPool,
+        team_ids: impl IntoIterator<Item = i32>,
+    ) -> HashMap<TeamId, RateLimitSettings> {
+        let unique_ids: std::collections::HashSet<i32> = team_ids.into_iter().collect();
+
+        let tasks: Vec<(i32, _)> = unique_ids
+            .into_iter()
+            .map(|team_id| {
+                let manager = self.clone();
+                let pool = pool.clone();
+                let task =
+                    tokio::spawn(
+                        async move { manager.get_rate_limit_setting(&pool, team_id).await },
+                    );
+                (team_id, task)
+            })
+            .collect();
+
+        let mut result = HashMap::new();
+        for (team_id, task) in tasks {
+            match task.await.expect("Task was not cancelled") {
+                Ok(Some(settings)) => {
+                    result.insert(team_id, settings);
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    warn!("Failed to load rate limit settings for team {team_id}: {e}");
+                }
+            }
         }
         result
     }

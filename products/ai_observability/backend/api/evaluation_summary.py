@@ -28,7 +28,7 @@ from posthog.hogql.parser import parse_select
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
-from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.models import Team, User
 from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import (
@@ -195,7 +195,7 @@ def _fetch_evaluation_runs(
         """
     )
 
-    query_result = execute_with_ai_events_fallback(
+    query_result = query_ai_events(
         query=query,
         placeholders={
             "where_clause": ast.And(exprs=where_conditions),
@@ -203,6 +203,7 @@ def _fetch_evaluation_runs(
         },
         team=team,
         query_type="EvaluationSummaryFetchRuns",
+        fall_back_to_events=True,
     )
 
     # Transform to expected format

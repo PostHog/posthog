@@ -53,6 +53,6 @@ describe('PieChart wrapper', () => {
         render(<PieChart {...props} />)
 
         // The quill PieChart canvas carries this accessible name; the legacy chart.js path does not.
-        expect(await screen.findByRole('img', { name: /pie chart with/i }, { timeout: 5000 })).toBeInTheDocument()
+        expect(await screen.findByLabelText(/pie chart with/i, {}, { timeout: 5000 })).toBeInTheDocument()
     })
 })

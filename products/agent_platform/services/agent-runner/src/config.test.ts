@@ -110,6 +110,15 @@ describe('loadAgentRunnerConfig', () => {
         expect(() => loadAgentRunnerConfig({ AGENT_MAX_CONCURRENCY: 'lots' })).toThrow()
     })
 
+    it('rejects an unknown id in AGENT_WEB_SEARCH_FALLBACKS at config load (matches primary strictness)', () => {
+        expect(() => loadAgentRunnerConfig({ AGENT_WEB_SEARCH_FALLBACKS: 'exa,barve' })).toThrow(/webSearchFallbacks/)
+    })
+
+    it('accepts a valid AGENT_WEB_SEARCH_FALLBACKS list (case- and whitespace-insensitive)', () => {
+        const cfg = loadAgentRunnerConfig({ AGENT_WEB_SEARCH_FALLBACKS: ' EXA , brave ' })
+        expect(cfg.webSearchFallbacks).toBe(' EXA , brave ')
+    })
+
     it('every schema key carries a description (for runbook generation)', () => {
         for (const [key, field] of Object.entries(AgentRunnerConfigSchema.shape)) {
             expect((field as { description?: string }).description, `missing .describe() for ${key}`).toBeTruthy()

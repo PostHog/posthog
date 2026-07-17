@@ -7,7 +7,8 @@ class FingerprintEmbeddingResultInputs:
     fingerprint: str
     rendering: str
     timestamp: str
-    model_names: list[str] = dataclasses.field(default_factory=list)
+    model_name: str
+    embedding: list[float]
 
 
 @dataclasses.dataclass(frozen=True)

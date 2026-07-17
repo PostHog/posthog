@@ -7,13 +7,13 @@ import {
     KAFKA_EVENTS_JSON,
     KAFKA_INGESTION_WARNINGS,
     KAFKA_LOG_ENTRIES,
-} from '~/config/kafka-topics'
+} from '~/common/config/kafka-topics'
 import {
     INGESTION_DOWNSTREAM_PRODUCER,
     INGESTION_UPSTREAM_PRODUCER,
     type ProducerName,
-} from '~/ingestion/common/producers'
-import { IngestionLane } from '~/ingestion/config'
+} from '~/ingestion/common/outputs/producers'
+import { IngestionLane, IngestionOverflowMode } from '~/ingestion/config'
 
 export type ErrorTrackingConsumerConfig = {
     ERROR_TRACKING_CONSUMER_GROUP_ID: string
@@ -28,8 +28,6 @@ export type ErrorTrackingConsumerConfig = {
     ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY: number
     /** Token bucket replenish rate (events per second) */
     ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE: number
-    /** When true, uses Redis to coordinate overflow state across pods */
-    ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED: boolean
     /** TTL in seconds for Redis overflow flags */
     ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
     /** TTL in seconds for local cache entries */
@@ -74,6 +72,8 @@ export type ErrorTrackingConsumerConfig = {
     INGESTION_PIPELINE: string | null
     /** Lane identifier (main, overflow) for metrics labeling */
     INGESTION_LANE: IngestionLane | null
+    /** How this consumer participates in overflow handling (redirect / consume / disabled) */
+    INGESTION_OVERFLOW_MODE: IngestionOverflowMode
 }
 
 export function getDefaultErrorTrackingConsumerConfig(): ErrorTrackingConsumerConfig {
@@ -87,7 +87,6 @@ export function getDefaultErrorTrackingConsumerConfig(): ErrorTrackingConsumerCo
         ERROR_TRACKING_CYMBAL_TIMEOUT_MS: 15000,
         ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY: 1000,
         ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
-        ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED: false,
         ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300, // 5 minutes
         ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60, // 1 minute
         ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY: true,
@@ -103,6 +102,7 @@ export function getDefaultErrorTrackingConsumerConfig(): ErrorTrackingConsumerCo
         ERROR_TRACKING_PER_ISSUE_GUARD_COOLDOWN_TTL_SECONDS: 300,
         INGESTION_PIPELINE: null,
         INGESTION_LANE: null,
+        INGESTION_OVERFLOW_MODE: 'disabled',
     }
 }
 

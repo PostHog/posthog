@@ -1,11 +1,11 @@
 import { DateTime } from 'luxon'
 
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
+import { timeoutGuard } from '~/common/utils/db/utils'
+import { LazyLoader } from '~/common/utils/lazy-loader'
+import { captureTeamEvent } from '~/common/utils/posthog'
+import { TeamManager } from '~/common/utils/team-manager'
 import { GroupTypeIndex, GroupTypeToColumnIndex, GroupTypesByProjectId, ProjectId, Team, TeamId } from '~/types'
-import { timeoutGuard } from '~/utils/db/utils'
-import { LazyLoader } from '~/utils/lazy-loader'
-import { captureTeamEvent } from '~/utils/posthog'
-import { TeamManager } from '~/utils/team-manager'
 
 /** How many unique group types to allow per team */
 export const MAX_GROUP_TYPES_PER_TEAM = 5
@@ -55,16 +55,30 @@ export class GroupTypeManager {
         return (await this.loader.get(projectId.toString())) ?? {}
     }
 
+    /**
+     * Resolve a group type to its column index from the cached mapping only — never creates a
+     * mapping. Own-property + type guarded: the mapping is a plain object, so an
+     * attacker-supplied name like "__proto__" or "constructor" would otherwise resolve to an
+     * inherited non-numeric value and poison downstream SQL parameters.
+     */
+    public async lookupGroupTypeIndex(projectId: ProjectId, groupType: string): Promise<GroupTypeIndex | null> {
+        const groupTypes = await this.fetchGroupTypes(projectId)
+        const groupTypeIndex = Object.hasOwn(groupTypes, groupType) ? groupTypes[groupType] : undefined
+        return typeof groupTypeIndex === 'number' ? groupTypeIndex : null
+    }
+
     public async fetchGroupTypeIndex(
         teamId: TeamId,
         projectId: ProjectId,
         groupType: string,
         eventTimestamp: DateTime
     ): Promise<GroupTypeIndex | null> {
-        const groupTypes = await this.fetchGroupTypes(projectId)
-        if (groupType in groupTypes) {
-            return groupTypes[groupType]
+        const existingIndex = await this.lookupGroupTypeIndex(projectId, groupType)
+        if (existingIndex !== null) {
+            return existingIndex
         }
+
+        const groupTypes = await this.fetchGroupTypes(projectId)
 
         const usedIndexes = new Set(Object.values(groupTypes))
         if (usedIndexes.size >= MAX_GROUP_TYPES_PER_TEAM) {

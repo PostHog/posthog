@@ -817,7 +817,7 @@ SELECT
     stack_trace,
 
     JSONExtractInt(log_comment, 'team_id') as team_id,
-    log_comment,
+    if(isValidJSON(log_comment), log_comment, '{}') AS log_comment,
     ProfileEvents
 FROM system.query_log
 WHERE
@@ -838,7 +838,7 @@ def QUERY_LOG_ARCHIVE_OPS_MV_SQL(view_name, dest_table):
 # ----------------------------------------------------------------------------
 # A non-materialized view that rolls query_log_archive up to one row per day per
 # (team, user, query-attribution) tuple. The data warehouse ClickHouse source
-# (posthog/temporal/data_imports/sources/clickhouse) syncs it into an internal
+# (products/warehouse_sources/backend/temporal/data_imports/sources/clickhouse) syncs it into an internal
 # project incrementally on `day`, so query-cost analysis can live in PostHog
 # instead of Metabase.
 #

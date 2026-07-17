@@ -10,7 +10,6 @@ import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema
-from loginas.utils import is_impersonated_session
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
@@ -19,6 +18,7 @@ from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttri
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import EventSource, get_event_source, groups
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.organization import Organization
@@ -291,9 +291,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
                     organization_id=insight.team.organization.id,
                     team_id=self.context["team_id"],
                     user=user,
-                    was_impersonated=is_impersonated_session(self.context["request"])
-                    if "request" in self.context
-                    else False,
+                    was_impersonated=is_impersonated(self.context.get("request")),
                     item_id=insight_id,  # Type: ignore
                     scope="Insight",
                     activity="exported" if reason is None else f"exported for {reason}",
@@ -331,7 +329,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
             organization_id=instance.team.organization_id,
             team_id=instance.team_id,
             user=user,
-            was_impersonated=is_impersonated_session(self.context["request"]) if "request" in self.context else False,
+            was_impersonated=is_impersonated(self.context.get("request")),
             item_id=instance.id,
             scope="ExportedAsset",
             activity="exported",
@@ -497,9 +495,15 @@ class ExportedAssetViewSet(
         if resource is not None:
             if not self.user_access_control.check_access_level_for_object(resource, required_level="viewer"):
                 raise NotFound()
-        elif session_recording_id:
+        elif session_recording_id and instance.created_by_id != self.request.user.id:
             # No SessionRecording row — cannot run object-level RBAC; still enforce the team's
-            # session_recording resource default so detail/content are not fail-open.
+            # session_recording resource default for other users so detail/content are not fail-open.
+            # The creator is exempt from this fallback only: they necessarily had the access required
+            # to create the export, so retrieval must not be stricter than creation — otherwise a
+            # session_recording default below viewer 404s the very user who just took the screenshot,
+            # surfacing as an "Export complete!" toast followed by a blank error page. Explicit
+            # object-level denies (the branch above) still apply to the creator once a
+            # SessionRecording row exists.
             if not self.user_access_control.check_access_level_for_resource(
                 "session_recording", required_level="viewer"
             ):

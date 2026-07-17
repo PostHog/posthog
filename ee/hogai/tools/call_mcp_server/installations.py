@@ -1,21 +1,54 @@
 from __future__ import annotations
 
+from django.db.models import Q
+
 from posthog.models import Team, User
 
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
 from products.mcp_store.backend.oauth import refresh_installation_token
 
 
+def _is_row_ready(row: dict) -> bool:
+    if row["auth_type"] != "oauth":
+        return True
+    sensitive = row.get("sensitive_configuration") or {}
+    return bool(sensitive.get("access_token")) and not sensitive.get("needs_reauth")
+
+
 def _get_installations(team: Team, user: User) -> list[dict]:
-    return list(
-        MCPServerInstallation.objects.filter(team=team, user=user, is_enabled=True).values(  # type: ignore[arg-type]
+    """Return the MCP installations available to this user's agent: their
+    personal installations plus team-shared ones.
+
+    Per-URL resolution matches the sandbox facade and PostHog Code: a ready
+    personal installation wins over a shared one (the agent acts as the user
+    rather than through a teammate's shared credential), but a dead personal
+    row doesn't shadow a working shared one. Unready shared rows are hidden
+    entirely — a teammate can't fix someone else's credential, while an
+    unready personal row still surfaces so Max can walk the user through
+    reauth."""
+    rows = [
+        dict(row)
+        for row in MCPServerInstallation.objects.filter(team=team, is_enabled=True)
+        .filter(Q(scope="shared") | Q(user=user))
+        .values(
             "id",
             "display_name",
             "url",
             "auth_type",
             "sensitive_configuration",
+            "scope",
         )
-    )
+    ]
+    ready_shared_by_url = {row["url"]: row for row in rows if row["scope"] == "shared" and _is_row_ready(row)}
+    results: list[dict] = []
+    for row in rows:
+        if row["scope"] == "shared":
+            continue
+        if _is_row_ready(row) or row["url"] not in ready_shared_by_url:
+            results.append(row)
+            ready_shared_by_url.pop(row["url"], None)
+    results.extend(ready_shared_by_url.values())
+    return results
 
 
 def _get_cached_tools(installation_id: str) -> list[dict]:

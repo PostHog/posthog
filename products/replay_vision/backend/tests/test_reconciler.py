@@ -1,4 +1,5 @@
 import uuid
+import datetime as dt
 from collections.abc import Callable
 from typing import Any
 
@@ -6,24 +7,33 @@ import pytest
 from unittest.mock import AsyncMock, patch
 
 from django.conf import settings
+from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
-from temporalio.client import ScheduleOverlapPolicy
+from temporalio.client import ScheduleOverlapPolicy, WorkflowExecutionStatus
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
 from temporalio.exceptions import ApplicationError
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models import Organization, Team
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_FINGERPRINT_KEY
 
+from products.replay_vision.backend.models.replay_observation import (
+    ObservationStatus,
+    ObservationTrigger,
+    ReplayObservation,
+)
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.temporal.activities import (
     delete_scanner_schedule_activity,
     list_enabled_scanners_activity,
     list_scanner_schedules_activity,
+    reap_orphaned_observations_activity,
     upsert_scanner_schedule_activity,
 )
 from products.replay_vision.backend.temporal.constants import (
+    OBSERVATION_ORPHAN_CUTOFF,
     RECONCILER_EXECUTION_TIMEOUT,
     RECONCILER_INTERVAL,
     RECONCILER_SCHEDULE_ID,
@@ -199,15 +209,23 @@ class _ReconcileMocks:
         existing: list[ScannerScheduleEntry],
         upsert_errors_for_ids: set[uuid.UUID] | None = None,
         delete_errors_for_ids: set[uuid.UUID] | None = None,
+        reap_error: Exception | None = None,
     ) -> None:
         self.enabled = enabled
         self.existing = existing
         self.upsert_errors = upsert_errors_for_ids or set()
         self.delete_errors = delete_errors_for_ids or set()
+        self.reap_error = reap_error
+        self.reap_calls = 0
         self.upserted: list[uuid.UUID] = []
         self.deleted: list[uuid.UUID] = []
 
     async def execute_activity(self, activity_fn: Any, activity_input: Any = None, **_: Any) -> Any:
+        if activity_fn is reap_orphaned_observations_activity:
+            self.reap_calls += 1
+            if self.reap_error:
+                raise self.reap_error
+            return 0
         if activity_fn is list_enabled_scanners_activity:
             return self.enabled
         if activity_fn is list_scanner_schedules_activity:
@@ -227,7 +245,11 @@ class _ReconcileMocks:
 
 async def _run_reconcile(mocks: _ReconcileMocks):
     # `workflow.logger` reaches into the workflow runtime, which isn't set up here.
-    fake_logger = type("Logger", (), {"warning": staticmethod(lambda *_a, **_kw: None)})()
+    fake_logger = type(
+        "Logger",
+        (),
+        {"warning": staticmethod(lambda *_a, **_kw: None), "exception": staticmethod(lambda *_a, **_kw: None)},
+    )()
     with (
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
         patch("temporalio.workflow.logger", fake_logger),
@@ -353,6 +375,22 @@ async def test_reconcile_workflow(_name: str, build: Callable[[], tuple[_Reconci
     assert result.failed_delete == expected.get("failed_delete", [])
 
 
+@pytest.mark.asyncio
+async def test_reconcile_workflow_survives_reap_failure() -> None:
+    # The reaper is best-effort: its failure must not block schedule sync (and vice versa — it runs first).
+    sid = uuid.uuid4()
+    fp = compute_schedule_fingerprint({"sample_rate": 0.5})
+    mocks = _ReconcileMocks(
+        enabled=_enabled((sid, 1, fp)),
+        existing=_existing(),
+        reap_error=RuntimeError("reap boom"),
+    )
+    result = await _run_reconcile(mocks)
+    assert mocks.reap_calls == 1
+    assert result.upserted == [sid]
+    assert result.failed_upsert == []
+
+
 def test_reconcile_parse_inputs() -> None:
     assert ReconcileScannerSchedulesWorkflow.parse_inputs([]) == ReconcileScannerSchedulesInputs()
 
@@ -384,3 +422,104 @@ async def test_create_reconciler_schedule_routes_by_existence(_name: str, exists
         assert called.call_args.kwargs["trigger_immediately"] is True
     else:
         assert "trigger_immediately" not in called.call_args.kwargs
+
+
+class _StubReapHandle:
+    def __init__(self, outcome: str) -> None:
+        self._outcome = outcome
+
+    async def describe(self):
+        if self._outcome == "not_found":
+            raise RPCError("not found", RPCStatusCode.NOT_FOUND, b"")
+        if self._outcome == "rpc_error":
+            raise RPCError("boom", RPCStatusCode.INTERNAL, b"")
+
+        class _Desc:
+            status = WorkflowExecutionStatus.RUNNING if self._outcome == "open" else WorkflowExecutionStatus.TIMED_OUT
+
+        return _Desc()
+
+
+class _StubReapTemporal:
+    def __init__(self, outcomes: dict[str, str]) -> None:
+        self._outcomes = outcomes
+        self.described: list[str] = []
+
+    def get_workflow_handle(self, workflow_id: str) -> _StubReapHandle:
+        self.described.append(workflow_id)
+        return _StubReapHandle(self._outcomes[workflow_id])
+
+
+def _make_observation(scanner: ReplayScanner, *, session_id: str, status: str, workflow_id: str, age: dt.timedelta):
+    observation = ReplayObservation.objects.create(
+        scanner=scanner,
+        team=scanner.team,
+        session_id=session_id,
+        status=status,
+        workflow_id=workflow_id,
+        scanner_snapshot={"scanner_type": "monitor"},
+        triggered_by=ObservationTrigger.SCHEDULE,
+    )
+    ReplayObservation.objects.filter(pk=observation.pk).update(created_at=timezone.now() - age)
+    return observation
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_reap_orphaned_observations_activity(org_team) -> None:
+    _, team = org_team
+    scanner = await sync_to_async(_make_scanner)(team)
+    stale = OBSERVATION_ORPHAN_CUTOFF + dt.timedelta(minutes=5)
+
+    def _setup() -> dict[str, ReplayObservation]:
+        return {
+            "pending_gone": _make_observation(
+                scanner, session_id="s-pending", status=ObservationStatus.PENDING, workflow_id="wf-gone-1", age=stale
+            ),
+            "running_timed_out": _make_observation(
+                scanner, session_id="s-running", status=ObservationStatus.RUNNING, workflow_id="wf-timed-out", age=stale
+            ),
+            "no_workflow_id": _make_observation(
+                scanner, session_id="s-no-wf", status=ObservationStatus.PENDING, workflow_id="", age=stale
+            ),
+            # A re-trigger reused the deterministic workflow id and reclaimed this old row — hands off.
+            "reclaimed_by_live_run": _make_observation(
+                scanner, session_id="s-live", status=ObservationStatus.PENDING, workflow_id="wf-open", age=stale
+            ),
+            # Temporal couldn't answer — skip rather than reap on uncertainty.
+            "describe_error": _make_observation(
+                scanner, session_id="s-err", status=ObservationStatus.RUNNING, workflow_id="wf-err", age=stale
+            ),
+            "too_fresh": _make_observation(
+                scanner,
+                session_id="s-fresh",
+                status=ObservationStatus.RUNNING,
+                workflow_id="wf-gone-2",
+                age=dt.timedelta(minutes=30),
+            ),
+        }
+
+    rows = await sync_to_async(_setup)()
+    temporal = _StubReapTemporal(
+        {"wf-gone-1": "not_found", "wf-timed-out": "closed", "wf-open": "open", "wf-err": "rpc_error"}
+    )
+
+    with patch(
+        "products.replay_vision.backend.temporal.activities.reap_orphaned_observations.async_connect",
+        AsyncMock(return_value=temporal),
+    ):
+        reaped = await reap_orphaned_observations_activity()
+
+    assert reaped == 3
+    statuses = {
+        key: await sync_to_async(lambda o=obs: ReplayObservation.objects.get(pk=o.pk))() for key, obs in rows.items()
+    }
+    for key in ("pending_gone", "running_timed_out", "no_workflow_id"):
+        assert statuses[key].status == ObservationStatus.FAILED, key
+        assert statuses[key].error_reason.startswith("orphaned:"), key
+        assert statuses[key].completed_at is not None, key
+    for key in ("reclaimed_by_live_run", "describe_error", "too_fresh"):
+        assert statuses[key].status == rows[key].status, key
+        assert statuses[key].completed_at is None, key
+    # The fresh row never reaches Temporal; the empty-workflow-id row is reaped without a describe.
+    assert set(temporal.described) == {"wf-gone-1", "wf-timed-out", "wf-open", "wf-err"}

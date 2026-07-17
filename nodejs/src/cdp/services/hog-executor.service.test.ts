@@ -3,8 +3,8 @@ import { createServer } from 'http'
 import { DateTime } from 'luxon'
 import { AddressInfo } from 'net'
 
-import { CyclotronInvocationQueueParametersFetchType } from '~/schema/cyclotron'
-import { logger } from '~/utils/logger'
+import { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
+import { logger } from '~/common/utils/logger'
 
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import { HogInputsService } from '../../../src/cdp/services/hog-inputs.service'
@@ -14,18 +14,18 @@ import { EmailTrackingCodeSigner } from '../../../src/cdp/services/messaging/hel
 import { RecipientTokensService } from '../../../src/cdp/services/messaging/recipient-tokens.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
-import { createHub } from '../../../src/utils/db/hub'
-import { parseJSON } from '../../utils/json-parse'
-import { promisifyCallback } from '../../utils/utils'
+import { createHub } from '~/common/utils/db/hub'
+import { parseJSON } from '~/common/utils/json-parse'
+import { promisifyCallback } from '~/common/utils/utils'
 import { compileHog } from '../templates/compiler'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
 import { EXTEND_OBJECT_KEY, isConnectionLevelError } from './hog-executor.service'
-import { selfLoopGuardCounter } from './self-loop-guard'
+import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
 
 // Mock before importing fetch
-jest.mock('~/utils/request', () => {
-    const original = jest.requireActual('~/utils/request')
+jest.mock('~/common/utils/request', () => {
+    const original = jest.requireActual('~/common/utils/request')
     return {
         ...original,
         fetch: jest.fn().mockImplementation((url, options) => {
@@ -34,7 +34,7 @@ jest.mock('~/utils/request', () => {
     }
 })
 
-import { fetch } from '~/utils/request'
+import { fetch } from '~/common/utils/request'
 
 const cleanLogs = (logs: string[]): string[] => {
     // Replaces the function time with a fixed value to simplify testing
@@ -53,7 +53,11 @@ describe('Hog Executor', () => {
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
         hub = await createHub()
-        const hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const hogInputsService = new HogInputsService(
+            hub.integrationManager,
+            new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+            hub.encryptedFields
+        )
         const emailService = new EmailService(
             {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -75,19 +79,38 @@ describe('Hog Executor', () => {
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                emailQueueRouting: hub.CDP_EMAIL_QUEUE_ROUTING,
-                selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
             },
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
             hogInputsService,
             emailService,
-            recipientTokensService
+            recipientTokensService,
+            undefined as any
         )
     })
 
     afterEach(() => {
         // Ensure any spies (e.g., execHog, Math.random, Date.now) are restored between tests
         jest.restoreAllMocks()
+    })
+
+    describe('getSensitiveValues', () => {
+        it('masks the nested secrets of every integration in an integration_multi input', () => {
+            const hogFunction = {
+                inputs_schema: [{ type: 'integration_multi', key: 'channels' }],
+            } as unknown as HogFunctionType
+            const inputs = {
+                channels: [
+                    { $integration_id: 1, access_token_raw: 'fcm-secret-token' },
+                    { $integration_id: 2, signing_key: 'apns-signing-key-secret' },
+                ],
+            }
+
+            const values = executor.getSensitiveValues(hogFunction, inputs)
+
+            // Without integration_multi + array handling these secrets leak into team-visible logs.
+            expect(values).toContain('fcm-secret-token')
+            expect(values).toContain('apns-signing-key-secret')
+        })
     })
 
     describe('general event processing', () => {
@@ -108,6 +131,7 @@ describe('Hog Executor', () => {
             expect(result).toEqual({
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
+                emailAssets: [],
                 invocation: {
                     state: {
                         globals: invocation.state.globals,
@@ -621,6 +645,49 @@ describe('Hog Executor', () => {
                 `"https://example.com/posthog-webhook"`
             )
         })
+
+        it('rebuilds mapping inputs when an invocation arrives without inputs (rerun path)', async () => {
+            // The rerun path strips `inputs` from the persisted globals and lets
+            // the executor rebuild them. For mapping destinations the mapping's
+            // own inputs (e.g. Google Ads `gclid`) must be re-merged — otherwise
+            // they resolve to nothing and the function early-exits on rerun.
+            const hog = `return inputs.gclid`
+            const mappingFn = createHogFunction({
+                hog,
+                bytecode: await compileHog(hog),
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+                inputs_schema: [],
+                mappings: [
+                    {
+                        ...HOG_FILTERS_EXAMPLES.no_filters,
+                        inputs: {
+                            gclid: {
+                                order: 0,
+                                value: '{person.properties.gclid ?? person.properties.$initial_gclid}',
+                                bytecode: await compileHog(
+                                    'return person.properties.gclid ?? person.properties.$initial_gclid'
+                                ),
+                            },
+                        },
+                    },
+                ],
+            })
+
+            const invocation = createExampleInvocation(mappingFn, {
+                person: {
+                    id: 'uuid',
+                    name: 'test',
+                    url: 'http://localhost:8000/persons/1',
+                    properties: { email: 'test@posthog.com', $initial_gclid: 'INITIAL_TOKEN_ABC' },
+                },
+            })
+            // Simulate the rerun blob: inputs are stripped before persistence.
+            expect(invocation.state.globals.inputs).toBeUndefined()
+
+            const res = await executor.execute(invocation)
+            expect(res.error).toBeUndefined()
+            expect(res.execResult).toBe('INITIAL_TOKEN_ABC')
+        })
     })
 
     describe('slow functions', () => {
@@ -994,6 +1061,39 @@ describe('Hog Executor', () => {
 
             const result = await executor.execute(createAccountInvocation())
             expect(result.error).toContain('has no secret API token configured')
+        })
+
+        it('captures exception with team_id when secret API token is missing', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: null,
+            } as any)
+
+            const posthogModule = require('~/common/utils/posthog')
+            const captureExceptionSpy = jest.spyOn(posthogModule, 'captureException')
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
+            await executor.execute(createAccountInvocation())
+
+            expect(captureExceptionSpy).toHaveBeenCalledWith(
+                expect.any(Error),
+                expect.objectContaining({ tags: expect.objectContaining({ team_id: 1 }) })
+            )
+        })
+
+        it('does not capture exception when queue is set up successfully', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: 'test-secret-token',
+            } as any)
+
+            const posthogModule = require('~/common/utils/posthog')
+            const captureExceptionSpy = jest.spyOn(posthogModule, 'captureException')
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
+            await executor.execute(createAccountInvocation())
+
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
         })
 
         it('postHogUpdateAccount queues a PATCH with external_id merged into the body', async () => {
@@ -1771,7 +1871,7 @@ describe('Hog Executor', () => {
 
         describe('with non_failure_status_codes', () => {
             beforeEach(() => {
-                const actualRequest = jest.requireActual('~/utils/request') as { fetch: typeof fetch }
+                const actualRequest = jest.requireActual('~/common/utils/request') as { fetch: typeof fetch }
                 jest.mocked(fetch).mockImplementation((url, options) => actualRequest.fetch(url, options))
             })
 
@@ -1983,66 +2083,42 @@ describe('Hog Executor', () => {
                 } as any)
             }
 
-            const setMode = (mode: 'disabled' | 'warn'): void => {
-                ;(executor as any).config.selfLoopGuardMode = mode
-            }
-
             const ownTokenCaptureBody = (): string =>
                 JSON.stringify({ api_key: OWN_TOKEN, event: 'replicated', distinct_id: 'u1', properties: {} })
 
-            // The detected count is the production signal that drives the enforce decision,
-            // so assert it actually moves - not just the human-facing log.
-            const readDetectedCount = async (): Promise<number> => {
-                const metric = await selfLoopGuardCounter.get()
-                return metric.values.find((v) => v.labels.mode === 'warn' && v.labels.action === 'detected')?.value ?? 0
+            // Seed this destination's own self-loop depth (keyed by its function id).
+            const setSelfLoopDepth = (invocation: CyclotronJobInvocationHogFunction, depth: number): void => {
+                invocation.state.globals.event.properties = {
+                    ...invocation.state.globals.event.properties,
+                    [SELF_LOOP_DEPTH_PROPERTY]: { [invocation.hogFunction.id]: depth },
+                }
             }
 
-            it('detects a self-referential ingest fetch and logs + meters it without blocking (warn)', async () => {
-                setMode('warn')
-                mockOwnTeam()
-                const invocation = await createFetchInvocation({
-                    url: INGEST_URL,
-                    method: 'POST',
-                    body: ownTokenCaptureBody(),
+            // Seed a high depth for a DIFFERENT function - simulates an event that passed
+            // through an unrelated deep chain. Must not count toward this destination.
+            const setOtherFunctionDepth = (invocation: CyclotronJobInvocationHogFunction, depth: number): void => {
+                invocation.state.globals.event.properties = {
+                    ...invocation.state.globals.event.properties,
+                    [SELF_LOOP_DEPTH_PROPERTY]: { 'some-other-function-id': depth },
+                }
+            }
+
+            // Capture the body sent to the (mocked) ingest endpoint without a real network call.
+            const captureIngestFetch = (): { getBody: () => string | undefined } => {
+                let sentBody: string | undefined
+                ;(fetch as jest.Mock).mockImplementationOnce((_url: string, options: any) => {
+                    sentBody = options.body
+                    return Promise.resolve({ status: 200, headers: {}, text: () => Promise.resolve('ok') })
                 })
-                ;(fetch as jest.Mock).mockImplementationOnce(() =>
-                    Promise.resolve({ status: 200, headers: {}, text: () => Promise.resolve('ok') })
-                )
-                const detectedBefore = await readDetectedCount()
+                return { getBody: () => sentBody }
+            }
 
-                const result = await executor.executeFetch(invocation)
-
-                // Observe-only: the fetch still happens and nothing errors.
-                expect(result.error).toBeUndefined()
-                expect(cleanLogs(result.logs.map((l) => l.message))).toEqual(
-                    expect.arrayContaining([expect.stringContaining('can form an event-forwarding loop')])
-                )
-                expect(await readDetectedCount()).toBe(detectedBefore + 1)
-            })
-
-            it('does not flag a normal external fetch even with the project token in the body', async () => {
-                setMode('warn')
-                mockOwnTeam()
-                const invocation = await createFetchInvocation({
-                    url: `${baseUrl}/test`,
-                    method: 'POST',
-                    body: ownTokenCaptureBody(),
-                })
-                mockRequest.mockClear()
-                const detectedBefore = await readDetectedCount()
-
-                const result = await executor.executeFetch(invocation)
-
-                expect(result.error).toBeUndefined()
-                expect(mockRequest).toHaveBeenCalled()
-                expect(cleanLogs(result.logs.map((l) => l.message))).not.toEqual(
-                    expect.arrayContaining([expect.stringContaining('event-forwarding loop')])
-                )
-                expect(await readDetectedCount()).toBe(detectedBefore)
-            })
+            const readActionCount = async (mode: string, action: string): Promise<number> => {
+                const metric = await selfLoopGuardCounter.get()
+                return metric.values.find((v) => v.labels.mode === mode && v.labels.action === action)?.value ?? 0
+            }
 
             it('fails open: a team lookup error never breaks the fetch', async () => {
-                setMode('warn')
                 jest.spyOn(hub.teamManager, 'getTeam').mockRejectedValue(new Error('db unavailable'))
                 const invocation = await createFetchInvocation({
                     url: INGEST_URL,
@@ -2057,6 +2133,96 @@ describe('Hog Executor', () => {
 
                 // Detection failing must not surface as a destination error.
                 expect(result.error).toBeUndefined()
+            })
+
+            // Every hop under the cap is allowed and its outgoing body stamped with this
+            // destination's next depth - including hop 0 (a fresh external event), which a
+            // legitimate run always is.
+            it.each([
+                { case: 'fresh hop 0 (a legitimate external run)', depth: 0, stampedTo: 1 },
+                { case: 'mid-chain under the cap', depth: 2, stampedTo: 3 },
+                { case: 'the last hop under the cap', depth: 9, stampedTo: 10 },
+            ])('enforce: allows + stamps the next hop ($case)', async ({ depth, stampedTo }) => {
+                mockOwnTeam()
+                const invocation = await createFetchInvocation({
+                    url: INGEST_URL,
+                    method: 'POST',
+                    body: ownTokenCaptureBody(),
+                })
+                setSelfLoopDepth(invocation, depth)
+                const sent = captureIngestFetch()
+                const blockedBefore = await readActionCount('enforce', 'blocked')
+
+                const result = await executor.executeFetch(invocation)
+
+                // Fetch proceeds, body carries this destination's incremented depth, nothing blocked.
+                expect(result.error).toBeUndefined()
+                expect(parseJSON(sent.getBody()!).properties[SELF_LOOP_DEPTH_PROPERTY][invocation.hogFunction.id]).toBe(
+                    stampedTo
+                )
+                expect(await readActionCount('enforce', 'blocked')).toBe(blockedBefore)
+            })
+
+            // The whole point of per-function depth: an event that arrived carrying a huge
+            // depth for a DIFFERENT function is treated as depth 0 here, so a legitimately
+            // running destination is never blocked by an unrelated deep chain.
+            it('enforce: does NOT block when the high depth belongs to another function', async () => {
+                mockOwnTeam()
+                const invocation = await createFetchInvocation({
+                    url: INGEST_URL,
+                    method: 'POST',
+                    body: ownTokenCaptureBody(),
+                })
+                setOtherFunctionDepth(invocation, 50)
+                const sent = captureIngestFetch()
+                const blockedBefore = await readActionCount('enforce', 'blocked')
+
+                const result = await executor.executeFetch(invocation)
+
+                // Allowed, stamped as this destination's first hop, not blocked.
+                expect(result.error).toBeUndefined()
+                expect(parseJSON(sent.getBody()!).properties[SELF_LOOP_DEPTH_PROPERTY][invocation.hogFunction.id]).toBe(
+                    1
+                )
+                expect(await readActionCount('enforce', 'blocked')).toBe(blockedBefore)
+            })
+
+            it('enforce: breaks the chain once it reaches the cap', async () => {
+                mockOwnTeam()
+                const invocation = await createFetchInvocation({
+                    url: INGEST_URL,
+                    method: 'POST',
+                    body: ownTokenCaptureBody(),
+                })
+                setSelfLoopDepth(invocation, 10)
+                mockRequest.mockClear()
+                const blockedBefore = await readActionCount('enforce', 'blocked')
+
+                const result = await executor.executeFetch(invocation)
+
+                // Blocked: error set, finished, no fetch attempted, metric moved.
+                expect(result.error).toBeInstanceOf(Error)
+                expect(result.finished).toBe(true)
+                expect(mockRequest).not.toHaveBeenCalled()
+                expect(await readActionCount('enforce', 'blocked')).toBe(blockedBefore + 1)
+                expect(cleanLogs(result.logs.map((l) => l.message))).toEqual(
+                    expect.arrayContaining([expect.stringContaining('event-forwarding loop has already repeated')])
+                )
+            })
+
+            it('enforce: leaves a normal external fetch untouched', async () => {
+                mockOwnTeam()
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/test`,
+                    method: 'POST',
+                    body: ownTokenCaptureBody(),
+                })
+                mockRequest.mockClear()
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(mockRequest).toHaveBeenCalled()
             })
         })
     })
@@ -2132,7 +2298,7 @@ describe('Hog Executor', () => {
         })
     })
 
-    describe('email queue routing config', () => {
+    describe('email queue routing', () => {
         const createEmailInvocation = (): CyclotronJobInvocationHogFunction => {
             const hogFunction = createHogFunction({ name: 'Email function', team_id: 123 })
             const invocation: CyclotronJobInvocationHogFunction = {
@@ -2151,103 +2317,23 @@ describe('Hog Executor', () => {
             return invocation
         }
 
-        const createExecutorWithRouting = (emailQueueRouting: string): HogExecutorService => {
-            const hogInputsService = new HogInputsService(
-                hub.integrationManager,
-                hub.ENCRYPTION_SALT_KEYS,
-                hub.SITE_URL
-            )
-            const emailService = new EmailService(
-                {
-                    sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
-                    sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
-                    sesRegion: hub.SES_REGION,
-                    sesEndpoint: hub.SES_ENDPOINT,
-                },
-                hub.integrationManager,
-                new TeamWorkflowsConfigService(hub.postgres),
-                hub.ENCRYPTION_SALT_KEYS,
-                hub.SITE_URL,
-                new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
-            )
-            const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-            return new HogExecutorService(
-                {
-                    hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-                    googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-                    fetchRetries: hub.CDP_FETCH_RETRIES,
-                    fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
-                    fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                    emailQueueRouting,
-                    selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
-                },
-                { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-                hogInputsService,
-                emailService,
-                recipientTokensService
-            )
-        }
-
-        it('should send inline when routing is empty', async () => {
-            const exec = createExecutorWithRouting('')
+        it('should route email sends to the dedicated email queue', async () => {
             const invocation = createEmailInvocation()
 
-            const result = await exec.executeWithAsyncFunctions(invocation)
-
-            expect(result.invocation.queue).not.toBe('email')
-            expect(result.finished).toBe(true)
-        })
-
-        it('should route to email queue when team matches', async () => {
-            const exec = createExecutorWithRouting('123')
-            const invocation = createEmailInvocation()
-
-            const result = await exec.executeWithAsyncFunctions(invocation)
-
-            expect(result.invocation.queue).toBe('email')
-            expect(result.finished).toBe(false)
-        })
-
-        it('should send inline when team does not match', async () => {
-            const exec = createExecutorWithRouting('456')
-            const invocation = createEmailInvocation()
-
-            const result = await exec.executeWithAsyncFunctions(invocation)
-
-            expect(result.invocation.queue).not.toBe('email')
-            expect(result.finished).toBe(true)
-        })
-
-        it('should route based on percentage when under threshold', async () => {
-            const exec = createExecutorWithRouting('*:0.5')
-            const invocation = createEmailInvocation()
-
-            jest.spyOn(Math, 'random').mockReturnValue(0.3)
-            const result = await exec.executeWithAsyncFunctions(invocation)
-
-            expect(result.invocation.queue).toBe('email')
-            expect(result.finished).toBe(false)
-        })
-
-        it('should send inline when percentage roll is above threshold', async () => {
-            const exec = createExecutorWithRouting('*:0.5')
-            const invocation = createEmailInvocation()
-
-            jest.spyOn(Math, 'random').mockReturnValue(0.7)
-            const result = await exec.executeWithAsyncFunctions(invocation)
-
-            expect(result.invocation.queue).not.toBe('email')
-        })
-
-        it('should route all teams when config is *', async () => {
-            const exec = createExecutorWithRouting('*')
-            const invocation = createEmailInvocation()
-
-            const result = await exec.executeWithAsyncFunctions(invocation)
+            const result = await executor.executeWithAsyncFunctions(invocation)
 
             expect(result.invocation.queue).toBe('email')
             expect(result.invocation.queueMetadata?.originQueue).toBeDefined()
             expect(result.finished).toBe(false)
+        })
+
+        it('should send inline when sendEmailsInline is set', async () => {
+            const invocation = createEmailInvocation()
+
+            const result = await executor.executeWithAsyncFunctions(invocation, { sendEmailsInline: true })
+
+            expect(result.invocation.queue).not.toBe('email')
+            expect(result.finished).toBe(true)
         })
     })
 })

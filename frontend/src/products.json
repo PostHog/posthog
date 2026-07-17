@@ -120,7 +120,7 @@
             "intents": ["endpoints"]
         },
         {
-            "path": "CI analytics",
+            "path": "Engineering analytics",
             "category": "Unreleased",
             "iconType": null,
             "type": "engineering_analytics",
@@ -177,7 +177,14 @@
             "type": "mcp_analytics",
             "intents": ["llm_analytics"]
         },
-        { "path": "Metrics", "category": "Unreleased", "iconType": "metrics", "type": null, "intents": ["metrics"] },
+        {
+            "path": "Metrics",
+            "category": "App monitoring",
+            "iconType": "metrics",
+            "type": null,
+            "intents": ["metrics"]
+        },
+        { "path": "Tasks", "category": "Tools", "iconType": "task", "type": "task", "intents": ["tasks"] },
         {
             "path": "Product analytics",
             "category": "Analytics",
@@ -199,6 +206,7 @@
             "type": "product_tour",
             "intents": ["product_tours"]
         },
+        { "path": "Pulse", "category": "Unreleased", "iconType": "activity", "type": null, "intents": ["pulse"] },
         {
             "path": "Session replay",
             "category": "Behavior",
@@ -221,6 +229,7 @@
             "type": "revenue",
             "intents": ["revenue_analytics"]
         },
+        { "path": "Code review", "category": "Unreleased", "iconType": null, "type": null, "intents": ["review_hog"] },
         { "path": "Skills", "category": "Tools", "iconType": null, "type": "llm_skills", "intents": ["skills"] },
         { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey", "intents": ["surveys"] },
         { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": ["toolbar"] },
@@ -310,8 +319,14 @@
             "type": null,
             "intents": []
         },
-        { "path": "Exports", "category": "Pipeline", "iconType": "exports", "type": null, "intents": [] },
         { "path": "Endpoints", "category": "Tools", "iconType": null, "type": null, "intents": [] },
+        {
+            "path": "Managed migrations",
+            "category": "Pipeline",
+            "iconType": "data_pipeline_metadata",
+            "type": null,
+            "intents": []
+        },
         {
             "path": "Event definitions",
             "category": "Schema",

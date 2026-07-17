@@ -4,7 +4,9 @@ from unittest.mock import patch
 import httpx
 
 from posthog.llm.gateway_internal_client import (
+    ADMIN_ACTOR,
     IDEMPOTENCY_KEY_HEADER,
+    INTERNAL_ACTOR_HEADER,
     AIGatewayInternalError,
     AIGatewayNotConfigured,
     add_credit,
@@ -105,9 +107,10 @@ class TestAddCredit:
             result = add_credit(42, "25.00", "topping up", "key-123")
 
         url = mock_post.call_args.args[0]
-        assert url == "http://gw/internal/accounts/42/credits"
+        assert url == "http://gw/internal/teams/42/credits"
         assert mock_post.call_args.kwargs["json"] == {"amount_usd": "25.00", "reason": "topping up"}
         assert mock_post.call_args.kwargs["headers"][IDEMPOTENCY_KEY_HEADER] == "key-123"
+        assert mock_post.call_args.kwargs["headers"][INTERNAL_ACTOR_HEADER] == ADMIN_ACTOR
         assert mock_post.call_args.kwargs["headers"]["Authorization"] == "Bearer tok"
         assert result.entry_id == "entry-1"
         assert result.balance_usd == "35.000000"

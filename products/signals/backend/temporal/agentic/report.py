@@ -15,7 +15,8 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.business_knowledge.backend.logic import is_available_for_team
-from products.signals.backend.artefact_schemas import ArtefactContent, SuggestedReviewers
+from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_runtime
+from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, SuggestedReviewers
 from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.research import (
@@ -134,6 +135,35 @@ async def _load_previous_research(report_id: str) -> ReportResearchOutput | None
         # reuses these writes nothing; only what it changes lands in new_artefacts.
         old_artefacts=[*findings, actionability, *([priority] if priority else [])],
     )
+
+
+async def _load_resolved_report_context(team_id: int, report_id: str) -> tuple[str | None, str | None]:
+    """Title/summary of the resolved report this one recurred from, if any.
+
+    When a signal that would have grouped into an already-resolved report spawns a fresh report
+    instead (resolved reports never reopen), the grouping pipeline links the two with symmetric
+    `related_to` artefacts. The recurrence source is whichever linked report is resolved — handing it
+    to the research agent lets it judge regression vs. new dimension vs. distinct.
+    """
+    related_ids: list[str] = []
+    async for artefact in SignalReportArtefact.objects.filter(
+        team_id=team_id, report_id=report_id, type=SignalReportArtefact.ArtefactType.RELATED_TO
+    ).order_by("created_at"):
+        try:
+            related_ids.append(RelatedTo.model_validate_json(artefact.content).report_id)
+        except ValidationError:
+            continue
+    if not related_ids:
+        return None, None
+    resolved = (
+        await SignalReport.objects.filter(id__in=related_ids, team_id=team_id, status=SignalReport.Status.RESOLVED)
+        .only("title", "summary")
+        .order_by("-created_at")
+        .afirst()
+    )
+    if resolved is None:
+        return None, None
+    return resolved.title, resolved.summary
 
 
 _AGENTIC_ARTEFACT_TYPES = [
@@ -273,6 +303,14 @@ async def _persist_agentic_report_artefacts(
         artefacts=artefacts,
     )
 
+    # Backfill the research task's title now that research has produced the report title. At
+    # task-creation time the report has no title yet (research is what produces it), so the task
+    # starts with a sandbox-prompt placeholder; relabel it "Research: <report title>".
+    if result.research_task_id and result.title:
+        await database_sync_to_async(tasks_facade.set_task_title, thread_sensitive=False)(
+            result.research_task_id, team_id, f"Research: {result.title}"
+        )
+
     try:
         await maybe_autostart_implementation_task(
             team_id=team_id,
@@ -323,6 +361,9 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
                 input.team_id, SIGNALS_REPORT_RESEARCH_ENV_NAME, tasks_facade.SandboxNetworkAccessLevel.TRUSTED
             )
+            agent_runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(
+                input.team_id, STEP_RESEARCH
+            )
             context = CustomPromptSandboxContext(
                 team_id=input.team_id,
                 user_id=user_id,
@@ -332,10 +373,17 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 # artefacts, but never writes artefacts itself — the pipeline persists its
                 # structured outputs after the session.
                 posthog_mcp_scopes="read_only",
+                model=agent_runtime.model,
+                runtime_adapter=agent_runtime.runtime_adapter,
+                reasoning_effort=agent_runtime.reasoning_effort,
             )
             has_bk = await database_sync_to_async(_team_has_business_knowledge, thread_sensitive=False)(input.team_id)
             # 2. Load previous research if this is a re-promoted report
             previous_research = await _load_previous_research(input.report_id)
+            # 2b. Load the resolved report this one recurred from, if any, as extra research context
+            resolved_report_title, resolved_report_summary = await _load_resolved_report_context(
+                input.team_id, input.report_id
+            )
             # 3. Run the agentic research in the sandbox
             result = await run_multi_turn_research(
                 input.signals,
@@ -344,6 +392,8 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 previous_report_research=previous_research,
                 signal_report_id=input.report_id,
                 has_business_knowledge=has_bk,
+                resolved_report_title=resolved_report_title,
+                resolved_report_summary=resolved_report_summary,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
             await _persist_agentic_report_artefacts(

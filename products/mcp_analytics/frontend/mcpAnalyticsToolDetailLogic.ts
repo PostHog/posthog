@@ -1,13 +1,28 @@
-import { afterMount, kea, key, path, props, selectors } from 'kea'
+import { MakeLogicType, actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { dateFilterToText, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
-import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import {
+    DateRange,
+    MCPHarnessBreakdownItem,
+    MCPToolDailyStatItem,
+    MCPToolDescriptionItem,
+    MCPToolFailureItem,
+    MCPToolNeighborItem,
+    MCPToolSampleIntentItem,
+    MCPToolStatsItem,
+    MCPToolTopUserItem,
+    NodeKind,
+} from '~/queries/schema/schema-general'
+import { IntervalType } from '~/types'
 
-import type { mcpAnalyticsToolDetailLogicType } from './mcpAnalyticsToolDetailLogicType'
-
+import { buildBucketKeys, normalizeBucket } from './timeBuckets'
 export interface ToolSummary {
     calls: number
     errors: number
@@ -59,21 +74,20 @@ const EMPTY_CHART_DATA: DailyChartData = {
 
 export type ResultRows = unknown[][]
 
-// Gap-fill the per-day rows into a continuous day axis (ClickHouse only returns days with data).
-// Counts fill with 0; latency fills with NaN so the chart skips the point instead of dipping to 0.
-export function buildDailyChartData(rows: DailyToolStat[]): DailyChartData {
+// Project the per-bucket rows onto the full set of interval buckets spanning the selected window
+// (ClickHouse only returns buckets with data). `bucketKeys` covers the whole window at the active
+// interval so the sparklines and trend charts match the chosen range — and always have enough points
+// to draw a line — even when the tool has data on only a bucket or two. Counts fill with 0; latency
+// fills with NaN so the chart skips the point instead of dipping to 0. Rows match by normalized
+// bucket key, so day, hour, and minute intervals all line up. No rows at all keeps the empty state.
+export function buildDailyChartData(rows: DailyToolStat[], bucketKeys: string[]): DailyChartData {
     if (rows.length === 0) {
         return EMPTY_CHART_DATA
     }
-    const byDay = new Map(rows.map((r) => [r.day, r]))
-    const end = dayjs(rows[rows.length - 1].day)
-    const labels: string[] = []
-    for (let day = dayjs(rows[0].day); !day.isAfter(end); day = day.add(1, 'day')) {
-        labels.push(day.format('YYYY-MM-DD'))
-    }
-    const at = labels.map((day) => byDay.get(day))
+    const byBucket = new Map(rows.map((r) => [normalizeBucket(r.day), r]))
+    const at = bucketKeys.map((k) => byBucket.get(k))
     return {
-        labels,
+        labels: bucketKeys,
         calls: at.map((r) => r?.calls ?? 0),
         errors: at.map((r) => r?.errors ?? 0),
         p50: at.map((r) => (r ? r.p50 : NaN)),
@@ -87,97 +101,289 @@ export interface MCPAnalyticsToolDetailLogicProps {
     toolName: string
 }
 
-const NEW_SDK_SOURCE = 'posthog_mcp_analytics'
-
-// HogQL expression that resolves to the *effective* tool name for new-SDK events:
-// the inner tool when the call went through the single-exec wrapper, otherwise
-// the directly-registered tool name. Use anywhere we need to filter/group by tool.
-const EFFECTIVE_TOOL_HOGQL =
-    "coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name))"
-
-const NEW_SDK_FILTER = `properties.$mcp_source = '${NEW_SDK_SOURCE}'`
-
-function escapeHogQLString(value: string): string {
-    return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+export interface DateFilter {
+    dateFrom: string | null
+    dateTo: string | null
 }
 
-// Standard "this tool, new-SDK only" filter shared by the $mcp_tool_call queries.
-function buildToolFilter(toolName: string): string {
-    return `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(toolName)}' AND ${NEW_SDK_FILTER}`
-}
-
-async function queryRows(query: string): Promise<ResultRows> {
-    const response = (await api.query({ kind: NodeKind.HogQLQuery, query })) as HogQLQueryResponse
-    return (response.results ?? []) as ResultRows
-}
+// The window carries over from the Tool quality tab via date_from / date_to search params
+// (see mcpAnalyticsToolQualityLogic). Without them — e.g. opening a tool page directly — we
+// default to the last 30 days.
+const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-30d', dateTo: null }
 
 // Tools most often called immediately before/after this one within the same conversation.
-function buildNeighborQuery(toolName: string, direction: 'before' | 'after'): string {
-    const windowFn = direction === 'before' ? 'lagInFrame' : 'leadInFrame'
-    return `
-WITH tool_calls AS (
-    SELECT
-        coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)) AS conv_id,
-        timestamp,
-        ${EFFECTIVE_TOOL_HOGQL} AS tool
-    FROM events
-    WHERE event = '$mcp_tool_call'
-        AND timestamp >= now() - INTERVAL 7 DAY
-        AND ${NEW_SDK_FILTER}
-        AND notEmpty(coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)))
-)
-SELECT neighbor_tool, count() AS co_occurrences
-FROM (
-    SELECT
-        tool,
-        ${windowFn}(tool) OVER (PARTITION BY conv_id ORDER BY timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS neighbor_tool
-    FROM tool_calls
-)
-WHERE tool = '${escapeHogQLString(toolName)}' AND neighbor_tool IS NOT NULL AND neighbor_tool != '' AND neighbor_tool != tool
-GROUP BY neighbor_tool
-ORDER BY co_occurrences DESC
-LIMIT 5
-`
+async function neighborRows(
+    toolName: string,
+    direction: 'before' | 'after',
+    dateRange: DateRange
+): Promise<ResultRows> {
+    const response = (await api.query({
+        kind: NodeKind.MCPToolNeighborsQuery,
+        toolName,
+        neighborDirection: direction,
+        dateRange,
+    })) as { results?: MCPToolNeighborItem[] }
+    return (response?.results ?? []).map((r) => [r.neighbor_tool, r.co_occurrences])
 }
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface mcpAnalyticsToolDetailLogicValues {
+    byHarnessRows: ResultRows
+    byHarnessRowsLoading: boolean
+    dailyChartData: DailyChartData
+    dailyStats: DailyToolStat[]
+    dailyStatsLoading: boolean
+    dateFilter: DateFilter
+    dateRange: DateRange
+    dateRangeLabel: string
+    descriptions: DescriptionRevision[]
+    descriptionsLoading: boolean
+    failureRows: ResultRows
+    failureRowsLoading: boolean
+    intentCoverage: IntentCoverage | null
+    intentCoverageLoading: boolean
+    interval: IntervalType
+    neighborsAfterRows: ResultRows
+    neighborsAfterRowsLoading: boolean
+    neighborsBeforeRows: ResultRows
+    neighborsBeforeRowsLoading: boolean
+    sampleIntentRows: ResultRows
+    sampleIntentRowsLoading: boolean
+    summary: ToolSummary | null
+    summaryLoading: boolean
+    toolName: string
+    topUserRows: ResultRows
+    topUserRowsLoading: boolean
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface mcpAnalyticsToolDetailLogicActions {
+    loadAllSections: () => {
+        value: true
+    }
+    loadByHarnessRows: () => any
+    loadByHarnessRowsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadByHarnessRowsSuccess: (
+        byHarnessRows: ResultRows,
+        payload?: any
+    ) => {
+        byHarnessRows: ResultRows
+        payload?: any
+    }
+    loadDailyStats: (_: void) => void
+    loadDailyStatsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadDailyStatsSuccess: (
+        dailyStats: DailyToolStat[],
+        payload?: void
+    ) => {
+        dailyStats: DailyToolStat[]
+        payload?: void
+    }
+    loadDescriptions: () => any
+    loadDescriptionsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadDescriptionsSuccess: (
+        descriptions: DescriptionRevision[],
+        payload?: any
+    ) => {
+        descriptions: DescriptionRevision[]
+        payload?: any
+    }
+    loadFailureRows: () => any
+    loadFailureRowsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadFailureRowsSuccess: (
+        failureRows: ResultRows,
+        payload?: any
+    ) => {
+        failureRows: ResultRows
+        payload?: any
+    }
+    loadIntentCoverage: () => any
+    loadIntentCoverageFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadIntentCoverageSuccess: (
+        intentCoverage: IntentCoverage | null,
+        payload?: any
+    ) => {
+        intentCoverage: IntentCoverage | null
+        payload?: any
+    }
+    loadNeighborsAfterRows: () => any
+    loadNeighborsAfterRowsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadNeighborsAfterRowsSuccess: (
+        neighborsAfterRows: ResultRows,
+        payload?: any
+    ) => {
+        neighborsAfterRows: ResultRows
+        payload?: any
+    }
+    loadNeighborsBeforeRows: () => any
+    loadNeighborsBeforeRowsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadNeighborsBeforeRowsSuccess: (
+        neighborsBeforeRows: ResultRows,
+        payload?: any
+    ) => {
+        neighborsBeforeRows: ResultRows
+        payload?: any
+    }
+    loadSampleIntentRows: () => any
+    loadSampleIntentRowsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSampleIntentRowsSuccess: (
+        sampleIntentRows: ResultRows,
+        payload?: any
+    ) => {
+        sampleIntentRows: ResultRows
+        payload?: any
+    }
+    loadSummary: () => any
+    loadSummaryFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSummarySuccess: (
+        summary: ToolSummary | null,
+        payload?: any
+    ) => {
+        summary: ToolSummary | null
+        payload?: any
+    }
+    loadTopUserRows: () => any
+    loadTopUserRowsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadTopUserRowsSuccess: (
+        topUserRows: ResultRows,
+        payload?: any
+    ) => {
+        topUserRows: ResultRows
+        payload?: any
+    }
+    setDateFilter: (
+        dateFrom: string | null,
+        dateTo: string | null
+    ) => {
+        dateFrom: string | null
+        dateTo: string | null
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface mcpAnalyticsToolDetailLogicMeta {
+    key: string
+    __keaTypeGenInternalSelectorTypes: {
+        toolName: (arg: any) => string
+        dailyChartData: (
+            dailyStats: DailyToolStat[],
+            dateFilter: DateFilter,
+            interval: IntervalType,
+            timezone: string
+        ) => DailyChartData
+        interval: (dateFilter: DateFilter) => IntervalType
+        dateRange: (dateFilter: DateFilter, timezone: string) => DateRange
+        dateRangeLabel: (dateFilter: DateFilter) => string
+    }
+}
+
+export type mcpAnalyticsToolDetailLogicType = MakeLogicType<
+    mcpAnalyticsToolDetailLogicValues,
+    mcpAnalyticsToolDetailLogicActions,
+    MCPAnalyticsToolDetailLogicProps,
+    mcpAnalyticsToolDetailLogicMeta
+>
 
 export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'mcpAnalyticsToolDetailLogic']),
     key((props: MCPAnalyticsToolDetailLogicProps) => props.toolName),
     props({} as MCPAnalyticsToolDetailLogicProps),
 
-    loaders(({ props }) => ({
+    actions({
+        setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        loadAllSections: true,
+    }),
+
+    reducers({
+        dateFilter: [
+            DEFAULT_DATE_FILTER,
+            {
+                setDateFilter: (_, { dateFrom, dateTo }): DateFilter => ({ dateFrom, dateTo }),
+            },
+        ],
+    }),
+
+    loaders(({ props, values }) => ({
         summary: [
             null as ToolSummary | null,
             {
                 loadSummary: async (): Promise<ToolSummary | null> => {
-                    const toolFilter = buildToolFilter(props.toolName)
                     const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: `
-SELECT
-    count() AS calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(quantile(0.5)(toFloat(properties.$mcp_duration_ms))) AS p50_ms,
-    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95_ms,
-    uniq(distinct_id) AS users,
-    uniq(coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id))) AS conversations
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND timestamp >= now() - INTERVAL 7 DAY
-    AND ${toolFilter}
-`,
-                    })) as HogQLQueryResponse
-                    const row = (response.results ?? [])[0]
+                        kind: NodeKind.MCPToolStatsQuery,
+                        toolName: props.toolName,
+                        dateRange: values.dateRange,
+                    })) as { results?: MCPToolStatsItem[] }
+                    const row = response?.results?.[0]
                     if (!row) {
                         return null
                     }
                     return {
-                        calls: Number(row[0]) || 0,
-                        errors: Number(row[1]) || 0,
-                        p50_ms: row[2] == null ? null : Number(row[2]),
-                        p95_ms: row[3] == null ? null : Number(row[3]),
-                        users: Number(row[4]) || 0,
-                        conversations: Number(row[5]) || 0,
+                        calls: row.calls,
+                        errors: row.errors,
+                        p50_ms: row.p50_ms,
+                        p95_ms: row.p95_ms,
+                        users: row.users,
+                        conversations: row.conversations,
                     }
                 },
             },
@@ -186,26 +392,14 @@ WHERE event = '$mcp_tool_call'
             [] as DescriptionRevision[],
             {
                 loadDescriptions: async (): Promise<DescriptionRevision[]> => {
-                    const toolFilter = buildToolFilter(props.toolName)
                     const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: `
-SELECT
-    toString(properties.$mcp_tool_description) AS description,
-    toString(max(timestamp)) AS last_seen
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND timestamp >= now() - INTERVAL 30 DAY
-    AND ${toolFilter}
-    AND notEmpty(toString(properties.$mcp_tool_description))
-GROUP BY description
-ORDER BY last_seen DESC
-LIMIT 5
-`,
-                    })) as HogQLQueryResponse
-                    return (response.results ?? []).map((row) => ({
-                        description: String(row[0] ?? ''),
-                        last_seen: String(row[1] ?? ''),
+                        kind: NodeKind.MCPToolDescriptionsQuery,
+                        toolName: props.toolName,
+                        dateRange: values.dateRange,
+                    })) as { results?: MCPToolDescriptionItem[] }
+                    return (response?.results ?? []).map((r) => ({
+                        description: r.description,
+                        last_seen: r.last_seen,
                     }))
                 },
             },
@@ -213,60 +407,43 @@ LIMIT 5
         intentCoverage: [
             null as IntentCoverage | null,
             {
+                // Reads the same MCPToolStatsQuery as `summary`; the coverage denominator is the call count.
                 loadIntentCoverage: async (): Promise<IntentCoverage | null> => {
-                    const toolFilter = buildToolFilter(props.toolName)
                     const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: `
-SELECT
-    countIf(notEmpty(toString(properties.$mcp_intent)) AND toString(properties.$mcp_intent) != '{}') AS with_intent,
-    count() AS total
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND timestamp >= now() - INTERVAL 7 DAY
-    AND ${toolFilter}
-`,
-                    })) as HogQLQueryResponse
-                    const row = (response.results ?? [])[0]
+                        kind: NodeKind.MCPToolStatsQuery,
+                        toolName: props.toolName,
+                        dateRange: values.dateRange,
+                    })) as { results?: MCPToolStatsItem[] }
+                    const row = response?.results?.[0]
                     if (!row) {
                         return null
                     }
-                    return { with_intent: Number(row[0]) || 0, total: Number(row[1]) || 0 }
+                    return { with_intent: row.with_intent, total: row.calls }
                 },
             },
         ],
         dailyStats: [
             [] as DailyToolStat[],
             {
-                loadDailyStats: async (): Promise<DailyToolStat[]> => {
-                    const toolFilter = buildToolFilter(props.toolName)
+                // Guarded with breakpoint: dailyChartData builds its bucket keys from the *live* interval,
+                // so a superseded response fetched at a different interval (e.g. day → hour on a fast
+                // back/forward) would otherwise land and collapse a day's rows into one hourly bucket.
+                loadDailyStats: async (_: void, breakpoint): Promise<DailyToolStat[]> => {
                     const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: `
-SELECT
-    toDate(timestamp) AS day,
-    count() AS calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(quantile(0.5)(toFloat(properties.$mcp_duration_ms))) AS p50,
-    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95,
-    uniq(distinct_id) AS users,
-    uniq(coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id))) AS sessions
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND timestamp >= now() - INTERVAL 30 DAY
-    AND ${toolFilter}
-GROUP BY day
-ORDER BY day
-`,
-                    })) as HogQLQueryResponse
-                    return (response.results ?? []).map((r) => ({
-                        day: String(r[0] ?? ''),
-                        calls: Number(r[1] ?? 0),
-                        errors: Number(r[2] ?? 0),
-                        p50: Number(r[3] ?? 0),
-                        p95: Number(r[4] ?? 0),
-                        users: Number(r[5] ?? 0),
-                        sessions: Number(r[6] ?? 0),
+                        kind: NodeKind.MCPToolDailyStatsQuery,
+                        toolName: props.toolName,
+                        dateRange: values.dateRange,
+                        interval: values.interval,
+                    })) as { results?: MCPToolDailyStatItem[] }
+                    breakpoint()
+                    return (response?.results ?? []).map((r) => ({
+                        day: r.day,
+                        calls: r.calls,
+                        errors: r.errors,
+                        p50: r.p50,
+                        p95: r.p95,
+                        users: r.users,
+                        sessions: r.sessions,
                     }))
                 },
             },
@@ -274,103 +451,83 @@ ORDER BY day
         failureRows: [
             [] as ResultRows,
             {
-                loadFailureRows: async (): Promise<ResultRows> =>
-                    queryRows(`
-SELECT
-    substring(toString(properties.$exception_message), 1, 200) AS message,
-    count() AS occurrences,
-    max(timestamp) AS last_seen,
-    arrayStringConcat(arraySort(arrayDistinct(groupArray(toString(properties.$mcp_client_name)))), ', ') AS harnesses
-FROM events
--- $exception events don't carry the new-SDK markers ($mcp_source / $mcp_exec_tool_call_name), so
--- unlike the $mcp_tool_call queries this matches the raw $mcp_tool_name without EFFECTIVE_TOOL_HOGQL/NEW_SDK_FILTER.
-WHERE event = '$exception'
-    AND timestamp >= now() - INTERVAL 7 DAY
-    AND toString(properties.$mcp_tool_name) = '${escapeHogQLString(props.toolName)}'
-    AND notEmpty(toString(properties.$exception_message))
-GROUP BY message
-ORDER BY occurrences DESC
-LIMIT 20
-`),
+                loadFailureRows: async (): Promise<ResultRows> => {
+                    const response = (await api.query({
+                        kind: NodeKind.MCPToolFailuresQuery,
+                        toolName: props.toolName,
+                        dateRange: values.dateRange,
+                    })) as { results?: MCPToolFailureItem[] }
+                    return (response?.results ?? []).map((r) => [r.message, r.occurrences, r.last_seen, r.harnesses])
+                },
             },
         ],
         sampleIntentRows: [
             [] as ResultRows,
             {
-                loadSampleIntentRows: async (): Promise<ResultRows> =>
-                    queryRows(`
-SELECT
-    timestamp,
-    toString(properties.$mcp_intent) AS intent,
-    toString(properties.$mcp_intent_source) AS source,
-    toString(properties.$mcp_client_name) AS harness
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND timestamp >= now() - INTERVAL 7 DAY
-    AND ${buildToolFilter(props.toolName)}
-    AND notEmpty(toString(properties.$mcp_intent))
-    AND toString(properties.$mcp_intent) != '{}'
-ORDER BY timestamp DESC
-LIMIT 5
-`),
+                loadSampleIntentRows: async (): Promise<ResultRows> => {
+                    const response = (await api.query({
+                        kind: NodeKind.MCPToolSampleIntentsQuery,
+                        toolName: props.toolName,
+                        dateRange: values.dateRange,
+                    })) as { results?: MCPToolSampleIntentItem[] }
+                    return (response?.results ?? []).map((r) => [r.timestamp, r.intent, r.intent_source, r.harness])
+                },
             },
         ],
         neighborsBeforeRows: [
             [] as ResultRows,
             {
                 loadNeighborsBeforeRows: async (): Promise<ResultRows> =>
-                    queryRows(buildNeighborQuery(props.toolName, 'before')),
+                    neighborRows(props.toolName, 'before', values.dateRange),
             },
         ],
         neighborsAfterRows: [
             [] as ResultRows,
             {
                 loadNeighborsAfterRows: async (): Promise<ResultRows> =>
-                    queryRows(buildNeighborQuery(props.toolName, 'after')),
+                    neighborRows(props.toolName, 'after', values.dateRange),
             },
         ],
         byHarnessRows: [
             [] as ResultRows,
             {
-                loadByHarnessRows: async (): Promise<ResultRows> =>
-                    queryRows(`
-SELECT
-    toString(properties.$mcp_client_name) AS harness,
-    count() AS calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
-    uniq(distinct_id) AS users
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND timestamp >= now() - INTERVAL 7 DAY
-    AND ${buildToolFilter(props.toolName)}
-    AND notEmpty(toString(properties.$mcp_client_name))
-GROUP BY harness
-ORDER BY calls DESC
-LIMIT 10
-`),
+                // Server-resolved harness labels via the same runner as the dashboard (scoped to this
+                // tool's new-SDK calls by toolName), so the pill matches the dashboard's bucketing exactly.
+                loadByHarnessRows: async (): Promise<ResultRows> => {
+                    const response = (await api.query({
+                        kind: NodeKind.MCPHarnessBreakdownQuery,
+                        toolName: props.toolName,
+                        dateRange: values.dateRange,
+                    })) as { results?: MCPHarnessBreakdownItem[] }
+                    return (response?.results ?? []).map((r) => [
+                        r.harness,
+                        r.total_calls,
+                        r.errors,
+                        r.error_rate_pct,
+                        r.sessions,
+                    ])
+                },
             },
         ],
         topUserRows: [
             [] as ResultRows,
             {
-                loadTopUserRows: async (): Promise<ResultRows> =>
-                    queryRows(`
-SELECT
-    argMax(tuple(distinct_id, person.created_at, person.properties), timestamp) AS person,
-    count() AS calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
-    arrayStringConcat(arraySort(arrayDistinct(groupArray(toString(properties.$mcp_client_name)))), ', ') AS harnesses,
-    max(timestamp) AS last_seen
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND timestamp >= now() - INTERVAL 7 DAY
-    AND ${buildToolFilter(props.toolName)}
-GROUP BY distinct_id
-ORDER BY calls DESC
-LIMIT 5
-`),
+                // The person tuple is rebuilt into the [distinct_id, _, properties] shape renderPersonCell expects.
+                loadTopUserRows: async (): Promise<ResultRows> => {
+                    const response = (await api.query({
+                        kind: NodeKind.MCPToolTopUsersQuery,
+                        toolName: props.toolName,
+                        dateRange: values.dateRange,
+                    })) as { results?: MCPToolTopUserItem[] }
+                    return (response?.results ?? []).map((r) => [
+                        [r.distinct_id, '', r.person_properties],
+                        r.calls,
+                        r.errors,
+                        r.error_rate_pct,
+                        r.harnesses,
+                        r.last_seen,
+                    ])
+                },
             },
         ],
     })),
@@ -379,21 +536,76 @@ LIMIT 5
         toolName: [() => [(_, props) => props.toolName], (toolName: string) => toolName],
 
         dailyChartData: [
-            (s) => [s.dailyStats],
-            (dailyStats: DailyToolStat[]): DailyChartData => buildDailyChartData(dailyStats),
+            (s) => [s.dailyStats, s.dateFilter, s.interval, teamLogic.selectors.timezone],
+            (
+                dailyStats: DailyToolStat[],
+                dateFilter: DateFilter,
+                interval: IntervalType,
+                timezone: string
+            ): DailyChartData => {
+                const bucketKeys = buildBucketKeys(dateFilter.dateFrom, dateFilter.dateTo, timezone, interval)
+                return buildDailyChartData(dailyStats, bucketKeys)
+            },
+        ],
+
+        // Grouping interval for the daily series — PostHog's standard auto-choice, matching the query's
+        // dateTrunc so a sub-day window buckets by hour/minute instead of collapsing to one day point.
+        interval: [
+            (s) => [s.dateFilter],
+            (dateFilter: DateFilter): IntervalType => getDefaultInterval(dateFilter.dateFrom, dateFilter.dateTo),
+        ],
+
+        // Resolve the `dateFilter` state (camelCase, nullable, may be relative like '-30d') into the
+        // absolute snake_case `DateRange` the query API takes. Done once so every section queries the
+        // exact same window — a relative '-Nd' would re-resolve per section and drift after midnight.
+        dateRange: [
+            (s) => [s.dateFilter, teamLogic.selectors.timezone],
+            (dateFilter: DateFilter, timezone: string): DateRange => {
+                const to = dateStringToDayJs(dateFilter.dateTo, timezone) ?? dayjs().tz(timezone)
+                const from =
+                    dateStringToDayJs(dateFilter.dateFrom, timezone) ?? dayjs().tz(timezone).subtract(30, 'day')
+                return { date_from: from.toISOString(), date_to: to.toISOString() }
+            },
+        ],
+
+        dateRangeLabel: [
+            (s) => [s.dateFilter],
+            (dateFilter: DateFilter): string =>
+                dateFilterToText(dateFilter.dateFrom, dateFilter.dateTo, 'the selected range') ?? 'the selected range',
         ],
     }),
 
-    afterMount(({ actions }) => {
-        actions.loadSummary()
-        actions.loadDescriptions()
-        actions.loadIntentCoverage()
-        actions.loadDailyStats()
-        actions.loadFailureRows()
-        actions.loadSampleIntentRows()
-        actions.loadNeighborsBeforeRows()
-        actions.loadNeighborsAfterRows()
-        actions.loadByHarnessRows()
-        actions.loadTopUserRows()
-    }),
+    listeners(({ actions }) => ({
+        loadAllSections: () => {
+            actions.loadSummary()
+            actions.loadDescriptions()
+            actions.loadIntentCoverage()
+            actions.loadDailyStats()
+            actions.loadFailureRows()
+            actions.loadSampleIntentRows()
+            actions.loadNeighborsBeforeRows()
+            actions.loadNeighborsAfterRows()
+            actions.loadByHarnessRows()
+            actions.loadTopUserRows()
+        },
+    })),
+
+    // The window rides along in the URL from the Tool quality tab. Reading it here (rather than once
+    // in afterMount) keeps the page in sync when only date_from / date_to change for the same tool —
+    // e.g. browser back/forward — since the logic is keyed by toolName and wouldn't remount.
+    urlToAction(({ actions, values, cache }) => ({
+        [`${urls.mcpAnalyticsToolQuality()}/:toolName`]: (_, searchParams) => {
+            const dateFrom =
+                typeof searchParams.date_from === 'string' ? searchParams.date_from : DEFAULT_DATE_FILTER.dateFrom
+            const dateTo = typeof searchParams.date_to === 'string' ? searchParams.date_to : null
+            const dateChanged = dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo
+            if (dateChanged) {
+                actions.setDateFilter(dateFrom, dateTo)
+            }
+            if (dateChanged || !cache.hasLoaded) {
+                actions.loadAllSections()
+            }
+            cache.hasLoaded = true
+        },
+    })),
 ])

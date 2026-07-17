@@ -67,7 +67,7 @@ describe('createCdpReaderRedisPool', () => {
     it('logs an error if the reader health check fails', async () => {
         const pingError = new Error('connection refused')
         ;(mockReaderPool.useClient as jest.Mock).mockRejectedValueOnce(pingError)
-        const logSpy = jest.spyOn(require('~/utils/logger').logger, 'error')
+        const logSpy = jest.spyOn(require('~/common/utils/logger').logger, 'error')
         const config = { ...baseConfig, CDP_REDIS_READER_HOST: 'bad-host.internal', CDP_REDIS_READER_PORT: 6380 }
 
         createCdpReaderRedisPool(config, mockWriterPool, 'test-redis')
@@ -92,7 +92,7 @@ describe('createCdpReaderRedisPool', () => {
     })
 
     it('does not leak credentials from REDIS_URL in fallback log', () => {
-        const logSpy = jest.spyOn(require('~/utils/logger').logger, 'info')
+        const logSpy = jest.spyOn(require('~/common/utils/logger').logger, 'info')
         const config = {
             ...baseConfig,
             CDP_REDIS_HOST: '',

@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCalendar, IconPlus } from '@posthog/icons'
+import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+
+import { ElementClickStats } from 'lib/components/heatmaps/ElementClickStats'
 
 import { ActionsListView } from '~/toolbar/actions/ActionsListView'
 import { ActionStep } from '~/toolbar/actions/ActionStep'
@@ -9,7 +11,6 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 
 import { actionsTabLogic } from '../actions/actionsTabLogic'
-import { ElementStatistic } from './ElementStatistic'
 import { SelectorQualityWarning } from './SelectorQualityWarning'
 
 export function ElementInfo(): JSX.Element | null {
@@ -37,22 +38,15 @@ export function ElementInfo(): JSX.Element | null {
             {position ? (
                 <div className="p-3 border-l-[5px] border-l-danger bg-surface-primary text-primary">
                     <h1 className="section-title">Stats</h1>
-                    <p className="">
-                        <IconCalendar /> <u>{dateRange}</u>
-                    </p>
-                    <div className="grid grid-cols-[auto_1fr] gap-4">
-                        <ElementStatistic
-                            title="Clicks"
-                            value={count || 0}
-                            suffix={`/${totalClickCount} (${
-                                totalClickCount === 0 ? '?' : Math.round(((count || 0) / totalClickCount) * 10000) / 100
-                            }%)`}
-                        />
-                        <ElementStatistic title="Ranking" prefix="#" value={position || 0} />
-                        <ElementStatistic title="Autocapture clicks" value={clickCount || 0} />
-                        <ElementStatistic title="Rageclicks" value={rageclickCount || 0} />
-                        <ElementStatistic title="Deadclicks" value={deadclickCount || 0} />
-                    </div>
+                    <ElementClickStats
+                        count={count || 0}
+                        totalCount={totalClickCount}
+                        rank={position || 0}
+                        clickCount={clickCount || 0}
+                        rageclickCount={rageclickCount || 0}
+                        deadclickCount={deadclickCount || 0}
+                        dateRange={dateRange ?? undefined}
+                    />
                 </div>
             ) : null}
 

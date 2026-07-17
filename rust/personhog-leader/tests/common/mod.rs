@@ -24,8 +24,11 @@ use rdkafka::mocking::MockCluster;
 use rdkafka::producer::{DefaultProducerContext, FutureProducer};
 
 use assignment_coordination::store::{EtcdStore, StoreConfig};
-use personhog_leader::cache::{CachedPerson, PartitionedCache, PersonCacheKey};
+use personhog_common::partitioning::partition_for_person;
+use personhog_leader::cache::{CachedPerson, DirtyIndex, PartitionedCache, PersonCacheKey};
 use personhog_leader::coordination::LeaderHandoffHandler;
+use personhog_leader::inflight::InflightTracker;
+use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::PersonHogLeaderService;
 use personhog_proto::personhog::leader::v1::person_hog_leader_client::PersonHogLeaderClient;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
@@ -41,6 +44,15 @@ pub const PERSONS_DB_URL: &str = "postgres://posthog:posthog@localhost:5432/post
 pub const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 pub const POLL_INTERVAL: Duration = Duration::from_millis(100);
 pub const NUM_PARTITIONS: u32 = 4;
+
+/// Find a person_id whose key hashes to `partition`, so a test can aim a
+/// request at a specific partition while satisfying the leader's partition
+/// validation.
+pub fn person_id_for_partition(team_id: i64, partition: u32) -> i64 {
+    (1..)
+        .find(|pid| partition_for_person(team_id, *pid, NUM_PARTITIONS) == partition)
+        .expect("every partition is reachable from some person_id")
+}
 
 pub async fn test_store(test_name: &str) -> Arc<PersonhogStore> {
     let prefix = format!("/test-{}-{}/", test_name, uuid::Uuid::new_v4());
@@ -84,6 +96,7 @@ pub fn start_coordinator(
             keepalive_interval: Duration::from_secs(3),
             election_retry_interval: Duration::from_secs(1),
             rebalance_debounce_interval: Duration::from_millis(100),
+            reconcile_interval: Duration::from_millis(500),
         },
         strategy,
         None,
@@ -184,6 +197,9 @@ pub fn test_kafka_config() -> KafkaConfig {
         kafka_producer_topic_metadata_refresh_interval_ms: None,
         kafka_producer_message_max_bytes: None,
         kafka_producer_sticky_partitioning_linger_ms: None,
+        kafka_producer_partitioner: None,
+        kafka_producer_acks: None,
+        kafka_producer_retries: None,
     }
 }
 
@@ -215,6 +231,23 @@ pub fn test_warming_config(
     }
 }
 
+/// Recovery pointed at the given broker. A short receive timeout keeps
+/// tests that exercise failed recoveries fast.
+pub fn test_recovery(kafka_bootstrap: &str) -> Arc<ChangelogRecovery> {
+    let mut kafka = test_kafka_config();
+    kafka.kafka_hosts = kafka_bootstrap.to_string();
+    Arc::new(
+        ChangelogRecovery::new(RecoveryConfig {
+            kafka,
+            topic: CHANGELOG_TOPIC.to_string(),
+            pod_name: "test-pod".to_string(),
+            recv_timeout: Duration::from_secs(2),
+            pool_size: 2,
+        })
+        .expect("build recovery pool"),
+    )
+}
+
 /// Create a producer against local Kafka for e2e tests.
 pub async fn create_local_kafka_producer() -> FutureProducer<KafkaContext> {
     let registry = HealthRegistry::new("test");
@@ -238,6 +271,9 @@ pub async fn create_local_kafka_producer() -> FutureProducer<KafkaContext> {
         kafka_producer_topic_metadata_refresh_interval_ms: None,
         kafka_producer_message_max_bytes: None,
         kafka_producer_sticky_partitioning_linger_ms: None,
+        kafka_producer_partitioner: None,
+        kafka_producer_acks: None,
+        kafka_producer_retries: None,
     };
     create_kafka_producer(&config, handle)
         .await
@@ -287,10 +323,16 @@ pub async fn start_leader_pod(
     // Pod with real handoff handler. Warming consumer reads from the same
     // mock broker the producer is publishing to so the topic actually
     // exists when warming queries watermarks.
-    let inflight = Arc::new(personhog_leader::inflight::InflightTracker::new());
+    let inflight = Arc::new(InflightTracker::new());
+    // One dirty index per pod, shared by handler and service exactly as
+    // main.rs wires them: warming seeds the marks the service consults.
+    let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
+    // Recovery must read the broker the service produces to.
+    let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
+        Arc::clone(&dirty_index),
         test_warming_config(name, &mock_cluster.bootstrap_servers()),
     );
     let pod = PodHandle::new(
@@ -313,6 +355,9 @@ pub async fn start_leader_pod(
         None,
         Arc::new(DashMap::new()),
         Arc::clone(&inflight),
+        NUM_PARTITIONS,
+        Arc::clone(&dirty_index),
+        recovery,
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -349,10 +394,13 @@ pub async fn start_leader_pod_with_lease_ttl(
     let (mock_cluster, kafka_producer) = create_test_kafka().await;
 
     let heartbeat_secs = (lease_ttl as u64 / 3).max(1);
-    let inflight = Arc::new(personhog_leader::inflight::InflightTracker::new());
+    let inflight = Arc::new(InflightTracker::new());
+    let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
+    let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
+        Arc::clone(&dirty_index),
         test_warming_config(name, &mock_cluster.bootstrap_servers()),
     );
     let pod = PodHandle::new(
@@ -376,6 +424,9 @@ pub async fn start_leader_pod_with_lease_ttl(
         None,
         Arc::new(DashMap::new()),
         Arc::clone(&inflight),
+        NUM_PARTITIONS,
+        Arc::clone(&dirty_index),
+        recovery,
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -454,7 +505,10 @@ pub async fn start_leader_with_pg_fallback(
         CHANGELOG_TOPIC.to_string(),
         Some(pool),
         Arc::new(DashMap::new()),
-        Arc::new(personhog_leader::inflight::InflightTracker::new()),
+        Arc::new(InflightTracker::new()),
+        NUM_PARTITIONS,
+        Arc::new(DirtyIndex::new(1_000_000)),
+        test_recovery(&mock_cluster.bootstrap_servers()),
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

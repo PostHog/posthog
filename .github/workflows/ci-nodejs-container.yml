@@ -2,7 +2,26 @@ name: Build and deploy node container image
 
 on:
     workflow_dispatch:
+    # paths mirror the changes job's dorny filter, which still gates push and
+    # merge_group events (merge_group triggers don't support paths).
     pull_request:
+        paths:
+            - 'nodejs/**'
+            - 'common/hogvm/typescript/**'
+            - 'common/plugin_transpiler/**'
+            - 'common/esbuilder/**'
+            - 'common/replay-shared/**'
+            - 'common/replay-headless/**'
+            - 'rust/cyclotron-node/**'
+            - 'rust/common/hogvm/**'
+            - 'rust/replay-anonymizer/**'
+            - 'rust/replay-anonymizer-node/**'
+            - 'Dockerfile.node'
+            - '.github/workflows/ci-nodejs-container.yml'
+            - 'turbo.json'
+            - 'package.json'
+            - 'pnpm-lock.yaml'
+            - 'pnpm-workspace.yaml'
     merge_group:
     push:
         branches:
@@ -33,10 +52,11 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  # Keep in sync with the trigger-level pull_request paths above.
                   filters: |
                       node_files:
                         - 'nodejs/**'
@@ -46,6 +66,9 @@ jobs:
                         - 'common/replay-shared/**'
                         - 'common/replay-headless/**'
                         - 'rust/cyclotron-node/**'
+                        - 'rust/common/hogvm/**'
+                        - 'rust/replay-anonymizer/**'
+                        - 'rust/replay-anonymizer-node/**'
                         - 'Dockerfile.node'
                         - '.github/workflows/ci-nodejs-container.yml'
                         - 'turbo.json'
@@ -89,6 +112,8 @@ jobs:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  # Prod deploys from private ECR; pause the public ghcr push during an embargo.
+                  push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
 
             - name: Build and push container image
               id: build

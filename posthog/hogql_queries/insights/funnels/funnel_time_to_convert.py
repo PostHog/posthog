@@ -24,8 +24,9 @@ class FunnelTimeToConvertUDF(FunnelBase):
 
     def _format_results(self, results: list) -> FunnelTimeToConvertResults:
         return FunnelTimeToConvertResults(
-            bins=[[bin_from_seconds, person_count] for bin_from_seconds, person_count, _ in results],
+            bins=[[bin_from_seconds, person_count] for bin_from_seconds, person_count, _, _ in results],
             average_conversion_time=results[0][2],
+            median_conversion_time=results[0][3],
         )
 
     def _from_to_steps(self) -> tuple[int, int]:
@@ -126,7 +127,8 @@ class FunnelTimeToConvertUDF(FunnelBase):
             SELECT
                 bin_from_seconds,
                 person_count,
-                arrayAvg(timings) as averageConversionTime
+                arrayAvg(timings) as averageConversionTime,
+                arrayMap(x -> if(isNaN(x), NULL, x), [arrayReduce('median', timings)])[1] as medianConversionTime
             FROM {bins}
             ARRAY JOIN
             counts as person_count,

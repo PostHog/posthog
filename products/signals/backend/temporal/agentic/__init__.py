@@ -75,3 +75,34 @@ def resolve_user_id_for_team(team_id: int, github: GitHubIntegrationBase | None 
     if not membership:
         raise RuntimeError(f"No active users in organization '{team.organization.name}' (team {team.id})")
     return membership.user_id
+
+
+def resolve_acting_user_id_for_team(team_id: int) -> int | None:
+    """Resolve the user a Signals scout sandbox acts as, *without* requiring GitHub.
+
+    `resolve_user_id_for_team` gates on a GitHub integration because the repo-cloning callers
+    (report generation, repo selection, custom agent) need those credentials. The scout cadence
+    path never clones a repo — `user_id` only scopes the sandbox connection token / MCP identity —
+    so a GitHub integration is the wrong precondition there. Prefer the GitHub-integration creator
+    when one exists (stable attribution, matches the other surfaces), otherwise fall back to any
+    active org member.
+
+    Returns ``None`` only when the org has no active member to act as — a genuine "can't run yet"
+    that the scheduled caller short-circuits on, rather than crashing deep in the spawn path and
+    booking a bogus `failed` outcome. Genuine errors (missing team, DB failures) still propagate.
+    """
+    team = Team.objects.select_related("organization").get(id=team_id)
+    github = resolve_team_github_integration(team_id, team=team)
+    if github is not None:
+        try:
+            return resolve_user_id_for_team(team_id, github=github)
+        except RuntimeError:
+            # Integration present but its user is unusable — fall through to any active member.
+            pass
+    membership = (
+        OrganizationMembership.objects.select_related("user")
+        .filter(organization=team.organization, user__is_active=True)
+        .order_by("id")
+        .first()
+    )
+    return membership.user_id if membership else None

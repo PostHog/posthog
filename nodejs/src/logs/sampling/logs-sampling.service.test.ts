@@ -72,7 +72,7 @@ describe('LogsSamplingService', () => {
         const mockRedis: RedisV2 = {
             useClient: jest.fn(() => Promise.resolve(null)),
             usePipeline: jest.fn((_opts, cb) => {
-                const pipeline = { checkRateLimitV2: jest.fn() } as unknown as RedisClientPipeline
+                const pipeline = { checkRateLimitV3: jest.fn() } as unknown as RedisClientPipeline
                 cb(pipeline)
                 const pipelineResult: [Error | null, any][] = [[null, [2, 0] as const]]
                 return Promise.resolve(pipelineResult)
@@ -115,7 +115,7 @@ describe('LogsSamplingService', () => {
         const mockRedis: RedisV2 = {
             useClient: jest.fn(() => Promise.resolve(null)),
             usePipeline: jest.fn((_opts, cb) => {
-                const pipeline = { checkRateLimitV2: jest.fn() } as unknown as RedisClientPipeline
+                const pipeline = { checkRateLimitV3: jest.fn() } as unknown as RedisClientPipeline
                 cb(pipeline)
                 const pipelineResult: [Error | null, any][] = [[null, [1, 0] as const]]
                 return Promise.resolve(pipelineResult)
@@ -154,7 +154,7 @@ describe('LogsSamplingService', () => {
         const mockRedis: RedisV2 = {
             useClient: jest.fn(() => Promise.resolve(null)),
             usePipeline: jest.fn((_opts, cb) => {
-                const pipeline = { checkRateLimitV2: jest.fn() } as unknown as RedisClientPipeline
+                const pipeline = { checkRateLimitV3: jest.fn() } as unknown as RedisClientPipeline
                 cb(pipeline)
                 const pipelineResult: [Error | null, any][] = [[null, [1024, 0] as const]]
                 return Promise.resolve(pipelineResult)
@@ -200,7 +200,7 @@ describe('LogsSamplingService', () => {
         const mockRedis: RedisV2 = {
             useClient: jest.fn(() => Promise.resolve(null)),
             usePipeline: jest.fn((_opts, cb) => {
-                const pipeline = { checkRateLimitV2: jest.fn() } as unknown as RedisClientPipeline
+                const pipeline = { checkRateLimitV3: jest.fn() } as unknown as RedisClientPipeline
                 cb(pipeline)
                 const pipelineResult: [Error | null, any][] = [[null, [1024, 0] as const]]
                 return Promise.resolve(pipelineResult)
@@ -217,6 +217,53 @@ describe('LogsSamplingService', () => {
         // the null-field row still weighs its body bytes (1 each, 3 rows, 1 dropped).
         expect(result.contentBytesTotal).toBe(3)
         expect(result.contentBytesDropped).toBe(1)
+
+        const [, , kept] = await decodeLogRecords(result.value)
+        expect(kept).toHaveLength(2)
+    })
+
+    it('KB-mode meters each row against its pro-rata share of the batch header, not per-row bytes_uncompressed', async () => {
+        const ruleSet = compileRuleSet([
+            {
+                id: 'rl-kb',
+                rule_type: 'rate_limit',
+                scope_service: 'api',
+                scope_path_pattern: null,
+                scope_attribute_filters: [],
+                config: { kb_per_second: 1, burst_kb: 2 },
+            },
+        ])
+        // Per-row bytes_uncompressed is inflated (900 each) because shared batch data is
+        // re-counted on every row; content bytes (body only here) are 2/4/6 → total 12.
+        // Header = 24 → pro-rata scale 2 → per-row cost 4/8/12. Budget = 12:
+        // 4 (admit), 4+8=12 (admit), 12+12=24 > 12 (drop row c). Metering on the raw
+        // bytes_uncompressed sum (900 each) would have dropped every row.
+        const buffer = await encodeLogRecords(LOG_RECORD_AVRO, 'zstandard', [
+            { ...baseLog('a', 'api', 900), body: 'aa' },
+            { ...baseLog('b', 'api', 900), body: 'bbbb' },
+            { ...baseLog('c', 'api', 900), body: 'cccccc' },
+        ])
+
+        const checkRateLimitV3 = jest.fn()
+        const mockRedis: RedisV2 = {
+            useClient: jest.fn(() => Promise.resolve(null)),
+            usePipeline: jest.fn((_opts, cb) => {
+                cb({ checkRateLimitV3 } as unknown as RedisClientPipeline)
+                const pipelineResult: [Error | null, any][] = [[null, [12, 0] as const]]
+                return Promise.resolve(pipelineResult)
+            }),
+        }
+
+        const service = new LogsSamplingService(mockRedis, 60)
+        const result = await service.processBuffer(buffer, logsSettings, ruleSet, 99, 24)
+
+        // The batch is metered at the header pro-rata total (= header bytes), not Σ bytes_uncompressed.
+        // Args are [key, now, cost, bucketSize, refillRate, ttl]; cost is index 2.
+        expect(checkRateLimitV3.mock.calls[0]![2]).toBe(24)
+        expect(result.recordsDropped).toBe(1)
+        expect(result.recordsDroppedByRuleId.get('rl-kb')).toBe(1)
+        // The dropped-bytes metric still reports the row's real bytes_uncompressed.
+        expect(result.bytesDropped).toBe(900)
 
         const [, , kept] = await decodeLogRecords(result.value)
         expect(kept).toHaveLength(2)

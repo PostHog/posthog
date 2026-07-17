@@ -1,6 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useEffect } from 'react'
+import { twMerge } from 'tailwind-merge'
+
+import { IconCheckCircle } from '@posthog/icons'
 
 import { getCookie } from 'lib/api'
 import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
@@ -10,6 +13,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
+import { isWebKitBrowser } from 'lib/utils/dom'
 import { isEmail } from 'lib/utils/url'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
@@ -23,11 +27,12 @@ import { urls } from 'scenes/urls'
 import { LoginMethod } from '~/types'
 
 import { loginLogic } from '../../loginLogic'
+import { SessionRiskBanner } from '../../SessionRiskBanner'
 
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
 
 function Login(): JSX.Element {
-    const { precheck, clearGeneralError, resendEmailMFA } = useActions(loginLogic)
+    const { precheck, exitCodeVerification, resendCodeBasedVerification } = useActions(loginLogic)
     const { openSupportForm } = useActions(supportLogic)
     const {
         precheckResponse,
@@ -37,11 +42,14 @@ function Login(): JSX.Element {
         generalError,
         signupUrl,
         resendResponseLoading,
+        resendResponse,
+        codeVerificationRequired,
+        isCodeVerificationSubmitting,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
     const isPasswordHidden = !!precheckResponse.sso_enforcement
-    const isEmailVerificationSent = generalError?.code === 'email_verification_sent'
+    const isCodeSent = codeVerificationRequired
     const lastLoginMethod = getCookie(LAST_LOGIN_METHOD_COOKIE) as LoginMethod
     const prevEmail = usePrevious(login.email)
 
@@ -68,15 +76,21 @@ function Login(): JSX.Element {
     )
 
     return (
-        <PaperDeskScene notes={['// welcome back', '// 100,000+ teams ship here']}>
+        <PaperDeskScene notes={['// welcome back', '// 500,000+ teams ship here']}>
             {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
             <PaperDeskCard footer={footer}>
                 <CardTitle
-                    title={isEmailVerificationSent ? 'Check your email' : 'Log in to PostHog'}
-                    sub={isEmailVerificationSent ? undefined : "Welcome back. Let's go ship something."}
+                    title={isCodeSent ? 'Enter your login code' : 'Log in to PostHog'}
+                    sub={isCodeSent ? undefined : "Welcome back. Let's go ship something."}
                 />
+                <SessionRiskBanner className="mb-4" />
                 {generalError && (
-                    <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
+                    <div
+                        className={twMerge(
+                            'mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded',
+                            isCodeSent ? 'bg-success-highlight border-success' : 'bg-danger-highlight border-danger'
+                        )}
+                    >
                         {generalError.detail ||
                             ERROR_MESSAGES[generalError.code] ||
                             'Could not complete your login. Please try again.'}
@@ -106,25 +120,59 @@ function Login(): JSX.Element {
                         <OtherRegionHint />
                     </div>
                 )}
-                {isEmailVerificationSent ? (
-                    <div className="flex flex-col items-center gap-3">
+                {isCodeSent ? (
+                    <Form
+                        logic={loginLogic}
+                        formKey="codeVerification"
+                        enableFormOnSubmit
+                        className="flex flex-col gap-4"
+                    >
+                        <LemonField name="code" label="Verification code">
+                            <LemonInput
+                                className="ph-ignore-input"
+                                autoFocus
+                                data-attr="code-verification"
+                                placeholder="123456"
+                                inputMode="numeric"
+                                autoComplete="one-time-code"
+                            />
+                        </LemonField>
                         <LemonButton
-                            size="large"
-                            center
+                            type="primary"
+                            status="alt"
+                            htmlType="submit"
+                            data-attr="code-verification-submit"
                             fullWidth
-                            disabled={resendResponseLoading}
-                            loading={resendResponseLoading}
-                            onClick={() => resendEmailMFA(null)}
+                            center
+                            size="large"
+                            loading={isCodeVerificationSubmitting}
                         >
-                            Resend verification email
+                            Verify and log in
                         </LemonButton>
-                        <Link
-                            onClick={() => clearGeneralError()}
-                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
-                        >
-                            Back to login
-                        </Link>
-                    </div>
+                        <div className="flex flex-col items-center gap-3">
+                            <LemonButton
+                                size="small"
+                                type="tertiary"
+                                disabled={resendResponseLoading}
+                                loading={resendResponseLoading}
+                                onClick={() => resendCodeBasedVerification(null)}
+                            >
+                                Resend code
+                            </LemonButton>
+                            {resendResponse?.success && (
+                                <p className="flex items-center gap-1 text-success mb-0" role="status">
+                                    <IconCheckCircle />
+                                    Code sent — check your inbox.
+                                </p>
+                            )}
+                            <Link
+                                onClick={() => exitCodeVerification()}
+                                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
+                            >
+                                Back to login
+                            </Link>
+                        </div>
+                    </Form>
                 ) : (
                     <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="flex flex-col gap-4">
                         <RegionField />
@@ -137,7 +185,9 @@ function Login(): JSX.Element {
                                     type="email"
                                     autoFocus
                                     placeholder="you@yourcompany.com"
-                                    autoComplete="email"
+                                    // The `webauthn` token enables passkey autofill (conditional UI),
+                                    // which we only offer on WebKit; elsewhere the auto-modal handles passkeys.
+                                    autoComplete={isWebKitBrowser() ? 'username webauthn' : 'email'}
                                     value={value ?? ''}
                                     onChange={onChange}
                                     onBlur={() => precheck({ email: login.email })}
@@ -208,7 +258,7 @@ function Login(): JSX.Element {
                         )}
                     </Form>
                 )}
-                {!isEmailVerificationSent && !precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
+                {!isCodeSent && !precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
                     <SocialLoginButtons
                         topDivider
                         caption="Or log in with"

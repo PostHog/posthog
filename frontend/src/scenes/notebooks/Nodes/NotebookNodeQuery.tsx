@@ -1,9 +1,11 @@
-import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { useComponentPanelState } from 'lib/components/MarkdownNotebook/componentPanelContext'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -22,7 +24,7 @@ import {
     isSavedInsightNode,
     isActorsQuery,
 } from '~/queries/utils'
-import { InsightLogicProps, InsightShortId } from '~/types'
+import { InsightLogicProps } from '~/types'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import {
@@ -32,9 +34,25 @@ import {
     NotebookSQLEditorOutput,
     NotebookSQLEditorSettings,
 } from './components/NotebookSQLEditor'
-import { notebookNodeLogic } from './notebookNodeLogic'
+import { useRequiredNotebookNode } from './NotebookNodeContext'
 import { UnsupportedNodePlaceholder } from './sharedNodeSupport'
-import { SHORT_CODE_REGEX_MATCH_GROUPS } from './utils'
+
+type NotebookSqlOutputToolbarVisibilityProps = {
+    componentPanelState: ReturnType<typeof useComponentPanelState>
+    expanded: boolean
+    isEditing: boolean
+}
+
+export function getNotebookSqlOutputToolbarVisibility({
+    componentPanelState,
+    expanded,
+    isEditing,
+}: NotebookSqlOutputToolbarVisibilityProps): boolean {
+    const isOutputPaneOpen = componentPanelState?.showViewPanel ?? expanded
+    const isEditorPaneOpen = componentPanelState?.showEditPanel ?? isEditing
+
+    return isOutputPaneOpen && isEditorPaneOpen
+}
 
 export const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -52,7 +70,7 @@ const Component = ({
     updateAttributes,
 }: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
     const { query, nodeId } = attributes
-    const nodeLogic = useMountedLogic(notebookNodeLogic)
+    const nodeLogic = useRequiredNotebookNode()
     const { expanded, nodeId: resolvedNodeId, notebookLogic } = useValues(nodeLogic)
     const {
         editingNodeIds,
@@ -62,6 +80,7 @@ const Component = ({
         canvasFiltersOverride,
     } = useValues(notebookLogic)
     const { setTitlePlaceholder } = useActions(nodeLogic)
+    const componentPanelState = useComponentPanelState()
     const summarizeInsight = useSummarizeInsight()
     const sharedCachedInsight = query.kind === NodeKind.SavedInsightNode ? getSharedCachedInsight(query.shortId) : null
     const sharedCachedInlineResults =
@@ -77,6 +96,12 @@ const Component = ({
               dashboardItemId: query.kind === NodeKind.SavedInsightNode ? query.shortId : ('new' as const),
           }
     const { insightName } = useValues(insightLogic(insightLogicProps))
+    const isOutputPaneOpen = componentPanelState?.showViewPanel ?? expanded
+    const showSqlOutputToolbar = getNotebookSqlOutputToolbarVisibility({
+        componentPanelState,
+        expanded,
+        isEditing: !!editingNodeIds[resolvedNodeId],
+    })
 
     useEffect(() => {
         let title = 'Query'
@@ -138,7 +163,7 @@ const Component = ({
         // oxlint-disable-next-line react-hooks/exhaustive-deps
     }, [query])
 
-    if (!expanded) {
+    if (!isOutputPaneOpen) {
         return null
     }
 
@@ -188,7 +213,7 @@ const Component = ({
                 <NotebookSQLEditorOutput
                     attributes={attributes}
                     updateAttributes={updateAttributes}
-                    showOutputToolbar={!!editingNodeIds[resolvedNodeId]}
+                    showOutputToolbar={showSqlOutputToolbar}
                 />
             </div>
         )
@@ -234,6 +259,7 @@ type NotebookNodeQueryAttributes = {
     /* Whether canvasFiltersOverride is applied, as we should apply it only once  */
     isDefaultFilterApplied: boolean
     showSettings?: boolean
+    outputTab?: OutputTab | null
 }
 
 export const Settings = ({
@@ -241,7 +267,7 @@ export const Settings = ({
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodeQueryAttributes>): JSX.Element => {
     const { query, isDefaultFilterApplied } = attributes
-    const nodeLogic = useMountedLogic(notebookNodeLogic)
+    const nodeLogic = useRequiredNotebookNode()
     const { notebookLogic } = useValues(nodeLogic)
     const { canvasFiltersOverride } = useValues(notebookLogic)
 
@@ -375,6 +401,9 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
         showSettings: {
             default: false,
         },
+        outputTab: {
+            default: OutputTab.Results,
+        },
     },
     href: ({ query }) =>
         isSavedInsightNode(query)
@@ -384,18 +413,6 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
               : undefined,
     Settings,
     settingsPlacement: 'inline',
-    pasteOptions: {
-        find: urls.insightView(SHORT_CODE_REGEX_MATCH_GROUPS as InsightShortId),
-        getAttributes: async (match) => {
-            return {
-                query: {
-                    kind: NodeKind.SavedInsightNode,
-                    shortId: match[1] as InsightShortId,
-                },
-                isDefaultFilterApplied: false,
-            }
-        },
-    },
     serializedText: (attrs) => {
         let text = ''
         const q = attrs.query

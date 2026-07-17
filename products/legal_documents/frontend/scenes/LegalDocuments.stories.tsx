@@ -46,7 +46,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-04-21',
         pageUrl: urls.legalDocuments(),
-        featureFlags: ['legal-documents'],
     },
     decorators: [
         mswDecorator({

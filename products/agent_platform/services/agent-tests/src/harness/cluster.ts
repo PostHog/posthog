@@ -48,6 +48,7 @@ import {
     PgIdentityCredentialStore,
     PgIdentityLinkStateStore,
     PgIdentityStore,
+    PgTransportBindingStore,
     PgRevisionStore,
     PgSandboxInstanceStore,
     PgSessionQueue,
@@ -63,6 +64,7 @@ import {
     SecretBroker,
     SecretResolver,
     TEST_S3_BUCKET,
+    type WebSearchProvider,
     wipeTestPrefix as wipeMemoryTestPrefix,
 } from '@posthog/agent-shared'
 import { reset } from '@posthog/agent-shared/testing'
@@ -261,6 +263,13 @@ export interface BuildClusterOpts {
      * Defaults to a real `HttpClient` with no proxy (direct fetch).
      */
     http?: import('@posthog/agent-shared').HttpFetcher
+    /**
+     * Provider chain for `@posthog/web-search`. Forwarded onto the Worker
+     * so cases that declare the tool in their spec actually see it. Empty
+     * / absent (default) → the tool is gated out, matching the prod path
+     * for an unconfigured deployment.
+     */
+    webSearchProviders?: readonly WebSearchProvider[]
 }
 
 let _pool: Pool | null = null
@@ -410,6 +419,8 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         identityCredentials,
         identityLinks,
         identities,
+        routingMode: opts.routingMode ?? 'path',
+        domainSuffix: opts.domainSuffix,
         linkRedirectBaseUrl: 'http://callback.test',
         bus,
         logs: logSink,
@@ -430,6 +441,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         // (see `buildQueryEchoHttp`).
         http: harnessHttp,
         posthogApiBaseUrl: 'http://localhost:8010',
+        webSearchProviders: opts.webSearchProviders,
     })
 
     // Real-flow Slack secret resolver: decrypts the agent's `encrypted_env`
@@ -447,6 +459,10 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         routingMode: opts.routingMode ?? 'path',
         pathPrefix: '/agents',
         domainSuffix: opts.domainSuffix,
+        // OAuth link-callback base for `path` mode (dev/harness). In `domain`
+        // mode the callback host is derived from the slug + domainSuffix instead.
+        // Matches the worker's linkRedirectBaseUrl so both sides agree.
+        publicBaseUrl: 'http://callback.test',
         slackSigningSecretResolver,
         authProvider: opts.authProvider,
         identities,
@@ -454,11 +470,14 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         // Identity-linking callback route (`GET /link/:provider/callback`).
         identityCredentials,
         identityLinks,
+        // Edge admission: durable transport→canonical bindings.
+        transportBindings: new PgTransportBindingStore(pool),
+        posthogApiBaseUrl: 'http://localhost:8010',
         envEncryption: encryption,
         // Same `http` the worker uses, so tests asserting on outbound
         // slack.com calls from the ingress (ack_reaction, identity bridge)
         // can route them through a single recorder.
-        http: opts.http,
+        http: harnessHttp,
         // Wire the JWT gate so preview-mode tests exercise the real claim
         // verification (audience, signature, app/rev binding). Without this the
         // resolver short-circuits and a non-live revision routes without a
@@ -476,6 +495,9 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         // (/memory/team/:t/agent/:a/...) read + write through this store and
         // the runner's `@posthog/memory-*` tools hit the same files.
         memoryStore,
+        // Reuse the same in-process sandbox pool the worker uses so dry-run
+        // e2e cases exercise the same dispatch path as production sessions.
+        sandboxes,
     })
 
     return {
@@ -532,8 +554,8 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
                 description: input.description ?? '',
             })
             const rawSpec: Record<string, unknown> = {
-                // Default model is "faux/<name>"; tests can override via spec.model.
-                model: 'faux/faux',
+                // Default model is "faux/<name>"; tests can override via spec.models.
+                models: { mode: 'manual', models: [{ model: 'faux/faux' }] },
                 triggers: [
                     { type: 'chat', config: {} },
                     // Default to "*" for tests — individual cases override

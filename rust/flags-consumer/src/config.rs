@@ -145,6 +145,9 @@ impl Config {
             kafka_producer_topic_metadata_refresh_interval_ms: None,
             kafka_producer_message_max_bytes: None,
             kafka_producer_sticky_partitioning_linger_ms: None,
+            kafka_producer_partitioner: None,
+            kafka_producer_acks: None,
+            kafka_producer_retries: None,
         }
     }
 

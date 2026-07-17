@@ -12,15 +12,16 @@ import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
 
 import { cookielessRedisErrorCounter } from '~/common/metrics'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { ConcurrencyController } from '~/common/utils/concurrencyController'
+import { RedisOperationError } from '~/common/utils/db/error'
+import { logger } from '~/common/utils/logger'
+import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '~/common/utils/utils'
+import { IngestionWarningType } from '~/ingestion/common/ingestion-warnings'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '~/ingestion/common/timestamps'
 import { IngestionConsumerConfig } from '~/ingestion/config'
 import { PipelineResult, dlq, drop, isOkResult, ok } from '~/ingestion/framework/results'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { CookielessServerHashMode, EventHeaders, IncomingEventWithTeam, PipelineEvent, RedisPool, Team } from '~/types'
-import { ConcurrencyController } from '~/utils/concurrencyController'
-import { RedisOperationError } from '~/utils/db/error'
-import { logger } from '~/utils/logger'
-import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '~/utils/utils'
 
 import { RedisHelpers } from './redis-helpers'
 
@@ -397,7 +398,7 @@ export class CookielessManager {
             } = getProperties(event, timestamp)
             if (!userAgent || !ip || !host) {
                 let reason: string
-                let type: string
+                let type: IngestionWarningType
                 let missingProperty: string
 
                 if (!userAgent) {

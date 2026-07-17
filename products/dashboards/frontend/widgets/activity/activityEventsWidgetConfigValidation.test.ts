@@ -1,5 +1,7 @@
 import { ApiError } from 'lib/api-error'
 
+import { type AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+
 import { activityEventsWidgetConfigSchema } from '../../generated/widget-configs.zod'
 import {
     ACTIVITY_EVENTS_WIDGET_FORM_FIELD_NAMES,
@@ -53,12 +55,42 @@ describe('activityEventsWidgetConfigValidation', () => {
             const config = activityEventsWidgetConfigSchema.parse({
                 limit: 15,
                 dateRange: { date_from: '-24h' },
+                properties: [{ type: 'event', key: '$browser', operator: 'exact', value: 'Chrome' }],
             })
 
             const next = patchActivityEventsWidgetFilterFields(config, { dateFrom: '-7d' })
 
             expect(next.dateRange).toEqual({ date_from: '-7d' })
             expect(next.limit).toBe(15)
+            expect(next.properties).toEqual([{ type: 'event', key: '$browser', operator: 'exact', value: 'Chrome' }])
+        })
+
+        it('sets and clears the event name without touching the date range', () => {
+            const config = activityEventsWidgetConfigSchema.parse({ limit: 15, dateRange: { date_from: '-7d' } })
+
+            const withEvent = patchActivityEventsWidgetFilterFields(config, { eventName: '$pageview' })
+            expect(withEvent.eventName).toBe('$pageview')
+            expect(withEvent.dateRange).toEqual({ date_from: '-7d' })
+
+            const cleared = patchActivityEventsWidgetFilterFields(withEvent, { eventName: null })
+            expect(cleared.eventName).toBeNull()
+        })
+
+        it('updates property filters without touching the event name', () => {
+            const config = activityEventsWidgetConfigSchema.parse({ eventName: '$pageview' })
+            const properties: AnyPropertyFilter[] = [
+                {
+                    type: PropertyFilterType.Person,
+                    key: 'email',
+                    operator: PropertyOperator.IContains,
+                    value: '@',
+                },
+            ]
+
+            const next = patchActivityEventsWidgetFilterFields(config, { properties })
+
+            expect(next.eventName).toBe('$pageview')
+            expect(next.properties).toEqual(properties)
         })
     })
 

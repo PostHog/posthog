@@ -4,10 +4,10 @@ import {
     initialEventToPersonProperties,
     isFilteredPersonUpdateProperty,
 } from '~/common/persons/person-property-utils'
+import { logger } from '~/common/utils/logger'
+import { cloneObject } from '~/common/utils/utils'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { InternalPerson } from '~/types'
-import { logger } from '~/utils/logger'
-import { cloneObject } from '~/utils/utils'
 
 export interface PropertyUpdates {
     toSet: Properties

@@ -1,5 +1,5 @@
-from products.data_warehouse.backend.types import DIRECT_ENGINE_BY_SOURCE_TYPE
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE
 
 
 def direct_capable_source_types() -> frozenset[str]:
@@ -18,3 +18,14 @@ def is_direct_capable(source: ExternalDataSource) -> bool:
     if source.access_method == ExternalDataSource.AccessMethod.DIRECT:
         return True
     return source.direct_query_enabled
+
+
+def direct_supports_hogql(source: ExternalDataSource) -> bool:
+    """Whether HogQL compiles for this source's direct engine (False means raw SQL only)."""
+    if source.direct_engine is None:
+        return False
+    # Function-local: the registry is populated by the package root, which pulls the drivers.
+    from posthog.hogql.direct_sql.registry import get_adapter  # noqa: PLC0415
+
+    adapter = get_adapter(source.direct_engine)
+    return adapter is not None and adapter.dialect is not None

@@ -2,8 +2,8 @@ import dns from 'dns/promises'
 import { Counter, Histogram } from 'prom-client'
 import { z } from 'zod'
 
-import { logger } from '~/utils/logger'
-import { FetchResponse, internalFetch } from '~/utils/request'
+import { logger } from '~/common/utils/logger'
+import { FetchResponse, internalFetch } from '~/common/utils/request'
 
 import { CymbalRequest, CymbalResponse } from './types'
 
@@ -128,8 +128,8 @@ function jumpConsistentHash(key: number, numBuckets: number): number {
  * all events are sent to that address — no grouping overhead.
  *
  * Note: This client does not implement retry logic. Retries are handled at
- * the pipeline level using pipeBatchWithRetry(). The client throws CymbalError
- * with isRetriable flag to indicate whether errors should be retried.
+ * the pipeline level using pipeChunk()'s retry option. The client throws
+ * CymbalError with isRetriable flag to indicate whether errors should be retried.
  */
 export class CymbalClient {
     private hostname: string

@@ -392,6 +392,12 @@ pub struct Config {
     // if the behavioral cohorts DB is configured and cohorts with CohortType::Realtime
     // exist. Set to "all", specific team IDs, or ranges to enable realtime cohort
     // membership lookups on the hot path for those teams.
+    //
+    // `Cohort::uses_realtime_membership()` also requires `condition_type` to flag a
+    // behavioral/lifecycle condition. `condition_type` wasn't backfilled when it was added, so
+    // any cohort that hasn't been saved since must be resaved (`python manage.py resave_cohorts
+    // --team-id <id>`) before allowlisting a team here, or its behavioral cohorts will read as
+    // condition_type = NULL and fall back to legacy dynamic evaluation.
     #[envconfig(from = "REALTIME_COHORT_EVALUATION_TEAM_IDS", default = "none")]
     pub realtime_cohort_evaluation_team_ids: TeamIdCollection,
 
@@ -403,6 +409,16 @@ pub struct Config {
     // Each entry represents one (team_id, person_uuid) pair with a map of cohort memberships.
     #[envconfig(from = "COHORT_MEMBERSHIP_CACHE_MAX_ENTRIES", default = "500000")]
     pub cohort_membership_cache_max_entries: u64,
+
+    // Upper bound on a single realtime cohort membership lookup (pool acquire + query).
+    // Keeps an unreachable behavioral cohorts DB from stalling flag requests for the
+    // pool's full 2s acquire timeout; on timeout the lookup degrades to non-membership.
+    // The default matches the pool's 1s statement timeout: a tighter client-side bound
+    // would discard answers the DB would still deliver, flipping flags for the person,
+    // so this bound only adds cover where statement_timeout cannot reach (pool acquire
+    // stalls, network black holes).
+    #[envconfig(from = "REALTIME_COHORT_LOOKUP_TIMEOUT_MS", default = "1000")]
+    pub realtime_cohort_lookup_timeout_ms: u64,
 
     #[envconfig(default = "1000")]
     pub max_concurrency: usize,
@@ -451,6 +467,13 @@ pub struct Config {
     // true = Mode 3: read and write dedicated Redis only (cutover complete)
     #[envconfig(default = "false")]
     pub flags_redis_enabled: FlexBool,
+
+    // Kill-switch for the flag-definitions self-heal path. When enabled, a
+    // /flags/definitions cache miss enqueues a (debounced) rebuild request that a
+    // Celery worker drains and rebuilds. Default on; set to "false" to instantly
+    // stop enqueuing if it ever misbehaves in prod.
+    #[envconfig(from = "FLAG_DEFINITIONS_SELF_HEAL_ENABLED", default = "true")]
+    pub flag_definitions_self_heal_enabled: FlexBool,
 
     // S3 configuration for HyperCache fallback
     #[envconfig(default = "posthog")]
@@ -1014,6 +1037,7 @@ impl Config {
             flags_redis_url: "".to_string(),
             flags_redis_reader_url: "".to_string(),
             flags_redis_enabled: FlexBool(false),
+            flag_definitions_self_heal_enabled: FlexBool(false),
             redis_response_timeout_ms: 100,
             redis_connection_timeout_ms: 5000,
             write_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog"
@@ -1030,6 +1054,7 @@ impl Config {
             realtime_cohort_evaluation_team_ids: TeamIdCollection::None,
             cohort_membership_cache_ttl_seconds: 60,
             cohort_membership_cache_max_entries: 50_000,
+            realtime_cohort_lookup_timeout_ms: 1000,
             max_concurrency: 1000,
             max_pg_connections: 10,
             min_non_persons_reader_connections: 0,
@@ -1191,6 +1216,7 @@ impl Config {
             shutdown_flush_timeout: std::time::Duration::from_millis(
                 self.billing_shutdown_flush_timeout_ms,
             ),
+            jitter_override: None,
         }
     }
 
@@ -1676,6 +1702,7 @@ mod service_mode_tests {
         assert_eq!(bcfg.max_pending_entries, 99);
         assert_eq!(bcfg.per_flush_batch_size, 7);
         assert_eq!(bcfg.shutdown_flush_timeout, Duration::from_millis(5_000));
+        assert_eq!(bcfg.jitter_override, None);
     }
 }
 

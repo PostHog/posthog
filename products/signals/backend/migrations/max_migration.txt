@@ -1,1 +1,1 @@
-0048_signalreportartefact_latest_index
+0063_alter_signalreportartefact_type

@@ -3,8 +3,9 @@ import time
 import shlex
 import builtins
 from typing import Any, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When
 from django.db.models.functions import Concat, Lower
@@ -14,6 +15,7 @@ from rest_framework import filters, pagination, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.file_system.access_levels import FileSystemAccessLevelSerializerMixin
 from posthog.api.file_system.deletion import (
     HOG_FUNCTION_TYPES,
     delete_file_system_object,
@@ -46,6 +48,7 @@ from posthog.api.file_system.folder_instructions_service import (
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.decorators import disallow_if_impersonated
 from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
@@ -60,7 +63,10 @@ from posthog.models.file_system.file_system_view_log import get_recent_file_syst
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 from posthog.utils import str_to_bool
+
+from products.tasks.backend.facade import api as tasks_facade
 
 DELETE_PREVIEW_ENTRY_LIMIT = 200
 
@@ -69,7 +75,7 @@ DELETE_PREVIEW_ENTRY_LIMIT = 200
 RECENTS_SEARCH_SCAN_LIMIT = 200
 
 
-class FileSystemSerializer(serializers.ModelSerializer):
+class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
     last_viewed_at = serializers.DateTimeField(read_only=True, allow_null=True)
 
     class Meta:
@@ -85,6 +91,7 @@ class FileSystemSerializer(serializers.ModelSerializer):
             "shortcut",
             "created_at",
             "last_viewed_at",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -92,6 +99,7 @@ class FileSystemSerializer(serializers.ModelSerializer):
             "created_at",
             "team_id",
             "last_viewed_at",
+            "user_access_level",
         ]
 
     def update(self, instance: FileSystem, validated_data: dict[str, Any]) -> FileSystem:
@@ -517,6 +525,16 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             }
         )
 
+    def _allow_delete_without_ref(self, entry: FileSystem) -> bool:
+        """Whether a registered-type row with no ref may be deleted as a bare row.
+
+        On the web surface every registered row references a real object, so a
+        ref-less row is a data-integrity error we refuse to delete. Surfaces where
+        registered types can legitimately be ref-less (desktop canvases store their
+        source in `meta`, not a backing Dashboard) override this to allow it.
+        """
+        return False
+
     def _ensure_can_delete(self, entry: FileSystem) -> None:
         stack: list[FileSystem] = [entry]
         seen: set[str] = set()
@@ -557,7 +575,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if not is_file_system_type_registered(current.type):
                 continue
 
-            if remaining == 0 and not current.ref:
+            if remaining == 0 and not current.ref and not self._allow_delete_without_ref(current):
                 raise serializers.ValidationError(
                     {"detail": f"Cannot delete type '{current.type}' without a reference."}
                 )
@@ -595,6 +613,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return deleted_objects
 
         if not entry.ref:
+            if self._allow_delete_without_ref(entry):
+                entry.delete()
+                return deleted_objects
             raise serializers.ValidationError({"detail": f"Cannot delete type '{entry.type}' without a reference."})
 
         entry_path = entry.path
@@ -1027,6 +1048,14 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
 
     file_system_surface = "desktop"
 
+    def _allow_delete_without_ref(self, entry: FileSystem) -> bool:
+        # Desktop canvases are `dashboard`-typed rows whose source lives in `meta`,
+        # not a backing Dashboard, so they legitimately have no ref. Delete the bare
+        # row (nothing to cascade to) rather than refusing. Scope this to `dashboard`
+        # only — any other registered type with no ref is still a data-integrity
+        # error we refuse to delete, even on the desktop surface.
+        return entry.type == "dashboard"
+
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         super().perform_create(serializer)
         instance = cast(FileSystem, serializer.instance)
@@ -1108,6 +1137,7 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
             if isinstance(existing_context, str):
                 version["context"] = existing_context
             versions = list(meta.get("versions") or [])
+            first_publish = not versions and not meta.get("code")
             versions.append(version)
 
             meta.update(
@@ -1132,7 +1162,72 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
 
             dashboard.save(update_fields=update_fields)
 
+        if first_publish:
+            self._announce_canvas_created(request, dashboard)
+
         return Response(self.get_serializer(dashboard).data)
+
+    def _announce_canvas_created(self, request: Request, dashboard: FileSystem) -> None:
+        """Announce a canvas's first publish in the generating task's thread.
+
+        The task sandbox stamps every MCP call with an X-PostHog-Task-Id header, so
+        a publish is attributable to the task that made it. The header alone is
+        forgeable, so two checks bind the announcement to a real sandbox run: the
+        request must carry an OAuth token minted under a sandbox app (those tokens
+        are only created server-side), and the facade only accepts a task created
+        by the requesting user (the sandbox authenticates with the task creator's
+        credentials). No header (a human or app save) means no announcement.
+        """
+        raw_task_id = (request.headers.get("X-PostHog-Task-Id") or "").strip()
+        try:
+            task_id = UUID(raw_task_id)
+        except ValueError:
+            return
+        if not self._is_sandbox_authenticated(request):
+            return
+        user = request.user if isinstance(request.user, User) else None
+        segments = split_path(dashboard.path)
+        tasks_facade.post_canvas_created_thread_update(
+            task_id,
+            self.team_id,
+            acting_user_id=user.id if user else None,
+            canvas_name=segments[-1] if segments else "Canvas",
+            canvas_url=self._canvas_share_url(dashboard),
+        )
+
+    @staticmethod
+    def _is_sandbox_authenticated(request: Request) -> bool:
+        """True when the request bears an OAuth token minted under a sandbox app —
+        the credential a task sandbox (via the MCP server) calls this API with."""
+        authenticator = request.successful_authenticator
+        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+            return False
+        application = authenticator.access_token.application
+        return application is not None and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS
+
+    def _canvas_share_url(self, dashboard: FileSystem) -> str | None:
+        """The web interstitial link that deep-links into the desktop app's canvas view:
+        `/code/canvas/<channel folder id>/<dashboard id>`. The channel id is stamped on
+        the row's meta by the desktop app at create time; fall back to the parent folder
+        row for rows that predate the stamp.
+        """
+        channel_id = (dashboard.meta or {}).get("channelId")
+        if not channel_id:
+            parent_path = join_path(split_path(dashboard.path)[:-1])
+            folder = (
+                FileSystem.objects.filter(
+                    surface_q(self.file_system_surface),
+                    team_id=dashboard.team_id,
+                    type="folder",
+                    path=parent_path,
+                ).first()
+                if parent_path
+                else None
+            )
+            channel_id = str(folder.id) if folder else None
+        if not channel_id:
+            return None
+        return f"{settings.SITE_URL}/code/canvas/{channel_id}/{dashboard.id}"
 
     @extend_schema(responses={200: FolderInstructionsSerializer})
     @action(methods=["GET"], detail=True)

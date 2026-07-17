@@ -78,7 +78,11 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailNormalizer, validate_display_name
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import has_passkeys, set_two_factor_verified_in_session
-from posthog.middleware import get_impersonated_session_expires_at, is_read_only_impersonation
+from posthog.middleware import (
+    IMPERSONATION_REASON_SESSION_KEY,
+    get_impersonated_session_expires_at,
+    is_read_only_impersonation,
+)
 from posthog.models import OrganizationInvite, Team, User, UserScenePersonalisation
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
 from posthog.models.organization import Organization, OrganizationMembership
@@ -102,11 +106,13 @@ from posthog.rate_limit import (
 from posthog.session.activity import (
     list_user_sessions,
     revoke_other_sessions,
+    revoke_other_sessions_for_request,
     revoke_user_auth_session,
     session_public_id,
     sync_current_session_metadata,
 )
 from posthog.session.models import Session
+from posthog.session.reauth import sensitive_action_reference, step_up_required
 from posthog.tasks.email import (
     send_email_change_emails,
     send_password_changed_email,
@@ -194,6 +200,9 @@ class UserSerializer(serializers.ModelSerializer):
     is_impersonated = serializers.SerializerMethodField()
     is_impersonated_until = serializers.SerializerMethodField()
     is_impersonated_read_only = serializers.SerializerMethodField()
+    is_impersonated_reason = serializers.SerializerMethodField(
+        help_text="The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating."
+    )
     sensitive_session_expires_at = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
@@ -275,6 +284,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_impersonated",
             "is_impersonated_until",
             "is_impersonated_read_only",
+            "is_impersonated_reason",
             "sensitive_session_expires_at",
             "team",
             "organization",
@@ -319,6 +329,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_impersonated",
             "is_impersonated_until",
             "is_impersonated_read_only",
+            "is_impersonated_reason",
             "sensitive_session_expires_at",
             "team",
             "organization",
@@ -370,18 +381,30 @@ class UserSerializer(serializers.ModelSerializer):
             return None
         return is_read_only_impersonation(self.context["request"])
 
+    def get_is_impersonated_reason(self, _) -> Optional[str]:
+        if "request" not in self.context or not is_impersonated_session(self.context["request"]):
+            return None
+        return self.context["request"].session.get(IMPERSONATION_REASON_SESSION_KEY) or None
+
     def get_sensitive_session_expires_at(self, instance: User) -> Optional[str]:
         if "request" not in self.context:
             return None
 
-        session_created_at: int = self.context["request"].session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+        session = self.context["request"].session
 
-        if not session_created_at:
+        # A pending step-up means sensitive actions are blocked now regardless of age (see
+        # TimeSensitiveActionPermission), so there is no fresh window to report.
+        if step_up_required(session):
+            return None
+
+        reference = sensitive_action_reference(session)
+        if reference is None:
             # This should always be covered by the middleware but just in case
             return None
 
-        # Session expiry is the time when the session was created plus the
-        session_expiry_time = datetime.fromtimestamp(session_created_at) + timedelta(
+        # Sensitive-action window expires at the most recent of session creation
+        # or last step-up re-auth, plus the configured freshness age.
+        session_expiry_time = datetime.fromtimestamp(reference) + timedelta(
             seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE
         )
 
@@ -712,6 +735,7 @@ class UserSerializer(serializers.ModelSerializer):
             cast(User, instance), current_password, validated_data.pop("password", None)
         )
 
+        old_passkeys_enabled_for_2fa = instance.passkeys_enabled_for_2fa
         updated_attrs = list(validated_data.keys())
         instance = cast(User, super().update(instance, validated_data))
 
@@ -722,6 +746,17 @@ class UserSerializer(serializers.ModelSerializer):
             update_session_auth_hash(self.context["request"], instance)
             updated_attrs.append("password")
             send_password_changed_email.delay(instance.id)
+
+        # Only the upgrade (enabling) counts as a credential change — disabling is a downgrade and
+        # deliberately does not revoke other sessions.
+        credential_changed = bool(password) or (
+            "passkeys_enabled_for_2fa" in validated_data
+            and not old_passkeys_enabled_for_2fa
+            and instance.passkeys_enabled_for_2fa
+        )
+        if credential_changed:
+            # Revoke other sessions after update_session_auth_hash so the current (rotated) session is kept.
+            revoke_other_sessions_for_request(self.context["request"], instance)
 
         report_user_updated(instance, updated_attrs)
 
@@ -797,6 +832,9 @@ class UserAuthSessionSerializer(serializers.ModelSerializer):
     """A cookie-auth login session shown on the user's 'Web sessions' screen."""
 
     id = serializers.SerializerMethodField(help_text="Identifier used to revoke this login session.")
+    created_at = serializers.SerializerMethodField(
+        help_text="When this login session was first created — the original sign-in time."
+    )
     last_activity = serializers.DateTimeField(
         read_only=True, help_text="When this login session last made a request (refreshed periodically)."
     )
@@ -817,12 +855,20 @@ class UserAuthSessionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Session
-        fields = ["id", "last_activity", "location", "device", "login_method", "is_current"]
+        fields = ["id", "created_at", "last_activity", "location", "device", "login_method", "is_current"]
 
     @extend_schema_field({"type": "string", "format": "uuid"})
     def get_id(self, obj: Session) -> str:
         # Expose a stable, opaque id derived from the session key — never the key itself.
         return str(session_public_id(obj.session_key))
+
+    @extend_schema_field({"type": "string", "format": "date-time", "nullable": True})
+    def get_created_at(self, obj: Session) -> str | None:
+        # The creation time lives in the encoded session payload, not a column.
+        created = obj.get_decoded().get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+        if not created:
+            return None
+        return datetime.fromtimestamp(float(created), tz=UTC).isoformat()
 
     @extend_schema_field({"type": "boolean"})
     def get_is_current(self, obj: Session) -> bool:
@@ -1034,6 +1080,7 @@ class UserViewSet(
                 # Delete social auth so the old external identity can't keep logging in.
                 UserSocialAuth.objects.filter(user=user).delete()
             send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
+            revoke_other_sessions_for_request(request, user)
 
         user.is_email_verified = True
         user.save()
@@ -1300,6 +1347,8 @@ class UserViewSet(
 
         session_cache.delete("django_two_factor-hex")
         session_cache.delete("django_two_factor-qr_secret_key")
+
+        revoke_other_sessions_for_request(request, cast(User, request.user))
 
         return Response({"success": True})
 
@@ -1777,6 +1826,7 @@ def redirect_to_website(request):
                 "lastName": request.user.last_name,
             },
             headers={"Content-Type": "application/json"},
+            timeout=10,
         )
 
         if response.status_code == 200:

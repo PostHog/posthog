@@ -1,5 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -9,6 +14,8 @@ import { webAnalyticsAchievementsLogic } from './webAnalyticsAchievementsLogic'
 
 const OVERVIEW_URL = '/api/projects/:team_id/web_analytics_achievements/overview/'
 const ACKNOWLEDGE_URL = '/api/projects/:team_id/web_analytics_achievements/acknowledge_celebration/'
+const PREFERENCES_URL = '/api/projects/:team_id/web_analytics_achievements/preferences/'
+const RECORD_INTERACTION_URL = '/api/projects/:team_id/web_analytics_achievements/record_interaction/'
 
 const MOCK_OVERVIEW: AchievementsListResponseApi = {
     definitions: [],
@@ -56,16 +63,26 @@ const DEFS_OVERVIEW: AchievementsListResponseApi = {
 describe('webAnalyticsAchievementsLogic', () => {
     let logic: ReturnType<typeof webAnalyticsAchievementsLogic.build>
     let lastAck: { track_key: string; stage: number } | null
+    let lastInteraction: { interaction_kind: string } | null
 
     beforeEach(() => {
         lastAck = null
+        lastInteraction = null
+        jest.spyOn(lemonToast, 'success').mockReturnValue('mock-toast-id')
         initKeaTests()
         useMocks({
-            get: { [OVERVIEW_URL]: () => [200, MOCK_OVERVIEW] },
+            get: {
+                [OVERVIEW_URL]: () => [200, MOCK_OVERVIEW],
+                [PREFERENCES_URL]: () => [200, { achievements_opt_out: false }],
+            },
             post: {
                 [ACKNOWLEDGE_URL]: async ({ request }) => {
                     lastAck = (await request.json()) as { track_key: string; stage: number }
                     return [200, { acknowledged: true }]
+                },
+                [RECORD_INTERACTION_URL]: async ({ request }) => {
+                    lastInteraction = (await request.json()) as { interaction_kind: string }
+                    return [200, { recorded: true }]
                 },
             },
         })
@@ -75,6 +92,7 @@ describe('webAnalyticsAchievementsLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+        jest.restoreAllMocks()
     })
 
     it('exposes progress and pending celebrations after loading', async () => {
@@ -84,8 +102,89 @@ describe('webAnalyticsAchievementsLogic', () => {
             .toDispatchActions(['loadAchievementsSuccess'])
             .toMatchValues({
                 pendingCelebrations: [{ track_key: 'streak', stage: 2, stage_name: 'Warming up' }],
-                uncelebratedPending: [{ track_key: 'streak', stage: 2, stage_name: 'Warming up' }],
             })
+    })
+
+    it('toasts and acknowledges each pending celebration on load', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadAchievements()
+        })
+            .toDispatchActions(['loadAchievementsSuccess', 'acknowledgeCelebration', 'markCelebrated'])
+            .toFinishAllListeners()
+            .toMatchValues({ uncelebratedPending: [] })
+
+        expect(lemonToast.success).toHaveBeenCalledTimes(1)
+        expect(lastAck).toEqual({ track_key: 'streak', stage: 2 })
+    })
+
+    it('collapses multiple pending celebrations into a single toast and still acknowledges each', async () => {
+        const acks: { track_key: string; stage: number }[] = []
+        useMocks({
+            get: {
+                [OVERVIEW_URL]: () => [
+                    200,
+                    {
+                        definitions: [],
+                        user_progress: [],
+                        team_progress: [],
+                        pending_celebrations: [
+                            { track_key: 'streak', stage: 2, stage_name: 'Warming up' },
+                            { track_key: 'explorer', stage: 1, stage_name: 'First look' },
+                        ],
+                    } as AchievementsListResponseApi,
+                ],
+            },
+            post: {
+                [ACKNOWLEDGE_URL]: async ({ request }) => {
+                    acks.push((await request.json()) as { track_key: string; stage: number })
+                    return [200, { acknowledged: true }]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadAchievements()
+        })
+            .toDispatchActions([
+                'loadAchievementsSuccess',
+                'acknowledgeCelebration',
+                'markCelebrated',
+                'acknowledgeCelebration',
+                'markCelebrated',
+            ])
+            .toFinishAllListeners()
+            .toMatchValues({ uncelebratedPending: [] })
+
+        expect(lemonToast.success).toHaveBeenCalledTimes(1)
+        expect(lemonToast.success).toHaveBeenCalledWith(
+            "You've unlocked 2 web analytics achievements",
+            expect.anything()
+        )
+        expect(acks).toHaveLength(2)
+        expect(acks).toEqual(
+            expect.arrayContaining([
+                { track_key: 'streak', stage: 2 },
+                { track_key: 'explorer', stage: 1 },
+            ])
+        )
+    })
+
+    it('does not re-toast or re-celebrate an already-celebrated unlock on a second load', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadAchievements()
+        })
+            .toDispatchActions(['loadAchievementsSuccess'])
+            .toFinishAllListeners()
+        expect(lemonToast.success).toHaveBeenCalledTimes(1)
+
+        ;(lemonToast.success as jest.Mock).mockClear()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadAchievements()
+        })
+            .toDispatchActions(['loadAchievementsSuccess'])
+            .toFinishAllListeners()
+        expect(lemonToast.success).not.toHaveBeenCalled()
     })
 
     it('refetches on openModal and does not register a poll', async () => {
@@ -118,6 +217,45 @@ describe('webAnalyticsAchievementsLogic', () => {
 
         expect(logic.values.sortedUserTracks.map((track) => track.key)).toEqual(['explorer', 'detective', 'streak'])
         expect(logic.values.sortedTeamTracks.map((track) => track.key)).toEqual(['traffic'])
+    })
+
+    describe('interaction recording', () => {
+        const enableAchievements = (): void => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.WEB_ANALYTICS_ACHIEVEMENTS]: true,
+                [FEATURE_FLAGS.WEB_ANALYTICS_STREAK_CADENCE]: 'daily',
+            })
+        }
+
+        it.each([
+            'reportWebAnalyticsFilterApplied',
+            'reportWebAnalyticsFilterRemoved',
+            'reportWebAnalyticsDateRangeChanged',
+            'reportWebAnalyticsCompareToggled',
+            'reportWebAnalyticsPathCleaningToggled',
+        ] as const)('records a data interaction when %s fires', async (report) => {
+            enableAchievements()
+            await expectLogic(logic, () => {
+                eventUsageLogic.mount()
+                eventUsageLogic.actions[report]({} as any)
+            })
+                .toDispatchActions(['recordInteraction'])
+                .toFinishAllListeners()
+            expect(lastInteraction).toEqual({ interaction_kind: 'data' })
+        })
+
+        it('does not post an interaction when achievements are disabled', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.WEB_ANALYTICS_ACHIEVEMENTS]: false,
+            })
+            await expectLogic(logic, () => {
+                eventUsageLogic.mount()
+                eventUsageLogic.actions.reportWebAnalyticsFilterApplied({} as any)
+            })
+                .toDispatchActions(['recordInteraction'])
+                .toFinishAllListeners()
+            expect(lastInteraction).toBeNull()
+        })
     })
 
     it('toggles expanded tracks and clears them when the modal closes', async () => {

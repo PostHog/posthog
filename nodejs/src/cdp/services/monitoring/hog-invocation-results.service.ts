@@ -4,11 +4,11 @@ import { Counter, Gauge } from 'prom-client'
 
 import { HOG_INVOCATION_RESULTS_OUTPUT, HogInvocationResultsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { safeClickhouseString } from '~/common/utils/db/utils'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
 
-import { safeClickhouseString } from '../../../utils/db/utils'
-import { parseJSON } from '../../../utils/json-parse'
-import { logger } from '../../../utils/logger'
-import { captureException } from '../../../utils/posthog'
 import type { CdpOutput } from '../../cdp-services'
 import { RerunFilter, RerunFunctionKind, rerunWrapperKindFor } from '../../rerun/rerun-job.types'
 import {
@@ -82,20 +82,35 @@ const isHogFunctionInvocation = (invocation: CyclotronJobInvocation): invocation
 const isHogFlowInvocation = (invocation: CyclotronJobInvocation): invocation is CyclotronJobInvocationHogFlow =>
     'hogFlow' in invocation
 
-// In-process monotonic counter that breaks ties when consecutive lifecycle
-// rows for the same invocation are produced within the same millisecond.
-// Without this, the 'running' + terminal rows of a fast invocation can share a
-// `version` value, and ReplacingMergeTree keeps one arbitrarily — potentially
-// leaving the runs UI showing a permanently 'running' status. We layer
-// `performance.now()`'s sub-ms fractional component on top of `Date.now()` to
-// stay monotonic within a process; the worst remaining tie window is two
-// rows produced at the exact same `performance.now()` sample, which is below
-// the precision the clock actually delivers.
+// Monotonic microsecond timestamp used as the row `version`. ReplacingMergeTree keeps the
+// row with the max `version` per key; without a monotonic version the 'running' + terminal
+// rows of a fast invocation can share or invert a version, and CH keeps one arbitrarily —
+// leaving the runs UI stuck on 'running' (and, via the rerun paginator's
+// `argMax(status, version)` in-flight check, that invocation un-rerunnable).
+//
+// The rows being compared are produced across DIFFERENT processes — the 'running' row by
+// the events consumer, the terminal row by a cyclotron worker — so the base must be a
+// clock that stays synchronised across processes. `Date.now()` is continuously
+// NTP-disciplined, so cross-process skew stays well under the queue latency between the
+// two rows. (`performance.timeOrigin + performance.now()` is monotonic within a process
+// but freezes each process's wall-clock offset at start and never re-syncs, so an
+// NTP step or VM pause would invert versions across pods — worse for the comparison that
+// matters.)
+//
+// A wall clock alone can still tie, or briefly step backward under NTP, for two rows
+// produced close together in the SAME process (e.g. the flaky monotonicity test). Clamp to
+// strictly exceed the last value this process issued: that adds strict in-process
+// monotonicity on top of the NTP-anchored cross-process ordering.
+//
+// This module-level counter is process-global and never resets, so a test using
+// `jest.setSystemTime()` to a time earlier than an already-issued stamp will see clamped
+// `last + 1` values, not the fake time. Don't rewind the clock below a prior stamp in tests.
+let lastVersionMicros = 0n
 const microsecondsSinceEpoch = (): string => {
     // BigInt avoids the 53-bit cap so the number lines up with ClickHouse UInt64.
-    const ms = BigInt(Date.now())
-    const subMs = BigInt(Math.floor((performance.now() % 1) * 1000))
-    return (ms * 1000n + subMs).toString()
+    const wallMicros = BigInt(Date.now()) * 1000n
+    lastVersionMicros = wallMicros > lastVersionMicros ? wallMicros : lastVersionMicros + 1n
+    return lastVersionMicros.toString()
 }
 
 const isoMicroseconds = (date: Date): string => {
@@ -111,8 +126,9 @@ const truncate = (value: string, max: number): string => {
 }
 
 // Best-effort error classification — keeps `error_kind` low-cardinality so the
-// status_idx skipping index stays small. The full message lands in
-// `error_message`, the full stack stays in log_entries.
+// status_idx skipping index stays small. Only the message lands in
+// `error_message`, never the stack trace — app-level executors pass the whole
+// `Error` here, and its stack would otherwise leak into the Invocations tab.
 const classifyError = (error: unknown): { kind: string; message: string } => {
     if (!error) {
         return { kind: '', message: '' }
@@ -121,7 +137,8 @@ const classifyError = (error: unknown): { kind: string; message: string } => {
         typeof error === 'string'
             ? error
             : error instanceof Error
-              ? error.stack || error.message
+              ? // fall back to the error name so an empty message doesn't blank the row (without the stack)
+                error.message || error.name
               : (() => {
                     try {
                         return JSON.stringify(error)
@@ -308,6 +325,7 @@ export class HogInvocationResultsService {
         status: 'running' | 'succeeded' | 'failed',
         opts: {
             error?: unknown
+            errorKind?: string
             startedAt?: Date
             finishedAt?: Date
         } = {}
@@ -316,9 +334,30 @@ export class HogInvocationResultsService {
             return
         }
 
+        const row = this.buildLifecycleRow(invocation, status, opts)
+        counterHogInvocationResultRowsProduced.labels(row.function_kind, row.status).inc()
+        this.queuedRows.push(row)
+        hogInvocationResultsPendingMessages.set(this.queuedRows.length)
+    }
+
+    private buildLifecycleRow(
+        invocation: CyclotronJobInvocation,
+        status: 'running' | 'succeeded' | 'failed',
+        opts: {
+            error?: unknown
+            errorKind?: string
+            startedAt?: Date
+            finishedAt?: Date
+        }
+    ): HogInvocationResultRow {
         const now = new Date()
         const trigger = extractTriggerFields(invocation)
-        const { kind: errorKind, message: errorMessage } = classifyError(opts.error)
+        const classified = classifyError(opts.error)
+        // An explicit `errorKind` overrides the derived one so callers (e.g. the
+        // janitor giving up on a poison pill) can stamp a stable, filterable
+        // kind that the rerun tooling can target directly.
+        const errorKind = opts.errorKind ?? classified.kind
+        const errorMessage = classified.message
         const startedAt = opts.startedAt ?? (status === 'running' ? now : undefined)
         const finishedAt = opts.finishedAt ?? (status !== 'running' ? now : undefined)
         const durationMs =
@@ -335,15 +374,28 @@ export class HogInvocationResultsService {
               ? (invocation.state?.rerunAttempts ?? 0)
               : 0
 
-        // `firstScheduledAt` is set by the rerun paginator on rehydration so
-        // retries inherit the original's value; for fresh invocations it's
-        // unset and we fall back to the current `scheduled_at`.
-        const firstScheduledAtRaw = isHogFunctionInvocation(invocation)
+        // `firstScheduledAt` records the original cyclotron-scheduled time. The
+        // rerun paginator sets it on rehydration; here we also stamp it onto the
+        // state the first time we emit a 'running' row, so it survives cyclotron
+        // fetch retries (which overwrite `queueScheduledAt`). The 'running' row
+        // fires once at invocation creation, before the invocation is enqueued,
+        // so the value carries forward in the serialized state. Without this the
+        // terminal row — written after a retry — would record the retry time and
+        // win the ReplacingMergeTree argMax, mislabeling the run's start time.
+        let firstScheduledAt = isHogFunctionInvocation(invocation)
             ? invocation.state?.firstScheduledAt
             : isHogFlowInvocation(invocation)
               ? invocation.state?.firstScheduledAt
               : undefined
         const scheduledAtIso = isoMicroseconds(invocation.queueScheduledAt?.toJSDate() ?? now)
+        if (status === 'running' && firstScheduledAt === undefined) {
+            firstScheduledAt = scheduledAtIso
+            if (isHogFunctionInvocation(invocation)) {
+                invocation.state.firstScheduledAt = scheduledAtIso
+            } else if (isHogFlowInvocation(invocation) && invocation.state) {
+                invocation.state.firstScheduledAt = scheduledAtIso
+            }
+        }
 
         const row: HogInvocationResultRow = {
             team_id: invocation.teamId,
@@ -355,7 +407,7 @@ export class HogInvocationResultsService {
             attempts: rerunAttempts,
             is_retry: rerunAttempts > 0 ? 1 : 0,
             scheduled_at: scheduledAtIso,
-            first_scheduled_at: firstScheduledAtRaw ?? scheduledAtIso,
+            first_scheduled_at: firstScheduledAt ?? scheduledAtIso,
             started_at: startedAt ? isoMicroseconds(startedAt) : null,
             finished_at: finishedAt ? isoMicroseconds(finishedAt) : null,
             duration_ms: durationMs,
@@ -369,9 +421,61 @@ export class HogInvocationResultsService {
             is_deleted: 0,
         }
 
-        counterHogInvocationResultRowsProduced.labels(row.function_kind, row.status).inc()
-        this.queuedRows.push(row)
-        hogInvocationResultsPendingMessages.set(this.queuedRows.length)
+        return row
+    }
+
+    /**
+     * Produce a single terminal `failed` lifecycle row and await the broker
+     * ack, returning `true` only once the row is durably enqueued. Bypasses the
+     * batched queue/flush path so the caller can establish a strict ordering —
+     * the janitor records a poison pill's give-up here BEFORE deleting the
+     * cyclotron row, closing the window where the row could be gone with no
+     * recovery record. Returns `false` (never throws) when recording is
+     * disabled or the produce fails, so the caller can keep the job instead of
+     * dropping it silently.
+     */
+    async recordTerminalFailureDurably(
+        invocation: CyclotronJobInvocation,
+        opts: { error?: unknown; errorKind?: string } = {}
+    ): Promise<boolean> {
+        if (!this.config.HOG_INVOCATION_RESULTS_ENABLED) {
+            return false
+        }
+
+        // Build inside the try too — a malformed invocation (e.g. an unparseable
+        // date) must fail this record safely so the caller keeps the job, never
+        // crash the whole janitor cycle.
+        try {
+            const row = this.buildLifecycleRow(invocation, 'failed', opts)
+            await this.produceRow(row)
+            counterHogInvocationResultRowsProduced.labels(row.function_kind, row.status).inc()
+            return true
+        } catch (error) {
+            counterHogInvocationResultProduceFailed.inc()
+            logger.error('⚠️', `failed to durably record terminal failure: ${error}`, {
+                error: String(error),
+                invocation_id: invocation.id,
+            })
+            captureException(error)
+            return false
+        }
+    }
+
+    private async produceRow(row: HogInvocationResultRow): Promise<void> {
+        const value = Buffer.from(
+            safeClickhouseString(
+                JSON.stringify({
+                    ...row,
+                    invocation_globals: await compressInvocationGlobals(row.invocation_globals),
+                })
+            )
+        )
+        await this.outputs.produce(HOG_INVOCATION_RESULTS_OUTPUT, {
+            // Partition by invocation_id so all rows for a single invocation
+            // land on the same Kafka partition (and the same ClickHouse shard).
+            key: Buffer.from(row.invocation_id),
+            value,
+        })
     }
 
     /**
@@ -485,36 +589,18 @@ export class HogInvocationResultsService {
         hogInvocationResultsPendingMessages.set(0)
 
         await Promise.all(
-            rows.map(async (row) => {
-                const value = Buffer.from(
-                    safeClickhouseString(
-                        JSON.stringify({
-                            ...row,
-                            invocation_globals: await compressInvocationGlobals(row.invocation_globals),
-                        })
-                    )
-                )
-                return this.outputs
-                    .produce(HOG_INVOCATION_RESULTS_OUTPUT, {
-                        // Partition by invocation_id so all rows for a single
-                        // invocation land on the same Kafka partition (and
-                        // therefore the same ClickHouse shard via
-                        // cityHash64(invocation_id) — keeping the
-                        // ReplacingMergeTree merge local).
-                        key: Buffer.from(row.invocation_id),
-                        value,
+            rows.map((row) =>
+                this.produceRow(row).catch((error) => {
+                    counterHogInvocationResultProduceFailed.inc()
+                    // Best-effort — never disrupt invocation processing for a
+                    // monitoring write.
+                    logger.error('⚠️', `failed to produce hog invocation result: ${error}`, {
+                        error: String(error),
+                        invocation_id: row.invocation_id,
                     })
-                    .catch((error) => {
-                        counterHogInvocationResultProduceFailed.inc()
-                        // Best-effort — never disrupt invocation processing
-                        // for a monitoring write.
-                        logger.error('⚠️', `failed to produce hog invocation result: ${error}`, {
-                            error: String(error),
-                            invocation_id: row.invocation_id,
-                        })
-                        captureException(error)
-                    })
-            })
+                    captureException(error)
+                })
+            )
         )
     }
 }

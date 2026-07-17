@@ -22,8 +22,6 @@ async def fetch_all_clustering_filters_activity(
 
     Used by both clustering and summarization coordinators to read
     user-configured filters at runtime.
-
-    Kept for backward compatibility during rollout.
     """
 
     def _fetch_filters() -> dict[int, list[dict[str, Any]]]:

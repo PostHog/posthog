@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useEffect, useState } from 'react'
 
 import type { DashboardWidgetTileFiltersProps } from '../registry'
 import { useWidgetTileConfigPersist } from '../widgetTileFiltersHooks'
@@ -41,14 +41,22 @@ export function ExperimentResultsWidgetTileFilters({
     const parsed = parseExperimentResultsWidgetConfig(config)
     const experimentId = parsed.experimentId ?? null
 
-    const configRef = useRef(config)
-    configRef.current = config
-    const { persistConfigNow } = useWidgetTileConfigPersist(onUpdateConfig)
+    const { getLatestConfig, persistConfigNow } = useWidgetTileConfigPersist(onUpdateConfig, config)
+
+    // Reflect the pick immediately rather than waiting for the persist round-trip to update `config`.
+    const [optimisticExperimentId, setOptimisticExperimentId] = useState<number | null | undefined>(undefined)
+    const selectedExperimentId = optimisticExperimentId !== undefined ? optimisticExperimentId : experimentId
 
     const applyExperimentId = async (value: number | null): Promise<void> => {
-        const nextConfig = patchExperimentResultsWidgetConfig(configRef.current, value)
-        configRef.current = nextConfig
-        await persistConfigNow(nextConfig)
+        setOptimisticExperimentId(value)
+        const nextConfig = patchExperimentResultsWidgetConfig(getLatestConfig(), value)
+        try {
+            // persist resolves only after `config` reflects the pick, so clearing here never flickers.
+            await persistConfigNow(nextConfig)
+        } finally {
+            // Only clear if a newer pick hasn't superseded this one.
+            setOptimisticExperimentId((current) => (current === value ? undefined : current))
+        }
     }
 
     if (!onUpdateConfig) {
@@ -70,7 +78,7 @@ export function ExperimentResultsWidgetTileFilters({
             <div className="w-64 max-w-full">
                 <ExperimentPickerSelect
                     pickerKey={`results-tile-${tileId}`}
-                    value={experimentId}
+                    value={selectedExperimentId}
                     disabled={!!disabledReason}
                     fullWidth
                     onChange={(value) => {

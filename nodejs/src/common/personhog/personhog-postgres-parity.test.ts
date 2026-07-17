@@ -2,26 +2,26 @@ import { create } from '@bufbuild/protobuf'
 import { type ServiceImpl, createRouterTransport } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
-import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
-import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
-import { PersonHogService } from '~/generated/personhog/personhog/service/v1/service_pb'
+import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
 import {
     GroupSchema,
     GroupTypeMappingSchema,
     GroupTypeMappingsByKeySchema,
-} from '~/generated/personhog/personhog/types/v1/group_pb'
-import type { Group as ProtoGroup } from '~/generated/personhog/personhog/types/v1/group_pb'
-import { PersonSchema } from '~/generated/personhog/personhog/types/v1/person_pb'
-import type { Person as ProtoPerson } from '~/generated/personhog/personhog/types/v1/person_pb'
+} from '~/common/generated/personhog/personhog/types/v1/group_pb'
+import type { Group as ProtoGroup } from '~/common/generated/personhog/personhog/types/v1/group_pb'
+import { PersonSchema } from '~/common/generated/personhog/personhog/types/v1/person_pb'
+import type { Person as ProtoPerson } from '~/common/generated/personhog/personhog/types/v1/person_pb'
+import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
+import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
+import { UUIDT } from '~/common/utils/utils'
 import { insertRow, resetTestDatabase } from '~/tests/helpers/sql'
 import { GroupTypeIndex, Hub, ProjectId, PropertyUpdateOperation, RawPerson, TeamId } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { PostgresUse } from '~/utils/db/postgres'
-import { UUIDT } from '~/utils/utils'
 
 import { PersonHogClient } from './client'
 
-jest.mock('../../utils/logger')
+jest.mock('~/common/utils/logger')
 
 const TEST_TIMESTAMP = DateTime.fromISO('2020-01-01T00:00:00.000Z', { zone: 'utc' })
 
@@ -295,11 +295,10 @@ describe('PersonHog ↔ Postgres parity', () => {
                     {}
                 )
 
-                const fromPostgres = await postgresRepo.fetchGroupsByKeys(
-                    [teamId, teamId],
-                    [0 as GroupTypeIndex, 1 as GroupTypeIndex],
-                    ['acme', 'eng-team']
-                )
+                const fromPostgres = await postgresRepo.fetchGroupsByKeys([
+                    { teamId, groupTypeIndex: 0 as GroupTypeIndex, groupKey: 'acme' },
+                    { teamId, groupTypeIndex: 1 as GroupTypeIndex, groupKey: 'eng-team' },
+                ])
 
                 const rawAcme = await readRawGroup(teamId, 0, 'acme')
                 const rawEng = await readRawGroup(teamId, 1, 'eng-team')
@@ -338,11 +337,10 @@ describe('PersonHog ↔ Postgres parity', () => {
                     {}
                 )
 
-                const fromPostgres = await postgresRepo.fetchGroupsByKeys(
-                    [teamId, teamId],
-                    [0 as GroupTypeIndex, 0 as GroupTypeIndex],
-                    ['exists', 'missing']
-                )
+                const fromPostgres = await postgresRepo.fetchGroupsByKeys([
+                    { teamId, groupTypeIndex: 0 as GroupTypeIndex, groupKey: 'exists' },
+                    { teamId, groupTypeIndex: 0 as GroupTypeIndex, groupKey: 'missing' },
+                ])
 
                 const rawExists = await readRawGroup(teamId, 0, 'exists')
 
@@ -370,7 +368,7 @@ describe('PersonHog ↔ Postgres parity', () => {
             })
 
             it('empty input produces identical output', async () => {
-                const fromPostgres = await postgresRepo.fetchGroupsByKeys([], [], [])
+                const fromPostgres = await postgresRepo.fetchGroupsByKeys([])
 
                 const grpcClient = createMockPersonHogClient({})
                 const fromGrpc = await grpcClient.groups.fetchGroupsByKeys([], [], [])

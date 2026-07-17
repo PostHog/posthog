@@ -1,12 +1,12 @@
 import { useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 
-import { IconChevronDown, IconExternal } from '@posthog/icons'
+import { IconArrowRight, IconChevronDown, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { pluralize } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { SignalScoutRunSummary } from '../../../types'
@@ -16,9 +16,13 @@ import {
     normalizeRunStatus,
     runDurationSeconds,
     runMatchesFilter,
+    runProducedOutput,
+    runReportActivity,
     ScoutRunFilter,
+    scoutReportActivityLabel,
     SCOUT_RUNS_WINDOW_SPAN,
 } from '../../../utils/scoutRunsWindow'
+import { ScoutTimestamp } from './ScoutTimestamp'
 
 const FILTERS: { value: ScoutRunFilter; label: string }[] = [
     { value: 'all', label: 'All' },
@@ -32,7 +36,8 @@ function truncateId(value: string): string {
     return value.length > 12 ? `${value.slice(0, 12)}…` : value
 }
 
-/** A compact status glyph: ✗ failed · pulsing dot running/queued · ◆ emitted · · quiet. */
+/** A compact status glyph: ✗ failed · pulsing dot running/queued · ◆ produced output (finding or
+ * report) · · quiet. */
 function RunGlyph({ run }: { run: SignalScoutRunSummary }): JSX.Element {
     const status = normalizeRunStatus(run.status)
     if (status === 'failed') {
@@ -41,7 +46,7 @@ function RunGlyph({ run }: { run: SignalScoutRunSummary }): JSX.Element {
     if (status === 'running' || status === 'queued') {
         return <span className="inline-block size-2 shrink-0 rounded-full bg-primary animate-pulse" />
     }
-    if ((run.emitted_count ?? 0) > 0) {
+    if (runProducedOutput(run)) {
         return <span className="text-primary-3000 text-sm font-medium leading-none">◆</span>
     }
     return <span className="text-muted text-sm leading-none">·</span>
@@ -51,14 +56,19 @@ function RunGlyph({ run }: { run: SignalScoutRunSummary }): JSX.Element {
  * One run in the history list. Shares the collapse/expand grammar of `ScoutEmissionCard`: a header
  * (chevron · glyph · timestamp · duration · failure · emitted count) that stays visible, the run
  * summary markdown (2-line preview collapsed, full expanded), and an id/task-run footer when open.
+ *
+ * Memoized because the 60s runs-window poll re-renders the whole history list; `loadRunsWindow`
+ * reconciles run identity (see `reconcileById`) so unchanged runs keep their reference and skip here.
  */
-function ScoutRunRow({ run }: { run: SignalScoutRunSummary }): JSX.Element {
+const ScoutRunRow = memo(function ScoutRunRow({ run }: { run: SignalScoutRunSummary }): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     const now = new Date()
     const status = normalizeRunStatus(run.status)
     const failureKind = deriveRunFailureKind(run, now)
     const duration = formatRunDuration(runDurationSeconds(run, now))
     const emitted = run.emitted_count ?? 0
+    const reportActivityLabel = scoutReportActivityLabel(run)
+    const { authored: authoredReportIds, edited: editedReportIds } = runReportActivity(run)
     const hasBody = Boolean(run.summary) || status === 'failed' || expanded
 
     return (
@@ -73,9 +83,7 @@ function ScoutRunRow({ run }: { run: SignalScoutRunSummary }): JSX.Element {
                     className={`size-4 shrink-0 text-muted transition-transform ${expanded ? '' : '-rotate-90'}`}
                 />
                 <RunGlyph run={run} />
-                <span className="whitespace-nowrap text-[11px] text-muted">
-                    {humanFriendlyDetailedTime(run.started_at)}
-                </span>
+                <ScoutTimestamp time={run.started_at} />
                 {duration && <span className="whitespace-nowrap text-[11px] text-muted">· {duration}</span>}
                 {failureKind && (
                     <span className="whitespace-nowrap text-[11px] text-warning">
@@ -86,6 +94,10 @@ function ScoutRunRow({ run }: { run: SignalScoutRunSummary }): JSX.Element {
                 {emitted > 0 ? (
                     <span className="whitespace-nowrap rounded bg-primary-highlight px-1.5 py-0.5 text-[11px] font-medium text-primary-3000">
                         {pluralize(emitted, 'signal')} emitted
+                    </span>
+                ) : reportActivityLabel ? (
+                    <span className="whitespace-nowrap rounded bg-primary-highlight px-1.5 py-0.5 text-[11px] font-medium text-primary-3000">
+                        {reportActivityLabel}
                     </span>
                 ) : status === 'completed' ? (
                     <span className="whitespace-nowrap text-[11px] text-muted">0 signals emitted</span>
@@ -111,6 +123,24 @@ function ScoutRunRow({ run }: { run: SignalScoutRunSummary }): JSX.Element {
                     {expanded && (
                         <div className="flex items-center flex-wrap gap-x-3 gap-y-1 border-t pt-2 mt-2 text-xs text-tertiary">
                             <span className="font-mono">{truncateId(run.run_id)}</span>
+                            {authoredReportIds.map((reportId) => (
+                                <Link
+                                    key={reportId}
+                                    to={urls.inboxReport('reports', reportId)}
+                                    className="flex items-center gap-1 font-medium shrink-0"
+                                >
+                                    Authored report <IconArrowRight className="size-3" />
+                                </Link>
+                            ))}
+                            {editedReportIds.map((reportId) => (
+                                <Link
+                                    key={reportId}
+                                    to={urls.inboxReport('reports', reportId)}
+                                    className="flex items-center gap-1 font-medium shrink-0"
+                                >
+                                    Edited report <IconArrowRight className="size-3" />
+                                </Link>
+                            ))}
                             {run.task_url && (
                                 <>
                                     <span className="flex-1" />
@@ -125,7 +155,7 @@ function ScoutRunRow({ run }: { run: SignalScoutRunSummary }): JSX.Element {
             )}
         </div>
     )
-}
+})
 
 /**
  * The Runs section on the scout detail surface: this scout's runs in the recent window, newest
