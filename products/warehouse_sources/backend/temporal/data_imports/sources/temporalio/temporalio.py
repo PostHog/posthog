@@ -65,6 +65,19 @@ _MAX_TRANSIENT_RPC_ATTEMPTS = 6
 
 _RETRYABLE_RPC_STATUSES = frozenset({RPCStatusCode.RESOURCE_EXHAUSTED, RPCStatusCode.DEADLINE_EXCEEDED})
 
+# tonic/hyper surface a mid-stream HTTP/2 transport interruption (a reset stream or a response
+# body read cut short) as an RPCError with status UNKNOWN and an "h2 protocol error" message,
+# rather than one of the transient statuses above. It's a connection blip, not the server
+# rejecting the request, so ride it out the same way. Match the stable transport phrase, not the
+# whole UNKNOWN status, so genuine server-side UNKNOWN failures still surface.
+_RETRYABLE_RPC_MESSAGES = ("h2 protocol error",)
+
+
+def _is_retryable_rpc_error(error: RPCError) -> bool:
+    if error.status in _RETRYABLE_RPC_STATUSES:
+        return True
+    return any(phrase in error.message for phrase in _RETRYABLE_RPC_MESSAGES)
+
 
 async def _with_transient_rpc_retry(
     operation: Callable[[], Awaitable[T]],
@@ -78,7 +91,7 @@ async def _with_transient_rpc_retry(
             return await operation()
         except RPCError as e:
             attempt += 1
-            if attempt >= max_attempts or e.status not in _RETRYABLE_RPC_STATUSES:
+            if attempt >= max_attempts or not _is_retryable_rpc_error(e):
                 raise
             backoff = min(2 * attempt, 30)
             logger.debug(

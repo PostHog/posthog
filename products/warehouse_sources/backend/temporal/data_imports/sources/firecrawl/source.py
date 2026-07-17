@@ -41,6 +41,9 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 @SourceRegistry.register
 class FirecrawlSource(ResumableSource[FirecrawlSourceConfig, FirecrawlResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog - safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://docs.firecrawl.dev/api-reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -53,7 +56,6 @@ class FirecrawlSource(ResumableSource[FirecrawlSourceConfig, FirecrawlResumeConf
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Firecrawl",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Firecrawl API key to pull your Firecrawl account activity and usage into the PostHog Data warehouse.
 
 You can create an API key in your [Firecrawl dashboard](https://www.firecrawl.dev/app/api-keys). A single key grants access to all of the tables below.""",

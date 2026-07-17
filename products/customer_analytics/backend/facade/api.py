@@ -37,15 +37,20 @@ from posthog.models.tagged_item import TaggedItem
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
 from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
 from products.customer_analytics.backend.events import emit_account_tags_added
+from products.customer_analytics.backend.facade.contracts import (
+    InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
+)
 from products.customer_analytics.backend.logic import (
     custom_property_values as _custom_property_values_logic,
     relationships as _relationships_logic,
 )
 from products.customer_analytics.backend.logic.custom_property_definitions import (
-    InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
     apply_option_side_effects,
     coerce_is_big_number,
     normalize_options,
+)
+from products.customer_analytics.backend.logic.person_property_projection import (
+    person_properties_flag_enabled as person_properties_flag_enabled,
 )
 from products.customer_analytics.backend.logic.usage_spike_notifications import (
     notify_managers_of_usage_spike as notify_managers_of_usage_spike,
@@ -59,6 +64,7 @@ from products.customer_analytics.backend.models import (
     CustomPropertyDefinition,
     CustomPropertySource,
     DisplayType,
+    TargetType,
 )
 from products.customer_analytics.backend.models.account import AccountProperties as _ModelAccountProperties
 from products.notebooks.backend.facade import (
@@ -780,6 +786,7 @@ def _to_custom_property_definition_view(
         name=definition.name,
         description=definition.description,
         display_type=definition.display_type,
+        target_type=definition.target_type,
         is_big_number=definition.is_big_number,
         created_at=definition.created_at,
         created_by=definition.created_by_id,
@@ -884,6 +891,7 @@ def create_custom_property_definition(
     display_type: str,
     is_big_number: bool,
     options: list[dict[str, Any]] | None = None,
+    target_type: str = TargetType.ACCOUNT.value,
     organization_id,
     user: "User",
     was_impersonated: bool,
@@ -895,6 +903,7 @@ def create_custom_property_definition(
             name=name,
             description=description,
             display_type=display_type,
+            target_type=target_type,
             is_big_number=coerce_is_big_number(display_type, is_big_number),
             options=normalize_options(DisplayType(display_type), options),
         )
@@ -1003,8 +1012,10 @@ def _to_custom_property_source_view(source: CustomPropertySource) -> contracts.C
         id=source.id,
         definition=source.definition_id,
         saved_query=source.saved_query_id,
+        external_data_schema=source.external_data_schema_id,
         source_column=source.source_column,
         key_column=source.key_column,
+        column_property_map=source.column_property_map,
         is_enabled=source.is_enabled,
         consecutive_failures=source.consecutive_failures,
         last_synced_at=source.last_synced_at,
@@ -1020,6 +1031,25 @@ def _saved_query_belongs_to_team(team_id: int, saved_query_id) -> bool:
     customer_analytics never imports data_modeling (which isn't a dependency)."""
     saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
     return saved_query_model.objects.filter(id=saved_query_id, team_id=team_id).exclude(deleted=True).exists()
+
+
+def _external_data_schema_belongs_to_team(team_id: int, schema_id) -> bool:
+    """Whether the warehouse schema (raw synced table) exists for this team. ``apps.get_model`` keeps
+    customer_analytics from importing warehouse_sources internals (isolation)."""
+    schema_model = apps.get_model("warehouse_sources", "ExternalDataSchema")
+    return schema_model.objects.filter(id=schema_id, team_id=team_id).exists()
+
+
+def _validate_column_property_map(column_property_map: Any) -> dict[str, str]:
+    """A person-source's column->property map must be a non-empty {str: non-empty str} object."""
+    if not isinstance(column_property_map, dict) or not column_property_map:
+        raise CustomPropertySourceValidationError("column_property_map must be a non-empty object.")
+    for column, property_name in column_property_map.items():
+        if not isinstance(column, str) or not column:
+            raise CustomPropertySourceValidationError("column_property_map keys must be non-empty column names.")
+        if not isinstance(property_name, str) or not property_name:
+            raise CustomPropertySourceValidationError("column_property_map values must be non-empty property names.")
+    return column_property_map
 
 
 def _enqueue_custom_property_sync(team_id: int, saved_query_id: str) -> None:
@@ -1061,26 +1091,55 @@ def create_custom_property_source(
     *,
     team_id: int,
     definition_id: str | UUID,
-    saved_query_id: str | UUID,
-    source_column: str,
     key_column: str,
     is_enabled: bool,
     user: "User",
+    saved_query_id: str | UUID | None = None,
+    source_column: str | None = None,
+    external_data_schema_id: str | UUID | None = None,
+    column_property_map: dict | None = None,
 ) -> contracts.CustomPropertySourceView:
-    if not _saved_query_belongs_to_team(team_id, saved_query_id):
-        raise CustomPropertySourceValidationError("Saved query not found for this team.")
-    if _get_team_scoped(CustomPropertyDefinition, team_id, definition_id) is None:
+    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    if definition is None:
         raise CustomPropertySourceValidationError("Custom property definition not found for this team.")
+
+    # The definition's target decides which binding is valid: account sources read a saved query
+    # column; person sources read a raw incremental schema and map columns onto person properties.
+    create_kwargs: dict[str, Any] = {
+        "team_id": team_id,
+        "created_by": user,
+        "definition_id": definition_id,
+        "key_column": key_column,
+        "is_enabled": is_enabled,
+    }
+    if definition.target_type == TargetType.PERSON.value:
+        if external_data_schema_id is None:
+            raise CustomPropertySourceValidationError("A person property source needs an external_data_schema.")
+        if saved_query_id is not None or source_column:
+            raise CustomPropertySourceValidationError(
+                "A person property source uses external_data_schema + column_property_map, not saved_query."
+            )
+        # Validate the map shape in memory before the DB lookup below.
+        create_kwargs["column_property_map"] = _validate_column_property_map(column_property_map)
+        if not _external_data_schema_belongs_to_team(team_id, external_data_schema_id):
+            raise CustomPropertySourceValidationError("Warehouse schema not found for this team.")
+        create_kwargs["external_data_schema_id"] = external_data_schema_id
+    else:
+        if saved_query_id is None or not source_column:
+            raise CustomPropertySourceValidationError(
+                "An account property source needs a saved_query and source_column."
+            )
+        if external_data_schema_id is not None or column_property_map is not None:
+            raise CustomPropertySourceValidationError(
+                "An account property source uses saved_query + source_column, not external_data_schema."
+            )
+        if not _saved_query_belongs_to_team(team_id, saved_query_id):
+            raise CustomPropertySourceValidationError("Saved query not found for this team.")
+        create_kwargs["saved_query_id"] = saved_query_id
+        create_kwargs["source_column"] = source_column
+
     try:
-        source = CustomPropertySource.objects.for_team(team_id).create(
-            team_id=team_id,
-            created_by=user,
-            definition_id=definition_id,
-            saved_query_id=saved_query_id,
-            source_column=source_column,
-            key_column=key_column,
-            is_enabled=is_enabled,
-        )
+        source = CustomPropertySource.objects.for_team(team_id).create(**create_kwargs)
     except IntegrityError as exc:
         # Both FKs are team-validated above, so the only expected violation is the definition's
         # one-to-one uniqueness; re-raise anything else instead of mislabeling it as a duplicate.

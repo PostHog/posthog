@@ -4,21 +4,42 @@
         "account_id": {
             "type": "string"
         },
+        "auto_sync_new_schemas": {
+            "description": "Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.",
+            "type": "boolean"
+        },
+        "auto_sync_schema_patterns": {
+            "anyOf": [
+                {
+                    "items": {
+                        "description": "An fnmatch-style glob pattern, e.g. `raw_*`.",
+                        "maxLength": 250,
+                        "type": "string"
+                    },
+                    "maxItems": 100,
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true."
+        },
         "client_secret": {
             "type": "string"
         },
         "created_via": {
             "anyOf": [
                 {
-                    "description": "* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard",
-                    "enum": ["web", "api", "mcp", "wizard"],
+                    "description": "* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard\n* `self_driving` - self_driving",
+                    "enum": ["web", "api", "mcp", "wizard", "self_driving"],
                     "type": "string"
                 },
                 {
                     "type": "null"
                 }
             ],
-            "description": "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard"
+            "description": "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard\n* `self_driving` - self_driving"
         },
         "description": {
             "anyOf": [

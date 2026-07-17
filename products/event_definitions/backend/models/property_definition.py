@@ -10,15 +10,11 @@ from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 from posthog.utils import invalidate_has_person_email_cache
 
+# Relocated to the Django-free products.event_definitions.backend.property_type module so the
+# HogQL engine can use it without booting Django; re-exported here for existing callers.
+from products.event_definitions.backend.property_type import PropertyType
+
 PERSON_EMAIL_PROPERTY_NAME = "email"
-
-
-class PropertyType(models.TextChoices):
-    Datetime = "DateTime", "DateTime"
-    String = "String", "String"
-    Numeric = "Numeric", "Numeric"
-    Boolean = "Boolean", "Boolean"
-    Duration = "Duration", "Duration"
 
 
 class PropertyFormat(models.TextChoices):
@@ -61,6 +57,13 @@ class PropertyDefinition(UUIDTModel):
     type = models.PositiveSmallIntegerField(default=Type.EVENT, choices=Type)
     # Only populated for `Type.GROUP`
     group_type_index = models.PositiveSmallIntegerField(null=True)
+
+    # Provenance for properties populated from a data warehouse source (Customer analytics
+    # warehouse -> person properties). Null for the vast majority of definitions. Written by
+    # Django only; the Rust property-defs upsert lists its columns explicitly and never touches
+    # this one. Shape: {source_id, schema_id, table_name, column, custom_property_source_id,
+    # last_synced_at}.
+    warehouse_origin = models.JSONField(null=True, blank=True, default=None)
 
     # DEPRECATED
     property_type_format = models.CharField(

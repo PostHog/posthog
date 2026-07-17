@@ -145,7 +145,7 @@ async def arun_signals_scout(
             extra={"team_id": team_id},
         )
     skill = await database_sync_to_async(load_skill_for_run, thread_sensitive=False)(
-        team, skill_name, version=skill_version
+        team, skill_name, version=skill_version, include_authors=True
     )
     config = await database_sync_to_async(_resolve_config, thread_sensitive=False)(team, skill.name)
 
@@ -433,7 +433,7 @@ async def _spawn_and_run(
     async def _create_bridge_row(task_run: TaskRun) -> None:
         # Create the bridge row after the TaskRun exists but BEFORE the agent's first
         # turn runs (via MultiTurnSession's on_task_run_created hook). The scout is
-        # single-turn and may call `signals-scout-emit-signal` during that first turn;
+        # single-turn and may call `scout-emit-signal` during that first turn;
         # the emit endpoint resolves the run by id, so the row must already exist or
         # first-turn emits 404. Creating it here (not after `start()` returns) also keeps
         # the cross-link queryable mid-run and surviving both success and failure exits.

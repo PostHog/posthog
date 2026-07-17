@@ -37,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class FlexmailSource(ResumableSource[FlexmailSourceConfig, FlexmailResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    api_docs_url = "https://api.flexmail.eu/documentation/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.FLEXMAIL
@@ -48,7 +50,6 @@ class FlexmailSource(ResumableSource[FlexmailSourceConfig, FlexmailResumeConfig]
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Flexmail",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Flexmail account ID and personal access token to pull your email marketing data into the PostHog Data warehouse.
 
 You can create a personal access token under **Settings → API → Personal access tokens** in [Flexmail](https://app.flexmail.eu). The token grants read access to your contacts, interests, custom fields, preferences, segments, sources, and opt-in forms.

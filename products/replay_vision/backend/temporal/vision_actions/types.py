@@ -38,12 +38,36 @@ class DueVisionAction(BaseModel, frozen=True):
     team_id: int
     # The next_run_at that fired this action, captured before the claim advanced it.
     scheduled_at: datetime | None = None
+    # ActionMode value; defaulted so payloads produced before the field existed still parse.
+    mode: str = "group_summary"
 
 
 class ProcessVisionActionInputs(BaseModel, frozen=True):
     vision_action_id: UUID
     team_id: int
     scheduled_at: datetime | None = None
+    # ActionMode value picking the evaluation step (group-summary synthesis vs alert condition).
+    mode: str = "group_summary"
+
+
+class AlertStatus(str, Enum):
+    FIRED = "fired"  # condition held; message persisted on the run — deliver it
+    NOT_BREACHED = "not_breached"  # condition did not hold; nothing to deliver
+    STILL_BREACHED = "still_breached"  # condition holds but the previous check already notified
+    RECOVERED = "recovered"  # condition cleared after a breach; message persisted — visible in history, not delivered
+
+
+class EvaluateAlertInputs(BaseModel, frozen=True):
+    # The run already references its action (run.vision_action); team_id scopes the fail-closed read.
+    run_id: UUID
+    team_id: int
+
+
+class EvaluateAlertResult(BaseModel, frozen=True):
+    status: AlertStatus
+    observation_count: int = 0
+    # The measured metric (count or average score); None when nothing was measurable in the window.
+    metric_value: float | None = None
 
 
 class CreateVisionActionRunInputs(BaseModel, frozen=True):

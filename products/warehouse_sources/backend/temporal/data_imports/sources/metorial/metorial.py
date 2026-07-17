@@ -1,30 +1,28 @@
 import dataclasses
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SortMode, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
-    coerce_datetime_to_utc,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.metorial.settings import (
-    METORIAL_BASE_URL,
     METORIAL_ENDPOINTS,
-    PAGE_SIZE,
+    MetorialEndpointConfig,
 )
 
-REQUEST_TIMEOUT_SECONDS = 60
-# Production keys allow 5000 requests / 10 min (development keys only 100 / 10 min), so a large
-# backfill can hit 429s — back off generously rather than failing the sync.
-RETRY_ATTEMPTS = 6
-RETRY_MAX_WAIT_SECONDS = 120
+METORIAL_BASE_URL = "https://api.metorial.com"
+# Pin the API version so response shapes don't shift under us when Metorial changes an environment's
+# default version. See https://metorial.com/api ("Versioning").
+METORIAL_API_VERSION = "2025-01-01"
+# Default page size. Metorial doesn't document a max, so stay conservatively within a value cursor
+# APIs commonly accept while keeping request counts down against the tight per-key rate limit.
+DEFAULT_PAGE_SIZE = 100
 
 
 class MetorialRetryableError(Exception):
@@ -33,82 +31,119 @@ class MetorialRetryableError(Exception):
 
 @dataclasses.dataclass
 class MetorialResumeConfig:
-    # `after` cursor for the next page: the id of the last record already yielded. None starts at
-    # page one. Metorial pages by record id, so the cursor stays valid across a crash/retry.
+    # Cursor (a record id) to fetch the next page from. None means "start at the first page".
     after: str | None = None
 
 
-def _headers(api_key: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+def _format_datetime_z(dt: datetime) -> str:
+    """Format a datetime as ISO 8601 with a millisecond precision and a Z suffix (Metorial's format)."""
+    utc_dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+    return utc_dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
-def _format_watermark(value: Any) -> str:
-    """Format the incremental watermark for Metorial's `<field>[gt]` filter.
-
-    Truncates to whole seconds, rounding the lower bound *down* — an incremental sync re-fetches at
-    most a few boundary rows (merge dedupes them on `id`) rather than skipping any.
-
-    Accepts the shapes the pipeline can hand back for a DateTime field (datetime/date, ISO-8601
-    string, epoch seconds) and raises for anything else — a malformed filter value would make
-    Metorial silently return unfiltered/unexpected results rather than erroring.
-    """
-    if isinstance(value, str):
-        try:
-            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except ValueError:
-            raise ValueError(f"Unsupported Metorial incremental watermark value: {value!r}")
-    elif isinstance(value, int | float) and not isinstance(value, bool):
-        value = datetime.fromtimestamp(value, tz=UTC)
-
-    normalized = coerce_datetime_to_utc(value)
-    if normalized is None:
-        raise ValueError(f"Unsupported Metorial incremental watermark value: {value!r}")
-    return normalized.strftime("%Y-%m-%dT%H:%M:%SZ")
+def _format_incremental_value(value: Any) -> str:
+    if isinstance(value, datetime):
+        return _format_datetime_z(value)
+    if isinstance(value, date):
+        return _format_datetime_z(datetime.combine(value, datetime.min.time(), tzinfo=UTC))
+    return str(value)
 
 
-def _build_url(
-    path: str,
-    after: str | None,
-    incremental_field: str | None,
+def _get_headers(api_key: str) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {api_key}",
+        "Metorial-Version": METORIAL_API_VERSION,
+        "Accept": "application/json",
+    }
+
+
+def _build_params(
+    config: MetorialEndpointConfig,
+    should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
-) -> str:
-    params: dict[str, Any] = {"limit": PAGE_SIZE, "order": "asc"}
-    if after:
-        params["after"] = after
-    if incremental_field and db_incremental_field_last_value is not None:
-        # Metorial parses the query string with `qs`, so the nested date filter uses bracket
-        # syntax: `created_at[gt]=...` -> `{created_at: {gt: ...}}`. The filter is a plain
-        # where-clause resent on every page, so pagination terminates at the watermark server-side.
-        params[f"{incremental_field}[gt]"] = _format_watermark(db_incremental_field_last_value)
-    return f"{METORIAL_BASE_URL}{path}?{urlencode(params)}"
+    incremental_field: str | None,
+) -> dict[str, Any]:
+    """Build the base query params reused on every page of a list request.
+
+    `order=asc` paginates deterministically by record id. The incremental filter is re-sent on every
+    page so pagination can never walk back past the watermark. Note this orders by id, not by the
+    incremental field: `created_at` tracks id order (safe to checkpoint per batch), but `updated_at`
+    does not, so `updated_at` syncs run in `sort_mode="desc"` (see `metorial_source`).
+    """
+    params: dict[str, Any] = {"limit": DEFAULT_PAGE_SIZE, "order": "asc"}
+
+    if config.incremental_fields and should_use_incremental_field and db_incremental_field_last_value:
+        field_name = incremental_field or config.default_incremental_field
+        # Metorial documents these as `created_at`/`updated_at` objects with `.gt`/`.lt` operators.
+        # Bracket notation is the standard query-string encoding for such nested filter objects on a
+        # JSON/Node backend; confirm against the live API before relying on it in anger.
+        params[f"{field_name}[gt]"] = _format_incremental_value(db_incremental_field_last_value)
+
+    return params
+
+
+def validate_credentials(api_key: str) -> bool:
+    # A single cheap probe: list one session. 200 => the secret key is genuine and project-scoped.
+    try:
+        response = make_tracked_session().get(
+            f"{METORIAL_BASE_URL}/sessions",
+            params={"limit": 1},
+            headers=_get_headers(api_key),
+            timeout=10,
+        )
+        return response.status_code == 200
+    except Exception:
+        return False
 
 
 @retry(
-    retry=retry_if_exception_type((MetorialRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(RETRY_ATTEMPTS),
-    wait=wait_exponential_jitter(initial=2, max=RETRY_MAX_WAIT_SECONDS),
+    retry=retry_if_exception_type(
+        (
+            MetorialRetryableError,
+            requests.ReadTimeout,
+            requests.ConnectionError,
+            requests.exceptions.ChunkedEncodingError,
+        )
+    ),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
 def _fetch_page(
     session: requests.Session,
-    url: str,
+    path: str,
+    params: dict[str, Any],
+    headers: dict[str, str],
     logger: FilteringBoundLogger,
-) -> tuple[list[dict[str, Any]], bool]:
-    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+) -> dict:
+    response = session.get(f"{METORIAL_BASE_URL}{path}", params=params, headers=headers, timeout=60)
 
+    # 429 (rate limited) and 5xx are transient; back off and retry rather than failing the sync.
     if response.status_code == 429 or response.status_code >= 500:
-        raise MetorialRetryableError(f"Metorial API error (retryable): status={response.status_code}, url={url}")
+        raise MetorialRetryableError(f"Metorial API error (retryable): status={response.status_code}, path={path}")
 
     if not response.ok:
-        logger.error(f"Metorial API error: status={response.status_code}, body={response.text[:200]!r}, url={url}")
-        response.raise_for_status()
+        logger.error(f"Metorial API error: status={response.status_code}, path={path}")
+        # raise_for_status() would embed the full request URL (including the query string, which
+        # carries the incremental watermark and cursor) in the exception, and response.text can echo
+        # synced session content, tool-call payloads, or secret values. Both are surfaced as the
+        # schema's latest_error outside the warehouse table ACLs. Rebuild the error from
+        # scheme/host/path only so no response body or query string can leak into stored error state.
+        # The "<status> Client Error: <reason> for url: https://api.metorial.com" prefix stays stable
+        # for get_non_retryable_errors() matching.
+        safe = urlsplit(response.url)
+        raise requests.HTTPError(
+            f"{response.status_code} Client Error: {response.reason} for url: {safe.scheme}://{safe.netloc}{safe.path}",
+            response=response,
+        )
 
-    data = response.json()
-    if not isinstance(data, dict) or not isinstance(data.get("items"), list):
-        raise MetorialRetryableError(f"Metorial returned an unexpected payload for {url}: {type(data).__name__}")
+    return response.json()
 
-    pagination = data.get("pagination") or {}
-    return data["items"], bool(pagination.get("has_more_after"))
+
+def _normalize(item: dict[str, Any], drop_fields: list[str]) -> dict[str, Any]:
+    if not drop_fields:
+        return item
+    return {key: value for key, value in item.items() if key not in drop_fields}
 
 
 def get_rows(
@@ -116,36 +151,40 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[MetorialResumeConfig],
-    incremental_field: str | None = None,
+    should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    incremental_field: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = METORIAL_ENDPOINTS[endpoint]
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
+    headers = _get_headers(api_key)
+    # One session reused across every page so urllib3 keeps the connection alive.
+    session = make_tracked_session()
+
+    params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value, incremental_field)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    after = resume.after if resume is not None else None
+    after: str | None = resume.after if resume else None
     if after:
-        logger.debug(f"Metorial: resuming {endpoint} from after={after}")
+        logger.debug(f"Metorial: resuming {endpoint} from cursor {after}")
 
     while True:
-        url = _build_url(config.path, after, incremental_field, db_incremental_field_last_value)
-        items, has_more_after = _fetch_page(session, url, logger)
+        page_params = dict(params)
+        if after:
+            page_params["after"] = after
 
-        if items:
-            yield items
+        data = _fetch_page(session, config.path, page_params, headers, logger)
 
-        if not has_more_after or not items:
+        raw_items = data.get("items", [])
+        if raw_items:
+            yield [_normalize(item, config.drop_fields) for item in raw_items]
+
+        pagination = data.get("pagination", {})
+        if not raw_items or not pagination.get("has_more_after", False):
             break
 
-        last_id = items[-1].get("id")
-        if not isinstance(last_id, str) or not last_id or last_id == after:
-            # Defensive: without an advancing id cursor we'd refetch the same page forever.
-            logger.warning(f"Metorial: {endpoint} page did not advance the `after` cursor, stopping")
-            break
-
-        after = last_id
-        # Save AFTER yielding so a crash re-fetches from the last yielded page's cursor (never
-        # skipping a page); merge dedupes any re-pulled rows on the `id` primary key.
+        after = raw_items[-1]["id"]
+        # Save AFTER yielding the page so a crash re-fetches the last page (merge dedupes on the
+        # primary key) rather than skipping it.
         resumable_source_manager.save_state(MetorialResumeConfig(after=after))
 
 
@@ -160,16 +199,12 @@ def metorial_source(
 ) -> SourceResponse:
     config = METORIAL_ENDPOINTS[endpoint]
 
-    chosen_field = incremental_field if should_use_incremental_field else None
-    if chosen_field is not None:
-        allowed = {f["field"] for f in config.incremental_fields}
-        if chosen_field not in allowed:
-            raise ValueError(f"Incremental field '{chosen_field}' is not supported for Metorial '{endpoint}'")
-
-    # `order=asc` sorts by record id, and Metorial ids are time-sorted, so `created_at` arrives
-    # ascending and the pipeline's per-batch watermark checkpointing is safe. `updated_at` is NOT
-    # monotonic in id order, so those syncs declare `desc` — the pipeline then commits the
-    # watermark only when the run completes, never mid-run past unseen rows.
+    # Pagination is `order=asc` by record id. Metorial ids are time-sorted, so a `created_at` sync
+    # genuinely arrives oldest-first and the pipeline can safely checkpoint the watermark after each
+    # batch. `updated_at` is NOT monotonic in id order (a row created long ago can be updated
+    # recently), so those syncs run `desc`: the pipeline then commits the watermark only after a full
+    # successful run, so an interrupted sync can't advance past rows it hasn't fetched yet.
+    chosen_field = incremental_field or config.default_incremental_field
     sort_mode: SortMode = "asc" if chosen_field in (None, "created_at") else "desc"
 
     return SourceResponse(
@@ -179,35 +214,15 @@ def metorial_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
-            incremental_field=chosen_field,
-            db_incremental_field_last_value=db_incremental_field_last_value if chosen_field else None,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+            incremental_field=incremental_field,
         ),
-        primary_keys=list(config.primary_keys),
+        primary_keys=config.primary_keys,
+        sort_mode=sort_mode,
         partition_count=1,
         partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="month" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
-        sort_mode=sort_mode,
-    )
-
-
-def validate_credentials(api_key: str) -> tuple[bool, str | None]:
-    # One cheap probe confirms the key is genuine. Secret keys are project-scoped with full read
-    # access, so a single endpoint validates every stream; 401/403 are the only conclusive
-    # "invalid" signals (429/5xx would push users to rotate a working key, so they get a retry
-    # message instead).
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
-    try:
-        response = session.get(f"{METORIAL_BASE_URL}/sessions?{urlencode({'limit': 1})}", timeout=15)
-    except requests.RequestException:
-        return False, "Could not reach Metorial to validate the API key. Please try again."
-
-    if response.status_code == 200:
-        return True, None
-    if response.status_code in (401, 403):
-        return False, "Invalid Metorial API key. Use a secret key (`metorial_sk_...`) from your project dashboard."
-    return (
-        False,
-        f"Metorial could not validate the API key right now (status {response.status_code}). Please try again.",
+        partition_mode="datetime",
+        partition_format="week",
+        partition_keys=[config.partition_key],
     )

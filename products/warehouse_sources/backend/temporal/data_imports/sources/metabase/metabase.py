@@ -156,6 +156,44 @@ def _resolve_auth_headers(base_url: str, auth: MetabaseAuth, logger: FilteringBo
     return {"X-Metabase-Session": token, "Accept": "application/json"}
 
 
+def _connection_error_message(error: Exception) -> str:
+    """Translate a low-level requests connection failure into a short, actionable message.
+
+    requests surfaces these as host-revealing blobs (e.g. "HTTPSConnectionPool(host='<ip>',
+    port=3000): ... SSLError(... WRONG_VERSION_NUMBER ...)"). Returning that verbatim leaks the
+    customer's host/IP and tells them nothing they can act on.
+    """
+    # Match on the exception type first: substring checks against str(error) alone would misfire on
+    # a hostname that happens to contain "ssl"/"timeout" (e.g. https://sslserver.com).
+    text = str(error).lower()
+    if isinstance(error, requests.exceptions.SSLError):
+        if "wrong_version_number" in text:
+            return (
+                "Couldn't establish a secure (HTTPS) connection to your Metabase instance. "
+                "PostHog connects over HTTPS, so the instance must be served over HTTPS. Check the Instance URL."
+            )
+        return (
+            "Couldn't establish a secure (TLS) connection to your Metabase instance. "
+            "Check that the Instance URL is correct and its TLS certificate is valid."
+        )
+    if isinstance(error, requests.exceptions.Timeout):
+        return (
+            "Connecting to your Metabase instance timed out. "
+            "Check that the Instance URL is correct and reachable from the public internet."
+        )
+    if isinstance(error, requests.exceptions.ConnectionError) and (
+        "name or service not known" in text or "nodename nor servname" in text or "failed to resolve" in text
+    ):
+        return (
+            "Couldn't resolve the Metabase host. "
+            "Check that the Instance URL is spelled correctly and reachable from the public internet."
+        )
+    return (
+        "Couldn't connect to your Metabase instance. "
+        "Check that the Instance URL is correct and reachable from the public internet."
+    )
+
+
 def _extract_items(data: Any) -> list[dict[str, Any]]:
     """Normalize Metabase's two list shapes into a flat list of records.
 
@@ -201,7 +239,7 @@ def validate_credentials(
     try:
         response = session.get(f"{base_url}/api/user/current", headers=headers, timeout=10, allow_redirects=False)
     except requests.exceptions.RequestException as e:
-        return False, str(e)
+        return False, _connection_error_message(e)
 
     if response.is_redirect or response.is_permanent_redirect:
         return False, HOST_NOT_ALLOWED_ERROR

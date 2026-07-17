@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import MagicMock
 
 import pymysql
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.schema import SourceFieldInputConfig
 
@@ -887,17 +888,21 @@ class TestIsTransientConnectDrop:
             )
         )
 
-    def test_matches_ssl_unexpected_eof_on_connect(self):
-        # The peer aborted the TLS handshake with an unexpected EOF, wrapped by pymysql as the
-        # 2003 connect failure. A transient drop (overloaded server, proxy idle cull, failover) —
-        # the in-process retry must catch it instead of letting the first blip surface as noise.
-        assert _is_transient_connect_drop(
-            pymysql.err.OperationalError(
-                2003,
-                "Can't connect to MySQL server on 'db.example.com' "
-                "([SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032))",
-            )
-        )
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # The peer aborted the TLS handshake with an unexpected read EOF.
+            "Can't connect to MySQL server on 'db.example.com' "
+            "([SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032))",
+            # The `SSLZeroReturnError` rendering of the same peer-closed-the-TLS-connection drop.
+            "Can't connect to MySQL server on 'db.example.com' (TLS/SSL connection has been closed (EOF) (_ssl.c:1032))",
+        ],
+    )
+    def test_matches_ssl_peer_close_on_connect(self, message):
+        # pymysql wraps an SSL peer-close mid-handshake as the 2003 connect failure. A transient
+        # drop (overloaded server, proxy idle cull, failover) — the in-process retry must catch it
+        # instead of letting the first blip surface as the non-retryable "Can't connect" config error.
+        assert _is_transient_connect_drop(pymysql.err.OperationalError(2003, message))
 
     @pytest.mark.parametrize(
         "code,message",
@@ -1838,6 +1843,18 @@ class TestMySQLSourceValidateCredentials:
         assert valid is False
         assert error is not None
         capture.assert_called_once()
+
+    def test_ssh_tunnel_error_is_mapped_not_leaked(self, source, mocker):
+        # sshtunnel's raw "Could not establish session to SSH gateway" must be replaced with the
+        # friendly guidance, not surfaced verbatim to the wizard.
+        raw = "Could not establish session to SSH gateway"
+        mocker.patch.object(source, "get_schemas", side_effect=BaseSSHTunnelForwarderError(raw))
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error != raw
+        assert error == source.get_non_retryable_errors()[raw]
 
 
 class _RaisingTunnel:

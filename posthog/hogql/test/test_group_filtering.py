@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
 
+from django.conf import settings
+
 from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
@@ -24,6 +26,9 @@ class TestGroupKeyFiltering(APIBaseTest):
         super().setUp()
         self.database = Database.create_for(team=self.team)
         self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
+
+    def _events_from_sql(self) -> str:
+        return "events_json AS events" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "events"
 
     def _create_mapping_and_rebuild(self, **kwargs):
         """Create a GroupTypeMapping, invalidate cache, and rebuild database."""
@@ -60,7 +65,7 @@ class TestGroupKeyFiltering(APIBaseTest):
         sql, _ = prepare_and_print_ast(parsed, context=self.context, dialect="clickhouse")
 
         self.assertIn(
-            f"SELECT if(less(toTimeZone(events.timestamp, %(hogql_val_0)s), {expected_cutoff}), %(hogql_val_1)s, events.`$group_0`) AS `$group_0` FROM events WHERE equals(events.team_id,",
+            f"SELECT if(less(toTimeZone(events.timestamp, %(hogql_val_0)s), {expected_cutoff}), %(hogql_val_1)s, events.`$group_0`) AS `$group_0` FROM {self._events_from_sql()} WHERE equals(events.team_id,",
             sql,
         )
 
@@ -74,7 +79,7 @@ class TestGroupKeyFiltering(APIBaseTest):
         sql, _ = prepare_and_print_ast(parsed, context=self.context, dialect="clickhouse")
 
         # Should return an empty string constant (parameterized)
-        self.assertIn("SELECT events.`$group_0` AS `$group_0` FROM events", sql)
+        self.assertIn(f"SELECT events.`$group_0` AS `$group_0` FROM {self._events_from_sql()}", sql)
 
     def test_multiple_group_fields(self):
         """Test filtering with multiple group type mappings"""

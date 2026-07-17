@@ -34,11 +34,12 @@ The harness discovers scouts by globbing `signals-scout-*` over the project's sk
 
 Don't write a scout in the abstract.
 Ground it in the target project first — a scout is only as good as its fit to the data it watches.
+(The scout tools were recently renamed from `signals-scout-*` to `scout-*`; if a `scout-*` name comes back unknown, the server may still expose it under the legacy `signals-scout-*` name — search the tool catalog and call whichever name it returns.)
 
-1. **Read the project.** `posthog:signals-scout-project-profile-get` returns the deterministic snapshot the scout itself cold-starts from: products in use, top events with reach/burst metrics, integrations, existing inbox counts.
+1. **Read the project.** `posthog:scout-project-profile-get` returns the deterministic snapshot the scout itself cold-starts from: products in use, top events with reach/burst metrics, integrations, existing inbox counts.
    If the scout watches a specific event, confirm it exists and check its shape with `posthog:read-data-schema`.
    A scout for an event the project doesn't capture is dead on arrival.
-2. **See what already runs.** `posthog:signals-scout-config-list` lists every existing scout on the project with its schedule, `enabled`, and `emit` posture, plus each scout's `description` (pulled from the skill's frontmatter) so you can tell what a scout watches without loading its body.
+2. **See what already runs.** `posthog:scout-config-list` lists every existing scout on the project with its schedule, `enabled`, and `emit` posture, plus each scout's `description` (pulled from the skill's frontmatter) so you can tell what a scout watches without loading its body.
    Don't duplicate a surface a canonical scout already covers — adapt that one instead.
 3. **Read the closest canonical scout.** It's your template and your reference shape.
    Pull it with `posthog:skill-get {"skill_name": "signals-scout-<x>"}` (per-team rows) or read it from the repo at `products/signals/skills/signals-scout-*/`.
@@ -59,10 +60,10 @@ There are two independent decisions: **what** you're building, and **where** it 
 
 ### Where
 
-| Path                                 | Mechanism                                                                                                                                                                                                             | Use when                                                                                                                              |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **Per-team** (the common user path)  | Create/edit a `signals-scout-*` `LLMSkill` row in the project's skills store via `posthog:skill-create` / `-update` / `-file-create`, then register its config immediately via `posthog:signals-scout-config-create`. | Customizing for one project. The harness globs the row in on the next tick; canonical sync leaves your edited ("diverged") row alone. |
-| **Canonical** (PostHog contributors) | Edit disk under `products/signals/skills/signals-scout-*/`, lint/build, open a PR.                                                                                                                                    | Improving a scout for _every_ enrolled project. `lazy_seed` mirrors it onto all enrolled teams on the next tick.                      |
+| Path                                 | Mechanism                                                                                                                                                                                                     | Use when                                                                                                                              |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **Per-team** (the common user path)  | Create/edit a `signals-scout-*` `LLMSkill` row in the project's skills store via `posthog:skill-create` / `-update` / `-file-create`, then register its config immediately via `posthog:scout-config-create`. | Customizing for one project. The harness globs the row in on the next tick; canonical sync leaves your edited ("diverged") row alone. |
+| **Canonical** (PostHog contributors) | Edit disk under `products/signals/skills/signals-scout-*/`, lint/build, open a PR.                                                                                                                            | Improving a scout for _every_ enrolled project. `lazy_seed` mirrors it onto all enrolled teams on the next tick.                      |
 
 **Adapting-in-place tradeoff:** editing a canonical scout's row for your team marks it **diverged** — you stop receiving upstream improvements to that scout.
 If you only need an _additional_ behavior, prefer authoring a **new, differently-named** scout (`signals-scout-<your-scope>`) and leaving the canonical one intact.
@@ -80,7 +81,7 @@ Follow [`references/scout-anatomy.md`](references/scout-anatomy.md) — it has t
 
 Two craft references the whole fleet reasons in terms of — a good scout's **Decide** and **memory** sections are built on them, so read them before writing those sections:
 
-- [`references/report-contract.md`](references/report-contract.md) — the report tools (`signals-scout-emit-report` / `signals-scout-edit-report`), the report bar (author 1:1 only for a finding you'd own end-to-end), `suggested_reviewers` routing, the dedup-via-`report_id` discipline (the channel isn't idempotent — reconcile against existing reports via the vanilla `inbox-reports-list` / `inbox-reports-retrieve` before authoring), and the accepted caveat that the pipeline may later rewrite an authored title/summary.
+- [`references/report-contract.md`](references/report-contract.md) — the report tools (`scout-emit-report` / `scout-edit-report`), the report bar (author 1:1 only for a finding you'd own end-to-end), `suggested_reviewers` routing, the dedup-via-`report_id` discipline (the channel isn't idempotent — reconcile against existing reports via the vanilla `inbox-reports-list` / `inbox-reports-retrieve` before authoring), and the accepted caveat that the pipeline may later rewrite an authored title/summary.
   This is how your scout decides _what clears the bar_ and _how to file it_.
 - [`references/dedupe-and-memory.md`](references/dedupe-and-memory.md) — the four-states classifier (net-new / material-update / already-covered / addressed-or-noise), the scratchpad key-prefix vocabulary, and the cross-project noise patterns.
   This is how your scout avoids re-filing and learns across runs.
@@ -93,10 +94,10 @@ Name it explicitly near the top of the body so every run anchors on it.
 ## Run posture (config)
 
 A scout's schedule and emit behavior live on its `SignalScoutConfig`, separate from the skill body.
-For a **brand-new scout**, register the config immediately after creating the skill with `posthog:signals-scout-config-create {"skill_name": "signals-scout-<scope>", ...}`, setting any of the fields below in the same call — including creating it disabled or in dry-run **before it ever runs**.
+For a **brand-new scout**, register the config immediately after creating the skill with `posthog:scout-config-create {"skill_name": "signals-scout-<scope>", ...}`, setting any of the fields below in the same call — including creating it disabled or in dry-run **before it ever runs**.
 (It's an upsert: if the coordinator already auto-registered the row, your fields are applied to it.)
 Otherwise the coordinator auto-registers an enabled config on the default every-24-hours schedule on its next tick (up to ~30 min).
-For an **existing scout**, tune with `posthog:signals-scout-config-update` (find the `id` via `-config-list`):
+For an **existing scout**, tune with `posthog:scout-config-update` (find the `id` via `-config-list`):
 
 - `run_interval_minutes` — 30 to 43200.
   Default 1440 (every 24 hours).
@@ -109,14 +110,14 @@ For an **existing scout**, tune with `posthog:signals-scout-config-update` (find
 
 ## Test loop
 
-**Dogfood the scout yourself before you ever spend a real run.** You — the agent authoring the scout — have the same PostHog MCP tools a scout uses at runtime (`execute-sql`, `read-data-schema`, the per-product list tools, `signals-scout-project-profile-get`).
+**Dogfood the scout yourself before you ever spend a real run.** You — the agent authoring the scout — have the same PostHog MCP tools a scout uses at runtime (`execute-sql`, `read-data-schema`, the per-product list tools, `scout-project-profile-get`).
 The cheapest, fastest iteration doesn't touch a scout run at all: walk the scout's own logic against the live project by hand.
 Confirm the watched event/entity exists and has the shape you assumed, run the **discriminator** to check it actually separates signal from noise on _this_ project's data, and run each **explore pattern**'s queries to see what they surface.
 This loop is free and instant — refine the body against what you find, re-run the queries, repeat, until the scout's logic holds up on real data.
 This is where the real iteration happens.
 
 Only once you're happy with the body do you spend an actual run.
-`posthog:signals-scout-run-now {"id": <config_id>}` dispatches one run of the scout immediately, regardless of its schedule (find the `id` via `-config-list`).
+`posthog:scout-run-now {"id": <config_id>}` dispatches one run of the scout immediately, regardless of its schedule (find the `id` via `-config-list`).
 This is the **initial real run** — the scout executing end-to-end in the harness, writing scratchpad memory and (with the default `emit=true`) writing reports to the inbox.
 The run is **asynchronous**: the call returns a workflow id right away, so poll `-runs-list` / `-runs-retrieve` for the result.
 A few things to know:
@@ -135,10 +136,10 @@ The standard loop is **dogfood → run once ready → inspect**:
    Refine the body until the logic holds on real data — this is the cheap, iterable part.
 2. Author the scout and register its config (`-config-create`, the default `emit=true`), then spend one `-run-now` to watch the whole scout execute end-to-end.
    Leave `run_interval_minutes` at a sustainable value — you no longer need a short interval to force an early run.
-3. After the run finishes, read what it did: `posthog:inbox-reports-list` (the reports it actually wrote), `posthog:signals-scout-runs-list` (run summaries), `-runs-retrieve` (full reasoning for one run), and `-scratchpad-search` (the durable memory it wrote).
+3. After the run finishes, read what it did: `posthog:inbox-reports-list` (the reports it actually wrote), `posthog:scout-runs-list` (run summaries), `-runs-retrieve` (full reasoning for one run), and `-scratchpad-search` (the durable memory it wrote).
 4. If it needs work, go back to dogfooding the queries by hand for the iteration — only spend another `-run-now` once you've batched a meaningful change worth a fresh end-to-end run.
 
-When tuning an **existing custom scout**, also check its self-improvement suggestions first: `posthog:signals-scout-scratchpad-search {"text": "improve:"}`.
+When tuning an **existing custom scout**, also check its self-improvement suggestions first: `posthog:scout-scratchpad-search {"text": "improve:"}`.
 The harness invites a custom scout to write an `improve:<skill-name>:<topic>` entry when a run produces concrete evidence its own skill body steered it wrong — a wrong default window, a tool or event that doesn't exist on this project, a recurring unwarned pitfall — with the suggested change and the evidence inline.
 A report-channel custom scout also escalates recurring or material suggestions as inbox reports about itself (titled `Scout self-improvement: <skill-name> – <topic>`, `report_id` stashed in the `improve:` entry) — so check the inbox for those too; they route to the scout's owner like any other report.
 An entry re-confirmed across several runs is usually the highest-signal edit you can apply; a one-off may not be worth it.

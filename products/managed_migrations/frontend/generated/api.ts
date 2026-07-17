@@ -10,8 +10,11 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     BatchImportApi,
+    BatchImportSupportDetailApi,
     ManagedMigrationsListParams,
+    ManagedMigrationsSupportListParams,
     PaginatedBatchImportListApi,
+    PaginatedBatchImportSupportListListApi,
     PatchedBatchImportApi,
 } from './api.schemas'
 
@@ -31,6 +34,52 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getManagedMigrationsSupportListUrl = (params?: ManagedMigrationsSupportListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/managed_migrations_support/?${stringifiedParams}`
+        : `/api/managed_migrations_support/`
+}
+
+/**
+ * List batch import (managed migration) jobs across all teams. PostHog staff only.
+ */
+export const managedMigrationsSupportList = async (
+    params?: ManagedMigrationsSupportListParams,
+    options?: RequestInit
+): Promise<PaginatedBatchImportSupportListListApi> => {
+    return apiMutator<PaginatedBatchImportSupportListListApi>(getManagedMigrationsSupportListUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getManagedMigrationsSupportRetrieveUrl = (id: string) => {
+    return `/api/managed_migrations_support/${id}/`
+}
+
+/**
+ * Get one batch import job with its raw worker state and import config. PostHog staff only.
+ */
+export const managedMigrationsSupportRetrieve = async (
+    id: string,
+    options?: RequestInit
+): Promise<BatchImportSupportDetailApi> => {
+    return apiMutator<BatchImportSupportDetailApi>(getManagedMigrationsSupportRetrieveUrl(id), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getManagedMigrationsListUrl = (projectId: string, params?: ManagedMigrationsListParams) => {
     const normalizedParams = new URLSearchParams()

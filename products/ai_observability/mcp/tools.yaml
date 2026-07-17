@@ -518,9 +518,40 @@ tools:
         title: Get prompt
         description: |
             Get a specific LLM prompt by name. Uses the cached endpoint for fast retrieval.
+            Pass `label` (e.g. 'production') to fetch the version that label currently points to, or `version` for an
+            exact version number — not both. With neither, the latest version is returned.
             The response always includes `outline`, a flat list of markdown headings parsed from the prompt — useful
             as a lightweight table of contents. Pass `content=none` to get the outline without the prompt payload,
             or `content=preview` for a short `prompt_preview` snippet instead of the full prompt.
+    llma-prompt-label-delete:
+        operation: llm_prompts_name_labels_destroy
+        enabled: true
+        scopes:
+            - llm_prompt:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete prompt label
+        description: >
+            Remove a label from an LLM prompt. The label stops pointing at any version; recreate it with the set-label
+            tool if needed. Confirm nothing depends on the label before removing it.
+    llma-prompt-label-set:
+        operation: llm_prompts_name_labels_update
+        enabled: true
+        scopes:
+            - llm_prompt:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Set prompt label
+        description: >
+            Point a label (for example 'production') at a specific version of an LLM prompt. A label is a movable
+            pointer to exactly one version: if the label already exists on another version of this prompt, it is moved
+            there. Use labels to mark a version as released ('production', 'staging') or roll back by pointing the label
+            at an earlier version. Label names use lowercase letters, numbers, dots, hyphens and underscores; 'latest'
+            is reserved and numbers-only names are not allowed. Each prompt can have at most 50 labels.
     llma-prompt-list:
         operation: llm_prompts_list
         enabled: true

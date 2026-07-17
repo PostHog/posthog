@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SmartwaiverSource(ResumableSource[SmartwaiverSourceConfig, SmartwaiverResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v4",)
+    default_version = "v4"
+    api_docs_url = "https://api.smartwaiver.com/docs/v4"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -69,7 +72,6 @@ You can create an API key under **My Account → API keys** in [Smartwaiver](htt
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

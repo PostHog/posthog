@@ -381,6 +381,10 @@ class TestPostgresSourceNonRetryableErrors:
             # can hit on a hot-standby-disabled replica is non-retryable (see the permanent cases below).
             "consuming input failed: SSL SYSCALL error: EOF detected",
             "the connection is lost",
+            # A hot standby still reaching a consistent recovery point (SQLSTATE 57P03). Transient —
+            # it accepts connections once recovery completes — so unlike the permanent
+            # hot-standby-disabled refusal it must stay out of NonRetryableErrors.
+            'connection failed: connection to server at "127.0.0.1", port 5432 failed: FATAL:  the database system is not yet accepting connections DETAIL:  Consistent recovery state has not been yet reached.',
         ],
     )
     def test_transient_connection_errors_are_retryable(self, source, error_msg):
@@ -726,6 +730,29 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Non-integer incremental cursor error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "builder",
+        [
+            # schema, table_name, should_use_incremental_field, table_type, incremental_field,
+            # incremental_field_type, db_incremental_field_last_value
+            lambda: _build_query("public", "my_table", True, None, None, None, None),
+            # _build_count_query has no `table_type` parameter
+            lambda: _build_count_query("public", "my_table", True, None, None, None),
+        ],
+    )
+    def test_missing_incremental_field_is_non_retryable(self, source, builder):
+        # Drive the real raise sites so a message change that breaks the classifier key is caught.
+        with pytest.raises(ValueError) as exc_info:
+            builder()
+        error_msg = str(exc_info.value)
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Missing incremental field error should be non-retryable: {error_msg}"
+
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Missing incremental field error should surface an actionable message"
+        assert "incremental field" in friendly[0]
 
     def test_exhausted_recovery_conflict_retries_are_non_retryable(self, source):
         error_msg = str(_recovery_conflict_abort_error(10))
@@ -1332,6 +1359,11 @@ class TestIsConnectionDroppedError:
             psycopg.errors.ConnectionFailure(
                 "Failed to connect to database: authentication did not complete within 15000ms"
             ),
+            # pgcat refuses to hand out a backend when every pooled server is banned/down, reporting
+            # it as SQLSTATE 58000 (psycopg's SystemError, an OperationalError) rather than the
+            # Supavisor XX000 InternalError_ codes above. Transient — a banned server rejoins on a
+            # passing health check or once its ban expires — so the reconnect must catch it.
+            psycopg.errors.SystemError("could not get connection from the pool - AllServersDown"),
         ],
     )
     def test_connection_dropped_errors_are_detected(self, error):
@@ -1386,6 +1418,20 @@ class TestDroppedOrConnectTimeout:
             # The new case: the read-path reconnect that bootstraps offset-chunking recovery times
             # out establishing the socket. Transient — the source was reachable moments earlier.
             psycopg.errors.ConnectionTimeout("connection timeout expired"),
+            # A hot standby that hasn't yet reached a consistent recovery point refuses the
+            # reconnect with SQLSTATE 57P03 (cannot_connect_now). Transient — it starts accepting
+            # connections once recovery completes — so the offset-chunking reconnect must retry it
+            # in-process instead of failing the whole activity.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "127.0.0.1", port 5432 failed: '
+                "FATAL:  the database system is not yet accepting connections "
+                "DETAIL:  Consistent recovery state has not been yet reached."
+            ),
+            # Sibling 57P03 refusals while the source is booting / crash-recovering.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  the database system is starting up"
+            ),
         ],
     )
     def test_transient_connect_path_errors_are_retryable(self, error):
@@ -1399,6 +1445,15 @@ class TestDroppedOrConnectTimeout:
             ),
             # A statement timeout is not a connect timeout — it must not be absorbed here.
             psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),
+            # A standby started with hot_standby=off refuses every connection permanently — it reads
+            # "not accepting connections" (no "yet") with DETAIL "Hot standby mode is disabled". It
+            # must NOT be treated as a transient server-startup refusal, so it fails fast to the
+            # non-retryable classification rather than burning the in-process reconnect budget.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  the database system is not accepting connections "
+                "DETAIL:  Hot standby mode is disabled."
+            ),
         ],
     )
     def test_permanent_and_non_connect_errors_are_not_retryable(self, error):
@@ -6774,6 +6829,140 @@ class TestGetRowsInitialReadDropRetry:
 
         with pytest.raises(psycopg.OperationalError, match="SSL connection has been closed unexpectedly"):
             self._run(connect_side_effect)
+
+
+class TestGetRowsInitialReadLockTimeoutRetry:
+    # Regression: a source-side lock_timeout hit while opening the server-cursor DECLARE
+    # (cursor.execute) raises psycopg.errors.LockNotAvailable, which subclasses OperationalError and
+    # so was caught by the connection-dropped handler, failed _is_connection_dropped_error, and
+    # re-raised — failing the activity and flooding error tracking with a handled exception for a
+    # transient lock conflict (a concurrent DDL / VACUUM FULL holding ACCESS EXCLUSIVE). It's
+    # transient, so it must stay retryable; before the first row is yielded (offset 0) re-running the
+    # read from scratch is safe, so it should retry in process. Once a chunk is out, replaying it
+    # would duplicate rows, so the lock timeout must still propagate.
+    _LOCK_TIMEOUT = "canceling statement due to lock timeout"
+
+    class _Cursor:
+        # The read server cursor. `state["declare_locks_left"]` is how many DECLAREs (cursor.execute)
+        # should hit the source's lock_timeout before one succeeds; it's shared across reconnects so
+        # the in-process retry opens a fresh cursor that finally gets through. Batches drive the
+        # post-DECLARE fetch, and a batch that is an exception is raised mid-stream.
+        def __init__(self, *, batches, state):
+            col = mock.Mock()
+            col.name = "id"
+            self.description = [col]
+            self._batches = list(batches)
+            self._state = state
+
+        def execute(self, *args, **kwargs):
+            if self._state["declare_locks_left"] > 0:
+                self._state["declare_locks_left"] -= 1
+                raise psycopg.errors.LockNotAvailable(TestGetRowsInitialReadLockTimeoutRetry._LOCK_TIMEOUT)
+            return None
+
+        def fetchmany(self, _n):
+            if not self._batches:
+                return []
+            batch = self._batches.pop(0)
+            if isinstance(batch, BaseException):
+                raise batch
+            return batch
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _Connection:
+        def __init__(self, *, batches, state):
+            self.autocommit = False
+            self.closed = False
+            self.broken = False
+            self.adapters = mock.Mock()
+            self._batches = batches
+            self._state = state
+
+        def cursor(self, *args, **kwargs):
+            # Only the named server cursor (the read under test) can hit the lock timeout; the unnamed
+            # setup cursor stays benign so the lock fires on the DECLARE, not on setup.
+            if "name" in kwargs:
+                return TestGetRowsInitialReadLockTimeoutRetry._Cursor(batches=self._batches, state=self._state)
+            return mock.MagicMock()
+
+        def commit(self):
+            return None
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def _run(self, *, declare_locks_left, batches):
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        fake_table = mock.Mock()
+        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        fake_table.type = "table"
+        fake_table.columns = []
+        fake_table.__contains__ = mock.Mock(return_value=False)
+
+        # Shared across every read connection so the retry's fresh cursor sees the decremented count.
+        state = {"declare_locks_left": declare_locks_left}
+
+        def connect_side_effect(*args, **kwargs):
+            return self._Connection(batches=batches, state=state)
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.time.sleep"),
+            patch(f"{module}.psycopg.connect", side_effect=connect_side_effect) as connect_mock,
+            patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(batches=[], state={"declare_locks_left": 0})),
+            patch(f"{module}._get_table", return_value=fake_table),
+            patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._get_primary_keys", return_value=["id"]),
+            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._get_table_chunk_size", return_value=100),
+            patch(f"{module}._get_rows_to_sync", return_value=10),
+            patch(f"{module}._role_subject_to_rls", return_value=False),
+            patch(f"{module}._get_partition_settings", return_value=None),
+        ):
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["companies"],
+                should_use_incremental_field=False,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=None,
+                team_id=1,
+            )
+            tables = list(cast(Iterable[Any], response.items()))
+        return tables, connect_mock, state
+
+    def test_retries_read_when_lock_timeout_before_first_row(self):
+        # The first read DECLARE hits the source's lock_timeout; the in-process retry opens a fresh
+        # server cursor that succeeds and serves the rows. If the retry branch were removed the
+        # LockNotAvailable would propagate and no rows would come back.
+        tables, _connect_mock, state = self._run(declare_locks_left=1, batches=[[(1,), (2,), (3,)]])
+
+        assert state["declare_locks_left"] == 0, "the read DECLARE should have hit the lock timeout"
+        assert sum(table.num_rows for table in tables) == 3
+
+    def test_reraises_lock_timeout_after_rows_yielded(self):
+        # A lock timeout after a chunk is already out must propagate: an unordered full-table scan
+        # can't resume without duplicating rows, so the in-process retry must not swallow it.
+        with pytest.raises(psycopg.errors.LockNotAvailable, match="canceling statement due to lock timeout"):
+            self._run(declare_locks_left=0, batches=[[(1,), (2,)], psycopg.errors.LockNotAvailable(self._LOCK_TIMEOUT)])
 
 
 class TestPartitionIterationConnectRetry:

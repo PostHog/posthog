@@ -1,4 +1,5 @@
 import os
+import json
 import tempfile
 
 from django.test import SimpleTestCase
@@ -62,6 +63,14 @@ class TestKernelSessionRunNode(SimpleTestCase):
         self.assertEqual(envelope["status"], "error")
         self.assertIn("ValueError: boom", envelope["error"])
 
+    def test_keyboard_interrupt_surfaces_as_interrupted_with_captured_output(self):
+        # A SIGINT lands in run_cell as KeyboardInterrupt: the run is `interrupted`, not a
+        # red failure, and the output captured before the stop still ships in the envelope.
+        envelope = self._run("print('partial output')\nraise KeyboardInterrupt")
+        self.assertEqual(envelope["status"], "interrupted")
+        self.assertEqual(envelope["error"], "Run interrupted.")
+        self.assertIn("partial output", envelope["stdout"])
+
     def test_syntax_error_surfaces_as_error_envelope(self):
         # run_cell reports compile errors via error_before_exec (error_in_exec stays None);
         # they must not masquerade as a successful empty run stored as DONE.
@@ -78,6 +87,20 @@ class TestKernelSessionRunNode(SimpleTestCase):
         self.assertEqual(envelope["status"], "ok")
         self.assertEqual(envelope["columns"], ["id", "v"])
         self.assertEqual(envelope["first_page"], [[2, 20], [3, 30]])
+
+    def test_binary_column_degrades_the_preview_instead_of_failing_the_run(self):
+        # ClickHouse's native Arrow output emits UUID/FixedString columns as fixed-size
+        # binary, so a materialized frame can hold raw bytes. pandas' ujson preview encoder
+        # raises OverflowError on them — that must degrade the display cell, not fail a run
+        # whose compute succeeded (the incident: "kernel did not return a result").
+        binary_column = pa.array([b"\x01" * 16, b"\xff" * 16], type=pa.binary(16))
+        self._write_frame("df1", pa.table({"uid": binary_column, "v": [1, 2]}))
+        path = os.path.join(self._dir.name, "frames", "df1.arrow")
+        envelope = self._run("df1", inputs=[{"name": "df1", "kind": "hogql", "path": path}])
+        self.assertEqual(envelope["status"], "ok")
+        self.assertEqual(envelope["row_count"], 2)
+        self.assertEqual(envelope["first_page"][0][1], 1)
+        self.assertIsInstance(envelope["first_page"][0][0], str)  # degraded, JSON-safe cell
 
     def test_missing_local_input_produces_a_clear_error(self):
         envelope = self._run("1 + 1", inputs=[{"name": "never_made", "kind": "local"}])
@@ -106,6 +129,23 @@ class TestKernelSessionRunNode(SimpleTestCase):
         second = self._run("events_df.head(10)", output_name="top_events_df")
         self.assertEqual(first["row_count"], 1)
         self.assertEqual(second["row_count"], 3)
+
+    def test_missed_save_names_the_created_frame_and_leaves_the_output_unbound(self):
+        # The silent-miss footgun: the cell assigns `top50` while its output name says
+        # `top50_people` — the run must say so instead of succeeding with an empty preview.
+        envelope = self._run("import pandas as pd\ntop50 = pd.DataFrame({'id': [1, 2]})", output_name="top50_people")
+        self.assertEqual(envelope["status"], "ok")
+        self.assertIn("nothing was saved as 'top50_people'", envelope["stderr"])
+        self.assertIn("'top50'", envelope["stderr"])
+        self.assertNotIn("top50_people", self.session.shell.user_ns)
+
+    def test_frameless_run_does_not_warn_about_a_missed_save(self):
+        # Every cell carries a default output name, so a print-only cell warning on each
+        # run would flag ordinary side-effect cells as failures (stderr renders red).
+        self._run("import pandas as pd\ntop50 = pd.DataFrame({'id': [1, 2]})", output_name="top50")
+        envelope = self._run("print(top50)", output_name="df")
+        self.assertEqual(envelope["status"], "ok")
+        self.assertNotIn("nothing was saved", envelope["stderr"])
 
     def test_oversized_stdout_is_truncated(self):
         envelope = self._run("print('x' * 100_000)")
@@ -212,3 +252,73 @@ class TestKernelSessionRunNode(SimpleTestCase):
         envelope = self._run_duckdb("select * from out", inputs=[{"name": "out", "kind": "local"}])
         self.assertEqual(envelope["status"], "error")
         self.assertIn("out", envelope["error"])
+
+    def test_snapshot_lists_only_what_sql_can_select_from(self):
+        # The browser's contract is "things you can SELECT from", so the snapshot is read from
+        # DuckDB's catalog rather than the namespace. Walking user_ns for DataFrames instead —
+        # the tempting shortcut — would leak `raw` in and miss `agg`, which has no result file
+        # at all (a frameless DDL run writes none) and is invisible to anything document-derived.
+        self._run("import pandas as pd\npd.DataFrame({'a': [1, 2, 3]})", output_name="sql_df")
+        self._run("raw = pd.DataFrame({'zz': [1]})\nNone")
+        envelope = self._run_duckdb("create table agg as select a from sql_df")
+
+        by_name = {frame["name"]: frame for frame in envelope["frames"]}
+        self.assertEqual(sorted(by_name), ["agg", "sql_df"])
+        self.assertEqual(by_name["sql_df"]["kind"], "frame")
+        self.assertEqual(by_name["sql_df"]["row_count"], 3)
+        self.assertEqual(by_name["sql_df"]["columns"], [["a", "BIGINT"]])
+        self.assertEqual(by_name["agg"]["kind"], "table")
+
+    def test_snapshot_rides_a_failed_run(self):
+        # A run that raises part-way can still have changed the catalog, so snapshotting only
+        # successful runs would hide `scratch` until some later run happened to succeed.
+        self._run_duckdb("create table scratch as select 1 as n")
+        envelope = self._run("raise ValueError('boom')")
+
+        self.assertEqual(envelope["status"], "error")
+        self.assertEqual([frame["name"] for frame in envelope["frames"]], ["scratch"])
+
+    def test_snapshot_drops_a_deleted_frame(self):
+        # `del df` unregisters it, so it stops being SELECT-able and must stop being listed —
+        # this is the phantom-frame case that sank deriving the list from the document.
+        self._run("import pandas as pd\npd.DataFrame({'a': [1]})", output_name="doomed")
+        self._run("del doomed")
+        envelope = self._run("1 + 1")
+
+        self.assertEqual([frame["name"] for frame in envelope["frames"]], [])
+
+    def test_snapshot_keeps_same_named_objects_apart(self):
+        # Keyed on the bare name, a registered frame and a same-named table in another schema
+        # merge into one entry whose columns and row count match neither — a schema the user's
+        # SQL will never see. Only one object is reachable from a bare `FROM`, and DuckDB
+        # resolves the registration first, so that is the one to report.
+        self._run("import pandas as pd\npd.DataFrame({'a': [1, 2, 3]})", output_name="sql_df")
+        self.session.duck.execute("CREATE SCHEMA IF NOT EXISTS other")
+        self.session.duck.execute("CREATE TABLE other.sql_df AS SELECT 99 AS totally_different")
+        envelope = self._run("1 + 1")
+
+        entries = [frame for frame in envelope["frames"] if frame["name"] == "sql_df"]
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["kind"], "frame")
+        self.assertEqual(entries[0]["row_count"], 3)
+        self.assertEqual(entries[0]["columns"], [["a", "BIGINT"]])
+
+    def test_snapshot_is_omitted_when_the_catalog_cannot_be_read(self):
+        # An empty list means "the kernel has nothing" and overwrites the stored snapshot; a
+        # failed read knows nothing and must leave it alone. The two must not look alike.
+        self._run("import pandas as pd\npd.DataFrame({'a': [1]})", output_name="kept")
+        self.session.duck.close()
+        envelope = self._run("2 + 2")
+
+        self.assertNotIn("frames", envelope)
+
+    def test_snapshot_stays_within_the_envelope_budget(self):
+        # Column names and type strings are user-controlled and unbounded, so a count cap alone
+        # can still push the envelope past the callback's byte limit — which drops the whole
+        # result, costing the user their run over a sidebar list.
+        wide = ", ".join(f"1 AS {'x' * 300}_{index}" for index in range(60))
+        for table in range(30):
+            self.session.duck.execute(f"CREATE TABLE wide_{table} AS SELECT {wide}")
+        envelope = self._run("3 + 3")
+
+        self.assertLessEqual(len(json.dumps(envelope["frames"])), 300_000)

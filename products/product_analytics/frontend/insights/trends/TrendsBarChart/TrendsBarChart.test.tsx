@@ -4,8 +4,6 @@ import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 
 import { dimensions, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { ExportType } from '~/exporter/types'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
@@ -433,70 +431,6 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         expect(rowText).toContain('Spike')
         expect(rowText).toContain('11')
     })
-
-    it('keeps the previous-period identifier glyph opaque while dimming only the row ribbon', async () => {
-        // Give the previous period the larger aggregated_value so it sorts topmost (DESC) and is the
-        // bar hovered at plotTop. Its series color arrives pre-dimmed (rgba .5); the ribbon should keep
-        // that dim to mark the period, but the SeriesLetter glyph must render at full opacity.
-        const action = { id: '$pageview', type: 'events', name: '$pageview', order: 0 }
-        const compareResults = {
-            results: [
-                {
-                    action,
-                    label: '$pageview',
-                    count: 50,
-                    aggregated_value: 50,
-                    data: [50],
-                    labels: ['Day 1'],
-                    days: ['2024-06-10'],
-                    compare: true,
-                    compare_label: 'current',
-                },
-                {
-                    action,
-                    label: '$pageview',
-                    count: 500,
-                    aggregated_value: 500,
-                    data: [500],
-                    labels: ['Day 1'],
-                    days: ['2024-06-03'],
-                    compare: true,
-                    compare_label: 'previous',
-                },
-            ],
-        }
-        renderInsight({
-            query: aggregatedBar({ compareFilter: { compare: true } }),
-            // Pin to the legacy InsightTooltip path — the glyph/ribbon assertions are specific
-            // to that rendering and will get a quill-flavoured equivalent when the flag ships.
-            featureFlags: { [FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]: false },
-            mocks: {
-                additionalMockResponses: [{ match: (q) => q.kind === NodeKind.TrendsQuery, response: compareResults }],
-            },
-        })
-        const canvas = await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
-        const wrapper = canvas.parentElement!
-        // Topmost band is the previous period (largest aggregated_value, sorted DESC). Aim at the
-        // band centre — the bar's hittable region sits inside the band's padding.
-        const previousBandY = dimensions.plotTop + dimensions.plotHeight / 4
-
-        // Re-fire the hover each tick until the chart commits its scales and the tooltip populates —
-        // a single mouseMove before the chart settles is silently dropped.
-        await waitFor(
-            () => {
-                fireEvent.mouseMove(wrapper, { clientX: dimensions.plotLeft + 30, clientY: previousBandY })
-                const glyph = chart.getTooltip()?.querySelector<HTMLElement>('.graph-series-glyph')
-                expect(glyph).toBeTruthy()
-                // The identifier glyph stays opaque — no alpha channel bled in from the dimmed color.
-                expect(glyph!.style.color).not.toMatch(/rgba/)
-                expect(glyph!.style.borderColor).not.toMatch(/rgba/)
-                // The left ribbon still carries the half-opacity previous-period color.
-                const ribbon = glyph!.closest('tr')!.style.getPropertyValue('--row-ribbon-color')
-                expect(ribbon).toMatch(/rgba\([^)]*0?\.5\)/)
-            },
-            { timeout: 8000 }
-        )
-    }, 12000)
 })
 
 describe('TrendsBarChart (ActionsUnstackedBar)', () => {
@@ -624,8 +558,7 @@ describe('TrendsBarChart overlays', () => {
         }
     )
 
-    describe('quill in-chart legend (PRODUCT_ANALYTICS_QUILL_LEGEND on)', () => {
-        const quillLegendFlag = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]: true }
+    describe('quill in-chart legend', () => {
         const twoSeriesBar = trendsBar({
             series: [
                 { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
@@ -638,7 +571,7 @@ describe('TrendsBarChart overlays', () => {
             container.querySelector<HTMLElement>('[data-attr="hog-chart-timeseries-bar-legend"]')!
 
         it('renders the in-chart legend with a row per series', async () => {
-            const { container } = renderInsight({ query: twoSeriesBar, featureFlags: quillLegendFlag })
+            const { container } = renderInsight({ query: twoSeriesBar })
 
             await waitFor(() => {
                 expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()

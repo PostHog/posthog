@@ -3,6 +3,7 @@
 !.devcontainer
 !.kearc
 !bin
+!common/alerting
 !common/hogvm
 !common/esbuilder
 !common/migration_utils
@@ -84,6 +85,8 @@ services/agent-tests
 !tailwind.config.js
 !tools/hogli
 !tools/openapi-codegen
+!tools/owners
+!tools/pr-approval-agent
 !tsconfig.json
 !unit.json.tpl
 common/*/*/node_modules

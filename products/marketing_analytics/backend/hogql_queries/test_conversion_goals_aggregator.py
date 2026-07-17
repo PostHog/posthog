@@ -1,7 +1,7 @@
 import re
 import uuid
 import itertools
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -30,7 +30,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 
-from .conversion_goal_processor import ConversionGoalProcessor
+from .conversion_goal_processor import ConversionGoalProcessor, SharedTouchpointsPrecompute
 from .conversion_goals_aggregator import ConversionGoalsAggregator
 from .marketing_analytics_config import MarketingAnalyticsConfig
 
@@ -647,3 +647,22 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         # goal, so each keeps its own — sharing those would serve one goal's conversions for the other.
         assert tables.count(LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED) == 1
         assert tables.count(LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED) == len(processors)
+
+    def test_shared_touchpoints_rejects_a_second_date_range(self):
+        # The handle caches the first materialization, so reusing it for another range would attribute
+        # one window's touchpoints to another. Silently, if it just returned the cached result.
+        shared = SharedTouchpointsPrecompute(self.team, self.config)
+        date_from = datetime(2024, 1, 1, tzinfo=UTC)
+        date_to = datetime(2024, 1, 31, tzinfo=UTC)
+
+        with patch(
+            "products.marketing_analytics.backend.hogql_queries.conversion_goal_processor.marketing_ensure_precomputed",
+            side_effect=lambda **kwargs: LazyComputationResult(ready=True, job_ids=[uuid.uuid4()]),
+        ) as ensure:
+            first = shared.get(date_from, date_to)
+            assert shared.get(date_from, date_to) is first
+
+            with pytest.raises(ValueError, match="one date range per read"):
+                shared.get(date_from, date_to + timedelta(days=1))
+
+        assert ensure.call_count == 1

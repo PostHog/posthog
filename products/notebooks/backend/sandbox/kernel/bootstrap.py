@@ -34,7 +34,7 @@ import json
 import uuid
 import base64
 import logging
-from typing import Any
+from typing import Any, NamedTuple
 
 import duckdb
 import pandas as pd
@@ -54,12 +54,60 @@ _STREAM_CAP_CHARS = 32_768
 _CELL_CAP_CHARS = 10_000
 _MEDIA_MAX_FIGURES = 8
 _MEDIA_TOTAL_CAP_CHARS = 4_000_000  # base64 chars across all figures (~3 MB of PNG bytes)
+# User SQL can create unboundedly many DuckDB objects; the schema browser only ever renders
+# a list, so cap what the envelope carries rather than let the catalog size it. The byte cap
+# is the one that matters: identifiers and type strings are user-controlled and unbounded
+# (a nested struct type prints in full), so a count cap alone can still push the envelope
+# past the callback's MAX_ENVELOPE_BYTES and cost the user the run's actual result.
+_SNAPSHOT_MAX_OBJECTS = 200
+_SNAPSHOT_MAX_COLUMNS = 100
+_SNAPSHOT_MAX_IDENTIFIER_CHARS = 200
+_SNAPSHOT_MAX_BYTES = 256_000
+
+
+class _Registration(NamedTuple):
+    frame: Any
+    # "output": a node bound this name (its own output, or an upstream node's frame re-registered
+    # as an input) — a node can only reference it while it is still a frame in the namespace.
+    # "input": materialized from an upstream HogQL node's Arrow file, re-fetched on demand, so it
+    # stays referenceable regardless of the namespace (a DuckDB node never binds one there).
+    origin: str
+
+
+def _clip_identifier(value: Any) -> str:
+    # Identifiers and type strings are user-controlled and unbounded (a nested struct type
+    # prints in full), and the envelope has a hard byte ceiling.
+    text = str(value)
+    return text if len(text) <= _SNAPSHOT_MAX_IDENTIFIER_CHARS else text[:_SNAPSHOT_MAX_IDENTIFIER_CHARS] + "…"
+
+
+def _safe_len(frame: Any) -> int | None:
+    # Registered objects are pandas frames or Arrow tables (both sized in O(1)), but user code
+    # can register anything DuckDB accepts, so an unsized object lists without a count.
+    try:
+        return int(len(frame))
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _truncate_stream(text: str, cap: int = _STREAM_CAP_CHARS) -> str:
     if len(text) <= cap:
         return text
     return f"{text[:cap]}\n… [output truncated: exceeded {cap // 1024} KB]"
+
+
+def _preview_safe_cell(value: Any) -> Any:
+    """Coerce one preview cell to a JSON-encodable value (fallback path only)."""
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass  # pd.isna rejects containers and some objects — fall through to str
+    return str(value)
 
 
 def _load_headless_pyplot() -> Any:
@@ -90,11 +138,155 @@ class KernelSession:
         self.duck.execute(f"SET temp_directory = '{self._duck_dir}'")  # spill big ops to disk
         # In-kernel this is the ipykernel's own shell; in tests it's the process singleton.
         self.shell = shell or InteractiveShell.instance()
-        self._registered: set[str] = set()
+        # name -> what we registered under it. Kept so the catalog snapshot can report a row
+        # count without scanning (a registration is a DuckDB view, so it has no estimated_size)
+        # and can tell an output from a run input. DuckDB holds its own reference to each
+        # registered object, so tracking them here adds no lifetime.
+        self._registered: dict[str, _Registration] = {}
         # Agg backend set now, before any user `import matplotlib.pyplot`, so plots stay headless.
         self._plt = _load_headless_pyplot()
 
     def run_node(self, payload: dict[str, Any]) -> dict[str, Any]:
+        result = self._execute_node(payload)
+        # Reconciling the registry mutates kernel state, so it is its own step rather than a
+        # side effect of building a display list — a later reader who caches or skips the
+        # snapshot must not silently change what SQL can see.
+        self._reap_stale_registrations()
+        # Every envelope carries the snapshot, including error and interrupted ones: a run that
+        # failed part-way can still have changed the catalog (a CREATE TABLE before the raise),
+        # and the browser must not miss it until the next successful run. A failed snapshot
+        # omits the key entirely — absent means "leave the stored one alone", where an empty
+        # list would mean "the kernel has nothing" and wipe the browser.
+        frames = self._catalog_snapshot()
+        if frames is not None:
+            result["frames"] = frames
+        return result
+
+    def _reap_stale_registrations(self) -> None:
+        """Drop registrations the node layer would already reject.
+
+        DuckDB keeps its own reference to a registered object, so `del df` leaves the catalog
+        entry behind while `_register_inputs` would now refuse the name. Follow the node layer
+        rather than the raw catalog, so a later DuckDB node can't read a deleted frame's rows.
+        """
+        for name, registration in list(self._registered.items()):
+            if registration.origin == "output" and not self._is_referenceable(name):
+                self._unregister_duck(name)
+
+    def _catalog_snapshot(self) -> list[dict[str, Any]] | None:
+        """The objects a SQL node can currently SELECT from, read from DuckDB's own catalog.
+
+        A pure read: returns None if the catalog can't be read, which the callback treats as
+        "unchanged" rather than "empty".
+
+        The catalog is authoritative rather than an approximation: `register`/`unregister`
+        keep it in step with the namespace on every path that invalidates a name, and DDL
+        objects live in duck.db for exactly as long as they stay queryable — including across
+        a kernel restart, which drops registrations (in-memory) but keeps tables (on disk).
+        """
+        try:
+            # duckdb_columns() covers tables and views alike, so names/columns/types come in
+            # one pass; duckdb_tables() is only needed to tell a table from a view and to pick
+            # up its free estimated_size. `NOT internal` excludes the system catalog. Both are
+            # keyed by the qualified triple: a bare name is ambiguous across schemas, and
+            # merging two objects that share one invents a schema matching neither.
+            columns_by_ref: dict[tuple[str, str, str], list[list[str]]] = {}
+            for database_name, schema_name, table_name, column_name, data_type in self.duck.execute(
+                "SELECT database_name, schema_name, table_name, column_name, data_type "
+                "FROM duckdb_columns() WHERE NOT internal ORDER BY table_name, column_index"
+            ).fetchall():
+                columns = columns_by_ref.setdefault((str(database_name), str(schema_name), str(table_name)), [])
+                if len(columns) < _SNAPSHOT_MAX_COLUMNS:
+                    columns.append([_clip_identifier(column_name), _clip_identifier(data_type)])
+            table_sizes: dict[tuple[str, str, str], int | None] = {
+                (str(database_name), str(schema_name), str(table_name)): (
+                    int(estimated_size) if estimated_size is not None else None
+                )
+                for database_name, schema_name, table_name, estimated_size in self.duck.execute(
+                    "SELECT database_name, schema_name, table_name, estimated_size "
+                    "FROM duckdb_tables() WHERE NOT internal"
+                ).fetchall()
+            }
+        except BaseException:  # noqa: BLE001 — incl. KeyboardInterrupt: a stop must not turn an
+            # interrupted envelope into a generic failure, and the browser is display-only.
+            logger.exception("nb_kernel catalog snapshot failed")
+            return None
+
+        frames: list[dict[str, Any]] = []
+        budget = _SNAPSHOT_MAX_BYTES
+        for ref in self._resolvable_refs(columns_by_ref):
+            entry = self._catalog_entry(ref, columns_by_ref[ref], table_sizes)
+            cost = len(json.dumps(entry))
+            if cost > budget:
+                # Over budget: stop rather than ship an envelope the callback would reject,
+                # which would cost the user the run's real result over a sidebar list.
+                logger.warning("nb_kernel catalog snapshot truncated at %d objects", len(frames))
+                break
+            budget -= cost
+            frames.append(entry)
+            if len(frames) >= _SNAPSHOT_MAX_OBJECTS:
+                break
+        return frames
+
+    def _resolvable_refs(
+        self, columns_by_ref: dict[tuple[str, str, str], list[list[str]]]
+    ) -> list[tuple[str, str, str]]:
+        """One ref per bare name: the one an unqualified `FROM <name>` actually reaches.
+
+        Users write bare names, and only one object per name is reachable that way, so listing
+        both would advertise a table their SQL will never read. A registration always shadows
+        (DuckDB puts it in `temp`, which its search path resolves first).
+        """
+        by_name: dict[str, tuple[str, str, str]] = {}
+        for ref in sorted(columns_by_ref):
+            name = ref[2]
+            incumbent = by_name.get(name)
+            if incumbent is None or self._shadow_rank(ref) > self._shadow_rank(incumbent):
+                by_name[name] = ref
+        return [by_name[name] for name in sorted(by_name)]
+
+    def _shadow_rank(self, ref: tuple[str, str, str]) -> int:
+        database, _schema, name = ref
+        # Verified against DuckDB: `register()` creates the view in `temp.main`, and its search
+        # path resolves temp first — a bare `FROM x` reaches the registration even when a table
+        # `x` exists in another schema. Rank by where the object lives, not by name alone: both
+        # refs share the name, so only the database tells the registration from its shadow.
+        if database == "temp":
+            return 2 if name in self._registered else 1
+        return 0
+
+    def _catalog_entry(
+        self,
+        ref: tuple[str, str, str],
+        columns: list[list[str]],
+        table_sizes: dict[tuple[str, str, str], int | None],
+    ) -> dict[str, Any]:
+        name = ref[2]
+        registration = self._registered.get(name)
+        if registration is not None and self._shadow_rank(ref) == 2:
+            # A DuckDB view over an object we hold, so len() is free and exact.
+            return {"name": name, "columns": columns, "kind": "frame", "row_count": _safe_len(registration.frame)}
+        if ref in table_sizes:
+            # estimated_size is the optimizer's cardinality estimate, not a count: it does not
+            # track deletes. Flagged approximate so the UI never presents it as fact, and a
+            # missing estimate stays unknown rather than becoming a confident zero.
+            return {
+                "name": name,
+                "columns": columns,
+                "kind": "table",
+                "row_count": table_sizes[ref],
+                "row_count_is_estimate": True,
+            }
+        # A view the user created with DDL. Counting it means scanning the base table, which
+        # browsing must never do — so it lists without a row count.
+        return {"name": name, "columns": columns, "kind": "view", "row_count": None}
+
+    def _is_referenceable(self, name: str) -> bool:
+        # The same rule _register_inputs applies to a `local` input, so the browser lists a name
+        # exactly when a node could actually reference it.
+        return isinstance(self.shell.user_ns.get(name), pd.DataFrame)
+
+    def _execute_node(self, payload: dict[str, Any]) -> dict[str, Any]:
         node = payload.get("node") or {}
         node_type = str(node.get("type") or "python")
         preview_rows = int(payload.get("page_limit") or _DEFAULT_PREVIEW_ROWS)
@@ -106,6 +298,9 @@ class KernelSession:
         if node_type == "duckdb":
             return self._run_duckdb_node(node, preview_rows)
 
+        output_name = str(node.get("output_name") or "")
+        # Binding identities before the run, so a missed save can name the frames the run created.
+        ns_ids_before = {name: id(value) for name, value in self.shell.user_ns.items()} if output_name else {}
         self._plt.close("all")  # start from a clean figure state so we only capture this run's plots
         # display=False: only stdout/stderr are consumed (figures come from matplotlib
         # directly). Capturing display would also swap the ZMQ shell's display machinery,
@@ -122,6 +317,16 @@ class KernelSession:
         # setting error_in_exec, and they must not masquerade as a successful empty run.
         error = execution.error_in_exec or execution.error_before_exec
         if error is not None:
+            # A SIGINT (the /interrupt path) surfaces as KeyboardInterrupt inside run_cell;
+            # it is a user-requested stop, not a failure, and the captured output still ships.
+            if isinstance(error, KeyboardInterrupt):
+                return envelope.from_python_execution(
+                    status="interrupted",
+                    stdout=stdout,
+                    stderr=stderr,
+                    error=envelope.INTERRUPTED_MESSAGE,
+                    media=media,
+                )
             return envelope.from_python_execution(
                 status="error",
                 stdout=stdout,
@@ -130,7 +335,6 @@ class KernelSession:
                 media=media,
             )
 
-        output_name = str(node.get("output_name") or "")
         result_df = self._result_frame(output_name, execution.result)
         if output_name:
             if result_df is not None:
@@ -143,6 +347,7 @@ class KernelSession:
                 # reading a previous run's rows. The namespace is left to the user's code —
                 # it may hold a deliberate non-frame value under this name.
                 self._unregister_duck(output_name)
+                stderr += self._missed_save_note(output_name, ns_ids_before)
         columns, types, rows, row_count, has_more = self._preview(result_df, preview_rows)
         # result_id keys the on-disk frame for paging — only advertise one that actually exists.
         result_id = self._write_result_frame(result_df) if result_df is not None else None
@@ -170,7 +375,7 @@ class KernelSession:
                 # node additionally bind pandas (the one step that materializes in RAM).
                 with pa.memory_map(spec["path"]) as source:
                     table = pa.ipc.open_file(source).read_all()
-                self._register_duck(name, table)
+                self._register_duck(name, table, origin="input")
                 if bind_pandas:
                     self.shell.user_ns[name] = table.to_pandas()
             elif kind == "local":
@@ -195,17 +400,17 @@ class KernelSession:
             else:
                 raise ValueError(f"unknown input kind '{kind}' for '{name}'")
 
-    def _register_duck(self, name: str, frame: Any) -> None:
+    def _register_duck(self, name: str, frame: Any, origin: str = "output") -> None:
         self._unregister_duck(name)  # replace cleanly when a frame was registered before
         self.duck.register(name, frame)
-        self._registered.add(name)
+        self._registered[name] = _Registration(frame=frame, origin=origin)
 
     def _unregister_duck(self, name: str) -> None:
         try:
             self.duck.unregister(name)
         except Exception:  # noqa: BLE001 — nothing registered under this name yet
             pass
-        self._registered.discard(name)
+        self._registered.pop(name, None)
 
     def _run_duckdb_node(self, node: dict[str, Any], preview_rows: int) -> dict[str, Any]:
         output_name = node.get("output_name") or ""
@@ -237,6 +442,21 @@ class KernelSession:
             result_id=result_id,
         )
 
+    def _missed_save_note(self, output_name: str, ns_ids_before: dict[str, int]) -> str:
+        """A stderr note when the run made dataframes but none reached `output_name`."""
+        created = sorted(
+            name
+            for name, value in self.shell.user_ns.items()
+            if not name.startswith("_") and isinstance(value, pd.DataFrame) and ns_ids_before.get(name) != id(value)
+        )
+        if not created:
+            return ""
+        names = ", ".join(f"'{name}'" for name in created)
+        return (
+            f"\n[nothing was saved as '{output_name}': this run created {names}. "
+            f"Assign the dataframe to '{output_name}' or end the cell with it as the last expression.]"
+        )
+
     def _result_frame(self, output_name: str | None, last_expression: Any) -> "pd.DataFrame | None":
         # Prefer this run's last-expression value; the named output in the namespace is only
         # a fallback (it covers cells whose last line is an assignment, which yields no
@@ -260,7 +480,16 @@ class KernelSession:
         columns = [str(column) for column in df.columns]
         types = [[str(column), str(dtype)] for column, dtype in zip(df.columns, df.dtypes)]
         # to_json coerces numpy scalars, NaN and datetimes to JSON-native values in one pass.
-        rows = json.loads(df.head(limit).to_json(orient="values", date_format="iso"))
+        try:
+            rows = json.loads(df.head(limit).to_json(orient="values", date_format="iso"))
+        except (OverflowError, UnicodeDecodeError, ValueError, TypeError):
+            # Frames can carry values ujson can't encode — raw bytes from ClickHouse-native
+            # binary columns, or exotic objects user code produced. The preview is
+            # display-only (paging reads the Arrow frame), so degrade per cell instead of
+            # failing a run whose compute succeeded.
+            rows = [
+                [_preview_safe_cell(cell) for cell in row] for row in df.head(limit).itertuples(index=False, name=None)
+            ]
         # The preview is display-only (paging reads the Arrow frame), so huge cells get clipped.
         rows = [
             [

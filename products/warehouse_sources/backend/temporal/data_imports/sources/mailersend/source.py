@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MailerSendSource(ResumableSource[MailerSendSourceConfig, MailerSendResumeConfig]):
+    api_docs_url = "https://developers.mailersend.com/api/v1/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MAILERSEND
@@ -47,7 +49,6 @@ class MailerSendSource(ResumableSource[MailerSendSourceConfig, MailerSendResumeC
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="MailerSend",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your MailerSend API token to automatically pull your MailerSend data into the PostHog Data warehouse.
 
 You can create an API token in your [MailerSend domain settings](https://app.mailersend.com/api-tokens).

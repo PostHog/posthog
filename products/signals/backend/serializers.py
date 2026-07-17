@@ -3,6 +3,8 @@ import logging
 from collections.abc import Mapping
 from typing import cast
 
+from django.db.models import Q
+
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from opentelemetry import trace
@@ -13,6 +15,7 @@ from posthog.models import User
 from posthog.temporal.common.client import sync_connect
 
 from products.signals.backend import contracts
+from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
@@ -20,6 +23,7 @@ from .models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
+    SignalReportRefund,
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
@@ -97,27 +101,26 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
     def _get_data_import_status(self, team_id: int, ext_source_type: str, schema_name: str) -> str | None:
         from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
-        schema = (
+        statuses = set(
             ExternalDataSchema.objects.filter(
+                Q(name=schema_name) | Q(name__endswith=f".{schema_name}"),
                 team_id=team_id,
                 source__source_type=ext_source_type,
-                name=schema_name,
             )
             .exclude(source__deleted=True)
-            .first()
+            .values_list("status", flat=True)
         )
-        if schema is None:
-            return None
-        if schema.status == ExternalDataSchema.Status.RUNNING:
+        if ExternalDataSchema.Status.RUNNING in statuses:
             return "running"
-        if schema.status == ExternalDataSchema.Status.COMPLETED:
-            return "completed"
-        if schema.status in (
+        # One failing repo outranks its siblings' success, so a broken repo is never hidden.
+        if statuses & {
             ExternalDataSchema.Status.FAILED,
             ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
             ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW,
-        ):
+        }:
             return "failed"
+        if ExternalDataSchema.Status.COMPLETED in statuses:
+            return "completed"
         return None
 
     def validate(self, attrs: dict) -> dict:
@@ -173,6 +176,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         model = SignalTeamConfig
         fields = [
             "id",
+            "autostart_enabled",
             "default_autostart_priority",
             "default_slack_notification_channel",
             "autostart_base_branches",
@@ -181,6 +185,13 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
         extra_kwargs = {
+            "autostart_enabled": {
+                "help_text": (
+                    "Master switch for autonomous inbox PRs. Null (never set) leaves autostart on; set "
+                    "false to opt out, so actionable reports still generate and notify but the team "
+                    "never auto-starts an implementation task or opens a PR — reviewers open PRs manually."
+                )
+            },
             "default_slack_notification_channel": {
                 "help_text": (
                     "Default Slack channel for this team's signal inbox notifications, in the same "
@@ -273,8 +284,66 @@ class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
     )
 
 
+class SignalReportRefundSerializer(serializers.ModelSerializer):
+    billing_synced = serializers.SerializerMethodField(
+        help_text=(
+            "Whether the billing service has acknowledged this refund. Always relevant for the "
+            "credited path (the Stripe credit is issued asynchronously); excluded-path refunds "
+            "need no billing sync and report false."
+        ),
+    )
+
+    class Meta:
+        model = SignalReportRefund
+        fields = [
+            "id",
+            "reason",
+            "note",
+            "billing_path",
+            "credits",
+            "pr_url",
+            "pr_run_created_at",
+            "credit_amount_usd",
+            "billing_synced",
+            "created_at",
+        ]
+        read_only_fields = fields
+        extra_kwargs = {
+            "reason": {"help_text": "Why the user refunded this PR (feeds the refund review)."},
+            "note": {"help_text": "Optional free-form note captured with the refund."},
+            "billing_path": {
+                "help_text": (
+                    "How the refund was executed, frozen at refund time: 'excluded' (same UTC day as "
+                    "the billable PR run — the report never reaches billing) or 'credited' (billing "
+                    "issues a Stripe customer-balance credit)."
+                )
+            },
+            "credits": {"help_text": "Signals credits refunded (flat per-PR charge snapshot; 1 credit = $0.01)."},
+            "pr_url": {"help_text": "The refunded implementation PR's GitHub URL, snapshotted at refund time."},
+            "pr_run_created_at": {
+                "help_text": "When the first billable PR run was created — the charge this reverses."
+            },
+            "credit_amount_usd": {
+                "help_text": (
+                    "USD amount the billing service credited (credited path only). Null until the sync "
+                    "completes; '0.00' is a legitimate outcome (e.g. the PR was inside the free tier)."
+                )
+            },
+            "created_at": {"help_text": "When the refund was created."},
+        }
+
+    def get_billing_synced(self, obj: SignalReportRefund) -> bool:
+        return obj.billing_synced_at is not None
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
+    refund_ineligibility_reason = serializers.SerializerMethodField(
+        help_text=(
+            "Why refunding this report's PR would be rejected right now, or null when a refund "
+            "would be accepted (see the field's schema for the reason values)."
+        ),
+    )
     priority = serializers.SerializerMethodField(
         help_text="P0–P4 from the latest priority judgment artefact (when present).",
     )
@@ -300,6 +369,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
     implementation_pr_url = serializers.SerializerMethodField(
         help_text="PR URL from the latest implementation task run, if available.",
     )
+    refund = serializers.SerializerMethodField(
+        help_text="The report's PR refund, when one exists. One refund per report, ever.",
+    )
 
     class Meta:
         model = SignalReport
@@ -323,8 +395,20 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "source_products",
             "scout_name",
             "implementation_pr_url",
+            "refund",
+            "refund_ineligibility_reason",
+            "billing_exempt_reason",
         ]
         read_only_fields = fields
+        extra_kwargs = {
+            "billing_exempt_reason": {
+                "help_text": (
+                    "Non-null when this report is system-marked never-billable (PostHog-system origin, "
+                    "e.g. a health-check scout finding) — its implementation PRs are free and cannot be "
+                    "refunded because nothing was charged."
+                )
+            },
+        }
 
     def _get_actionability_artefact_data(self, obj: SignalReport) -> dict | None:
         prefetched = getattr(obj, "prefetched_actionability_artefacts", None)
@@ -426,6 +510,40 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return implementation_pr_url_map.get(str(obj.id))
         value = getattr(obj, "implementation_pr_url", None)
         return value if isinstance(value, str) else None
+
+    @extend_schema_field(SignalReportRefundSerializer(allow_null=True))
+    def get_refund(self, obj: SignalReport) -> dict | None:
+        # Reverse OneToOne: RelatedObjectDoesNotExist subclasses AttributeError, so getattr
+        # degrades to None for unrefunded reports. The viewset select_related()s the relation.
+        refund = getattr(obj, "refund", None)
+        if refund is None:
+            return None
+        return SignalReportRefundSerializer(refund).data
+
+    @extend_schema_field(
+        serializers.ChoiceField(
+            choices=list(REFUND_INELIGIBILITY_REASONS),
+            allow_null=True,
+            help_text=(
+                "Why refunding this report's PR would be rejected right now, or null when a refund "
+                "would be accepted. Shares the refund endpoint's eligibility decision, so the UI can "
+                "disable the Refund action instead of offering a request that would 400. One of: "
+                "already_refunded, billing_exempt, no_billable_pr, out_of_period."
+            ),
+        )
+    )
+    def get_refund_ineligibility_reason(self, obj: SignalReport) -> str | None:
+        period = self.context.get("billing_period_bounds")
+        # Degrades to null (eligible) outside the reports viewset, where neither the period
+        # context nor the billable-moment annotation exists — the refund endpoint re-enforces.
+        if period is None:
+            return None
+        return refund_ineligibility_reason(
+            has_refund=getattr(obj, "refund", None) is not None,
+            billing_exempt=bool(obj.billing_exempt_reason),
+            billable_run_at=getattr(obj, "first_billable_pr_run_at", None),
+            period=period,
+        )
 
 
 # ── Report `signals` action ─────────────────────────────────────────────────────

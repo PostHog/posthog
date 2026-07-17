@@ -174,11 +174,13 @@ class SharedTouchpointsPrecompute:
         self._config = config
         self._lock = threading.Lock()
         self._result: Optional[LazyComputationResult] = None
+        self._range: Optional[tuple[datetime, datetime]] = None
 
     def get(self, date_from: datetime, date_to: datetime) -> LazyComputationResult:
         with self._lock:
             if self._result is None:
                 window = timedelta(days=self._config.attribution_window_days)
+                self._range = (date_from, date_to)
                 self._result = marketing_ensure_precomputed(
                     team=self._team,
                     insert_query=build_touchpoints_precompute_query(),
@@ -186,6 +188,15 @@ class SharedTouchpointsPrecompute:
                     time_range_end=date_to,
                     ttl_seconds=PRECOMPUTE_TTL_SECONDS,
                     table=LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
+                )
+            elif self._range != (date_from, date_to):
+                # One handle is scoped to one read, whose goals all share its date range. Handing back
+                # the first caller's window for a different range would attribute one window's
+                # touchpoints to another — silently, and in the shape of the double-counting bug this
+                # class exists to prevent.
+                raise ValueError(
+                    f"SharedTouchpointsPrecompute is scoped to one date range per read: "
+                    f"materialized {self._range}, asked for {(date_from, date_to)}"
                 )
             return self._result
 
