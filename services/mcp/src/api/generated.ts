@@ -29532,7 +29532,10 @@ export namespace Schemas {
     };
 
     export interface HogFlowAction {
-      /** Unique node ID within the workflow. */
+      /**
+         * Unique node ID within the workflow.
+         * @maxLength 200
+         */
       id: string;
       /**
          * Display name.

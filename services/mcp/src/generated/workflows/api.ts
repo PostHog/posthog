@@ -44,6 +44,8 @@ export const hogFlowsCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsCreateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsCreateBodyActionsItemIdMax = 200
+
 export const hogFlowsCreateBodyActionsItemNameMax = 400
 
 export const hogFlowsCreateBodyActionsItemDescriptionDefault = ``
@@ -187,7 +189,10 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
         actions: zod
             .array(
                 zod.object({
-                    id: zod.string().describe('Unique node ID within the workflow.'),
+                    id: zod
+                        .string()
+                        .max(hogFlowsCreateBodyActionsItemIdMax)
+                        .describe('Unique node ID within the workflow.'),
                     name: zod.string().max(hogFlowsCreateBodyActionsItemNameMax).describe('Display name.'),
                     description: zod
                         .string()
@@ -386,6 +391,8 @@ export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsPartialUpdateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsPartialUpdateBodyActionsItemIdMax = 200
+
 export const hogFlowsPartialUpdateBodyActionsItemNameMax = 400
 
 export const hogFlowsPartialUpdateBodyActionsItemDescriptionDefault = ``
@@ -524,7 +531,10 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
         actions: zod
             .array(
                 zod.object({
-                    id: zod.string().describe('Unique node ID within the workflow.'),
+                    id: zod
+                        .string()
+                        .max(hogFlowsPartialUpdateBodyActionsItemIdMax)
+                        .describe('Unique node ID within the workflow.'),
                     name: zod.string().max(hogFlowsPartialUpdateBodyActionsItemNameMax).describe('Display name.'),
                     description: zod
                         .string()

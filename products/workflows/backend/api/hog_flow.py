@@ -359,7 +359,9 @@ class HogFlowActionConfigField(serializers.JSONField):
 
 
 class HogFlowActionSerializer(serializers.Serializer):
-    id = serializers.CharField(help_text="Unique node ID within the workflow.")
+    # max_length bounds every downstream copy of the id (edges, action_redirects, worker cache);
+    # real ids are short generated slugs, so 200 is generous.
+    id = serializers.CharField(max_length=200, help_text="Unique node ID within the workflow.")
     name = serializers.CharField(max_length=400, help_text="Display name.")
     description = serializers.CharField(allow_blank=True, default="", help_text="Optional description.")
     on_error = serializers.ChoiceField(
