@@ -9,6 +9,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
+from posthog.permissions import AccessControlPermission
 
 from ..models.clustering_config import ClusteringConfig
 from .metrics import llma_track_latency
@@ -46,7 +47,7 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     scope_object = "llm_analytics"
     serializer_class = _FallbackSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccessControlPermission]
 
     @extend_schema(responses={200: ClusteringConfigSerializer})
     @llma_track_latency("llma_clustering_config_list")

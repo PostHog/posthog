@@ -17,6 +17,7 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
+from posthog.permissions import AccessControlPermission
 from posthog.temporal.ai_observability.trace_clustering.constants import (
     DEFAULT_HDBSCAN_MIN_SAMPLES,
     DEFAULT_LOOKBACK_DAYS,
@@ -155,8 +156,8 @@ class ClusteringRunRequestSerializer(serializers.Serializer):
 class AIObservabilityClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """ViewSet for triggering and managing clustering workflow runs."""
 
-    scope_object = "INTERNAL"
-    permission_classes = [IsAuthenticated]
+    scope_object = "llm_analytics"
+    permission_classes = [IsAuthenticated, AccessControlPermission]
     serializer_class = ClusteringRunRequestSerializer
 
     @llma_track_latency("llma_clustering_create")

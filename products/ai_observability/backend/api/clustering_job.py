@@ -10,6 +10,8 @@ from rest_framework.response import Response
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
+from posthog.permissions import AccessControlPermission
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from products.cohorts.backend.models.cohort import Cohort
 
@@ -76,11 +78,11 @@ class ClusteringJobSerializer(serializers.ModelSerializer):
         return value
 
 
-class ClusteringJobViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """CRUD for clustering job configurations (max 10 per team)."""
 
     scope_object = "llm_analytics"
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccessControlPermission]
     serializer_class = ClusteringJobSerializer
     queryset = ClusteringJob.objects.all()
 

@@ -2,8 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { clusteringConfigLogic } from './clusteringConfigLogic'
 
@@ -23,14 +26,19 @@ export function ClusteringSettingsPanel(): JSX.Element {
                     <LemonButton type="secondary" onClick={closeSettingsPanel} data-attr="clustering-settings-cancel">
                         Cancel
                     </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={saveEventFilters}
-                        loading={configLoading}
-                        data-attr="clustering-settings-save"
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
                     >
-                        Save
-                    </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={saveEventFilters}
+                            loading={configLoading}
+                            data-attr="clustering-settings-save"
+                        >
+                            Save
+                        </LemonButton>
+                    </AccessControlAction>
                 </>
             }
         >
