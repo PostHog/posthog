@@ -41,7 +41,9 @@ describe('useMcpToolApplyBack', () => {
     // Regressions here caused completed execute-sql calls to stay buffered forever on persistent runs.
     it('applies the last matching completion at foreground turn or run completion', () => {
         const onApply = jest.fn()
-        renderHook(() => useMcpToolApplyBack({ tools: ['create_insight'], targetKey: 'insight-1', onApply }))
+        renderHook(() =>
+            useMcpToolApplyBack({ tools: ['create_insight'], targetKey: 'insight-1', onApply, applyOn: 'turn_end' })
+        )
 
         // Not the foreground stream yet → completions are withheld and turn completion flushes nothing.
         act(() => {
@@ -121,7 +123,14 @@ describe('useMcpToolApplyBack', () => {
     it('does not apply while inactive and drops a buffered completion when deactivated', () => {
         const onApply = jest.fn()
         const { rerender } = renderHook(
-            ({ active }) => useMcpToolApplyBack({ tools: ['create_insight'], targetKey: 'insight-1', onApply, active }),
+            ({ active }) =>
+                useMcpToolApplyBack({
+                    tools: ['create_insight'],
+                    targetKey: 'insight-1',
+                    onApply,
+                    active,
+                    applyOn: 'turn_end',
+                }),
             { initialProps: { active: false } }
         )
 

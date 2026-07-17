@@ -120,7 +120,7 @@ describe('runInteractionLogic', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         ;(tasksRunsCommandCreate as jest.Mock).mockResolvedValue({})
-        ;(tasksRunCreate as jest.Mock).mockResolvedValue({ latest_run: 'run-2' })
+        ;(tasksRunCreate as jest.Mock).mockResolvedValue({ latest_run: { id: 'run-2' } })
         initKeaTests()
         project = projectLogic()
         project.mount()
