@@ -24,6 +24,17 @@ MAX_PAGES_PER_WALK = 50_000
 # leaves ample headroom for legitimate pages while bounding memory.
 MAX_RESPONSE_BYTES = 128 * 1024 * 1024
 
+# Wall-clock cap on downloading a single response body. `requests`' read timeout only bounds an
+# idle socket, so a hostile host can trickle one byte before each timeout to hold the read open
+# indefinitely while staying under MAX_RESPONSE_BYTES. This monotonic deadline bounds that. A
+# page of a few MiB downloads in well under a second, so 300s leaves ample headroom for a large
+# legitimate page on a slow link while stopping a malicious host from pinning an import worker.
+MAX_RESPONSE_DOWNLOAD_SECONDS = 300
+
+# Chunk size for the bounded, deadline-checked body read. Small enough to re-check the byte cap
+# and download deadline frequently, large enough that legitimate pages read in a few iterations.
+DOWNLOAD_CHUNK_BYTES = 1024 * 1024
+
 # Builds locator applied to the builds endpoint and to the parent walk of the occurrence
 # fan-outs. `branch:(default:any)` lifts TeamCity's default-branch-only filter so feature
 # branch builds are synced too; `state:finished` keeps rows immutable (a running build's

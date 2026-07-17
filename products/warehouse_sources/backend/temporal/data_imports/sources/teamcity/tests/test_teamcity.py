@@ -265,11 +265,22 @@ class _FakeRaw:
         return chunk
 
 
+class _DripRaw:
+    """A raw stream that keeps returning bytes without ever hitting EOF or a socket timeout."""
+
+    def read(self, amt: int, decode_content: bool = False) -> bytes:
+        return b"a"
+
+
 class _FakeResponse:
-    def __init__(self, status_code: int, data: bytes) -> None:
+    def __init__(self, status_code: int, data: bytes, raw: Any = None) -> None:
         self.status_code = status_code
         self.ok = 200 <= status_code < 400
-        self.raw = _FakeRaw(data)
+        self.raw = raw if raw is not None else _FakeRaw(data)
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
 
     def raise_for_status(self) -> None:
         if not self.ok:
@@ -292,6 +303,24 @@ class TestFetchPage:
         session = self._session_returning(_FakeResponse(200, b'{"x": "' + b"y" * 50 + b'"}'))
         with pytest.raises(ValueError):
             teamcity._fetch_page(session, "https://teamcity.example.com/app/rest/builds", {}, MagicMock())
+
+    def test_download_deadline_trips_on_slow_drip(self, monkeypatch: Any) -> None:
+        # A host that trickles bytes below the read-timeout cadence never trips the byte cap or a
+        # socket timeout; the monotonic download deadline must still abort it and close the response.
+        # The clock advances on every call (tenacity reads it too), so it always crosses the
+        # deadline within a few read iterations.
+        elapsed = {"t": 0.0}
+
+        def fake_monotonic() -> float:
+            elapsed["t"] += 100.0
+            return elapsed["t"]
+
+        monkeypatch.setattr(teamcity.time, "monotonic", fake_monotonic)
+        response = _FakeResponse(200, b"", raw=_DripRaw())
+        session = self._session_returning(response)
+        with pytest.raises(ValueError, match="download deadline"):
+            teamcity._fetch_page(session, "https://teamcity.example.com/app/rest/builds", {}, MagicMock())
+        assert response.closed
 
 
 class TestPaginationBounds:

@@ -1,4 +1,5 @@
 import json
+import time
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -16,11 +17,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamcity.settings import (
+    DOWNLOAD_CHUNK_BYTES,
     FAN_OUT_BUILD_FINISH_DATE_FIELD,
     FAN_OUT_BUILD_ID_FIELD,
     MAX_PAGES_PER_BUILD,
     MAX_PAGES_PER_WALK,
     MAX_RESPONSE_BYTES,
+    MAX_RESPONSE_DOWNLOAD_SECONDS,
     TEAMCITY_ENDPOINTS,
     TeamCityEndpointConfig,
 )
@@ -205,12 +208,33 @@ def _fetch_page(
         logger.error(f"TeamCity API error: status={response.status_code}, body={snippet!r}, url={url}")
         response.raise_for_status()
 
-    # Read one byte past the cap to detect an oversized body without buffering the whole thing.
-    raw = response.raw.read(MAX_RESPONSE_BYTES + 1, decode_content=True)
-    if len(raw) > MAX_RESPONSE_BYTES:
-        raise ValueError(f"TeamCity API returned an oversized response (over {MAX_RESPONSE_BYTES} bytes): url={url}")
+    # Stream the body in chunks under two bounds: a total byte cap and a monotonic download
+    # deadline. `requests`' timeout only limits an idle socket, so a hostile host can send a
+    # byte before each read timeout to keep the read blocked forever while staying under the
+    # byte cap; the deadline bounds that. Both raise a non-retryable ValueError. Always close
+    # the response so a partial hostile stream can't leak the connection.
+    deadline = time.monotonic() + MAX_RESPONSE_DOWNLOAD_SECONDS
+    chunks: list[bytes] = []
+    total = 0
+    try:
+        while True:
+            chunk = response.raw.read(DOWNLOAD_CHUNK_BYTES, decode_content=True)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX_RESPONSE_BYTES:
+                raise ValueError(
+                    f"TeamCity API returned an oversized response (over {MAX_RESPONSE_BYTES} bytes): url={url}"
+                )
+            if time.monotonic() > deadline:
+                raise ValueError(
+                    f"TeamCity API response exceeded the {MAX_RESPONSE_DOWNLOAD_SECONDS}s download deadline: url={url}"
+                )
+            chunks.append(chunk)
+    finally:
+        response.close()
 
-    return json.loads(raw)
+    return json.loads(b"".join(chunks))
 
 
 def _paginate(
