@@ -1922,20 +1922,32 @@ jobs:
             # Fully expanded compat matrix (version x shard group)
             compat_matrix: ${{ steps.read-versions.outputs.compat_matrix }}
         steps:
+            # Merge ref, for turbo-tests: it checks out the merge ref and mounts that config.xml.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   sparse-checkout: .github/clickhouse-versions.json
                   sparse-checkout-cone-mode: false
+            # Head ref, for django: it checks out the PR head and mounts that config.xml. Reading
+            # its version from the merge ref instead would split an atomic version+config bump.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  ref: ${{ github.event.pull_request.head.ref }}
+                  sparse-checkout: .github/clickhouse-versions.json
+                  sparse-checkout-cone-mode: false
+                  path: head-tree
             - name: Read ClickHouse versions from JSON
               id: read-versions
+              env:
+                  DJANGO_VERSIONS: head-tree/.github/clickhouse-versions.json
               run: |
                   compat_shards="2"
                   echo "Using $compat_shards shard(s) per compat version"
 
                   # Oldest supported version for main Django tests (for max compatibility)
-                  oldest_supported=$(jq -r '.oldest_supported' .github/clickhouse-versions.json)
+                  oldest_supported=$(jq -r '.oldest_supported' "$DJANGO_VERSIONS")
                   if [ -z "$oldest_supported" ] || [ "$oldest_supported" = "null" ]; then
-                    echo "::error::No oldest_supported version found in .github/clickhouse-versions.json"
+                    echo "::error::No oldest_supported version found in $DJANGO_VERSIONS"
                     exit 1
                   fi
                   echo "oldest_supported_image=$oldest_supported" >> $GITHUB_OUTPUT
@@ -1951,15 +1963,15 @@ jobs:
                   echo "Local dev/hobby image for product tests: $local_image"
 
                   # Read all unique versions so we can derive compat coverage.
-                  all=$(jq -c '[.[]] | unique' .github/clickhouse-versions.json)
+                  all=$(jq -c '[.[]] | unique' "$DJANGO_VERSIONS")
                   if [ "$all" = "[]" ] || [ -z "$all" ]; then
-                    echo "::error::No versions found in .github/clickhouse-versions.json"
+                    echo "::error::No versions found in $DJANGO_VERSIONS"
                     exit 1
                   fi
                   echo "All CH versions found: $all"
 
                   # Compat coverage is only needed for non-oldest versions.
-                  compat_versions=$(jq -c --arg oldest "$oldest_supported" '[.[]] | unique | map(select(. != $oldest))' .github/clickhouse-versions.json)
+                  compat_versions=$(jq -c --arg oldest "$oldest_supported" '[.[]] | unique | map(select(. != $oldest))' "$DJANGO_VERSIONS")
                   echo "Compat versions (excluding oldest): $compat_versions"
 
                   compat_count=$(jq -r 'length' <<< "$compat_versions")
