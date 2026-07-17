@@ -53,6 +53,7 @@ import { workflowsLogic } from './workflowsLogic'
 
 export interface WorkflowLogicProps {
     id?: string
+    tabId?: string
     templateId?: string
     editTemplateId?: string
 }
@@ -2643,9 +2644,10 @@ export type workflowLogicType = MakeLogicType<
 
 export const workflowLogic = kea<workflowLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic', key]),
-    props({ id: 'new' } as WorkflowLogicProps),
+    props({ id: 'new', tabId: 'default' } as WorkflowLogicProps),
     key(
-        (props) => `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}`
+        (props) =>
+            `workflow-${props.id || 'new'}-${props.tabId || 'default'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}`
     ),
     connect(() => ({
         values: [userLogic, ['user'], projectLogic, ['currentProjectId']],

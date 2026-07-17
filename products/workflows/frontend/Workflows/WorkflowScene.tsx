@@ -42,6 +42,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const workflowSceneProps: WorkflowSceneLogicProps = {
         id: props.id || 'new',
         tab: props.tab || 'workflow',
+        tabId: props.tabId || 'default',
     }
     const sceneLogic = workflowSceneLogic(workflowSceneProps)
     const { currentTab } = useValues(sceneLogic)
@@ -51,7 +52,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
 
     const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })
 
-    const logic = workflowLogic({ id: props.id, templateId, editTemplateId })
+    const logic = workflowLogic({ id: props.id, tabId: props.tabId, templateId, editTemplateId })
     const { workflowLoading, originalWorkflow, lastSavedAt, isAutoSavePending, autoSaveEnabled } = useValues(logic)
     const { setAutoSaveEnabled } = useActions(logic)
     const showSaving = useDebouncedValue(isAutoSavePending || workflowLoading, 1000)
@@ -114,7 +115,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
 
     return (
         <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
-            <BindLogic logic={workflowLogic} props={{ id: props.id, templateId, editTemplateId }}>
+            <BindLogic logic={workflowLogic} props={{ id: props.id, tabId: props.tabId, templateId, editTemplateId }}>
                 <WorkflowSceneHeader {...props} />
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (

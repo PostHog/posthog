@@ -1934,7 +1934,7 @@ export type hogFlowEditorLogicType = MakeLogicType<
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as WorkflowLogicProps),
     path((key) => ['scenes', 'hogflows', 'hogFlowEditorLogic', key]),
-    key((props) => `hog-flow-editor-${props.id}`),
+    key((props) => `hog-flow-editor-${props.id}-${props.tabId}`),
     connect(() => ({
         values: [
             workflowLogic,

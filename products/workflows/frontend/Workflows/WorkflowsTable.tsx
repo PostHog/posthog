@@ -20,6 +20,7 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { WorkflowsSceneProps } from '../WorkflowsScene'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
 import { newWorkflowLogic } from './newWorkflowLogic'
@@ -92,7 +93,7 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
     )
 }
 
-export function WorkflowsTable(): JSX.Element {
+export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
     const logic = workflowsLogic()
     const {
         filteredWorkflows,
@@ -126,6 +127,7 @@ export function WorkflowsTable(): JSX.Element {
         // We can't just reset state within the logic's unmount as that would trigger when switching tabs
         const newWorkflowLogic = workflowLogic.findMounted({
             id: 'new',
+            tabId: props.tabId,
         })
         newWorkflowLogic?.unmount()
 

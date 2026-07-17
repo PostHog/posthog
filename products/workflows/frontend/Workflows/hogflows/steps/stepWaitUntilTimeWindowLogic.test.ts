@@ -21,7 +21,7 @@ describe('stepWaitUntilTimeWindowLogic', () => {
             plugins: [testUtilsPlugin],
         })
 
-        wfLogic = workflowLogic({ id: 'new' })
+        wfLogic = workflowLogic({ id: 'new', tabId: 'default' })
         wfLogic.mount()
 
         logic = stepWaitUntilTimeWindowLogic({ workflowLogicProps: wfLogic.props })
