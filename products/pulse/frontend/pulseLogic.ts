@@ -282,8 +282,8 @@ export interface pulseLogicMeta {
         isGeneratingForSelectedConfig: (visibleBriefs: ProductBriefListApi[], generatedBriefLoading: boolean) => boolean
         dataProcessingAccepted: (currentOrganization: OrganizationType | null) => boolean
         showAiConsentBanner: (dataProcessingAccepted: boolean, aiConsentRequired: boolean) => boolean
-        briefDetailSections: (briefDetail: ProductBriefApi | null) => readonly BriefSectionApi[]
         writeConfigsDisabledReason: (currentTeam: TeamPublicType | TeamType | null) => string | null
+        briefDetailSections: (briefDetail: ProductBriefApi | null) => readonly BriefSectionApi[]
     }
 }
 
