@@ -135,12 +135,21 @@ def _is_transient_connect_drop(error_message: str) -> bool:
 # slow down. A 429 is explicitly "retry later", so a brief backed-off re-attempt
 # often clears a short rate-limit burst; if it doesn't, the failing Temporal
 # activity stays retryable and recovers later. We match only 429 — other 4xx
-# response codes are deterministic (e.g. 404 stays non-retryable).
+# response codes are deterministic (e.g. 404 stays non-retryable). Matching the
+# stable status phrase keeps the volatile per-request URL out of the comparison.
 _TRANSIENT_RATE_LIMIT_SUBSTRING = "returned response code 429"
+
+# Backoff base between connect retries after a 429. Longer than the connect-drop
+# retry (which just re-dials) to give the rate limit room to clear.
+_RATE_LIMIT_BACKOFF_BASE_SECONDS = 2
+
+
+def _is_rate_limited(error_message: str) -> bool:
+    return _TRANSIENT_RATE_LIMIT_SUBSTRING in error_message
 
 
 def _is_retryable_connect_error(error_message: str) -> bool:
-    return _is_transient_connect_drop(error_message) or _TRANSIENT_RATE_LIMIT_SUBSTRING in error_message
+    return _is_transient_connect_drop(error_message) or _is_rate_limited(error_message)
 
 
 def _apply_session_settings(client: ClickHouseClient, settings: dict[str, Any]) -> None:
@@ -209,13 +218,18 @@ def _get_client(
             attempt += 1
             message = str(e)
             if attempt < _MAX_CONNECT_ATTEMPTS and _is_retryable_connect_error(message):
+                # A 429 is the server asking us to slow down, so back off
+                # exponentially to give the rate limit room to clear; a dropped
+                # connection just needs a re-dial, so a short linear wait is enough.
+                wait = _RATE_LIMIT_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)) if _is_rate_limited(message) else attempt
                 structlog.get_logger().warning(
                     "Transient ClickHouse connect error; retrying",
                     attempt=attempt,
                     max_attempts=_MAX_CONNECT_ATTEMPTS,
+                    wait_seconds=wait,
                     exc_info=e,
                 )
-                time.sleep(attempt)
+                time.sleep(wait)
                 continue
             raise ClickHouseConnectionError(message) from e
 

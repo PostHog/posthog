@@ -2,7 +2,7 @@ from collections.abc import AsyncIterable
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pyarrow as pa
 from clickhouse_connect.driver.exceptions import ClickHouseError, OperationalError, ProgrammingError
@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
     _get_incremental_row_count,
     _get_partition_settings,
     _has_duplicate_primary_keys,
+    _is_rate_limited,
     _is_transient_connect_drop,
     _parse_mv_target,
     _project_columns,
@@ -716,6 +717,30 @@ class TestIsTransientConnectDrop:
         assert not _is_transient_connect_drop(message)
 
 
+class TestIsRateLimited:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "HTTPDriver for https://host:8443 returned response code 429",
+            "Error ... HTTPDriver for https://host:443 returned response code 429 executing HTTP request",
+        ],
+    )
+    def test_matches_429(self, message):
+        assert _is_rate_limited(message)
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # Other response codes have their own handling and must not match 429.
+            "HTTPDriver for https://host:8443 returned response code 404",
+            "HTTPDriver for https://host:8443 returned response code 502",
+            "Code: 516. DB::Exception: Authentication failed",
+        ],
+    )
+    def test_does_not_match_other_codes(self, message):
+        assert not _is_rate_limited(message)
+
+
 class TestGetClientTransientRetry:
     """`_get_client` retries a transient connection drop during connect in-process."""
 
@@ -756,15 +781,18 @@ class TestGetClientTransientRetry:
                 self._connect()
         assert mock_get_client.call_count == _MAX_CONNECT_ATTEMPTS
 
-    def test_retries_rate_limit_then_succeeds(self):
+    def test_rate_limit_backs_off_exponentially(self):
+        # A 429 backs off exponentially (base 2) to give the rate limit room to
+        # clear, unlike a connect drop which just re-dials on a short linear wait.
         client = MagicMock()
         rate_limited = OperationalError("HTTPDriver for https://host:8443 returned response code 429")
         with (
-            patch.object(ch_module.time, "sleep"),
-            patch.object(ch_module, "get_client", side_effect=[rate_limited, client]) as mock_get_client,
+            patch.object(ch_module.time, "sleep") as mock_sleep,
+            patch.object(ch_module, "get_client", side_effect=[rate_limited, rate_limited, client]) as mock_get_client,
         ):
             assert self._connect() is client
-        assert mock_get_client.call_count == 2
+        assert mock_get_client.call_count == 3
+        mock_sleep.assert_has_calls([call(2), call(4)])
 
     def test_does_not_retry_deterministic_failure(self):
         cert_error = ClickHouseError("certificate verify failed")
