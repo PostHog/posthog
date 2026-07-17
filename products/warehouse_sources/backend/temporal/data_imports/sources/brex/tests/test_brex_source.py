@@ -3,7 +3,11 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.brex.brex import BrexResumeConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.brex.brex import (
+    BREX_API_VERSION_V1,
+    BREX_API_VERSION_V2,
+    BrexResumeConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.brex.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.brex.source import BrexSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -19,6 +23,15 @@ class TestBrexSource:
 
     def test_source_type(self):
         assert self.source.source_type == ExternalDataSourceType.BREX
+
+    def test_supported_versions_and_default(self):
+        # New sources are stamped with the default; v1 stays supported so existing pins keep working.
+        assert self.source.supported_versions == (BREX_API_VERSION_V1, BREX_API_VERSION_V2)
+        assert self.source.default_version == BREX_API_VERSION_V2
+
+    def test_resolve_api_version_falls_back_to_default_and_honors_pin(self):
+        assert self.source.resolve_api_version(None) == BREX_API_VERSION_V2
+        assert self.source.resolve_api_version(BREX_API_VERSION_V1) == BREX_API_VERSION_V1
 
     def test_get_source_config(self):
         config = self.source.get_source_config
@@ -140,6 +153,7 @@ class TestBrexSource:
         inputs.schema_name = "expenses"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2024-01-01T00:00:00Z"
+        inputs.api_version = None
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -151,6 +165,18 @@ class TestBrexSource:
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-01-01T00:00:00Z"
+        # Unpinned source resolves to the default version at the source class.
+        assert kwargs["api_version"] == BREX_API_VERSION_V2
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.brex.source.brex_source")
+    def test_source_for_pipeline_passes_pinned_api_version(self, mock_brex_source):
+        inputs = mock.MagicMock()
+        inputs.schema_name = "users"
+        inputs.api_version = BREX_API_VERSION_V1
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        assert mock_brex_source.call_args.kwargs["api_version"] == BREX_API_VERSION_V1
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.brex.source.brex_source")
     def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_brex_source):

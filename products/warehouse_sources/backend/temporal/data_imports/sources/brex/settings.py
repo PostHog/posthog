@@ -18,6 +18,12 @@ class BrexEndpointConfig:
     # When True, the endpoint is paged once per cash account listed from /v2/accounts/cash,
     # with `{account_id}` in the path resolved per account.
     fan_out_cash_accounts: bool = False
+    # Per-version `path` overrides, keyed by the source's supported version labels. Brex
+    # versions each product API independently in the URL (transactions/users on /v2,
+    # expenses/vendors on /v1) with no global version header or segment, and every endpoint
+    # already targets the current path for its API — so this stays empty until a specific
+    # Brex API ships a new path under a new version.
+    versioned_paths: dict[str, str] = field(default_factory=dict)
 
 
 # Brex splits its data across sub-APIs (Transactions, Expenses, Team, Payments, Budgets) that

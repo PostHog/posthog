@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -7,12 +8,15 @@ from unittest import mock
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.brex.brex import (
+    BREX_API_VERSION_V1,
+    BREX_API_VERSION_V2,
     BrexResumeConfig,
     _build_params,
     _build_url,
+    _resolve_path,
     _to_rfc3339,
-    brex_source,
-    get_rows,
+    brex_source as _brex_source,
+    get_rows as _get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.brex.settings import (
@@ -20,6 +24,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.brex.setti
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
+
+
+# Both supported versions resolve to identical Brex paths today (Brex versions each product API
+# in the URL, with no global segment), so the behavior tests below run under the default version;
+# `TestPathResolution` pins the dispatched path per version.
+def get_rows(*args, api_version: str = BREX_API_VERSION_V2, **kwargs):
+    return _get_rows(*args, api_version=api_version, **kwargs)
+
+
+def brex_source(*args, api_version: str = BREX_API_VERSION_V2, **kwargs):
+    return _brex_source(*args, api_version=api_version, **kwargs)
 
 
 def _make_manager(resume_state: BrexResumeConfig | None = None) -> mock.MagicMock:
@@ -410,3 +425,34 @@ class TestBrexSourceResponse:
 
     def test_incremental_fields_only_declared_for_filterable_endpoints(self):
         assert set(INCREMENTAL_FIELDS.keys()) == {"card_transactions", "cash_transactions", "expenses"}
+
+
+class TestPathResolution:
+    @pytest.mark.parametrize("api_version", [BREX_API_VERSION_V1, BREX_API_VERSION_V2])
+    @pytest.mark.parametrize(
+        "endpoint, expected_path",
+        [
+            ("users", "/v2/users"),
+            ("expenses", "/v1/expenses"),
+            ("vendors", "/v1/vendors"),
+            ("budgets", "/v2/budgets"),
+        ],
+    )
+    def test_resolve_path_matches_current_paths_for_every_version(self, api_version, endpoint, expected_path):
+        # Both versions must keep hitting each API's current path — expenses/vendors have no v2.
+        assert _resolve_path(BREX_ENDPOINTS[endpoint], api_version) == expected_path
+
+    def test_resolve_path_honors_per_version_override(self):
+        config = BREX_ENDPOINTS["users"]
+        overridden = dataclasses.replace(config, versioned_paths={BREX_API_VERSION_V2: "/v3/users"})
+        assert _resolve_path(overridden, BREX_API_VERSION_V2) == "/v3/users"
+        assert _resolve_path(overridden, BREX_API_VERSION_V1) == config.path
+
+    @pytest.mark.parametrize("api_version", [BREX_API_VERSION_V1, BREX_API_VERSION_V2])
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.brex.brex.make_tracked_session")
+    def test_dispatched_url_reflects_resolved_version(self, mock_session, api_version):
+        mock_session.return_value.get.return_value = _response(_page([{"id": "u1"}], None))
+
+        list(_get_rows("bxt_token", "users", mock.MagicMock(), _make_manager(), api_version=api_version))
+
+        assert mock_session.return_value.get.call_args.args[0] == "https://api.brex.com/v2/users?limit=100"

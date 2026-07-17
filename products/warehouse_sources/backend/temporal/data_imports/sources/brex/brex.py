@@ -18,6 +18,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 BREX_BASE_URL = "https://api.brex.com"
+
+# Brex versions each product API independently in the URL path (transactions/users on /v2,
+# expenses/vendors on /v1) — there is no global version header or segment. The source already
+# targets each API's current path, so both labels resolve to identical requests today; the
+# version seam (`BrexEndpointConfig.versioned_paths`) exists for when a specific API ships a
+# new path under a new version.
+BREX_API_VERSION_V1 = "v1"
+BREX_API_VERSION_V2 = "v2"
+
 # Expenses caps `limit` at 100; other endpoints don't document a max, so 100 is used uniformly.
 PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
@@ -67,6 +76,12 @@ def _to_rfc3339(value: Any) -> Optional[str]:
             return f"{value}T00:00:00Z"
         return value
     return None
+
+
+def _resolve_path(config: BrexEndpointConfig, api_version: str) -> str:
+    """Path for the endpoint under the resolved vendor API version, honoring any per-version
+    override. Falls back to the endpoint's default path when the version has none."""
+    return config.versioned_paths.get(api_version, config.path)
 
 
 def _build_url(path: str, params: dict[str, Any]) -> str:
@@ -169,10 +184,12 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[BrexResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = BREX_ENDPOINTS[endpoint]
+    path = _resolve_path(config, api_version)
     fetch_page = _make_page_fetcher(api_key, logger)
 
     incremental_value = _to_rfc3339(db_incremental_field_last_value) if should_use_incremental_field else None
@@ -186,14 +203,14 @@ def get_rows(
 
     if config.fan_out_cash_accounts:
         yield from _get_fan_out_rows(
-            config, fetch_page, logger, resumable_source_manager, resume_config, incremental_value
+            config, path, fetch_page, logger, resumable_source_manager, resume_config, incremental_value
         )
         return
 
     cursor = resume_config.cursor if resume_config is not None else None
 
     while True:
-        url = _build_url(config.path, _build_params(config, cursor, incremental_value))
+        url = _build_url(path, _build_params(config, cursor, incremental_value))
         data = fetch_page(url)
         items = data.get("items", []) or []
 
@@ -211,6 +228,7 @@ def get_rows(
 
 def _get_fan_out_rows(
     config: BrexEndpointConfig,
+    path: str,
     fetch_page: PageFetcher,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[BrexResumeConfig],
@@ -227,10 +245,10 @@ def _get_fan_out_rows(
             continue
 
         cursor = resume_config.cursor if resume_config is not None and resume_config.account_id == account_id else None
-        path = config.path.format(account_id=account_id)
+        account_path = path.format(account_id=account_id)
 
         while True:
-            url = _build_url(path, _build_params(config, cursor, incremental_value))
+            url = _build_url(account_path, _build_params(config, cursor, incremental_value))
             data = fetch_page(url)
             items = data.get("items", []) or []
 
@@ -259,6 +277,7 @@ def brex_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[BrexResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
@@ -271,6 +290,7 @@ def brex_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=api_version,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
