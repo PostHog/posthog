@@ -450,6 +450,7 @@ class Display(StrEnum):
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
+    SCATTER = "Scatter"
 
 
 class MetricSummary(StrEnum):
@@ -588,6 +589,7 @@ class ChartDisplayType(StrEnum):
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
+    SCATTER = "Scatter"
 
 
 class Curve(StrEnum):
@@ -3244,6 +3246,11 @@ class RevenueAnalyticsOverviewItemKey(StrEnum):
 class RevenueAnalyticsTopCustomersGroupBy(StrEnum):
     MONTH = "month"
     ALL = "all"
+
+
+class YAxisScale(StrEnum):
+    LINEAR = "linear"
+    LOGARITHMIC = "logarithmic"
 
 
 class SessionAttributionGroupBy(StrEnum):

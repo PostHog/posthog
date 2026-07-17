@@ -4375,6 +4375,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "Scatter",
+                    "type": "string"
+                },
+                {
                     "not": {}
                 }
             ]
@@ -4473,7 +4477,8 @@
                         "CalendarHeatmap",
                         "TwoDimensionalHeatmap",
                         "BoxPlot",
-                        "SlopeGraph"
+                        "SlopeGraph",
+                        "Scatter"
                     ],
                     "type": "string"
                 },
@@ -13452,7 +13457,8 @@
                 "CalendarHeatmap",
                 "TwoDimensionalHeatmap",
                 "BoxPlot",
-                "SlopeGraph"
+                "SlopeGraph",
+                "Scatter"
             ],
             "type": "string"
         },
@@ -13483,6 +13489,9 @@
                 },
                 "rightYAxisSettings": {
                     "$ref": "#/definitions/YAxisSettings"
+                },
+                "scatter": {
+                    "$ref": "#/definitions/ScatterSettings"
                 },
                 "seriesBreakdownColumn": {
                     "type": ["string", "null"]
@@ -43686,6 +43695,32 @@
                 }
             },
             "required": ["kind", "shortId"],
+            "type": "object"
+        },
+        "ScatterSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "colorByColumn": {
+                    "description": "Column whose values color the dots and build the legend.",
+                    "type": ["string", "null"]
+                },
+                "personColumn": {
+                    "description": "Column holding a person distinct_id, linking each dot to a person profile.",
+                    "type": ["string", "null"]
+                },
+                "xAxisColumn": {
+                    "description": "Column plotted on the x-axis; one dot per row. Datetime columns render on a time axis.",
+                    "type": "string"
+                },
+                "yAxisColumn": {
+                    "description": "Numeric column plotted on the y-axis.",
+                    "type": "string"
+                },
+                "yAxisScale": {
+                    "enum": ["linear", "logarithmic"],
+                    "type": "string"
+                }
+            },
             "type": "object"
         },
         "SchemaMap": {

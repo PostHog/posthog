@@ -291,6 +291,7 @@ from posthog.schema_enums import (
     WebVitalsMetricBand as WebVitalsMetricBand,
     WebVitalsPercentile as WebVitalsPercentile,
     YAxisPosition as YAxisPosition,
+    YAxisScale as YAxisScale,
     YAxisScaleType as YAxisScaleType,
 )
 
@@ -2407,6 +2408,26 @@ class SamplingRate(BaseModel):
     )
     denominator: float | None = None
     numerator: float
+
+
+class ScatterSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    colorByColumn: str | None = Field(
+        default=None,
+        description="Column whose values color the dots and build the legend.",
+    )
+    personColumn: str | None = Field(
+        default=None,
+        description=("Column holding a person distinct_id, linking each dot to a person profile."),
+    )
+    xAxisColumn: str | None = Field(
+        default=None,
+        description=("Column plotted on the x-axis; one dot per row. Datetime columns render on a time axis."),
+    )
+    yAxisColumn: str | None = Field(default=None, description="Numeric column plotted on the y-axis.")
+    yAxisScale: YAxisScale | None = None
 
 
 class SessionData(BaseModel):
@@ -13532,6 +13553,7 @@ class ChartSettings(BaseModel):
         description=("Per-breakdown-value color customizations. Keyed by the raw breakdown column value."),
     )
     rightYAxisSettings: YAxisSettings | None = None
+    scatter: ScatterSettings | None = None
     seriesBreakdownColumn: str | None = None
     showLegend: bool | None = None
     showNullsAsZero: bool | None = None

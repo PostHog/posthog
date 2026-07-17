@@ -37,6 +37,7 @@ import {
     DataVisualizationNode,
     HeatmapSettings,
     HogQLVariable,
+    ScatterSettings,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, DashboardType } from '~/types'
@@ -351,6 +352,55 @@ const applyAutoHeatmapSettings = (
     })
 }
 
+const SCATTER_PERSON_COLUMN_CANDIDATES = ['distinct_id', 'person_id']
+
+const getScatterAutoSettings = (columns: Column[], scatterSettings: ScatterSettings): Partial<ScatterSettings> => {
+    const dateColumns = columns.filter((column) => ['DATE', 'DATETIME'].includes(column.type.name))
+    const numericalColumns = columns.filter((column) => column.type.isNumerical)
+
+    const nextSettings: Partial<ScatterSettings> = {}
+
+    const xAxisColumn = scatterSettings.xAxisColumn ?? (dateColumns[0] ?? numericalColumns[0])?.name
+    if (!scatterSettings.xAxisColumn && xAxisColumn) {
+        nextSettings.xAxisColumn = xAxisColumn
+    }
+
+    if (!scatterSettings.yAxisColumn) {
+        const yAxisColumn = numericalColumns.find((column) => column.name !== xAxisColumn)
+        if (yAxisColumn) {
+            nextSettings.yAxisColumn = yAxisColumn.name
+        }
+    }
+
+    if (scatterSettings.personColumn === undefined) {
+        const personColumn = columns.find((column) => SCATTER_PERSON_COLUMN_CANDIDATES.includes(column.name))
+        if (personColumn) {
+            nextSettings.personColumn = personColumn.name
+        }
+    }
+
+    return nextSettings
+}
+
+const applyAutoScatterSettings = (
+    actions: { updateChartSettings: (settings: ChartSettings) => void },
+    columns: Column[],
+    scatterSettings: ScatterSettings
+): void => {
+    const autoSettings = getScatterAutoSettings(columns, scatterSettings)
+
+    if (Object.keys(autoSettings).length === 0) {
+        return
+    }
+
+    actions.updateChartSettings({
+        scatter: {
+            ...scatterSettings,
+            ...autoSettings,
+        },
+    })
+}
+
 const mergeChartSettings = (state: ChartSettings, settings: ChartSettings): ChartSettings => {
     return {
         ...state,
@@ -360,6 +410,13 @@ const mergeChartSettings = (state: ChartSettings, settings: ChartSettings): Char
                 ? {
                       ...state.heatmap,
                       ...settings.heatmap,
+                  }
+                : undefined,
+        scatter:
+            state.scatter || settings.scatter
+                ? {
+                      ...state.scatter,
+                      ...settings.scatter,
                   }
                 : undefined,
         pie:
@@ -1771,6 +1828,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             if (visualizationType === ChartDisplayType.TwoDimensionalHeatmap || isAutoHeatmap) {
                 applyAutoHeatmapSettings(actions, values.columns, values.chartSettings.heatmap ?? {})
             }
+
+            if (visualizationType === ChartDisplayType.Scatter) {
+                applyAutoScatterSettings(actions, values.columns, values.chartSettings.scatter ?? {})
+            }
         },
         setTransposeResults: ({ transpose }) => {
             actions.setQuery((query) => ({
@@ -1787,11 +1848,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 return
             }
 
-            if (values.visualizationType !== ChartDisplayType.TwoDimensionalHeatmap) {
-                return
+            if (values.visualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
+                applyAutoHeatmapSettings(actions, values.columns, values.chartSettings.heatmap ?? {})
             }
 
-            applyAutoHeatmapSettings(actions, values.columns, values.chartSettings.heatmap ?? {})
+            if (values.visualizationType === ChartDisplayType.Scatter) {
+                applyAutoScatterSettings(actions, values.columns, values.chartSettings.scatter ?? {})
+            }
         },
         clearAxis: [sharedListeners.axesChanged],
         updateXSeries: [sharedListeners.axesChanged],
@@ -1879,6 +1942,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
             if (values.effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
                 applyAutoHeatmapSettings(actions, value, values.chartSettings.heatmap ?? {})
+            }
+
+            if (values.effectiveVisualizationType === ChartDisplayType.Scatter) {
+                applyAutoScatterSettings(actions, value, values.chartSettings.scatter ?? {})
             }
         },
     })),

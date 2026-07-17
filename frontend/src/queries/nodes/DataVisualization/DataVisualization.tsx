@@ -36,6 +36,7 @@ import { Reload } from '../DataNode/Reload'
 import { QueryFeature } from '../DataTable/queryFeatures'
 import { LineGraph } from './Components/Charts/LineGraph'
 import { PieChart } from './Components/Charts/PieChart'
+import { SqlScatterGraph } from './Components/Charts/Scatter/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
 import { SideBar } from './Components/SideBar'
@@ -289,6 +290,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         )
     } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
         component = <TwoDimensionalHeatmap allowSorting={!(props.embedded && readOnly)} />
+    } else if (effectiveVisualizationType === ChartDisplayType.Scatter) {
+        component = <SqlScatterGraph />
     } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
     }
