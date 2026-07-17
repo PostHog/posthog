@@ -51,25 +51,27 @@ def github_refresh_interval_seconds(token: str) -> float:
     return DEFAULT_REFRESH_INTERVAL_SECONDS
 
 
-def set_git_remote_token(sandbox: "SandboxBase", repository: str, github_token: str) -> bool:
-    """Rewrite ``origin``'s remote URL with a fresh ``x-access-token``; git re-reads it on every op. No-ops pre-clone."""
+def _set_origin_remote(sandbox: "SandboxBase", repository: str, remote_url: str, failure_msg: str) -> bool:
+    """Point ``origin`` at ``remote_url`` inside the cloned repo; git re-reads it on every op. No-ops pre-clone."""
     org, repo = repository.lower().split("/")
     repo_path = f"/tmp/workspace/repos/{org}/{repo}"
-    update_remote = (
+    command = (
         f"if [ -d {shlex.quote(repo_path + '/.git')} ]; then "
         f"cd {shlex.quote(repo_path)} && "
-        f"git remote set-url origin "
-        f"https://x-access-token:{shlex.quote(github_token)}@github.com/{shlex.quote(repository)}.git; "
+        f"git remote set-url origin {remote_url}; "
         f"fi"
     )
-    result = sandbox.execute(update_remote, timeout_seconds=30)
+    result = sandbox.execute(command, timeout_seconds=30)
     if result.exit_code != 0:
-        logger.warning(
-            "Failed to refresh git remote URL",
-            extra={"sandbox_id": sandbox.id, "repository": repository, "stderr": result.stderr},
-        )
+        logger.warning(failure_msg, extra={"sandbox_id": sandbox.id, "repository": repository, "stderr": result.stderr})
         return False
     return True
+
+
+def set_git_remote_token(sandbox: "SandboxBase", repository: str, github_token: str) -> bool:
+    """Rewrite ``origin``'s remote URL with a fresh ``x-access-token``; git re-reads it on every op. No-ops pre-clone."""
+    remote_url = f"https://x-access-token:{shlex.quote(github_token)}@github.com/{shlex.quote(repository)}.git"
+    return _set_origin_remote(sandbox, repository, remote_url, "Failed to refresh git remote URL")
 
 
 def update_sandbox_env_file(sandbox: "SandboxBase", updates: dict[str, str]) -> bool:
@@ -122,6 +124,21 @@ def apply_github_credentials_to_sandbox(sandbox: "SandboxBase", repository: str 
     if repository:
         set_git_remote_token(sandbox, repository, github_token)
     update_sandbox_env_file(sandbox, dict.fromkeys(GITHUB_ENV_KEYS, github_token))
+
+
+def clear_git_remote_token(sandbox: "SandboxBase", repository: str) -> bool:
+    """Rewrite ``origin`` to a token-less URL so git can no longer authenticate. No-ops pre-clone."""
+    remote_url = f"https://github.com/{shlex.quote(repository)}.git"
+    return _set_origin_remote(sandbox, repository, remote_url, "Failed to clear git remote URL")
+
+
+def clear_github_credentials_from_sandbox(sandbox: "SandboxBase", repository: str | None) -> bool:
+    """Log the sandbox out of GitHub: strip the token from the git remote and blank the env
+    keys, so the previous actor's identity can't be used by a follow-up actor who lacks access.
+    Returns ``True`` only when both places were cleared."""
+    remote_cleared = clear_git_remote_token(sandbox, repository) if repository else True
+    env_cleared = update_sandbox_env_file(sandbox, dict.fromkeys(GITHUB_ENV_KEYS, ""))
+    return remote_cleared and env_cleared
 
 
 USER_TOKEN_REFRESH_INTERVAL_SECONDS: float = _GITHUB_REFRESH_INTERVAL_BY_PREFIX["ghu_"]

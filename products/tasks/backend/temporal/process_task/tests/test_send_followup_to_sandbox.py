@@ -5,18 +5,24 @@ from django.core.cache import cache
 
 from temporalio.exceptions import ApplicationError
 
+from posthog.models.user_integration import ReauthorizationRequired
+
 from products.tasks.backend.logic.services.agent_command import CommandResult
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import (
     REFRESH_RETRY_DELAY_SECONDS,
     SEND_FOLLOWUP_MAX_ATTEMPTS,
     SendFollowupToSandboxInput,
+    _refresh_sandbox_github,
     _refresh_sandbox_mcp,
     send_followup_to_sandbox,
 )
 from products.tasks.backend.temporal.process_task.utils import (
     McpServerConfig,
-    _sandbox_mcp_session_cache_key,
+    PrAuthorshipMode,
+    _sandbox_identity_cache_key,
+    get_sandbox_github_identity_user,
     get_sandbox_mcp_session_user,
+    mark_sandbox_github_identity,
     mark_sandbox_mcp_session,
 )
 
@@ -308,7 +314,7 @@ class TestSessionIdentityGate:
 
         mock_send_refresh.assert_called_once()
         assert get_sandbox_mcp_session_user("sb-2") == 42
-        assert cache.get(_sandbox_mcp_session_cache_key("run-1")) == 42  # untouched
+        assert cache.get(_sandbox_identity_cache_key("mcp-session", "run-1")) == 42  # untouched
 
     def test_transition_with_no_configs_fails_closed(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
@@ -344,6 +350,95 @@ class TestSessionIdentityGate:
         assert safe is True
         mock_send_refresh.assert_not_called()
         assert get_sandbox_mcp_session_user("run-1") == 42  # binding recorded
+
+
+_GH_MODULE = "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox"
+
+
+@patch(f"{_GH_MODULE}.clear_github_credentials_from_sandbox")
+@patch(f"{_GH_MODULE}.apply_github_credentials_to_sandbox")
+@patch(f"{_GH_MODULE}.get_sandbox_github_token")
+@patch(f"{_GH_MODULE}._resolve_live_sandbox")
+@patch(f"{_GH_MODULE}.get_pr_authorship_mode")
+class TestSandboxGithubIdentityGate:
+    """On an actor transition the sandbox's GitHub credentials rebind to the new
+    actor when they have access, otherwise the sandbox is logged out so the
+    previous actor's identity can't be used."""
+
+    def test_same_actor_skips(self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear):
+        mock_authorship.return_value = PrAuthorshipMode.USER
+        mark_sandbox_github_identity("run-1", 42)
+
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
+        mock_resolve.assert_not_called()
+        mock_get_token.assert_not_called()
+        mock_apply.assert_not_called()
+        mock_clear.assert_not_called()
+
+    def test_bot_authorship_skips(self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear):
+        # BOT runs share a single installation token, so every actor is already
+        # the same GitHub identity — nothing to rebind.
+        mock_authorship.return_value = PrAuthorshipMode.BOT
+        mark_sandbox_github_identity("run-1", 99)
+
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
+        mock_get_token.assert_not_called()
+        mock_apply.assert_not_called()
+        mock_clear.assert_not_called()
+
+    def test_transition_with_access_rebinds(
+        self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear
+    ):
+        mock_authorship.return_value = PrAuthorshipMode.USER
+        mock_resolve.return_value = MagicMock()
+        mock_get_token.return_value = "ghu_newtoken"
+        mark_sandbox_github_identity("run-1", 99)
+
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
+        mock_apply.assert_called_once()
+        assert mock_apply.call_args.args[2] == "ghu_newtoken"
+        mock_clear.assert_not_called()
+        assert get_sandbox_github_identity_user("run-1") == 42
+
+    def test_transition_without_access_logs_out(
+        self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear
+    ):
+        mock_authorship.return_value = PrAuthorshipMode.USER
+        mock_resolve.return_value = MagicMock()
+        mock_get_token.side_effect = ReauthorizationRequired("no repo access")
+        mock_clear.return_value = True
+        mark_sandbox_github_identity("run-1", 99)
+
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
+        mock_apply.assert_not_called()
+        mock_clear.assert_called_once()
+        assert get_sandbox_github_identity_user("run-1") == 42
+
+    def test_apply_failure_falls_back_to_logout(
+        self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear
+    ):
+        mock_authorship.return_value = PrAuthorshipMode.USER
+        mock_resolve.return_value = MagicMock()
+        mock_get_token.return_value = "ghu_newtoken"
+        mock_apply.side_effect = RuntimeError("write failed")
+        mock_clear.return_value = True
+        mark_sandbox_github_identity("run-1", 99)
+
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
+        mock_apply.assert_called_once()
+        mock_clear.assert_called_once()  # fell through to logout so no stale creds remain
+
+    def test_logout_failure_fails_closed(self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear):
+        # New actor has no access and the sandbox can't even be cleared — the
+        # previous actor's creds may still be live, so fail closed.
+        mock_authorship.return_value = PrAuthorshipMode.USER
+        mock_resolve.return_value = MagicMock()
+        mock_get_token.side_effect = ReauthorizationRequired("no repo access")
+        mock_clear.return_value = False
+        mark_sandbox_github_identity("run-1", 99)
+
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is False
+        assert get_sandbox_github_identity_user("run-1") == 99  # binding unchanged
 
 
 class TestSendFollowupActivityRefreshOrdering:

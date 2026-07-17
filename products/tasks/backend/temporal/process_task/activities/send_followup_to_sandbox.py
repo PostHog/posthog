@@ -9,6 +9,7 @@ import structlog
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import close_db_connections
 from posthog.temporal.oauth import PosthogMcpScopes
 
@@ -26,14 +27,23 @@ from products.tasks.backend.logic.stream.redis_stream import get_task_run_stream
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.redis import get_tasks_stream_redis_sync, run_uses_dedicated_stream
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
+from products.tasks.backend.temporal.process_task.sandbox_credentials import (
+    apply_github_credentials_to_sandbox,
+    clear_github_credentials_from_sandbox,
+)
 from products.tasks.backend.temporal.process_task.utils import (
+    PrAuthorshipMode,
     get_actor_distinct_id,
     get_imported_mcp_server_configs,
+    get_pr_authorship_mode,
+    get_sandbox_github_identity_user,
+    get_sandbox_github_token,
     get_sandbox_mcp_session_user,
     get_sandbox_ph_mcp_configs,
     get_task_run_credential_user,
     get_user_mcp_server_configs,
     is_slack_interaction_state,
+    mark_sandbox_github_identity,
     mark_sandbox_mcp_session,
     record_message_actor,
     sandbox_identity_scope,
@@ -165,6 +175,13 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
     # Same-actor and first-bind refreshes stay best-effort.
     if not _refresh_sandbox_mcp(task_run, input.posthog_mcp_scopes, auth_token, actor_user=actor_user, state=state):
         error_msg = "Could not rebind sandbox MCP credentials for the follow-up actor"
+        raise RuntimeError(f"send_followup failed: {error_msg}")
+
+    # Bind the sandbox's GitHub credentials to this actor: rebind if they have
+    # access, otherwise log out so the previous actor's identity can't be used.
+    # Fail closed only if we can't even clear the prior credentials.
+    if not _refresh_sandbox_github(task_run, actor_user, state):
+        error_msg = "Could not rebind or clear sandbox GitHub credentials for the follow-up actor"
         raise RuntimeError(f"send_followup failed: {error_msg}")
     artifacts = None
     artifact_ids = input.artifact_ids or []
@@ -376,6 +393,96 @@ def _refresh_sandbox_mcp(
         status_code=retry.status_code,
     )
     return False  # rebind never confirmed → fail closed (unknown binding may hide a live session)
+
+
+def _resolve_live_sandbox(state: dict[str, Any] | None) -> Any:
+    """The running Sandbox handle for a run's state, or None when unavailable.
+
+    GitHub credentials are written into the sandbox directly (git remote + env
+    file), so the gate needs the handle. Absent/dead sandbox → None; the
+    periodic credential-refresh loop reconciles identity in that case.
+    """
+    sandbox_id = (state or {}).get("sandbox_id")
+    if not sandbox_id:
+        return None
+    from products.tasks.backend.logic.services.sandbox import (
+        Sandbox,  # noqa: PLC0415 — keep the sandbox service off the import path
+    )
+
+    try:
+        sandbox = Sandbox.get_by_id(sandbox_id)
+        return sandbox if sandbox.is_running() else None
+    except Exception:
+        return None
+
+
+def _refresh_sandbox_github(task_run: TaskRun, actor_user: Any, state: dict[str, Any] | None) -> bool:
+    """Bind the sandbox's in-place GitHub credentials to this message's actor.
+
+    On an actor transition: re-inject the new actor's token if they have usable
+    access, otherwise log the sandbox out (strip the token from the git remote
+    and env) so the previous actor's GitHub identity can never be used by a
+    follow-up actor who lacks access. Reauthorization for that actor is surfaced
+    by the existing credential-refresh path, unchanged.
+
+    Only USER-authored runs carry per-actor identity — BOT runs share one
+    installation token, so every actor is already the same identity. This
+    enforces the transition boundary; the periodic credential-refresh loop
+    keeps a continuous actor's token rotated between transitions.
+
+    Returns ``True`` when the sandbox safely reflects this actor (rebound, logged
+    out, or nothing to do) and ``False`` only when we could neither rebind nor
+    even clear — the previous actor's credentials may still be live, so the
+    caller fails the follow-up closed.
+    """
+    if actor_user is None:
+        return True
+
+    run_id = str(task_run.id)
+    scope = sandbox_identity_scope(run_id, state)
+    if get_sandbox_github_identity_user(scope) == actor_user.id:
+        return True  # sandbox already reflects this actor — cheapest check first
+
+    task = task_run.task
+    if get_pr_authorship_mode(task, state) != PrAuthorshipMode.USER:
+        return True
+
+    sandbox = _resolve_live_sandbox(state)
+    if sandbox is None:
+        return True  # no live handle; the periodic refresh loop reconciles identity
+
+    repository = task.repository
+    token: str | None = None
+    try:
+        token = get_sandbox_github_token(
+            task.github_integration_id,
+            run_id=run_id,
+            state=state,
+            task=task,
+            actor_user=actor_user,
+            repository=repository,
+        )
+    except ReauthorizationRequired:
+        token = None  # new actor lacks usable access → log out (reauth surfaced elsewhere)
+
+    if token:
+        try:
+            apply_github_credentials_to_sandbox(sandbox, repository, token)
+        except Exception:
+            logger.warning("refresh_github_apply_failed", run_id=run_id, exc_info=True)
+        else:
+            mark_sandbox_github_identity(scope, actor_user.id)
+            logger.info("refresh_github_rebound", run_id=run_id, user_id=actor_user.id)
+            return True
+
+    # No usable rebind: log the sandbox out. Fail closed only if even the clear
+    # can't be confirmed — the previous actor's credentials might still be live.
+    if clear_github_credentials_from_sandbox(sandbox, repository):
+        mark_sandbox_github_identity(scope, actor_user.id)
+        logger.info("refresh_github_logged_out", run_id=run_id, user_id=actor_user.id)
+        return True
+    logger.warning("refresh_github_logout_failed", run_id=run_id, user_id=actor_user.id)
+    return False
 
 
 def _get_stop_reason(result_data: dict[str, Any] | None) -> str:
