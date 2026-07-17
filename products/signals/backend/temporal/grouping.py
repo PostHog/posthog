@@ -179,6 +179,7 @@ async def generate_search_queries(
         validate=validate,
         temperature=0.7,
         stage="query_generation",
+        ai_product="signals_grouping",
     )
 
 
@@ -477,6 +478,7 @@ async def match_signal_to_report(
         validate=validate,
         temperature=0.2,
         stage="match",
+        ai_product="signals_grouping",
     )
 
 
@@ -607,6 +609,7 @@ async def verify_match_specificity(
         validate=lambda text: SpecificityResult.model_validate_json(text),
         temperature=0.2,
         stage="specificity",
+        ai_product="signals_grouping",
     )
 
     return VerifyMatchSpecificityOutput(
