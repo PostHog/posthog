@@ -166,6 +166,7 @@ class TestConversationsSlackSignals(SimpleTestCase):
     @patch("ee.billing.salesforce_enrichment.conversations_signals.query_with_columns")
     def test_fetch_slack_bot_joined_at_keys_rows_by_workspace_and_channel(self, mock_query):
         # The ClickHouse driver can return naive datetimes; they must come back UTC-aware.
+        # A row without a datetime value must be skipped, not crash or store None.
         mock_query.return_value = [
             {"slack_team_id": "T123", "slack_channel_id": "C1", "bot_joined_at": dt.datetime(2026, 7, 5, 9, 0)},
             {
@@ -173,6 +174,7 @@ class TestConversationsSlackSignals(SimpleTestCase):
                 "slack_channel_id": "C2",
                 "bot_joined_at": dt.datetime(2026, 7, 6, 10, 0, tzinfo=dt.UTC),
             },
+            {"slack_team_id": "T000", "slack_channel_id": "C3", "bot_joined_at": None},
         ]
 
         result = _fetch_slack_bot_joined_at_by_channel(["C1", "C2"])
@@ -582,6 +584,18 @@ class TestConversationsSlackSignalsDatabase(BaseTest):
             team=other_team,
         )
         self._create_ticket_comment(other_ticket, "customer", other_time)
+
+        # A comment forged through the generic comments API — created under the other
+        # org's team but pointing at this org's ticket — must not count either.
+        forged = Comment.objects.create(
+            team=other_team,
+            scope="conversations_ticket",
+            item_id=str(own_ticket.id),
+            content="forged",
+            item_context={"author_type": "customer", "is_private": False},
+            deleted=False,
+        )
+        Comment.objects.filter(id=forged.id).update(created_at=dt.datetime(2026, 7, 1, 9, 0, tzinfo=dt.UTC))
 
         result = aggregate_conversations_slack_signals_for_orgs(
             [self.org_id, str(other_org.id)], include_slack_user_count=False

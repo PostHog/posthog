@@ -342,16 +342,20 @@ def _fetch_last_customer_message_at_by_org(org_ids: list[str]) -> dict[str, dt.d
     ticket_rows = (
         _tickets_with_verified_org().filter(organization_id__in=org_ids).values_list("organization_id", "team_id", "id")
     )
-    org_by_item_id = {str(ticket_id): str(org_id) for org_id, _team_id, ticket_id in ticket_rows}
-    team_ids = {team_id for _org_id, team_id, _ticket_id in ticket_rows}
-    if not org_by_item_id:
+    # Attribution keys on the exact (team_id, item_id) pair: the generic comments API
+    # lets any team write arbitrary item_id/item_context values, so a comment counts
+    # only when it lives on the ticket's own team.
+    org_by_ticket = {(team_id, str(ticket_id)): str(org_id) for org_id, team_id, ticket_id in ticket_rows}
+    team_ids = {team_id for team_id, _item_id in org_by_ticket}
+    item_ids = [item_id for _team_id, item_id in org_by_ticket]
+    if not org_by_ticket:
         return {}
 
     last_by_org: dict[str, dt.datetime] = {}
     # Chunk item_id__in so one org with pathologically many tickets can't blow up a
     # single SQL statement; each chunk stays on the (team_id, scope, item_id, deleted)
     # comment index.
-    for chunk in batched(org_by_item_id, _COMMENT_ITEM_ID_CHUNK_SIZE, strict=False):
+    for chunk in batched(item_ids, _COMMENT_ITEM_ID_CHUNK_SIZE, strict=False):
         comment_rows = (
             Comment.objects.filter(
                 team_id__in=team_ids,
@@ -360,13 +364,17 @@ def _fetch_last_customer_message_at_by_org(org_ids: list[str]) -> dict[str, dt.d
                 item_context__author_type="customer",
                 deleted=False,
             )
-            .values("item_id")
+            .values("team_id", "item_id")
             .annotate(last_customer_message_at=Max("created_at"))
         )
         for row in comment_rows:
-            org_id = org_by_item_id[str(row["item_id"])]
+            org_id = org_by_ticket.get((row["team_id"], str(row["item_id"])))
             value = row["last_customer_message_at"]
-            if isinstance(value, dt.datetime) and (org_id not in last_by_org or value > last_by_org[org_id]):
+            if (
+                org_id is not None
+                and isinstance(value, dt.datetime)
+                and (org_id not in last_by_org or value > last_by_org[org_id])
+            ):
                 last_by_org[org_id] = value
     return last_by_org
 
