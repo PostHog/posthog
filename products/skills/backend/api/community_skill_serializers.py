@@ -56,9 +56,7 @@ class CommunitySkillSerializer(serializers.ModelSerializer):
         help_text="Moderation tier: 'official' (PostHog-authored), 'verified' (reviewed), or 'community'.",
     )
     files = serializers.SerializerMethodField(
-        help_text=(
-            "Bundled files manifest (path + content_type only). Fetch full content via the skill detail endpoint."
-        ),
+        help_text="Bundled files manifest — path and content_type only. File contents are copied in on install.",
     )
     vote_count = serializers.SerializerMethodField(
         help_text="Total number of upvotes this skill has received.",
@@ -107,7 +105,9 @@ class CommunitySkillSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(CommunitySkillFileManifestSerializer(many=True))
     def get_files(self, instance: CommunitySkill) -> list[dict[str, Any]]:
-        return [dict(row) for row in instance.files.values("path", "content_type")]
+        # Iterate the related manager so prefetch_related's cache is used — .values() would issue a
+        # second query and defeat the viewset's manifest-only prefetch.
+        return [{"path": f.path, "content_type": f.content_type} for f in instance.files.all()]
 
     def get_vote_count(self, instance: CommunitySkill) -> int:
         # Provided by the viewset's annotated queryset; fall back to a count for unannotated instances.
@@ -154,6 +154,7 @@ class CommunitySkillInstallSerializer(serializers.Serializer):
     new_name = serializers.CharField(
         max_length=64,
         required=False,
+        allow_blank=True,
         help_text="Name for the installed skill in your team. Defaults to the community skill's slug.",
     )
 

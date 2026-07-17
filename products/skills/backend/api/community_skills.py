@@ -1,6 +1,6 @@
 from typing import Any, cast
 
-from django.db.models import Count, Exists, OuterRef, Q, QuerySet
+from django.db.models import Count, Exists, OuterRef, Prefetch, Q, QuerySet
 
 import structlog
 import posthoganalytics
@@ -15,19 +15,23 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models import User
-from posthog.permissions import get_organization_from_view
+from posthog.permissions import _FORCE_ENABLED_FLAGS, get_organization_from_view
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
-from ..models.community_skills import CommunitySkill, CommunitySkillVote
+from ..models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillVote
 from .community_skill_serializers import (
-    ALLOWED_LIST_ORDERINGS,
     CommunitySkillInstallSerializer,
     CommunitySkillListQuerySerializer,
     CommunitySkillListSerializer,
     CommunitySkillSerializer,
     CommunitySkillVoteResponseSerializer,
 )
-from .community_skill_services import CommunitySkillNotFoundError, install_community_skill, toggle_community_skill_vote
+from .community_skill_services import (
+    CommunitySkillInvalidPayloadError,
+    CommunitySkillNotFoundError,
+    install_community_skill,
+    toggle_community_skill_vote,
+)
 from .skill_serializers import LLMSkillSerializer
 from .skill_services import LLMSkillDuplicateNameConflictError, LLMSkillFileLimitError, LLMSkillFilePathConflictError
 
@@ -58,13 +62,29 @@ class CommunitySkillFeatureFlagPermission(BasePermission):
         org_id = str(organization.id)
         distinct_id = user.distinct_id or str(user.uuid)
 
+        groups: dict[str, str] = {"organization": org_id}
+        group_properties: dict[str, dict[str, str]] = {"organization": {"id": org_id}}
+        # Match in-app flag evaluation: posthog-js carries project (team) context, so a per-project
+        # rollout evaluates True in the UI but would 403 here if we only sent the organization group.
+        try:
+            team_for_flag = view.team
+        except (ValueError, KeyError, AttributeError):
+            team_for_flag = None
+        if team_for_flag is not None:
+            project_id = str(team_for_flag.id)
+            groups["project"] = project_id
+            group_properties["project"] = {"id": project_id}
+
+        # Honor POSTHOG_FEATURE_FLAGS_FORCE_ENABLED so self-hosted deployments can enable the
+        # marketplace without a round-trip to PostHog Cloud, matching the canonical permission.
         return all(
-            bool(
+            flag in _FORCE_ENABLED_FLAGS
+            or bool(
                 posthoganalytics.feature_enabled(
                     flag,
                     distinct_id,
-                    groups={"organization": org_id},
-                    group_properties={"organization": {"id": org_id}},
+                    groups=groups,
+                    group_properties=group_properties,
                     only_evaluate_locally=False,
                     send_feature_flag_events=False,
                 )
@@ -99,10 +119,15 @@ class CommunitySkillViewSet(
             vote_count=Count("votes", distinct=True),
             has_voted=Exists(CommunitySkillVote.objects.filter(skill=OuterRef("pk"), user=user)),
         )
-        # Only the detail serializer renders the files manifest — skip the extra query on list.
-        if self.action != "list":
-            queryset = queryset.prefetch_related("files")
-        return queryset
+        if self.action == "list":
+            # The list serializer omits body; bodies run up to 1 MB, so don't haul a page of them
+            # out of Postgres only to discard them.
+            return queryset.defer("body")
+        # Detail renders the files manifest (path + content_type) but never file content — prefetch
+        # only those columns so a skill with dozens of 1 MB files doesn't load megabytes we discard.
+        return queryset.prefetch_related(
+            Prefetch("files", queryset=CommunitySkillFile.objects.only("path", "content_type", "skill_id"))
+        )
 
     def get_serializer_class(self):
         if self.action == "list":
@@ -131,8 +156,10 @@ class CommunitySkillViewSet(
         if trust_tier:
             queryset = queryset.filter(trust_tier=trust_tier)
 
-        order_by = params.validated_data.get("order_by", "-install_count")
-        queryset = queryset.order_by(order_by if order_by in ALLOWED_LIST_ORDERINGS else "-install_count", "-id")
+        # order_by is a ChoiceField over ALLOWED_LIST_ORDERINGS, so is_valid() already guarantees a
+        # valid key. Secondary "-id" keeps pagination stable when the primary key ties.
+        order_by = params.validated_data["order_by"]
+        queryset = queryset.order_by(order_by, "-id")
 
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -169,10 +196,22 @@ class CommunitySkillViewSet(
                 status=status.HTTP_404_NOT_FOUND,
             )
         except LLMSkillDuplicateNameConflictError:
+            # Only blame the new_name field when the caller actually supplied it — otherwise the
+            # conflicting name is the skill's own slug, so a generic message is accurate.
+            if payload.validated_data.get("new_name"):
+                return Response(
+                    {"attr": "new_name", "detail": "A skill with this name already exists in your project."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             return Response(
-                {"attr": "new_name", "detail": "A skill with this name already exists in your project."},
+                {
+                    "detail": f"A skill named '{slug}' is already installed in your project. "
+                    "Pass new_name to install it under a different name."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except CommunitySkillInvalidPayloadError as err:
+            return Response({"detail": err.detail}, status=status.HTTP_400_BAD_REQUEST)
         except (LLMSkillFileLimitError, LLMSkillFilePathConflictError):
             # The synced community payload violates the skill limits (too many files / bad paths).
             return Response(
