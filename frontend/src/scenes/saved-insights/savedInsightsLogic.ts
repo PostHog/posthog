@@ -307,42 +307,6 @@ export interface savedInsightsLogicMeta {
         }
         pagination: (filters: SavedInsightFilters, count: number) => PaginationManual
     }
-    __keaTypeGenInternalReducerActions: {
-        'rename insight success (models.insightsModel)': (item: QueryBasedInsightModel) => {
-            payload: {
-                item: QueryBasedInsightModel<Node<Record<string, any>>>
-            }
-            type: 'rename insight success (models.insightsModel)'
-        }
-        'update dashboard insight (models.dashboardsModel)': (
-            insight: QueryBasedInsightModel,
-            extraDashboardIds?: number[],
-            sourceDashboardId?: number
-        ) => {
-            payload: {
-                extraDashboardIds: number[] | undefined
-                insight: QueryBasedInsightModel<Node<Record<string, any>>>
-                sourceDashboardId: number | undefined
-            }
-            type: 'update dashboard insight (models.dashboardsModel)'
-        }
-        'submit delete dashboard success (scenes.dashboard.deleteDashboardLogic)': (
-            deleteDashboard: DeleteDashboardForm
-        ) => {
-            payload: {
-                deleteDashboard: DeleteDashboardForm
-            }
-            type: 'submit delete dashboard success (scenes.dashboard.deleteDashboardLogic)'
-        }
-        'submit duplicate dashboard success (scenes.dashboard.duplicateDashboardLogic)': (
-            duplicateDashboard: DuplicateDashboardForm
-        ) => {
-            payload: {
-                duplicateDashboard: DuplicateDashboardForm
-            }
-            type: 'submit duplicate dashboard success (scenes.dashboard.duplicateDashboardLogic)'
-        }
-    }
 }
 
 export type savedInsightsLogicType = MakeLogicType<
@@ -648,10 +612,16 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         setDates: () => {
             actions.loadInsights()
         },
-        [insightsModel.actionTypes.renameInsightSuccess]: ({ item }) => {
+        [insightsModel.actionTypes.renameInsightSuccess]: ({ item }: { item: QueryBasedInsightModel }) => {
             actions.updateInsight(item)
         },
-        [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight, sourceDashboardId }) => {
+        [dashboardsModel.actionTypes.updateDashboardInsight]: ({
+            insight,
+            sourceDashboardId,
+        }: {
+            insight: QueryBasedInsightModel
+            sourceDashboardId?: number
+        }) => {
             if (sourceDashboardId != null) {
                 // That payload is only valid on the dashboard that refreshed it (date range, etc. are baked into
                 // `query`). The saved list should show the saved insight definition, not the merged view.
@@ -664,12 +634,20 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 actions.addInsight(insight)
             }
         },
-        [deleteDashboardLogic.actionTypes.submitDeleteDashboardSuccess]: ({ deleteDashboard }) => {
+        [deleteDashboardLogic.actionTypes.submitDeleteDashboardSuccess]: ({
+            deleteDashboard,
+        }: {
+            deleteDashboard: DeleteDashboardForm
+        }) => {
             if (deleteDashboard.deleteInsights) {
                 actions.loadInsights()
             }
         },
-        [duplicateDashboardLogic.actionTypes.submitDuplicateDashboardSuccess]: ({ duplicateDashboard }) => {
+        [duplicateDashboardLogic.actionTypes.submitDuplicateDashboardSuccess]: ({
+            duplicateDashboard,
+        }: {
+            duplicateDashboard: DuplicateDashboardForm
+        }) => {
             if (duplicateDashboard.duplicateTiles) {
                 actions.loadInsights()
             }

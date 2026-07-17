@@ -44,6 +44,7 @@ from ..marketplace.packaging import SkillImportError, build_skill_zip, parse_ski
 from ..models.skills import LLMSkill, LLMSkillFile
 from .skill_serializers import (
     MAX_SKILL_FILE_BYTES,
+    LLMSkillBodyFetchQuerySerializer,
     LLMSkillCreateSerializer,
     LLMSkillDuplicateSerializer,
     LLMSkillFetchQuerySerializer,
@@ -244,14 +245,24 @@ class LLMSkillViewSet(
             )
         return None
 
-    def _serialize_skill(self, skill: LLMSkill) -> dict[str, Any]:
-        return cast(dict[str, Any], LLMSkillSerializer(skill, context=self.get_serializer_context()).data)
+    def _serialize_skill(
+        self, skill: LLMSkill, *, body_offset: int | None = None, body_length: int | None = None
+    ) -> dict[str, Any]:
+        context = self.get_serializer_context()
+        if body_offset is not None or body_length is not None:
+            context = {**context, "body_offset": body_offset, "body_length": body_length}
+        return cast(dict[str, Any], LLMSkillSerializer(skill, context=context).data)
 
     def _serialize_version_summaries(self, skills: list[LLMSkill]) -> list[dict[str, Any]]:
         return cast(list[dict[str, Any]], LLMSkillVersionSummarySerializer(skills, many=True).data)
 
     def _get_requested_version_params(self, request: Request) -> dict[str, Any]:
         serializer = LLMSkillFetchQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
+
+    def _get_body_fetch_params(self, request: Request) -> dict[str, Any]:
+        serializer = LLMSkillBodyFetchQuerySerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         return serializer.validated_data
 
@@ -313,14 +324,14 @@ class LLMSkillViewSet(
         )
 
     @extend_schema(
-        parameters=[LLMSkillFetchQuerySerializer],
+        parameters=[LLMSkillBodyFetchQuerySerializer],
         responses={200: LLMSkillSerializer},
     )
     @action(methods=["GET"], detail=False, url_path=r"name/(?P<skill_name>[^/]+)")
     @llma_track_latency("llma_skills_get_by_name")
     @monitor(feature=None, endpoint="llma_skills_get_by_name", method="GET")
     def get_by_name(self, request: Request, skill_name: str = "", **kwargs) -> Response:
-        version_params = self._get_requested_version_params(request)
+        version_params = self._get_body_fetch_params(request)
         version = cast(int | None, version_params.get("version"))
         skill = get_skill_by_name_from_db(self.team, skill_name, version)
 
@@ -332,7 +343,13 @@ class LLMSkillViewSet(
         if skill is None:
             return self._skill_not_found_response(skill_name)
 
-        return Response(self._serialize_skill(skill))
+        return Response(
+            self._serialize_skill(
+                skill,
+                body_offset=cast(int | None, version_params.get("body_offset")),
+                body_length=cast(int | None, version_params.get("body_length")),
+            )
+        )
 
     def _redirect_to_name(self, request: Request, skill_name: str) -> Response | None:
         skill_by_id = get_active_skill_queryset(self.team).filter(id=skill_name).first()

@@ -1735,6 +1735,21 @@ class TestCustomSourceNonRetryableErrors(SimpleTestCase):
         assert "not found in config" in str(ctx.exception)
         assert "not found in config" in CustomSource().get_non_retryable_errors()
 
+    def test_http_400_bad_request_is_classified_non_retryable(self):
+        # A custom source's request is entirely manifest-driven, so a 400 is deterministic —
+        # retrying can't fix it. Build the real requests HTTPError message the REST client
+        # raises via raise_for_status(), so this breaks if the matched substring drifts from
+        # what requests actually produces. The URL is a placeholder, never a real customer host.
+        response = Response()
+        response.status_code = 400
+        response.reason = "Bad Request"
+        response.url = "https://api.example.com/opportunities?filter=2026-07-14T03:25:15.495000+00:00"
+        with self.assertRaises(requests.exceptions.HTTPError) as ctx:
+            response.raise_for_status()
+
+        non_retryable = CustomSource().get_non_retryable_errors()
+        assert any(key in str(ctx.exception) for key in non_retryable)
+
     @parameterized.expand(["invalid_client", "invalid_grant"])
     def test_oauth2_permanent_errors_are_classified_non_retryable(self, error_code):
         # A permanent OAuth2 token rejection (invalid_client / invalid_grant) surfaces the

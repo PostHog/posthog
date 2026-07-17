@@ -510,13 +510,28 @@
             "required": ["insightId"]
         },
         "OrganizationSetActiveSchema": {
-            "type": "object",
-            "properties": {
-                "orgId": {
-                    "type": "string"
+            "anyOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "orgId": {
+                            "type": "string",
+                            "description": "The organization to switch to: the `id` returned by `organizations-list` (a UUID-like string, not the organization name). Use `organizations-list` to resolve a name to its id."
+                        }
+                    },
+                    "required": ["orgId"]
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "id": {
+                            "type": "string",
+                            "description": "Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`."
+                        }
+                    },
+                    "required": ["id"]
                 }
-            },
-            "required": ["orgId"]
+            ]
         },
         "PathCleaningRulesUpdateSchema": {
             "type": "object",
