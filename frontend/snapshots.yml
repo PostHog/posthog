@@ -409,9 +409,9 @@ snapshots:
     components-definition-popover--action--light:
         hash: v1.k794b7964.f4bdb784a34e7a4af0c33043858f96c15234c1a161a635ad793ac749159d2fd2.xZjT6j6vvsEbrfG4iwhv0aoiOumGvVSJajzL3CNmZ8w
     components-definition-popover--data-warehouse-column-mapping--dark:
-        hash: v1.k794b7964.c38f182b346c519d1332cfd066782c3b4b9e0b5661fbe926253da902fc3c388b.micG7HfZSdoQxZl9DsRJk9wX2So89qflq-sxr9DYS4A
+        hash: v1.k794b7964.0ee1ae1caf0ca944fb346482ec211be87e2d9d60bdd8a2a9d77dd912ba1d8478.uULoWLevn28NDuEgq5QLrfOFU9pnVjHLjlDscwW9Q9E
     components-definition-popover--data-warehouse-column-mapping--light:
-        hash: v1.k794b7964.3201bcfb76a5bc9e9144f88ccb819af400442196804dc0ab84e1ecac6e141e28.U68Q077AoH6AtdHda3iCWWJelz2JyHqHs8JpJA_Onao
+        hash: v1.k794b7964.af82e8d5620ef50e40b5d55f260024fd9247480883ddd2a2ba2718f7cf8396ba.IcUjNqlNOxFbqF93utorC6_HCChPGXD7bVi7i8YckEE
     components-definition-popover--event--dark:
         hash: v1.k794b7964.4a10c0206e60aa629075aac850bcebdb2b5980a7d6953926911f1ebb7114a96e.Cpyg354rVEyXVrlBzOsJJGSmwPL4-YEhXboxDPMVY_s
     components-definition-popover--event--light:
@@ -7087,9 +7087,9 @@ snapshots:
     scenes-app-tasks--mobile-list--light:
         hash: v1.k794b7964.9fd49300ca0d02ce3fe8cf6ea7eb850af2f42332d19a821ac73a6108f33fd651.aHbvQ9EqCKA43njPMkK_xgXEq4rToiJ0U8zAsxjwEWA
     scenes-app-tasks--mobile-new-task--dark:
-        hash: v1.k794b7964.9b9c40cac551da8e7671c94761af2c1fea8d734127642b41daf0aaf83c21b95c.4GYGN5u7XrKtcu792itWe5FYthARxKS9Zj-7apPTv3A
+        hash: v1.k794b7964.c659bc768ad6ece501075207672466dd3a7f3401fd9fbffbef400d552cfd3007.Nm4GPHMsfybaB-1wJbcZ5Gr8oUCY0qiTPRujpHMpl0g
     scenes-app-tasks--mobile-new-task--light:
-        hash: v1.k794b7964.dcf36750497b33932f1ab4b6881c04136827a801b777e1907244a31ecf301f65.1obDifj36R2bZNd4c2YID4coIqim-oVjc6lMHJR3NGk
+        hash: v1.k794b7964.7d4307cef0f64137bd0278b3e9ca94c620ecbc63a726096ca6bdbc9570073ab5.p-KShlBQ8CPGw75SWnLVHxKGeUOnzvX3tACb5usDH9c
     scenes-app-tasks--mobile-task-selected--dark:
         hash: v1.k794b7964.db0156b3fd83b5c3494116788236075e0bc2c5ace019e4c1d9947d2b21fa70fb.4HfTdy-PBBkgEn0HFlUkrJm0D6GCiujf_ljrGGrLrsc
     scenes-app-tasks--mobile-task-selected--light:
