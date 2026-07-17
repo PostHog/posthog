@@ -136,6 +136,7 @@ the row lists both.
 | confluent_cloud                  | HTTP                        | requests                                                        | ✅                          |
 | chartmogul                       | HTTP                        | requests                                                        | ✅                          |
 | circleci                         | HTTP                        | requests                                                        | ✅                          |
+| circleci_insights                | HTTP                        | requests                                                        | ✅                          |
 | cimis                            | HTTP                        | requests                                                        | ✅                          |
 | cisco_duo                        | HTTP                        | requests (hand-rolled HMAC-SHA1 request signing)                | ✅                          |
 | cloudflare                       | HTTP                        | requests                                                        | ✅                          |
@@ -634,7 +635,6 @@ doesn't conflict with concurrent PRs.
 - chift
 - chorus
 - cin7
-- circleci_insights
 - cisco_meraki
 - clarifai
 - clazar
