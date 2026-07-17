@@ -286,8 +286,16 @@ class TestExportIterator:
     ) -> list[dict]:
         with patch.object(mp, "_request", side_effect=responses) as mock_request:
             batches = list(
-                mp._iter_export(  # type: ignore[arg-type]
-                    "us", "u", "s", "123", LOGGER, manager, start_date=start, end_date=end, api_version=api_version
+                mp._iter_export(
+                    "us",
+                    "u",
+                    "s",
+                    "123",
+                    LOGGER,
+                    manager,  # type: ignore[arg-type]
+                    start_date=start,
+                    end_date=end,
+                    api_version=api_version,
                 )
             )
         self._mock_request = mock_request
@@ -358,13 +366,13 @@ class TestExportStreamRetry:
             patch.object(mp.time, "sleep") as mock_sleep,
         ):
             batches = list(
-                mp._iter_export(  # type: ignore[arg-type]
+                mp._iter_export(
                     "us",
                     "u",
                     "s",
                     "123",
                     LOGGER,
-                    manager,
+                    manager,  # type: ignore[arg-type]
                     start_date=day,
                     end_date=day,
                     api_version=MIXPANEL_API_VERSION_V1,
@@ -393,13 +401,13 @@ class TestExportStreamRetry:
         ):
             with pytest.raises(requests.exceptions.ChunkedEncodingError):
                 list(
-                    mp._iter_export(  # type: ignore[arg-type]
+                    mp._iter_export(
                         "us",
                         "u",
                         "s",
                         "123",
                         LOGGER,
-                        manager,
+                        manager,  # type: ignore[arg-type]
                         start_date=day,
                         end_date=day,
                         api_version=MIXPANEL_API_VERSION_V1,
@@ -421,13 +429,13 @@ class TestExportStreamRetry:
         ):
             with pytest.raises(ValueError):
                 list(
-                    mp._iter_export(  # type: ignore[arg-type]
+                    mp._iter_export(
                         "us",
                         "u",
                         "s",
                         "123",
                         LOGGER,
-                        manager,
+                        manager,  # type: ignore[arg-type]
                         start_date=day,
                         end_date=day,
                         api_version=MIXPANEL_API_VERSION_V1,
