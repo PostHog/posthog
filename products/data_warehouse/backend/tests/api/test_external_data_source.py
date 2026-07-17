@@ -190,7 +190,7 @@ class TestExternalDataSource(APIBaseTest):
         # new sources are pinned to the source type's default vendor API version at creation,
         # so a later default flip never changes their sync behavior
         source = ExternalDataSource.objects.get(id=payload["id"])
-        self.assertEqual(source.api_version, "2024-09-30.acacia")
+        self.assertEqual(source.api_version, StripeSource.default_version)
 
     def test_api_version_pin_is_read_only_via_api(self):
         source = self._create_external_data_source()
