@@ -6,6 +6,10 @@ from typing import Any, Literal, Optional, Union, cast
 from posthog.constants import PropertyOperatorType
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
+
+# Relocated to the Django-free posthog.property_columns module so the HogQL engine can use them
+# without booting Django; re-exported here for existing callers.
+from posthog.property_columns import PropertyName, TableColumn, TableWithProperties  # noqa: F401
 from posthog.utils import str_to_bool
 
 
@@ -52,14 +56,6 @@ PropertyType = Literal[
     "workflow_variable",
 ]
 
-PropertyName = str
-TableWithProperties = Literal["events", "person", "groups"]
-TableColumn = Literal[
-    "properties",  # for events & persons table
-    "group_properties",  # for groups table
-    # all below are for person&groups on events table
-    "person_properties",
-]
 OperatorType = Literal[
     "exact",
     "is_not",

@@ -14,11 +14,15 @@ class EvidenceType(StrEnum):
     DASHBOARD = "dashboard"
     ANNOTATION = "annotation"
     EXPERIMENT = "experiment"
+    ALERT = "alert"
+    SUBSCRIPTION = "subscription"
     EVENT = "event"
 
 
 class SourceItemKind(StrEnum):
     MOVEMENT = "movement"
+    # Background that may explain movements (annotations, deploy markers); never an opportunity on its own.
+    CONTEXT = "context"
     HEALTH = "health"
 
 
@@ -48,6 +52,11 @@ class EvidenceRef:
     @property
     def is_insight(self) -> bool:
         return self.type == EvidenceType.INSIGHT
+
+    @property
+    def citation(self) -> dict[str, str]:
+        """Structured citation the frontend renders directly — no client-side parsing of the ref."""
+        return {"type": self.type.value, "ref": self.ref, "label": self.label, "url": self.url}
 
     @property
     def metric_ref(self) -> dict[str, str] | None:

@@ -14,6 +14,7 @@ from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIEr
 from products.review_hog.backend.reviewer.tools.publish_review import (
     ReviewComment,
     _build_inline_comments,
+    _format_issue_comment,
     _post_github_review,
     publish_review,
 )
@@ -357,3 +358,44 @@ class TestPublishReviewGate:
         assert len(comments) == expected_count
         if expected_count:
             assert "should_fix" in comments[0]["body"]  # the emitted comment displays the effective priority
+
+
+class TestFormatIssueComment:
+    @parameterized.expand(
+        [
+            (IssuePriority.MUST_FIX, "must_fix-D1242F", "must_fix"),
+            (IssuePriority.SHOULD_FIX, "should_fix-E36209", "should_fix"),
+            (IssuePriority.CONSIDER, "consider-0969DA", "consider"),
+        ]
+    )
+    def test_severity_badge_tracks_priority(self, priority: IssuePriority, badge_fragment: str, alt: str) -> None:
+        # The colored severity badge is the redesign's whole point: a swapped or recolored mapping (e.g.
+        # must_fix rendering blue) ships a misleading comment, and no other test pins priority→badge.
+        body = _format_issue_comment(_finding(priority=priority), _verdict())
+
+        assert f"/badge/{badge_fragment}" in body
+        # Alt text is the raw enum value, so the priority still reads when the badge image can't load.
+        assert f"![{alt}]" in body
+
+    def test_layout_is_title_then_badges_then_collapsed_sections_validation_first(self) -> None:
+        # Title leads, badges tag it just beneath, and all four sections stay folded — with the
+        # validator's verdict first (the deliberate reading order: claim → why it's real → detail).
+        # Catches a badge/title reorder, a re-added `Priority | Lines` meta, a section surfaced inline
+        # instead of collapsed, or a template refactor flipping the order back to description-first.
+        finding = _finding()
+        body = _format_issue_comment(finding, _verdict())
+
+        assert body.index(f"### {finding.title}") < body.index("![should_fix]") < body.index("<details>")
+        positions = [
+            body.index(f"<summary><strong>{label}</strong></summary>")
+            for label in (
+                "Why we think it's a valid issue",
+                "Issue description",
+                "Suggested fix",
+                "Prompt to fix with AI (copy-paste)",
+            )
+        ]
+        assert positions == sorted(positions)
+        # Problem and fix stay inside <details>, not surfaced above the first one.
+        assert finding.body not in body[: body.index("<details>")]
+        assert "**Priority:**" not in body and "**Lines:**" not in body
