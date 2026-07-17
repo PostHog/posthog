@@ -6,7 +6,7 @@
 # Potential experiments — investigated, adversarially verified, tiered (2026-07-02)
 
 18 candidates were each investigated by one agent and adversarially verified by a second, against the committed eval archive (`eval/experiments/2026-07-reviewer-topology/`), the live code, and independent ClickHouse re-runs.
-This doc supersedes the seed list in `ARCHITECTURE.md` § "🎯 NEXT" item 6 ("Investigate potential experiments").
+This doc is the canonical home for the experiment seed list (`ARCHITECTURE.md` → "Status & next" points here).
 Nothing here contradicts locked items 1–5; validator-dependent work is explicitly sequenced after item 4.
 
 > **2026-07-06:** the caching/cost thread of this registry (the T1 cache-rewrite ticket, Tier-3 warm sessions, the rejected pre-pass artefact and cache-prefix reorder) has a dedicated successor program: `experiments/2026-07-prompt-caching/` (`INVESTIGATION.md` + `CANDIDATES.md`, its own adversarially audited roster + a corrected cache-aware baseline — naive sonnet-5 $ overstates true cost ~4.8x). Read that before re-litigating any caching-adjacent item here; this doc's $ figures are opus-era.

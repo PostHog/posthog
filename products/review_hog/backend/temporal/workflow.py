@@ -382,7 +382,7 @@ class ReviewPRWorkflow:
         # `already_published` means this exact head was already reviewed AND posted, so re-running the
         # pipeline would recompute the same review and publish would self-skip — burning sandbox cost
         # for no output. New inline comments do NOT force a turn yet (logged in fetch); reacting to
-        # comments lands with the "fix the issues" capability — see ARCHITECTURE.md (Stage 5b / Action
+        # comments lands with the "fix the issues" capability — see DECISIONS.md ("The loop" → action
         # plane). A no-publish eval run is never gated here (it has no published head), so the
         # frozen-PR eval loop still recomputes to measure reviewer changes. `empty_diff` is the
         # "pushed nothing → do nothing" rule for branch targets.
