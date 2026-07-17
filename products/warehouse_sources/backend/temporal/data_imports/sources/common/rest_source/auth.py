@@ -84,7 +84,9 @@ class HttpBasicAuth(AuthConfigBase):
         return request
 
     def secret_values(self) -> tuple[str, ...]:
-        return (self.password,) if self.password else ()
+        # Some APIs (e.g. ChargeDesk) pass the secret key as the Basic username with an empty
+        # password, so redact whichever of the two is set — not just the password.
+        return tuple(v for v in (self.username, self.password) if v)
 
 
 # Re-mint the access token this many seconds before its declared expiry, so a

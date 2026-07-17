@@ -192,7 +192,9 @@ class TestAuthSecretValues:
             (None, ()),
             (BearerTokenAuth(token="ya29.secret"), ("ya29.secret",)),
             (APIKeyAuth(api_key="sk_live_x", name="key", location="query"), ("sk_live_x",)),
-            (HttpBasicAuth(username="alice", password="hunter2"), ("hunter2",)),
+            (HttpBasicAuth(username="alice", password="hunter2"), ("alice", "hunter2")),
+            # ChargeDesk-style: secret key as the Basic username with an empty password.
+            (HttpBasicAuth(username="sk_live_x", password=""), ("sk_live_x",)),
             (BearerTokenAuth(), ()),
             (APIKeyAuth(name="key", location="query"), ()),
         ],
