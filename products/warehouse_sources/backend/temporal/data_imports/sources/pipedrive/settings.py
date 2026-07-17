@@ -51,9 +51,10 @@ _ACTIVITIES_BY_VERSION: dict[str, PipedriveEndpointConfig] = {
 
 
 def endpoints_for_version(api_version: str) -> dict[str, PipedriveEndpointConfig]:
-    """Endpoint configs for a resolved source version. Unknown pins fall back to the legacy
-    (v1) activities endpoint, the conservative choice for a label we don't recognise."""
-    activities = _ACTIVITIES_BY_VERSION.get(api_version, _ACTIVITIES_BY_VERSION["v1"])
+    """Endpoint configs for a resolved source version. Only a deliberate `v1` pin uses the
+    deprecated offset `activities` endpoint; every other label (the default `v2`, or a pin we
+    don't recognise) uses the current v2 cursor endpoint rather than the sunset one."""
+    activities = _ACTIVITIES_BY_VERSION["v1"] if api_version == "v1" else _ACTIVITIES_BY_VERSION["v2"]
     return {**_SHARED_ENDPOINTS, "activities": activities}
 
 

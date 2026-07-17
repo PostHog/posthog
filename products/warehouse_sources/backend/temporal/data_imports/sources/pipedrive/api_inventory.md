@@ -28,7 +28,7 @@ Reference: <https://developers.pipedrive.com/docs/api/v1>
 | products            | `/api/v2/products`           | cursor     | id          | add_time      |
 | pipelines           | `/api/v2/pipelines`          | cursor     | id          | add_time      |
 | stages              | `/api/v2/stages`             | cursor     | id          | add_time      |
-| activities          | `/api/v2/activities` (v2), `/api/v1/activities` (v1) | cursor / offset | id          | add_time      |
+| activities          | `/api/v2/activities`         | cursor     | id          | add_time      |
 | notes               | `/api/v1/notes`              | offset     | id          | add_time      |
 | leads               | `/api/v1/leads`              | offset     | id          | add_time      |
 | users               | `/api/v1/users`              | offset     | id          | —             |

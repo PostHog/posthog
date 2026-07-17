@@ -66,8 +66,8 @@ class TestEndpointsForVersion:
         [
             ("v1", "/api/v1/activities", "offset"),
             ("v2", "/api/v2/activities", "cursor"),
-            # A pin we don't recognise resolves to the legacy (v1) endpoint.
-            ("v99", "/api/v1/activities", "offset"),
+            # A pin we don't recognise resolves to the current (v2) endpoint, not the sunset one.
+            ("v99", "/api/v2/activities", "cursor"),
         ],
     )
     def test_activities_endpoint_switches_by_version(
