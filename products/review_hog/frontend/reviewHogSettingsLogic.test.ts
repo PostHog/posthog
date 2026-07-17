@@ -175,6 +175,34 @@ describe('reviewHogSettingsLogic', () => {
             })
     })
 
+    it('the scope switch rescopes the effectiveness stats along with the list', async () => {
+        // The page-level switch must move the stat cards and the reviews list together — dropping
+        // the stats reload from the scope listeners (or the scope param from the request) would
+        // show one scope's list over the other scope's numbers, the exact confusion the switch
+        // exists to fix.
+        const statsScopes: (string | null)[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/review_hog/reviews/perspective_stats/': ({ request }) => {
+                    statsScopes.push(new URL(request.url).searchParams.get('scope'))
+                    return [200, { report_count: 0, perspectives: [] }]
+                },
+            },
+        })
+        logic.mount()
+        await expectLogic(logic)
+            .toDispatchActions(['loadRecentReviewsSuccess', 'applyDefaultReviewsScope', 'loadRecentReviewsSuccess'])
+            .toFinishAllListeners()
+        // The mount-time auto-default to Entire project already rescoped the stats.
+        expect(statsScopes[statsScopes.length - 1]).toBe(ReviewHogReviewsListScope.Everyone)
+
+        logic.actions.setReviewsScope(ReviewHogReviewsListScope.Mine)
+        // Old numbers drop synchronously so the cards never show the other scope's stats.
+        expect(logic.values.perspectiveStats).toBeNull()
+        await expectLogic(logic).toDispatchActions(['loadPerspectiveStatsSuccess'])
+        expect(statsScopes[statsScopes.length - 1]).toBe(ReviewHogReviewsListScope.Mine)
+    })
+
     it('respects an explicit scope choice even when that scope is empty', async () => {
         logic.mount()
         // Consume the mount-time auto-default, so the not-dispatched window below starts after it.
