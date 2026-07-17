@@ -63,6 +63,40 @@ pub fn anonymize_message(allow: &AllowLists, json: &mut [u8]) -> Result<Option<S
     Ok(Some(root.encode()))
 }
 
+/// Scrub one JSONL line: a bare rrweb event object or the PostHog `["window_id", event]` tuple.
+/// `Ok(None)` = unchanged (the caller keeps its original bytes, byte-for-byte).
+/// `Err` = could not anonymize; the caller must drop the line (fail closed).
+///
+/// Tuple lines come back with the wrapper intact and the window id untouched. JSON that parses but
+/// is neither shape — a scalar, or an array that is not a `[string, object]` pair — returns
+/// `Ok(None)`: nothing is recognizably scrubbable, so keeping or dropping the line is the caller's
+/// policy. Invalid JSON is an `Err`.
+pub fn anonymize_line(allow: &AllowLists, line: &mut [u8]) -> Result<Option<String>> {
+    anonymize_line_with_ctx(&Ctx::new(allow), line)
+}
+
+/// [`anonymize_line`] with a caller-owned [`Ctx`], so one blur memo spans a whole session file
+/// (an image recurring across lines is decoded and blurred once, like `anonymize_message` does
+/// across a message's events). The cumulative cv decompression budget is per line — it resets on
+/// every call, so a long session cannot starve later lines.
+pub fn anonymize_line_with_ctx(ctx: &Ctx<'_>, line: &mut [u8]) -> Result<Option<String>> {
+    reject_if_too_deep(line, "jsonl line")?;
+    let mut root = parse_untrusted(line).context("parse jsonl line")?;
+    ctx.reset_cv_budget();
+    let changed = match &mut root {
+        Value::Object(_) => route_event(ctx, &mut root)?,
+        Value::Array(items) => match items.as_mut_slice() {
+            [Value::String(_), event @ Value::Object(_)] => route_event(ctx, event)?,
+            _ => return Ok(None),
+        },
+        _ => return Ok(None),
+    };
+    if !changed {
+        return Ok(None);
+    }
+    Ok(Some(root.encode()))
+}
+
 /// Convenience for tests/callers holding a single event as a JSON string: parse, scrub, re-serialize.
 pub fn anonymize_event_str(allow: &AllowLists, event_json: &str) -> Result<String> {
     let mut bytes = event_json.as_bytes().to_vec();
@@ -215,6 +249,109 @@ mod tests {
         // A Load event (type 1) is pass-through; the caller keeps its original parse.
         let mut json = br#"{"w1":[{"type":1,"data":{}}]}"#.to_vec();
         assert!(anonymize_message(&allow, &mut json).unwrap().is_none());
+    }
+
+    #[test]
+    fn line_scrubs_a_tuple_keeping_the_wrapper_and_window_id() {
+        let allow = AllowLists::new(["keep"], Vec::<String>::new());
+        let mut line =
+            br#"["w-1",{"type":3,"data":{"source":5,"id":1,"text":"keep secret","isChecked":false}}]"#
+                .to_vec();
+        let out = anonymize_line(&allow, &mut line)
+            .unwrap()
+            .expect("the text changes");
+        assert!(out.starts_with(r#"["w-1","#), "wrapper intact: {out}");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v[1]["data"]["text"], "keep ******");
+    }
+
+    #[test]
+    fn line_scrubs_a_bare_event_like_its_tuple_twin() {
+        let allow = AllowLists::new(["keep"], Vec::<String>::new());
+        let event =
+            r#"{"type":3,"data":{"source":5,"id":1,"text":"keep secret","isChecked":false}}"#;
+
+        let mut bare = event.as_bytes().to_vec();
+        let bare_out = anonymize_line(&allow, &mut bare).unwrap().unwrap();
+
+        let mut tuple = format!(r#"["w-1",{event}]"#).into_bytes();
+        let tuple_out = anonymize_line(&allow, &mut tuple).unwrap().unwrap();
+
+        let tuple_v: serde_json::Value = serde_json::from_str(&tuple_out).unwrap();
+        let bare_v: serde_json::Value = serde_json::from_str(&bare_out).unwrap();
+        assert_eq!(bare_v, tuple_v[1]);
+    }
+
+    #[test]
+    fn line_returns_none_for_unchanged_and_unrecognized_shapes() {
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        // Unchanged event (type 1 is pass-through), and every documented not-an-event shape.
+        for line in [
+            br#"{"type":1,"data":{}}"#.as_slice(),
+            br#"["w-1","not an event"]"#.as_slice(),
+            br#"[{"type":1},{"type":1}]"#.as_slice(),
+            br#"["w-1",{"type":1},{"extra":1}]"#.as_slice(),
+            br#"42"#.as_slice(),
+            br#""just a string""#.as_slice(),
+        ] {
+            let mut bytes = line.to_vec();
+            assert!(
+                anonymize_line(&allow, &mut bytes).unwrap().is_none(),
+                "expected Ok(None) for {}",
+                String::from_utf8_lossy(line)
+            );
+        }
+        // Invalid JSON fails closed.
+        let mut broken = b"{not json".to_vec();
+        assert!(anonymize_line(&allow, &mut broken).is_err());
+    }
+
+    #[test]
+    fn line_streaming_shares_the_blur_memo_across_lines() {
+        use crate::testkit::png_data_uri;
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let ctx = Ctx::new(&allow);
+        let uri = png_data_uri(40, 40, [12, 34, 56, 255]);
+        let line = serde_json::to_string(&serde_json::json!({
+            "type": 2,
+            "data": {
+                "node": { "type": 0, "childNodes": [
+                    { "type": 2, "tagName": "div", "attributes": { "rr_dataURL": uri }, "childNodes": [] }
+                ]},
+                "initialOffset": { "top": 0, "left": 0 }
+            }
+        }))
+        .unwrap();
+
+        let mut first = line.clone().into_bytes();
+        let mut second = line.into_bytes();
+        let first_out = anonymize_line_with_ctx(&ctx, &mut first).unwrap().unwrap();
+        let second_out = anonymize_line_with_ctx(&ctx, &mut second).unwrap().unwrap();
+        assert_eq!(
+            first_out, second_out,
+            "a recurring image must blur identically through the shared memo"
+        );
+    }
+
+    #[test]
+    fn line_resets_the_cv_budget_per_call() {
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let ctx = Ctx::new(&allow);
+        let texts_gz = crate::cv::bytes_to_latin1(
+            &crate::gzip::gzip(br#"[{"id":5,"value":"topsecret stuff"}]"#).unwrap(),
+        );
+        let line = serde_json::to_string(&serde_json::json!(
+            { "type": 3, "cv": "2024-10", "data": { "source": 0, "texts": texts_gz } }
+        ))
+        .unwrap();
+
+        // A prior line exhausted the budget; the next call must start from a fresh one.
+        ctx.cv_budget.set(0);
+        let mut bytes = line.into_bytes();
+        let out = anonymize_line_with_ctx(&ctx, &mut bytes)
+            .unwrap()
+            .expect("the cv payload decompresses and scrubs");
+        assert!(out.contains("source"), "still a mutation event: {out}");
     }
 
     #[test]
