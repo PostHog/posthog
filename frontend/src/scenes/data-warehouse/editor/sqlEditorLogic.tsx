@@ -1633,6 +1633,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
 
                 const isQueryHistory = source === 'query_history'
+                if (isQueryHistory) {
+                    // Accept/cancel of the restore is captured via sql-editor-accepted/rejected-suggestion
+                    posthog.capture('sql-editor-history-restore-initiated')
+                }
 
                 // Always create suggestion payload when a new suggestion comes in, even for consecutive suggestions
                 // Only skip diff mode if the editor is completely empty
