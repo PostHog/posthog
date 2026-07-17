@@ -114,7 +114,6 @@ export function QueryWindow({
     const canSendRawQuery = !!selectedConnectionId && selectedConnectionSupportsHogQL
     const debouncedMaxToolQueryInput = useDebouncedValue(queryInput, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const debouncedMaxToolSourceQuery = useDebouncedValue(sourceQuery, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
-    const applyBackActive = mode === SQLEditorMode.Embedded && showQueryPanel
     const executeSqlToolStateRef = useRef({ queryInput, sourceQuery })
     executeSqlToolStateRef.current = { queryInput, sourceQuery }
     const executeSqlToolContext = useMemo(
@@ -124,7 +123,7 @@ export function QueryWindow({
 
     useAttachedContext(
         [{ type: 'sql_editor_state', value: JSON.stringify(executeSqlToolContext), label: 'Current query' }],
-        { active: applyBackActive }
+        { active: showQueryPanel }
     )
 
     const executeSqlToolContextDescription = useMemo(
@@ -179,9 +178,9 @@ export function QueryWindow({
     useMcpToolApplyBack({
         tools: ['execute-sql'],
         targetKey: `sql:${tabId}`,
-        active: applyBackActive,
+        active: showQueryPanel,
         onApply: (_event, { innerInput }) => {
-            if (!applyBackActive || !innerInput) {
+            if (!showQueryPanel || !innerInput) {
                 return
             }
             handleExecuteSqlToolOutput(innerInput)

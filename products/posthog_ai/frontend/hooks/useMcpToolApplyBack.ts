@@ -27,8 +27,8 @@ export interface UseMcpToolApplyBackOptions {
     /** When false, no apply-back listener is registered. Defaults to true. */
     active?: boolean
     /**
-     * `'turn_end'` (default): apply the last matching completion once when the foreground turn ends.
-     * `'tool_call_completed'`: apply each matching tool when it completes.
+     * `'tool_call_completed'` (default): apply each matching tool when it completes.
+     * `'turn_end'`: apply the last matching completion once when the foreground turn ends.
      */
     applyOn?: ApplyOn
 }
@@ -45,7 +45,7 @@ export function useMcpToolApplyBack({
     targetKey,
     onApply,
     active = true,
-    applyOn = 'turn_end',
+    applyOn = 'tool_call_completed',
 }: UseMcpToolApplyBackOptions): void {
     const { registerToolListener, deregisterToolListener } = useActions(toolStreamEventsLogic)
 

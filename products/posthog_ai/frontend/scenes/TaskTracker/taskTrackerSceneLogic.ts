@@ -532,7 +532,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 // Attach the real ids to the optimistic creation so the detail page adopts this seeded stream
                 // (same `streamKey` + real `runId`) instead of cold-bootstrapping a fresh, skeleton-flashing one.
                 // Kept set across navigation; cleared by the `urlToAction` below once the user leaves this run.
-                actions.setActiveCreation({ streamKey, taskId: newTask.id, runId: runResponse.latest_run ?? undefined })
+                actions.setActiveCreation({ streamKey, taskId: newTask.id, runId: runResponse.latest_run?.id })
                 // An embedded instance (`panelId` set) keeps the run in place — the host renders it from
                 // `activeCreation` — rather than navigating the main app to the `/tasks/:id` detail page.
                 if (!props.panelId) {

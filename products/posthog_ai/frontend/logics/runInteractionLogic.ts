@@ -729,10 +729,11 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     const result = await tasksRunCreate(String(values.currentProjectId), props.taskId, createRequest)
                     actions.resetComposerForm()
                     markPendingContextSent(pendingContext)
-                    if (result.latest_run) {
-                        actions.transferApplyBackTargets(streamKey, result.latest_run)
-                        claimedStreamKey = result.latest_run
-                        props.onRunStarted?.(result.latest_run)
+                    const latestRunId = result.latest_run?.id
+                    if (latestRunId) {
+                        actions.transferApplyBackTargets(streamKey, latestRunId)
+                        claimedStreamKey = latestRunId
+                        props.onRunStarted?.(latestRunId)
                     } else {
                         actions.releaseApplyBackTargets(streamKey)
                     }
