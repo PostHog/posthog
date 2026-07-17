@@ -1,10 +1,38 @@
 import threading
 import http.server
 
-import prometheus_client.exposition as expo
-from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+import pytest
 
-from posthog.metrics import _make_handler_no_proxy, pushed_metrics_registry
+import prometheus_client.exposition as expo
+from prometheus_client import REGISTRY, CollectorRegistry, Counter, Gauge, Histogram, push_to_gateway
+
+from posthog.metrics import _make_handler_no_proxy, get_or_create_metric, pushed_metrics_registry
+
+
+class TestGetOrCreateMetric:
+    def _unregister(self, name: str) -> None:
+        collector = REGISTRY._names_to_collectors.get(name)
+        if collector is not None:
+            REGISTRY.unregister(collector)
+
+    def test_reuses_existing_collector_on_reimport(self) -> None:
+        name = "test_idempotent_metric_seconds"
+        try:
+            first = get_or_create_metric(Histogram, name, "doc", buckets=[0.1, 1.0, float("inf")])
+            # Simulates a module being imported a second time (e.g. a retried import) — must not raise.
+            second = get_or_create_metric(Histogram, name, "doc", buckets=[0.1, 1.0, float("inf")])
+            assert first is second
+        finally:
+            self._unregister(name)
+
+    def test_reraises_when_name_belongs_to_different_metric_type(self) -> None:
+        name = "test_conflicting_metric_total"
+        try:
+            get_or_create_metric(Counter, name, "doc")
+            with pytest.raises(ValueError):
+                get_or_create_metric(Histogram, name, "doc")
+        finally:
+            self._unregister(name)
 
 
 class TestPushgatewayProxyPatch:

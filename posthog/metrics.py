@@ -1,5 +1,6 @@
 # Shared metrics and labels for prometheus metrics
 from contextlib import contextmanager
+from typing import TypeVar
 
 from django.conf import settings
 
@@ -9,9 +10,12 @@ import structlog
 # The pushgateway is an internal service — the outbound proxy would reject it.
 # ProxyHandler({}) tells urllib to ignore proxy env vars.
 import prometheus_client.exposition as _expo
-from prometheus_client import CollectorRegistry, Counter, push_to_gateway
+from prometheus_client import REGISTRY, CollectorRegistry, Counter, push_to_gateway
+from prometheus_client.metrics import MetricWrapperBase
 
 from posthog.exceptions_capture import capture_exception
+
+_MetricT = TypeVar("_MetricT", bound=MetricWrapperBase)
 
 logger = structlog.get_logger(__name__)
 
@@ -40,6 +44,24 @@ TOMBSTONE_COUNTER = Counter(
     "Rare anomalous events that should almost never occur. Used to track edge cases, cleanup operations finding stale data, and other scenarios that indicate potential bugs or race conditions. Details (team_id, flag_id, etc.) are logged separately to avoid high-cardinality labels.",
     labelnames=["namespace", "operation", "component"],
 )
+
+
+def get_or_create_metric(metric_cls: type[_MetricT], name: str, documentation: str, **kwargs) -> _MetricT:
+    """Idempotently define a Prometheus metric against the global registry.
+
+    Module-level ``Histogram(...)`` / ``Counter(...)`` calls run again whenever their module
+    is re-imported — for example when a partially-completed import is retried after an earlier
+    ``ImportError`` left the collectors already registered. The second definition would raise
+    ``Duplicated timeseries in CollectorRegistry``, masking the real import failure with a
+    confusing error. Reuse the collector already registered under ``name`` instead.
+    """
+    try:
+        return metric_cls(name, documentation, **kwargs)
+    except ValueError:
+        existing = REGISTRY._names_to_collectors.get(name)
+        if isinstance(existing, metric_cls):
+            return existing
+        raise
 
 
 def _make_handler_no_proxy(url, method, timeout, headers, data, base_handler):
