@@ -302,6 +302,7 @@ the row lists both.
 | less_annoying_crm                | HTTP                        | requests                                                        | ✅                          |
 | lightspeed_retail                | HTTP                        | requests                                                        | ✅                          |
 | linear                           | HTTP                        | requests                                                        | ✅                          |
+| linearb                          | HTTP                        | requests                                                        | ✅                          |
 | lever                            | HTTP                        | requests                                                        | ✅                          |
 | lingo_dev                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | linkedin_ads                     | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
@@ -770,7 +771,6 @@ doesn't conflict with concurrent PRs.
 - lever
 - liana
 - lightfield
-- linearb
 - lingo_dev
 - linkedin_pages
 - linnworks
