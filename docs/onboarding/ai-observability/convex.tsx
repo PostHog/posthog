@@ -18,7 +18,7 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            npm install @posthog/ai @ai-sdk/openai ai @opentelemetry/sdk-trace-base @opentelemetry/resources @opentelemetry/api
+                            npm install @posthog/ai @ai-sdk/openai ai @opentelemetry/sdk-trace-base @opentelemetry/exporter-trace-otlp-http @opentelemetry/resources @opentelemetry/api
                         `}
                     />
                 </>
@@ -59,21 +59,40 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        Create a Convex action that initializes a `BasicTracerProvider` with PostHog's trace exporter
+                        Create a Convex action that initializes a `BasicTracerProvider` with PostHog's span processor
                         and enables telemetry on your AI SDK calls. The provider is initialized at module scope so it
                         persists across warm V8 isolate invocations. Await `provider.forceFlush()` before returning
-                        because Convex may finish the action while the OTLP export is still pending.
+                        because Convex may finish the action while the processor's batch is still pending.
+                    </Markdown>
+
+                    <Markdown>
+                        First, create `convex/polyfills.ts` to provide the `performance` global OpenTelemetry expects:
                     </Markdown>
 
                     <CodeBlock
                         language="typescript"
                         code={dedent`
+                            if (typeof performance === 'undefined') {
+                              const timeOrigin = Date.now()
+                              globalThis.performance = {
+                                timeOrigin,
+                                now: () => Date.now() - timeOrigin,
+                              } as unknown as typeof performance
+                            }
+                        `}
+                    />
+
+                    <CodeBlock
+                        language="typescript"
+                        code={dedent`
+                            import './polyfills.js'
+
                             import { trace } from '@opentelemetry/api'
-                            import { BasicTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base'
+                            import { BasicTracerProvider } from '@opentelemetry/sdk-trace-base'
                             import { resourceFromAttributes } from '@opentelemetry/resources'
                             import { generateText } from 'ai'
                             import { openai } from '@ai-sdk/openai'
-                            import { PostHogTraceExporter } from '@posthog/ai/otel'
+                            import { PostHogSpanProcessor } from '@posthog/ai/otel'
                             import { action } from './_generated/server'
                             import { v } from 'convex/values'
 
@@ -82,12 +101,10 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 'service.name': 'my-convex-app',
                               }),
                               spanProcessors: [
-                                new SimpleSpanProcessor(
-                                  new PostHogTraceExporter({
-                                    projectToken: process.env.POSTHOG_PROJECT_TOKEN!,
-                                    host: process.env.POSTHOG_HOST,
-                                  })
-                                ),
+                                new PostHogSpanProcessor({
+                                  projectToken: process.env.POSTHOG_PROJECT_TOKEN!,
+                                  host: process.env.POSTHOG_HOST,
+                                }),
                               ],
                             })
                             trace.setGlobalTracerProvider(provider)
@@ -122,8 +139,9 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
 
                     <CalloutBox type="fyi" icon="IconInfo" title="How this works">
                         <Markdown>
-                            The `PostHogTraceExporter` sends OpenTelemetry `gen_ai.*` spans to PostHog's OTLP ingestion
-                            endpoint. PostHog converts these into `$ai_generation` events automatically. The
+                            The `PostHogSpanProcessor` sends AI-related OpenTelemetry spans to PostHog's OTLP ingestion
+                            endpoint. `provider.forceFlush()` ensures its batch is sent before the Convex action
+                            returns. PostHog converts these into `$ai_generation` events automatically. The
                             `posthog_distinct_id` metadata field links events to a specific user.
                         </Markdown>
                     </CalloutBox>
@@ -143,12 +161,14 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                     <CodeBlock
                         language="typescript"
                         code={dedent`
+                            import './polyfills.js'
+
                             import { trace } from '@opentelemetry/api'
-                            import { BasicTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base'
+                            import { BasicTracerProvider } from '@opentelemetry/sdk-trace-base'
                             import { resourceFromAttributes } from '@opentelemetry/resources'
                             import { Agent } from '@convex-dev/agent'
                             import { openai } from '@ai-sdk/openai'
-                            import { PostHogTraceExporter } from '@posthog/ai/otel'
+                            import { PostHogSpanProcessor } from '@posthog/ai/otel'
                             import { components } from './_generated/api'
                             import { action } from './_generated/server'
                             import { v } from 'convex/values'
@@ -158,12 +178,10 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 'service.name': 'my-convex-app',
                               }),
                               spanProcessors: [
-                                new SimpleSpanProcessor(
-                                  new PostHogTraceExporter({
-                                    projectToken: process.env.POSTHOG_PROJECT_TOKEN!,
-                                    host: process.env.POSTHOG_HOST,
-                                  })
-                                ),
+                                new PostHogSpanProcessor({
+                                  projectToken: process.env.POSTHOG_PROJECT_TOKEN!,
+                                  host: process.env.POSTHOG_HOST,
+                                }),
                               ],
                             })
                             trace.setGlobalTracerProvider(provider)
