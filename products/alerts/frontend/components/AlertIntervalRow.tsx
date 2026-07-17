@@ -1,6 +1,5 @@
 import { useValues } from 'kea'
 
-import { IconClock } from '@posthog/icons'
 import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -12,6 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 import { AvailableFeature } from '~/types'
 
+import { AlertDefinitionRow, AlertNextEvaluationStatus } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import {
     cadenceFinerThanInsightInterval,
@@ -37,6 +37,19 @@ export interface AlertIntervalRowProps {
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
 }
 
+function getHogQLEvaluatedText(alertForm: AlertFormType): string {
+    if (!isHogQLAlertConfig(alertForm.config)) {
+        return ''
+    }
+    if (alertForm.config.evaluation === 'any_row') {
+        return 'and check every row of the result'
+    }
+    if (alertForm.config.evaluation === 'first_row') {
+        return "and evaluate the query's first (newest) row"
+    }
+    return "and evaluate the query's last (newest) row"
+}
+
 export function AlertIntervalRow({
     alertForm,
     creatingNewAlert,
@@ -51,21 +64,54 @@ export function AlertIntervalRow({
     const hasHighFrequencyAlertsEntitlement = hasAvailableFeature(AvailableFeature.HIGH_FREQUENCY_ALERTS)
     const hasRealTimeAlertsEntitlement = hasAvailableFeature(AvailableFeature.REAL_TIME_ALERTS)
     const realTimeAlertsEnabled = useFeatureFlag('ALERTS_REAL_TIME_INTERVAL')
-    const hogqlEvaluation = isHogQLAlertConfig(alertForm.config) ? alertForm.config.evaluation : null
-    const hogqlEvaluatedText =
-        hogqlEvaluation === 'any_row'
-            ? 'and check every row of the result'
-            : hogqlEvaluation === 'first_row'
-              ? "and evaluate the query's first (newest) row"
-              : "and evaluate the query's last (newest) row"
+
+    let evaluatedWindow: JSX.Element
+    if (!supportsTimeWindow(alertForm.config)) {
+        evaluatedWindow = <div>{getHogQLEvaluatedText(alertForm)}</div>
+    } else {
+        const period =
+            isTrendsAlertConfig(alertForm.config) && alertForm.config.check_ongoing_interval ? 'current' : 'last'
+        evaluatedWindow = (
+            <div data-attr="alertForm-trend-interval">
+                and check {period}{' '}
+                <Tooltip
+                    title={
+                        <>
+                            Set by the insight's <b>grouped by</b> interval. Edit the insight to change it.
+                        </>
+                    }
+                >
+                    <span className="font-semibold underline decoration-dotted cursor-help">
+                        {trendInterval ?? 'day'}
+                    </span>
+                </Tooltip>
+            </div>
+        )
+    }
+
+    let nextEvaluation: JSX.Element | null = null
+    if (!creatingNewAlert && alert) {
+        let status: JSX.Element
+        if (nextPlannedEvaluationStale) {
+            status = <span>We'll recalculate this after you save.</span>
+        } else if (alert.next_check_at) {
+            status = <TZLabel time={alert.next_check_at} />
+        } else {
+            status = <span>We're calculating this. This can take a few minutes.</span>
+        }
+        nextEvaluation = (
+            <AlertNextEvaluationStatus loading={!nextPlannedEvaluationStale && !alert.next_check_at}>
+                {status}
+            </AlertNextEvaluationStatus>
+        )
+    }
+
+    const scheduleLabel =
+        alertForm.calculation_interval === AlertCalculationInterval.REAL_TIME ? 'Run alert' : 'Run alert every'
+
     return (
-        <>
-            <div className="flex flex-wrap gap-x-3 gap-y-2 items-center">
-                <div>
-                    {alertForm.calculation_interval === AlertCalculationInterval.REAL_TIME
-                        ? 'Run alert'
-                        : 'Run alert every'}
-                </div>
+        <div className="space-y-2">
+            <AlertDefinitionRow label={scheduleLabel}>
                 <LemonField name="calculation_interval">
                     {({ value, onChange }) => (
                         <LemonSelect
@@ -76,7 +122,6 @@ export function AlertIntervalRow({
                             options={getAlertIntervalOptions(
                                 hasHighFrequencyAlertsEntitlement,
                                 hasRealTimeAlertsEntitlement,
-                                // Keep the option visible for alerts that already use it, even if the rollout flag is off
                                 realTimeAlertsEnabled || value === AlertCalculationInterval.REAL_TIME
                             )}
                             onChange={(interval) => {
@@ -103,48 +148,9 @@ export function AlertIntervalRow({
                         />
                     )}
                 </LemonField>
-                {!supportsTimeWindow(alertForm.config) ? (
-                    // SQL queries own their time window — there is no insight interval to echo here,
-                    // so state what is actually evaluated instead of a trends-style "check last day".
-                    <div>{hogqlEvaluatedText}</div>
-                ) : (
-                    <div data-attr="alertForm-trend-interval">
-                        and check{' '}
-                        {isTrendsAlertConfig(alertForm?.config) && alertForm.config.check_ongoing_interval
-                            ? 'current'
-                            : 'last'}{' '}
-                        <Tooltip
-                            title={
-                                <>
-                                    Set by the insight's <b>grouped by</b> interval. Edit the insight to change it.
-                                </>
-                            }
-                        >
-                            <span className="font-semibold underline decoration-dotted cursor-help">
-                                {trendInterval ?? 'day'}
-                            </span>
-                        </Tooltip>
-                    </div>
-                )}
-            </div>
-            {!creatingNewAlert && alert ? (
-                <div className="text-sm text-muted flex flex-wrap items-center gap-x-2 gap-y-0">
-                    <IconClock
-                        className={`size-4 shrink-0 text-muted motion-reduce:animate-none${
-                            !nextPlannedEvaluationStale && !alert.next_check_at ? ' animate-spin' : ''
-                        }`}
-                        aria-hidden
-                    />
-                    <span className="shrink-0">Next planned evaluation:</span>
-                    {nextPlannedEvaluationStale ? (
-                        <span>We'll recalculate this after you save.</span>
-                    ) : alert.next_check_at ? (
-                        <TZLabel time={alert.next_check_at} />
-                    ) : (
-                        <span>We're calculating this. This can take a few minutes.</span>
-                    )}
-                </div>
-            ) : null}
-        </>
+                {evaluatedWindow}
+            </AlertDefinitionRow>
+            {nextEvaluation}
+        </div>
     )
 }
