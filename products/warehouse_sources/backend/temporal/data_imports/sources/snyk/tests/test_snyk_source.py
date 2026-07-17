@@ -50,6 +50,12 @@ class TestSnykSource:
     def test_source_type(self) -> None:
         assert self.source.source_type == ExternalDataSourceType.SNYK
 
+    def test_credential_retargeting_fields_force_token_reentry(self) -> None:
+        # `region` picks the host the token is sent to and `organization_id` picks the tenant it
+        # reads; dropping either from this list would let an editor retarget the preserved token
+        # without re-entering it.
+        assert self.source.connection_host_fields == ["region", "organization_id"]
+
     def test_source_config_basics(self) -> None:
         config = self.source.get_source_config
         assert config.label == "Snyk"

@@ -47,8 +47,10 @@ class SnykSource(ResumableSource[SnykSourceConfig, SnykResumeConfig]):
     @property
     def connection_host_fields(self) -> list[str]:
         # The API token is sent to the host derived from `region`, so changing the region must
-        # re-require the secret rather than reusing it against a different host.
-        return ["region"]
+        # re-require the secret rather than reusing it against a different host. `organization_id`
+        # selects which Snyk tenant the token reads, so retargeting it must also force re-entry —
+        # otherwise an editor could point the preserved token at another organization it can access.
+        return ["region", "organization_id"]
 
     @property
     def get_source_config(self) -> SourceConfig:
