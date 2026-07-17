@@ -27,9 +27,8 @@ class TestTracingAttributeValueSearch(ClickhouseTestMixin, APIBaseTest):
         sync_execute(TRACE_ATTRIBUTES_DISTRIBUTED_TABLE_SQL())
 
         bucket = dt.datetime(2026, 6, 2, 8, 0, 0).strftime("%Y-%m-%d %H:%M:%S")
-        # trace_attributes carries `TTL original_expiry_time_bucket`, so retention must not have
-        # elapsed yet or a background TTL merge empties the fixture mid-run. In production this
-        # column is the row's expiry deadline, not its time bucket.
+        # trace_attributes has `TTL original_expiry_time_bucket`; a past value lets a background
+        # merge empty the fixture mid-run.
         expiry_bucket = (dt.datetime.now(dt.UTC) + dt.timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
         # attribute_type values mirror the deployed MVs in bin/clickhouse-logs.sql.
         rows = [
