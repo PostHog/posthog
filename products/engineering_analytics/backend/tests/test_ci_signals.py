@@ -8,6 +8,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest import mock
 
 import pandas as pd
+from asgiref.sync import async_to_sync
 
 from products.engineering_analytics.backend.logic.ci_signals_config import (
     AUTHORIZED_SOURCES_CONFIG_KEY,
@@ -27,8 +28,10 @@ from products.engineering_analytics.backend.logic.signals.contracts import (
 )
 from products.engineering_analytics.backend.logic.signals.coordinator import (
     CISignalTarget,
-    _claim_unemitted,
     _detect_for_target,
+    _record_emitted,
+    _unemitted,
+    detect_and_emit_ci_signals_activity,
 )
 from products.engineering_analytics.backend.logic.signals.detectors import (
     detect_broken_default_branch,
@@ -44,7 +47,7 @@ from products.engineering_analytics.backend.tests.test_views import create_githu
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import ReportPriority
 from products.signals.backend.facade.api import set_signal_source_types_enabled, validate_signal_input
-from products.signals.backend.models import SignalSourceConfig
+from products.signals.backend.models import SignalEmissionRecord, SignalSourceConfig
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
@@ -216,13 +219,36 @@ class TestCISignalEmissionLedger(BaseTest):
             remediation=SignalRemediation(human="h", agent="a", priority=ReportPriority.P2),
         )
 
-    def test_claim_filters_already_emitted_and_records_the_rest(self) -> None:
+    def test_unemitted_filters_recorded_findings(self) -> None:
         findings = [self._finding("a"), self._finding("b")]
-        assert {f.source_id for f in _claim_unemitted(self.team, findings)} == {"a", "b"}
-        # Second sweep of the same standing conditions emits nothing.
-        assert _claim_unemitted(self.team, findings) == []
-        # A newly appeared condition still gets through.
-        assert {f.source_id for f in _claim_unemitted(self.team, [*findings, self._finding("c")])} == {"c"}
+        # A read alone records nothing, so a re-read still returns everything.
+        assert {f.source_id for f in _unemitted(self.team, findings)} == {"a", "b"}
+        assert {f.source_id for f in _unemitted(self.team, findings)} == {"a", "b"}
+        # Recording one drops it from the next read; unrecorded and new conditions still come through.
+        _record_emitted(self.team, self._finding("a"))
+        assert {f.source_id for f in _unemitted(self.team, [*findings, self._finding("c")])} == {"b", "c"}
+
+    def test_record_is_per_finding_so_a_failed_emit_is_retried(self) -> None:
+        # The coordinator records only after a successful emit. A finding whose emit raised is never
+        # recorded, so the next sweep re-detects and retries it rather than suppressing it for a week.
+        findings = [self._finding("emitted"), self._finding("failed")]
+        _record_emitted(self.team, findings[0])
+        assert {f.source_id for f in _unemitted(self.team, findings)} == {"failed"}
+
+    def test_activity_without_ai_approval_neither_emits_nor_records(self) -> None:
+        # emit_signal silently returns when the org isn't AI-approved; recording before that would
+        # bury the finding for its whole dedupe window. The activity gates approval up front instead.
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        target = CISignalTarget(team_id=self.team.id, source_id="gh-1", authorized_by_user_id=self.user.id)
+        with (
+            mock.patch(f"{_COORDINATOR}._detect_for_target", return_value=([self._finding("x")], self.team)),
+            mock.patch(f"{_COORDINATOR}.emit_signal") as emit,
+        ):
+            result = async_to_sync(detect_and_emit_ci_signals_activity)(target)
+        emit.assert_not_called()
+        assert result["emitted"] == 0
+        assert not SignalEmissionRecord.objects.filter(team=self.team).exists()
 
     def test_dry_run_reads_the_config_flag(self) -> None:
         update_ci_signals_config(team=self.team, enabled=True, created_by_id=self.user.id)

@@ -85,13 +85,9 @@ def _detect_for_target(target: CISignalTarget) -> tuple[list[CISignalFinding], T
     return detect_for_source(team, target.source_id, user_access_control=access_control), team
 
 
-def _claim_unemitted(team: Team, findings: list[CISignalFinding]) -> list[CISignalFinding]:
-    """Drop findings already emitted, and claim the rest.
-
-    The sweep re-detects standing conditions every hour, so without a durable claim they re-emit
-    forever. Claimed before emitting (as conversations does), which trades a dropped signal on a
-    mid-emit crash for never double-emitting.
-    """
+def _unemitted(team: Team, findings: list[CISignalFinding]) -> list[CISignalFinding]:
+    """Findings not yet recorded in the ledger — the sweep re-detects standing conditions hourly, and
+    this is what stops it re-emitting them."""
     if not findings:
         return []
     emitted_keys = set(
@@ -101,23 +97,26 @@ def _claim_unemitted(team: Team, findings: list[CISignalFinding]) -> list[CISign
             source_id__in=[finding.source_id for finding in findings],
         ).values_list("source_type", "source_id")
     )
-    fresh = [finding for finding in findings if (finding.source_type, finding.source_id) not in emitted_keys]
-    if fresh:
-        now = timezone.now()
-        SignalEmissionRecord.objects.bulk_create(
-            [
-                SignalEmissionRecord(
-                    team=team,
-                    source_product=SOURCE_PRODUCT,
-                    source_type=finding.source_type,
-                    source_id=finding.source_id,
-                    emitted_at=now,
-                )
-                for finding in fresh
-            ],
-            ignore_conflicts=True,
-        )
-    return fresh
+    return [finding for finding in findings if (finding.source_type, finding.source_id) not in emitted_keys]
+
+
+def _record_emitted(team: Team, finding: CISignalFinding) -> None:
+    """Ledger the finding after a successful emit. Recorded per-finding after dispatch, not up front,
+    so a finding whose emit raised is retried next sweep instead of being suppressed for the rest of
+    its dedupe window. The org AI-approval gate — which emit_signal enforces by silently returning —
+    is checked up front in the activity so an unapproved sweep never reaches here."""
+    SignalEmissionRecord.objects.bulk_create(
+        [
+            SignalEmissionRecord(
+                team=team,
+                source_product=SOURCE_PRODUCT,
+                source_type=finding.source_type,
+                source_id=finding.source_id,
+                emitted_at=timezone.now(),
+            )
+        ],
+        ignore_conflicts=True,
+    )
 
 
 async def _execute_target_activity(target: CISignalTarget) -> dict[str, Any] | None:
@@ -167,7 +166,14 @@ async def detect_and_emit_ci_signals_activity(target: CISignalTarget) -> dict[st
     findings, team = await database_sync_to_async(_detect_for_target, thread_sensitive=False)(target)
     if team is None or not findings:
         return {"team_id": target.team_id, "source_id": target.source_id, "findings": 0, "emitted": 0}
-    # Claims nothing, so clearing the flag re-emits these findings rather than skipping them.
+    # emit_signal enforces org AI-approval by silently returning; enabling the source never checks it,
+    # so gate here — otherwise the ledger records a finding that was never emitted.
+    approved = await database_sync_to_async(
+        lambda: team.organization.is_ai_data_processing_approved, thread_sensitive=False
+    )()
+    if not approved:
+        return {"team_id": target.team_id, "source_id": target.source_id, "findings": len(findings), "emitted": 0}
+    # Records nothing, so clearing the flag re-emits these findings rather than skipping them.
     if await database_sync_to_async(is_dry_run, thread_sensitive=False)(team=team):
         logger.info(
             "ci_signals_dry_run",
@@ -183,7 +189,7 @@ async def detect_and_emit_ci_signals_activity(target: CISignalTarget) -> dict[st
             "emitted": 0,
             "dry_run": True,
         }
-    fresh = await database_sync_to_async(_claim_unemitted, thread_sensitive=False)(team, findings)
+    fresh = await database_sync_to_async(_unemitted, thread_sensitive=False)(team, findings)
     if not fresh:
         return {"team_id": target.team_id, "source_id": target.source_id, "findings": len(findings), "emitted": 0}
     emitted = 0
@@ -199,7 +205,6 @@ async def detect_and_emit_ci_signals_activity(target: CISignalTarget) -> dict[st
                 extra=finding.extra,
                 remediation=finding.remediation,
             )
-            emitted += 1
         except Exception:
             logger.exception(
                 "ci_signal_emit_failed",
@@ -208,6 +213,9 @@ async def detect_and_emit_ci_signals_activity(target: CISignalTarget) -> dict[st
                 source_type=finding.source_type,
                 source_id=finding.source_id,
             )
+            continue
+        await database_sync_to_async(_record_emitted, thread_sensitive=False)(team, finding)
+        emitted += 1
     return {
         "team_id": target.team_id,
         "source_id": target.source_id,
