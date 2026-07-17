@@ -44,6 +44,11 @@ class TestOctopusDeploySource:
         assert key_field.secret is True
         assert key_field.required is True
 
+    def test_connection_host_fields_force_key_reentry_on_host_change(self):
+        # Changing host retargets the stored API key, so it must count as a host field and force
+        # the editor to re-enter the key rather than silently redirecting it to a new server.
+        assert self.source.connection_host_fields == ["host"]
+
     @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error"])
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()

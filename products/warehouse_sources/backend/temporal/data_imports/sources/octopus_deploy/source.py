@@ -79,6 +79,12 @@ You can create an API key in the Octopus web portal under **your profile > My AP
             ),
         )
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # The API key is sent to whatever host `host` points at, so retargeting it must
+        # re-require the key (prevents exfiltrating the stored key to a server the editor controls).
+        return ["host"]
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error": "Invalid Octopus Deploy API key. Please generate a new key and reconnect.",

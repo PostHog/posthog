@@ -1,4 +1,6 @@
 import re
+import json
+import time
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -23,7 +25,22 @@ MAX_RETRIES = 5
 MAX_RETRY_AFTER_SECONDS = 60
 SPACES_PAGE_SIZE = 100
 
+# The host is customer-controlled, so a malicious or misconfigured server could stream an
+# unbounded body and exhaust a shared worker (requests buffers the whole body into memory by
+# default, and the read timeout only guards idle gaps, not a steady large transfer). Cap what we
+# read into memory — far larger than any real listing page, anything past it is refused.
+MAX_RESPONSE_BYTES = 256 * 1024 * 1024
+RESPONSE_CHUNK_BYTES = 256 * 1024
+# Wall-clock budget for downloading one page's body. requests' timeout only bounds each individual
+# socket read, so a host that dribbles the body slowly could hold the connection (and a shared
+# worker) open far longer than any read timeout while staying under MAX_RESPONSE_BYTES. This caps
+# total transfer time — 256 MiB in 300s is a ~0.85 MiB/s floor, far below any real API response and
+# far above a slow-drip stall.
+MAX_DOWNLOAD_SECONDS = 300
+
 HOST_NOT_ALLOWED_ERROR = "Octopus Deploy host is not allowed"
+RESPONSE_TOO_LARGE_ERROR = "Octopus Deploy response body was too large"
+RESPONSE_TOO_SLOW_ERROR = "Octopus Deploy response download was too slow"
 
 
 class OctopusDeployRetryableError(Exception):
@@ -34,6 +51,43 @@ class OctopusDeployRetryableError(Exception):
 
 class OctopusDeployHostNotAllowedError(Exception):
     pass
+
+
+class OctopusDeployResponseTooLargeError(Exception):
+    pass
+
+
+class OctopusDeployResponseTooSlowError(Exception):
+    pass
+
+
+def _read_capped_body(response: requests.Response) -> bytes:
+    """Stream the body into memory, aborting past MAX_RESPONSE_BYTES or MAX_DOWNLOAD_SECONDS.
+
+    The host is customer-controlled, so a body must never be buffered unbounded (size cap) nor be
+    allowed to hold the connection open indefinitely by dribbling under the per-read timeout (time
+    cap). Both are non-retryable: re-fetching the same page yields the same oversized/slow body.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    deadline = time.monotonic() + MAX_DOWNLOAD_SECONDS
+    try:
+        for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_BYTES):
+            if time.monotonic() > deadline:
+                raise OctopusDeployResponseTooSlowError(
+                    f"{RESPONSE_TOO_SLOW_ERROR}: exceeded {MAX_DOWNLOAD_SECONDS}s download budget"
+                )
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > MAX_RESPONSE_BYTES:
+                raise OctopusDeployResponseTooLargeError(
+                    f"{RESPONSE_TOO_LARGE_ERROR}: exceeded {MAX_RESPONSE_BYTES} bytes"
+                )
+            chunks.append(chunk)
+    finally:
+        response.close()
+    return b"".join(chunks)
 
 
 @dataclasses.dataclass
@@ -125,9 +179,11 @@ def _fetch_page(
 ) -> dict[str, Any]:
     # Don't follow redirects: the customer-controlled host could 3xx to an internal address,
     # bypassing the host validation done before the request (SSRF).
-    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False)
+    # stream=True so the body isn't buffered until we cap it — see _read_capped_body.
+    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False, stream=True)
 
     if response.status_code == 429 or response.status_code >= 500:
+        response.close()
         retry_after = _parse_retry_after(response) if response.status_code == 429 else None
         raise OctopusDeployRetryableError(
             f"Octopus Deploy API error (retryable): status={response.status_code}, url={url}",
@@ -137,15 +193,20 @@ def _fetch_page(
     # A 3xx isn't an error status (`response.ok` is True), so reject it explicitly rather than
     # silently parsing the redirect body as data.
     if response.is_redirect or response.is_permanent_redirect:
+        response.close()
         raise OctopusDeployHostNotAllowedError(
             f"Octopus Deploy API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
         )
 
+    body = _read_capped_body(response)
+
     if not response.ok:
-        logger.error(f"Octopus Deploy API error: status={response.status_code}, body={response.text}, url={url}")
+        logger.error(
+            f"Octopus Deploy API error: status={response.status_code}, body={body.decode(errors='replace')}, url={url}"
+        )
         response.raise_for_status()
 
-    return response.json()
+    return json.loads(body or b"null")
 
 
 def _get_space_ids(
@@ -314,33 +375,45 @@ def validate_credentials(
     url = f"https://{normalized}/api/spaces?take=1"
     try:
         # Don't follow redirects: the validated host could 3xx to an internal address, defeating
-        # the host check above (SSRF).
+        # the host check above (SSRF). stream=True so a customer-controlled host can't force us to
+        # buffer an unbounded probe body — see _read_capped_body.
         response = make_tracked_session(redact_values=(api_key,)).get(
-            url, headers=_get_headers(api_key), timeout=10, allow_redirects=False
+            url, headers=_get_headers(api_key), timeout=10, allow_redirects=False, stream=True
         )
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
-    if response.is_redirect or response.is_permanent_redirect:
-        return False, HOST_NOT_ALLOWED_ERROR
-
-    if response.status_code == 200:
-        return True, None
-
-    if response.status_code == 401:
-        return False, "Invalid Octopus Deploy API key"
-
-    if response.status_code == 403:
-        if schema_name is None:
-            # Valid key, missing permission for this probe — let source creation through.
-            return True, None
-        return False, "Your Octopus Deploy API key lacks the required permissions for this endpoint"
-
     try:
-        body = response.json()
-        return False, body.get("ErrorMessage", response.text)
-    except Exception:
-        return False, response.text
+        if response.is_redirect or response.is_permanent_redirect:
+            return False, HOST_NOT_ALLOWED_ERROR
+
+        if response.status_code == 200:
+            return True, None
+
+        if response.status_code == 401:
+            return False, "Invalid Octopus Deploy API key"
+
+        if response.status_code == 403:
+            if schema_name is None:
+                # Valid key, missing permission for this probe — let source creation through.
+                return True, None
+            return False, "Your Octopus Deploy API key lacks the required permissions for this endpoint"
+
+        try:
+            body = _read_capped_body(response)
+        except (OctopusDeployResponseTooLargeError, OctopusDeployResponseTooSlowError) as e:
+            return False, str(e)
+
+        text = body.decode(errors="replace")
+        try:
+            parsed = json.loads(body or b"null")
+        except ValueError:
+            return False, text
+        if isinstance(parsed, dict):
+            return False, parsed.get("ErrorMessage", text)
+        return False, text
+    finally:
+        response.close()
 
 
 def octopus_deploy_source(

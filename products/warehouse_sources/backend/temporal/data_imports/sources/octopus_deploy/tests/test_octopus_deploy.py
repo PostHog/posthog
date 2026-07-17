@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
@@ -32,6 +33,12 @@ def _response(*, status_code: int = 200, json_data: Any = None, text: str = "") 
     response.text = text
     response.json.return_value = json_data
     response.headers = {}
+    # The body is streamed and read via iter_content (stream=True), not response.json().
+    if json_data is not None:
+        body = json.dumps(json_data).encode()
+    else:
+        body = text.encode()
+    response.iter_content.return_value = [body] if body else []
     return response
 
 
@@ -395,6 +402,36 @@ class TestGetRows:
                     )
                 )
         session.get.assert_not_called()
+
+
+class TestReadCappedBody:
+    def _streamed(self, chunks: list[bytes]) -> mock.MagicMock:
+        response = mock.MagicMock()
+        response.iter_content.return_value = chunks
+        return response
+
+    def test_reads_full_body_and_closes(self):
+        response = self._streamed([b'{"ok"', b": true}"])
+        assert octopus_deploy_module._read_capped_body(response) == b'{"ok": true}'
+        response.close.assert_called_once()
+
+    def test_rejects_oversized_body(self):
+        # A customer-controlled host that streams past the cap must be refused before it exhausts
+        # the worker's memory, not buffered whole.
+        response = self._streamed([b"x" * 10, b"x" * 10])
+        with mock.patch.object(octopus_deploy_module, "MAX_RESPONSE_BYTES", 15):
+            with pytest.raises(octopus_deploy_module.OctopusDeployResponseTooLargeError):
+                octopus_deploy_module._read_capped_body(response)
+        response.close.assert_called_once()
+
+    def test_rejects_slow_download(self):
+        # A host dribbling the body under the per-read timeout must hit the wall-clock deadline
+        # rather than holding the connection (and worker) open indefinitely.
+        response = self._streamed([b"x"])
+        with mock.patch.object(octopus_deploy_module, "MAX_DOWNLOAD_SECONDS", -1):
+            with pytest.raises(octopus_deploy_module.OctopusDeployResponseTooSlowError):
+                octopus_deploy_module._read_capped_body(response)
+        response.close.assert_called_once()
 
 
 class TestRetryAfter:
