@@ -1,31 +1,28 @@
 import re
 import dataclasses
-from collections.abc import Iterator
-from typing import Any
+from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
+from requests.auth import HTTPBasicAuth
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm.settings import (
     AGILECRM_ENDPOINTS,
     BASE_URL_TEMPLATE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 
 # A valid Agile CRM subdomain is a single DNS label: letters, digits and hyphens only. Constraining
 # the domain to this pattern stops a malicious value (e.g. `evil.com#`) from retargeting the basic-auth
 # credentials at an attacker-controlled host once it's interpolated into the base URL.
 _DOMAIN_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]*$")
-
-REQUEST_TIMEOUT_SECONDS = 60
-
-
-class AgileCRMRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -46,91 +43,120 @@ def base_url(domain: str) -> str:
     return BASE_URL_TEMPLATE.format(domain=_validate_domain(domain))
 
 
-def _make_session(email: str, api_key: str) -> requests.Session:
-    # Agile CRM authenticates with HTTP Basic: account email as username, API key as password.
-    session = make_tracked_session(headers={"Accept": "application/json"}, redact_values=(api_key,))
-    session.auth = (email, api_key)
-    return session
+class AgileCRMCursorPaginator(BasePaginator):
+    """Agile CRM signals the next page via a `cursor` field on the *last* item of the current page.
+
+    A missing cursor or a short page (fewer items than the requested page size) means the final page.
+    The cursor is stripped from the yielded rows by the endpoint's `data_map`, not here.
+    """
+
+    def __init__(self, page_size: int) -> None:
+        super().__init__()
+        self.page_size = page_size
+        self._cursor: Optional[str] = None
+
+    def _inject_cursor(self, request: Request) -> None:
+        if self._cursor is not None:
+            if request.params is None:
+                request.params = {}
+            request.params["cursor"] = self._cursor
+
+    def init_request(self, request: Request) -> None:
+        # Honour a seeded resume cursor on the first request.
+        self._inject_cursor(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        items = data or []
+        last_item = items[-1] if items else None
+        next_cursor = last_item.get("cursor") if isinstance(last_item, dict) else None
+        self._cursor = next_cursor
+        # No items, no cursor on the last item, or a short page all mean we've reached the end.
+        self._has_next_page = bool(next_cursor) and len(items) >= self.page_size
+
+    def update_request(self, request: Request) -> None:
+        self._inject_cursor(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        if self._has_next_page and self._cursor is not None:
+            return {"cursor": self._cursor}
+        return None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        cursor = state.get("cursor")
+        if cursor is not None:
+            self._cursor = cursor
+            self._has_next_page = True
 
 
-@retry(
-    retry=retry_if_exception_type((AgileCRMRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session, url: str, params: dict[str, Any], logger: FilteringBoundLogger
-) -> list[dict[str, Any]]:
-    response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise AgileCRMRetryableError(f"Agile CRM API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"Agile CRM API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    data = response.json()
-    # Known list endpoints return a bare JSON array. Tolerate an unexpected object by returning no rows
-    # rather than crashing the sync.
-    if isinstance(data, list):
-        return data
-    return []
+def _strip_cursor(item: dict[str, Any]) -> dict[str, Any]:
+    # The cursor is navigation metadata carried on the last item of each page, not data. Strip it so
+    # it isn't written to the warehouse as a sparse `cursor` column that only the final row of each
+    # page carries.
+    return {k: v for k, v in item.items() if k != "cursor"}
 
 
-def get_rows(
+def agilecrm_source(
     domain: str,
     email: str,
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[AgileCRMResumeConfig],
-) -> Iterator[Any]:
+    db_incremental_field_last_value: Optional[Any] = None,
+) -> SourceResponse:
     config = AGILECRM_ENDPOINTS[endpoint]
-    url = f"{base_url(domain)}/{config.path}"
-    session = _make_session(email, api_key)
-    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    cursor = resume.cursor if resume else None
-    if cursor:
-        logger.debug(f"Agile CRM: resuming {endpoint} from cursor={cursor}")
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": base_url(domain),
+            "headers": {"Accept": "application/json"},
+            # Agile CRM authenticates with HTTP Basic: account email as username, API key as password.
+            "auth": {"type": "http_basic", "username": email, "password": api_key},
+            "paginator": AgileCRMCursorPaginator(page_size=config.page_size),
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"page_size": config.page_size},
+                    "data_selector": config.data_selector,
+                    # Known list endpoints return a bare JSON array; a 200 object body means the
+                    # response shape changed — fail loud instead of silently mis-syncing.
+                    "data_selector_required": True,
+                },
+                "data_map": _strip_cursor,
+            }
+        ],
+    }
 
-    while True:
-        params: dict[str, Any] = {"page_size": config.page_size}
-        if cursor:
-            params["cursor"] = cursor
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.cursor:
+            initial_paginator_state = {"cursor": resume.cursor}
 
-        items = _fetch_page(session, url, params, logger)
-        if not items:
-            break
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; saved AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes on the primary key) rather than skipping it.
+        if state and state.get("cursor"):
+            resumable_source_manager.save_state(AgileCRMResumeConfig(cursor=str(state["cursor"])))
 
-        # Agile CRM signals the next page via a `cursor` field on the *last* item of the current page.
-        last_item = items[-1]
-        next_cursor = last_item.get("cursor") if isinstance(last_item, dict) else None
-        # The cursor is navigation metadata, not data. Strip it from the last item so it isn't written
-        # to the warehouse as a sparse `cursor` column that only the final row of each page carries.
-        if isinstance(last_item, dict) and "cursor" in last_item:
-            items = [*items[:-1], {k: v for k, v in last_item.items() if k != "cursor"}]
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
 
-        for item in items:
-            batcher.batch(item)
-            if batcher.should_yield():
-                yield batcher.get_table()
-                # Save AFTER yielding so a crash re-yields the last page (merge dedupes on the primary
-                # key) rather than skipping it. Only persist when another page follows.
-                if next_cursor:
-                    resumable_source_manager.save_state(AgileCRMResumeConfig(cursor=next_cursor))
-
-        # No cursor, or a short page, means we've reached the end.
-        if not next_cursor or len(items) < config.page_size:
-            break
-
-        cursor = next_cursor
-
-    if batcher.should_yield(include_incomplete_chunk=True):
-        yield batcher.get_table()
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+    )
 
 
 def validate_credentials(domain: str, email: str, api_key: str) -> bool:
@@ -139,32 +165,9 @@ def validate_credentials(domain: str, email: str, api_key: str) -> bool:
     except ValueError:
         return False
 
-    try:
-        response = _make_session(email, api_key).get(url, params={"page_size": 1}, timeout=REQUEST_TIMEOUT_SECONDS)
-        return response.status_code == 200
-    except Exception:
-        return False
-
-
-def agilecrm_source(
-    domain: str,
-    email: str,
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[AgileCRMResumeConfig],
-) -> SourceResponse:
-    endpoint_config = AGILECRM_ENDPOINTS[endpoint]
-
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: get_rows(
-            domain=domain,
-            email=email,
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
-        primary_keys=endpoint_config.primary_keys,
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(headers={"Accept": "application/json"}, redact_values=(api_key,)),
+        f"{url}?page_size=1",
+        auth=HTTPBasicAuth(email, api_key),
     )
+    return ok
