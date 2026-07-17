@@ -1,10 +1,11 @@
 import { deepEqual as equal } from 'fast-equals'
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { parseTagsFilter } from 'lib/utils/url'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
@@ -146,8 +147,14 @@ export interface logsSceneLogicActions {
 
 export type logsSceneLogicType = MakeLogicType<logsSceneLogicValues, logsSceneLogicActions>
 
+export interface LogsLogicProps {
+    tabId: string
+}
+
 export const logsSceneLogic = kea<logsSceneLogicType>([
+    props({} as LogsLogicProps),
     path(['products', 'logs', 'frontend', 'logsSceneLogic']),
+    tabAwareScene(),
     connect(() => ({
         actions: [
             logsViewerFiltersLogic({ id: LOGS_SCENE_VIEWER_ID }),
@@ -406,6 +413,10 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 setExpandedAttributeBreaksdowns: (_, { expandedAttributeBreaksdowns }) => expandedAttributeBreaksdowns,
             },
         ],
+    }),
+
+    selectors({
+        tabId: [(_, p) => [p.tabId], (tabId: string) => tabId],
     }),
 
     listeners(({ values, actions, cache }) => ({
