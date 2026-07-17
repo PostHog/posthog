@@ -169,6 +169,26 @@ async def aretry_on_db_connection_drop(operation: Callable[[], Coroutine[Any, An
         return await operation()
 
 
+def retry_on_db_connection_drop(operation: Callable[[], T]) -> T:
+    """Run a sync DB operation, retrying once on a transient connection drop.
+
+    The sync counterpart of ``aretry_on_db_connection_drop`` — see it for the full rationale.
+    Long-lived workers pool their connections through pgbouncer, so a pool recycle, failover, or
+    deploy can leave a stale pooled connection that raises ``OperationalError`` / ``InterfaceError``
+    the first time it's used. Evict the dead connection and retry once on a fresh one; a second
+    failure propagates to the caller's retry posture.
+
+    Pass a zero-arg callable that *produces* the result, so the retry can re-run the operation:
+
+        mark_initial_sync_complete_locked = retry_on_db_connection_drop(lambda: _write(schema_id))
+    """
+    try:
+        return operation()
+    except (django.db.OperationalError, django.db.InterfaceError):
+        _close_db_connections()
+        return operation()
+
+
 def get_scheduled_start_time():
     """Return the start time of a workflow.
 

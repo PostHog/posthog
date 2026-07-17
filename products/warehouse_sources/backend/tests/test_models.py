@@ -5,6 +5,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import OperationalError
 from django.db.models import Model
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -458,6 +459,29 @@ class TestMarkInitialSyncComplete(BaseTest):
         schema.refresh_from_db()
         assert schema.initial_sync_complete == expected_flag
         assert schema.sync_type_config == expected_config
+
+    def test_transient_connection_drop_is_retried(self) -> None:
+        # A long sync can leave the pooled connection idle until the pooler reaps it, so the first
+        # DB access at completion raises OperationalError. The write must reconnect and still flip
+        # the schema (and the CDC snapshot→streaming edge) instead of failing the import.
+        schema = self._create("cdc", {"cdc_mode": "snapshot"})
+        real_select_for_update = ExternalDataSchema.objects.select_for_update
+        attempts = 0
+
+        def flaky_select_for_update(*args: object, **kwargs: object):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise OperationalError("server closed the connection unexpectedly")
+            return real_select_for_update(*args, **kwargs)
+
+        with patch.object(ExternalDataSchema.objects, "select_for_update", side_effect=flaky_select_for_update):
+            mark_initial_sync_complete(schema.id, self.team.pk)
+
+        assert attempts == 2
+        schema.refresh_from_db()
+        assert schema.initial_sync_complete is True
+        assert schema.sync_type_config == {"cdc_mode": "streaming"}
 
 
 @pytest.mark.parametrize(

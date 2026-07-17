@@ -16,6 +16,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.utils import retry_on_db_connection_drop
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
@@ -841,22 +842,34 @@ def mark_initial_sync_complete(schema_id: str | uuid.UUID, team_id: int) -> None
     ``update_sync_type_config_keys``: the CDC extract activity appends ``cdc_deferred_runs``
     to ``sync_type_config`` concurrently, and an unlocked read-modify-write here could
     clobber a deferred run.
+
+    Runs through ``retry_on_db_connection_drop``: this fires at the very end of an import, after a
+    sync that may have run long enough for the pooler to reap the idle pooled connection. Django
+    would then fail to open the transaction with "server closed the connection unexpectedly", and
+    re-raising here forces a wasteful full re-import (and, for CDC schemas, delays the
+    snapshot→streaming flip). Evicting the dead connection and retrying once reconnects instead.
     """
-    with transaction.atomic():
-        schema = ExternalDataSchema.objects.select_for_update().exclude(deleted=True).get(id=schema_id, team_id=team_id)
-        if schema.initial_sync_complete:
-            return
 
-        schema.initial_sync_complete = True
-        update_fields = ["initial_sync_complete", "updated_at"]
+    def _write() -> None:
+        with transaction.atomic():
+            schema = (
+                ExternalDataSchema.objects.select_for_update().exclude(deleted=True).get(id=schema_id, team_id=team_id)
+            )
+            if schema.initial_sync_complete:
+                return
 
-        if schema.is_cdc and schema.cdc_mode == "snapshot":
-            config = schema.sync_type_config or {}
-            config["cdc_mode"] = "streaming"
-            schema.sync_type_config = config
-            update_fields.append("sync_type_config")
+            schema.initial_sync_complete = True
+            update_fields = ["initial_sync_complete", "updated_at"]
 
-        schema.save(update_fields=update_fields, skip_activity_log=True)
+            if schema.is_cdc and schema.cdc_mode == "snapshot":
+                config = schema.sync_type_config or {}
+                config["cdc_mode"] = "streaming"
+                schema.sync_type_config = config
+                update_fields.append("sync_type_config")
+
+            schema.save(update_fields=update_fields, skip_activity_log=True)
+
+    retry_on_db_connection_drop(_write)
 
 
 def get_all_schemas_for_source_id(source_id: str, team_id: int):
