@@ -291,7 +291,9 @@ class FleetFindingsSummarySerializer(serializers.Serializer):
     scout_count = serializers.IntegerField(
         help_text=(
             "Number of distinct scouts (skills) that produced output in the window — emitted a "
-            "finding, or authored/edited an inbox report."
+            "finding, or authored/edited an inbox report that survives the 50-report cap (a "
+            "report-only scout whose touched reports all fell outside the cap is not counted, "
+            "matching the findings page's scout filter)."
         )
     )
     authored_report_count = serializers.IntegerField(

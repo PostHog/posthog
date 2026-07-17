@@ -28472,7 +28472,7 @@ export namespace Schemas {
     export interface FleetFindingsSummary {
       /** Total findings the fleet emitted in the window — the sum of each run's `emitted_count`, over the most recent 120 runs that produced output. */
       count: number;
-      /** Number of distinct scouts (skills) that produced output in the window — emitted a finding, or authored/edited an inbox report. */
+      /** Number of distinct scouts (skills) that produced output in the window — emitted a finding, or authored/edited an inbox report that survives the 50-report cap (a report-only scout whose touched reports all fell outside the cap is not counted, matching the findings page's scout filter). */
       scout_count: number;
       /** Number of distinct inbox reports scouts authored via `emit_report`, deduped across runs, over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently touched reports (the same slice the findings page lists). */
       authored_report_count: number;

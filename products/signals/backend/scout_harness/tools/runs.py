@@ -235,7 +235,12 @@ def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS
     latest_at: datetime | None = None
     for emitted_count, skill_name, emitted_at, _emitted_report_ids, _edited_report_ids in materialized:
         count += emitted_count or 0
-        scouts.add(skill_name)
+        # Finding-emitting scouts always count (findings aren't report-capped); report-only scouts
+        # are added below only when a report they touched survives the report cap — the same rule
+        # the findings page uses for its scout filter, so the callout can't advertise a scout the
+        # page won't show.
+        if emitted_count:
+            scouts.add(skill_name)
         if emitted_at is not None and (latest_at is None or emitted_at > latest_at):
             latest_at = emitted_at
     # Distinct touched reports, most recently touched first (rows are newest-first), capped at the
@@ -246,6 +251,9 @@ def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS
         for report_id in [*(edited_report_ids or []), *(emitted_report_ids or [])]:
             if report_id not in kept_report_ids and len(kept_report_ids) < FLEET_FINDINGS_SUMMARY_REPORT_CAP:
                 kept_report_ids[report_id] = None
+    for _, skill_name, _, emitted_report_ids, edited_report_ids in materialized:
+        if any(report_id in kept_report_ids for report_id in [*(emitted_report_ids or []), *(edited_report_ids or [])]):
+            scouts.add(skill_name)
     # Authoring supersedes an edit of the same report — one report, one bucket.
     authored_reports: set[str] = set()
     for _, _, _, emitted_report_ids, _edited_report_ids in materialized:

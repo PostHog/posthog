@@ -581,6 +581,9 @@ class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
         body = response.json()
         assert body["authored_report_count"] == 1
         assert body["edited_report_count"] == 0
+        # The errors scout's only touched report fell outside the cap — it must not count either,
+        # or the callout advertises a scout the findings page's filter won't show.
+        assert body["scout_count"] == 1
 
     def test_summary_excludes_runs_outside_the_window(self) -> None:
         # Guards the `created_at` window filter: a finding emitted before the lookback must not count,

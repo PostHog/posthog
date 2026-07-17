@@ -96,6 +96,7 @@ export interface findingsLogicValues {
         action: ScoutReportAction
         id: string
         latestRunId: string
+        runIds: string[]
         skillName: string
         skillNames: string[]
     }[]
@@ -178,6 +179,7 @@ export interface findingsLogicMeta {
             action: ScoutReportAction
             id: string
             latestRunId: string
+            runIds: string[]
             skillName: string
             skillNames: string[]
         }[]
@@ -186,6 +188,7 @@ export interface findingsLogicMeta {
                 action: ScoutReportAction
                 id: string
                 latestRunId: string
+                runIds: string[]
                 skillName: string
                 skillNames: string[]
             }[]
@@ -196,6 +199,7 @@ export interface findingsLogicMeta {
                 action: ScoutReportAction
                 id: string
                 latestRunId: string
+                runIds: string[]
                 skillName: string
                 skillNames: string[]
             }[]
@@ -219,6 +223,7 @@ export interface findingsLogicMeta {
                 action: ScoutReportAction
                 id: string
                 latestRunId: string
+                runIds: string[]
                 skillName: string
                 skillNames: string[]
             }[]
@@ -240,6 +245,7 @@ export interface findingsLogicMeta {
                 action: ScoutReportAction
                 id: string
                 latestRunId: string
+                runIds: string[]
                 skillName: string
                 skillNames: string[]
             }[]
@@ -249,6 +255,7 @@ export interface findingsLogicMeta {
                 action: ScoutReportAction
                 id: string
                 latestRunId: string
+                runIds: string[]
                 skillName: string
                 skillNames: string[]
             }[]
@@ -270,6 +277,7 @@ export interface findingsLogicMeta {
                 action: ScoutReportAction
                 id: string
                 latestRunId: string
+                runIds: string[]
                 skillName: string
                 skillNames: string[]
             }[],
@@ -386,6 +394,12 @@ export const findingsLogic = kea<findingsLogicType>([
                             byId.set(result.value.id, result.value)
                         }
                     }
+                    // Every fetch rejected — throw BEFORE merging cached rows, so an outage flags
+                    // `scoutReportsLoadFailed` (warning banner over the stale set kea-loaders keeps)
+                    // instead of laundering the cache into a "successful" refresh.
+                    if (byId.size === 0) {
+                        throw new Error('Failed to load the reports scouts touched')
+                    }
                     // Keep prior resolved reports for still-touched ids that weren't (successfully)
                     // fetched this round — a partial failure must not drop them, and a targeted
                     // refresh must not discard the untargeted rest.
@@ -393,11 +407,6 @@ export const findingsLogic = kea<findingsLogicType>([
                         if (!byId.has(previous.id) && touchedIds.has(previous.id)) {
                             byId.set(previous.id, previous)
                         }
-                    }
-                    // Nothing resolvable at all (full-load outage with no prior data) — surface the
-                    // Reports section's error/retry state rather than a false "no reports".
-                    if (byId.size === 0) {
-                        throw new Error('Failed to load the reports scouts touched')
                     }
                     return [...byId.values()]
                 },
@@ -469,17 +478,25 @@ export const findingsLogic = kea<findingsLogicType>([
                 skillName: string
                 skillNames: string[]
                 latestRunId: string
+                runIds: string[]
             }[] => {
-                // Newest run touching each report, on either channel — drives both the recency cap
-                // order and the refetch key (a later run re-editing a report must refetch it). Also
-                // collects *every* touching scout, so a report scout B edited stays findable under
-                // B's filter even when scout A's authoring wins the card attribution.
+                // Newest run touching each report, on either channel — drives the recency cap order
+                // and the poll's recency check. Also collects *every* touching run (for the refetch
+                // key — a run first observed after it settled must still trigger a reload) and every
+                // touching scout, so a report scout B edited stays findable under B's filter even
+                // when scout A's authoring wins the card attribution.
                 const latestRunById = new Map<string, string>()
+                const runIdsById = new Map<string, string[]>()
                 const skillNamesById = new Map<string, string[]>()
                 for (const run of emittedRuns) {
                     for (const id of [...(run.edited_report_ids ?? []), ...(run.emitted_report_ids ?? [])]) {
                         if (!latestRunById.has(id)) {
                             latestRunById.set(id, run.run_id)
+                        }
+                        const runIds = runIdsById.get(id) ?? []
+                        if (!runIds.includes(run.run_id)) {
+                            runIds.push(run.run_id)
+                            runIdsById.set(id, runIds)
                         }
                         const skills = skillNamesById.get(id) ?? []
                         if (!skills.includes(run.skill_name)) {
@@ -509,20 +526,28 @@ export const findingsLogic = kea<findingsLogicType>([
                     ...byId.get(id)!,
                     skillNames: skillNamesById.get(id) ?? [],
                     latestRunId,
+                    runIds: runIdsById.get(id) ?? [],
                 }))
             },
         ],
         // Stable key over the touched report set — refetch the reports only when the set actually
-        // changes, not on every runs-window poll that returns the same runs. Includes the newest
-        // touching run id so a later run editing an already-listed report refetches its live
-        // title/status rather than serving them stale forever.
+        // changes, not on every runs-window poll that returns the same runs. Includes *every*
+        // touching run id, so any newly observed touch refetches the report's live title/status —
+        // including an overlapping run's edit first observed after that run settled, which the
+        // newest-run-only key missed (the poll's live-run fallback skips settled runs).
         touchedReportsKey: [
             (s) => [s.touchedReports],
             (
-                touchedReports: { id: string; action: ScoutReportAction; skillName: string; latestRunId: string }[]
+                touchedReports: {
+                    id: string
+                    action: ScoutReportAction
+                    skillName: string
+                    latestRunId: string
+                    runIds: string[]
+                }[]
             ): string =>
                 touchedReports
-                    .map(({ id, action, latestRunId }) => `${id}:${action}:${latestRunId}`)
+                    .map(({ id, action, runIds }) => `${id}:${action}:${[...runIds].sort().join('+')}`)
                     .sort()
                     .join(','),
         ],
