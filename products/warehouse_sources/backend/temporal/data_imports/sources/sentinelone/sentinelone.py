@@ -209,7 +209,7 @@ def validate_credentials(
     try:
         # Don't follow redirects: the validated host could 3xx to an internal address,
         # defeating the host check above (SSRF).
-        response = make_tracked_session().get(
+        response = make_tracked_session(redact_values=(api_token,), capture=False, allow_redirects=False).get(
             url, headers=_get_headers(api_token), params=params, timeout=10, allow_redirects=False
         )
     except requests.exceptions.RequestException as e:
@@ -283,7 +283,7 @@ def get_rows(
             logger.warning("SentinelOne: ignoring resume URL whose host does not match the configured console URL")
         url = initial_url
 
-    session = make_tracked_session()
+    session = make_tracked_session(redact_values=(api_token,), capture=False, allow_redirects=False)
 
     @retry(
         retry=retry_if_exception_type((SentinelOneRetryableError, requests.ReadTimeout, requests.ConnectionError)),
