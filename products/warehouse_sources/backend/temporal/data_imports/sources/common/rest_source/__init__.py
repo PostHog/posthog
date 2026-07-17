@@ -19,7 +19,7 @@ from .config_setup import (
 from .jsonpath_utils import TJsonPath
 from .paginators import BasePaginator
 from .resource import Resource
-from .rest_client import DEFAULT_RETRY_ATTEMPTS, RESTClient
+from .rest_client import DEFAULT_RETRY_ATTEMPTS, RESTClient, resolve_request_timeout
 from .typing import ClientConfig, Endpoint, EndpointResource, HTTPMethodBasic, ResolvedParam, RESTAPIConfig
 from .utils import exclude_keys  # noqa: F401
 
@@ -262,6 +262,9 @@ def create_resources(
             paginator=create_paginator(client_config.get("paginator")),
             session=client_config.get("session"),
             max_retry_attempts=client_config.get("max_retries", DEFAULT_RETRY_ATTEMPTS),
+            # Coerce through `resolve_request_timeout`: manifests are client-authored, so a
+            # `null`/malformed value must land on the default bound, never `None` (unbounded).
+            request_timeout=resolve_request_timeout(client_config.get("request_timeout")),
         )
 
         hooks = create_response_hooks(endpoint_config.get("response_actions"))

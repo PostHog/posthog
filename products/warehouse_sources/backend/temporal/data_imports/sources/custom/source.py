@@ -1243,6 +1243,9 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                     # One attempt only — a rate-limited endpoint must surface an error
                     # inline, not sleep on `Retry-After` and tie up the request thread.
                     "max_retries": 1,
+                    # Short probe timeout so a stalled upstream can't hang the preview — the
+                    # default sync bound is far longer than an interactive preview should wait.
+                    "request_timeout": (PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT),
                 },
             },
         )
@@ -1302,10 +1305,11 @@ class PreviewResponseTooLargeError(Exception):
 class _PreviewSession(_NoRedirectSession):
     """No-redirect session for the inline preview read, bounded on time and size.
 
-    Pins a session-level timeout (``RESTClient.send()`` passes none, so a stalled
-    upstream can't hang the request thread) and caps the response bytes parsed via a
-    budget shared across the preview — one session serves one preview. See
-    ``_read_within_budget`` for the size enforcement.
+    The preview's request timeout is set via the client config's ``request_timeout``
+    (``RESTClient`` passes it to ``send``); the ``setdefault`` below is a fallback for
+    any direct ``send`` that omits it. Caps the response bytes parsed via a budget shared
+    across the preview — one session serves one preview. See ``_read_within_budget`` for
+    the size enforcement.
     """
 
     def __init__(self) -> None:
