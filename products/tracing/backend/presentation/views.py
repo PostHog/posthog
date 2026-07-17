@@ -1030,6 +1030,36 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         return Response({"results": response.results}, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request=_TracingLatencyHeatmapRequestSerializer,
+        responses={200: _TracingLatencyHeatmapResponseSerializer},
+    )
+    @action(detail=False, methods=["POST"], url_path="latency-heatmap", required_scopes=["tracing:read"])
+    def latency_heatmap(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        query_data = request.data.get("query", {})
+        date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
+
+        try:
+            filter_group = (
+                self.get_model(self._normalize_filter_group(query_data["filterGroup"]), PropertyGroupFilter)
+                if query_data.get("filterGroup")
+                else None
+            )
+        except (ValidationError, ValueError, ParseError):
+            filter_group = None
+
+        response = run_latency_heatmap_query(
+            team=self.team,
+            date_range=date_range,
+            service_names=query_data.get("serviceNames", None),
+            status_codes=query_data.get("statusCodes", None),
+            filter_group=filter_group,
+            root_spans=query_data.get("rootSpans", True),
+        )
+
+        return Response({"results": response.results}, status=status.HTTP_200_OK)
+
     @extend_schema(request=_TracingAggregationRequestSerializer)
     @action(detail=False, methods=["POST"], url_path="aggregate", required_scopes=["tracing:read"])
     def aggregate(self, request: Request, *args, **kwargs) -> Response:
