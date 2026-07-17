@@ -1,1 +1,1 @@
-0048_alter_visionaction_alert_config
+0049_replayscannerpromptsuggestion_base_config_and_more
