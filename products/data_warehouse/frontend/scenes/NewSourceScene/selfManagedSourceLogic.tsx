@@ -8,6 +8,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode } from '~/queries/schema/schema-general'
@@ -268,7 +269,10 @@ export const selfManagedSourceLogic = kea<selfManagedSourceLogicType>([
         },
         loadTableSuccess: async ({ table }) => {
             if (props.id) {
-                sourceSceneLogic.findMounted({ id: `self-managed-${props.id}` })?.actions.setBreadcrumbName(table.name)
+                const activeTabId = sceneLogic.findMounted()?.values.activeTabId ?? undefined
+                sourceSceneLogic
+                    .findMounted({ id: `self-managed-${props.id}`, tabId: activeTabId })
+                    ?.actions.setBreadcrumbName(table.name)
             }
         },
     })),

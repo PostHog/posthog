@@ -24,6 +24,7 @@ import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
@@ -46,6 +47,7 @@ import { sourceSceneLogic } from '../SourceScene'
 
 export interface SourceSettingsLogicProps {
     id: string
+    tabId?: string
     availableSources?: Record<string, SourceConfig>
 }
 
@@ -653,7 +655,7 @@ export type sourceSettingsLogicType = MakeLogicType<
 export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
     path(['products', 'dataWarehouse', 'sourceSettingsLogic']),
     props({} as SourceSettingsLogicProps),
-    key(({ id }) => id),
+    key(({ id, tabId }) => (tabId ? `${id}-${tabId}` : id)),
     connect(() => ({
         values: [availableSourcesLogic, ['availableSources']],
         actions: [sourcesDataLogic, ['updateSource']],
@@ -1226,9 +1228,10 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }, 'sourceRefreshTimeout')
                 }
 
+                const tabId = props.tabId ?? sceneLogic.findMounted()?.values.activeTabId ?? undefined
                 const sceneLogicInstance =
-                    sourceSceneLogic.findMounted({ id: `managed-${props.id}` }) ??
-                    sourceSceneLogic.findMounted({ id: props.id })
+                    sourceSceneLogic.findMounted({ id: `managed-${props.id}`, tabId }) ??
+                    sourceSceneLogic.findMounted({ id: props.id, tabId })
 
                 sceneLogicInstance?.actions.setBreadcrumbName(breadcrumbName)
             },

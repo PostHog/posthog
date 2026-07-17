@@ -17,6 +17,7 @@ import { sourceSettingsLogic } from './sourceSettingsLogic'
 
 export interface WebhookTabLogicProps {
     id: string
+    tabId?: string
 }
 
 export const WEBHOOK_SECTIONS = ['overview', 'configuration', 'activity'] as const

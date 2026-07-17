@@ -48,6 +48,7 @@ export type SourceSceneTab = (typeof SOURCE_SCENE_TABS)[number]
 
 export interface SourceSceneProps {
     id: string
+    tabId?: string
 }
 
 export function getDefaultDataWarehouseSourceSceneTab(id?: string): SourceSceneTab {
@@ -105,7 +106,7 @@ export type sourceSceneLogicType = MakeLogicType<
 
 export const sourceSceneLogic = kea<sourceSceneLogicType>([
     props({} as SourceSceneProps),
-    key(({ id }: SourceSceneProps) => id),
+    key(({ id, tabId }: SourceSceneProps) => (tabId ? `${id}-${tabId}` : id)),
     path((key) => ['products', 'dataWarehouse', 'sourceSceneLogic', key]),
     actions({
         setCurrentTab: (tab: SourceSceneTab) => ({ tab }),
@@ -199,8 +200,8 @@ export const scene: SceneExport<(typeof sourceSceneLogic)['props']> = {
     paramsToProps: ({ params: { id } }) => ({ id }),
 }
 
-export function SourceScene({ id }: SourceSceneProps): JSX.Element {
-    const logic = sourceSceneLogic({ id })
+export function SourceScene({ id, tabId }: SourceSceneProps): JSX.Element {
+    const logic = sourceSceneLogic({ id, tabId })
     const { currentTab, breadcrumbName } = useValues(logic)
     const { setCurrentTab } = useActions(logic)
 
@@ -224,6 +225,7 @@ export function SourceScene({ id }: SourceSceneProps): JSX.Element {
                     currentTab={currentTab}
                     setCurrentTab={setCurrentTab}
                     attachTo={logic}
+                    tabId={tabId}
                 />
             ) : (
                 <LemonTabs
@@ -248,11 +250,13 @@ function ManagedSourceTabs({
     currentTab,
     setCurrentTab,
     attachTo,
+    tabId,
 }: {
     sourceId: string
     currentTab: SourceSceneTab
     setCurrentTab: (tab: SourceSceneTab) => void
     attachTo: BuiltLogic | LogicWrapper
+    tabId?: string
 }): JSX.Element {
     const settingsLogic = sourceSettingsLogic({ id: sourceId, availableSources: {} })
     const { featureFlags } = useValues(featureFlagLogic)
@@ -305,7 +309,7 @@ function ManagedSourceTabs({
         tabs.push({
             label: 'Webhook',
             key: 'webhook',
-            content: <WebhookTab id={sourceId} />,
+            content: <WebhookTab id={sourceId} tabId={tabId} />,
         })
     }
 

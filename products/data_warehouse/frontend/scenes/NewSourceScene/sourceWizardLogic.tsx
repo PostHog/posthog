@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -318,6 +318,7 @@ function syncExpandedSchemaGroupKeys(
 export interface SourceWizardLogicProps {
     onComplete?: () => void
     availableSources: Record<string, SourceConfig>
+    tabId?: string
     /** When set, only these tables will be pre-selected and they cannot be deselected */
     requiredTables?: string[]
     /** Onboarding: pre-select every syncable table with smart defaults for a one-click sync */
@@ -1751,6 +1752,7 @@ export type sourceWizardLogicType = MakeLogicType<
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
     path(['products', 'dataWarehouse', 'sourceWizardLogic']),
     props({} as SourceWizardLogicProps),
+    key((props) => props.tabId ?? 'default'),
     actions({
         selectConnector: (connector: SourceConfig | null, accessMethod?: 'warehouse' | 'direct') => ({
             connector,
