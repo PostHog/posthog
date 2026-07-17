@@ -44,6 +44,12 @@ export const DashboardsCreateParams = /* @__PURE__ */ zod.object({
 
 export const DashboardsCreateQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['json', 'txt']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
+        ),
 })
 
 export const dashboardsCreateBodyNameMax = 400
@@ -122,6 +128,12 @@ export const DashboardsPartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const DashboardsPartialUpdateQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['json', 'txt']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
+        ),
 })
 
 export const dashboardsPartialUpdateBodyNameMax = 400
