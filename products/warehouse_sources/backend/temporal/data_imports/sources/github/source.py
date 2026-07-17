@@ -95,6 +95,15 @@ class GithubSource(
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GITHUB
 
+    def server_managed_job_input_fields(self, incoming_job_inputs, existing_job_inputs):
+        # The legacy `repository` is a server-managed marker once the multi-repo `repositories`
+        # field is in play: it defines which repo's schema rows keep bare (unqualified) names, so an
+        # edit can't rename or re-point it. Legacy-only PATCHes (no `repositories`) keep the original
+        # single-repo swap semantics, so it isn't pinned then.
+        if "repositories" in incoming_job_inputs or "repositories" in existing_job_inputs:
+            return ["repository"]
+        return []
+
     @property
     def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
         from products.warehouse_sources.backend.temporal.data_imports.sources.github.webhook_template import template

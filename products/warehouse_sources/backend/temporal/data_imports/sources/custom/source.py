@@ -663,6 +663,12 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CUSTOM
 
+    def server_managed_job_input_fields(self, incoming_job_inputs, existing_job_inputs):
+        # The OAuth2 integration row pointer is server-managed: pin it so an editor can't repoint
+        # the source at a different row (and through it, different credentials). Re-entered
+        # auth_oauth2_* secrets flow into the pinned row during credential validation.
+        return ["auth_oauth2_integration_id"]
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(

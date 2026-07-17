@@ -973,27 +973,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             else:
                 new_job_inputs.pop(key, None)
 
-        # GitHub's legacy `repository` is a server-managed marker once the multi-repo field is in
-        # play: it defines which repo's schema rows keep bare (unqualified) names, so an edit can
-        # never rename or re-point it. Legacy-only PATCHes (no `repositories` anywhere) keep the
-        # original single-repo swap semantics.
-        if source_type_model == ExternalDataSourceType.GITHUB and (
-            "repositories" in incoming_job_inputs or "repositories" in existing_job_inputs
-        ):
-            if existing_job_inputs.get("repository"):
-                new_job_inputs["repository"] = existing_job_inputs["repository"]
+        # Server-managed job_inputs (Custom's OAuth2 row pointer, GitHub's legacy `repository`
+        # marker): pin each to the stored value so an editor can't repoint the source at a different
+        # row/marker (and through it, different credentials). Re-entered auth_oauth2_* secrets flow
+        # into the pinned row during credential validation. The source declares which fields these
+        # are — the API never names the source type.
+        for field in source.server_managed_job_input_fields(incoming_job_inputs, existing_job_inputs):
+            if existing_job_inputs.get(field):
+                new_job_inputs[field] = existing_job_inputs[field]
             else:
-                new_job_inputs.pop("repository", None)
-
-        # The OAuth2 integration row pointer is server-managed: pin it to the stored value so an
-        # editor can't repoint the source at a different row (and through it, different credentials).
-        # Re-entered auth_oauth2_* secrets flow into the pinned row during credential validation.
-        if source_type_model == ExternalDataSourceType.CUSTOM:
-            existing_oauth2_pointer = existing_job_inputs.get("auth_oauth2_integration_id")
-            if existing_oauth2_pointer:
-                new_job_inputs["auth_oauth2_integration_id"] = existing_oauth2_pointer
-            else:
-                new_job_inputs.pop("auth_oauth2_integration_id", None)
+                new_job_inputs.pop(field, None)
 
         # If the connection target changed, require credentials to be re-entered. Covers
         # both the generic `host` field and source-specific URL fields like ServiceNow's

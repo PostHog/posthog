@@ -304,6 +304,15 @@ class _BaseSource(ABC, Generic[ConfigType]):
         a differently named field (e.g. Okta's ``okta_domain``) should list it here."""
         return []
 
+    def server_managed_job_input_fields(
+        self, incoming_job_inputs: dict[str, Any], existing_job_inputs: dict[str, Any]
+    ) -> list[str]:
+        """``job_inputs`` fields the client may not set/repoint on update — the server pins them
+        to the stored value (or drops them when unset). Used for server-owned markers and pointers
+        (Custom's ``auth_oauth2_integration_id``, GitHub's legacy ``repository``). Given both the
+        incoming and existing inputs so a source can gate on context. Default: none."""
+        return []
+
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
         """Best-effort teardown of CDC resources tied to the source. No-op by default."""
         return None
