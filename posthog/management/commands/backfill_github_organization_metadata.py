@@ -3,6 +3,8 @@ import logging
 from django.core.management.base import BaseCommand
 from django.core.paginator import Paginator
 
+import posthoganalytics
+
 from posthog.models.github_metadata import normalize_github_account_type, project_github_metadata_onto_organization
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
@@ -72,6 +74,11 @@ class Command(BaseCommand):
                     written += 1
                 else:
                     skipped += 1
+
+        if not dry_run:
+            # group_identify only enqueues onto the client's background consumer; without a flush
+            # the command can exit before anything is sent and the whole backfill silently no-ops.
+            posthoganalytics.flush()
 
         verb = "would project" if dry_run else "projected"
         self.stdout.write(self.style.SUCCESS(f"Done. {verb} {written}, skipped {skipped} of {total}"))

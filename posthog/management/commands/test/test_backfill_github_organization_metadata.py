@@ -22,8 +22,13 @@ class TestBackfillGitHubOrganizationMetadata(BaseTest):
             "1",
         )
 
-        call_command("backfill_github_organization_metadata")
+        with patch(
+            "posthog.management.commands.backfill_github_organization_metadata.posthoganalytics.flush"
+        ) as mock_flush:
+            call_command("backfill_github_organization_metadata")
 
+        # Without a flush the batched client can exit before sending anything.
+        mock_flush.assert_called_once()
         mock_group_identify.assert_called_once_with(
             "organization",
             str(self.team.organization_id),
