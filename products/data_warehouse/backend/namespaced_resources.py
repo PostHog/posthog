@@ -31,9 +31,7 @@ class NamespacedResourceAdapter(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def reconcile_resources(
-        self, *, source_model: Any, team: Any, old_resources: list[str], new_config: Any
-    ) -> None:
+    def reconcile_resources(self, *, source_model: Any, team: Any, old_resources: list[str], new_config: Any) -> None:
         """Bring schema rows and per-resource webhooks in line with the persisted new resource list."""
         raise NotImplementedError()
 

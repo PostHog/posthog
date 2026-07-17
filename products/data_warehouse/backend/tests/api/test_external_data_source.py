@@ -108,9 +108,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.sou
 def _configure_source_mock_versioning(mock_get_source) -> None:
     """Tests that patch `SourceRegistry.get_source` with a bare MagicMock must give the versioning
     attributes real values: the create path persists `default_version` into the `api_version`
-    column, and the serializer renders `get_version_deprecation` into the response."""
+    column, and the serializer renders `get_version_deprecation` into the response. The create path
+    also reads `max_instances_per_team` to enforce the per-team source limit — leave it unset so the
+    limit check is skipped rather than comparing against a MagicMock."""
     mock_get_source.return_value.default_version = "v1"
     mock_get_source.return_value.get_version_deprecation.return_value = None
+    mock_get_source.return_value.max_instances_per_team = None
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -7387,7 +7390,7 @@ class TestExternalDataSource(APIBaseTest):
 
         # Every case 400s; only the at-limit case is blocked *by the per-team limit* — the
         # excluded cases stay under the limit and fail later on the (empty) manifest instead.
-        limit_message = f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
+        limit_message = f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} sources of this type per project."
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         if expect_blocked:
             assert response.json()["message"] == limit_message
