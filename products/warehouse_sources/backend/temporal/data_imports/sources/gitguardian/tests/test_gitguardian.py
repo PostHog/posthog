@@ -180,6 +180,13 @@ class TestLinkHeaderPagination:
             )
         assert _query(fetched[0])["date_after"] == [expected]
 
+    def test_cross_origin_next_link_is_refused(self, monkeypatch: Any) -> None:
+        # Pagination URLs are fetched with the Authorization token attached; a tampered Link
+        # header must not be able to steer the token to another host.
+        responses = [_page([{"id": 1}], next_url="https://attacker.example/v1/incidents/secrets?cursor=abc")]
+        with pytest.raises(ValueError, match="cross-origin"):
+            _run_get_rows(monkeypatch, "secret_incidents", responses)
+
     def test_non_list_response_raises_instead_of_yielding_garbage(self, monkeypatch: Any) -> None:
         responses = [_page({"detail": "Not found."})]
         with pytest.raises(ValueError, match="non-list response"):
@@ -194,6 +201,12 @@ class TestResumeCheckpoints:
         rows, fetched, _ = _run_get_rows(monkeypatch, "secret_incidents", responses, manager=manager)
         assert [r["id"] for r in rows] == [4]
         assert fetched == [saved_url]
+
+    def test_cross_origin_resume_url_is_refused(self, monkeypatch: Any) -> None:
+        # Resume URLs come from persisted state; a tampered value must not receive the token either.
+        manager = _FakeManager(GitGuardianResumeConfig(url="https://attacker.example/v1/incidents/secrets?cursor=abc"))
+        with pytest.raises(ValueError, match="cross-origin"):
+            _run_get_rows(monkeypatch, "secret_incidents", [], manager=manager)
 
     def test_checkpoints_current_page_url_after_yield_and_clears_on_completion(self, monkeypatch: Any) -> None:
         # Resume must re-fetch the last yielded page (checkpoint the CURRENT URL, not the next one)

@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode, urljoin, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -114,6 +114,20 @@ def _next_page_url(response: requests.Response) -> str | None:
     return response.links.get("next", {}).get("url")
 
 
+def _ensure_same_origin(url: str, base_url: str) -> str:
+    """Refuse to fetch a URL whose origin differs from the configured API URL.
+
+    Pagination URLs come from response Link headers and resume URLs from persisted state; both
+    are fetched with the `Authorization` token attached, so a tampered value must not be able to
+    steer the token to another host. Relative URLs are resolved against the base first.
+    """
+    resolved = urljoin(f"{base_url}/", url)
+    base, target = urlsplit(base_url), urlsplit(resolved)
+    if (target.scheme, target.netloc) != (base.scheme, base.netloc):
+        raise ValueError(f"GitGuardian returned a cross-origin pagination URL; refusing to follow it: {resolved}")
+    return resolved
+
+
 def validate_credentials(api_key: str, base_url: str) -> tuple[bool, str | None]:
     """Probe the token against the scope-free health endpoint. 200 => valid; 401 => bad token."""
     url = f"{base_url}/v1/health"
@@ -195,7 +209,11 @@ def get_rows(
     resume = (
         resumable_source_manager.load_state() if config.resumable and resumable_source_manager.can_resume() else None
     )
-    url = resume.url if resume and resume.url else _build_url(base_url, config.path, params)
+    url = (
+        _ensure_same_origin(resume.url, base_url)
+        if resume and resume.url
+        else _build_url(base_url, config.path, params)
+    )
 
     while True:
         response = _fetch_page(session, url, headers, logger)
@@ -214,7 +232,7 @@ def get_rows(
 
         if not next_url:
             break
-        url = next_url
+        url = _ensure_same_origin(next_url, base_url)
 
     # The walk finished cleanly, so drop the checkpoint. Otherwise a retry that re-runs extract
     # after a completed walk would resume from the final page and skip everything before it.
