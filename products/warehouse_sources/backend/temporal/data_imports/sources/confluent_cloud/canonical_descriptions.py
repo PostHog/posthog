@@ -1,5 +1,6 @@
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
+    CanonicalEndpoint,
 )
 
 _METRICS_DOCS_URL = "https://api.telemetry.confluent.cloud/docs"
@@ -12,7 +13,7 @@ _TIME_SERIES_COLUMNS = {
 }
 
 
-def _time_series_table(resource_noun: str) -> dict:
+def _time_series_table(resource_noun: str) -> CanonicalEndpoint:
     return {
         "description": f"Hourly time-series values for every Metrics API metric that applies to your {resource_noun}, one row per metric, resource, and hour.",
         "docs_url": _METRICS_DOCS_URL,
