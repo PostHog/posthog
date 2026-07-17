@@ -88,6 +88,7 @@ function healthItem(
         workflow_name: workflowName,
         run_count: 320,
         successful_run_count: Math.round(320 * successRate),
+        conclusive_run_count: 320,
         success_rate: successRate,
         success_rate_prev: successRate - 0.03,
         p50_seconds: 540,

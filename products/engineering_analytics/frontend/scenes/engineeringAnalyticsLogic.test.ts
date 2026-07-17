@@ -200,6 +200,7 @@ const WORKFLOWS: WorkflowHealthItemApi[] = [
         workflow_name: 'CI',
         run_count: 100,
         successful_run_count: 90,
+        conclusive_run_count: 94,
         success_rate: 0.95,
         p50_seconds: 120,
         p95_seconds: 600,

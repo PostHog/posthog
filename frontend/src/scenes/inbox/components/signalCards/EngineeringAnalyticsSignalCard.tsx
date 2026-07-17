@@ -46,7 +46,7 @@ function MetricTag({ signal }: { signal: SignalNode }): JSX.Element | null {
             const e = extra as Record<string, unknown> & EngineeringAnalyticsCIBrokenDefaultBranchSignalExtraApi
             return (
                 <LemonTag type="danger" size="small" icon={<IconWarning />}>
-                    {e.branch} · {percentage(e.success_rate, 0)} pass
+                    {e.branch} · {percentage(e.conclusive_success_rate, 0)} pass
                 </LemonTag>
             )
         }
