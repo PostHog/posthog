@@ -4183,7 +4183,20 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_patch_cannot_mutate_protected_credential_state_keys(self, _mock_publish):
+        credential_target = self.create_organization_user("credential-target")
         task = self.create_task()
+        pending_external_followups = [
+            {
+                "message": "server queued message",
+                "artifact_ids": [],
+                "source": "user",
+                "actor_user_id": self.user.id,
+                "message_id": "server-message",
+                "context": {},
+                "steer": False,
+                "sequence": 0,
+            }
+        ]
         run = TaskRun.objects.create(
             task=task,
             team=self.team,
@@ -4203,6 +4216,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "snapshot_mount_path": "/tmp",
                 "workflow_id": "wf-real",
                 "pending_dispatch": {"workflow_id_prefix": "review-real", "create_pr": True},
+                "pending_external_followups": pending_external_followups,
+                "pending_external_followups_generation": 7,
             },
         )
 
@@ -4232,6 +4247,14 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "snapshot_mount_path": "/tmp/workspace",
                     "workflow_id": "wf-another-teams-workflow",
                     "pending_dispatch": {"workflow_id_prefix": "attacker", "posthog_mcp_scopes": ["*"]},
+                    "pending_external_followups": [
+                        {
+                            "message": "attacker message",
+                            "actor_user_id": credential_target.id,
+                            "context": {"interaction_origin": "slack"},
+                        }
+                    ],
+                    "pending_external_followups_generation": 999,
                     "scratch": "ok",
                 }
             },
@@ -4254,6 +4277,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["snapshot_mount_path"] == "/tmp"
         assert run.state["workflow_id"] == "wf-real"
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
+        assert run.state["pending_external_followups"] == pending_external_followups
+        assert run.state["pending_external_followups_generation"] == 7
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
@@ -4271,6 +4296,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "snapshot_mount_path",
                     "workflow_id",
                     "pending_dispatch",
+                    "pending_external_followups",
+                    "pending_external_followups_generation",
                     "scratch",
                 ],
             },
@@ -4287,6 +4314,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["snapshot_mount_path"] == "/tmp"  # protected key survives removal
         assert run.state["workflow_id"] == "wf-real"  # protected key survives removal
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
+        assert run.state["pending_external_followups"] == pending_external_followups
+        assert run.state["pending_external_followups_generation"] == 7
         assert "scratch" not in run.state  # non-protected key removed
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")

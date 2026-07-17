@@ -1617,6 +1617,8 @@ def _sync_automation_schedule(automation: TaskAutomation) -> None:
 #   - workflow_id is the run's Temporal workflow address (``TaskRun.workflow_id`` prefers it over
 #     the derived id); a caller could otherwise repoint their run at another team's workflow and
 #     signal or terminate-and-restart it.
+#   - pending_external_followups / pending_external_followups_generation are the workflow-owned
+#     durable queue; a caller could otherwise inject actor identity into a restored follow-up.
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
@@ -1640,6 +1642,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "cancel_requested_by_user_id",
         "cancel_source",
         "cancel_fallback_cleanup_complete",
+        "pending_external_followups",
+        "pending_external_followups_generation",
     }
 )
 
