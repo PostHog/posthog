@@ -114,4 +114,38 @@ describe('hogInvocationsLogic', () => {
             scoped.unmount()
         })
     })
+
+    describe('best-effort person hydration', () => {
+        beforeEach(() => {
+            // The person-properties query fails; run loads succeed so mount isn't noisy.
+            useMocks({
+                post: {
+                    // queryHogQL POSTs to /query/<kind>; fail only the person-properties query.
+                    '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        if (String(body?.query?.query ?? '').includes('FROM persons')) {
+                            return [500, { detail: 'boom' }]
+                        }
+                        return [200, { results: [] }]
+                    },
+                },
+            })
+            initKeaTests()
+        })
+
+        it('swallows a failed person-properties query instead of throwing', async () => {
+            // A transient failure enriching the table with person props must not surface as an
+            // error tracking issue: the loader falls back to the current map and the table just
+            // renders without the extra props. Dropping the catch would dispatch a failure here.
+            const logic = hogInvocationsLogic({ id: 'flow-1', functionKind: 'hog_flow' })
+            logic.mount()
+            await expectLogic(logic, () => {
+                logic.actions.hydratePeople(['00000000-0000-0000-0000-000000000001'])
+            })
+                .toDispatchActions(['hydratePeople', 'hydratePeopleSuccess'])
+                .toNotHaveDispatchedActions(['hydratePeopleFailure'])
+            expect(logic.values.personPropertiesById).toEqual({})
+            logic.unmount()
+        })
+    })
 })

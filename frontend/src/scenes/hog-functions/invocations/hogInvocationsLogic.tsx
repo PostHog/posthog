@@ -1139,10 +1139,17 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                         FROM persons
                         WHERE id IN (${idList})
                     `
-                    const response = await api.queryHogQL(query, {
-                        scene: 'HogInvocations',
-                        productKey: 'pipeline_destinations',
-                    })
+                    // Best-effort enrichment — a transient network blip just leaves the
+                    // table without person props rather than surfacing an error.
+                    const response = await api
+                        .queryHogQL(query, {
+                            scene: 'HogInvocations',
+                            productKey: 'pipeline_destinations',
+                        })
+                        .catch(() => null)
+                    if (!response) {
+                        return values.personPropertiesById
+                    }
                     breakpoint()
                     const next = { ...values.personPropertiesById }
                     for (const row of response.results ?? []) {
