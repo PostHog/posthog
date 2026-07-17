@@ -65,11 +65,8 @@ function buildBreakdownSegments(
     options: BuildOptions
 ): Series<FunnelBarHorizontalSegmentMeta>[] {
     const step = steps[stepIndex]
-    // Distribute the step's precomputed aggregate rate across variants by count, so the stacked
-    // total always matches the rate shown in the step footer. Recomputing the basis from the
-    // neighboring step would ignore optional steps: with "relative to previous step", the rates
-    // treat the last non-optional step as previous, and an optional step can out-count its
-    // immediate predecessor — count / previousStep.count then exceeds 100% and clamps to a full bar.
+    // Split the precomputed rate across variants by count so the stack matches the footer.
+    // Deriving the basis from the neighboring step would ignore optional steps and overflow the bar.
     const fractionPerCount = step.count > 0 ? step.conversionRates.fromBasisStep / step.count : 0
     const breakdownCount = steps[0].nested_breakdown!.length
     const segments: Series<FunnelBarHorizontalSegmentMeta>[] = []

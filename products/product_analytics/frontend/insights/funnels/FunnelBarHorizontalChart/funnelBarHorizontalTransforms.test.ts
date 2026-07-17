@@ -212,9 +212,7 @@ describe('buildFunnelBarHorizontalData', () => {
 
     describe('reference step', () => {
         it('sizes breakdown stacks from the precomputed aggregate rate, not the neighboring step count', () => {
-            // Optional steps + "relative to previous step": fromBasisStep is computed against the last
-            // non-optional step, and an optional step can out-count its immediate predecessor. Deriving
-            // the basis from steps[i - 1] here would put step 2 at 130/50 = 260%, clamped to a full bar.
+            // Optional step 2 out-counts step 1; a steps[i - 1] basis would give 260% and clamp to a full bar.
             const steps: FunnelStepWithConversionMetrics[] = [
                 makeStep({
                     count: 2000,
