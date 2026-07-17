@@ -1078,7 +1078,7 @@ class CriteoSourceConfig(config.Config):
 
 @config.config
 class CronitorSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2075,7 +2075,10 @@ class IncidentIoSourceConfig(config.Config):
 
 @config.config
 class InfisicalSourceConfig(config.Config):
-    pass
+    base_url: str
+    organization_id: str
+    client_id: str
+    client_secret: str
 
 
 @config.config
