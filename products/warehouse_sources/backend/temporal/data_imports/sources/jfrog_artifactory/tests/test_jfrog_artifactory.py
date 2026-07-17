@@ -427,6 +427,22 @@ class TestRequestBodyCap:
         assert RESPONSE_LIMIT_ERROR in str(exc.value)
         assert session.request.call_count == 1
 
+    def test_over_container_cap_raises_non_retryable(self) -> None:
+        # A compact body of many `{}`/`[]` stays under the byte cap but amplifies into millions of
+        # Python objects on json.loads. The container-count guard must reject it before parsing,
+        # non-retryably (a second identical body wouldn't parse any smaller).
+        body = b"[" + b"{}," * 60 + b"{}]"  # 61 objects nested in 1 array
+        session = MagicMock()
+        session.request.return_value = _streamed_response(chunks=[body])
+
+        with pytest.raises(JfrogArtifactoryResponseTooLargeError) as exc:
+            with pytest.MonkeyPatch.context() as mp:
+                mp.setattr(jfrog_artifactory, "MAX_JSON_CONTAINERS", 10)
+                _request(session, "GET", "https://acme.jfrog.io/api/x", {}, MagicMock())
+
+        assert RESPONSE_LIMIT_ERROR in str(exc.value)
+        assert session.request.call_count == 1
+
     def test_body_drip_past_deadline_is_aborted(self) -> None:
         # A host that blocks mid-body (never filling a chunk) keeps requests' per-read timeout from
         # firing. The out-of-band deadline must close the response to unblock the read and abort with

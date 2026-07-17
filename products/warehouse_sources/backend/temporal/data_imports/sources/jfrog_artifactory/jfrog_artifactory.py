@@ -34,9 +34,12 @@ MAX_RETRY_ATTEMPTS = 5
 # highly compressed) body and OOM the import worker. Cap how much we buffer before decoding JSON,
 # and how long a single exchange may run, on both the sync path and the reachability probe.
 # A legitimate response is one AQL page (AQL_PAGE_SIZE rows of small metadata) or a REST listing
-# (repositories), i.e. a few MB at most, so keep the cap well below the point where json.loads could
-# expand compact JSON into enough Python objects to exhaust the worker.
-MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+# (repositories/storageinfo, bounded by repo count), i.e. a few MB at most. Keep the byte cap well
+# below the point where a flat array of small values could still balloon the joined buffer, and cap
+# the number of JSON containers so a compact body of millions of `{}`/`[]` can't expand into enough
+# Python objects to exhaust the worker even while staying under the byte cap.
+MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+MAX_JSON_CONTAINERS = 200_000
 MAX_TRANSFER_SECONDS = 600
 PROBE_DEADLINE_SECONDS = 60
 RESPONSE_CHUNK_BYTES = 1024 * 1024
@@ -142,6 +145,22 @@ def _read_capped_body(response: requests.Response, url: str) -> bytes:
             )
         chunks.append(chunk)
     return b"".join(chunks)
+
+
+def _loads_bounded(body: bytes, url: str) -> Any:
+    """Parse JSON only after bounding how many container objects it can materialize.
+
+    ``json.loads`` allocates a distinct Python object per element, so a compact body of many ``{}``
+    or ``[]`` amplifies far beyond its byte size — enough to OOM the worker while under the byte cap.
+    Counting container-open bytes is an O(n) upper bound on the dict/list objects the parse would
+    create (it may over-count occurrences inside strings, which only makes the guard more
+    conservative), so we can reject an amplification bomb before materializing it.
+    """
+    if body.count(b"{") + body.count(b"[") > MAX_JSON_CONTAINERS:
+        raise JfrogArtifactoryResponseTooLargeError(
+            f"{RESPONSE_LIMIT_ERROR}: {url} returned more than {MAX_JSON_CONTAINERS} JSON containers"
+        )
+    return json.loads(body)
 
 
 @dataclasses.dataclass
@@ -286,7 +305,7 @@ def _request(
             logger.error(f"JFrog API error: status={response.status_code}, body={body[:500]!r}, url={url}")
             response.raise_for_status()
 
-        return json.loads(body)
+        return _loads_bounded(body, url)
 
     return _call_with_deadline(_do_request, holder, url, MAX_TRANSFER_SECONDS)
 
