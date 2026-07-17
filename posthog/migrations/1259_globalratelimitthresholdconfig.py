@@ -6,7 +6,7 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-    dependencies = [('posthog', '1257_datadeletionrequest_approved_automatically_and_more')]
+    dependencies = [('posthog', '1258_duckgressinkschemastate_queue_last_applied_at')]
 
     operations = [
         migrations.CreateModel(
