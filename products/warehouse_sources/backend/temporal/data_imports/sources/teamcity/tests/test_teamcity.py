@@ -1,3 +1,4 @@
+import threading
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -264,12 +265,27 @@ class _FakeRaw:
         self._pos += len(chunk)
         return chunk
 
+    def close(self) -> None:
+        pass
 
-class _DripRaw:
-    """A raw stream that keeps returning bytes without ever hitting EOF or a socket timeout."""
+
+class _BlockingRaw:
+    """A raw stream that blocks on read until the response is closed, then raises.
+
+    Mimics a hostile host that keeps a socket read blocked (staying under the byte cap and the
+    idle socket timeout) until the download watchdog closes the connection.
+    """
+
+    def __init__(self) -> None:
+        self._closed = threading.Event()
 
     def read(self, amt: int, decode_content: bool = False) -> bytes:
-        return b"a"
+        if self._closed.wait(timeout=5):
+            raise OSError("connection closed")
+        return b""
+
+    def close(self) -> None:
+        self._closed.set()
 
 
 class _FakeResponse:
@@ -281,6 +297,7 @@ class _FakeResponse:
 
     def close(self) -> None:
         self.closed = True
+        self.raw.close()
 
     def raise_for_status(self) -> None:
         if not self.ok:
@@ -304,19 +321,11 @@ class TestFetchPage:
         with pytest.raises(ValueError):
             teamcity._fetch_page(session, "https://teamcity.example.com/app/rest/builds", {}, MagicMock())
 
-    def test_download_deadline_trips_on_slow_drip(self, monkeypatch: Any) -> None:
-        # A host that trickles bytes below the read-timeout cadence never trips the byte cap or a
-        # socket timeout; the monotonic download deadline must still abort it and close the response.
-        # The clock advances on every call (tenacity reads it too), so it always crosses the
-        # deadline within a few read iterations.
-        elapsed = {"t": 0.0}
-
-        def fake_monotonic() -> float:
-            elapsed["t"] += 100.0
-            return elapsed["t"]
-
-        monkeypatch.setattr(teamcity.time, "monotonic", fake_monotonic)
-        response = _FakeResponse(200, b"", raw=_DripRaw())
+    def test_download_deadline_closes_a_blocked_read(self, monkeypatch: Any) -> None:
+        # A host that keeps a read blocked (below the byte cap and socket idle timeout) must be
+        # aborted by the watchdog closing the response, surfaced as a non-retryable deadline error.
+        monkeypatch.setattr(teamcity, "MAX_RESPONSE_DOWNLOAD_SECONDS", 0.05)
+        response = _FakeResponse(200, b"", raw=_BlockingRaw())
         session = self._session_returning(response)
         with pytest.raises(ValueError, match="download deadline"):
             teamcity._fetch_page(session, "https://teamcity.example.com/app/rest/builds", {}, MagicMock())
@@ -497,9 +506,10 @@ class TestValidateCredentials:
     def test_transport_error_maps_to_none_status(self, monkeypatch: Any) -> None:
         session = MagicMock()
         session.get.side_effect = ConnectionError("boom")
-        monkeypatch.setattr(teamcity, "make_tracked_session", lambda: session)
+        monkeypatch.setattr(teamcity, "make_tracked_session", lambda **_: session)
 
         assert validate_credentials("https://teamcity.example.com", "token", TEAM_ID) == (False, None)
+        session.close.assert_called_once()
 
     def test_malformed_host_raises_before_any_request(self, monkeypatch: Any) -> None:
         monkeypatch.setattr(teamcity, "make_tracked_session", MagicMock())

@@ -1,5 +1,5 @@
 import json
-import time
+import threading
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -200,25 +200,42 @@ def _fetch_page(
     # Throughput is bounded by the customer's own server; back off on 429 and transient 5xx
     # rather than failing the sync.
     if response.status_code == 429 or response.status_code >= 500:
+        response.close()
         raise TeamCityRetryableError(f"TeamCity API error (retryable): status={response.status_code}, url={url}")
 
-    if not response.ok:
-        # Read only a capped snippet for diagnostics — don't buffer a hostile error body.
-        snippet = response.raw.read(500, decode_content=True)
-        logger.error(f"TeamCity API error: status={response.status_code}, body={snippet!r}, url={url}")
-        response.raise_for_status()
+    # `requests`' timeout only bounds an idle socket, and `raw.read(n)` blocks until it has n
+    # bytes — so a hostile host can trickle one byte before each read timeout to keep a read
+    # blocked forever while staying under the byte cap, and an in-loop deadline check would never
+    # run. A watchdog closes the response when the wall-clock deadline expires, which unblocks the
+    # read; we translate that closure into a non-retryable error. Cancel it and close the response
+    # in `finally` so a completed or partial hostile stream can't leak the connection.
+    timed_out = threading.Event()
 
-    # Stream the body in chunks under two bounds: a total byte cap and a monotonic download
-    # deadline. `requests`' timeout only limits an idle socket, so a hostile host can send a
-    # byte before each read timeout to keep the read blocked forever while staying under the
-    # byte cap; the deadline bounds that. Both raise a non-retryable ValueError. Always close
-    # the response so a partial hostile stream can't leak the connection.
-    deadline = time.monotonic() + MAX_RESPONSE_DOWNLOAD_SECONDS
-    chunks: list[bytes] = []
-    total = 0
+    def _abort_on_deadline() -> None:
+        timed_out.set()
+        response.close()
+
+    watchdog = threading.Timer(MAX_RESPONSE_DOWNLOAD_SECONDS, _abort_on_deadline)
+    watchdog.start()
     try:
+        if not response.ok:
+            # Read only a capped snippet for diagnostics — don't buffer a hostile error body.
+            snippet = response.raw.read(500, decode_content=True)
+            logger.error(f"TeamCity API error: status={response.status_code}, body={snippet!r}, url={url}")
+            response.raise_for_status()
+
+        chunks: list[bytes] = []
+        total = 0
         while True:
-            chunk = response.raw.read(DOWNLOAD_CHUNK_BYTES, decode_content=True)
+            try:
+                chunk = response.raw.read(DOWNLOAD_CHUNK_BYTES, decode_content=True)
+            except Exception:
+                # The watchdog closing the socket surfaces here as a read error; report the deadline.
+                if timed_out.is_set():
+                    raise ValueError(
+                        f"TeamCity API response exceeded the {MAX_RESPONSE_DOWNLOAD_SECONDS}s download deadline: url={url}"
+                    )
+                raise
             if not chunk:
                 break
             total += len(chunk)
@@ -226,15 +243,18 @@ def _fetch_page(
                 raise ValueError(
                     f"TeamCity API returned an oversized response (over {MAX_RESPONSE_BYTES} bytes): url={url}"
                 )
-            if time.monotonic() > deadline:
-                raise ValueError(
-                    f"TeamCity API response exceeded the {MAX_RESPONSE_DOWNLOAD_SECONDS}s download deadline: url={url}"
-                )
             chunks.append(chunk)
-    finally:
-        response.close()
 
-    return json.loads(b"".join(chunks))
+        # The read can also finish (e.g. at EOF) right as the deadline fires; treat that as a timeout.
+        if timed_out.is_set():
+            raise ValueError(
+                f"TeamCity API response exceeded the {MAX_RESPONSE_DOWNLOAD_SECONDS}s download deadline: url={url}"
+            )
+
+        return json.loads(b"".join(chunks))
+    finally:
+        watchdog.cancel()
+        response.close()
 
 
 def _paginate(
@@ -387,10 +407,13 @@ def get_rows(
 
     cursor = db_incremental_field_last_value if config.supports_incremental and should_use_incremental_field else None
 
-    if config.fan_out_over_builds:
-        yield from _fan_out_rows(session, host, headers, config, logger, resumable_source_manager, cursor)
-    else:
-        yield from _top_level_rows(session, host, headers, config, logger, resumable_source_manager, cursor)
+    try:
+        if config.fan_out_over_builds:
+            yield from _fan_out_rows(session, host, headers, config, logger, resumable_source_manager, cursor)
+        else:
+            yield from _top_level_rows(session, host, headers, config, logger, resumable_source_manager, cursor)
+    finally:
+        session.close()
 
 
 def teamcity_source(
@@ -434,8 +457,11 @@ def validate_credentials(host: str, access_token: str, team_id: int) -> tuple[bo
     """
     _check_host_safe(host, team_id)
     url = f"{_api_base(host)}/server"
+    session = make_tracked_session(allow_redirects=False)
     try:
-        response = make_tracked_session(allow_redirects=False).get(url, headers=_headers(access_token), timeout=10)
+        response = session.get(url, headers=_headers(access_token), timeout=10)
     except Exception:
         return False, None
+    finally:
+        session.close()
     return response.status_code == 200, response.status_code
