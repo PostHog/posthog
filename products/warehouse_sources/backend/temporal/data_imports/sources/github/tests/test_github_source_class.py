@@ -445,7 +445,8 @@ class TestGithubSource:
             # must never silently move a customer to the new version.
             ("2022-11-28", "2022-11-28"),
             ("2026-03-10", "2026-03-10"),
-            # No pin (older rows created before versioning) resolves to the new default.
+            # An unpinned source resolves to the current default — new sources land here. Existing
+            # NULL rows are pinned to the legacy version by migration 0079, so the flip only reaches new ones.
             (None, "2026-03-10"),
         ],
     )
