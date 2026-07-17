@@ -35,6 +35,14 @@ export interface apiStatusLogicActions {
 
 export type apiStatusLogicType = MakeLogicType<apiStatusLogicValues, apiStatusLogicActions>
 
+/**
+ * One transient "Failed to fetch" (common while the app boots, or during a brief
+ * network blip) is not a connection issue. Only flag once failures have kept
+ * coming for this long with no successful response in between.
+ */
+export const CONNECTION_ISSUE_PERSISTENCE_MS = 5000
+const CONNECTION_ISSUE_TOAST_ID = 'internet-connection-issue'
+
 export const apiStatusLogic = kea<apiStatusLogicType>([
     path(['lib', 'apiStatusLogic']),
     actions({
@@ -74,17 +82,44 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
         ],
     }),
     listeners(({ cache, actions, values }) => ({
+        // The connection-issue notice is a floating toast (not an in-flow banner) on
+        // purpose: it must never reflow the page when it appears or clears.
+        setInternetConnectionIssue: ({ issue }) => {
+            if (issue) {
+                lemonToast.error('PostHog is having trouble connecting to the server. Please check your connection.', {
+                    toastId: CONNECTION_ISSUE_TOAST_ID,
+                    autoClose: false,
+                    button: {
+                        label: 'Reload page',
+                        action: () => window.location.reload(),
+                    },
+                })
+            } else {
+                lemonToast.dismiss(CONNECTION_ISSUE_TOAST_ID)
+            }
+        },
         onApiResponse: async ({ response, error }, breakpoint) => {
             if (error || !response?.status) {
                 await breakpoint(50)
                 // Likely CORS headers errors (i.e. request failing without reaching Django))
                 if (error?.message === 'Failed to fetch') {
-                    actions.setInternetConnectionIssue(true)
+                    const now = Date.now()
+                    if (cache.firstConnectionFailureAt == null) {
+                        cache.firstConnectionFailureAt = now
+                    } else if (
+                        now - cache.firstConnectionFailureAt >= CONNECTION_ISSUE_PERSISTENCE_MS &&
+                        !values.internetConnectionIssue
+                    ) {
+                        actions.setInternetConnectionIssue(true)
+                    }
                 }
             }
 
-            if (response?.ok && values.internetConnectionIssue) {
-                actions.setInternetConnectionIssue(false)
+            if (response?.ok) {
+                cache.firstConnectionFailureAt = null
+                if (values.internetConnectionIssue) {
+                    actions.setInternetConnectionIssue(false)
+                }
             }
 
             try {

@@ -9,7 +9,6 @@ import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/rev
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
-import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
@@ -35,7 +34,6 @@ export type ProjectNoticeVariant =
     | 'real_project_with_no_events'
     | 'invite_teammates'
     | 'unverified_email'
-    | 'internet_connection_issue'
     | 'event_ingestion_restriction'
     | 'missing_reverse_proxy'
 
@@ -176,7 +174,6 @@ export interface projectNoticeLogicMeta {
             isCloudOrDev: boolean | undefined,
             user: UserType | null,
             memberCount: number,
-            internetConnectionIssue: boolean,
             hasProjectNoticeRestriction: boolean,
             proxyRecords: ProxyRecord[] | null,
             effectiveBillingAlert: BillingAlertConfig | null,
@@ -303,7 +300,6 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 preflightLogic.selectors.isCloudOrDev,
                 userLogic.selectors.user,
                 s.memberCount,
-                apiStatusLogic.selectors.internetConnectionIssue,
                 eventIngestionRestrictionLogic.selectors.hasProjectNoticeRestriction,
                 s.proxyRecords,
                 s.effectiveBillingAlert,
@@ -321,7 +317,6 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 isCloudOrDev: boolean | undefined,
                 user: UserType | null,
                 memberCount: number,
-                internetConnectionIssue: boolean,
                 hasEventIngestionRestriction: boolean,
                 proxyRecords: ProxyRecord[] | null,
                 effectiveBillingAlert: BillingAlertConfig | null,
@@ -346,9 +341,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     return null
                 }
 
-                if (internetConnectionIssue) {
-                    return 'internet_connection_issue'
-                } else if (
+                if (
                     effectiveBillingAlert &&
                     !(effectiveBillingAlert.pathName && currentLocation.pathname !== effectiveBillingAlert.pathName) &&
                     !(
@@ -551,17 +544,6 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                                 children: 'Send verification email',
                             },
                             type: 'warning',
-                        }
-                    case 'internet_connection_issue':
-                        return {
-                            message:
-                                'PostHog is having trouble connecting to the server. Please check your connection.',
-                            type: 'warning',
-                            action: {
-                                'data-attr': 'reload-page',
-                                onClick: () => window.location.reload(),
-                                children: 'Reload page',
-                            },
                         }
                     case 'event_ingestion_restriction':
                         return {
