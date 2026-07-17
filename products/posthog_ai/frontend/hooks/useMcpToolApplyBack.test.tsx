@@ -126,7 +126,7 @@ describe('useMcpToolApplyBack', () => {
         )
 
         act(() => {
-            foregroundStreamLogic.actions.setForegroundStream('run-1')
+            foregroundStreamLogic.actions.setForegroundStream('run-1', 'p1')
             toolStreamEventsLogic.actions.emitToolEvent(toolEvent('call create_insight {"name":"hidden"}', 'hidden'))
             toolStreamEventsLogic.actions.emitRunLifecycleEvent({ streamKey: 'run-1', status: 'completed' })
         })

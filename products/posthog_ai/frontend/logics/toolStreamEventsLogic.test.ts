@@ -114,7 +114,7 @@ describe('toolStreamEventsLogic', () => {
     it('does not transfer a claimed stream to an editor registered after navigation', () => {
         const originalEditor = jest.fn()
         const nextEditor = jest.fn()
-        foregroundStreamLogic.actions.setForegroundStream('run-1')
+        foregroundStreamLogic.actions.setForegroundStream('run-1', 'p1')
         logic.actions.registerToolListener('original', {
             tools: ['create_dashboard'],
             applyBackTargetId: 'dashboard-1:activation-1',
@@ -140,7 +140,7 @@ describe('toolStreamEventsLogic', () => {
         const firstEditor = jest.fn()
         const secondEditor = jest.fn()
         const genericListener = jest.fn()
-        foregroundStreamLogic.actions.setForegroundStream('run-1')
+        foregroundStreamLogic.actions.setForegroundStream('run-1', 'p1')
         logic.actions.registerToolListener('first', {
             tools: ['create_dashboard'],
             applyBackTargetId: 'dashboard-1:activation-1',
