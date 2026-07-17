@@ -2407,6 +2407,16 @@
                   "table": null,
                   "type": "integer"
               },
+              "product": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "product",
+                  "id": null,
+                  "name": "product",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "read_rows": {
                   "chain": null,
                   "fields": null,
@@ -11171,6 +11181,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
+              },
+              "product": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "product",
+                  "id": null,
+                  "name": "product",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "read_rows": {
                   "chain": null,
