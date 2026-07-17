@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, events, kea, key, listeners, path, pro
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
@@ -24,6 +25,24 @@ function getTimestampFromUUIDv7(sessionId: string): { startDate: Date; endDate: 
     const startDate = new Date(timestampMs - 2 * 24 * 60 * 60 * 1000)
     const endDate = new Date(timestampMs + 2 * 24 * 60 * 60 * 1000)
     return { startDate, endDate }
+}
+
+/**
+ * The scene fires several background queries in parallel on mount. When the user navigates away
+ * before one resolves, the underlying `fetch` is aborted and surfaces as a network-layer
+ * `TypeError` ("Failed to fetch", "NetworkError...", "Load failed"), an `AbortError`, or an
+ * `ApiError` with no status (the fetch threw before any response). These are expected transients,
+ * not defects, so the loaders swallow them instead of reporting them to error tracking. A genuine
+ * query failure carries an HTTP status and still surfaces.
+ */
+function isAbortedOrNetworkError(error: unknown): boolean {
+    if (error instanceof ApiError) {
+        return error.status === undefined
+    }
+    if (error instanceof Error) {
+        return error.name === 'AbortError' || /failed to fetch|network\s*error|load failed/i.test(error.message)
+    }
+    return false
 }
 
 export interface SessionProfileLogicProps {
@@ -575,10 +594,18 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                         LIMIT 50
                     `
 
-                    const response = await api.queryHogQL(eventsQuery, {
-                        scene: 'SessionProfile',
-                        productKey: 'persons',
-                    })
+                    let response
+                    try {
+                        response = await api.queryHogQL(eventsQuery, {
+                            scene: 'SessionProfile',
+                            productKey: 'persons',
+                        })
+                    } catch (e) {
+                        if (isAbortedOrNetworkError(e)) {
+                            return values.sessionEvents
+                        }
+                        throw e
+                    }
 
                     return (response.results || []).map((row: any): SessionEventType => {
                         const properties: Record<string, any> = {}
@@ -799,11 +826,18 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                             AND \`$session_id\` = ${props.sessionId}
                     `
 
-                    const response = await api.queryHogQL(countQuery, {
-                        scene: 'SessionProfile',
-                        productKey: 'persons',
-                    })
-                    return response.results?.[0]?.[0] || 0
+                    try {
+                        const response = await api.queryHogQL(countQuery, {
+                            scene: 'SessionProfile',
+                            productKey: 'persons',
+                        })
+                        return response.results?.[0]?.[0] || 0
+                    } catch (e) {
+                        if (isAbortedOrNetworkError(e)) {
+                            return values.totalEventCount
+                        }
+                        throw e
+                    }
                 },
             },
         ],
@@ -813,14 +847,21 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                 loadRecordingAvailability: async () => {
                     const { startDate, endDate } = getTimestampFromUUIDv7(props.sessionId)
 
-                    const response = await api.recordings.list({
-                        kind: NodeKind.RecordingsQuery,
-                        session_ids: [props.sessionId],
-                        date_from: startDate.toISOString(),
-                        date_to: endDate.toISOString(),
-                        limit: 1,
-                    })
-                    return (response.results?.length ?? 0) > 0
+                    try {
+                        const response = await api.recordings.list({
+                            kind: NodeKind.RecordingsQuery,
+                            session_ids: [props.sessionId],
+                            date_from: startDate.toISOString(),
+                            date_to: endDate.toISOString(),
+                            limit: 1,
+                        })
+                        return (response.results?.length ?? 0) > 0
+                    } catch (e) {
+                        if (isAbortedOrNetworkError(e)) {
+                            return values.hasRecording
+                        }
+                        throw e
+                    }
                 },
             },
         ],
@@ -844,27 +885,34 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                         ORDER BY timestamp DESC
                     `
 
-                    const response = await api.queryHogQL(ticketsQuery, {
-                        scene: 'SessionProfile',
-                        productKey: 'persons',
-                    })
+                    try {
+                        const response = await api.queryHogQL(ticketsQuery, {
+                            scene: 'SessionProfile',
+                            productKey: 'persons',
+                        })
 
-                    return (response.results || []).map((row: any): SessionEventType => {
-                        const properties: Record<string, any> = {}
+                        return (response.results || []).map((row: any): SessionEventType => {
+                            const properties: Record<string, any> = {}
 
-                        if (row[3] != null) {
-                            properties.zendesk_ticket_id = row[3]
+                            if (row[3] != null) {
+                                properties.zendesk_ticket_id = row[3]
+                            }
+
+                            return {
+                                id: row[0],
+                                event: row[1],
+                                timestamp: row[2],
+                                properties,
+                                distinct_id: row[4],
+                                fullyLoaded: false,
+                            }
+                        })
+                    } catch (e) {
+                        if (isAbortedOrNetworkError(e)) {
+                            return values.supportTicketEvents
                         }
-
-                        return {
-                            id: row[0],
-                            event: row[1],
-                            timestamp: row[2],
-                            properties,
-                            distinct_id: row[4],
-                            fullyLoaded: false,
-                        }
-                    })
+                        throw e
+                    }
                 },
             },
         ],
