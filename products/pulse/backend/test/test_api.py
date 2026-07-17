@@ -93,6 +93,50 @@ class TestPulseAPI(APIBaseTest):
             AISustainedRateThrottle,
         ]
 
+    def test_generate_token_requires_source_read_scopes(self, mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+        api_key = self.create_personal_api_key_with_scopes(["project:write"])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/pulse/briefs/generate/",
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "API key missing required scope 'annotation:read'"
+        mock_connect.assert_not_called()
+
+    def test_generate_token_with_source_read_scopes_is_allowed(
+        self, mock_connect: MagicMock, _mock_flag: MagicMock
+    ) -> None:
+        mock_connect.return_value = _temporal_client()
+        api_key = self.create_personal_api_key_with_scopes(
+            ["project:write", "annotation:read", "subscription:read", "alert:read", "insight:read"]
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/pulse/briefs/generate/",
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_retrieve_token_requires_source_read_scopes(self, _mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+        with team_scope(self.team.pk, canonical=True):
+            brief = ProductBrief.objects.create(
+                team=self.team,
+                created_by=self.user,
+                trigger=ProductBrief.Trigger.ON_DEMAND,
+            )
+        api_key = self.create_personal_api_key_with_scopes(["project:read"])
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/pulse/briefs/{brief.id}/",
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "API key missing required scope 'annotation:read'"
+
     @patch("products.pulse.backend.api.brief.report_user_action")
     def test_generate_while_running_returns_409_without_orphan_brief(
         self, mock_report: MagicMock, mock_connect: MagicMock, _mock_flag: MagicMock
