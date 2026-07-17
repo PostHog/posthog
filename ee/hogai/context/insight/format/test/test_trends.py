@@ -119,6 +119,25 @@ class TestTrendsResultsFormatter(BaseTest):
         series.pop("action")
         self.assertEqual(formatter._extract_series_label(series), "$pageview breakdown for the value `0`")
 
+    def test_trends_labelless_series(self):
+        # A series with no label, custom_name, or breakdown_value used to crash the formatter with
+        # `AttributeError: 'NoneType' object has no attribute 'replace'`. It should render as an
+        # empty label instead.
+        results = [
+            {
+                "data": [242, 46, 0],
+                "labels": ["23-Jan-2025", "24-Jan-2025", "25-Jan-2025"],
+                "days": ["2025-01-23", "2025-01-24", "2025-01-25"],
+                "count": 288,
+                "label": None,
+            }
+        ]
+
+        self.assertEqual(
+            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
+            "Date|\n2025-01-23|242\n2025-01-24|46\n2025-01-25|0",
+        )
+
     def test_trends_aggregated_value(self):
         results = [
             {
