@@ -10,6 +10,7 @@ import {
     EngineeringAnalyticsPrLifecycleQueryParams,
     EngineeringAnalyticsPullRequestsQueryParams,
     EngineeringAnalyticsRunFailureLogsQueryParams,
+    EngineeringAnalyticsTeamCiHealthQueryParams,
     EngineeringAnalyticsWorkflowHealthQueryParams,
     EngineeringAnalyticsWorkflowJobsQueryParams,
     EngineeringAnalyticsWorkflowRunnerCostsQueryParams,
@@ -148,6 +149,32 @@ const engineeringAnalyticsSources = (): ToolBase<
     },
 })
 
+const EngineeringAnalyticsTeamCiHealthSchema = EngineeringAnalyticsTeamCiHealthQueryParams
+
+const engineeringAnalyticsTeamCiHealth = (): ToolBase<
+    typeof EngineeringAnalyticsTeamCiHealthSchema,
+    WithPostHogUrl<Schemas.TeamCIHealthList>
+> => ({
+    name: 'engineering-analytics-team-ci-health',
+    schema: EngineeringAnalyticsTeamCiHealthSchema,
+    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsTeamCiHealthSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.TeamCIHealthList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/team_ci_health/`,
+            query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
+                limit: params.limit,
+                min_failed_prs: params.min_failed_prs,
+                min_rerun_passes: params.min_rerun_passes,
+                source_id: params.source_id,
+            },
+        })
+        return await withPostHogUrl(context, result, '/engineering-analytics')
+    },
+})
+
 const EngineeringAnalyticsWorkflowJobsSchema = EngineeringAnalyticsWorkflowJobsQueryParams
 
 const engineeringAnalyticsWorkflowJobs = (): ToolBase<
@@ -280,6 +307,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'engineering-analytics-pr-cost': engineeringAnalyticsPrCost,
     'engineering-analytics-run-failure-logs': engineeringAnalyticsRunFailureLogs,
     'engineering-analytics-sources': engineeringAnalyticsSources,
+    'engineering-analytics-team-ci-health': engineeringAnalyticsTeamCiHealth,
     'engineering-analytics-workflow-jobs': engineeringAnalyticsWorkflowJobs,
     'engineering-analytics-workflow-runner-costs': engineeringAnalyticsWorkflowRunnerCosts,
     'pr-lifecycle': prLifecycle,

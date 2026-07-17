@@ -4,8 +4,6 @@ import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildStickinessQuery, chart, personsModal, renderInsight } from '~/test/insight-testing'
 import { ChartDisplayType } from '~/types'
@@ -93,8 +91,7 @@ describe('StickinessBarChart', () => {
         expect(personsModal.title()).toMatch(/Pageview/)
     })
 
-    describe('quill in-chart legend (PRODUCT_ANALYTICS_QUILL_LEGEND on)', () => {
-        const quillLegendFlag = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]: true }
+    describe('quill in-chart legend', () => {
         const twoSeriesBar = stickinessBar({
             series: [
                 { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
@@ -107,7 +104,7 @@ describe('StickinessBarChart', () => {
             container.querySelector<HTMLElement>('[data-attr="hog-chart-timeseries-bar-legend"]')!
 
         it('humanizes core event names in the legend, leaving custom events as-is', async () => {
-            const { container } = renderInsight({ query: twoSeriesBar, featureFlags: quillLegendFlag })
+            const { container } = renderInsight({ query: twoSeriesBar })
 
             await waitFor(() => {
                 expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()

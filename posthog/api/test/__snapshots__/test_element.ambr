@@ -101,6 +101,7 @@
          "posthog_externaldatasource"."sync_frequency",
          "posthog_externaldatasource"."status",
          "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."api_version",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."connection_metadata",
          "posthog_externaldatasource"."are_tables_created",

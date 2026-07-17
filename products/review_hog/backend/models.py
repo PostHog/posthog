@@ -69,7 +69,7 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     # signals side (the signals-side `code_review` artefact is API-deletable; this row is the durable
     # link). Filled once, never overwritten by later turns from another trigger.
     signal_report_id = models.UUIDField(null=True, blank=True)
-    # Which trigger created this report ("label" / "inbox" / "manual"); stamped on create only.
+    # Which trigger created this report ("label" / "inbox" / "manual" / "ui"); stamped on create only.
     trigger_source = models.CharField(max_length=20, default="manual")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -291,8 +291,8 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     urgency_threshold = models.CharField(
         max_length=20,
         choices=UrgencyThreshold.choices,
-        default=UrgencyThreshold.SHOULD_FIX,
-        db_default=UrgencyThreshold.SHOULD_FIX.value,
+        default=UrgencyThreshold.CONSIDER,
+        db_default=UrgencyThreshold.CONSIDER.value,
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
