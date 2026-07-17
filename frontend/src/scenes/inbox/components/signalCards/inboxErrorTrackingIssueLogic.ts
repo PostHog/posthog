@@ -161,9 +161,12 @@ export const inboxErrorTrackingIssueLogic = kea<inboxErrorTrackingIssueLogicType
                     try {
                         return await api.errorTracking.getIssue(props.issueId, props.fingerprint)
                     } catch (error: any) {
-                        // 308 means the issue was merged into another; surface the target for the fallback.
+                        // 308 means the issue was merged into another; this is expected data churn, not a
+                        // failure. Surface the target for the fallback and return null so the loader
+                        // settles successfully (a rethrow here is captured as a frontend exception).
                         if (error?.status === 308 && error?.data && 'issue_id' in error.data) {
                             actions.setMergedToIssueId(error.data.issue_id)
+                            return null
                         }
                         throw error
                     }
@@ -246,11 +249,12 @@ export const inboxErrorTrackingIssueLogic = kea<inboxErrorTrackingIssueLogicType
     }),
 
     listeners(({ props, actions }) => ({
-        loadIssueSuccess: () => {
-            actions.setMergedToIssueId(null)
-        },
-        loadIssueFailure: () => {
-            // No-op beyond the 308 capture in the loader; `mergedFailed` drives the fallback UI.
+        loadIssueSuccess: ({ issue }) => {
+            // Only clear the merged target on a genuine issue load; a null result means the issue was
+            // merged away and `mergedToIssueId` (set in the loader) must stick for the fallback link.
+            if (issue) {
+                actions.setMergedToIssueId(null)
+            }
         },
         loadSummarySuccess: () => {
             if (props.sourceType === 'issue_spiking') {
