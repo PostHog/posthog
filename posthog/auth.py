@@ -70,13 +70,6 @@ tracer = trace.get_tracer(__name__)
 
 _SECRET_API_KEY_RE = re.compile(r"^phs_[a-zA-Z0-9]+$")
 
-SECRET_API_KEY_BODY_FIELD = "secret_api_key"
-
-SECRET_API_KEY_BODY_COUNTER = Counter(
-    "api_auth_secret_api_key_body",
-    "Requests where the team secret token is provided in the request body instead of the Authorization header",
-)
-
 PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
     "api_auth_personal_api_key_query_param",
     "Requests where the personal api key is specified in a query parameter",
@@ -333,11 +326,10 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         return cls.keyword
 
 
-def _extract_phs_token(request: Union[HttpRequest, Request], allow_body_token: bool = False) -> Optional[str]:
+def _extract_phs_token(request: Union[HttpRequest, Request]) -> Optional[str]:
     """
-    Find a `phs_` secret token in the request. Checks the Authorization header first
-    (Bearer scheme), then the request body field `secret_api_key`. Used by both
-    TeamSecretTokenAuthentication (legacy Team.secret_api_token) and
+    Find a `phs_` secret token in the request Authorization header (Bearer scheme).
+    Used by both TeamSecretTokenAuthentication (legacy Team.secret_api_token) and
     ProjectSecretAPIKeyAuthentication (PSAK model).
     """
     if "authorization" in request.headers:
@@ -346,17 +338,6 @@ def _extract_phs_token(request: Union[HttpRequest, Request], allow_body_token: b
             token = authorization_match.group(1).strip()
             if _SECRET_API_KEY_RE.match(token):
                 return token
-
-    if allow_body_token:
-        # Wrap HttpRequest in a DRF Request only when we actually need to read the parsed body.
-        if not isinstance(request, Request):
-            request = Request(request)
-        data = request.data
-        if isinstance(data, dict):
-            candidate = data.get(SECRET_API_KEY_BODY_FIELD)
-            if isinstance(candidate, str) and _SECRET_API_KEY_RE.match(candidate):
-                SECRET_API_KEY_BODY_COUNTER.inc()
-                return candidate
 
     return None
 
@@ -383,15 +364,13 @@ class TeamSecretTokenAuthentication(authentication.BaseAuthentication):
     attached, so downstream permission code can resolve team context without a
     real User.
 
-    Only the first key candidate found in the request is tried, and the order is:
-    1. Request Authorization header of type Bearer.
-    2. Request body (`secret_api_key` field).
+    The token is read from the Authorization header (Bearer scheme) only.
     """
 
     keyword = "Bearer"
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        secret_api_token = _extract_phs_token(request, allow_body_token=True)
+        secret_api_token = _extract_phs_token(request)
 
         if not secret_api_token:
             return None
@@ -449,7 +428,7 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     keyword = "Bearer"
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        token = _extract_phs_token(request, allow_body_token=False)
+        token = _extract_phs_token(request)
         if not token:
             return None
 

@@ -2856,6 +2856,76 @@ class TestS3CompatibleIntegrationModel(BaseTest):
             S3CompatibleIntegration(integration)
 
 
+class TestPinterestAdsIntegrationDisplayName(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "business",
+                {"id": "1", "username": "13x6ppss87fecv1q790xh1orhyp9th", "business_name": "Posthog Inc"},
+                "Posthog Inc",
+            ),
+            ("personal", {"id": "1", "username": "javierposthog", "business_name": ""}, "javierposthog"),
+            # Older connections predate business_name being stored.
+            ("legacy", {"id": "1", "username": "javierposthog"}, "javierposthog"),
+        ]
+    )
+    def test_display_name_prefers_business_name(self, _name: str, config: dict, expected: str) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="pinterest-ads",
+            config=config,
+            integration_id=config["id"],
+        )
+        assert integration.display_name == expected
+
+
+class TestTikTokAdsIntegrationDisplayName(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "email_wins_over_display_name",
+                {
+                    "advertiser_ids": ["7554133187111469074"],
+                    "user_email": "e***g@posthog.com",
+                    "user_display_name": "user1140434302514",
+                },
+                "e***g@posthog.com",
+            ),
+            ("neither_fetched_falls_back_to_id", {"advertiser_ids": ["7554133187111469074"]}, "7554133187111469074"),
+        ]
+    )
+    def test_display_name_prefers_user_email(self, _name: str, config: dict, expected: str) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="tiktok-ads",
+            config=config,
+            integration_id=",".join(config["advertiser_ids"]),
+        )
+        assert integration.display_name == expected
+
+
+@override_settings(REDDIT_ADS_CLIENT_ID="reddit-client-id", REDDIT_ADS_CLIENT_SECRET="reddit-client-secret")
+class TestRedditAdsIntegrationDisplayName(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "username",
+                {"reddit_user_id": "t2_1tqubocxl4", "data.reddit_username": "javierposthog"},
+                "javierposthog",
+            ),
+            ("legacy", {"reddit_user_id": "t2_1tqubocxl4"}, "t2_1tqubocxl4"),
+        ]
+    )
+    def test_display_name_prefers_username(self, _name: str, config: dict, expected: str) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="reddit-ads",
+            config=config,
+            integration_id=config["reddit_user_id"],
+        )
+        assert integration.display_name == expected
+
+
 class TestSnowflakeIntegrationModel(BaseTest):
     def test_integration_from_config_with_password_auth(self):
         integration = SnowflakeIntegration.integration_from_config(
