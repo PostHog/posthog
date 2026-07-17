@@ -92,6 +92,17 @@ from posthog.personhog_client.proto import (
 
 logger = structlog.get_logger(__name__)
 
+
+class PersonHogNotConfiguredError(RuntimeError):
+    """Raised when the personhog client is required but ``PERSONHOG_ADDR`` is unset.
+
+    This is a permanent misconfiguration, not a transient outage: it can only change with a
+    redeploy, so callers that retry (e.g. Temporal deletion activities) treat this type as
+    non-retryable to fail fast instead of looping forever. Subclasses ``RuntimeError`` to keep
+    existing ``except RuntimeError`` handlers working.
+    """
+
+
 # -- Channel-level metrics --
 
 PERSONHOG_DJANGO_CHANNEL_STATE = Enum(
@@ -416,7 +427,7 @@ def get_personhog_client() -> Optional[PersonHogClient]:
 def require_personhog_client() -> PersonHogClient:
     client = get_personhog_client()
     if client is None:
-        raise RuntimeError("personhog client not configured")
+        raise PersonHogNotConfiguredError("personhog client not configured")
     return client
 
 

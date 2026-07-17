@@ -1354,12 +1354,14 @@ _DELETE_BULK_MAX_ITERATIONS = 10_000
 def _delete_cohort_members_bulk_via_personhog(
     cohort_ids: list[int], batch_size: int, timeout: float | None = None
 ) -> int:
-    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.client import PersonHogNotConfiguredError, get_personhog_client
     from posthog.personhog_client.proto import DeleteCohortMembersBulkRequest
 
     client = get_personhog_client()
     if client is None:
-        raise RuntimeError("personhog client not configured")
+        # Permanent misconfiguration (no PERSONHOG_ADDR) — deletion callers treat this type as
+        # non-retryable so they fail fast rather than looping forever. See PersonHogNotConfiguredError.
+        raise PersonHogNotConfiguredError("personhog client not configured")
 
     total_deleted = 0
     for _ in range(_DELETE_BULK_MAX_ITERATIONS):
