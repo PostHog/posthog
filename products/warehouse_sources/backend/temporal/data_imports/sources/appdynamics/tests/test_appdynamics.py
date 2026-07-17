@@ -149,7 +149,7 @@ class FakeSession:
         return self._post_response
 
 
-def _patch_session(session: FakeSession) -> Any:
+def _patch_session(session: Any) -> Any:
     return mock.patch.object(appdynamics_module, "make_tracked_session", return_value=session)
 
 
