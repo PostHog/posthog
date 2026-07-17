@@ -18,6 +18,7 @@ frontend/src/queries/validators.js linguist-generated
 frontend/src/taxonomy/core-filter-definitions-by-group.json linguist-generated
 
 products/*/frontend/generated/** linguist-generated
+products/signals/backend/static/grouping_pipeline/artifacts/** linguist-generated
 
 services/mcp/schema/generated-tool-definitions.json linguist-generated
 services/mcp/src/api/generated.ts linguist-generated
