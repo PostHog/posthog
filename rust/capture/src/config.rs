@@ -40,6 +40,18 @@ impl CaptureMode {
     pub fn requires_historical_migration(&self) -> bool {
         matches!(self, CaptureMode::Import)
     }
+
+    /// Whether this mode exposes the analytics event routes (legacy v0
+    /// `/batch`, `/e`, `/i/v0/ai/*` and the v1 analytics endpoint) rather than
+    /// the recordings routes. `Events`, `Ai`, and `Import` all ingest analytics
+    /// events; `Recordings` serves the session-recordings router instead.
+    /// Exhaustive on purpose: a new mode must declare which router it serves.
+    pub fn serves_analytics_routes(&self) -> bool {
+        match self {
+            CaptureMode::Events | CaptureMode::Ai | CaptureMode::Import => true,
+            CaptureMode::Recordings => false,
+        }
+    }
 }
 
 impl std::str::FromStr for CaptureMode {
@@ -554,6 +566,21 @@ mod tests {
                 "{mode:?} should not require historical_migration"
             );
         }
+    }
+
+    #[test]
+    fn serves_analytics_routes_matches_router_gating() {
+        // Import must serve the same analytics routes as Events/Ai; only
+        // Recordings serves the recordings router. This predicate gates route
+        // registration in router::router, so a regression here silently 404s
+        // Import traffic.
+        for mode in [CaptureMode::Events, CaptureMode::Ai, CaptureMode::Import] {
+            assert!(
+                mode.serves_analytics_routes(),
+                "{mode:?} should serve analytics routes"
+            );
+        }
+        assert!(!CaptureMode::Recordings.serves_analytics_routes());
     }
 
     #[test]
