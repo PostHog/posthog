@@ -24,6 +24,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMarkdownWithMermaid } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdownWithMermaid'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -93,7 +94,10 @@ export function LLMSkillScene(): JSX.Element {
         )
     }
 
-    const content = isViewMode ? (
+    // A direct link with `?edit=true` shouldn't grant edit access the Edit/Use-as-latest buttons
+    // wouldn't otherwise give — fall back to the read-only view when the user can't actually publish.
+    const canEditSkill = userHasAccess(AccessControlResourceType.LlmAnalytics, AccessControlLevel.Editor)
+    const content = isViewMode || !canEditSkill ? (
         <SceneContent>
             <SceneTitleSection
                 name={skill && 'name' in skill ? skill.name : 'Skill'}
