@@ -1,3 +1,4 @@
+import json
 from typing import Any, Optional
 
 import pytest
@@ -8,6 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.argocd.arg
     HOST_NOT_ALLOWED_ERROR,
     HTTPS_REQUIRED_ERROR,
     ArgocdHostNotAllowedError,
+    ArgocdResponseTooLargeError,
     _history_rows,
     _items,
     _list_params,
@@ -45,9 +47,12 @@ def _response(*, status_code: int = 200, json_data: Any = None, text: str = "") 
     response.ok = 200 <= status_code < 400
     response.is_redirect = status_code in (302, 303, 307)
     response.is_permanent_redirect = status_code in (301, 308)
-    response.text = text
-    response.json.return_value = json_data
     response.headers = {}
+    # Bodies are streamed and read through iter_content, never .text / .json().
+    body = json.dumps(json_data).encode() if json_data is not None else text.encode()
+    response.iter_content = mock.Mock(side_effect=lambda chunk_size: iter([body] if body else []))
+    response.__enter__ = mock.Mock(return_value=response)
+    response.__exit__ = mock.Mock(return_value=False)
     return response
 
 
@@ -262,11 +267,35 @@ class TestGetRows:
         assert patched.call_args.kwargs["capture"] is False
         assert "tok" in patched.call_args.kwargs["redact_values"]
 
+    def test_oversized_response_aborts_instead_of_buffering(self):
+        # The host is customer-controlled: a response bigger than the byte cap must fail the
+        # sync rather than being buffered into worker memory.
+        big = _response()
+        big.iter_content = mock.Mock(return_value=iter([b"x" * 10, b"x" * 10]))
+        with (
+            mock.patch.object(argocd_module, "MAX_RESPONSE_BYTES", 15),
+            _patch_session(big),
+            pytest.raises(ArgocdResponseTooLargeError),
+        ):
+            list(
+                get_rows(
+                    host="https://argocd.example.com",
+                    api_token="tok",
+                    endpoint="applications",
+                    team_id=1,
+                    logger=mock.MagicMock(),
+                )
+            )
+
 
 class TestValidateCredentials:
-    def test_success(self):
-        with _patch_session(_response(json_data={"items": None})):
+    def test_success_without_reading_the_body(self):
+        # The probe runs inline on the API thread; on success it must decide from the status
+        # alone — ingesting the body would let a huge response buffer into memory.
+        ok = _response(json_data={"items": None})
+        with _patch_session(ok):
             assert validate_credentials("https://argocd.example.com", "tok") == (True, None)
+        ok.iter_content.assert_not_called()
 
     def test_probe_url_uses_name_filter_for_applications(self):
         with _patch_session(_response(json_data={"items": None})) as patched:

@@ -1,4 +1,5 @@
 import re
+import json
 from collections.abc import Iterator
 from typing import Any, Optional
 from urllib.parse import urlencode, urlparse
@@ -17,6 +18,18 @@ MAX_RETRIES = 5
 
 HOST_NOT_ALLOWED_ERROR = "Argo CD host is not allowed"
 HTTPS_REQUIRED_ERROR = "Argo CD host must use HTTPS"
+RESPONSE_TOO_LARGE_ERROR = "Argo CD API response exceeded the size limit"
+
+# The host is customer-controlled, so responses are streamed and read under a byte cap —
+# an arbitrarily large (or endless) 200 body must fail the sync instead of exhausting
+# worker memory. The cap applies to decoded bytes, so a gzip bomb can't slip past it.
+# Per-read stalls are bounded by the request read timeout and total sync duration by the
+# Temporal activity timeouts, so no separate wall-clock limit is enforced here.
+MAX_RESPONSE_BYTES = 512 * 1024 * 1024
+_READ_CHUNK_BYTES = 1024 * 1024
+# Bytes read from an error body for a diagnostic message. Error bodies are never needed in
+# full, so only a short bounded snippet is ever pulled into memory.
+_ERROR_SNIPPET_BYTES = 2048
 
 # The applications list is fetched in one response, so batch the yielded rows to keep
 # downstream Arrow conversion working on bounded slices.
@@ -40,6 +53,30 @@ class ArgocdRetryableError(Exception):
 
 class ArgocdHostNotAllowedError(Exception):
     pass
+
+
+class ArgocdResponseTooLargeError(Exception):
+    pass
+
+
+def _read_bounded(response: requests.Response, max_bytes: int) -> bytes:
+    """Read a streamed response body up to ``max_bytes`` decoded bytes, then abort."""
+    total = 0
+    chunks: list[bytes] = []
+    for chunk in response.iter_content(chunk_size=_READ_CHUNK_BYTES):
+        total += len(chunk)
+        if total > max_bytes:
+            raise ArgocdResponseTooLargeError(f"{RESPONSE_TOO_LARGE_ERROR} ({max_bytes} bytes)")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _error_snippet(response: requests.Response) -> str:
+    try:
+        chunk = next(response.iter_content(chunk_size=_ERROR_SNIPPET_BYTES), b"")
+        return chunk[:_ERROR_SNIPPET_BYTES].decode("utf-8", errors="replace")
+    except Exception:
+        return ""
 
 
 def normalize_host(host: str | None) -> str:
@@ -174,22 +211,26 @@ def _normalize_cluster(item: dict[str, Any]) -> dict[str, Any]:
 )
 def _fetch(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> Any:
     # Don't follow redirects: the customer-controlled host could 3xx to an internal address,
-    # bypassing the host validation done before the request (SSRF).
-    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False)
+    # bypassing the host validation done before the request (SSRF). `stream=True` so bodies
+    # are only read through `_read_bounded` / `_error_snippet` under a byte cap.
+    with session.get(
+        url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False, stream=True
+    ) as response:
+        if response.status_code == 429 or response.status_code >= 500:
+            raise ArgocdRetryableError(f"Argo CD API error (retryable): status={response.status_code}, url={url}")
 
-    if response.status_code == 429 or response.status_code >= 500:
-        raise ArgocdRetryableError(f"Argo CD API error (retryable): status={response.status_code}, url={url}")
+        if response.is_redirect or response.is_permanent_redirect:
+            raise ArgocdHostNotAllowedError(
+                f"Argo CD API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
+            )
 
-    if response.is_redirect or response.is_permanent_redirect:
-        raise ArgocdHostNotAllowedError(
-            f"Argo CD API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
-        )
+        if not response.ok:
+            logger.error(
+                f"Argo CD API error: status={response.status_code}, body={_error_snippet(response)}, url={url}"
+            )
+            response.raise_for_status()
 
-    if not response.ok:
-        logger.error(f"Argo CD API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
+        return json.loads(_read_bounded(response, MAX_RESPONSE_BYTES))
 
 
 def get_rows(
@@ -272,12 +313,16 @@ def validate_credentials(
 
     try:
         # `capture=False` for the same reason as in `get_rows`: probe responses can carry
-        # credential fields the name-based sample scrubbers can't recognise.
+        # credential fields the name-based sample scrubbers can't recognise. `stream=True`
+        # because the probe runs inline on the API thread and only ever needs the status —
+        # the body is never ingested beyond a short error snippet, so a huge response
+        # (e.g. an old server ignoring the name filter) can't buffer into memory.
         response = make_tracked_session(redact_values=(api_token,), capture=False).get(
             _build_url(normalized, ARGOCD_ENDPOINTS[endpoint].path, params),
             headers=_get_headers(api_token),
             timeout=30,
             allow_redirects=False,
+            stream=True,
         )
     except requests.exceptions.SSLError:
         return (
@@ -287,29 +332,31 @@ def validate_credentials(
     except requests.exceptions.RequestException as e:
         return False, f"Could not connect to the Argo CD server: {e}"
 
-    if response.is_redirect or response.is_permanent_redirect:
-        return False, HOST_NOT_ALLOWED_ERROR
+    with response:
+        if response.is_redirect or response.is_permanent_redirect:
+            return False, HOST_NOT_ALLOWED_ERROR
 
-    if response.status_code == 200:
-        return True, None
-
-    if response.status_code == 401:
-        return False, "Invalid Argo CD API token"
-
-    if response.status_code == 403:
-        if schema_name is None:
-            # Valid token, missing RBAC for this probe — let source creation through.
+        if response.status_code == 200:
             return True, None
-        return False, f"Your Argo CD API token lacks the RBAC permissions required to sync '{schema_name}'"
 
-    if response.status_code == 429 or response.status_code >= 500:
-        return False, "The Argo CD server is temporarily unavailable. Please try again in a moment."
+        if response.status_code == 401:
+            return False, "Invalid Argo CD API token"
 
-    try:
-        body = response.json()
-        return False, body.get("message") or body.get("error") or response.text
-    except Exception:
-        return False, response.text
+        if response.status_code == 403:
+            if schema_name is None:
+                # Valid token, missing RBAC for this probe — let source creation through.
+                return True, None
+            return False, f"Your Argo CD API token lacks the RBAC permissions required to sync '{schema_name}'"
+
+        if response.status_code == 429 or response.status_code >= 500:
+            return False, "The Argo CD server is temporarily unavailable. Please try again in a moment."
+
+        snippet = _error_snippet(response)
+        try:
+            body = json.loads(snippet)
+            return False, body.get("message") or body.get("error") or snippet
+        except Exception:
+            return False, snippet
 
 
 def argocd_source(

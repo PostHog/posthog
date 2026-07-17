@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.argocd.argocd import (
     HOST_NOT_ALLOWED_ERROR,
     HTTPS_REQUIRED_ERROR,
+    RESPONSE_TOO_LARGE_ERROR,
     argocd_source,
     validate_credentials as validate_argocd_credentials,
 )
@@ -97,6 +98,7 @@ Your Argo CD API server must be reachable from PostHog over HTTPS with a publicl
             "403 Client Error": "Your Argo CD API token lacks the required RBAC permissions. Please check the account's RBAC policy and try again.",
             HOST_NOT_ALLOWED_ERROR: "The Argo CD host is not allowed. Please use your own Argo CD server's public URL.",
             HTTPS_REQUIRED_ERROR: "The Argo CD server URL must use HTTPS.",
+            RESPONSE_TOO_LARGE_ERROR: "The Argo CD API response was too large to sync. Use the project field to limit which applications are synced.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
