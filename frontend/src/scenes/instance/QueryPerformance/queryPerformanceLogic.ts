@@ -103,6 +103,9 @@ export interface CacheTableStats {
     oldest_partition: string | null
     newest_partition: string | null
     partitions: CachePartitionStats[]
+    // Set when system.parts couldn't be read from the cluster this table lives on — the zeros
+    // above are then "unknown", not "empty".
+    unavailable?: boolean
 }
 
 export interface CacheHealthResponse {
