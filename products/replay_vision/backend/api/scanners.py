@@ -333,8 +333,7 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.IntegerField())
     def get_credits_this_month(self, scanner: ReplayScanner) -> int:
-        # One grouped query per request: the context dict is shared across the list's children,
-        # so the whole page's totals are computed once and read by every row.
+        # The context dict is shared across the list's children, so the page's totals are computed once.
         totals = self.context.get("_scanner_credits_used")
         if totals is None:
             root = self.root
@@ -468,8 +467,7 @@ class _ScannerOrderByFilter(OrderByFilter):
 
     def _handle(self, qs: QuerySet[ReplayScanner], key: str, descending: bool) -> QuerySet[ReplayScanner]:
         if key == "credits_this_month":
-            # Same window and pricing as the serializer's `credits_this_month`, expressed in SQL so the
-            # database can order by it. The org lookup costs one small query; sorting by spend is rare.
+            # Same window and pricing as `credits_this_month`, in SQL so the database can order by it.
             organization_id = qs.values_list("team__organization_id", flat=True).first()
             if organization_id is None:
                 return qs.order_by(self._tiebreaker)

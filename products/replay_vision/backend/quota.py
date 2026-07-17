@@ -92,8 +92,9 @@ def current_period_bounds(organization_id: UUID) -> tuple[datetime, datetime]:
 def credits_used_by_scanner(organization_id: UUID, scanner_ids: list[UUID]) -> dict[UUID, int]:
     """Credits each scanner's succeeded observations consumed in the current billing period.
 
-    Priced from the frozen `scanner_snapshot` model like the eventual receipts, so the per-scanner
-    numbers sum to (at most) the quota meter's consumed total. Scanners with no spend are omitted.
+    Priced at current rates from each observation's frozen snapshot model. Receipts freeze prices
+    at success time, so these totals can drift from the billed ledger after a mid-period price
+    change. Scanners with no spend are omitted.
     """
     if not scanner_ids:
         return {}
