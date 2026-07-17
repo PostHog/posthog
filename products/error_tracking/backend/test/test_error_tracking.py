@@ -266,7 +266,9 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
             # (source assignees, target assignee, expected target assignee after merge)
             ("single_source_assignee_adopted", ["a"], None, "a"),
             ("repeated_same_source_assignee_adopted", ["a", "a"], None, "a"),
+            ("single_assignee_with_unassigned_sources_adopted", ["a", None, None], None, "a"),
             ("ambiguous_distinct_assignees_left_unassigned", ["a", "b"], None, None),
+            ("ambiguous_distinct_assignees_with_unassigned_left_unassigned", ["a", "b", None], None, None),
             ("no_source_assignees_left_unassigned", [None, None], None, None),
             ("target_assignee_takes_precedence", ["a"], "b", "b"),
         ]
