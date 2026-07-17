@@ -53,7 +53,7 @@ vi.mock('@/hono/request-context', () => {
                 getContext: vi.fn(async () => ({
                     stateManager: {
                         setDefaultOrganizationAndProject: vi.fn(async () => {}),
-                        getApiKey: vi.fn(async () => ({ scopes: ['*'], scoped_teams: [] })),
+                        getAuthorizationMetadata: vi.fn(async () => ({ scopes: ['*'], scoped_teams: [] })),
                         getAiConsentGiven: vi.fn(async () => undefined),
                         getOrFetchGroupTypes: vi.fn(async () => undefined),
                         getEnvironmentPrompt: vi.fn(async () => undefined),

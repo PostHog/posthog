@@ -49,7 +49,7 @@ export class StateManager {
         return this._user
     }
 
-    private async _fetchApiKey(): Promise<NonNullable<State['apiKey']>> {
+    private async _fetchAuthorizationMetadata(): Promise<NonNullable<State['authorizationMetadata']>> {
         const token = this._api.config.apiToken
         if (isIdJagAccessToken(token)) {
             // ID-JAG access tokens are valid PostHog API bearers, but they are stateless JWTs:
@@ -104,15 +104,15 @@ export class StateManager {
         }
     }
 
-    async getApiKey(): Promise<NonNullable<State['apiKey']>> {
-        let _apiKey = await this._cache.get('apiKey')
+    async getAuthorizationMetadata(): Promise<NonNullable<State['authorizationMetadata']>> {
+        let authorizationMetadata = await this._cache.get('authorizationMetadata')
 
-        if (!_apiKey) {
-            _apiKey = await this._fetchApiKey()
-            await this._cache.set('apiKey', _apiKey)
+        if (!authorizationMetadata) {
+            authorizationMetadata = await this._fetchAuthorizationMetadata()
+            await this._cache.set('authorizationMetadata', authorizationMetadata)
         }
 
-        return _apiKey
+        return authorizationMetadata
     }
 
     async getDistinctId(): Promise<NonNullable<State['distinctId']>> {
@@ -142,7 +142,10 @@ export class StateManager {
         organizationId?: string
         projectId?: number
     }> {
-        const [{ scoped_organizations, scoped_teams }, user] = await Promise.all([this.getApiKey(), this.getUser()])
+        const [{ scoped_organizations, scoped_teams }, user] = await Promise.all([
+            this.getAuthorizationMetadata(),
+            this.getUser(),
+        ])
         const { organization: activeOrganization, team: activeTeam } = user
 
         // Team-scoped key: prefer the active team if the scope allows it,
@@ -348,11 +351,14 @@ export class StateManager {
     }
 
     async getCachedOrFetchOrg(): Promise<CachedOrg | undefined> {
-        const apiKey = await this.getApiKey()
+        const authorizationMetadata = await this.getAuthorizationMetadata()
         // `/api/organizations/{id}/` is not project-nested. Backend permission
         // checks reject project-scoped tokens there even when they carry
         // `organization:read` or `*`, so skip the best-effort fetch entirely.
-        if (apiKey.scoped_teams.length > 0 || !hasScope(apiKey.scopes, 'organization:read')) {
+        if (
+            authorizationMetadata.scoped_teams.length > 0 ||
+            !hasScope(authorizationMetadata.scopes, 'organization:read')
+        ) {
             return undefined
         }
 

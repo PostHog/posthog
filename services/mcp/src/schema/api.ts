@@ -35,7 +35,7 @@ export interface ApiUser {
 
 // `scoped_teams` and `scoped_organizations` arrive from the API as either an
 // array or `null` (DRF serializer default). Callers must normalize null to []
-// at the wire boundary (see `StateManager._fetchApiKey`); this type represents
+// at the wire boundary (see `StateManager._fetchAuthorizationMetadata`); this type represents
 // the post-normalization shape that the rest of the codebase consumes.
 export interface ApiRedactedPersonalApiKey {
     scopes: string[]

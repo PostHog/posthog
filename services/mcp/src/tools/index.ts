@@ -149,8 +149,8 @@ export const getToolsFromContext = async (
         }
     })
 
-    const apiKey = await context.stateManager.getApiKey()
-    const scopes = apiKey?.scopes ?? []
+    const authorizationMetadata = await context.stateManager.getAuthorizationMetadata()
+    const scopes = authorizationMetadata.scopes
 
     return tools.filter((tool) => hasScopes(scopes, tool.scopes))
 }

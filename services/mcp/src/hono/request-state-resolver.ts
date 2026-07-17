@@ -112,9 +112,9 @@ export class RequestStateResolver {
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
 
-        const [allFlags, _apiKey, distinctId] = await Promise.all([
+        const [allFlags, authorizationMetadata, distinctId] = await Promise.all([
             this.resolveAllFlags(reqCtx, allFlagKeys, flagGroups),
-            context.stateManager.getApiKey(),
+            context.stateManager.getAuthorizationMetadata(),
             reqCtx.getDistinctId(),
         ])
 
@@ -152,8 +152,8 @@ export class RequestStateResolver {
         reqCtx.setMcpContexts(requestContext, sessionContext)
         props.mode = resolvedMode
 
-        const apiKeyScopes = _apiKey?.scopes ?? []
-        const apiKeyScopedTeams = _apiKey?.scoped_teams ?? []
+        const authorizationScopes = authorizationMetadata.scopes
+        const authorizationScopedTeams = authorizationMetadata.scoped_teams
         const aiConsentGiven = await context.stateManager.getAiConsentGiven()
         const availableFeatures = await context.stateManager.getAvailableFeatures()
         const isCloud = isCloudApi()
@@ -171,18 +171,18 @@ export class RequestStateResolver {
             excludeTools,
             readOnly,
             featureFlags: toolFeatureFlags,
-            scopedTeams: apiKeyScopedTeams,
+            scopedTeams: authorizationScopedTeams,
             aiConsentGiven: aiConsentGiven ?? undefined,
             availableFeatures,
             isCloud,
         }
-        const allTools = this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes })
+        const allTools = this.catalog.getFilteredTools({ ...filterOptions, scopes: authorizationScopes })
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
-        const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
+        const scopeGatedTools = useSingleExec ? getScopeGatedTools(authorizationScopes, filterOptions) : []
 
         const [groupTypes, metadata] = await Promise.all([
-            cachedProjectId && hasScope(apiKeyScopes, 'group:read')
+            cachedProjectId && hasScope(authorizationScopes, 'group:read')
                 ? context.stateManager.getOrFetchGroupTypes(cachedProjectId).catch(() => undefined)
                 : undefined,
             context.stateManager.getEnvironmentPrompt(),
@@ -193,7 +193,7 @@ export class RequestStateResolver {
             context,
             useSingleExec,
             toolFeatureFlags,
-            apiKeyScopes,
+            apiKeyScopes: authorizationScopes,
             clientProfile,
             requestContext,
             sessionContext,

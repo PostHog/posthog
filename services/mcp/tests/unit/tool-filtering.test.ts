@@ -248,7 +248,7 @@ const createMockContext = (scopes: string[]): Context => ({
         POSTHOG_UI_APPS_TOKEN: undefined,
     },
     stateManager: {
-        getApiKey: async () => ({ scopes }),
+        getAuthorizationMetadata: async () => ({ scopes }),
         getAiConsentGiven: async () => undefined,
     } as any,
     sessionManager: new SessionManager({} as any),
@@ -522,7 +522,7 @@ describe('Tool Filtering - AI Consent', () => {
                 POSTHOG_UI_APPS_TOKEN: undefined,
             },
             stateManager: {
-                getApiKey: async () => ({ scopes: ['*'] }),
+                getAuthorizationMetadata: async () => ({ scopes: ['*'] }),
                 getAiConsentGiven: async () => false,
             } as any,
             sessionManager: new SessionManager({} as any),
@@ -549,7 +549,7 @@ describe('Tool Filtering - AI Consent', () => {
                 POSTHOG_UI_APPS_TOKEN: undefined,
             },
             stateManager: {
-                getApiKey: async () => ({ scopes: ['*'] }),
+                getAuthorizationMetadata: async () => ({ scopes: ['*'] }),
                 getAiConsentGiven: async () => true,
             } as any,
             sessionManager: new SessionManager({} as any),

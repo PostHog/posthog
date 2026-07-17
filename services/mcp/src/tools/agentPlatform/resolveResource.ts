@@ -40,7 +40,7 @@ export const resolveResourceHandler: ToolBase<typeof schema, Result>['handler'] 
     // a missing/erroring key just renders the flat list with required scopes.
     let scopes: string[] | undefined
     try {
-        scopes = (await context.stateManager.getApiKey()).scopes
+        scopes = (await context.stateManager.getAuthorizationMetadata()).scopes
     } catch {
         scopes = undefined
     }
