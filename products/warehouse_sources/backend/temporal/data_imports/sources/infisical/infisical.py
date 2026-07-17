@@ -47,6 +47,13 @@ MAX_RESPONSE_SECONDS = 300
 # compresses anyway only breaks its own JSON parse; the size/time caps still hold.
 IDENTITY_ENCODING_HEADERS = {"Accept-Encoding": "identity"}
 MAX_PAGES = 100_000
+# The page-count cap alone doesn't bound worker occupancy either: a hostile host can hand back a
+# full page (still under the byte cap) that drains its whole MAX_RESPONSE_SECONDS deadline on every
+# one of MAX_PAGES requests, so 100,000 * 300s is ~1 year of work — far past this resumable
+# activity's week-long start_to_close_timeout. Bound each paginating loop by wall-clock too and
+# abort (non-retryably) once the budget is spent. Generous for any legitimate sync (fast pages
+# drain millions of rows well inside it).
+MAX_PAGINATION_SECONDS = 6 * 60 * 60
 # The project fan-out makes one request per project, so a customer-controlled host that returns
 # a huge project list (still under the byte cap) could turn one sync into millions of requests
 # and hold an import worker for the activity's lifetime. Bound the fan-out; far above any
@@ -88,6 +95,10 @@ class InfisicalAuthError(Exception):
 
 
 class InfisicalFanOutBudgetExceededError(Exception):
+    pass
+
+
+class InfisicalPaginationBudgetExceededError(Exception):
     pass
 
 
@@ -463,6 +474,21 @@ def validate_credentials(
     return True, None
 
 
+def _check_pagination_budget(deadline: float, config_name: str) -> None:
+    """Abort a paginating loop once its wall-clock budget is spent.
+
+    The page-count cap (MAX_PAGES) bounds how many pages we fetch, not how long each one takes: a
+    hostile host can drain every page's full response deadline. Bound the whole loop by wall-clock
+    and abort — checked before each request, so the in-flight request may overrun by at most one
+    response deadline, which is already bounded elsewhere.
+    """
+    if time.monotonic() > deadline:
+        raise InfisicalPaginationBudgetExceededError(
+            f"Infisical pagination for {config_name} exceeded its {MAX_PAGINATION_SECONDS}s "
+            f"budget before draining all pages; aborting the sync"
+        )
+
+
 def _get_audit_log_rows(
     client: InfisicalClient,
     config: InfisicalEndpointConfig,
@@ -493,7 +519,10 @@ def _get_audit_log_rows(
             else None
         )
 
+    pagination_deadline = time.monotonic() + MAX_PAGINATION_SECONDS
     for page in range(MAX_PAGES):
+        _check_pagination_budget(pagination_deadline, config.name)
+
         params: dict[str, Any] = {"limit": config.page_limit, "offset": offset, "endDate": window_end}
         if window_start:
             params["startDate"] = window_start
@@ -532,7 +561,10 @@ def _get_offset_paginated_rows(
     if offset:
         logger.debug(f"Infisical: resuming {config.name} at offset={offset}")
 
+    pagination_deadline = time.monotonic() + MAX_PAGINATION_SECONDS
     for page in range(MAX_PAGES):
+        _check_pagination_budget(pagination_deadline, config.name)
+
         params: dict[str, Any] = {"limit": config.page_limit, "offset": offset, **config.extra_params}
         rows = client.get(path, params).json().get(config.data_key) or []
         if not rows:

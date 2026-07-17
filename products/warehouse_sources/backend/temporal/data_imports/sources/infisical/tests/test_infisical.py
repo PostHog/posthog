@@ -16,9 +16,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.infisical.
     INVALID_CREDENTIALS_ERROR,
     InfisicalAuthError,
     InfisicalFanOutBudgetExceededError,
+    InfisicalPaginationBudgetExceededError,
     InfisicalResponseTooLargeError,
     InfisicalResumeConfig,
     _format_incremental_value,
+    _get_audit_log_rows,
+    _get_offset_paginated_rows,
     _get_project_fan_out_rows,
     _parse_retry_after,
     _retry_wait,
@@ -521,6 +524,48 @@ class TestResponseLimits:
 
         assert [r["id"] for r in rows] == ["a", "b"]
         assert len(_get_urls(session)) == 2
+
+    @pytest.mark.parametrize(
+        "endpoint, run_loop",
+        [
+            (
+                "identities",
+                lambda client, config, manager: _get_offset_paginated_rows(
+                    client, config, "org-123", manager, mock.MagicMock()
+                ),
+            ),
+            (
+                "audit_logs",
+                lambda client, config, manager: _get_audit_log_rows(
+                    client, config, mock.MagicMock(), manager, False, None
+                ),
+            ),
+        ],
+    )
+    def test_pagination_aborts_when_time_budget_exhausted(self, endpoint, run_loop):
+        # MAX_PAGES bounds page count, not per-page time: a hostile host can return a full page that
+        # drains its whole response deadline on every one of MAX_PAGES pages, holding the worker for
+        # ~a year. The wall-clock pagination budget must abort the sync — not silently truncate —
+        # once spent.
+        config = INFISICAL_ENDPOINTS[endpoint]
+        client = mock.MagicMock()
+        full_page = _response(json_data={config.data_key: [{"id": f"r{i}"} for i in range(config.page_limit)]})
+        client.get.return_value = full_page
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+
+        # A clock that jumps one per-response deadline on every check, so a two-response budget is
+        # spent after the first couple of pages — simulating each page draining its full deadline.
+        clock = itertools.count(0, infisical_module.MAX_RESPONSE_SECONDS)
+        with (
+            mock.patch.object(infisical_module, "MAX_PAGINATION_SECONDS", infisical_module.MAX_RESPONSE_SECONDS * 2),
+            mock.patch.object(infisical_module.time, "monotonic", lambda: next(clock)),
+            pytest.raises(InfisicalPaginationBudgetExceededError),
+        ):
+            list(run_loop(client, config, manager))
+
+        # Aborted mid-pagination rather than running all the way to MAX_PAGES.
+        assert 0 < client.get.call_count < infisical_module.MAX_PAGES
 
 
 class TestValidateCredentials:
