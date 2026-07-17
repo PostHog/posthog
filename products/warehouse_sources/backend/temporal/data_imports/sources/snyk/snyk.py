@@ -191,6 +191,26 @@ def _initial_params(
     return params
 
 
+def _iter_single_org(
+    session: requests.Session,
+    host: str,
+    organization_id: str,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    """Emit only the configured organization instead of every org the token can reach.
+
+    ``GET /rest/orgs/{org_id}`` returns that one org as a single JSON:API object. Honoring the
+    configured id here keeps a single-org connection scoped to that org, so a member can't
+    enumerate every organization the token can see via the organizations table.
+    """
+    org_id = _validated_org_id(organization_id)
+    url = _build_url(host, f"/orgs/{org_id}", {"version": SNYK_REST_VERSION})
+    payload = _fetch_page(session, url, logger)
+    item = payload.get("data") if isinstance(payload, dict) else None
+    if isinstance(item, dict):
+        yield [_flatten_item(item)]
+
+
 def _iter_top_level(
     session: requests.Session,
     host: str,
@@ -281,7 +301,10 @@ def get_rows(
     params = _initial_params(config, incremental_field, should_use_incremental_field, db_incremental_field_last_value)
 
     if config.scope == SnykScope.ORGANIZATION:
-        yield from _iter_top_level(session, host, config, params, logger, resumable_source_manager)
+        if organization_id and organization_id.strip():
+            yield from _iter_single_org(session, host, organization_id, logger)
+        else:
+            yield from _iter_top_level(session, host, config, params, logger, resumable_source_manager)
     else:
         yield from _iter_fan_out(session, host, config, params, organization_id, logger, resumable_source_manager)
 

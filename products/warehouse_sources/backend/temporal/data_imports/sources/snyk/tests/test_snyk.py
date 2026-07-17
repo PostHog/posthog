@@ -213,6 +213,44 @@ class TestTopLevelOrganizations:
         with pytest.raises(ValueError):
             _collect("organizations", {}, manager, monkeypatch)
 
+    def test_configured_org_fetches_single_org_directly(self, monkeypatch: Any) -> None:
+        # A single-org connection must not enumerate every org the token can reach: it fetches
+        # /orgs/{org_id} directly and emits only that org. Hitting the /orgs list would raise.
+        monkeypatch.setattr(snyk, "make_tracked_session", lambda *args, **kwargs: MagicMock())
+        monkeypatch.setattr(
+            snyk,
+            "_fetch_list_page",
+            lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not enumerate orgs")),
+        )
+        requested: list[str] = []
+
+        def fake_fetch_page(session: Any, url: str, logger: Any) -> Any:
+            requested.append(url)
+            return {"data": {"id": "o9", "type": "org", "attributes": {"name": "Org 9"}}}
+
+        monkeypatch.setattr(snyk, "_fetch_page", fake_fetch_page)
+
+        rows: list[dict] = []
+        for batch in get_rows(
+            region="us",
+            api_token="tok",
+            organization_id="o9",
+            endpoint="organizations",
+            logger=MagicMock(),
+            resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+        ):
+            rows.extend(batch)
+
+        assert rows == [{"id": "o9", "type": "org", "name": "Org 9"}]
+        assert requested == [f"{HOST}/rest/orgs/o9?version={SNYK_REST_VERSION}"]
+
+    def test_configured_org_id_is_validated_before_the_request(self, monkeypatch: Any) -> None:
+        # The org id is interpolated into the URL path, so a path-altering value must be rejected
+        # before any request is made — even on the single-org organizations path.
+        monkeypatch.setattr(snyk, "make_tracked_session", lambda *args, **kwargs: MagicMock())
+        with pytest.raises(ValueError):
+            _collect("organizations", {}, _FakeResumableManager(), monkeypatch, organization_id="../self")
+
 
 class TestPerOrgFanOut:
     def _two_org_pages(self) -> dict[str, tuple[list[dict], str | None]]:
