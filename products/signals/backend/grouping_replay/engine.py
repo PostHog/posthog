@@ -685,12 +685,10 @@ class PythonPipeline:
         self.group_onnx = ort.InferenceSession(
             str(artifact_dir / self.group_manifest["artifact"]["path"]), providers=["CPUExecutionProvider"]
         )
-        self.shuffler_sessions = {
-            bucket["width"]: ort.InferenceSession(
-                str(artifact_dir / bucket["artifact"]["path"]), providers=["CPUExecutionProvider"]
-            )
-            for bucket in self.shuffler_manifest["bipartite"]["buckets"]
-        }
+        shuffler_artifact = self.shuffler_manifest["bipartite"]["artifact"]
+        self.shuffler_session = ort.InferenceSession(
+            str(artifact_dir / shuffler_artifact["path"]), providers=["CPUExecutionProvider"]
+        )
         self.identifiers = [extract_identifiers(signal.content) for signal in signals]
         self.text = [text_stats(signal.content) for signal in signals]
         self.retrieval, self.neighbor_scales = self.precompute_retrieval()
@@ -1280,41 +1278,19 @@ class PythonPipeline:
         left_rows, right_rows = self.reports.get(own_report, []), self.reports.get(competitor, [])
         if not left_rows or not right_rows:
             return self.report_of[trigger]
-        if len(left_rows) > 300 or len(right_rows) > 300 or len(left_rows) + len(right_rows) > 450:
-            self.shuffler_events.append(
-                {
-                    "trigger": self.signals[trigger].id,
-                    "left_report": own_report,
-                    "right_report": competitor,
-                    "left_size": len(left_rows),
-                    "right_size": len(right_rows),
-                    "left_members": [self.signals[row].id for row in left_rows],
-                    "right_members": [self.signals[row].id for row in right_rows],
-                    "trigger_score": trigger_score,
-                    "left_probabilities": [],
-                    "right_probabilities": [],
-                    "action_probability": None,
-                    "safety_probability": None,
-                    "selected_left": [],
-                    "selected_right": [],
-                    "status": "skipped_size_contract",
-                    "output_report": None,
-                    "moved": 0,
-                }
-            )
-            return self.report_of[trigger]
         edges = self.shuffler_edges(left_rows, right_rows)
         left_features = self.member_features(edges, len(left_rows), len(right_rows), left=True)
         right_features = self.member_features(edges, len(left_rows), len(right_rows), left=False)
-        width = next(width for width in sorted(self.shuffler_sessions) if width >= max(len(left_rows), len(right_rows)))
+        left_width = len(left_rows)
+        right_width = len(right_rows)
         node_names = self.shuffler_manifest["node_feature_names"]
         edge_names = self.shuffler_manifest["edge_feature_names"]
-        left_values = np.zeros((1, width, len(node_names)), dtype=np.float32)
-        right_values = np.zeros_like(left_values)
-        left_embeddings = np.zeros((1, width, 1536), dtype=np.float32)
-        right_embeddings = np.zeros_like(left_embeddings)
-        edge_values = np.zeros((1, width, width, len(edge_names)), dtype=np.float32)
-        edge_mask = np.zeros((1, width, width), dtype=bool)
+        left_values = np.zeros((1, left_width, len(node_names)), dtype=np.float32)
+        right_values = np.zeros((1, right_width, len(node_names)), dtype=np.float32)
+        left_embeddings = np.zeros((1, left_width, 1536), dtype=np.float32)
+        right_embeddings = np.zeros((1, right_width, 1536), dtype=np.float32)
+        edge_values = np.zeros((1, left_width, right_width, len(edge_names)), dtype=np.float32)
+        edge_mask = np.zeros((1, left_width, right_width), dtype=bool)
         for position, features in enumerate(left_features):
             left_values[0, position] = [features[name] for name in node_names]
             left_embeddings[0, position] = self.embeddings[left_rows[position]]
@@ -1335,7 +1311,7 @@ class PythonPipeline:
             )
             edge_values[0, edge.left, edge.right] = [values[name] for name in edge_names]
             edge_mask[0, edge.left, edge.right] = True
-        left_logits, right_logits, action_logit, safety_logit = self.shuffler_sessions[width].run(
+        left_logits, right_logits, action_logit, safety_logit = self.shuffler_session.run(
             ["left_logits", "right_logits", "action_logit", "safety_logit"],
             {
                 "left_features": left_values,
@@ -1361,6 +1337,10 @@ class PythonPipeline:
             "trigger": self.signals[trigger].id,
             "left_report": own_report,
             "right_report": competitor,
+            "left_size": left_width,
+            "right_size": right_width,
+            "edge_cell_count": left_width * right_width,
+            "populated_edge_count": len(edges),
             "trigger_score": trigger_score,
             "left_probabilities": left_probabilities,
             "right_probabilities": right_probabilities,

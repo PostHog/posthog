@@ -167,6 +167,8 @@ pub struct MemberRepairEvent {
     pub right_report: String,
     pub left_size: usize,
     pub right_size: usize,
+    pub edge_cell_count: usize,
+    pub populated_edge_count: usize,
     pub left_members: Vec<String>,
     pub right_members: Vec<String>,
     pub left_probabilities: Vec<f64>,
@@ -2501,39 +2503,7 @@ impl Replayer {
         } else {
             self.cfg.member_repair_risk_gate.clone()
         };
-        if left_rows.len() > crate::member_repair::MAX_REPORT_MEMBERS
-            || right_rows.len() > crate::member_repair::MAX_REPORT_MEMBERS
-            || left_rows.len() + right_rows.len() > crate::member_repair::MAX_COMBINED_MEMBERS
-        {
-            self.member_repair_events.push(MemberRepairEvent {
-                trigger_signal: trigger_signal.to_string(),
-                timestamp,
-                architecture,
-                left_report,
-                right_report,
-                left_size: left_rows.len(),
-                right_size: right_rows.len(),
-                left_members,
-                right_members,
-                left_probabilities: Vec::new(),
-                right_probabilities: Vec::new(),
-                trigger_score,
-                member_threshold,
-                report_gate_name: gate_name.clone(),
-                report_gate_score: None,
-                report_gate_threshold: gate_threshold,
-                risk_gate_name: risk_gate_name.clone(),
-                risk_score: None,
-                risk_threshold: self.cfg.member_repair_risk_tau,
-                selected_left: Vec::new(),
-                selected_right: Vec::new(),
-                status: "skipped_size_contract".to_string(),
-                output_report: None,
-                moved_members: 0,
-                llm_oracle: None,
-            });
-            return None;
-        }
+        let edge_cell_count = left_rows.len().saturating_mul(right_rows.len());
         let started = std::time::Instant::now();
         let edges = match self.member_repair_edges(&left_rows, &right_rows) {
             Ok(edges) => edges,
@@ -2546,6 +2516,8 @@ impl Replayer {
                     right_report,
                     left_size: left_rows.len(),
                     right_size: right_rows.len(),
+                    edge_cell_count,
+                    populated_edge_count: 0,
                     left_members,
                     right_members,
                     left_probabilities: Vec::new(),
@@ -2569,6 +2541,7 @@ impl Replayer {
                 return None;
             }
         };
+        let populated_edge_count = edges.len();
         let left_embeddings = left_rows
             .iter()
             .map(|row| self.store.row(*row))
@@ -2598,6 +2571,8 @@ impl Replayer {
                     right_report,
                     left_size: left_rows.len(),
                     right_size: right_rows.len(),
+                    edge_cell_count,
+                    populated_edge_count,
                     left_members,
                     right_members,
                     left_probabilities: Vec::new(),
@@ -2664,6 +2639,8 @@ impl Replayer {
                         right_report,
                         left_size: left_rows.len(),
                         right_size: right_rows.len(),
+                        edge_cell_count,
+                        populated_edge_count: proposal.edges.len(),
                         left_members,
                         right_members,
                         left_probabilities: proposal.left_probabilities.clone(),
@@ -2757,6 +2734,8 @@ impl Replayer {
                 right_report,
                 left_size: left_rows.len(),
                 right_size: right_rows.len(),
+                edge_cell_count,
+                populated_edge_count: proposal.edges.len(),
                 left_members,
                 right_members,
                 left_probabilities: proposal.left_probabilities.clone(),
@@ -2823,6 +2802,8 @@ impl Replayer {
             right_report,
             left_size: left_rows.len(),
             right_size: right_rows.len(),
+            edge_cell_count,
+            populated_edge_count: proposal.edges.len(),
             left_members,
             right_members,
             left_probabilities: proposal.left_probabilities,

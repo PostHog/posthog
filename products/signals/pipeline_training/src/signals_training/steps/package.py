@@ -14,6 +14,7 @@ RUNTIME_SHUFFLER_METADATA = (
     "schema_version",
     "model_family",
     "feature_contract",
+    "serving_contract",
     "interaction",
     "feature_independence",
     "caps",
@@ -278,6 +279,17 @@ class Package:
         bipartite = value.get("bipartite")
         if not isinstance(bipartite, dict):
             raise ValueError("integrated shuffler manifest has no bipartite runtime record")
+        artifact = bipartite.get("artifact")
+        if isinstance(artifact, dict):
+            relative_path = artifact.get("path")
+            if not isinstance(relative_path, str) or not relative_path:
+                raise ValueError("integrated shuffler has no artifact path")
+            root = manifest_path.parent.resolve()
+            path = (root / relative_path).resolve()
+            if not path.is_relative_to(root) or not path.is_file():
+                raise ValueError(f"invalid integrated shuffler artifact path: {relative_path}")
+            return [path]
+
         buckets = bipartite.get("buckets")
         if not isinstance(buckets, list) or not buckets:
             raise ValueError("integrated shuffler manifest has no ONNX buckets")

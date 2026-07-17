@@ -167,12 +167,17 @@ After preparation, the existing recipe runs these stages:
 | `build_pair_surface`, `train_pair`                                        | Construct atomic supervision and fit the depth-3 pair model plus isotonic calibrator                          |
 | `harvest_groupjoin`, `build_groupjoin_surface`, `train_groupjoin`         | Replay decision-time candidates and fit the GroupJoin tree plus DeepSets stack                                |
 | `build_cut_surface`, `train_split_gate`                                   | Construct whole-report cut supervision and fit the report-disjoint split gate                                 |
-| `build_shuffler_curriculum`, `build_shuffler_substrate`, `train_shuffler` | Construct human and synthetic operations, sparse member edges, risk controls, and the integrated shuffler     |
+| `build_shuffler_curriculum`, `build_shuffler_substrate`, `train_shuffler` | Construct human and synthetic operations, sparse member edges, risk controls, and one dynamic-axis shuffler   |
 | `evaluate_a`                                                              | Run the complete chronological learned pipeline and score frozen A labels                                     |
 | `package`                                                                 | Copy hash-pinned serving artifacts and write `pipeline.json`, `training-run.json`, and the artifact manifest  |
 | `evaluate_b`                                                              | Run the single frozen B confirmation only with explicit authorization                                         |
 
 The GroupJoin builders receive `document_groups.json` through an explicit command-line argument. They cannot fall back to historical shard globals. All vendored builders are included in stage fingerprints.
+
+The shuffler exporter writes one ONNX graph with independent symbolic left-member and right-member axes.
+Packaging copies that graph, the compact compatibility models, and the runtime manifest into the hash-pinned serving bundle.
+Changing from padded export buckets to dynamic axes does not add learned parameters, but it exposes report sizes that may be outside a checkpoint's training distribution.
+Model promotion therefore depends on full chronological replay and large-report qualitative review, not export parity alone.
 
 ## Reproducibility and security boundary
 
@@ -184,6 +189,8 @@ Input exports, enrichment requests, candidate prompts, ledgers, work directories
 
 - The project deliberately has no provider adapter. An approved external worker must fulfill enrichment requests and LLM label requests by appending ledger events.
 - Exact clone generation is quadratic in signal count. Batching bounds memory, not compute. Large exports should run on a suitably provisioned offline worker.
+- The shuffler has no fixed report-width ceiling, but its dense left-by-right interaction is quadratic in balanced report width and remains bounded by available memory.
+- Dynamic-axis export does not establish model quality on report sizes absent from training. Training data and validation must cover the intended large-report operating distribution.
 - Candidate limits are a labeling-budget choice. They make the review surface deterministic, not exhaustive supervision.
 - Files named `*_oof` and model-local fold metrics describe the immediate model's held fold only. Some downstream shuffler inputs were produced by upstream models fitted on overlapping train operations, so those numbers are not end-to-end out-of-fold estimates and must not be treated as unbiased calibration. Chronological validation A, followed by the one-shot frozen validation B confirmation, is the held-out end-to-end evidence.
 - Full training is compute intensive and requires the exact pinned Python dependencies plus a Rust toolchain. The cheap validation path is Python compilation and `cargo check`; those do not exercise model fitting.

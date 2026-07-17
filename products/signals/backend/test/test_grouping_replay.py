@@ -16,6 +16,9 @@ from unittest.mock import patch
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase
 
+import numpy as np
+import onnxruntime as ort
+
 from products.signals.backend.grouping_replay.artifacts import load_frozen_pipeline
 from products.signals.backend.grouping_replay.bundle import (
     build_bundle,
@@ -27,7 +30,6 @@ from products.signals.backend.grouping_replay.cache import append_jsonl
 from products.signals.backend.grouping_replay.engine import (
     CONCERN_SPLIT_BUDGET,
     PythonPipeline,
-    Signal,
     load_rows,
     materialize_signals,
 )
@@ -143,19 +145,37 @@ class TestGroupingReplayContracts(SimpleTestCase):
 
         assert len(pipeline.split_events) == CONCERN_SPLIT_BUDGET
 
-    def test_oversize_shuffler_attempt_is_recorded_before_returning(self) -> None:
-        pipeline = PythonPipeline.__new__(PythonPipeline)
-        pipeline.signals = cast(list[Signal], [SimpleNamespace(id=f"signal-{index}") for index in range(302)])
-        pipeline.report_of = ["left"] * 301 + ["right"]
-        pipeline.reports = {"left": list(range(301)), "right": [301]}
-        pipeline.shuffler_events = []
+    def test_dynamic_shuffler_accepts_reports_beyond_the_old_size_contract(self) -> None:
+        pipeline = load_frozen_pipeline()
+        manifest = json.loads((pipeline.artifact_dir / "integrated_report_shuffler.manifest").read_text())
+        artifact = pipeline.artifact_dir / manifest["bipartite"]["artifact"]["path"]
+        session = ort.InferenceSession(str(artifact), providers=["CPUExecutionProvider"])
+        left_members, right_members = 301, 151
+        node_features = len(manifest["node_feature_names"])
+        edge_features = len(manifest["edge_feature_names"])
+        edge_mask = np.zeros((1, left_members, right_members), dtype=bool)
+        for left in range(left_members):
+            edge_mask[0, left, left % right_members] = True
+        for right in range(right_members):
+            edge_mask[0, right % left_members, right] = True
 
-        output = asyncio.run(pipeline.apply_shuffler(0, "left", "right", trigger_score=0.99))
+        left_logits, right_logits, action_logit, safety_logit = session.run(
+            ["left_logits", "right_logits", "action_logit", "safety_logit"],
+            {
+                "left_features": np.zeros((1, left_members, node_features), dtype=np.float32),
+                "right_features": np.zeros((1, right_members, node_features), dtype=np.float32),
+                "left_embeddings": np.zeros((1, left_members, 1536), dtype=np.float32),
+                "right_embeddings": np.zeros((1, right_members, 1536), dtype=np.float32),
+                "edge_features": np.zeros((1, left_members, right_members, edge_features), dtype=np.float32),
+                "edge_mask": edge_mask,
+                "member_threshold": np.asarray([[0.1]], dtype=np.float32),
+            },
+        )
 
-        assert output == "left"
-        assert pipeline.shuffler_events[0]["status"] == "skipped_size_contract"
-        assert pipeline.shuffler_events[0]["left_size"] == 301
-        assert pipeline.shuffler_events[0]["right_size"] == 1
+        assert left_logits.shape == (1, left_members)
+        assert right_logits.shape == (1, right_members)
+        assert action_logit.shape == (1,)
+        assert safety_logit.shape == (1,)
 
     def test_customer_derived_cache_and_bundle_files_are_owner_only(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

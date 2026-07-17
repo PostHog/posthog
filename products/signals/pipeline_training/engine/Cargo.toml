@@ -9,10 +9,11 @@ path = "src/main.rs"
 
 [features]
 default = ["neural-onnx"]
-neural-onnx = ["dep:sha2", "dep:tract-onnx"]
+neural-onnx = ["dep:flate2", "dep:sha2", "dep:tract-onnx"]
 
 [dependencies]
 anyhow = "1"
+flate2 = { version = "1", optional = true }
 rayon = "1"
 regex = "1"
 serde = { version = "1", features = ["derive"] }

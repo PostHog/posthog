@@ -1,67 +1,30 @@
 {
     "bipartite": {
-        "buckets": [
-            {
-                "artifact": {
-                    "bytes": 5316254,
-                    "path": "integrated_late_interaction_report_shuffler_8.onnx",
-                    "sha256": "14425369ba0c2a1e52835eb555c995dc173bb62677d4cc3f22435853bb8fa37c"
-                },
-                "width": 8
-            },
-            {
-                "artifact": {
-                    "bytes": 5316254,
-                    "path": "integrated_late_interaction_report_shuffler_32.onnx",
-                    "sha256": "a5c61669c8b6a865d166069b85c9fa0822ca7b4212a63f92a7ed72c2f00759c1"
-                },
-                "width": 32
-            },
-            {
-                "artifact": {
-                    "bytes": 5316254,
-                    "path": "integrated_late_interaction_report_shuffler_64.onnx",
-                    "sha256": "4462b538d5f0a27e42c0ec310bcc3cd620503bb208c889ef0aa0fdb9501a843b"
-                },
-                "width": 64
-            },
-            {
-                "artifact": {
-                    "bytes": 5316264,
-                    "path": "integrated_late_interaction_report_shuffler_128.onnx",
-                    "sha256": "774b5410c9a551f4ec5b0202d0826c84553d10e6a524ef4960a65dd51f94bd15"
-                },
-                "width": 128
-            },
-            {
-                "artifact": {
-                    "bytes": 5316264,
-                    "path": "integrated_late_interaction_report_shuffler_300.onnx",
-                    "sha256": "8b75a010db78bc6763e50646cffb5c6ee98863dbc9a95131a4ea2a0a2f169efb"
-                },
-                "width": 300
-            }
-        ],
+        "artifact": {
+            "bytes": 5316378,
+            "path": "integrated_late_interaction_report_shuffler.onnx",
+            "sha256": "e768cdea6f3ff27a5643557dd67413946da4b026902b9380e1a42a0d5ed6bdf2"
+        },
         "input_shapes": {
             "edge_features": [
                 "report_pairs",
-                "bucketed_members",
-                "bucketed_members",
+                "left_members",
+                "right_members",
                 15
             ],
             "edge_mask": [
                 "report_pairs",
-                "bucketed_members",
-                "bucketed_members"
+                "left_members",
+                "right_members"
             ],
             "left_embeddings": [
                 "report_pairs",
-                "bucketed_members",
+                "left_members",
                 1536
             ],
             "left_features": [
                 "report_pairs",
-                "bucketed_members",
+                "left_members",
                 48
             ],
             "member_threshold": [
@@ -70,12 +33,12 @@
             ],
             "right_embeddings": [
                 "report_pairs",
-                "bucketed_members",
+                "right_members",
                 1536
             ],
             "right_features": [
                 "report_pairs",
-                "bucketed_members",
+                "right_members",
                 48
             ]
         },
@@ -86,11 +49,11 @@
             ],
             "left_logits": [
                 "report_pairs",
-                "bucketed_members"
+                "left_members"
             ],
             "right_logits": [
                 "report_pairs",
-                "bucketed_members"
+                "right_members"
             ],
             "safety_logit": [
                 "report_pairs"
@@ -100,8 +63,6 @@
     },
     "caps": {
         "embedding_dims": 1536,
-        "max_combined_members": 450,
-        "max_report_members": 300,
         "top_k_each_direction": 24
     },
     "compatibility_consensus": {
@@ -197,6 +158,7 @@
         "rich-context-logistic_relative_to_report_max",
         "rich-context-logistic_member_rank_share"
     ],
-    "schema_version": 2,
-    "status": "integrated member, action, and safety outputs exported for Rust replay"
+    "schema_version": 3,
+    "serving_contract": "dynamic-member-axes-v1",
+    "status": "dynamic integrated member, action, and safety outputs exported for replay"
 }

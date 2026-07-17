@@ -2,28 +2,20 @@
     "artifact_bytes": {
         "groupjoin_direct.manifest": 11632,
         "groupjoin_direct.onnx": 73822,
-        "integrated_late_interaction_report_shuffler_128.onnx": 5316264,
-        "integrated_late_interaction_report_shuffler_300.onnx": 5316264,
-        "integrated_late_interaction_report_shuffler_32.onnx": 5316254,
-        "integrated_late_interaction_report_shuffler_64.onnx": 5316254,
-        "integrated_late_interaction_report_shuffler_8.onnx": 5316254,
+        "integrated_late_interaction_report_shuffler.onnx": 5316378,
         "integrated_report_shuffler.compatibility.json.gz": 96073,
-        "integrated_report_shuffler.manifest": 6714,
+        "integrated_report_shuffler.manifest": 5231,
         "models-stack.json.gz": 176275
     },
     "artifacts": {
         "groupjoin_direct.manifest": "5bee056513d2b9543278465f31b8e6157f815e329a08a17d1a9bf8060544ea12",
         "groupjoin_direct.onnx": "a7c0b480dff81528c032218c8ba811b44b0d20a21b13fafcb66f76044a3fbee6",
-        "integrated_late_interaction_report_shuffler_128.onnx": "774b5410c9a551f4ec5b0202d0826c84553d10e6a524ef4960a65dd51f94bd15",
-        "integrated_late_interaction_report_shuffler_300.onnx": "8b75a010db78bc6763e50646cffb5c6ee98863dbc9a95131a4ea2a0a2f169efb",
-        "integrated_late_interaction_report_shuffler_32.onnx": "a5c61669c8b6a865d166069b85c9fa0822ca7b4212a63f92a7ed72c2f00759c1",
-        "integrated_late_interaction_report_shuffler_64.onnx": "4462b538d5f0a27e42c0ec310bcc3cd620503bb208c889ef0aa0fdb9501a843b",
-        "integrated_late_interaction_report_shuffler_8.onnx": "14425369ba0c2a1e52835eb555c995dc173bb62677d4cc3f22435853bb8fa37c",
+        "integrated_late_interaction_report_shuffler.onnx": "e768cdea6f3ff27a5643557dd67413946da4b026902b9380e1a42a0d5ed6bdf2",
         "integrated_report_shuffler.compatibility.json.gz": "c0f486b836a5ff8678eb7a04fb2e678d8adf32431dcafe02695537bed785aeb4",
-        "integrated_report_shuffler.manifest": "90e0eb1208d8edfecfb11c149fa9cbe22b1b2f9b747df34e0ebf6a0e72fa93b9",
+        "integrated_report_shuffler.manifest": "111e067acec32a7056ae68fd166b00ce662d69da1c821e381bd86c2187fac4bc",
         "models-stack.json.gz": "6f59950363f31dd392ea5b11cd60804ce5a7f72ac61d7b7568281bc4f51f415a"
     },
-    "frozen_at": "2026-07-16",
+    "frozen_at": "2026-07-17",
     "schema_version": 1,
     "sources": {
         "groupjoin": "groupjoin-20260710-1722",

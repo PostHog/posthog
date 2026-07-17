@@ -11,6 +11,11 @@ Callers may instead inject `ProviderSet` implementations for deterministic tests
 `oracle-on` invokes the exact `remediation-coherence-v2` oracle after the neural model proposes one mask.
 The oracle then replaces the learned action and safety gates for that proposal, may accept, reject, or select one alternative cross-report mask, and fails closed after one invalid-response correction attempt.
 
+The shuffler ONNX artifact has independent dynamic left-report and right-report member axes, so serving does not impose a fixed report-width ceiling.
+Its cross-report interaction remains dense and therefore uses compute and memory proportional to the product of the two report sizes.
+The packaged artifact is one graph rather than a set of padded size buckets, and the manifest records both symbolic member axes.
+Available memory remains the practical limit for very large report pairs.
+
 Provider responses are append-only JSONL records below `<run_dir>/cache`.
 These caches and output bundles contain customer-derived data and must be protected and retained accordingly.
 Directories created by the runtime use mode `0700`, and cache records and bundles use mode `0600`.

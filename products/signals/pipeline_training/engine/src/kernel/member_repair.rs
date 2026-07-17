@@ -5,12 +5,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-pub const MAX_REPORT_MEMBERS: usize = 300;
-pub const MAX_COMBINED_MEMBERS: usize = 450;
 pub const TOP_K: usize = 24;
 const LEGACY_NODE_FEATURES: usize = 51;
 const EDGE_FEATURES: usize = 15;
 const EMBEDDING_DIMS: usize = 1536;
+const LEGACY_MAX_REPORT_MEMBERS: usize = 300;
+const LEGACY_MAX_COMBINED_MEMBERS: usize = 450;
 
 pub const RUST_FEATURE_NAMES: [&str; 42] = [
     "best_projected_distance",
@@ -255,7 +255,16 @@ struct Artifact {
 }
 
 #[derive(Deserialize)]
+struct ExternalClassifiers {
+    artifact: Artifact,
+    model_names: Vec<String>,
+}
+
+#[derive(Deserialize)]
 struct NeuralContract {
+    #[serde(default)]
+    artifact: Option<Artifact>,
+    #[serde(default)]
     buckets: Vec<NeuralBucket>,
 }
 
@@ -268,8 +277,10 @@ struct NeuralBucket {
 #[derive(Deserialize)]
 struct Caps {
     top_k_each_direction: usize,
-    max_report_members: usize,
-    max_combined_members: usize,
+    #[serde(default)]
+    max_report_members: Option<usize>,
+    #[serde(default)]
+    max_combined_members: Option<usize>,
     #[serde(default)]
     embedding_dims: Option<usize>,
 }
@@ -279,13 +290,20 @@ struct Manifest {
     schema_version: u32,
     model_family: String,
     feature_contract: String,
+    #[serde(default)]
+    serving_contract: Option<String>,
     caps: Caps,
     node_feature_names: Vec<String>,
     edge_feature_names: Vec<String>,
+    #[serde(default)]
     compatibility_primary: HashMap<String, PortableClassifier>,
-    compatibility_consensus: HashMap<String, PortableClassifier>,
+    #[serde(default)]
+    compatibility_consensus: serde_json::Value,
+    #[serde(default)]
     report_gate: HashMap<String, PortableClassifier>,
+    #[serde(default)]
     operation_risk_contextual: HashMap<String, PortableClassifier>,
+    #[serde(default)]
     operation_risk_bipartite: HashMap<String, PortableClassifier>,
     #[serde(default)]
     contextual: Option<NeuralContract>,
@@ -765,23 +783,31 @@ fn operation_risk_features(proposal: &Proposal, member_threshold: f64) -> HashMa
 mod enabled {
     use super::*;
     use anyhow::Context;
+    use flate2::read::GzDecoder;
     use sha2::{Digest, Sha256};
+    use std::io::Read;
     use std::path::{Path, PathBuf};
     use tract_onnx::prelude::*;
 
     pub struct MemberRepair {
         manifest: Manifest,
+        compatibility_consensus: HashMap<String, PortableClassifier>,
         contextual: Vec<(usize, TypedRunnableModel<TypedModel>)>,
-        bipartite: Vec<(usize, TypedRunnableModel<TypedModel>)>,
+        bipartite: BipartiteRuntime,
         full_embedding: bool,
         integrated: bool,
+    }
+
+    enum BipartiteRuntime {
+        Dynamic(TypedRunnableModel<TypedModel>),
+        LegacyBuckets(Vec<(usize, TypedRunnableModel<TypedModel>)>),
     }
 
     fn resolve_sibling(base: &Path, child: &str) -> PathBuf {
         base.parent().unwrap_or_else(|| Path::new(".")).join(child)
     }
 
-    fn load_model(base: &Path, artifact: &Artifact) -> Result<TypedRunnableModel<TypedModel>> {
+    fn read_artifact(base: &Path, artifact: &Artifact) -> Result<Vec<u8>> {
         let path = resolve_sibling(base, &artifact.path);
         let bytes = std::fs::read(&path).with_context(|| path.display().to_string())?;
         if bytes.len() as u64 != artifact.bytes {
@@ -797,10 +823,34 @@ mod enabled {
                 path.display()
             );
         }
-        Ok(tract_onnx::onnx()
-            .model_for_path(&path)?
-            .into_optimized()?
-            .into_runnable()?)
+        Ok(bytes)
+    }
+
+    fn load_model(base: &Path, artifact: &Artifact) -> Result<TypedRunnableModel<TypedModel>> {
+        let bytes = read_artifact(base, artifact)?;
+        let model = tract_onnx::onnx().model_for_read(&mut bytes.as_slice())?;
+        Ok(model.into_optimized()?.into_runnable()?)
+    }
+
+    fn load_classifiers(
+        base: &Path,
+        value: serde_json::Value,
+    ) -> Result<HashMap<String, PortableClassifier>> {
+        if value.get("artifact").is_none() {
+            return Ok(serde_json::from_value(value)?);
+        }
+        let external: ExternalClassifiers = serde_json::from_value(value)?;
+        let compressed = read_artifact(base, &external.artifact)?;
+        let mut decoder = GzDecoder::new(compressed.as_slice());
+        let mut decoded = Vec::new();
+        decoder.read_to_end(&mut decoded)?;
+        let models: HashMap<String, PortableClassifier> = serde_json::from_slice(&decoded)?;
+        let mut actual_names = models.keys().cloned().collect::<Vec<_>>();
+        actual_names.sort();
+        if actual_names != external.model_names {
+            bail!("external member-repair classifier names do not match the manifest");
+        }
+        Ok(models)
     }
 
     fn load_buckets(
@@ -827,10 +877,10 @@ mod enabled {
     impl MemberRepair {
         pub fn load(path: &str) -> Result<Self> {
             let path = Path::new(path);
-            let manifest: Manifest = serde_json::from_str(
+            let mut manifest: Manifest = serde_json::from_str(
                 &std::fs::read_to_string(path).with_context(|| path.display().to_string())?,
             )?;
-            let (full_embedding, integrated) = match (
+            let (full_embedding, integrated, dynamic_members) = match (
                 manifest.schema_version,
                 manifest.model_family.as_str(),
                 manifest.feature_contract.as_str(),
@@ -839,17 +889,24 @@ mod enabled {
                     1,
                     "member_aware_report_pair_repair",
                     "lab2-exact-member-v3-live-replay-v2-bucketed-members",
-                ) => (false, false),
+                ) => (false, false, false),
                 (
                     1,
                     "member_aware_report_pair_repair_full_embedding",
                     "lab2-exact-member-v3-full-embedding-live-replay-v1",
-                ) => (true, false),
+                ) => (true, false, false),
                 (
                     2,
                     "integrated_bipartite_report_shuffler",
                     "lab2-exact-member-v3-integrated-shuffler-v1",
-                ) => (true, true),
+                ) => (true, true, false),
+                (
+                    3,
+                    "integrated_bipartite_report_shuffler",
+                    "lab2-exact-member-v3-integrated-shuffler-v1",
+                ) if manifest.serving_contract.as_deref() == Some("dynamic-member-axes-v1") => {
+                    (true, true, true)
+                }
                 _ => bail!("unsupported member-repair manifest contract"),
             };
             let expected_node_features = if integrated {
@@ -857,9 +914,11 @@ mod enabled {
             } else {
                 LEGACY_NODE_FEATURES
             };
+            let invalid_legacy_caps = !dynamic_members
+                && (manifest.caps.max_report_members != Some(LEGACY_MAX_REPORT_MEMBERS)
+                    || manifest.caps.max_combined_members != Some(LEGACY_MAX_COMBINED_MEMBERS));
             if manifest.caps.top_k_each_direction != TOP_K
-                || manifest.caps.max_report_members != MAX_REPORT_MEMBERS
-                || manifest.caps.max_combined_members != MAX_COMBINED_MEMBERS
+                || invalid_legacy_caps
                 || manifest.node_feature_names.len() != expected_node_features
                 || manifest.edge_feature_names.len() != EDGE_FEATURES
                 || (full_embedding && manifest.caps.embedding_dims != Some(EMBEDDING_DIMS))
@@ -871,14 +930,38 @@ mod enabled {
             {
                 bail!("member-repair manifest shape contract mismatch");
             }
+            let compatibility_consensus =
+                load_classifiers(path, std::mem::take(&mut manifest.compatibility_consensus))?;
             let contextual = match &manifest.contextual {
-                Some(contract) => load_buckets(path, &contract.buckets, MAX_COMBINED_MEMBERS)?,
+                Some(contract) => {
+                    load_buckets(path, &contract.buckets, LEGACY_MAX_COMBINED_MEMBERS)?
+                }
                 None if integrated => Vec::new(),
                 None => bail!("member-repair contextual contract is missing"),
             };
-            let bipartite = load_buckets(path, &manifest.bipartite.buckets, MAX_REPORT_MEMBERS)?;
+            let bipartite = if dynamic_members {
+                let artifact = manifest
+                    .bipartite
+                    .artifact
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("dynamic bipartite artifact is missing"))?;
+                if !manifest.bipartite.buckets.is_empty() {
+                    bail!("dynamic bipartite contract must contain exactly one artifact");
+                }
+                BipartiteRuntime::Dynamic(load_model(path, artifact)?)
+            } else {
+                if manifest.bipartite.artifact.is_some() {
+                    bail!("legacy bipartite contract cannot contain a dynamic artifact");
+                }
+                BipartiteRuntime::LegacyBuckets(load_buckets(
+                    path,
+                    &manifest.bipartite.buckets,
+                    LEGACY_MAX_REPORT_MEMBERS,
+                )?)
+            };
             Ok(Self {
                 manifest,
+                compatibility_consensus,
                 contextual,
                 bipartite,
                 full_embedding,
@@ -908,7 +991,7 @@ mod enabled {
                 right_raw.iter().map(|values| maximum(values)).collect();
             let models = match architecture {
                 Architecture::Contextual => &self.manifest.compatibility_primary,
-                Architecture::Bipartite => &self.manifest.compatibility_consensus,
+                Architecture::Bipartite => &self.compatibility_consensus,
             };
             for edge in edges.iter_mut() {
                 let features = compatibility_features(
@@ -1022,20 +1105,26 @@ mod enabled {
         ) -> Result<(Vec<f64>, Vec<f64>, Option<f64>, Option<f64>)> {
             let left_count = left.len();
             let right_count = right.len();
-            let needed = left_count.max(right_count);
-            let (width, model) = self
-                .bipartite
-                .iter()
-                .find(|(width, _)| *width >= needed)
-                .ok_or_else(|| {
-                    anyhow::anyhow!("no bipartite member-repair bucket for {needed} members")
-                })?;
-            let width = *width;
+            let (left_width, right_width, model, dynamic_members) = match &self.bipartite {
+                BipartiteRuntime::Dynamic(model) => (left_count, right_count, model, true),
+                BipartiteRuntime::LegacyBuckets(buckets) => {
+                    let needed = left_count.max(right_count);
+                    let (width, model) = buckets
+                        .iter()
+                        .find(|(width, _)| *width >= needed)
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "no legacy bipartite member-repair bucket for {needed} members"
+                            )
+                        })?;
+                    (*width, *width, model, false)
+                }
+            };
             let node_features = self.manifest.node_feature_names.len();
-            let mut left_values = vec![0.0f32; width * node_features];
-            let mut right_values = vec![0.0f32; width * node_features];
-            let mut left_embedding_values = vec![0.0f32; width * EMBEDDING_DIMS];
-            let mut right_embedding_values = vec![0.0f32; width * EMBEDDING_DIMS];
+            let mut left_values = vec![0.0f32; left_width * node_features];
+            let mut right_values = vec![0.0f32; right_width * node_features];
+            let mut left_embedding_values = vec![0.0f32; left_width * EMBEDDING_DIMS];
+            let mut right_embedding_values = vec![0.0f32; right_width * EMBEDDING_DIMS];
             for (rows, values) in [(left, &mut left_values), (right, &mut right_values)] {
                 for (position, row) in rows.iter().enumerate() {
                     for (feature, name) in self.manifest.node_feature_names.iter().enumerate() {
@@ -1060,10 +1149,10 @@ mod enabled {
                     values[start..start + EMBEDDING_DIMS].copy_from_slice(embedding);
                 }
             }
-            let mut edge_values = vec![0.0f32; width * width * EDGE_FEATURES];
-            let mut edge_mask = vec![false; width * width];
+            let mut edge_values = vec![0.0f32; left_width * right_width * EDGE_FEATURES];
+            let mut edge_mask = vec![false; left_width * right_width];
             for edge in edges {
-                let base = (edge.left_index * width + edge.right_index) * EDGE_FEATURES;
+                let base = (edge.left_index * right_width + edge.right_index) * EDGE_FEATURES;
                 let mut features = HashMap::new();
                 for name in BIPARTITE_SCORE_NAMES {
                     features.insert(format!("probability:{name}"), edge.compatibility[name]);
@@ -1089,29 +1178,32 @@ mod enabled {
                         .ok_or_else(|| anyhow::anyhow!("missing bipartite edge feature {name}"))?
                         as f32;
                 }
-                edge_mask[edge.left_index * width + edge.right_index] = true;
+                edge_mask[edge.left_index * right_width + edge.right_index] = true;
             }
             let left_tensor: Tensor =
-                tract_ndarray::Array3::from_shape_vec((1, width, node_features), left_values)?
+                tract_ndarray::Array3::from_shape_vec((1, left_width, node_features), left_values)?
                     .into();
-            let right_tensor: Tensor =
-                tract_ndarray::Array3::from_shape_vec((1, width, node_features), right_values)?
-                    .into();
+            let right_tensor: Tensor = tract_ndarray::Array3::from_shape_vec(
+                (1, right_width, node_features),
+                right_values,
+            )?
+            .into();
             let edge_tensor: Tensor = tract_ndarray::Array4::from_shape_vec(
-                (1, width, width, EDGE_FEATURES),
+                (1, left_width, right_width, EDGE_FEATURES),
                 edge_values,
             )?
             .into();
             let mask_tensor: Tensor =
-                tract_ndarray::Array3::from_shape_vec((1, width, width), edge_mask)?.into();
+                tract_ndarray::Array3::from_shape_vec((1, left_width, right_width), edge_mask)?
+                    .into();
             let outputs = if self.full_embedding {
                 let left_embeddings: Tensor = tract_ndarray::Array3::from_shape_vec(
-                    (1, width, EMBEDDING_DIMS),
+                    (1, left_width, EMBEDDING_DIMS),
                     left_embedding_values,
                 )?
                 .into();
                 let right_embeddings: Tensor = tract_ndarray::Array3::from_shape_vec(
-                    (1, width, EMBEDDING_DIMS),
+                    (1, right_width, EMBEDDING_DIMS),
                     right_embedding_values,
                 )?
                 .into();
@@ -1150,6 +1242,11 @@ mod enabled {
             };
             let left_logits = outputs[0].to_array_view::<f32>()?;
             let right_logits = outputs[1].to_array_view::<f32>()?;
+            if dynamic_members
+                && (left_logits.len() != left_count || right_logits.len() != right_count)
+            {
+                bail!("dynamic bipartite member selector returned an incompatible output");
+            }
             let sigmoid = |value: &f32| 1.0 / (1.0 + (-(*value as f64)).exp());
             let action_probability = if self.integrated {
                 Some(sigmoid(
@@ -1191,22 +1288,20 @@ mod enabled {
         ) -> Result<Proposal> {
             let left_size = left_embeddings.len();
             let right_size = right_embeddings.len();
-            if left_size == 0
-                || right_size == 0
-                || left_size > MAX_REPORT_MEMBERS
-                || right_size > MAX_REPORT_MEMBERS
-                || left_size + right_size > MAX_COMBINED_MEMBERS
-            {
-                bail!("report pair violates the member-repair size contract");
+            if left_size == 0 || right_size == 0 {
+                bail!("member repair requires a non-empty report on both sides");
             }
             self.score_compatibility(architecture, &mut edges, left_size, right_size)?;
-            let report_features = report_features(&edges, left_size, right_size);
-            let report_gate: HashMap<String, f64> = self
-                .manifest
-                .report_gate
-                .iter()
-                .map(|(name, model)| Ok((name.clone(), model.predict(&report_features)?)))
-                .collect::<Result<_>>()?;
+            let report_gate: HashMap<String, f64> = if self.manifest.report_gate.is_empty() {
+                HashMap::new()
+            } else {
+                let report_features = report_features(&edges, left_size, right_size);
+                self.manifest
+                    .report_gate
+                    .iter()
+                    .map(|(name, model)| Ok((name.clone(), model.predict(&report_features)?)))
+                    .collect::<Result<_>>()?
+            };
             let (left_features, right_features) =
                 member_features(&edges, &report_gate, left_size, right_size);
             let (left_probabilities, right_probabilities, action_probability, safety_probability) =
@@ -1294,58 +1389,13 @@ impl MemberRepair {
 #[cfg(all(test, feature = "neural-onnx"))]
 mod tests {
     use super::*;
-    use serde::Deserialize;
+    use anyhow::Context;
     use std::path::PathBuf;
 
-    #[derive(Deserialize)]
-    struct Fixture {
-        cases: Vec<FixtureCase>,
-    }
-
-    #[derive(Deserialize)]
-    struct FixtureCase {
-        merge_id: String,
-        left_size: usize,
-        right_size: usize,
-        edges: Vec<FixtureEdge>,
-        architectures: HashMap<String, FixtureExpected>,
-    }
-
-    #[derive(Deserialize)]
-    struct FixtureEdge {
-        left_index: usize,
-        right_index: usize,
-        embedding_cosine: f64,
-        left_rank: Option<usize>,
-        right_rank: Option<usize>,
-        pair_raw: f64,
-        pair_cal: f64,
-        rust_features: HashMap<String, f64>,
-        compatibility_features: HashMap<String, f64>,
-    }
-
-    #[derive(Deserialize)]
-    struct FixtureExpected {
-        member_threshold: f64,
-        left_probabilities: Vec<f64>,
-        right_probabilities: Vec<f64>,
-        report_gate: HashMap<String, f64>,
-        compatibility: Vec<FixtureCompatibility>,
-        report_compatibility: Vec<FixtureCompatibility>,
-        operation_risk: HashMap<String, f64>,
-    }
-
-    #[derive(Deserialize)]
-    struct FixtureCompatibility {
-        left_index: usize,
-        right_index: usize,
-        scores: HashMap<String, f64>,
-    }
-
-    fn artifact_path(name: &str) -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../data/member_repair/20260713-v1")
-            .join(name)
+    fn frozen_dynamic_manifest_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../../backend/static/grouping_pipeline/artifacts/integrated_report_shuffler.manifest",
+        )
     }
 
     fn assert_close(label: &str, expected: f64, actual: f64, tolerance: f64) {
@@ -1363,180 +1413,96 @@ mod tests {
         }
     }
 
-    fn assert_map(
-        label: &str,
-        expected: &HashMap<String, f64>,
-        actual: &HashMap<String, f64>,
-        tolerance: f64,
-    ) {
-        assert_eq!(expected.len(), actual.len(), "{label} width");
-        for (name, expected) in expected {
-            assert_close(
-                &format!("{label}.{name}"),
-                *expected,
-                actual[name],
-                tolerance,
-            );
-        }
-    }
-
-    fn assert_map_subset(
-        label: &str,
-        expected: &HashMap<String, f64>,
-        actual: &HashMap<String, f64>,
-        tolerance: f64,
-    ) {
-        for (name, expected) in expected {
-            assert_close(
-                &format!("{label}.{name}"),
-                *expected,
-                actual[name],
-                tolerance,
-            );
-        }
-    }
-
-    #[test]
-    fn python_rust_report_pair_parity() -> Result<()> {
-        let fixture: Fixture = serde_json::from_str(&std::fs::read_to_string(artifact_path(
-            "parity_fixture.json",
-        ))?)?;
+    fn deterministic_proposal(left_size: usize, right_size: usize) -> Result<Proposal> {
         let repair = MemberRepair::load(
-            artifact_path("member_repair.manifest.json")
+            frozen_dynamic_manifest_path()
                 .to_str()
                 .expect("artifact path is UTF-8"),
         )?;
-        for case in fixture.cases {
-            let expected_features: HashMap<(usize, usize), &HashMap<String, f64>> = case
-                .edges
-                .iter()
-                .map(|edge| {
-                    (
-                        (edge.left_index, edge.right_index),
-                        &edge.compatibility_features,
-                    )
-                })
-                .collect();
-            let edges: Vec<PairEvidence> = case
-                .edges
-                .iter()
-                .map(|edge| {
+        let rust_features = RUST_FEATURE_NAMES
+            .iter()
+            .map(|name| ((*name).to_string(), 0.0))
+            .collect::<HashMap<_, _>>();
+        let edges = (0..left_size)
+            .flat_map(|left_index| {
+                let rust_features = rust_features.clone();
+                (0..right_size).map(move |right_index| {
                     PairEvidence::new(
-                        edge.left_index,
-                        edge.right_index,
-                        edge.embedding_cosine,
-                        edge.left_rank,
-                        edge.right_rank,
-                        edge.pair_raw,
-                        edge.pair_cal,
-                        edge.rust_features.clone(),
+                        left_index,
+                        right_index,
+                        0.5,
+                        Some(right_index + 1),
+                        Some(left_index + 1),
+                        0.5,
+                        0.5,
+                        rust_features.clone(),
                     )
                 })
-                .collect();
-            let mut left_raw = vec![Vec::new(); case.left_size];
-            let mut left_cal = vec![Vec::new(); case.left_size];
-            let mut right_raw = vec![Vec::new(); case.right_size];
-            let mut right_cal = vec![Vec::new(); case.right_size];
-            for edge in &edges {
-                left_raw[edge.left_index].push(edge.pair_raw);
-                left_cal[edge.left_index].push(edge.pair_cal);
-                right_raw[edge.right_index].push(edge.pair_raw);
-                right_cal[edge.right_index].push(edge.pair_cal);
-            }
-            let report_left_raw: Vec<f64> = left_raw.iter().map(|values| maximum(values)).collect();
-            let report_right_raw: Vec<f64> =
-                right_raw.iter().map(|values| maximum(values)).collect();
-            for edge in &edges {
-                let actual = compatibility_features(
-                    edge,
-                    &left_raw,
-                    &left_cal,
-                    &right_raw,
-                    &right_cal,
-                    &report_left_raw,
-                    &report_right_raw,
-                    case.left_size,
-                    case.right_size,
-                );
-                assert_map_subset(
-                    &format!(
-                        "{}.features.({}, {})",
-                        case.merge_id, edge.left_index, edge.right_index
-                    ),
-                    expected_features[&(edge.left_index, edge.right_index)],
-                    &actual,
-                    2.0e-7,
-                );
-            }
-            for (name, architecture) in [
-                ("contextual", Architecture::Contextual),
-                ("bipartite", Architecture::Bipartite),
-            ] {
-                let expected = &case.architectures[name];
-                let left_values = vec![vec![0.0f32; EMBEDDING_DIMS]; case.left_size];
-                let right_values = vec![vec![0.0f32; EMBEDDING_DIMS]; case.right_size];
-                let left_embeddings = left_values.iter().map(Vec::as_slice).collect::<Vec<_>>();
-                let right_embeddings = right_values.iter().map(Vec::as_slice).collect::<Vec<_>>();
-                let proposal = repair.propose(
-                    architecture,
-                    edges.clone(),
-                    &left_embeddings,
-                    &right_embeddings,
-                    expected.member_threshold,
-                )?;
-                let compatibility: HashMap<(usize, usize), &FixtureCompatibility> = expected
-                    .compatibility
-                    .iter()
-                    .map(|edge| ((edge.left_index, edge.right_index), edge))
-                    .collect();
-                let report_compatibility: HashMap<(usize, usize), &FixtureCompatibility> = expected
-                    .report_compatibility
-                    .iter()
-                    .map(|edge| ((edge.left_index, edge.right_index), edge))
-                    .collect();
-                for edge in &proposal.edges {
-                    let key = (edge.left_index, edge.right_index);
-                    assert_map(
-                        &format!("{}.{}.edge.{key:?}", case.merge_id, name),
-                        &compatibility[&key].scores,
-                        &edge.compatibility,
-                        2.0e-7,
-                    );
-                    assert_map(
-                        &format!("{}.{}.report_edge.{key:?}", case.merge_id, name),
-                        &report_compatibility[&key].scores,
-                        &edge.report_compatibility,
-                        2.0e-7,
-                    );
-                }
-                assert_vector(
-                    &format!("{}.{}.left", case.merge_id, name),
-                    &expected.left_probabilities,
-                    &proposal.left_probabilities,
-                    2.0e-5,
-                );
-                assert_vector(
-                    &format!("{}.{}.right", case.merge_id, name),
-                    &expected.right_probabilities,
-                    &proposal.right_probabilities,
-                    2.0e-5,
-                );
-                assert_map(
-                    &format!("{}.{}.report", case.merge_id, name),
-                    &expected.report_gate,
-                    &proposal.report_gate,
-                    2.0e-7,
-                );
-                let risk =
-                    repair.operation_risk(architecture, &proposal, expected.member_threshold)?;
-                assert_map(
-                    &format!("{}.{}.risk", case.merge_id, name),
-                    &expected.operation_risk,
-                    &risk,
-                    2.0e-7,
-                );
-            }
-        }
+            })
+            .collect();
+        let left_values = vec![vec![0.0f32; EMBEDDING_DIMS]; left_size];
+        let right_values = vec![vec![0.0f32; EMBEDDING_DIMS]; right_size];
+        let left_embeddings = left_values.iter().map(Vec::as_slice).collect::<Vec<_>>();
+        let right_embeddings = right_values.iter().map(Vec::as_slice).collect::<Vec<_>>();
+        repair.propose(
+            Architecture::Bipartite,
+            edges,
+            &left_embeddings,
+            &right_embeddings,
+            0.1,
+        )
+    }
+
+    #[test]
+    fn dynamic_member_axes_match_python_onnx_runtime() -> Result<()> {
+        let proposal = deterministic_proposal(3, 2)?;
+
+        assert_vector(
+            "left probabilities",
+            &[0.9997073922592142, 0.9996679068022511, 0.9997865663423346],
+            &proposal.left_probabilities,
+            2.0e-6,
+        );
+        assert_vector(
+            "right probabilities",
+            &[0.9999278676506714, 0.9999369173932742],
+            &proposal.right_probabilities,
+            2.0e-6,
+        );
+        assert_close(
+            "action probability",
+            0.0047331356096855445,
+            proposal
+                .action_probability
+                .context("missing action probability")?,
+            2.0e-6,
+        );
+        assert_close(
+            "safety probability",
+            1.1587080987214745e-9,
+            proposal
+                .safety_probability
+                .context("missing safety probability")?,
+            2.0e-9,
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn dynamic_member_axes_accept_a_report_above_the_legacy_cap() -> Result<()> {
+        let left_size = 301;
+        let right_size = 2;
+        let proposal = deterministic_proposal(left_size, right_size)?;
+
+        assert_eq!(proposal.left_probabilities.len(), left_size);
+        assert_eq!(proposal.right_probabilities.len(), right_size);
+        assert!(proposal
+            .left_probabilities
+            .iter()
+            .chain(&proposal.right_probabilities)
+            .all(|probability| probability.is_finite()));
+        assert!(proposal.action_probability.is_some_and(f64::is_finite));
+        assert!(proposal.safety_probability.is_some_and(f64::is_finite));
         Ok(())
     }
 }

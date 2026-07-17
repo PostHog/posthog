@@ -4,18 +4,15 @@
 
 from __future__ import annotations
 
-import json
 import argparse
+import json
 from pathlib import Path
 
 import onnx
 import numpy as np
 import torch
 from export_member_repair_pipeline import (
-    BIPARTITE_BUCKETS,
     EDGE_FEATURE_COUNT,
-    MAX_COMBINED_MEMBERS,
-    MAX_REPORT_MEMBERS,
     artifact_record,
     dump_models,
 )
@@ -92,54 +89,54 @@ def main() -> None:
         state["edge_std"],
     ).eval()
 
-    buckets = []
-    for width in BIPARTITE_BUCKETS:
-        artifact = output / f"integrated_{interaction}_report_shuffler_{width}.onnx"
-        torch.onnx.export(
-            serving,
-            (
-                torch.zeros(1, width, len(node_columns), dtype=torch.float32),
-                torch.zeros(1, width, len(node_columns), dtype=torch.float32),
-                torch.zeros(1, width, EMBEDDING_DIMS, dtype=torch.float32),
-                torch.zeros(1, width, EMBEDDING_DIMS, dtype=torch.float32),
-                torch.zeros(1, width, width, EDGE_FEATURE_COUNT, dtype=torch.float32),
-                torch.ones(1, width, width, dtype=torch.bool),
-                torch.full((1, 1), 0.5, dtype=torch.float32),
-            ),
-            artifact,
-            input_names=[
-                "left_features",
-                "right_features",
-                "left_embeddings",
-                "right_embeddings",
-                "edge_features",
-                "edge_mask",
-                "member_threshold",
-            ],
-            output_names=["left_logits", "right_logits", "action_logit", "safety_logit"],
-            dynamic_axes={
-                "left_features": {0: "report_pairs"},
-                "right_features": {0: "report_pairs"},
-                "left_embeddings": {0: "report_pairs"},
-                "right_embeddings": {0: "report_pairs"},
-                "edge_features": {0: "report_pairs"},
-                "edge_mask": {0: "report_pairs"},
-                "member_threshold": {0: "report_pairs"},
-                "left_logits": {0: "report_pairs"},
-                "right_logits": {0: "report_pairs"},
-                "action_logit": {0: "report_pairs"},
-                "safety_logit": {0: "report_pairs"},
-            },
-            opset_version=18,
-            dynamo=False,
-        )
-        onnx.checker.check_model(onnx.load(artifact), full_check=True)
-        buckets.append({"width": width, "artifact": artifact_record(artifact)})
+    artifact = output / f"integrated_{interaction}_report_shuffler.onnx"
+    left_members = 7
+    right_members = 11
+    torch.onnx.export(
+        serving,
+        (
+            torch.zeros(1, left_members, len(node_columns), dtype=torch.float32),
+            torch.zeros(1, right_members, len(node_columns), dtype=torch.float32),
+            torch.zeros(1, left_members, EMBEDDING_DIMS, dtype=torch.float32),
+            torch.zeros(1, right_members, EMBEDDING_DIMS, dtype=torch.float32),
+            torch.zeros(1, left_members, right_members, EDGE_FEATURE_COUNT, dtype=torch.float32),
+            torch.ones(1, left_members, right_members, dtype=torch.bool),
+            torch.full((1, 1), 0.5, dtype=torch.float32),
+        ),
+        artifact,
+        input_names=[
+            "left_features",
+            "right_features",
+            "left_embeddings",
+            "right_embeddings",
+            "edge_features",
+            "edge_mask",
+            "member_threshold",
+        ],
+        output_names=["left_logits", "right_logits", "action_logit", "safety_logit"],
+        dynamic_axes={
+            "left_features": {0: "report_pairs", 1: "left_members"},
+            "right_features": {0: "report_pairs", 1: "right_members"},
+            "left_embeddings": {0: "report_pairs", 1: "left_members"},
+            "right_embeddings": {0: "report_pairs", 1: "right_members"},
+            "edge_features": {0: "report_pairs", 1: "left_members", 2: "right_members"},
+            "edge_mask": {0: "report_pairs", 1: "left_members", 2: "right_members"},
+            "member_threshold": {0: "report_pairs"},
+            "left_logits": {0: "report_pairs", 1: "left_members"},
+            "right_logits": {0: "report_pairs", 1: "right_members"},
+            "action_logit": {0: "report_pairs"},
+            "safety_logit": {0: "report_pairs"},
+        },
+        opset_version=18,
+        dynamo=False,
+    )
+    onnx.checker.check_model(onnx.load(artifact), full_check=True)
 
     manifest = {
-        "schema_version": 2,
+        "schema_version": 3,
         "model_family": "integrated_bipartite_report_shuffler",
         "feature_contract": "lab2-exact-member-v3-integrated-shuffler-v1",
+        "serving_contract": "dynamic-member-axes-v1",
         "interaction": interaction,
         "feature_independence": {
             "external_report_gate_in_neural_input": False,
@@ -147,8 +144,6 @@ def main() -> None:
         },
         "caps": {
             "top_k_each_direction": 24,
-            "max_report_members": MAX_REPORT_MEMBERS,
-            "max_combined_members": MAX_COMBINED_MEMBERS,
             "embedding_dims": EMBEDDING_DIMS,
         },
         "node_feature_names": node_columns,
@@ -161,33 +156,33 @@ def main() -> None:
         "bipartite": {
             "variant": "integrated",
             "interaction": interaction,
-            "buckets": buckets,
+            "artifact": artifact_record(artifact),
             "input_shapes": {
-                "left_features": ["report_pairs", "bucketed_members", len(node_columns)],
-                "right_features": ["report_pairs", "bucketed_members", len(node_columns)],
-                "left_embeddings": ["report_pairs", "bucketed_members", EMBEDDING_DIMS],
-                "right_embeddings": ["report_pairs", "bucketed_members", EMBEDDING_DIMS],
+                "left_features": ["report_pairs", "left_members", len(node_columns)],
+                "right_features": ["report_pairs", "right_members", len(node_columns)],
+                "left_embeddings": ["report_pairs", "left_members", EMBEDDING_DIMS],
+                "right_embeddings": ["report_pairs", "right_members", EMBEDDING_DIMS],
                 "edge_features": [
                     "report_pairs",
-                    "bucketed_members",
-                    "bucketed_members",
+                    "left_members",
+                    "right_members",
                     EDGE_FEATURE_COUNT,
                 ],
-                "edge_mask": ["report_pairs", "bucketed_members", "bucketed_members"],
+                "edge_mask": ["report_pairs", "left_members", "right_members"],
                 "member_threshold": ["report_pairs", 1],
             },
             "output_shapes": {
-                "left_logits": ["report_pairs", "bucketed_members"],
-                "right_logits": ["report_pairs", "bucketed_members"],
+                "left_logits": ["report_pairs", "left_members"],
+                "right_logits": ["report_pairs", "right_members"],
                 "action_logit": ["report_pairs"],
                 "safety_logit": ["report_pairs"],
             },
         },
-        "status": "integrated member, action, and safety outputs exported for Rust replay",
+        "status": "dynamic integrated member, action, and safety outputs exported for replay",
     }
     manifest_path = output / "integrated_report_shuffler.manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-    print(f"wrote {len(buckets)} integrated ONNX buckets")
+    print(f"wrote dynamic integrated ONNX model {artifact}")
     print(f"wrote {manifest_path}")
 
 

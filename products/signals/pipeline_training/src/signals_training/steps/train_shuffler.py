@@ -30,10 +30,7 @@ class TrainShuffler:
             directory / "fine_tune" / "integrated_report_shuffler.pt",
             directory / "fine_tune" / "integrated_report_shuffler_metrics.json",
             exported / "integrated_report_shuffler.manifest.json",
-            *(
-                exported / f"integrated_late_interaction_report_shuffler_{width}.onnx"
-                for width in (8, 32, 64, 128, 300)
-            ),
+            exported / "integrated_late_interaction_report_shuffler.onnx",
         ]
 
     def config_fragment(self, context: StageContext) -> JsonObject:
