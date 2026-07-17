@@ -1,3 +1,4 @@
+import json
 import socket
 import threading
 from collections.abc import Generator, Iterable, Iterator
@@ -271,6 +272,26 @@ class TestPostgresImplementationWiring:
     def test_get_incremental_filter_returns_filter_postgres_incremental_fields(self):
         impl = PostgresSource().get_implementation
         assert impl.get_incremental_filter() is filter_postgres_incremental_fields
+
+
+class TestPostgresParseConfigRobustness:
+    def test_parse_config_recovers_double_encoded_job_inputs(self):
+        # Stored job inputs (an `EncryptedJSONField`) can come back double-encoded as a JSON string
+        # rather than a mapping. Schema discovery parses them via `parse_config`; before the guard
+        # a string crashed with `TypeError: string indices must be integers`. It must recover the
+        # mapping instead so the sync proceeds.
+        job_inputs = {
+            "host": "db.example.com",
+            "database": "prod",
+            "user": "reader",
+            "password": "secret",
+            "port": "5432",
+        }
+
+        config = PostgresSource().parse_config(json.dumps(job_inputs))  # type: ignore[arg-type]
+
+        assert config.host == "db.example.com"
+        assert config.port == 5432
 
 
 class TestPostgresSourceMetadataConnectionErrors:

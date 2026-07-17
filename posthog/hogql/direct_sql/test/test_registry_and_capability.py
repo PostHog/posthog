@@ -1,3 +1,7 @@
+import json
+
+from unittest import mock
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -11,6 +15,7 @@ from posthog.hogql.direct_sql.capability import direct_capable_source_types, is_
 from posthog.hogql.direct_sql.registry import get_adapter, register_adapter, registered_engines
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.source_management import PostgresSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
@@ -68,3 +73,33 @@ class TestDirectSQLCapability(SimpleTestCase):
             },
             set(direct_capable_source_types()),
         )
+
+
+class TestPostgresAdapterValidateSourceConfig(SimpleTestCase):
+    def test_validate_source_config_recovers_double_encoded_job_inputs(self):
+        # Insight image export over a direct-Postgres connection validates the source config first.
+        # Stored job inputs can come back double-encoded as a JSON string; before the guard this
+        # crashed inside `parse_config` with `TypeError: string indices must be integers`, which
+        # the export activity re-raised as an opaque `ApplicationError`. It must recover instead.
+        job_inputs = {
+            "host": "db.example.com",
+            "database": "prod",
+            "user": "reader",
+            "password": "secret",
+            "port": "5432",
+        }
+        source = ExternalDataSource(
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method="direct",
+            job_inputs=json.dumps(job_inputs),
+        )
+        team = mock.MagicMock(pk=1)
+
+        with (
+            mock.patch.object(PostgresSource, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(PostgresSource, "is_database_host_valid", return_value=(True, None)),
+        ):
+            _source, config = PostgresAdapter().validate_source_config(source, team)
+
+        assert config.host == "db.example.com"
+        assert config.port == 5432

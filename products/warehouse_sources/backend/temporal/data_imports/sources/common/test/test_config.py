@@ -578,6 +578,34 @@ def test_to_config_optional_config_does_not_retain_unparseable_dict():
     assert cfg.auth is None
 
 
+# A string whose characters happen to spell field names is the nastiest non-mapping: the `key in d`
+# membership checks pass as substring matches, so parsing walks deeper before indexing blows up.
+@pytest.mark.parametrize("non_mapping", ['{"key_file": {}}', "key_file dataset_id", 42, ["key_file"], b"bytes"])
+def test_to_config_does_not_string_index_non_mapping(non_mapping):
+    """`to_config` must never raise the opaque `TypeError: string indices must be integers`.
+
+    `from_dict` rejects a non-mapping at the top level, but `to_config` is also reached
+    recursively, and stored job inputs can come back double-encoded as a JSON string. Indexing a
+    non-mapping (`d[field_key]`) crashed schema discovery and direct-Postgres exports with that
+    opaque error. It must instead fall through to the flat path — so a required field surfaces a
+    clear missing-argument error, mirroring how `validate_config` never indexes a non-mapping.
+    """
+
+    @config.config
+    class KeyFileConfig:
+        project_id: str
+
+    @config.config
+    class SourceConfig(config.Config):
+        key_file: KeyFileConfig
+        dataset_id: str
+
+    with pytest.raises(TypeError) as exc_info:
+        config.to_config(SourceConfig, non_mapping)  # type: ignore[arg-type]
+
+    assert "string indices" not in str(exc_info.value)
+
+
 @config.config
 class _SecretFieldConfig(config.Config):
     password: str | None = None
