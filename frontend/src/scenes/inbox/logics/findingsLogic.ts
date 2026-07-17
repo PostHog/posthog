@@ -13,7 +13,7 @@ import {
     SignalScoutEmissionReportLink,
     SignalScoutRunSummary,
 } from '../types'
-import { mostRecentEmittedRuns, prettifyScoutSkillName } from '../utils/scoutRunsWindow'
+import { mostRecentEmittedRuns, prettifyScoutSkillName, runTouchedReports } from '../utils/scoutRunsWindow'
 import { ScoutEmissionRow, ScoutReportAction } from './scoutDetailLogic'
 import { scoutFleetLogic } from './scoutFleetLogic'
 
@@ -186,7 +186,8 @@ export interface findingsLogicMeta {
             reportRows: FleetScoutReportRow[],
             searchText: string,
             scoutFilter: string,
-            severityFilter: string
+            severityFilter: string,
+            sortKey: FindingsSortKey
         ) => FleetScoutReportRow[]
         reportBySourceId: (emissionReports: SignalScoutEmissionReportLink[]) => Map<string, LinkedSignalReport>
         rows: (
@@ -233,7 +234,7 @@ export interface findingsLogicMeta {
                 skillName: string
             }[]
         ) => number
-        latestEmittedAt: (rows: ScoutEmissionRow[]) => string | null
+        latestEmittedAt: (rows: ScoutEmissionRow[], emittedRuns: SignalScoutRunSummary[]) => string | null
         hasLoadedOnce: (
             runsWindowLoadedOnce: boolean,
             emittedRuns: SignalScoutRunSummary[],
@@ -471,19 +472,21 @@ export const findingsLogic = kea<findingsLogicType>([
                     .sort((a, b) => (b.report.updated_at ?? '').localeCompare(a.report.updated_at ?? ''))
             },
         ],
-        // Visible report set: same search / scout / severity filters as the findings (severity matches
-        // the report's priority), always newest-updated first — the finding-specific sort keys
-        // (confidence) don't apply to reports.
+        // Visible report set: same search / scout / severity filters and sort control as the findings
+        // (severity matches the report's priority). The shared sort applies where it has meaning —
+        // newest/oldest by report update time, severity by priority; the finding-only "confidence"
+        // key falls back to newest so one control never leaves the two lists contradicting each other.
         filteredReportRows: [
-            (s) => [s.reportRows, s.searchText, s.scoutFilter, s.severityFilter],
+            (s) => [s.reportRows, s.searchText, s.scoutFilter, s.severityFilter, s.sortKey],
             (
                 reportRows: FleetScoutReportRow[],
                 searchText: string,
                 scoutFilter: string,
-                severityFilter: string
+                severityFilter: string,
+                sortKey: FindingsSortKey
             ): FleetScoutReportRow[] => {
                 const needle = searchText.trim().toLowerCase()
-                return reportRows.filter((row) => {
+                const filtered = reportRows.filter((row) => {
                     if (scoutFilter !== FINDINGS_SCOUT_FILTER_ALL && row.skillName !== scoutFilter) {
                         return false
                     }
@@ -499,6 +502,18 @@ export const findingsLogic = kea<findingsLogicType>([
                         }
                     }
                     return true
+                })
+                const byNewest = (a: FleetScoutReportRow, b: FleetScoutReportRow): number =>
+                    (b.report.updated_at ?? '').localeCompare(a.report.updated_at ?? '')
+                return filtered.slice().sort((a, b) => {
+                    if (sortKey === 'oldest') {
+                        return -byNewest(a, b)
+                    }
+                    if (sortKey === 'severity') {
+                        const diff = severityRank(a.report.priority ?? null) - severityRank(b.report.priority ?? null)
+                        return diff !== 0 ? diff : byNewest(a, b)
+                    }
+                    return byNewest(a, b)
                 })
             },
         ],
@@ -616,12 +631,25 @@ export const findingsLogic = kea<findingsLogicType>([
                 }[]
             ): number => availableScouts.length,
         ],
+        // Most recent output across both channels: finding emission times, plus the completion (or
+        // creation) time of report-touching runs — mirroring the backend summary's `latest_at`, so a
+        // report-only fleet still gets a "latest" and a fresh report edit isn't outdated by an older
+        // finding timestamp.
         latestEmittedAt: [
-            (s) => [s.rows],
-            (rows: ScoutEmissionRow[]): string | null => {
+            (s) => [s.rows, s.emittedRuns],
+            (rows: ScoutEmissionRow[], emittedRuns: SignalScoutRunSummary[]): string | null => {
                 let latest: string | null = null
                 for (const row of rows) {
                     const at = row.emission.emitted_at
+                    if (at && (!latest || at > latest)) {
+                        latest = at
+                    }
+                }
+                for (const run of emittedRuns) {
+                    if (!runTouchedReports(run)) {
+                        continue
+                    }
+                    const at = run.completed_at ?? run.created_at
                     if (at && (!latest || at > latest)) {
                         latest = at
                     }
@@ -682,6 +710,26 @@ export const findingsLogic = kea<findingsLogicType>([
             )
             if (hasRecentUnlinked) {
                 actions.loadEmissionReports()
+            }
+            // Same ride for touched reports whose per-report fetch failed transiently: the
+            // `touchedReportsKey` subscription won't refire for an unchanged set, so without this a
+            // dropped report stays missing until remount. Bounded to recently-touched ids (same
+            // window as above) so a permanently deleted report stops triggering refetches once its
+            // touch ages out.
+            if (!values.scoutReportsLoading && values.touchedReports.length > 0) {
+                const resolvedIds = new Set(values.scoutReports.map((report) => report.id))
+                const runsById = new Map(values.emittedRuns.map((run) => [run.run_id, run]))
+                const hasRecentUnresolved = values.touchedReports.some(({ id, latestRunId }) => {
+                    if (resolvedIds.has(id)) {
+                        return false
+                    }
+                    const run = runsById.get(latestRunId)
+                    const touchedAt = run?.completed_at ?? run?.created_at
+                    return Boolean(touchedAt && dayjs(touchedAt).isAfter(cutoff))
+                })
+                if (hasRecentUnresolved) {
+                    actions.loadScoutReports()
+                }
             }
         },
     })),
