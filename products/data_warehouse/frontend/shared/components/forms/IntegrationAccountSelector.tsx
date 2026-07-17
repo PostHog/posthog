@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { FormContext } from 'kea-forms'
-import { useContext, useEffect, useMemo } from 'react'
+import { useContext, useEffect, useMemo, useRef } from 'react'
 
 import { LemonInput, LemonInputSelect, LemonTag } from '@posthog/lemon-ui'
 
@@ -69,15 +69,19 @@ function IntegrationAccountSelectorInner({
 
     // Seed the multi field's form state from the legacy single-value field (e.g. a pre-multi-repo
     // GitHub source's `repository`) so an untouched edit still validates and saves the full list.
+    // Seed at most once per mount: re-seeding whenever the field is empty would instantly undo a
+    // user removing the last chip (e.g. to swap the single repo for another one).
     const { fieldName, multiple } = props
+    const seededLegacyValue = useRef(false)
     useEffect(() => {
-        if (!multiple || normalizeMultiValue(ownValue).length > 0) {
+        if (!multiple || seededLegacyValue.current || normalizeMultiValue(ownValue).length > 0) {
             return
         }
         const seeded = normalizeMultiValue(undefined, legacySingleValue)
         if (seeded.length === 0) {
             return
         }
+        seededLegacyValue.current = true
         const setValueAction = formLogic.actions[`set${formKey.charAt(0).toUpperCase()}${formKey.slice(1)}Value`]
         setValueAction?.(['payload', fieldName], seeded)
     }, [multiple, ownValue, legacySingleValue, formLogic, formKey, fieldName])
@@ -96,7 +100,6 @@ function IntegrationAccountSelectorInner({
             <MultiAccountField
                 {...props}
                 integrationId={integrationIsValid && integrationId ? integrationId : undefined}
-                legacySingleValue={legacySingleValue}
             />
         )
     }
@@ -201,8 +204,7 @@ function MultiAccountField({
     fieldLabel,
     placeholder,
     caption,
-    legacySingleValue,
-}: IntegrationAccountSelectorProps & { integrationId?: number; legacySingleValue?: unknown }): JSX.Element {
+}: IntegrationAccountSelectorProps & { integrationId?: number }): JSX.Element {
     if (integrationId) {
         return (
             <MultiAccountFieldWithOptions
@@ -212,7 +214,6 @@ function MultiAccountField({
                 fieldLabel={fieldLabel}
                 placeholder={placeholder}
                 caption={caption}
-                legacySingleValue={legacySingleValue}
             />
         )
     }
@@ -222,7 +223,6 @@ function MultiAccountField({
             fieldLabel={fieldLabel}
             placeholder={placeholder}
             caption={caption}
-            legacySingleValue={legacySingleValue}
             options={[]}
         />
     )
@@ -235,7 +235,6 @@ function MultiAccountFieldWithOptions({
     fieldLabel,
     placeholder,
     caption,
-    legacySingleValue,
 }: {
     integrationId: number
     sourceType: string
@@ -243,7 +242,6 @@ function MultiAccountFieldWithOptions({
     fieldLabel: string
     placeholder?: string
     caption?: string
-    legacySingleValue?: unknown
 }): JSX.Element {
     const { accounts, accountsLoading, accountsError } = useValues(
         integrationAccountsLogic({ id: integrationId, sourceType })
@@ -270,7 +268,6 @@ function MultiAccountFieldWithOptions({
             fieldLabel={fieldLabel}
             placeholder={placeholder}
             caption={caption}
-            legacySingleValue={legacySingleValue}
             options={options}
             loading={accountsLoading}
             onInputChange={setSearch}
@@ -284,7 +281,6 @@ function MultiAccountFieldInner({
     fieldLabel,
     placeholder,
     caption,
-    legacySingleValue,
     options,
     loading,
     onInputChange,
@@ -294,7 +290,6 @@ function MultiAccountFieldInner({
     fieldLabel: string
     placeholder?: string
     caption?: string
-    legacySingleValue?: unknown
     options: LemonInputSelectOption[]
     loading?: boolean
     onInputChange?: (value: string) => void
@@ -303,7 +298,9 @@ function MultiAccountFieldInner({
     return (
         <LemonField name={fieldName} label={fieldLabel} help={captionHelp(caption)}>
             {({ value, onChange }) => {
-                const selected = normalizeMultiValue(value, legacySingleValue)
+                // The legacy single value is seeded into form state once (see IntegrationAccountSelectorInner),
+                // so render the form value as-is — falling back here would resurrect a chip the user removed.
+                const selected = normalizeMultiValue(value)
                 const malformed = selected.filter((entry) => !OWNER_REPO_PATTERN.test(entry))
                 return (
                     <div className="flex flex-col gap-2">

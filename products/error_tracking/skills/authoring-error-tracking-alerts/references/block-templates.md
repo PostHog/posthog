@@ -55,7 +55,7 @@ time against the live event — leave the curly-braced segments as-is.
             {
               "type": "button",
               "text": { "type": "plain_text", "text": "View Issue" },
-              "url": "{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack"
+              "url": "{project.url}/error_tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack"
             }
           ]
         }
@@ -87,7 +87,7 @@ time against the live event — leave the curly-braced segments as-is.
 ```json
 "inputs": {
   "content": {
-    "value": "**🔴 {event.properties.name} created:** {event.properties.description}"
+    "value": "**🔴 {event.properties.name} created:** {event.properties.description}\n\n[View in PostHog]({project.url}/error_tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=discord)"
   }
 }
 ```
@@ -97,7 +97,7 @@ time against the live event — leave the curly-braced segments as-is.
 ```json
 "inputs": {
   "text": {
-    "value": "**🔴 {event.properties.name} created:** {event.properties.description} (View in [PostHog]({project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=microsoft_teams))"
+    "value": "**🔴 {event.properties.name} created:** {event.properties.description} (View in [PostHog]({project.url}/error_tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=microsoft_teams))"
   }
 }
 ```
@@ -111,9 +111,12 @@ all three:
 "inputs": {
   "title": { "value": "{event.properties.name}" },
   "description": { "value": "{event.properties.description}" },
-  "posthog_issue_id": { "value": "{event.distinct_id}" }
+  "posthog_issue_id": { "value": "{event.distinct_id}" },
+  "posthog_issue_url": { "value": "{project.url}/error_tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=linear" }
 }
 ```
+
+Set `utm_medium` to the destination (`linear`, `github`, `gitlab`). `posthog_issue_url` is the merge-stable deep link embedded in the external issue; when omitted, the destination falls back to building a link from `posthog_issue_id`.
 
 ## `$error_tracking_issue_reopened`
 
@@ -142,7 +145,7 @@ Same as `_created`, with the header swapped to `🔄` and the section text to "I
         {
           "type": "button",
           "text": { "type": "plain_text", "text": "View Issue" },
-          "url": "{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack"
+          "url": "{project.url}/error_tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack"
         }
       ]
     }
@@ -182,7 +185,7 @@ Use the same shape as `_created`, swap `🔴` → `🔄` and "created" → "reop
         {
           "type": "button",
           "text": { "type": "plain_text", "text": "View Issue" },
-          "url": "{project.url}/error_tracking/{event.distinct_id}?utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack"
+          "url": "{project.url}/error_tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack"
         }
       ]
     }
@@ -200,7 +203,7 @@ end up with `0x over baseline` in the message, which is wrong.
 ````json
 "inputs": {
   "content": {
-    "value": "**📈 Issue spiking**\n\n```\n{event.properties.name}: {substring(event.properties.description, 1, 1000)}\n```\n**Exceptions in last 5 minutes:** {event.properties.current_bucket_value} ({event.properties.computed_baseline > 0 ? concat(round(event.properties.current_bucket_value / event.properties.computed_baseline), 'x over baseline') : 'no baseline yet'})\n**Project:** [{project.name}]({project.url})\n**Alert:** [{source.name}]({source.url})\n\n[View issue]({project.url}/error_tracking/{event.distinct_id}?utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=discord)"
+    "value": "**📈 Issue spiking**\n\n```\n{event.properties.name}: {substring(event.properties.description, 1, 1000)}\n```\n**Exceptions in last 5 minutes:** {event.properties.current_bucket_value} ({event.properties.computed_baseline > 0 ? concat(round(event.properties.current_bucket_value / event.properties.computed_baseline), 'x over baseline') : 'no baseline yet'})\n**Project:** [{project.name}]({project.url})\n**Alert:** [{source.name}]({source.url})\n\n[View issue]({project.url}/error_tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=discord)"
   }
 }
 ````
@@ -210,7 +213,7 @@ end up with `0x over baseline` in the message, which is wrong.
 ```json
 "inputs": {
   "text": {
-    "value": "**📈 Issue spiking: {event.properties.name}:** {event.properties.description}\n**Exceptions in last 5 minutes:** {event.properties.current_bucket_value} ({event.properties.computed_baseline > 0 ? concat(round(event.properties.current_bucket_value / event.properties.computed_baseline), 'x over baseline') : 'no baseline yet'}) (View in [PostHog]({project.url}/error_tracking/{event.distinct_id}?utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=microsoft_teams))"
+    "value": "**📈 Issue spiking: {event.properties.name}:** {event.properties.description}\n**Exceptions in last 5 minutes:** {event.properties.current_bucket_value} ({event.properties.computed_baseline > 0 ? concat(round(event.properties.current_bucket_value / event.properties.computed_baseline), 'x over baseline') : 'no baseline yet'}) (View in [PostHog]({project.url}/error_tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=microsoft_teams))"
   }
 }
 ```
