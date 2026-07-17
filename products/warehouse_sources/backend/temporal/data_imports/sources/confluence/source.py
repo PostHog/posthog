@@ -19,7 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.confluence.confluence import (
     ConfluenceResumeConfig,
     confluence_source,
@@ -111,21 +114,9 @@ Only Confluence Cloud sites (`your-domain.atlassian.net`) are supported.""",
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                # v2 list endpoints have no server-side timestamp filter, so all
-                # endpoints are full refresh only.
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # v2 list endpoints have no server-side timestamp filter, so every endpoint is
+        # full refresh only (no incremental fields -> supports_incremental/append False).
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self, config: ConfluenceSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -157,6 +148,7 @@ Only Confluence Cloud sites (`your-domain.atlassian.net`) are supported.""",
             email=config.email,
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
