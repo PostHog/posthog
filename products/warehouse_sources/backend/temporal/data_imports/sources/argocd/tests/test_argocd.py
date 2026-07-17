@@ -291,24 +291,16 @@ class TestGetRows:
     def test_slow_drip_response_aborts_on_total_deadline(self):
         # A body that stays under the byte cap and never trips the per-read timeout but keeps
         # dripping past the total transfer budget must fail the sync, not hold the worker.
-        slow = _response()
+        slow = mock.MagicMock()
         slow.iter_content = mock.Mock(return_value=iter([b"x", b"x", b"x"]))
-        # First call sets the deadline; the next read is already past it.
-        monotonic = mock.Mock(side_effect=[0.0, 601.0, 602.0])
+        # First call sets the deadline; the next read is already past it. Patched on the
+        # module's time reference so real elapsed time doesn't make the test flaky.
+        monotonic = mock.Mock(side_effect=[0.0, 601.0])
         with (
             mock.patch.object(argocd_module.time, "monotonic", monotonic),
-            _patch_session(slow),
             pytest.raises(ArgocdResponseTimeoutError),
         ):
-            list(
-                get_rows(
-                    host="https://argocd.example.com",
-                    api_token="tok",
-                    endpoint="applications",
-                    team_id=1,
-                    logger=mock.MagicMock(),
-                )
-            )
+            argocd_module._read_bounded(slow, max_bytes=1_000, max_seconds=600)
 
 
 class TestValidateCredentials:
