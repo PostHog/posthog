@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     PatchedReviewBlindSpotsConfigSelectApi,
     PatchedReviewPerspectiveConfigUpdateApi,
+    PatchedReviewResolutionConfigSelectApi,
     PatchedReviewUserSettingsApi,
     PatchedReviewValidatorConfigSelectApi,
     ReviewBlindSpotsConfigApi,
@@ -19,6 +20,7 @@ import type {
     ReviewPerspectiveConfigApi,
     ReviewPerspectiveStatsApi,
     ReviewRecentReviewsPageApi,
+    ReviewResolutionConfigApi,
     ReviewTriggerRequestApi,
     ReviewTriggerResponseApi,
     ReviewUserSettingsApi,
@@ -122,6 +124,46 @@ export const reviewHogPerspectivesPartialUpdate = async (
     })
 }
 
+export const getReviewHogResolutionListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/review_hog/resolution/`
+}
+
+/**
+ * List the `review-hog-resolution-*` skills visible to the requesting user — the canonical criteria plus the customs they authored — flagging the one active for them. The canonical skill is auto-seeded active on the first read; a custom skill the user has not selected shows as inactive.
+ * @summary List resolution criteria and which one is active
+ */
+export const reviewHogResolutionList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ReviewResolutionConfigApi[]> => {
+    return apiMutator<ReviewResolutionConfigApi[]>(getReviewHogResolutionListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getReviewHogResolutionPartialUpdateUrl = (projectId: string, skillName: string) => {
+    return `/api/projects/${projectId}/review_hog/resolution/${skillName}/`
+}
+
+/**
+ * Make a `review-hog-resolution-*` skill the single criteria the resolution stage applies on the requesting user's PRs, switching the user's other resolution skills off in the same call. Only skills visible to the user — the canonical plus the customs they authored — can be selected; anything else 404s. Upserts the per-user config row, so selecting a freshly authored custom skill works in one call.
+ * @summary Select the active resolution criteria
+ */
+export const reviewHogResolutionPartialUpdate = async (
+    projectId: string,
+    skillName: string,
+    patchedReviewResolutionConfigSelectApi?: PatchedReviewResolutionConfigSelectApi,
+    options?: RequestInit
+): Promise<ReviewResolutionConfigApi> => {
+    return apiMutator<ReviewResolutionConfigApi>(getReviewHogResolutionPartialUpdateUrl(projectId, skillName), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedReviewResolutionConfigSelectApi),
+    })
+}
+
 export const getReviewHogReviewsListUrl = (projectId: string, params?: ReviewHogReviewsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -195,7 +237,7 @@ export const getReviewHogReviewsTriggerCreateUrl = (projectId: string) => {
 }
 
 /**
- * Start a ReviewHog review of any pull request the project's GitHub App installation can access, and publish it back to the PR. The requesting user is the review's acting user: their enabled perspectives, blind-spot check, validator, and urgency threshold drive the run, and it appears under their recent reviews. Nonexistent, closed, and fork PRs are rejected synchronously; a PR whose current commit already has a published review returns 'already_reviewed' without starting a run, and triggering a PR whose review is currently running joins the in-flight run. Otherwise non-blocking: returns the Temporal workflow id immediately while the review runs in the worker.
+ * Start a ReviewHog review of any pull request the project's GitHub App installation can access, and publish it back to the PR. The requesting user is the review's acting user: their enabled perspectives, blind-spot check, validator, urgency threshold, and resolution criteria drive the run, and it appears under their recent reviews. `run_mode` picks the variant: a review (which chains the resolution stage per the user's resolve_comments setting), a review without resolving, or resolution only. Nonexistent, closed, and fork PRs are rejected synchronously; a PR whose current commit already has a published review returns 'already_reviewed' without starting a run (resolve_only skips that check — settling threads on a reviewed head is its whole point), and triggering a PR whose run is currently in flight joins that run. Otherwise non-blocking: returns the Temporal workflow id immediately while the run executes in the worker.
  * @summary Start a review of a pull request
  */
 export const reviewHogReviewsTriggerCreate = async (

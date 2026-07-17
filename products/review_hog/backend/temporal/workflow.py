@@ -633,12 +633,21 @@ class ReviewPRWorkflow:
             best_effort=True,
         )
 
-        # Chained mode: hand the PR to the resolution stage once this turn's comments are on it.
+        # Reviewing includes resolving: hand the PR to the resolution stage once this turn's comments
+        # are on it. The acting user's `resolve_comments` setting decides (via the resolve-time
+        # snapshot, publishing runs only — an unpublished eval/CLI review must not write to the PR);
+        # `inputs.resolve_comments` is the per-run override (the UI's "review without resolving").
         # Fire-and-forget (ABANDON) — the resolution run outlives this workflow — and best-effort: a
-        # dispatch failure must never fail a finished review. Deterministic under replay because
-        # `resolve_comments` defaults False, so no pre-field history can reach this command.
-        if inputs.resolve_comments and meta.pr_number is not None:
-            workflow.logger.info("Dispatching the resolution stage for this PR (resolve_comments=True)")
+        # dispatch failure must never fail a finished review. Deterministic under replay: both
+        # operands come from recorded history (workflow input + activity result), and pre-field
+        # histories decode input None + snapshot False, so the command never fires where it didn't.
+        resolve_after = (
+            inputs.resolve_comments
+            if inputs.resolve_comments is not None
+            else (inputs.publish and acting.resolve_comments)
+        )
+        if resolve_after and meta.pr_number is not None:
+            workflow.logger.info("Dispatching the resolution stage for this PR")
             try:
                 await workflow.start_child_workflow(
                     "resolve-pr",

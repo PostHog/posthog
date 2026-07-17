@@ -14,6 +14,8 @@ import {
     reviewHogBlindSpotsPartialUpdate,
     reviewHogPerspectivesList,
     reviewHogPerspectivesPartialUpdate,
+    reviewHogResolutionList,
+    reviewHogResolutionPartialUpdate,
     reviewHogReviewsList,
     reviewHogReviewsPerspectiveStatsRetrieve,
     reviewHogReviewsRetrieve,
@@ -33,12 +35,13 @@ import type {
     ReviewPerspectiveStatsApi,
     ReviewRecentReviewApi,
     ReviewRecentReviewsPageApi,
+    ReviewResolutionConfigApi,
     ReviewUserSettingsApi,
     ReviewValidatorConfigApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
-import { ReviewHogReviewsListScope } from 'products/review_hog/frontend/generated/api.schemas'
+import { ReviewHogReviewsListScope, RunModeEnumApi } from 'products/review_hog/frontend/generated/api.schemas'
 
-export type ReviewSkillKind = 'perspective' | 'blind_spots' | 'validator'
+export type ReviewSkillKind = 'perspective' | 'blind_spots' | 'validator' | 'resolution'
 
 export type ReviewDrawerTab = 'published' | 'below_threshold' | 'dismissed' | 'chunks' | 'review'
 
@@ -117,6 +120,16 @@ Ground yourself per that skill first, then ask me how my bar should differ — s
 
 If the review-hog-authoring skill is unavailable, fall back to the PostHog MCP skill tools directly: read the canonical review-hog-validation-criteria skill to learn the shape before authoring.`,
     },
+    resolution: {
+        title: 'Create ReviewHog resolution criteria',
+        prompt: `I'd like to create custom ReviewHog resolution criteria for this PostHog project.
+
+Use the review-hog-authoring skill from the PostHog MCP to guide creating it — follow its resolution-criteria path.
+
+Ground yourself per that skill first, then ask me how my bar for implementing review-thread asks should differ — more conservative, more eager, or weighted toward specific kinds of fixes — and offer a few concrete directions. Once I pick, author the skill end to end and tell me how to switch it on.
+
+If the review-hog-authoring skill is unavailable, fall back to the PostHog MCP skill tools directly: read the canonical review-hog-resolution-criteria skill to learn the shape before authoring.`,
+    },
 }
 
 function currentProjectId(): string {
@@ -142,6 +155,8 @@ export interface reviewHogSettingsLogicValues {
     recentReviews: ReviewRecentReviewApi[] | null
     recentReviewsPage: ReviewRecentReviewsPageApi | null
     recentReviewsPageLoading: boolean
+    resolutionSkills: ReviewResolutionConfigApi[] | null
+    resolutionSkillsLoading: boolean
     reviewDetail: ReviewDetailApi | null
     reviewDetailLoading: boolean
     reviewDrawerOpen: boolean
@@ -238,6 +253,21 @@ export interface reviewHogSettingsLogicActions {
         recentReviewsPage: ReviewRecentReviewsPageApi
         payload?: any
     }
+    loadResolutionSkills: () => any
+    loadResolutionSkillsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadResolutionSkillsSuccess: (
+        resolutionSkills: ReviewResolutionConfigApi[],
+        payload?: any
+    ) => {
+        resolutionSkills: ReviewResolutionConfigApi[]
+        payload?: any
+    }
     loadReviewDetail: (reviewId: string) => string
     loadReviewDetailFailure: (
         error: string,
@@ -296,6 +326,9 @@ export interface reviewHogSettingsLogicActions {
     selectBlindSpots: (skillName: string) => {
         skillName: string
     }
+    selectResolutionSkill: (skillName: string) => {
+        skillName: string
+    }
     selectValidator: (skillName: string) => {
         skillName: string
     }
@@ -333,8 +366,8 @@ export interface reviewHogSettingsLogicActions {
     stopTriggeredReviewWatch: () => {
         value: true
     }
-    submitTriggerReview: () => {
-        value: true
+    submitTriggerReview: (runMode?: RunModeEnumApi) => {
+        runMode: RunModeEnumApi
     }
     submitTriggerReviewFinished: () => {
         value: true
@@ -394,11 +427,11 @@ export type reviewHogSettingsLogicType = MakeLogicType<
 
 /**
  * State for the "Code review" scene: the user's ReviewHog settings (triggers + urgency
- * threshold) and the three skill lists (perspectives / blind-spot check / validation criteria)
- * with their per-user enablement. Cardinality rules mirror the backend: perspectives keep a
- * min-1 floor, blind spots and validators are exactly-one-active (deactivation is blocked,
- * you switch by selecting another). "Create your own …" kicks off an authoring agent task,
- * mirroring the Inbox "Make a scout" flow.
+ * threshold) and the four skill lists (perspectives / blind-spot check / validation criteria /
+ * resolution criteria) with their per-user enablement. Cardinality rules mirror the backend:
+ * perspectives keep a min-1 floor; blind spots, validators, and resolution criteria are
+ * exactly-one-active (deactivation is blocked, you switch by selecting another). "Create your
+ * own …" kicks off an authoring agent task, mirroring the Inbox "Make a scout" flow.
  */
 export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
     path(['products', 'review_hog', 'frontend', 'reviewHogSettingsLogic']),
@@ -410,6 +443,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         patchPerspectiveLocally: (skillName: string, enabled: boolean) => ({ skillName, enabled }),
         selectBlindSpots: (skillName: string) => ({ skillName }),
         selectValidator: (skillName: string) => ({ skillName }),
+        selectResolutionSkill: (skillName: string) => ({ skillName }),
         // The active card's switch can't be turned off — exactly one stays active per kind.
         blockSingleActiveDeactivation: (kindLabel: string) => ({ kindLabel }),
         setSkillSaving: (skillName: string, saving: boolean) => ({ skillName, saving }),
@@ -428,9 +462,11 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         startSkillAuthorTask: (kind: ReviewSkillKind) => ({ kind }),
         startSkillAuthorTaskFinished: true,
         setTriggerPrUrl: (prUrl: string) => ({ prUrl }),
-        // Starts a review of the pasted PR URL. The listener self-guards on `triggeringReview`, so a
-        // repeat dispatch mid-flight (Enter spam, double click) is a no-op regardless of the source.
-        submitTriggerReview: true,
+        // Starts a run on the pasted PR URL: a review (which resolves comments per the user's
+        // setting), a review without resolving, or a resolve-only run — the split button's variants.
+        // The listener self-guards on `triggeringReview`, so a repeat dispatch mid-flight (Enter
+        // spam, double click) is a no-op regardless of the source.
+        submitTriggerReview: (runMode: RunModeEnumApi = RunModeEnumApi.Review) => ({ runMode }),
         submitTriggerReviewStarted: true,
         submitTriggerReviewFinished: true,
         // Keeps the recent-reviews poll alive until a just-triggered review's report row appears —
@@ -468,6 +504,12 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             null as ReviewValidatorConfigApi[] | null,
             {
                 loadValidators: async () => await reviewHogValidatorsList(currentProjectId()),
+            },
+        ],
+        resolutionSkills: [
+            null as ReviewResolutionConfigApi[] | null,
+            {
+                loadResolutionSkills: async () => await reviewHogResolutionList(currentProjectId()),
             },
         ],
         recentReviewsPage: [
@@ -515,6 +557,10 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         },
         validators: {
             selectValidator: (state: ReviewValidatorConfigApi[] | null, { skillName }) =>
+                state?.map((s) => ({ ...s, active: s.skill_name === skillName })) ?? state,
+        },
+        resolutionSkills: {
+            selectResolutionSkill: (state: ReviewResolutionConfigApi[] | null, { skillName }) =>
                 state?.map((s) => ({ ...s, active: s.skill_name === skillName })) ?? state,
         },
         savingSkillNames: [
@@ -632,6 +678,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 loadPerspectivesFailure: () => true,
                 loadBlindSpotsFailure: () => true,
                 loadValidatorsFailure: () => true,
+                loadResolutionSkillsFailure: () => true,
                 // recentReviews/perspectiveStats stay null on failure and their sections render
                 // skeletons while null — without these the skeletons are permanent, with no retry.
                 loadRecentReviewsFailure: () => true,
@@ -777,6 +824,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             actions.loadPerspectives()
             actions.loadBlindSpots()
             actions.loadValidators()
+            actions.loadResolutionSkills()
             actions.loadRecentReviews()
             actions.loadPerspectiveStats()
         },
@@ -831,13 +879,26 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 actions.setSkillSaving(skillName, false)
             }
         },
+        selectResolutionSkill: async ({ skillName }) => {
+            actions.setSkillSaving(skillName, true)
+            try {
+                await reviewHogResolutionPartialUpdate(currentProjectId(), skillName, { active: true })
+            } catch (error: any) {
+                lemonToast.error(
+                    error?.detail || error?.data?.[0] || error?.message || 'Failed to select the resolution criteria'
+                )
+                actions.loadResolutionSkills()
+            } finally {
+                actions.setSkillSaving(skillName, false)
+            }
+        },
         blockSingleActiveDeactivation: ({ kindLabel }) => {
             lemonToast.info(`One ${kindLabel} always runs — switch by selecting another one`)
         },
         openReviewDetail: ({ review }) => {
             actions.loadReviewDetail(review.id)
         },
-        submitTriggerReview: async () => {
+        submitTriggerReview: async ({ runMode }) => {
             if (values.triggeringReview) {
                 // A request is already in flight — the disabled button can't stop an Enter keypress
                 // in the input, so the guard lives here, covering every dispatch source.
@@ -849,12 +910,21 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             }
             actions.submitTriggerReviewStarted()
             try {
-                const response = await reviewHogReviewsTriggerCreate(currentProjectId(), { pr_url: prUrl })
+                const response = await reviewHogReviewsTriggerCreate(currentProjectId(), {
+                    pr_url: prUrl,
+                    run_mode: runMode,
+                })
                 actions.setTriggerPrUrl('')
                 if (response.status === 'already_reviewed') {
                     // No run started — the PR's current commit already has a published review.
                     lemonToast.info(
                         'This pull request was already reviewed at its current commit. Find it under recent reviews.'
+                    )
+                } else if (runMode === RunModeEnumApi.ResolveOnly) {
+                    // Resolve-only runs don't create the report activity the review watch polls for,
+                    // so a toast is the feedback: progress shows up on the pull request itself.
+                    lemonToast.success(
+                        'Resolving comments on the pull request. Replies and fixes will land there as threads settle.'
                     )
                 } else {
                     lemonToast.success('Review started. It will appear under recent reviews as it runs.')

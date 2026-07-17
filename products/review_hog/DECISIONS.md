@@ -2769,12 +2769,28 @@ fleet-level control during alpha).
 > `thread_verdict` artefact (latest-wins per thread; `latest_comment_id` watermark; `reply_posted`/`resolved`
 > delivery flags — written before AND after side effects so a crash redoes only writes, never LLM turns), plus the
 > first writers for `task_run` / `commit` / `note`. Entry points: `POST /api/review_hog/resolve` (standalone) and
-> `resolve` flag on `/trigger` (chained: `ReviewPRWorkflow` fire-and-forget ABANDON child dispatch, gated on the
-> new default-False `resolve_comments` input — replay-safe for in-flight histories), `run_resolution` command.
+> the chained `ReviewPRWorkflow` fire-and-forget ABANDON child dispatch (gating below), `run_resolution` command.
 > Model pin: `RESOLUTION_*` constants (validator's Claude tier); cap: `MAX_THREADS_PER_RUN = 20`, overflow named
 > in the run-summary `note`. **Not yet done:** live e2e on a real PR (verify the installation token can
 > `resolveReviewThread` — the interactive prototype hit token-capability failures there), the label Action client,
 > and self-driving calling the endpoint after implementation PRs gather comments.
+>
+> **Superseded same day — reviewing includes resolving (maintainer decision, 2026-07-17).** The first cut gated
+> chaining on a per-run caller flag (`resolve=true` on the label trigger, default-False `resolve_comments` input);
+> that opt-in posture is gone. Whether a published review chains into the resolution stage is the **acting user's
+> `ReviewUserSettings.resolve_comments` setting (default on)** — surfaced beside the trigger opt-outs — snapshotted
+> into `ResolveActingUserResult` at acting-user resolution (new field defaulting **False**, the replay skip value:
+> pre-field histories never reach the dispatch command; the model default is True, and the default-user fallback
+> forces it on — a borrowed user's opt-out never governs someone else's PR).
+> `ReviewPRWorkflowInputs.resolve_comments` became a tri-state per-run override: `None` (every trigger's default) =
+> follow the setting on publishing runs — an unpublished eval/CLI review never writes to the PR; `False`/`True` =
+> pin, used only by the Code review scene. UI (same day): the "Resolve comments on your PRs" toggle, a
+> single-active resolution-criteria config block (`api/resolution.py`, route `review_hog/resolution`, validator
+> pattern end-to-end; the authoring companion gained the resolution path), a "Resolve" phase on the pipeline
+> diagram, and the Review button grew split-button side actions — "Review without resolving comments"
+> (`run_mode=review_only`) and "Only resolve existing comments" (`run_mode=resolve_only`, which keeps the trigger's
+> synchronous PR gates but skips the already-reviewed early-return and starts `ResolvePRWorkflow` directly;
+> feedback is a toast, since resolution runs don't produce the report-row activity the review watch polls).
 
 **The goal.** After a review — anyone's, not just ReviewHog's — the PR should end up _as close to ready-to-merge as
 possible_, not merely "reviewed". The resolution stage loads the PR's unresolved review threads and settles each one:
@@ -2786,9 +2802,11 @@ implement what is worth doing and safe to do unattended, answer what isn't, and 
    Installation-relative on purpose: the stage must work on any customer's project, so prompts, criteria, and scope
    rules never assume our own repos or internal docs; the session discovers the target repo's own convention docs
    (CLAUDE.md / AGENTS.md / CONTRIBUTING) when present. Forks are hard-refused — this stage writes.
-2. **A ReviewHog stage, standalone-capable.** Chained after a review turn (internal dispatch, per-run gated, off by
-   default) _and_ independently triggerable — many PRs never get a review turn. The work-list is always the
-   comments posted on the PR, never in-memory findings, so chained and standalone runs are identical in shape.
+2. **A ReviewHog stage, standalone-capable.** Chained after a review turn — reviewing includes resolving by
+   default, gated by the acting user's `resolve_comments` setting (see the supersession note above; the original
+   design said "per-run gated, off by default") — _and_ independently triggerable — many PRs never get a review
+   turn. The work-list is always the comments posted on the PR, never in-memory findings, so chained and
+   standalone runs are identical in shape.
 3. **Work-list** — unresolved review threads only; the thread (not the comment) is the unit; outdated unresolved
    threads included ("already addressed → reply" is a cheap win). Conversation comments and review bodies load as
    context, never as work items — the stage acts only on surfaces it can both answer and resolve.

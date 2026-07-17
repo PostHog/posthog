@@ -1,1 +1,1 @@
-0019_alter_reviewreportartefact_type
+0020_reviewusersettings_resolve_comments

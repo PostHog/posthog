@@ -48,8 +48,12 @@ unresolved review thread and implements the worth-and-safe ones directly on the 
 cut), pending live e2e**: `ResolvePRWorkflow` (`backend/temporal/resolution.py`) drives one warm writable sandbox
 session per PR (one thread per turn, humans → ReviewHog → other bots), persists per-thread `thread_verdict`
 artefacts on the living report, replies/resolves server-side from verdicts (bot threads only; humans keep the
-final word), and is entered via `POST /api/review_hog/resolve`, the `run_resolution` command, or chained from a
-review with `resolve=true` on the trigger. Design + decision record: DECISIONS.md Stage 7; vocabulary: CONTEXT.md.
+final word). **Reviewing includes resolving**: a published review chains into the stage when the acting user's
+`resolve_comments` setting is on (default on; the toggle sits with the trigger opt-outs on the Code review scene,
+which also carries a single-active resolution-criteria skill block and a split Review button with
+review-without-resolving / resolve-only side actions). Standalone entry: `POST /api/review_hog/resolve`, the
+`run_resolution` command, or the UI's resolve-only action. Design + decision record: DECISIONS.md Stage 7;
+vocabulary: CONTEXT.md.
 
 The full roadmap — every open thread with its reasoning, the loop design, the grounded implementation maps, and
 the experiment backlog — is in [DECISIONS.md](./DECISIONS.md) (start at its "🎯 NEXT" section) and `eval/`

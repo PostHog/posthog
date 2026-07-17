@@ -284,6 +284,8 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     to a run at acting-user resolution, so mid-run edits don't flip gates between body and publish.
     `review_inbox_prs` is the inbox trigger's opt-in (default off — the budget gate for 100%-coverage
     cost): checked cheaply at the TaskRun-completion receiver and re-checked off the resolve snapshot.
+    `resolve_comments` is the resolution stage's opt-out (default on — reviewing includes resolving):
+    when on, every published review of the user's PRs chains into the resolution stage.
     """
 
     class UrgencyThreshold(models.TextChoices):
@@ -298,6 +300,7 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     review_inbox_prs = models.BooleanField(default=False, db_default=False)
     review_labeled_prs = models.BooleanField(default=True, db_default=True)
+    resolve_comments = models.BooleanField(default=True, db_default=True)
     urgency_threshold = models.CharField(
         max_length=20,
         choices=UrgencyThreshold.choices,

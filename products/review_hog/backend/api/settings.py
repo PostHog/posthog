@@ -28,6 +28,13 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
         help_text="Review the user's pull requests when the trigger label is added on GitHub. "
         "On by default; turning it off makes the label trigger skip PRs this user authored.",
     )
+    resolve_comments = serializers.BooleanField(
+        required=False,
+        help_text="After a review of the user's pull requests is published, run the resolution stage: "
+        "triage the PR's unresolved review threads, implement the worth-and-safe fixes on the PR "
+        "branch, and reply on every thread. On by default; turning it off makes reviews stop at "
+        "publishing.",
+    )
     urgency_threshold = serializers.ChoiceField(
         required=False,
         choices=ReviewUserSettings.UrgencyThreshold.choices,
@@ -42,7 +49,13 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ReviewUserSettings
-        fields = ["review_inbox_prs", "review_labeled_prs", "urgency_threshold", "can_trigger_reviews"]
+        fields = [
+            "review_inbox_prs",
+            "review_labeled_prs",
+            "resolve_comments",
+            "urgency_threshold",
+            "can_trigger_reviews",
+        ]
 
     @extend_schema_field(serializers.BooleanField())
     def get_can_trigger_reviews(self, instance: ReviewUserSettings) -> bool:
