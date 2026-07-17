@@ -18,7 +18,7 @@
             content="The full PostHog app in a native window — with tabs — synced with upstream every day by an AI agent. Free download for macOS and Windows."
         />
         <meta property="og:url" content="https://posthogondesktop.com" />
-        <meta property="og:image" content="screenshot.png" />
+        <meta property="og:image" content="screenshot1.png" />
         <meta name="twitter:card" content="summary_large_image" />
 
         <style>
@@ -179,13 +179,11 @@
                 max-width: 520px;
             }
 
+            /* The screenshots ship with their own window chrome + baked shadow
+               on a transparent margin, so no card frame — let them sit on the page. */
             .shot {
-                margin: 48px auto 0;
-                border-radius: var(--radius);
-                overflow: hidden;
-                border: 1px solid var(--border);
-                box-shadow: var(--shadow);
-                background: var(--surface);
+                margin: 44px auto 0;
+                max-width: 1120px;
                 line-height: 0;
             }
             .shot img {
@@ -315,12 +313,15 @@
                     </p>
 
                     <div class="shot">
-                        <img
-                            src="screenshot.png"
-                            alt="The PostHog desktop app showing the sidebar, a Home tab, and the &lsquo;+&rsquo; button to open more tabs"
-                            width="2880"
-                            height="1800"
-                        />
+                        <picture>
+                            <source srcset="screenshot2.png" media="(prefers-color-scheme: dark)" />
+                            <img
+                                src="screenshot1.png"
+                                alt="The PostHog desktop app with three open tabs — Feature flags, a notebook, and Search — above the sidebar and the feature flags list"
+                                width="1529"
+                                height="995"
+                            />
+                        </picture>
                     </div>
                 </div>
 

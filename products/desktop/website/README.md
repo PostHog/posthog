@@ -23,5 +23,6 @@ The buttons link to GitHub's "latest release" redirect on the fork:
 
 ## Updating the screenshot
 
-Replace `screenshot.png` with a fresh capture of the running app (any aspect ratio; the page scales it).
-If the new image's dimensions differ, update the `width`/`height` on the `<img>` in `index.html` to match, so the layout doesn't jump while it loads.
+The hero is theme-aware: `screenshot1.png` (light) shows in light mode, `screenshot2.png` (dark) in dark mode, via a `<picture>` element that follows the viewer's `prefers-color-scheme`.
+Both ship with their own window chrome and a baked shadow on a transparent margin, so the page frames them with no border or card.
+Replace either with a fresh capture (any aspect ratio; the page scales it). Keep the two at the same dimensions, and if they differ from the current 1529×995, update the `width`/`height` on the `<img>` in `index.html` so the layout doesn't jump while it loads.
