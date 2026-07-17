@@ -1,5 +1,4 @@
 import { MakeLogicType, actions, kea, path, props, reducers, selectors, useActions, useValues } from 'kea'
-import { urlToAction } from 'kea-router'
 
 import { IconApple, IconAndroid, IconLetter, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
@@ -13,6 +12,7 @@ import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
@@ -103,7 +103,7 @@ export const workflowsSceneLogic = kea<workflowsSceneLogicType>([
     trackedActionToUrl(({ values }) => ({
         setCurrentTab: () => [urls.workflows(values.currentTab)],
     })),
-    urlToAction(({ actions, values }) => {
+    tabAwareUrlToAction(({ actions, values }) => {
         return {
             [urls.workflows()]: () => {
                 if (values.currentTab !== 'workflows') {

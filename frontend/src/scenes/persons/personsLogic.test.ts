@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -13,6 +15,9 @@ import { initKeaTests } from '~/test/init'
 import { PersonsTabType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { personsLogic } from './personsLogic'
+
+const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
+const scenes: any = { [Scene.Person]: blankScene }
 
 describe('personsLogic', () => {
     afterEach(resumeKeaLoadersErrors)
@@ -204,6 +209,15 @@ describe('personsLogic', () => {
     })
 
     describe('tab-aware person scene state', () => {
+        const person: PersonType = {
+            id: 'person-1',
+            uuid: 'uuid-1',
+            distinct_ids: ['same-person'],
+            properties: {},
+            is_identified: true,
+            created_at: '2024-01-01',
+        }
+
         it('isolates person event query state by tab id', () => {
             logic.unmount()
 
@@ -228,6 +242,50 @@ describe('personsLogic', () => {
 
             firstTabLogic.unmount()
             secondTabLogic.unmount()
+        })
+
+        it('only applies person URL tab changes to the active internal tab', async () => {
+            logic.unmount()
+
+            const unmountSceneLogic = sceneLogic({ scenes }).mount()
+            sceneLogic.actions.setTabs([
+                {
+                    id: 'tab-a',
+                    title: 'Person A',
+                    pathname: '/person/same-person',
+                    search: '',
+                    hash: '',
+                    active: true,
+                    iconType: 'persons',
+                },
+                {
+                    id: 'tab-b',
+                    title: 'Person B',
+                    pathname: '/person/same-person',
+                    search: '',
+                    hash: '',
+                    active: false,
+                    iconType: 'persons',
+                },
+            ])
+
+            const firstTabLogic = personsLogic({ syncWithUrl: true, urlId: 'same-person', tabId: 'tab-a' })
+            const secondTabLogic = personsLogic({ syncWithUrl: true, urlId: 'same-person', tabId: 'tab-b' })
+            firstTabLogic.mount()
+            secondTabLogic.mount()
+            firstTabLogic.actions.setPerson(person)
+            secondTabLogic.actions.setPerson(person)
+
+            await expectLogic(firstTabLogic, () => {
+                router.actions.push('/person/same-person', {}, { activeTab: PersonsTabType.EVENTS })
+            }).toFinishAllListeners()
+
+            expect(firstTabLogic.values.activeTab).toBe(PersonsTabType.EVENTS)
+            expect(secondTabLogic.values.activeTab).toBeNull()
+
+            firstTabLogic.unmount()
+            secondTabLogic.unmount()
+            unmountSceneLogic()
         })
     })
 

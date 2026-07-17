@@ -1,10 +1,10 @@
 import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { urlToAction } from 'kea-router'
 import { UrlToActionPayload } from 'kea-router/lib/types'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { objectsEqual } from 'lib/utils/objects'
@@ -151,7 +151,7 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
         ],
     })),
 
-    urlToAction(({ actions, values, props }) => {
+    tabAwareUrlToAction(({ actions, values, props }) => {
         const eventsQueryHandler: UrlToActionPayload[keyof UrlToActionPayload] = (_, __, { q: queryParam }): void => {
             if (!equal(queryParam, values.query)) {
                 // nothing in the URL

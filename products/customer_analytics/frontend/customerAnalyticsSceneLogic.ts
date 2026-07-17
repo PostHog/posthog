@@ -1,8 +1,9 @@
 import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 'kea'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
 import { FunnelLayout } from 'lib/constants'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { getDefaultInterval } from 'lib/utils/dateFilters'
 import { capitalizeFirstLetter, wordPluralize } from 'lib/utils/strings'
@@ -1120,7 +1121,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         setFilterTestAccounts: ({ filterTestAccounts }): string =>
             setQueryParams({ filter_test_accounts: String(filterTestAccounts) }),
     })),
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         '*': (_, { date_from, date_to, filter_test_accounts }) => {
             if (
                 (date_from && date_from !== values.dateFilter.dateFrom) ||

@@ -1,7 +1,8 @@
 import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } from 'kea'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -137,7 +138,7 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
         ],
     })),
 
-    urlToAction(({ actions, values }) => {
+    tabAwareUrlToAction(({ actions, values }) => {
         return {
             '/replay/:tab': ({ tab }) => {
                 // we saw a page get stuck in a redirect loop between recent and home

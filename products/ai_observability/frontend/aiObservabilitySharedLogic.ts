@@ -13,10 +13,11 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { objectsEqual } from 'lib/utils/objects'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -377,7 +378,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
         ],
     }),
 
-    urlToAction(({ actions, values, cache }) => {
+    tabAwareUrlToAction(({ actions, values, cache }) => {
         function applySearchParams(searchParams: Record<string, unknown>): void {
             const { filters, date_from, date_to, filter_test_accounts, trace_search } = searchParams
 

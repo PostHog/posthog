@@ -1,11 +1,11 @@
 import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -155,7 +155,7 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
         ],
     })),
 
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         [urls.persons()]: (_, __, { q: queryParam }): void => {
             if (!equal(queryParam, values.query)) {
                 if (!queryParam) {

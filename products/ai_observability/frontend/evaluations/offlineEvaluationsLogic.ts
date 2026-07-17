@@ -1,8 +1,9 @@
 import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { dateStringToDayJs, isValidRelativeOrAbsoluteDate } from 'lib/utils/dateFilters'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -675,7 +676,7 @@ export const offlineEvaluationsLogic = kea<offlineEvaluationsLogicType>([
         }
     }),
 
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         [urls.aiObservabilityEvaluations()]: () => {
             if (values.selectedExperimentId) {
                 actions.clearSelectedExperiment()

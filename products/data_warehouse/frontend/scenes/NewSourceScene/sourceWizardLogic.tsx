@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
@@ -11,6 +11,7 @@ import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -3132,7 +3133,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.setDatabaseSchemas(values.databaseSchema)
         },
     })),
-    urlToAction(({ actions, values }) => {
+    tabAwareUrlToAction(({ actions, values }) => {
         const handleUrlChange = (_: Record<string, string | undefined>, searchParams: Record<string, string>): void => {
             const kind = searchParams.kind?.toLowerCase()
             const accessMethod = searchParams.access_method === 'direct' ? 'direct' : 'warehouse'

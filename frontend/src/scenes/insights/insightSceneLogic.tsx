@@ -11,12 +11,12 @@ import {
     sharedListeners,
 } from 'kea'
 import type { BreakPointFunction } from 'kea'
-import { urlToAction } from 'kea-router'
 import { objectsEqual } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
@@ -758,7 +758,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
         },
     })),
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         '/insights/:shortId(/:mode)(/:itemId)': (
             { shortId, mode, itemId }, // url params
             { dashboard, alert_id, ...searchParams }, // search params

@@ -1,10 +1,11 @@
 import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { beforeUnload, combineUrl, router, urlToAction } from 'kea-router'
+import { beforeUnload, combineUrl, router } from 'kea-router'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -418,7 +419,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
         }
     }),
 
-    urlToAction(({ actions }) => ({
+    tabAwareUrlToAction(({ actions }) => ({
         '/replay/playlists/new': () => actions.getPlaylist(),
     })),
 ])

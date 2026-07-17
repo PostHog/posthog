@@ -16,10 +16,11 @@ import {
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, combineUrl, router } from 'kea-router'
 
 import api, { ApiError } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
+import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import {
     DataTableNode,
@@ -1199,7 +1200,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         },
     })),
 
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         '/prompt-management/prompts/:name': (_, __, ___, { method }) => {
             if (method === 'PUSH' && values.isNewPrompt) {
                 actions.setPrompt(DEFAULT_PROMPT_FORM_VALUES)

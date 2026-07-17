@@ -1,11 +1,12 @@
 import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { parseTagsFilter } from 'lib/utils/url'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
@@ -185,7 +186,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             ['facetNameSearch'],
         ],
     })),
-    urlToAction(({ actions, values, cache }) => {
+    tabAwareUrlToAction(({ actions, values, cache }) => {
         const urlToAction = (_: any, params: Params): void => {
             if (cache.isSyncingUrl) {
                 return

@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
 import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
@@ -9,6 +9,7 @@ import api, { CountedPaginatedResponse } from '~/lib/api'
 import { Sorting } from '~/lib/lemon-ui/LemonTable'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
+import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
 import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
@@ -261,7 +262,7 @@ export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType
         }
     }),
 
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         [urls.aiObservabilityDatasets()]: (_, searchParams, __, { method }) => {
             const newFilters = cleanFilters(searchParams)
             if (!objectsEqual(values.filters, newFilters)) {

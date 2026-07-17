@@ -14,10 +14,11 @@ import {
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { combineUrl, router, urlToAction } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { ApiConfig } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
+import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
 import { urls } from '~/scenes/urls'
 import { Breadcrumb } from '~/types'
 
@@ -805,7 +806,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         }
     }),
 
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         '/skills/:name': (_, __, ___, { method }) => {
             if (method === 'PUSH' && values.isNewSkill) {
                 actions.setSkill(DEFAULT_SKILL_FORM_VALUES)

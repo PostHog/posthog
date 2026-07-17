@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { PaginationManual, Sorting } from '@posthog/lemon-ui'
@@ -8,6 +8,7 @@ import { PaginationManual, Sorting } from '@posthog/lemon-ui'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { objectsEqual } from 'lib/utils/objects'
@@ -351,7 +352,7 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
     })),
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         [urls.cohorts()]: (_, searchParams) => {
             const { page, search, type, created_by_id, sorting } = searchParams
             const filtersFromUrl: Partial<CohortFilters> = {

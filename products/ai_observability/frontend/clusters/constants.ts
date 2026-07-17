@@ -17,7 +17,7 @@ export const MAX_CLUSTERING_RUNS = 20
 export const CLUSTERING_RUNS_LOOKBACK_DAYS = 90
 
 // Cluster detail URL pattern. Mirrored in `manifest.tsx`'s route registration so any
-// `urlToAction` matcher (e.g. `clusterDetailLogic`, `aiObservabilitySharedLogic`)
+// `tabAwareUrlToAction` matcher (e.g. `clusterDetailLogic`, `aiObservabilitySharedLogic`)
 // stays in lockstep with the actual route.
 export const AI_OBSERVABILITY_CLUSTER_URL_PATTERN = '/ai-observability/clusters/:runId/:clusterId'
 

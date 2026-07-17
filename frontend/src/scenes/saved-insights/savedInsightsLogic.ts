@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { dayjs, type Dayjs } from 'lib/dayjs'
@@ -8,6 +8,7 @@ import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectDiffShallow, objectsEqual } from 'lib/utils/objects'
@@ -722,7 +723,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             loadInsights: changeUrl,
         }
     }),
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         [urls.savedInsights()]: async (
             _,
             { alert_id, ...searchParams }, // search params,

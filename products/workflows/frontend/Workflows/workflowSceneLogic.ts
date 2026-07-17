@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, kea, key, path, props, reducers, selectors } from 'kea'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -96,7 +97,7 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
                     : null,
         ],
     }),
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         '/workflows/:id/:tab': ({ id, tab }, searchParams) => {
             // The invocations view used to live on the 'logs' tab. Redirect old /logs deep links
             // (and the batch-jobs URL trigger) to /invocations so they keep resolving, preserving

@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { combineUrl, router, urlToAction } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api, { ApiConfig } from 'lib/api'
@@ -8,6 +8,7 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntent } from 'lib/utils/product-intents'
@@ -851,7 +852,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         },
     })),
 
-    urlToAction(({ actions, cache }) => ({
+    tabAwareUrlToAction(({ actions, cache }) => ({
         [`${urls.aiObservabilityTraces()}/:id`]: (
             { id },
             { event, timestamp, exception_ts, search, line, tab, msg }
