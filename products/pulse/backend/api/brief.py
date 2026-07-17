@@ -198,7 +198,9 @@ class PeriodSerializer(serializers.Serializer):
 class BriefSectionCitationSerializer(serializers.Serializer):
     type = serializers.CharField(help_text="Cited resource type, e.g. insight or dashboard.")
     ref = serializers.CharField(help_text="Stable id of the cited resource within its type.")
-    label = serializers.CharField(help_text="Human-readable name of the cited resource, for display.")
+    label = serializers.CharField(  # type: ignore[assignment]  # field name intentionally shadows Field.label
+        help_text="Human-readable name of the cited resource, for display."
+    )
     url = serializers.CharField(
         allow_blank=True, help_text="Deep link into the app, or empty when the resource has no navigable target."
     )
@@ -295,11 +297,11 @@ class BriefConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return configs
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
-        serializer.save(team=self.team, created_by=cast(User, self.request.user))
+        instance = cast(BriefConfig, serializer.save(team=self.team, created_by=cast(User, self.request.user)))
         report_user_action(
             cast(User, self.request.user),
             "pulse config created",
-            {"config_id": str(serializer.instance.id)},
+            {"config_id": str(instance.id)},
             team=self.team,
         )
 
