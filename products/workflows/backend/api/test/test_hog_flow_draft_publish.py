@@ -391,6 +391,75 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert response.json()["draft"] is not None
         assert response.json()["draft_updated_at"] is not None
 
+    # ── Skip-forward redirects (deleted steps) ───────────────────────
+    # The redirect-walk matrix lives in test_action_redirects.py; these guard the viewset wiring —
+    # that each live-graph write path actually computes and persists the map before saving.
+
+    def _create_active_three_step_flow(self) -> str:
+        hog_flow = {
+            "name": "Redirect Flow",
+            "actions": [_trigger_action(), _webhook_action("action_1"), _webhook_action("action_2")],
+            "edges": [
+                {"from": "trigger_node", "to": "action_1", "type": "continue"},
+                {"from": "action_1", "to": "action_2", "type": "continue"},
+            ],
+        }
+        create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create.status_code == 201, create.json()
+        flow_id = create.json()["id"]
+        activate = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+        assert activate.status_code == 200, activate.json()
+        return flow_id
+
+    _DELETE_ACTION_1_PAYLOAD = {
+        "actions": [_trigger_action(), _webhook_action("action_2")],
+        "edges": [{"from": "trigger_node", "to": "action_2", "type": "continue"}],
+    }
+
+    @patch(FLAG_PATH, return_value=True)
+    def test_publish_deleting_a_step_persists_its_redirect(self, _flag):
+        flow_id = self._create_active_three_step_flow()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            self._DELETE_ACTION_1_PAYLOAD,
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert response.status_code == 200, response.json()
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.action_redirects is None, "staging a draft must not touch the live redirect map"
+        assert flow.draft_updated_at is not None
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
+            {"confirm": True, "draft_updated_at": flow.draft_updated_at.isoformat()},
+        )
+        assert response.status_code == 200, response.json()
+        flow.refresh_from_db()
+        assert flow.action_redirects == {"action_1": "action_2"}
+        assert response.json()["workflow"]["action_redirects"] == {"action_1": "action_2"}
+
+    @parameterized.expand([("flag_on", True), ("flag_off", False)])
+    def test_web_edit_deleting_a_step_persists_its_redirect_only_when_flag_on(self, _name, flag_on):
+        flow_id = self._create_active_three_step_flow()
+        with patch(FLAG_PATH, return_value=flag_on):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", self._DELETE_ACTION_1_PAYLOAD
+            )
+        assert response.status_code == 200, response.json()
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.action_redirects == ({"action_1": "action_2"} if flag_on else None)
+
+    @patch(FLAG_PATH, return_value=True)
+    def test_graph_remove_action_persists_its_redirect(self, _flag):
+        flow_id = self._create_active_three_step_flow()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {"operations": [{"op": "remove_action", "id": "action_1"}]},
+        )
+        assert response.status_code == 200, response.json()
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.action_redirects == {"action_1": "action_2"}
+
     @patch(FLAG_PATH, return_value=True)
     def test_draft_contents_are_masked_in_activity_log(self, _flag):
         flow_id = self._create_active_flow()

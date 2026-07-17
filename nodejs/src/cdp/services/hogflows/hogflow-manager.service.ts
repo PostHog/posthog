@@ -24,6 +24,7 @@ const HOG_FLOW_FIELDS = [
     'abort_action',
     'billable_action_types',
     'variables',
+    'action_redirects',
 ]
 
 export type HogFlowTeamInfo = Pick<HogFlow, 'id' | 'team_id' | 'version'>

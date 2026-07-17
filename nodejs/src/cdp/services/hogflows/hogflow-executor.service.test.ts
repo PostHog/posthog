@@ -673,6 +673,133 @@ describe('Hogflow Executor', () => {
                 expect(result.metrics.map((m) => m.metric_name)).toContain('failed')
                 expect(result.metrics.map((m) => m.metric_name)).not.toContain('exited_workflow_changed')
             })
+
+            describe('skip-forward for deleted steps (action_redirects)', () => {
+                const parkOnDeletedDelay = (hogFlow: HogFlow): ReturnType<typeof createExampleHogFlowInvocation> => {
+                    const invocation = createExampleHogFlowInvocation(hogFlow)
+                    invocation.state.currentAction = {
+                        id: 'delay',
+                        startedAtTimestamp: DateTime.now().minus({ hours: 3 }).toMillis(),
+                    }
+                    hogFlow.actions = hogFlow.actions.filter((action) => action.id !== 'delay')
+                    hogFlow.updated_at = DateTime.now().toMillis()
+                    return invocation
+                }
+
+                it('continues at the surviving successor instead of exiting', async () => {
+                    const hogFlow = buildFlow()
+                    const invocation = parkOnDeletedDelay(hogFlow)
+                    hogFlow.action_redirects = { delay: 'exit' }
+
+                    const result = await executor.execute(invocation)
+
+                    expect(result.finished).toBe(true)
+                    expect(result.error).toBeUndefined()
+                    const redirectMetric = result.metrics.find((m) => m.metric_name === 'redirected_workflow_changed')
+                    expect(redirectMetric).toMatchObject({ metric_kind: 'other', instance_id: 'delay' })
+                    expect(result.metrics.map((m) => m.metric_name)).not.toContain('exited_workflow_changed')
+                    expect(result.metrics.map((m) => m.metric_name)).not.toContain('failed')
+                    expect(result.logs.map((l) => l.message).join('\n')).toContain('continuing at [Action:exit]')
+                })
+
+                it('enters the redirect target fresh, so a delay there parks from redirect time', async () => {
+                    // The run spent 3h on the deleted step; the 2h delay it redirects into must still
+                    // park for its full 2h rather than treating the old step entry time as its own
+                    const hogFlow = createHogFlow({
+                        actions: { delay_2: { type: 'delay', config: { delay_duration: '2h' } } },
+                        edges: [
+                            { from: 'trigger', to: 'delay', type: 'continue' },
+                            { from: 'delay', to: 'delay_2', type: 'continue' },
+                            { from: 'delay_2', to: 'exit', type: 'continue' },
+                        ],
+                    })
+                    const invocation = parkOnDeletedDelay(hogFlow)
+                    hogFlow.action_redirects = { delay: 'delay_2' }
+
+                    const result = await executor.execute(invocation)
+
+                    expect(result.finished).toBe(false)
+                    expect(result.invocation.queueScheduledAt?.toMillis()).toEqual(
+                        DateTime.now().plus({ hours: 2 }).toMillis()
+                    )
+                })
+
+                it.each([
+                    [
+                        'the dead position has no map entry',
+                        (hogFlow: HogFlow) => {
+                            hogFlow.actions = hogFlow.actions.filter((action) => action.id !== 'delay')
+                        },
+                    ],
+                    [
+                        'the surviving position lost its edge (map keys are deleted steps only)',
+                        (hogFlow: HogFlow) => {
+                            hogFlow.edges = hogFlow.edges.filter((edge) => edge.from !== 'delay')
+                        },
+                    ],
+                ])('still exits gracefully when %s', async (_desc, mutateFlow) => {
+                    const hogFlow = buildFlow()
+                    const invocation = createExampleHogFlowInvocation(hogFlow)
+                    invocation.state.currentAction = {
+                        id: 'delay',
+                        startedAtTimestamp: DateTime.now().minus({ hours: 3 }).toMillis(),
+                    }
+                    mutateFlow(hogFlow)
+                    hogFlow.updated_at = DateTime.now().toMillis()
+                    // An entry for an unrelated deleted step must not capture this run
+                    hogFlow.action_redirects = { some_other_step: 'exit' }
+
+                    const result = await executor.execute(invocation)
+
+                    expect(result.finished).toBe(true)
+                    expect(result.error).toBeUndefined()
+                    expect(result.metrics.map((m) => m.metric_name)).toContain('exited_workflow_changed')
+                    expect(result.metrics.map((m) => m.metric_name)).not.toContain('redirected_workflow_changed')
+                })
+
+                it('never redirects a graph that was malformed all along, even with a map entry', async () => {
+                    const hogFlow = buildFlow()
+                    const invocation = createExampleHogFlowInvocation(hogFlow)
+                    invocation.state.currentAction = {
+                        id: 'delay',
+                        startedAtTimestamp: DateTime.now().minus({ hours: 3 }).toMillis(),
+                    }
+                    hogFlow.actions = hogFlow.actions.filter((action) => action.id !== 'delay')
+                    hogFlow.action_redirects = { delay: 'exit' }
+                    // No edit since the run arrived: the timestamp guard must run before any redirect
+                    hogFlow.updated_at = DateTime.now().minus({ hours: 4 }).toMillis()
+
+                    const result = await executor.execute(invocation)
+
+                    expect(result.finished).toBe(true)
+                    expect(result.error).toBe('Action delay not found')
+                    expect(result.metrics.map((m) => m.metric_name)).toContain('failed')
+                    expect(result.metrics.map((m) => m.metric_name)).not.toContain('redirected_workflow_changed')
+                })
+
+                it('fails the run (no loop) when the redirect target itself dead-ends', async () => {
+                    // The target enters with a fresh step timestamp, so its own structural miss no
+                    // longer classifies as a live edit - it must surface as a plain failure
+                    const hogFlow = createHogFlow({
+                        actions: { hop: { type: 'delay', config: { delay_duration: '0s' } } },
+                        edges: [
+                            { from: 'trigger', to: 'delay', type: 'continue' },
+                            { from: 'delay', to: 'hop', type: 'continue' },
+                            { from: 'hop', to: 'exit', type: 'continue' },
+                        ],
+                    })
+                    const invocation = parkOnDeletedDelay(hogFlow)
+                    hogFlow.edges = hogFlow.edges.filter((edge) => edge.from !== 'hop')
+                    hogFlow.action_redirects = { delay: 'hop' }
+
+                    const result = await executor.execute(invocation)
+
+                    expect(result.finished).toBe(true)
+                    expect(result.error).toBe('No next action found for action hop')
+                    expect(result.metrics.map((m) => m.metric_name)).toContain('redirected_workflow_changed')
+                    expect(result.metrics.map((m) => m.metric_name)).toContain('failed')
+                })
+            })
         })
 
         // The follow-live contract: the worker re-reads live config on every wake, so edits made

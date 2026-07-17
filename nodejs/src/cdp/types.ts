@@ -246,6 +246,7 @@ export type MinimalAppMetric = {
         | 'quota_limited'
         | 'conversion'
         | 'exited_workflow_changed'
+        | 'redirected_workflow_changed'
     count: number
 }
 
