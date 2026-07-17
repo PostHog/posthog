@@ -249,9 +249,11 @@ def _adopt_source_assignee_on_merge(*, team_id: int, target_issue_id: UUID, sour
     if ErrorTrackingIssueAssignment.objects.filter(issue_id=target_issue_id).exists():
         return
 
+    # Lock the source assignments so a concurrent assign can't commit a new assignee that we then
+    # read as stale and delete via cascade — matches the fingerprint locking in merge().
     distinct_assignees = {
         (assignment.user_id, assignment.role_id)
-        for assignment in ErrorTrackingIssueAssignment.objects.filter(issue_id__in=source_issue_ids)
+        for assignment in ErrorTrackingIssueAssignment.objects.select_for_update().filter(issue_id__in=source_issue_ids)
     }
     if len(distinct_assignees) != 1:
         return
