@@ -276,6 +276,7 @@ the row lists both.
 | ip2whois                         | HTTP                        | requests                                                        | ✅                          |
 | iterable                         | HTTP                        | requests                                                        | ✅                          |
 | jellyfish                        | HTTP                        | requests                                                        | ✅                          |
+| jfrog_artifactory                | HTTP                        | requests                                                        | ✅                          |
 | jira                             | HTTP                        | requests                                                        | ✅                          |
 | jobnimbus                        | HTTP                        | requests                                                        | ✅                          |
 | jotform                          | HTTP                        | requests                                                        | ✅                          |
@@ -746,7 +747,6 @@ doesn't conflict with concurrent PRs.
 - interzoid
 - jamf_pro
 - jenkins
-- jfrog_artifactory
 - jobber
 - judgeme_reviews
 - jumpcloud

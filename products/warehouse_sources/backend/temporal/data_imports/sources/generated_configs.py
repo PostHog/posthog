@@ -2225,7 +2225,8 @@ class JenkinsSourceConfig(config.Config):
 
 @config.config
 class JfrogArtifactorySourceConfig(config.Config):
-    pass
+    base_url: str
+    access_token: str
 
 
 @config.config
