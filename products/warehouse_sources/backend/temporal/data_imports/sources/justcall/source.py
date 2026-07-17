@@ -19,7 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import JustCallSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.justcall.justcall import (
     JustCallResumeConfig,
@@ -97,23 +100,7 @@ Generate an API key and secret under **Account Settings → Developers (APIs and
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        schemas = []
-        for endpoint in ENDPOINTS:
-            incremental_fields = INCREMENTAL_FIELDS.get(endpoint, [])
-            schemas.append(
-                SourceSchema(
-                    name=endpoint,
-                    supports_incremental=bool(incremental_fields),
-                    supports_append=bool(incremental_fields),
-                    incremental_fields=incremental_fields,
-                )
-            )
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self, config: JustCallSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -136,7 +123,8 @@ Generate an API key and secret under **Account Settings → Developers (APIs and
             api_key=config.api_key,
             api_secret=config.api_secret,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
