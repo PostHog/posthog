@@ -384,6 +384,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Homepage',
         layout: 'app-raw-no-header',
     },
+    [Scene.Quickstart]: {
+        projectBased: true,
+        name: 'Quickstart',
+        layout: 'app-container',
+    },
     [Scene.PropertyDefinitionEdit]: {
         projectBased: true,
         name: 'Data management',
@@ -853,6 +858,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.variables()]: [Scene.DataManagement, 'variables'],
     [urls.variableEdit(':id')]: [Scene.SqlVariableEdit, 'sqlVariableEdit'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
+    [urls.quickstart()]: [Scene.Quickstart, 'quickstart'],
     [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
     [urls.ai()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],

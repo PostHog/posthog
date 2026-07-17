@@ -8,6 +8,7 @@ import { alphabet } from 'lib/utils/strings'
 
 import { AlertConditionType } from '~/queries/schema/schema-general'
 
+import { AlertDefinitionRow } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import {
     funnelConfigForOptionKey,
@@ -38,8 +39,7 @@ export function TrendsDefinitionFields({
     alertMode: 'detector' | 'threshold'
 }): JSX.Element {
     return (
-        <div className="flex gap-3 items-center">
-            <div>When</div>
+        <AlertDefinitionRow label="When">
             <Group name={['config']}>
                 <LemonField name="series_index" className="flex-auto">
                     <LemonSelect
@@ -62,7 +62,7 @@ export function TrendsDefinitionFields({
                     />
                 </LemonField>
             </Group>
-        </div>
+        </AlertDefinitionRow>
     )
 }
 
@@ -232,8 +232,7 @@ export function HogQLDefinitionFields({
     const hasMultipleColumns = (hogqlColumns?.length ?? 0) > 1
     return (
         <>
-            <div className="flex gap-3 items-center">
-                <div>When</div>
+            <AlertDefinitionRow label="When">
                 <Group name={['config']}>
                     <LemonField name="evaluation" className="flex-auto">
                         {({ value, onChange }) => (
@@ -288,7 +287,7 @@ export function HogQLDefinitionFields({
                         </LemonField>
                     )}
                 </Group>
-            </div>
+            </AlertDefinitionRow>
             {hasMultipleColumns && (
                 <div className="flex gap-3 items-center">
                     <Tooltip title="Names the evaluated row in notifications and the check history.">

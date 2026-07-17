@@ -309,6 +309,7 @@ the row lists both.
 | lago                             | HTTP                        | requests                                                        | ✅                          |
 | lambda_labs                      | HTTP                        | requests                                                        | ✅                          |
 | langfuse                         | HTTP                        | requests                                                        | ✅                          |
+| langsmith                        | HTTP                        | requests                                                        | ✅                          |
 | launchdarkly                     | HTTP                        | requests                                                        | ✅                          |
 | kustomer                         | HTTP                        | requests                                                        | ✅                          |
 | lattice                          | HTTP                        | requests                                                        | ✅                          |
@@ -777,7 +778,6 @@ doesn't conflict with concurrent PRs.
 - koyeb
 - kyve
 - lambda_labs
-- langsmith
 - leexi
 - lemon_squeezy
 - lever
