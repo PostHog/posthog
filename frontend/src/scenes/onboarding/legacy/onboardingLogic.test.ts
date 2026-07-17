@@ -1,10 +1,15 @@
+import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
+import { useMocks } from '~/mocks/jest'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { OnboardingStepKey } from '~/types'
@@ -474,6 +479,54 @@ describe('onboardingLogic — flow composition', () => {
             await expectLogic(logic, () => {
                 logic.actions.completeOnboarding()
             }).toNotHaveDispatchedActions(['recordProductIntentOnboardingComplete', 'setIsCompleting'])
+        })
+    })
+
+    describe('skipContextOnboarding — persist exit for the context-first flow', () => {
+        // Regression guard: leaving the context-first flow before Finish used to persist nothing,
+        // so sceneLogic re-redirected the user into onboarding on their next login. Exiting must now
+        // hit the skip endpoint so `onboarding_skipped_at` sticks and suppresses that redirect.
+        let skipHandler: jest.Mock
+
+        beforeEach(() => {
+            skipHandler = jest.fn(() => [
+                200,
+                {
+                    ...MOCK_DEFAULT_USER,
+                    onboarding_skipped_at: '2026-07-16T00:00:00Z',
+                    onboarding_skipped_reason: 'later',
+                },
+            ])
+            useMocks({ post: { '/api/users/:uuid/onboarding/skip/': skipHandler } })
+            // A fresh, un-onboarded team so `hasOnboardedAnyProduct` is false — otherwise the guard
+            // (correctly) treats the user as already past onboarding and skips the write.
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                completed_snippet_onboarding: false,
+                has_completed_onboarding_for: {},
+            })
+        })
+
+        it('persists a "later" skip when the user leaves before finishing', async () => {
+            userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, onboarding_skipped_at: null })
+
+            await expectLogic(logic, () => {
+                logic.actions.skipContextOnboarding('sources')
+            }).toFinishAllListeners()
+
+            // The regression: leaving used to persist nothing. It must now hit the skip endpoint so
+            // `onboarding_skipped_at` sticks and `isOnboardingRedirectSuppressed` stops the re-redirect.
+            expect(skipHandler).toHaveBeenCalledTimes(1)
+        })
+
+        it('does not hit the endpoint again once the user has already skipped', async () => {
+            userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, onboarding_skipped_at: '2026-07-16T00:00:00Z' })
+
+            await expectLogic(logic, () => {
+                logic.actions.skipContextOnboarding('sources')
+            }).toFinishAllListeners()
+
+            expect(skipHandler).not.toHaveBeenCalled()
         })
     })
 
