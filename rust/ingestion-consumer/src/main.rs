@@ -179,7 +179,11 @@ async fn async_main(config: Config) -> Result<()> {
     let probe_token = CancellationToken::new();
     Arc::clone(&registry).start_probing(probe_token.clone());
 
-    let mut dispatcher = Dispatcher::with_strategy(Arc::clone(&registry), config.routing_strategy);
+    let mut dispatcher = Dispatcher::with_strategy(
+        Arc::clone(&registry),
+        config.routing_strategy,
+        config.target_sub_batch_size,
+    );
     if let Some(recorder) = &debug_recorder {
         dispatcher.set_debug_recorder(Arc::clone(recorder));
     }

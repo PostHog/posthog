@@ -185,23 +185,35 @@ pub struct Dispatcher {
     /// order: pin_table → sentinel; the sentinel never takes the pin table),
     /// so its check order matches the intended per-key send order.
     key_sentinel: Arc<KeyOrderSentinel>,
+    /// Target messages per sub-batch for unpinned routing. When non-zero, a
+    /// batch's unpinned groups only fan out to `ceil(messages / target)`
+    /// workers, so small batches consolidate into few, full sub-batches
+    /// instead of scattering across the whole pool. 0 disables the cap.
+    target_sub_batch_size: usize,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
 }
 
 impl Dispatcher {
-    /// Construct a dispatcher with the default routing strategy.
+    /// Construct a dispatcher with the default routing strategy and no
+    /// sub-batch consolidation.
     pub fn new(registry: Arc<WorkerRegistry>) -> Self {
-        Self::with_strategy(registry, RoutingStrategy::default())
+        Self::with_strategy(registry, RoutingStrategy::default(), 0)
     }
 
-    /// Construct a dispatcher with an explicit routing strategy.
-    pub fn with_strategy(registry: Arc<WorkerRegistry>, strategy: RoutingStrategy) -> Self {
+    /// Construct a dispatcher with an explicit routing strategy and target
+    /// sub-batch size (0 disables consolidation).
+    pub fn with_strategy(
+        registry: Arc<WorkerRegistry>,
+        strategy: RoutingStrategy,
+        target_sub_batch_size: usize,
+    ) -> Self {
         Self {
             pin_table: Mutex::new(PinTable::new()),
             registry,
             router: Mutex::new(Router::new(strategy)),
             key_sentinel: Arc::new(KeyOrderSentinel::new()),
+            target_sub_batch_size,
             debug_recorder: None,
         }
     }
@@ -212,12 +224,14 @@ impl Dispatcher {
         registry: Arc<WorkerRegistry>,
         strategy: RoutingStrategy,
         seed: u64,
+        target_sub_batch_size: usize,
     ) -> Self {
         Self {
             pin_table: Mutex::new(PinTable::new()),
             registry,
             router: Mutex::new(Router::with_seed(strategy, seed)),
             key_sentinel: Arc::new(KeyOrderSentinel::new()),
+            target_sub_batch_size,
             debug_recorder: None,
         }
     }
@@ -352,8 +366,21 @@ impl Dispatcher {
             unpinned_groups.sort_unstable_by(|a, b| b.messages.len().cmp(&a.messages.len()));
         }
 
+        // Cap how many workers this batch's unpinned groups fan out to. Without
+        // a cap, a small batch of many distinct_ids scatters 2-3 message
+        // sub-batches across the whole pool, defeating worker-side batching.
+        let narrowed = (self.target_sub_batch_size > 0).then(|| {
+            let unpinned_messages: usize = unpinned_groups.iter().map(|g| g.messages.len()).sum();
+            let max_workers = unpinned_messages
+                .div_ceil(self.target_sub_batch_size)
+                .max(1);
+            let pinned_targets: Vec<WorkerId> = assignments.by_worker.keys().cloned().collect();
+            router.select_candidates(&healthy, &pinned_targets, max_workers)
+        });
+        let candidates: &[WorkerId] = narrowed.as_deref().unwrap_or(&healthy);
+
         for group in unpinned_groups {
-            let Some(worker) = router.select(&healthy, &working_load) else {
+            let Some(worker) = router.select(candidates, &working_load) else {
                 // No routable worker right now (e.g. the whole pool is draining
                 // during a deploy overlap). Stash the group so the flush loop
                 // can route it once a worker returns — dropping it would fail
@@ -1247,7 +1274,7 @@ mod tests {
     // ---- P2C routing strategy ----
 
     fn p2c_dispatcher(n: usize, seed: u64) -> Dispatcher {
-        Dispatcher::with_strategy_seeded(healthy_registry(n), RoutingStrategy::P2c, seed)
+        Dispatcher::with_strategy_seeded(healthy_registry(n), RoutingStrategy::P2c, seed, 0)
     }
 
     #[test]
@@ -1309,7 +1336,7 @@ mod tests {
     async fn test_p2c_all_workers_dead_returns_empty() {
         let registry = healthy_registry(2);
         let dispatcher =
-            Dispatcher::with_strategy_seeded(Arc::clone(&registry), RoutingStrategy::P2c, 1);
+            Dispatcher::with_strategy_seeded(Arc::clone(&registry), RoutingStrategy::P2c, 1, 0);
 
         for i in 0..2 {
             for _ in 0..5 {
@@ -1319,6 +1346,57 @@ mod tests {
 
         let b = dispatcher.assign("b", make_msgs(&[("t", "user-1")]));
         assert!(b.is_empty());
+    }
+
+    // ---- sub-batch consolidation (target sub-batch size) ----
+
+    fn consolidating_dispatcher(workers: usize, target: usize) -> Dispatcher {
+        Dispatcher::with_strategy(healthy_registry(workers), RoutingStrategy::BinPack, target)
+    }
+
+    #[test]
+    fn test_small_batch_consolidates_onto_one_worker() {
+        // Without the cap, bin-packing scatters 6 fresh 1-message keys across
+        // all 3 workers; with a target of 100 the whole batch fits one worker.
+        let dispatcher = consolidating_dispatcher(3, 100);
+
+        let msgs: Vec<_> = (0..6).map(|i| make_msg("t", &format!("u{i}"))).collect();
+        let sub_batches = dispatcher.assign("b", msgs);
+
+        assert_eq!(sub_batches.len(), 1);
+        assert_eq!(sub_batches[0].messages.len(), 6);
+    }
+
+    #[test]
+    fn test_fan_out_grows_with_batch_volume() {
+        // ceil(6 messages / target 2) = 3 workers — the cap widens as the
+        // batch fills, so full batches keep spreading across the pool.
+        let dispatcher = consolidating_dispatcher(4, 2);
+
+        let msgs: Vec<_> = (0..6).map(|i| make_msg("t", &format!("u{i}"))).collect();
+        let sub_batches = dispatcher.assign("b", msgs);
+
+        assert_eq!(sub_batches.len(), 3);
+        assert!(sub_batches.iter().all(|b| b.messages.len() == 2));
+    }
+
+    #[test]
+    fn test_fresh_keys_piggyback_on_pinned_worker() {
+        let dispatcher = consolidating_dispatcher(3, 100);
+
+        // Pin "t:pinned"; do NOT resolve so the pin stays live.
+        let b1 = dispatcher.assign("b1", make_msgs(&[("t", "pinned")]));
+        let pinned_worker = b1[0].worker.clone();
+
+        // The next batch's fresh keys must join the pinned worker's sub-batch
+        // instead of opening a call to a second worker.
+        let b2 = dispatcher.assign(
+            "b2",
+            make_msgs(&[("t", "pinned"), ("t", "fresh-1"), ("t", "fresh-2")]),
+        );
+        assert_eq!(b2.len(), 1);
+        assert_eq!(b2[0].worker, pinned_worker);
+        assert_eq!(b2[0].messages.len(), 3);
     }
 
     // ---- graceful drain ----

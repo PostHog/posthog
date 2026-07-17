@@ -99,6 +99,36 @@ impl Router {
             RoutingStrategy::P2c => select_p2c(healthy, load, &mut self.rng),
         }
     }
+
+    /// Narrow the candidate pool for one assignment round so a small batch
+    /// consolidates onto few workers instead of fanning out across the pool.
+    ///
+    /// Every healthy `preferred` worker is kept regardless of `max_workers` —
+    /// those already receive a sub-batch this round, so routing more groups to
+    /// them adds no extra call. The pool is then topped up with random other
+    /// healthy workers until it reaches `max_workers`. Random fill keeps the
+    /// dispatchers sharing a worker pool from herding onto the same subset.
+    pub fn select_candidates(
+        &mut self,
+        healthy: &[WorkerId],
+        preferred: &[WorkerId],
+        max_workers: usize,
+    ) -> Vec<WorkerId> {
+        if max_workers >= healthy.len() {
+            return healthy.to_vec();
+        }
+        let mut candidates: Vec<WorkerId> = healthy
+            .iter()
+            .filter(|w| preferred.contains(w))
+            .cloned()
+            .collect();
+        let mut rest: Vec<&WorkerId> = healthy.iter().filter(|w| !preferred.contains(w)).collect();
+        while candidates.len() < max_workers && !rest.is_empty() {
+            let i = self.rng.gen_range(0..rest.len());
+            candidates.push(rest.swap_remove(i).clone());
+        }
+        candidates
+    }
 }
 
 /// Pick the least-loaded healthy worker. Ties resolve to the first such worker
@@ -286,5 +316,48 @@ mod tests {
         let router = Router::with_seed(RoutingStrategy::P2c, 1);
         assert!(!router.prefers_largest_first());
         assert_eq!(router.strategy(), RoutingStrategy::P2c);
+    }
+
+    // ---- candidate narrowing ----
+
+    #[test]
+    fn test_select_candidates_returns_full_pool_when_max_covers_it() {
+        let mut router = Router::with_seed(RoutingStrategy::P2c, 1);
+        let healthy = [wid(A), wid(B), wid(C)];
+        assert_eq!(router.select_candidates(&healthy, &[], 3), healthy.to_vec());
+    }
+
+    #[test]
+    fn test_select_candidates_fills_to_max_with_distinct_healthy_workers() {
+        let mut router = Router::with_seed(RoutingStrategy::P2c, 42);
+        let healthy = [wid(A), wid(B), wid(C)];
+        let candidates = router.select_candidates(&healthy, &[], 2);
+        assert_eq!(candidates.len(), 2);
+        let unique: std::collections::HashSet<_> = candidates.iter().collect();
+        assert_eq!(unique.len(), 2);
+        assert!(candidates.iter().all(|w| healthy.contains(w)));
+    }
+
+    #[test]
+    fn test_select_candidates_keeps_all_preferred_even_beyond_max() {
+        // Preferred workers already receive a sub-batch this round, so keeping
+        // them adds no fan-out — truncating them would force groups onto extra
+        // workers instead of piggybacking on calls that happen anyway.
+        let mut router = Router::with_seed(RoutingStrategy::P2c, 1);
+        let healthy = [wid(A), wid(B), wid(C)];
+        let preferred = [wid(A), wid(C)];
+        assert_eq!(
+            router.select_candidates(&healthy, &preferred, 1),
+            preferred.to_vec()
+        );
+    }
+
+    #[test]
+    fn test_select_candidates_ignores_unhealthy_preferred() {
+        let mut router = Router::with_seed(RoutingStrategy::P2c, 1);
+        let healthy = [wid(A), wid(B)];
+        let candidates = router.select_candidates(&healthy, &[wid(C)], 1);
+        assert_eq!(candidates.len(), 1);
+        assert!(healthy.contains(&candidates[0]));
     }
 }

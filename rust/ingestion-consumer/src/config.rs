@@ -225,6 +225,14 @@ pub struct Config {
     #[envconfig(from = "INGESTION_ROUTING_STRATEGY", default = "binpack")]
     pub routing_strategy: RoutingStrategy,
 
+    /// Target messages per sub-batch when routing unpinned keys. Caps how many
+    /// workers a batch fans out to (`ceil(unpinned messages / target)`), so a
+    /// small batch consolidates onto few workers with full sub-batches instead
+    /// of scattering 2-3 message sub-batches across the whole pool. 0 (default)
+    /// disables the cap: every healthy worker is a routing candidate.
+    #[envconfig(from = "INGESTION_TARGET_SUB_BATCH_SIZE", default = "0")]
+    pub target_sub_batch_size: usize,
+
     // ---- Worker health / registry ----
     /// How often to probe each worker's /_ready endpoint (milliseconds).
     #[envconfig(default = "5000")]
