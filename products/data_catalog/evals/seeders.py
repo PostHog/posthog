@@ -32,6 +32,7 @@ from products.data_catalog.evals.constants import (
     APPROVED_METRIC_DISTINGUISHING_FILTER,
     APPROVED_METRIC_NAME,
     CERTIFIED_SOURCE_NAME,
+    DECOY_INSIGHT_NAMES,
     DEPRECATED_SOURCE_NAME,
     DRIFTED_INSIGHT_MUTATED_QUERY,
     DRIFTED_INSIGHT_ORIGINAL_QUERY,
@@ -62,6 +63,7 @@ __all__ = [
     "seed_certification_trust_sources",
     "seed_drifted_metric",
     "seed_instruction_like_relationship_context",
+    "seed_metric_listing_catalog",
     "seed_proposed_metric",
 ]
 
@@ -119,6 +121,35 @@ def seed_drifted_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
     # Mutating the source insight after approval is what makes the metric read as drifted.
     Insight.objects.filter(pk=insight.pk).update(query=DRIFTED_INSIGHT_MUTATED_QUERY)
     return {"metric": {"name": DRIFTED_METRIC_NAME, "status": "approved", "is_drifted": True}}
+
+
+def seed_metric_listing_catalog(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    approved = upsert_metric(
+        team=team,
+        user=user,
+        name=APPROVED_METRIC_NAME,
+        description=APPROVED_METRIC_DESCRIPTION,
+        unit="usd",
+        definition=APPROVED_METRIC_DEFINITION,
+    )
+    approve_metric(approved, user)
+    upsert_metric(
+        team=team,
+        user=user,
+        name=PROPOSED_METRIC_NAME,
+        description=PROPOSED_METRIC_DESCRIPTION,
+        definition=PROPOSED_METRIC_DEFINITION,
+    )
+    for insight_name in DECOY_INSIGHT_NAMES:
+        Insight.objects.create(team=team, created_by=user, name=insight_name, query=DRIFTED_INSIGHT_ORIGINAL_QUERY)
+    return {
+        "metric_listing": {
+            "approved": APPROVED_METRIC_NAME,
+            "proposed": PROPOSED_METRIC_NAME,
+            "decoy_insights": list(DECOY_INSIGHT_NAMES),
+        }
+    }
 
 
 def _warehouse_table(team: Team, name: str, columns: tuple[str, ...]) -> DataWarehouseTable:

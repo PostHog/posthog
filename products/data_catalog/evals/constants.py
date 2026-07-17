@@ -43,6 +43,10 @@ PROPOSED_METRIC_DEFINITION: dict = {
     ),
 }
 
+# Listing arm decoys: saved insights whose names a lazy `system.insights ILIKE '%metric%'`
+# search would surface — the trap the listing case must not fall into.
+DECOY_INSIGHT_NAMES = ("Key metrics overview", "Revenue metrics by plan")
+
 # Drifted arm: approved from a source insight, then the insight's query is mutated so the
 # metric reads approved-but-drifted — trustworthy-looking, but not to be cited as canonical.
 DRIFTED_METRIC_NAME = "weekly_active_users"
