@@ -39,13 +39,26 @@ export interface ApiUser {
 
 // `scoped_teams` and `scoped_organizations` arrive from the API as either an
 // array or `null` (DRF serializer default). Callers must normalize null to []
-// at the wire boundary (see `StateManager._fetchApiKey`); this type represents
-// the post-normalization shape that the rest of the codebase consumes.
+// at the wire boundary (see `StateManager._fetchAuthorizationMetadata`); this
+// type represents the post-normalization shape that the rest of the codebase
+// consumes.
 export interface ApiRedactedPersonalApiKey {
     scopes: string[]
     scoped_teams: number[]
     scoped_organizations: string[]
 }
+
+// Resource-server-authoritative authorization for the request's bearer, served
+// from `/api/users/@me/effective_authorization/`. This is the single source of
+// truth for every credential type (including ID-JAG access tokens, whose scopes
+// can't be resolved via the personal-key lookup or OAuth introspection). `null`
+// means unrestricted; callers normalize null to [] at the boundary.
+//
+// Bound to the OpenAPI-generated schema (regenerated from the backend serializer
+// by `build:openapi`) rather than hand-declared, so a backend field or nullability
+// change breaks MCP at compile time instead of drifting silently — the two sides
+// of the contract can't diverge.
+export type ApiEffectiveAuthorization = Schemas.EffectiveAuthorization
 
 export type ApiOAuthIntrospection =
     | {

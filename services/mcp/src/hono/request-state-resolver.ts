@@ -113,9 +113,12 @@ export class RequestStateResolver {
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
 
-        const [allFlags, _apiKey, distinctId] = await Promise.all([
+        const [allFlags, authorizationMetadata, distinctId] = await Promise.all([
             this.resolveAllFlags(reqCtx, allFlagKeys, flagGroups),
-            context.stateManager.getApiKey(),
+            // Required to project the catalog: resolves to a non-null value or
+            // throws, so a resolution failure fails the request rather than
+            // silently yielding an empty (zero-scope) tool set.
+            context.stateManager.getAuthorizationMetadata(),
             reqCtx.getDistinctId(),
         ])
 
@@ -153,8 +156,8 @@ export class RequestStateResolver {
         reqCtx.setMcpContexts(requestContext, sessionContext)
         props.mode = resolvedMode
 
-        const apiKeyScopes = _apiKey?.scopes ?? []
-        const apiKeyScopedTeams = _apiKey?.scoped_teams ?? []
+        const apiKeyScopes = authorizationMetadata.scopes
+        const apiKeyScopedTeams = authorizationMetadata.scoped_teams
         const aiConsentGiven = await context.stateManager.getAiConsentGiven()
         const availableFeatures = await context.stateManager.getAvailableFeatures()
         const isCloud = isCloudApi()
@@ -181,7 +184,7 @@ export class RequestStateResolver {
         // is_staff gate on top of the catalog's plain scope filter.
         const allTools = await filterStaffOnlyTools(
             this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
-            _apiKey ?? { scopes: [] },
+            authorizationMetadata,
             () => context.stateManager.getUser()
         )
         // Scope-gated hints are only consumed by the exec `search` command, which

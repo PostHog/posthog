@@ -15748,6 +15748,22 @@ export namespace Schemas {
       access_secret: string;
     }
 
+    /**
+     * * `personal_api_key` - personal_api_key
+     * * `oauth` - oauth
+     * * `id_jag` - id_jag
+     * * `session` - session
+     */
+    export type CredentialTypeEnum = typeof CredentialTypeEnum[keyof typeof CredentialTypeEnum];
+
+
+    export const CredentialTypeEnum = {
+      PersonalApiKey: 'personal_api_key',
+      Oauth: 'oauth',
+      IdJag: 'id_jag',
+      Session: 'session',
+    } as const;
+
     export interface CurrentBranchHealth {
       /** Detected default branch ('master' or 'main') from runs in the same 24-hour window. */
       default_branch: string;
@@ -21075,6 +21091,36 @@ export namespace Schemas {
       note_appended: boolean;
       /** Whether the report's suggested reviewers were replaced. */
       reviewers_set: boolean;
+    }
+
+    /**
+     * The authoritative, server-verified authorization carried by the current request's
+     * credential. Lets a downstream resource server read a token's effective scopes and
+     * org/team restrictions instead of parsing the token body itself.
+     */
+    export interface EffectiveAuthorization {
+      /**
+         * API scopes granted to this credential, e.g. 'insight:read'. Null for session auth (unrestricted).
+         * @nullable
+         */
+      scopes: string[] | null;
+      /**
+         * Organization UUIDs this credential is restricted to. Null means unrestricted (all of the user's organizations).
+         * @nullable
+         */
+      scoped_organizations: string[] | null;
+      /**
+         * Team (project) ids this credential is restricted to. Null means unrestricted (org-wide, including ID-JAG tokens).
+         * @nullable
+         */
+      scoped_teams: number[] | null;
+      /** The kind of credential that authenticated this request.
+       *
+       * * `personal_api_key` - personal_api_key
+       * * `oauth` - oauth
+       * * `id_jag` - id_jag
+       * * `session` - session */
+      credential_type: CredentialTypeEnum;
     }
 
     export type EffectiveMembershipLevelEnum = typeof EffectiveMembershipLevelEnum[keyof typeof EffectiveMembershipLevelEnum];
