@@ -1,5 +1,5 @@
 import { deepEqual as equal } from 'fast-equals'
-import { MakeLogicType, actions, connect, kea, key, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
 import { UrlToActionPayload } from 'kea-router/lib/types'
 
@@ -65,8 +65,13 @@ export type sessionsSceneLogicType = MakeLogicType<
     sessionsSceneLogicMeta
 >
 
+export interface SessionsSceneLogicProps {
+    tabId?: string
+}
+
 export const sessionsSceneLogic = kea<sessionsSceneLogicType>([
-    key(() => 'scene'),
+    props({} as SessionsSceneLogicProps),
+    key((props) => props.tabId || 'scene'),
     path((key) => ['scenes', 'sessions', 'sessionsSceneLogic', key]),
     connect(() => ({
         values: [
@@ -82,10 +87,14 @@ export const sessionsSceneLogic = kea<sessionsSceneLogicType>([
 
     actions({ setQuery: (query: Node) => ({ query }) }),
     reducers({ savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }] }),
-    listeners(({ actions, values }) => ({
+    listeners(({ props, actions, values }) => ({
         setQuery: ({ query }) => {
+            // No owning tab → no removeTab cleanup will reach this slot. See eventsSceneLogic.
+            if (props.tabId === undefined) {
+                return
+            }
             const isDefault = objectsEqual(query, values.defaultQuery)
-            actions.setSavedQueryForTab(undefined, 'sessions', isDefault ? null : query)
+            actions.setSavedQueryForTab(props.tabId, 'sessions', isDefault ? null : query)
         },
     })),
     selectors({
@@ -121,16 +130,16 @@ export const sessionsSceneLogic = kea<sessionsSceneLogicType>([
         ],
     })),
 
-    urlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values, props }) => {
         const sessionsQueryHandler: UrlToActionPayload[keyof UrlToActionPayload] = (_, __, { q: queryParam }): void => {
             // If query hasn't changed, do nothing
             if (equal(queryParam, values.query)) {
                 return
             }
 
-            // Handle missing query param - restore from the persisted query, else fall back to default
+            // Handle missing query param - restore from per-tab persisted query, else fall back to default
             if (!queryParam) {
-                const persisted = values.savedQueryFor(undefined, 'sessions')
+                const persisted = values.savedQueryFor(props.tabId, 'sessions')
                 const target = persisted ?? values.defaultQuery
                 if (!objectsEqual(values.query, target)) {
                     actions.setQuery(target)

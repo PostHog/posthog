@@ -1,5 +1,5 @@
 import { deepEqual as equal } from 'fast-equals'
-import { MakeLogicType, actions, connect, kea, key, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
 import { UrlToActionPayload } from 'kea-router/lib/types'
 
@@ -72,8 +72,13 @@ export type eventsSceneLogicType = MakeLogicType<
     eventsSceneLogicMeta
 >
 
+export interface EventsSceneLogicProps {
+    tabId?: string
+}
+
 export const eventsSceneLogic = kea<eventsSceneLogicType>([
-    key(() => 'scene'),
+    props({} as EventsSceneLogicProps),
+    key((props) => props.tabId || 'scene'),
     path((key) => ['scenes', 'events', 'eventsSceneLogic', key]),
     connect(() => ({
         values: [
@@ -91,10 +96,17 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
 
     actions({ setQuery: (query: Node) => ({ query }) }),
     reducers({ savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }] }),
-    listeners(({ actions, values }) => ({
+    listeners(({ props, actions, values }) => ({
         setQuery: ({ query }) => {
+            // No owning tab → no removeTab cleanup will ever clear this slot.
+            // sceneKey is constant ('events') so it'd be a single overwriting slot under
+            // '__no_tab__', but we still skip it for consistency with dataTableLogic and
+            // because persistence semantically requires a tab.
+            if (props.tabId === undefined) {
+                return
+            }
             const isDefault = objectsEqual(query, values.defaultQuery)
-            actions.setSavedQueryForTab(undefined, 'events', isDefault ? null : query)
+            actions.setSavedQueryForTab(props.tabId, 'events', isDefault ? null : query)
         },
     })),
     selectors({
@@ -139,13 +151,13 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
         ],
     })),
 
-    urlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values, props }) => {
         const eventsQueryHandler: UrlToActionPayload[keyof UrlToActionPayload] = (_, __, { q: queryParam }): void => {
             if (!equal(queryParam, values.query)) {
                 // nothing in the URL
                 if (!queryParam) {
-                    // restore from the persisted query if present, else fall back to default
-                    const persisted = values.savedQueryFor(undefined, 'events')
+                    // restore from per-tab persisted query if present, else fall back to default
+                    const persisted = values.savedQueryFor(props.tabId, 'events')
                     const target = persisted ?? values.defaultQuery
                     if (!objectsEqual(values.query, target)) {
                         actions.setQuery(target)

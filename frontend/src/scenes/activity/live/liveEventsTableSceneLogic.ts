@@ -1,4 +1,4 @@
-import { MakeLogicType, kea, key, path, selectors } from 'kea'
+import { MakeLogicType, kea, key, path, props, selectors } from 'kea'
 
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -22,8 +22,13 @@ export type liveEventsTableSceneLogicType = MakeLogicType<
     liveEventsTableSceneLogicMeta
 >
 
+export interface LiveEventsTableSceneProps {
+    tabId?: string
+}
+
 export const liveEventsTableSceneLogic = kea<liveEventsTableSceneLogicType>([
-    key(() => 'scene'),
+    props({} as LiveEventsTableSceneProps),
+    key((props) => props.tabId || 'scene'),
     path((key) => ['scenes', 'activity', 'live-events', 'liveEventsTableSceneLogic', key]),
     selectors(() => ({
         breadcrumbs: [
