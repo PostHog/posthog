@@ -17,7 +17,14 @@ import {
     InsightsTrendingRetrieveQueryParams,
 } from '@/generated/product_analytics/api'
 import { castStringToInt } from '@/tools/cast-helpers'
-import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    withAgentNote,
+    omitResponseFields,
+    pickResponseFields,
+    type WithPostHogUrl,
+    type WithAgentNote,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const AssistantInsightVizNode = z.object({
@@ -203,7 +210,7 @@ const InsightCreateSchema = InsightsCreateBody.omit({
     ),
 })
 
-const insightCreate = (): ToolBase<typeof InsightCreateSchema, WithPostHogUrl<Schemas.Insight>> => ({
+const insightCreate = (): ToolBase<typeof InsightCreateSchema, WithAgentNote<WithPostHogUrl<Schemas.Insight>>> => ({
     name: 'insight-create',
     schema: InsightCreateSchema,
     handler: async (context: Context, params: z.infer<typeof InsightCreateSchema>) => {
@@ -241,7 +248,10 @@ const insightCreate = (): ToolBase<typeof InsightCreateSchema, WithPostHogUrl<Sc
             'hogql',
             'types',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`)
+        return withAgentNote(
+            await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`),
+            "After creating a Trends, SQL (HogQL), or Funnels insight — the only kinds that support alerts — consider offering the user an alert on it as a next step (e.g. 'Want me to set up an alert if this drops below X?'). Propose a concrete threshold based on the metric rather than asking generically. First call alerts-list with this insight's id to avoid duplicating an existing alert, then use alert-create. Skip this for Retention, Paths, Stickiness, and Lifecycle insights, which cannot have alerts, and don't re-offer if the user declines."
+        )
     },
 })
 

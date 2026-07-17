@@ -85,6 +85,13 @@ tools:
             query-retention / query-paths / query-stickiness / query-lifecycle first to confirm the shape, then save.
             Returns insight metadata only — after creating, call the insight-query tool with the returned `short_id` if
             you want to see the computed results.
+        agent_note:
+            "After creating a Trends, SQL (HogQL), or Funnels insight — the only kinds that support alerts — consider
+            offering the user an alert on it as a next step (e.g. 'Want me to set up an alert if this drops below X?').
+            Propose a concrete threshold based on the metric rather than asking generically. First call alerts-list with
+            this insight's id to avoid duplicating an existing alert, then use alert-create. Skip this for Retention,
+            Paths, Stickiness, and Lifecycle insights, which cannot have alerts, and don't re-offer if the user
+            declines."
         exclude_params:
             - query
         include_params:
