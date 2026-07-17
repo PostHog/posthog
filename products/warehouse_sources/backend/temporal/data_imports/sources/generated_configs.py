@@ -1971,7 +1971,7 @@ class HightouchSourceConfig(config.Config):
 
 @config.config
 class HoneybadgerSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
