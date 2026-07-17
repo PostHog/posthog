@@ -8715,16 +8715,8 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
         )
 
     def _original(self, snapshot: dict) -> dict:
-        """The base snapshot the frontend sends: the experiment as this client last saw it."""
+        """The base snapshot the frontend sends: the metric collections as this client last saw them."""
         return {
-            "name": snapshot["name"],
-            "description": snapshot.get("description"),
-            "start_date": snapshot.get("start_date"),
-            "end_date": snapshot.get("end_date"),
-            "stats_config": snapshot.get("stats_config"),
-            "exposure_criteria": snapshot.get("exposure_criteria"),
-            "excluded_variants": snapshot.get("excluded_variants"),
-            "only_count_matured_users": snapshot.get("only_count_matured_users"),
             "metrics": snapshot.get("metrics") or [],
             "metrics_secondary": snapshot.get("metrics_secondary") or [],
             "saved_metrics_ids": [
@@ -8838,10 +8830,12 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
             ("their_stats_config_edit", {"stats_config": {"method": "frequentist"}}, "stats_config"),
         ]
     )
-    def test_concurrent_scalar_edit_conflicts_with_stale_metrics_write(
-        self, _name: str, their_payload: dict, conflicting_field: str
+    def test_concurrent_scalar_edit_does_not_block_stale_metrics_write(
+        self, _name: str, their_payload: dict, edited_field: str
     ) -> None:
-        snapshot = self._create_experiment(f"scalar-{conflicting_field}", metrics=[self._metric("base")])
+        # A metric-only PATCH omits scalar fields, so it can't clobber them: the other
+        # side's scalar edit and this stale metric addition must both survive.
+        snapshot = self._create_experiment(f"scalar-{edited_field}", metrics=[self._metric("base")])
         self.assertEqual(self._patch(snapshot["id"], their_payload).status_code, status.HTTP_200_OK)
 
         stale_metrics_write = self._patch(
@@ -8853,8 +8847,14 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
             },
         )
 
-        self.assertEqual(stale_metrics_write.status_code, status.HTTP_409_CONFLICT)
-        self.assertIn(conflicting_field, stale_metrics_write.json()["conflicting_fields"])
+        self.assertEqual(stale_metrics_write.status_code, status.HTTP_200_OK, stale_metrics_write.json())
+        self.assertEqual(self._events(stale_metrics_write.json()["metrics"]), {"base", "mine"})
+        their_value = their_payload[edited_field]
+        current_value = stale_metrics_write.json()[edited_field]
+        if isinstance(their_value, dict):
+            self.assertEqual({key: current_value.get(key) for key in their_value}, their_value)
+        else:
+            self.assertEqual(current_value, their_value)
 
     def test_stale_scalar_write_conflicts_with_any_concurrent_change(self) -> None:
         snapshot = self._create_experiment("stale-scalar", metrics=[self._metric("base")])
@@ -8999,16 +8999,15 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
         launch = self.client.post(f"/api/projects/{self.team.id}/experiments/{snapshot['id']}/launch/")
         self.assertEqual(launch.status_code, status.HTTP_200_OK, launch.json())
 
-        # The launch rewrote every metric fingerprint; without start_date in the base snapshot the
-        # only remaining delta is fingerprint churn, which must not read as a concurrent metric edit.
-        original_without_start_date = {k: v for k, v in self._original(snapshot).items() if k != "start_date"}
+        # The launch rewrote every metric fingerprint; that server-side churn must not read
+        # as a concurrent edit of the metric this stale write edits.
         my_metric = {**snapshot["metrics"][0], "source": {"kind": "EventsNode", "event": "edited"}}
         stale_edit = self._patch(
             snapshot["id"],
             {
                 "metrics": [my_metric],
                 "version": snapshot["version"],
-                "original_experiment": original_without_start_date,
+                "original_experiment": self._original(snapshot),
             },
         )
 
@@ -9016,8 +9015,10 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(self._events(stale_edit.json()["metrics"]), {"edited"})
         self.assertIsNotNone(stale_edit.json()["start_date"])
 
-    def test_concurrent_launch_surfaces_as_start_date_conflict(self) -> None:
-        snapshot = self._create_experiment("launch-conflict", metrics=[self._metric("base")])
+    def test_stale_metric_addition_merges_after_concurrent_launch(self) -> None:
+        # A concurrent launch changes start_date, but a metric-only PATCH omits it,
+        # so the stale addition merges and the launch survives.
+        snapshot = self._create_experiment("launch-merge", metrics=[self._metric("base")])
         launch = self.client.post(f"/api/projects/{self.team.id}/experiments/{snapshot['id']}/launch/")
         self.assertEqual(launch.status_code, status.HTTP_200_OK)
 
@@ -9030,8 +9031,9 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
             },
         )
 
-        self.assertEqual(stale_edit.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(stale_edit.json()["conflicting_fields"], ["start_date"])
+        self.assertEqual(stale_edit.status_code, status.HTTP_200_OK, stale_edit.json())
+        self.assertEqual(self._events(stale_edit.json()["metrics"]), {"base", "mine"})
+        self.assertIsNotNone(stale_edit.json()["start_date"])
 
     def test_version_without_original_is_plain_compare_and_swap(self) -> None:
         snapshot = self._create_experiment("plain-cas", metrics=[self._metric("base")])

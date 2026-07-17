@@ -15,7 +15,6 @@ from django.db.models import BooleanField, Case, CharField, Count, F, Prefetch, 
 from django.db.models.expressions import RawSQL
 from django.db.models.functions import Coalesce, Now, NullIf
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 
 import pydantic
 import structlog
@@ -304,8 +303,10 @@ class ExperimentVersionConflict(APIException):
 
 # Fields a stale write may still change. The metric collections merge per uuid — each metric
 # carries a stable server-assigned uuid, so concurrent intent is preserved — and the ordering
-# arrays are re-derived by the ordering syncs. Anything else conflicts outright: scalar fields
-# have no sub-identity to merge on, so concurrent edits there are surfaced, not combined.
+# arrays are re-derived by the ordering syncs. A stale write touching anything else conflicts
+# outright: scalar fields have no sub-identity to merge on, and the edit was likely written
+# against context that has since changed (e.g. a description phrased for metrics someone
+# edited meanwhile).
 CONCURRENCY_MERGEABLE_FIELDS = frozenset(
     {
         "metrics",
@@ -313,34 +314,6 @@ CONCURRENCY_MERGEABLE_FIELDS = frozenset(
         "saved_metrics_ids",
         "primary_metrics_ordered_uuids",
         "secondary_metrics_ordered_uuids",
-    }
-)
-
-# Scalar fields compared against the client's base snapshot to detect concurrent edits.
-# Keys of `original_experiment` outside this set and CONCURRENCY_MERGEABLE_FIELDS are ignored,
-# so clients may echo representation-only keys (`id`, `saved_metrics`, `feature_flag`, ...).
-CONCURRENCY_WATCHED_SCALAR_FIELDS = frozenset(
-    {
-        "archived",
-        "conclusion",
-        "conclusion_comment",
-        "deleted",
-        "description",
-        "end_date",
-        "excluded_variants",
-        "exposure_criteria",
-        "filters",
-        "holdout_id",
-        "name",
-        "only_count_matured_users",
-        "parameters",
-        "running_time_calculation",
-        "scheduling_config",
-        "secondary_metrics",
-        "start_date",
-        "stats_config",
-        "type",
-        "variants",
     }
 )
 
@@ -430,17 +403,6 @@ def _merge_saved_metric_links(
         if survivor is not _MISSING:
             merged.append({"id": link_id, "metadata": survivor})
     return merged, conflicts
-
-
-def _scalar_value_changed(field: str, current: Any, base: Any) -> bool:
-    if field in ("start_date", "end_date"):
-        base_dt = parse_datetime(base) if isinstance(base, str) else base
-        return current != base_dt
-    if not current and not base:
-        # The API representation and the column default are used interchangeably
-        # (None vs {} vs [] vs "" vs False), so empty-ish values compare equal.
-        return False
-    return current != base
 
 
 class ExperimentQueryStatus(str, Enum):
@@ -2886,22 +2848,43 @@ class ExperimentService:
         """Advance the optimistic-concurrency token ahead of a lifecycle save."""
         experiment.version = (experiment.version or 0) + 1
 
+    def _report_update_conflict(
+        self,
+        experiment: Experiment,
+        *,
+        request: Any | None,
+        resolution: Literal["merged", "rejected"],
+        versions_behind: int,
+        base_snapshot_sent: bool,
+        merged_fields: list[str] | None = None,
+        conflict: ExperimentVersionConflict | None = None,
+    ) -> None:
+        """Post-deploy telemetry for stale writes: chart "experiment update concurrency"
+        broken down by ``resolution`` to watch the merge/409 ratio; ``conflicting_fields``
+        shows what users trip on."""
+        if request is None:
+            return
+        metadata = experiment.get_analytics_metadata()
+        metadata.update(
+            {
+                "resolution": resolution,
+                "versions_behind": versions_behind,
+                "base_snapshot_sent": base_snapshot_sent,
+            }
+        )
+        if merged_fields:
+            metadata["merged_fields"] = merged_fields
+        if conflict is not None:
+            metadata["conflicting_fields"] = conflict.conflicting_fields
+            metadata["conflicting_metric_uuids_count"] = len(conflict.conflicting_metric_uuids)
+        report_user_action(self.user, "experiment update concurrency", metadata, team=experiment.team, request=request)
+
     @staticmethod
     def _current_saved_metric_link_dicts(experiment: Experiment) -> list[dict]:
         return [
             {"id": link.saved_metric_id, "metadata": link.metadata or {}}
             for link in experiment.experimenttosavedmetric_set.all()
         ]
-
-    def _concurrent_scalar_conflicts(self, experiment: Experiment, original: Mapping) -> list[str]:
-        """Watched scalar fields whose current value differs from the client's base snapshot."""
-        changed: list[str] = []
-        for field, base_value in original.items():
-            if field in CONCURRENCY_MERGEABLE_FIELDS or field not in CONCURRENCY_WATCHED_SCALAR_FIELDS:
-                continue
-            if _scalar_value_changed(field, getattr(experiment, field, None), base_value):
-                changed.append(field)
-        return sorted(changed)
 
     def _resolve_concurrent_update(
         self,
@@ -2912,25 +2895,26 @@ class ExperimentService:
     ) -> None:
         """Resolve a stale write (client version behind the row) against the current state.
 
-        Strict by default: any concurrent change outside the metric collections — on either
-        side — conflicts, because scalar fields have no sub-identity to merge on. The metric
-        collections are merged per uuid instead (each metric's server-assigned uuid preserves
-        intent across concurrent edits), and client-supplied ordering arrays are reconciled to
-        the current state; the ordering syncs re-derive the rest. Mutates ``update_data`` in
-        place, or raises ``ExperimentVersionConflict``.
+        Only the metric collections are resolvable: they merge per uuid (each metric's
+        server-assigned uuid preserves intent across concurrent edits), and client-supplied
+        ordering arrays are reconciled to the current state — the ordering syncs re-derive
+        the rest. A stale write touching anything else conflicts outright: scalar fields
+        have no sub-identity to merge on, and the edit was likely written against context
+        that has since changed. Scalar changes made by the *other* side never block a
+        metric-only write — a PATCH that omits a field cannot clobber it. Mutates
+        ``update_data`` in place, or raises ``ExperimentVersionConflict``.
         """
         if original is None:
             raise ExperimentVersionConflict(current_version=current_version)
 
         payload_fields = {key for key in update_data if key != "get_feature_flag_key"}
-        non_mergeable_payload = payload_fields - CONCURRENCY_MERGEABLE_FIELDS
-        scalar_conflicts = self._concurrent_scalar_conflicts(experiment, original)
-        if non_mergeable_payload or scalar_conflicts:
-            fields = sorted(non_mergeable_payload | set(scalar_conflicts))
+        non_mergeable_payload = sorted(payload_fields - CONCURRENCY_MERGEABLE_FIELDS)
+        if non_mergeable_payload:
             raise ExperimentVersionConflict(
-                f"The experiment was changed since you loaded it ({', '.join(fields)}). Refresh and try again.",
+                f"The experiment was changed since you loaded it, and your update touches fields that "
+                f"can't be merged ({', '.join(non_mergeable_payload)}). Refresh and try again.",
                 current_version=current_version,
-                conflicting_fields=fields,
+                conflicting_fields=non_mergeable_payload,
             )
 
         conflict_uuids: list[str] = []
@@ -3006,6 +2990,7 @@ class ExperimentService:
         update_feature_flag_params = update_data.pop("update_feature_flag_params", False)
         client_version = update_data.pop("version", None)
         original_experiment = update_data.pop("original_experiment", None)
+        report_request = serializer_context.get("request") if serializer_context else None
 
         # --- optimistic concurrency (opt-in) ---------------------------------
         # Resolve a stale write against the current row *before* any validation or
@@ -3018,13 +3003,31 @@ class ExperimentService:
             experiment.refresh_from_db()
             current_version = experiment.version or 0
             if client_version != current_version:
-                self._resolve_concurrent_update(experiment, update_data, original_experiment, current_version)
+                try:
+                    self._resolve_concurrent_update(experiment, update_data, original_experiment, current_version)
+                except ExperimentVersionConflict as conflict:
+                    self._report_update_conflict(
+                        experiment,
+                        request=report_request,
+                        resolution="rejected",
+                        versions_behind=current_version - client_version,
+                        base_snapshot_sent=original_experiment is not None,
+                        conflict=conflict,
+                    )
+                    raise
+                self._report_update_conflict(
+                    experiment,
+                    request=report_request,
+                    resolution="merged",
+                    versions_behind=current_version - client_version,
+                    base_snapshot_sent=True,
+                    merged_fields=sorted(set(update_data) & CONCURRENCY_MERGEABLE_FIELDS),
+                )
             resolution_version = current_version
 
         # Snapshot before the update to diff what actually changed. The activity-log diff
         # misses the saved-metric M2M, so capture its signature separately, before the sync
         # below mutates it. Skip the reads when neither channel will report.
-        report_request = serializer_context.get("request") if serializer_context else None
         should_report_update = report_request is not None or event_source is not None
         before_update = experiment._get_before_update() if should_report_update else None
         before_saved_metrics = self._saved_metric_signature(experiment) if should_report_update else frozenset()
@@ -3214,6 +3217,11 @@ class ExperimentService:
         with transaction.atomic():
             # Row lock: serializes concurrent updaters and re-checks the version the
             # concurrency resolution above was computed against (that read was unlocked).
+            # Caveat: the flag sync above already ran outside this transaction (it must —
+            # see the comment there), so a 409 raised here leaves a flag change persisted
+            # without its experiment write. The window is the few ms between the unlocked
+            # resolution read and this lock, and the frontend's metric writes never carry
+            # flag config, so in practice this stays theoretical.
             locked_version = (
                 Experiment.objects.select_for_update()
                 .filter(pk=experiment.pk)
@@ -3222,7 +3230,17 @@ class ExperimentService:
                 or 0
             )
             if resolution_version is not None and locked_version != resolution_version:
-                raise ExperimentVersionConflict(current_version=locked_version)
+                conflict = ExperimentVersionConflict(current_version=locked_version)
+                if client_version is not None:
+                    self._report_update_conflict(
+                        experiment,
+                        request=report_request,
+                        resolution="rejected",
+                        versions_behind=locked_version - client_version,
+                        base_snapshot_sent=original_experiment is not None,
+                        conflict=conflict,
+                    )
+                raise conflict
             update_data["version"] = locked_version + 1
 
             # --- saved metrics sync (update-in-place) -----------

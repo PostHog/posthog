@@ -139,6 +139,7 @@ import {
     getExperimentVariants,
     getOrderedMetricsWithResults,
     initializeMetricOrdering,
+    conflictPreservedFields,
     isExperimentConflictError,
     isLegacyExperiment,
     toConcurrencyPayload,
@@ -3515,8 +3516,20 @@ export const experimentLogic = kea<experimentLogicType>([
                                 error.data?.detail ||
                                     'This experiment was changed while you were editing it. Review the latest changes and try again.'
                             )
-                            // Reload so the next save carries the current version and base state
-                            actions.loadExperiment()
+                            // Reload so the next save carries the current version and base state,
+                            // but keep this update's rejected scalar fields in local state so the
+                            // user's edit isn't lost — they can review the fresh state and save again.
+                            const preserved = conflictPreservedFields(update)
+                            try {
+                                const fresh: Experiment = await api.get(
+                                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`
+                                )
+                                const freshWithOrdering = initializeMetricOrdering(fresh)
+                                actions.setUnmodifiedExperiment(structuredClone(freshWithOrdering))
+                                actions.setExperiment({ ...freshWithOrdering, ...preserved })
+                            } catch {
+                                actions.loadExperiment()
+                            }
                         }
                         throw error
                     }

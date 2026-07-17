@@ -1112,9 +1112,9 @@ export type ExperimentUpdatePayload = Omit<Partial<Experiment>, 'feature_flag'> 
     original_experiment?: Record<string, any>
 }
 
-/** Concurrency context for experiment PATCHes: the version last read plus the state that version
- * belongs to, so the server can merge concurrent metric edits safely and reject everything else
- * with a 409 instead of letting a stale write clobber it. */
+/** Concurrency context for experiment PATCHes: the version last read plus the metric collections
+ * that version belongs to, so the server can merge concurrent metric edits safely and reject
+ * everything else with a 409 instead of letting a stale write clobber it. */
 export function toConcurrencyPayload(
     unmodified: Experiment | null
 ): Pick<ExperimentUpdatePayload, 'version' | 'original_experiment'> {
@@ -1124,20 +1124,6 @@ export function toConcurrencyPayload(
     return {
         version: unmodified.version ?? 0,
         original_experiment: {
-            name: unmodified.name,
-            description: unmodified.description,
-            type: unmodified.type,
-            start_date: unmodified.start_date,
-            end_date: unmodified.end_date,
-            archived: unmodified.archived,
-            conclusion: unmodified.conclusion,
-            conclusion_comment: unmodified.conclusion_comment,
-            holdout_id: unmodified.holdout_id,
-            exposure_criteria: unmodified.exposure_criteria,
-            stats_config: unmodified.stats_config,
-            running_time_calculation: unmodified.running_time_calculation,
-            excluded_variants: unmodified.excluded_variants,
-            only_count_matured_users: unmodified.only_count_matured_users,
             metrics: unmodified.metrics,
             metrics_secondary: unmodified.metrics_secondary,
             saved_metrics_ids: (unmodified.saved_metrics || []).map((sharedMetric) => ({
@@ -1152,6 +1138,25 @@ export function toConcurrencyPayload(
  * e.g. an approval-required response, which carries no `current_version`). */
 export function isExperimentConflictError(error: any): boolean {
     return error?.status === 409 && error?.data?.current_version !== undefined
+}
+
+const CONFLICT_UNPRESERVABLE_KEYS = new Set([
+    'metrics',
+    'metrics_secondary',
+    'saved_metrics_ids',
+    'primary_metrics_ordered_uuids',
+    'secondary_metrics_ordered_uuids',
+    'version',
+    'original_experiment',
+    'update_feature_flag_params',
+    'feature_flag',
+])
+
+/** The fields of a 409-rejected update worth keeping in local state: the user's scalar edits.
+ * Collection and bookkeeping fields are dropped — re-applying a stale metric array over the
+ * fresh state would reintroduce exactly the clobbering the conflict prevented. */
+export function conflictPreservedFields(payload: ExperimentUpdatePayload): Partial<Experiment> {
+    return Object.fromEntries(Object.entries(payload).filter(([key]) => !CONFLICT_UNPRESERVABLE_KEYS.has(key)))
 }
 
 /** Maps UI variants to the flag's write shape, dropping null names the generated type disallows. */

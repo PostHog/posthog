@@ -455,8 +455,8 @@ describe('experimentLogic', () => {
                     description: 'updated',
                     version: 3,
                     original_experiment: expect.objectContaining({
-                        name: snapshot.name,
                         metrics: snapshot.metrics,
+                        metrics_secondary: snapshot.metrics_secondary,
                     }),
                 })
             )
@@ -476,12 +476,12 @@ describe('experimentLogic', () => {
                 expect.stringContaining('/experiments/'),
                 expect.objectContaining({
                     version: 2,
-                    original_experiment: expect.objectContaining({ name: snapshot.name }),
+                    original_experiment: expect.objectContaining({ metrics: snapshot.metrics }),
                 })
             )
         })
 
-        it('reloads the experiment and shows an error toast on a version conflict', async () => {
+        it('reloads fresh state but keeps the rejected scalar edit on a version conflict', async () => {
             const snapshot = { ...experiment, version: 1 } as Experiment
             logic.actions.setUnmodifiedExperiment(snapshot)
             logic.actions.setExperiment(snapshot)
@@ -489,12 +489,19 @@ describe('experimentLogic', () => {
                 status: 409,
                 data: { detail: 'The experiment was changed since you loaded it.', current_version: 5 },
             })
+            const fresh = { ...experiment, version: 5, name: 'renamed by someone else' } as Experiment
+            jest.spyOn(api, 'get').mockResolvedValue(fresh)
 
             await expectLogic(logic, () => {
                 logic.actions.updateExperiment({ description: 'stale write' })
-            }).toDispatchActions(['loadExperiment'])
+            }).toFinishAllListeners()
 
             expect(lemonToast.error).toHaveBeenCalledWith('The experiment was changed since you loaded it.')
+            // Fresh server state is loaded so the next save carries the current version...
+            expect(logic.values.unmodifiedExperiment?.version).toEqual(5)
+            expect(logic.values.experiment.name).toEqual('renamed by someone else')
+            // ...but the user's rejected edit stays visible for review and retry.
+            expect(logic.values.experiment.description).toEqual('stale write')
         })
     })
     describe('saveMetricsReorder', () => {
