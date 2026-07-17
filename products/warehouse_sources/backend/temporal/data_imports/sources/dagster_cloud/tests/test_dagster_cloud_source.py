@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.dagster_cloud import (
     DagsterCloudResumeConfig,
@@ -24,7 +24,10 @@ class TestDagsterCloudSourceConfig:
         assert config.unreleasedSource is None
 
     def test_config_fields(self) -> None:
-        fields = {f.name: f for f in DagsterCloudSource().get_source_config.fields}
+        fields: dict[str, SourceFieldInputConfig] = {}
+        for field in DagsterCloudSource().get_source_config.fields:
+            assert isinstance(field, SourceFieldInputConfig)
+            fields[field.name] = field
         assert set(fields) == {"organization", "deployment", "api_token"}
         assert all(f.required for f in fields.values())
         # The token is the only secret; it must be a password input so it's stored encrypted.
