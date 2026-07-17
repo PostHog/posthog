@@ -122,13 +122,23 @@ def _request(
     logger: FilteringBoundLogger,
     json_body: dict[str, Any] | None = None,
 ) -> requests.Response:
-    response = session.request(method, url, json=json_body, timeout=REQUEST_TIMEOUT_SECONDS)
+    # Don't follow redirects: the session carries the API key in the x-api-key header, which
+    # requests would replay to a cross-origin redirect target (only the standard Authorization
+    # header is stripped), leaking the credential.
+    response = session.request(method, url, json=json_body, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False)
 
     if response.status_code == 429 or response.status_code >= 500:
         retry_after = _parse_retry_after(response) if response.status_code == 429 else None
         raise JumpcloudRetryableError(
             f"JumpCloud API error (retryable): status={response.status_code}, url={url}",
             retry_after=retry_after,
+        )
+
+    # A 3xx isn't an error status (`response.ok` is True), so reject it explicitly rather than
+    # silently parsing the redirect body as data.
+    if response.is_redirect or response.is_permanent_redirect:
+        raise ValueError(
+            f"JumpCloud API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
         )
 
     if not response.ok:
@@ -295,12 +305,17 @@ def validate_credentials(
                     "limit": 1,
                 },
                 timeout=10,
+                allow_redirects=False,
             )
         else:
             path = endpoint.path if endpoint is not None else "/api/systemusers"
-            response = session.get(f"{_console_base_url(region)}{path}?limit=1", timeout=10)
+            response = session.get(f"{_console_base_url(region)}{path}?limit=1", timeout=10, allow_redirects=False)
     except requests.exceptions.RequestException as e:
         return False, str(e)
+
+    # Never follow a redirect with the credentialed session (see _request).
+    if response.is_redirect or response.is_permanent_redirect:
+        return False, "JumpCloud API returned an unexpected redirect"
 
     if response.status_code == 200:
         return True, None

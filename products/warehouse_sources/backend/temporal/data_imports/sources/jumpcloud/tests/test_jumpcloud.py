@@ -75,6 +75,16 @@ class TestRequest:
                 jumpcloud._request(session, "GET", "https://console.jumpcloud.com/api/systemusers", MagicMock())
         assert exc_info.value.retry_after == 7.0
 
+    @parameterized.expand([("moved_permanently", 301), ("temporary_redirect", 307)])
+    def test_redirects_are_rejected_not_followed(self, _name: str, status: int) -> None:
+        # The session carries the API key in x-api-key; following a redirect would replay it
+        # to the redirect target, so the request must refuse redirects entirely.
+        session = MagicMock()
+        session.request.return_value = _response_with_status(status, headers={"Location": "https://evil.example"})
+        with pytest.raises(ValueError):
+            jumpcloud._request(session, "GET", "https://console.jumpcloud.com/api/systemusers", MagicMock())
+        assert session.request.call_args.kwargs["allow_redirects"] is False
+
 
 class TestParseSearchAfter:
     @parameterized.expand(
