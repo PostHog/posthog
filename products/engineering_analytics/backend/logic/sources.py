@@ -21,9 +21,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from posthog.models.team import Team
+from posthog.rbac.user_access_control import NO_ACCESS_LEVEL
 
 from products.engineering_analytics.backend.facade.contracts import GitHubSource, GitHubSourceNotConnectedError
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
@@ -40,6 +41,10 @@ WORKFLOW_RUNS_SCHEMA = "workflow_runs"
 # Job-level CI (queue time, per-job duration, runner tier). Optional — the source/sync lands
 # separately, so reads must degrade gracefully (no jobs) rather than require it like the pair above.
 WORKFLOW_JOBS_SCHEMA = "workflow_jobs"
+# GitHub org team membership (login → team slug), the author→team key behind team-level merge
+# timing. Optional and off by default at the source (needs the org Members:Read grant), so reads
+# must degrade gracefully (no membership data) exactly like workflow_jobs.
+TEAM_MEMBERS_SCHEMA = "team_members"
 
 # Resolved names are interpolated into HogQL ``FROM`` clauses. Warehouse table names are
 # always plain identifiers (the prefix is validated to ``[A-Za-z0-9_]`` at connect time and
@@ -56,6 +61,8 @@ class GitHubTables:
     workflow_runs: str
     # Optional: present only once the job-level source is synced; None means "no jobs data".
     workflow_jobs: str | None = None
+    # Optional: present only once org team membership is synced; None means "no membership data".
+    team_members: str | None = None
     # Used to scope cross-store reads such as CI traces to the selected source's repository.
     repository: str = ""
 
@@ -104,11 +111,13 @@ def resolve_github_tables(
         # backfilling) instead of degrading to PRs-without-CI. Relaxing this to a graceful
         # PR-only mode (null CI columns) is a deliberate future change, not handled here.
         if pull_requests and workflow_runs:
-            # workflow_jobs is optional — included when synced, None otherwise (jobs degrade to empty).
+            # workflow_jobs / team_members are optional: included when synced, None otherwise
+            # (jobs degrade to empty, membership-keyed reads degrade to "no membership data").
             return GitHubTables(
                 pull_requests=pull_requests,
                 workflow_runs=workflow_runs,
                 workflow_jobs=tables.get(WORKFLOW_JOBS_SCHEMA),
+                team_members=tables.get(TEAM_MEMBERS_SCHEMA),
                 repository=_source_repository(source),
             )
     if source_id is not None:
@@ -187,6 +196,16 @@ def _github_sources(team: Team, user_access_control: "UserAccessControl | None" 
     )
     if user_access_control is not None:
         sources = user_access_control.filter_queryset_by_access_level(sources)
+        if not user_access_control.has_resource_access("external_data_source"):
+            # "none" resource-level access: the platform filter drops nothing when the user holds no
+            # object grants, so fail closed here to self-created or explicitly granted sources.
+            granted_ids = [
+                source.id
+                for source in sources
+                if (level := user_access_control.access_level_for_object(source, explicit=True))
+                and level != NO_ACCESS_LEVEL
+            ]
+            sources = sources.filter(Q(created_by=user_access_control.user) | Q(id__in=granted_ids))
     return sources
 
 
@@ -222,7 +241,7 @@ def _synced_table_names(*, team: Team, source: ExternalDataSource) -> dict[str, 
             team_id=team.pk,
             source_id=source.id,
             should_sync=True,
-            name__in=(PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA, WORKFLOW_JOBS_SCHEMA),
+            name__in=(PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA, WORKFLOW_JOBS_SCHEMA, TEAM_MEMBERS_SCHEMA),
         )
         .exclude(deleted=True)
         .select_related("table")

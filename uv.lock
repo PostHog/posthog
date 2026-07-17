@@ -27,6 +27,7 @@ modal = false
 members = [
     "hogli",
     "posthog",
+    "posthog-owners",
 ]
 
 [[package]]
@@ -5743,6 +5744,7 @@ dev = [
     { name = "orjson" },
     { name = "packaging" },
     { name = "parameterized" },
+    { name = "posthog-owners" },
     { name = "prance" },
     { name = "protoletariat" },
     { name = "pyarrow" },
@@ -6018,6 +6020,7 @@ dev = [
     { name = "orjson", specifier = "==3.11.9" },
     { name = "packaging", specifier = "==24.1" },
     { name = "parameterized", specifier = "==0.9.0" },
+    { name = "posthog-owners", editable = "tools/owners" },
     { name = "prance", specifier = "==23.6.21.0" },
     { name = "protoletariat", specifier = "~=3.3.10" },
     { name = "pyarrow", specifier = "==23.0.1" },
@@ -6066,6 +6069,28 @@ sentiment = [
     { name = "optimum", extras = ["onnxruntime"], specifier = "~=1.25.0" },
     { name = "torch", specifier = "~=2.8.0" },
 ]
+
+[[package]]
+name = "posthog-owners"
+version = "0.1.0"
+source = { editable = "tools/owners" }
+dependencies = [
+    { name = "click" },
+    { name = "pyyaml" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "posthoganalytics"

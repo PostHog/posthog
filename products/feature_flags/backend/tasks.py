@@ -15,6 +15,7 @@ from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
 from products.feature_flags.backend.canary import run_local_eval_canary
+from products.feature_flags.backend.cross_region_flag_sync import sync_cross_region_dogfood_flags
 from products.feature_flags.backend.flags_cache import (
     cleanup_stale_expiry_tracking,
     clear_flags_cache,
@@ -62,6 +63,17 @@ def drain_flag_definitions_rebuild_requests() -> None:
     """Drain the flag-definitions self-heal queue, rebuilding caches the Rust
     /flags/definitions endpoint reported missing. Scheduled every minute."""
     drain_rebuild_requests()
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
+def sync_cross_region_dogfood_flags_task() -> None:
+    """Celery entrypoint for sync_cross_region_dogfood_flags.
+
+    On its own queue (not CeleryQueue.FEATURE_FLAGS) because it makes a blocking
+    cross-region HTTP call: a stalled upstream shouldn't be able to delay the
+    fast, sub-second signal-driven cache rebuilds sharing that queue.
+    """
+    sync_cross_region_dogfood_flags()
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
