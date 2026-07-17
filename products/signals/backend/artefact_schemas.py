@@ -362,6 +362,9 @@ TASK_RUN_TYPE_RESEARCH = "research"
 TASK_RUN_TYPE_IMPLEMENTATION = "implementation"
 # A discuss-the-report task started by a user from the Inbox (not the automated research run).
 TASK_RUN_TYPE_DISCUSSION = "discussion"
+# The scout run that authored the report via `emit_report` (or first touched it via `edit_report`) —
+# links the report back to the scout's own run so its transcript is reachable from the work log.
+TASK_RUN_TYPE_SCOUT = "scout"
 
 # Generic identifiers for a legacy `SignalReportTask` row with no `(product, type)` label — an
 # unlabelled link from the brief link-only window before associations carried identifiers.
