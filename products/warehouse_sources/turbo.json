@@ -13,7 +13,18 @@
                 "backend/temporal/data_imports/sources/redshift/**",
                 "backend/temporal/data_imports/sources/salesforce/**",
                 "backend/temporal/data_imports/sources/snowflake/**",
-                "backend/temporal/data_imports/sources/stripe/**"
+                "backend/temporal/data_imports/sources/stripe/**",
+                "!backend/temporal/data_imports/sources/common/rest_source/**",
+                "!backend/temporal/data_imports/sources/common/test/**",
+                "!backend/temporal/data_imports/sources/common/sql/tests/**",
+                "!backend/temporal/data_imports/sources/google_search_console/tests/**",
+                "!backend/temporal/data_imports/sources/mysql/tests/**",
+                "!backend/temporal/data_imports/sources/postgres/cdc/tests/**",
+                "!backend/temporal/data_imports/sources/postgres/test_postgres.py",
+                "!backend/temporal/data_imports/sources/redshift/tests/**",
+                "!backend/temporal/data_imports/sources/salesforce/test/**",
+                "!backend/temporal/data_imports/sources/snowflake/tests/**",
+                "!backend/temporal/data_imports/sources/stripe/tests/**"
             ],
             "outputs": [],
             "cache": true
