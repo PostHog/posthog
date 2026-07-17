@@ -250,13 +250,15 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         return global_event_filters
 
     def arm_event_filters(self, entity: RetentionEntity, query_kind: Literal["start", "return"]) -> list[ast.Expr]:
-        """Filters for one arm of a two-scan retention query, scoped to that arm's entity only."""
+        """Filters for one events-table arm of a two-scan retention query, scoped to that arm's entity only."""
         filters = self.events_where_clause(
             self.is_first_occurrence_matching_filters, self.is_first_ever_occurrence, entities=[entity]
         )
         if query_kind == "return" and (self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence):
-            # First-time modes need the start arm unbounded to find the first-ever start event,
-            # but return events outside the window never enter any aggregate.
+            # First-time modes need the start arm unbounded to find the first-ever start event.
+            # The return arm's timestamp aggregates are all window-conditioned, and its
+            # first-ever breakdown value is degraded to '', so bounding it drops no rows any
+            # aggregate depends on.
             filters.append(self.events_timestamp_filter())
         if self.group_type_index is not None:
             filters.append(self._group_actor_filter())
@@ -402,8 +404,8 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             entities = [self.start_event, self.return_event]
         events = [event for entity in entities for event in self.get_events_for_entity(entity)]
         unique_events = set(events)
-        # Don't pre-filter if any of them is "All events"
-        if None not in unique_events:
+        # Don't pre-filter if any of them is "All events" or the entity has no events at all
+        if unique_events and None not in unique_events:
             events_where.append(
                 ast.CompareOperation(
                     left=ast.Field(chain=["event"]),
