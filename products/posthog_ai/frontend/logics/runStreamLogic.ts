@@ -129,7 +129,7 @@ export const MAX_STREAM_TOKEN_REMINTS = 5
 export const MAX_CUMULATIVE_RECONNECT_ATTEMPTS = 30
 /** A connection open at least this long before dropping is healthy — its drop is forgiven. */
 export const SSE_HEALTHY_CONNECTION_MS = 60_000
-export const INITIAL_PERMISSION_MODE: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi = 'auto'
+export const INITIAL_PERMISSION_MODE: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi = 'bypassPermissions'
 
 /** The crash-error string the in-sandbox agent server writes on a fatal exception. */
 const AGENT_CRASH_PREFIX = 'Agent server crashed'

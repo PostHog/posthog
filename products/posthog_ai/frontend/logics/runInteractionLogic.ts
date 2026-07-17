@@ -73,6 +73,7 @@ export interface runInteractionLogicValues {
     contextItems: AttachedContextItem[] // attachedContextLogic
     sentContextKeysByTask: Record<string, string[]> // attachedContextLogic
     currentProjectId: number | null // projectLogic
+    currentMode: string | null // runStreamLogic
     currentRunStatus: RunStatus | null // runStreamLogic
     isThinking: boolean // runStreamLogic
     pendingPermissionRequest: PermissionRequestRecord | null // runStreamLogic
@@ -106,13 +107,16 @@ export interface runInteractionLogicValues {
     isComposerFormValid: boolean
     isSubmitting: boolean
     isTerminal: boolean
+    modeOverride: PermissionMode | null
     modelOverride: string | null
     pendingContextItems: AttachedContextItem[]
     queuedMessages: QueuedMessage[]
     selectedEffort: ReasoningEffortEnumApi
+    selectedMode: PermissionMode
     selectedModel: string
     sending: boolean
     sentEffort: string | null
+    sentMode: PermissionMode | null
     sentModel: string | null
     showComposerFormErrors: boolean
     startingRun: boolean
@@ -158,6 +162,9 @@ export interface runInteractionLogicActions {
         customInput?: string | undefined
         optionId: string
         requestId: string
+    } // runStreamLogic
+    setCurrentMode: (mode: string) => {
+        mode: string
     } // runStreamLogic
     blockOnConsent: () => {
         value: true
@@ -214,6 +221,9 @@ export interface runInteractionLogicActions {
     setEffort: (effort: string) => {
         effort: string
     }
+    setMode: (mode: PermissionMode) => {
+        mode: PermissionMode
+    }
     setModel: (model: string) => {
         model: string
     }
@@ -222,6 +232,9 @@ export interface runInteractionLogicActions {
     }
     setSentEffort: (effort: string) => {
         effort: string
+    }
+    setSentMode: (mode: PermissionMode) => {
+        mode: PermissionMode
     }
     setSentModel: (model: string) => {
         model: string
@@ -271,6 +284,7 @@ export interface runInteractionLogicMeta {
         isTerminal: (currentRunStatus: RunStatus | null) => boolean
         selectedModel: (modelOverride: string | null, arg: any) => string
         selectedEffort: (effortOverride: string | null, arg: any, selectedModel: string) => ReasoningEffortEnumApi
+        selectedMode: (modeOverride: any, currentMode: any, arg: any) => PermissionMode
         isBusy: (isThinking: boolean) => boolean
         canSend: (sending: boolean, isTerminal: boolean, currentProjectId: number | null) => boolean
         isSubmitting: (sending: boolean, startingRun: boolean) => boolean

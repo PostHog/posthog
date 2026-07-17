@@ -169,11 +169,12 @@ describe('Sandbox approval input area', () => {
             })
         })
 
-        // The real wire options for a plan approval — the accept-with-mode choices arrive as
-        // `allow_always`, which the generic card would hide as "remembered" options.
+        // Plan approval keeps only the product's Auto and Accept edits continuation modes. Plan and the
+        // agent server's raw default mode are deliberately ignored even if the wire offers them.
         const planWireOptions = [
-            { optionId: 'auto', name: 'Yes, and use "auto" mode', kind: 'allow_always' },
+            { optionId: 'bypassPermissions', name: 'Yes, and bypass permissions', kind: 'allow_always' },
             { optionId: 'acceptEdits', name: 'Yes, and auto-accept edits', kind: 'allow_always' },
+            { optionId: 'plan', name: 'Stay in plan mode', kind: 'allow_always' },
             { optionId: 'default', name: 'Yes, and manually approve edits', kind: 'allow_once' },
             {
                 optionId: 'reject_with_feedback',
@@ -212,17 +213,20 @@ describe('Sandbox approval input area', () => {
             expect(screen.getByText('Approve this plan to proceed?')).toBeInTheDocument()
         })
 
-        it('keeps the allow_always plan modes and approves with the pre-selected auto mode', () => {
+        it('keeps the supported plan modes and approves with Auto as bypassPermissions', () => {
             render(<PermissionInput streamKey="conv-1" request={makePlanRequest()} />)
 
-            // The mode dropdown pre-selects "auto"; approving posts that mode's wire optionId.
+            // Auto is the user-facing label for the bypassPermissions wire option.
             expect(screen.getByText('Auto')).toBeInTheDocument()
             fireEvent.click(screen.getByText('Approve and proceed'))
 
-            expect(respondToPermission).toHaveBeenCalledWith({ requestId: 'req-1', optionId: 'auto' })
+            expect(respondToPermission).toHaveBeenCalledWith({
+                requestId: 'req-1',
+                optionId: 'bypassPermissions',
+            })
         })
 
-        it('pre-selects the remembered last-approved mode over auto', () => {
+        it('pre-selects the remembered last-approved mode over Auto', () => {
             window.localStorage.setItem('posthog-ai.lastPlanApprovalMode', 'acceptEdits')
             render(<PermissionInput streamKey="conv-1" request={makePlanRequest()} />)
 
@@ -231,14 +235,13 @@ describe('Sandbox approval input area', () => {
             expect(respondToPermission).toHaveBeenCalledWith({ requestId: 'req-1', optionId: 'acceptEdits' })
         })
 
-        it('opens the mode dropdown with the wire-offered modes', () => {
+        it('opens the mode picker with only Auto and Accept edits', () => {
             render(<PermissionInput streamKey="conv-1" request={makePlanRequest()} />)
 
             fireEvent.click(screen.getByLabelText('Mode'))
 
             expect(screen.getByText('Accept edits')).toBeInTheDocument()
-            expect(screen.getByText('Default')).toBeInTheDocument()
-            // The wire offered no plan/bypass options, so the menu must not list them.
+            expect(screen.queryByText('Default')).not.toBeInTheDocument()
             expect(screen.queryByText('Plan')).not.toBeInTheDocument()
             expect(screen.queryByText('Bypass permissions')).not.toBeInTheDocument()
         })
@@ -271,7 +274,10 @@ describe('Sandbox approval input area', () => {
             expect(respondToPermission).not.toHaveBeenCalled()
 
             fireEvent.keyDown(document.body, { key: '1' })
-            expect(respondToPermission).toHaveBeenCalledWith({ requestId: 'req-1', optionId: 'auto' })
+            expect(respondToPermission).toHaveBeenCalledWith({
+                requestId: 'req-1',
+                optionId: 'bypassPermissions',
+            })
         })
 
         it('leaves keys alone when focus sits on an element outside the card', () => {

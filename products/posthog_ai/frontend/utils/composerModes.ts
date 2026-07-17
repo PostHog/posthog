@@ -1,7 +1,10 @@
 import { InitialPermissionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-/** The agent-server permission mode — mirrors `/code`'s execution modes one-to-one. */
-export type PermissionMode = InitialPermissionModeEnumApi
+/** The permission modes exposed by the PostHog AI composer. */
+export type PermissionMode =
+    | typeof InitialPermissionModeEnumApi.BypassPermissions
+    | typeof InitialPermissionModeEnumApi.AcceptEdits
+    | typeof InitialPermissionModeEnumApi.Plan
 
 export interface ComposerModeOption {
     value: PermissionMode
@@ -9,30 +12,27 @@ export interface ComposerModeOption {
     description: string
 }
 
-export const DEFAULT_COMPOSER_MODE: PermissionMode = InitialPermissionModeEnumApi.Auto
+export const DEFAULT_COMPOSER_MODE: PermissionMode = InitialPermissionModeEnumApi.BypassPermissions
 
-// Ordered for the `shift+tab` cycle and the dropdown; mirrors `/code`'s `availableModes`.
+// Ordered for the Shift+Tab cycle and the picker.
 export const MODE_OPTIONS: ComposerModeOption[] = [
     {
-        value: InitialPermissionModeEnumApi.Auto,
+        value: InitialPermissionModeEnumApi.BypassPermissions,
         label: 'Auto',
-        description: 'Approve or deny permission prompts automatically',
+        description:
+            'Bypasses all permissions. Safe in the sandbox, but the agent can modify or delete data without asking.',
     },
-    { value: InitialPermissionModeEnumApi.Default, label: 'Default', description: 'Prompt before edits and commands' },
     {
         value: InitialPermissionModeEnumApi.AcceptEdits,
         label: 'Accept edits',
-        description: 'Auto-accept file edits; still prompt for commands',
+        description:
+            'Accepts file edits automatically. Bash commands and PostHog MCP tools that update or delete data still require approval.',
     },
     {
         value: InitialPermissionModeEnumApi.Plan,
         label: 'Plan',
-        description: 'Read-only planning — the agent proposes a plan before acting',
-    },
-    {
-        value: InitialPermissionModeEnumApi.BypassPermissions,
-        label: 'Bypass permissions',
-        description: 'Auto-accept everything — no prompts',
+        description:
+            'Recommended for complex work such as research or implementation. Create a plan now, then execute it later.',
     },
 ]
 

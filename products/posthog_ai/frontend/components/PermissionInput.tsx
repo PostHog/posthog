@@ -12,7 +12,7 @@ import { MarkdownMessage } from '../messages/MarkdownMessage'
 import { getPermissionDisplay } from '../policy/permissionDisplayUtils'
 import { isPlanPermissionRequest, mapPermissionOptions, type ApprovalCardOption } from '../policy/permissionUtils'
 import type { PermissionRequestRecord } from '../types/streamTypes'
-import { isPermissionModeOptionId, PlanApprovalSelector } from './PlanApprovalActions'
+import { isPlanApprovalModeOptionId, PlanApprovalSelector } from './PlanApprovalActions'
 import { QuestionField } from './QuestionField'
 
 interface PermissionInputProps {
@@ -54,12 +54,11 @@ export function PermissionInput({ streamKey, request }: PermissionInputProps): J
     const { respondToPermission, cancelRun } = useActions(boundLogic)
     const { respondingToPermission } = useValues(boundLogic)
 
-    // A plan approval keeps every wire option: the accept-with-mode choices arrive as `allow_always`
-    // (which the generic card hides as "remembered") and must all stay offered. If the wire offers no
-    // recognizable mode ids, fall through to the generic card so the request stays actionable.
+    // A plan approval keeps the product's Auto and Accept edits wire options. If neither is offered,
+    // fall through to the generic card so the request stays actionable.
     const planOptions = isPlanPermissionRequest(request) ? mapPermissionOptions(request.options, true) : []
     const planApproveOptions = planOptions.filter(
-        (option) => option.decision === 'approved' && isPermissionModeOptionId(option.optionId)
+        (option) => option.decision === 'approved' && isPlanApprovalModeOptionId(option.optionId)
     )
     if (planApproveOptions.length > 0) {
         return (

@@ -336,7 +336,7 @@ describe('runInteractionLogic', () => {
             runtime_adapter: 'claude',
             model: 'claude-sonnet-5',
             reasoning_effort: 'high',
-            initial_permission_mode: 'auto',
+            initial_permission_mode: 'bypassPermissions',
             resume_from_run_id: RUN_ID,
             pending_user_message: 'continue from here',
         })

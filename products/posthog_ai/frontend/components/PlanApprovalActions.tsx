@@ -10,10 +10,13 @@ import type { ApprovalCardOption } from '../policy/permissionUtils'
 import type { PermissionMode } from '../utils/composerModes'
 import { ComposerModePicker } from './composer/ComposerModePicker'
 
-const MODE_IDS: string[] = Object.values(InitialPermissionModeEnumApi)
+const PLAN_APPROVAL_MODES: PermissionMode[] = [
+    InitialPermissionModeEnumApi.BypassPermissions,
+    InitialPermissionModeEnumApi.AcceptEdits,
+]
 
-export function isPermissionModeOptionId(optionId: string): optionId is PermissionMode {
-    return MODE_IDS.includes(optionId)
+export function isPlanApprovalModeOptionId(optionId: string): optionId is PermissionMode {
+    return PLAN_APPROVAL_MODES.includes(optionId as PermissionMode)
 }
 
 // The mode last used to approve a plan, remembered across runs — `/code`'s `lastPlanApprovalMode` setting.
@@ -145,7 +148,7 @@ function InlineEditableText({
 }
 
 export interface PlanApprovalSelectorProps {
-    /** The wire's approve options, unfiltered and in wire order — their optionIds are the permission modes. */
+    /** Supported wire approve options whose optionIds are permission modes. */
     approveOptions: ApprovalCardOption[]
     /** The wire's reject option (reject-with-feedback), driving the inline feedback row. */
     rejectOption?: ApprovalCardOption
@@ -176,24 +179,23 @@ export function PlanApprovalSelector({
     onReject,
     onCancel,
 }: PlanApprovalSelectorProps): JSX.Element {
-    const modes = useMemo(
-        () => approveOptions.map((option) => option.optionId).filter(isPermissionModeOptionId),
-        [approveOptions]
-    )
+    const modes = useMemo(() => {
+        const offeredModeIds = new Set(approveOptions.map((option) => option.optionId))
+        return PLAN_APPROVAL_MODES.filter((mode) => offeredModeIds.has(mode))
+    }, [approveOptions])
 
-    // Resolution order mirrors `/code`: the remembered last-approved mode, then "auto", then manual
-    // approval, then any single-use (`allow_once` → primary) option, then the first offered.
+    // Prefer the remembered offered mode, then Auto, then Accept edits.
     const initialMode = useMemo(() => {
         const has = (id: string): boolean => modes.includes(id as PermissionMode)
         const remembered = readLastApprovalMode()
         return (
             (remembered && has(remembered) ? (remembered as PermissionMode) : undefined) ??
-            (has(InitialPermissionModeEnumApi.Auto) ? InitialPermissionModeEnumApi.Auto : undefined) ??
-            (has(InitialPermissionModeEnumApi.Default) ? InitialPermissionModeEnumApi.Default : undefined) ??
-            modes.find((mode) => approveOptions.find((o) => o.optionId === mode)?.primary) ??
+            (has(InitialPermissionModeEnumApi.BypassPermissions)
+                ? InitialPermissionModeEnumApi.BypassPermissions
+                : undefined) ??
             modes[0]
         )
-    }, [modes, approveOptions])
+    }, [modes])
 
     const [selectedMode, setSelectedMode] = useState<PermissionMode | undefined>(initialMode)
     const [selectedIndex, setSelectedIndex] = useState(0)
