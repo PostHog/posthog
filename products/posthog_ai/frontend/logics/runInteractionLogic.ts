@@ -284,7 +284,7 @@ export interface runInteractionLogicMeta {
         isTerminal: (currentRunStatus: RunStatus | null) => boolean
         selectedModel: (modelOverride: string | null, arg: any) => string
         selectedEffort: (effortOverride: string | null, arg: any, selectedModel: string) => ReasoningEffortEnumApi
-        selectedMode: (modeOverride: any, currentMode: any, arg: any) => PermissionMode
+        selectedMode: (modeOverride: PermissionMode | null, currentMode: string | null, arg: any) => PermissionMode
         isBusy: (isThinking: boolean) => boolean
         canSend: (sending: boolean, isTerminal: boolean, currentProjectId: number | null) => boolean
         isSubmitting: (sending: boolean, startingRun: boolean) => boolean
@@ -528,7 +528,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         // fake `PermissionMode`.
         selectedMode: [
             (s) => [s.modeOverride, s.currentMode, (_, p) => p.currentMode],
-            (override, current, initial): PermissionMode =>
+            (override: PermissionMode | null, current: string | null, initial): PermissionMode =>
                 override ?? getModeOption(current)?.value ?? getModeOption(initial)?.value ?? DEFAULT_COMPOSER_MODE,
         ],
         // The agent is actively working a turn — a follow-up typed now should stage rather than send.
