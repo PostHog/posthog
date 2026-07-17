@@ -225,6 +225,20 @@ Helpers `_shields_badge` / `_finding_badge_line` + `_PRIORITY_BADGE` carry the l
 Color mechanism was a user decision (badge images, Greptile-style, accepting the external-image dependency) over the GitHub-native emoji/alert alternative.
 An earlier iteration also surfaced the problem/fix inline and un-collapsed two sections; that was reverted — the collapsed structure is intentional and stays.
 
+### ✅ BUILT 2026-07-17 — comment readability: bulleted validator verdicts, shown first in the comment
+
+Grilled with the user 2026-07-17 (vocabulary in `CONTEXT.md`). Problem: published findings are meaningful but read as prose blobs.
+Constraint: zero quality loss for the validator and for anything reading validator output downstream.
+Key facts driving the design: the finding body is dual-audience (rendered verbatim on GitHub AND consumed by the validator's `ISSUE` payload, dedup's fresh/prior payloads, and future turns' covered-findings block), while the validator's `argumentation` is presentation-only for _valid_ findings (its sole pipeline consumer is dedup's `prior_ruling`, dismissed findings only) — and no consumer ever sees the argumentation without the body beside it.
+So the risk is **compression** (dropping information), not **structure** (same facts as labeled bullets); restructuring the validator's output is safe without an e2e round.
+
+What shipped (all prompt/template-level, reversible — no ADR):
+
+- **Verify, don't restate — the validator's `argumentation` is now labeled bullets** (Checked / Found / Impact / Priority): the verification delta only, never a restatement of the body's claim — restatement is where most of the bloat lived (real comments restated nearly every fact). Changed together: the field description (`models/issue_validation.py`), `prompts/issue_validation/prompt.jinja`, and the checked-in `schema.json` (hand-synced; `generate_all_schemas()` re-emits it at run start anyway). Not yet observed live — check the argumentation shape on the next dogfood run.
+- **Validation-first comment layout.** The argumentation is human-facing, so its `<details>` block moved to FIRST under the title + badge line — reading order: claim (title) → why it's real (validation bullets) → description / suggested fix / AI-fix prompt for whoever wants more. Applied in both renderers: `_format_issue_comment` (`publish_review.py`) and the body's off-diff section (`prepare_validation_markdown.py`). Everything stays collapsed (user choice — compact scan on multi-finding reviews).
+- **Reviewer finding body stays prose — deliberately not restructured.** It feeds three LLM stages (validator, dedup, covered-findings), so a shape change there would need e2e parity verification; the user dropped that thread (and the staged/eval-plan drafted earlier the same day) as not worth the runs right now. If ever revisited: 4-arm matrix (control / reviewer-only / validator-only / both) on the frozen-PR protocol.
+- Rejected alternatives: additive TL;DR field (blob remains when expanded — the actual pain), render-time compression pass (lossy rewriting on the published text humans act on, plus an extra LLM call per finding).
+
 ### ✅ BUILT 2026-07-15 — reviewing-stage progress copy: "Reviewing chunks" → "Running review passes"
 
 Live misread on [posthog#71025](https://github.com/PostHog/posthog/pull/71025) (63 additions): the
