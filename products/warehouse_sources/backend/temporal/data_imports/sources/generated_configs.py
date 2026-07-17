@@ -191,7 +191,7 @@ class AirOpsSourceConfig(config.Config):
 
 @config.config
 class AirbrakeSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -382,7 +382,8 @@ class AshbySourceConfig(config.Config):
 
 @config.config
 class AsknicelySourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -763,7 +764,9 @@ class ChatwootSourceConfig(config.Config):
 
 @config.config
 class CheckmarxSourceConfig(config.Config):
-    pass
+    tenant_name: str
+    api_key: str
+    region: Literal["us", "us2", "eu", "eu2", "deu", "anz", "ind", "sng", "mea"] = config.value(default="us")
 
 
 @config.config
@@ -1641,7 +1644,9 @@ class GainsightPxSourceConfig(config.Config):
 
 @config.config
 class GerritSourceConfig(config.Config):
-    pass
+    host: str
+    username: str | None = None
+    http_password: str | None = None
 
 
 @config.config
@@ -2086,7 +2091,8 @@ class InstagramSourceConfig(config.Config):
 
 @config.config
 class InstanaSourceConfig(config.Config):
-    pass
+    base_url: str
+    api_token: str
 
 
 @config.config
@@ -3024,7 +3030,8 @@ class OveitSourceConfig(config.Config):
 
 @config.config
 class PabblySubscriptionsBillingSourceConfig(config.Config):
-    pass
+    api_key: str
+    secret_key: str
 
 
 @config.config
