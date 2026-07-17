@@ -138,7 +138,15 @@ jobs:
                         - 'products/cohorts/backend/**/*.py'
                         - 'products/data_modeling/backend/**/*.py'
                         - 'products/data_warehouse/backend/**/*.py'
-                        - 'products/warehouse_sources/backend/**/*.py'
+                        # warehouse_sources is deliberately narrower than the other product
+                        # globs: DAGs import only backend.types and the facade, and the product
+                        # holds 850+ source connector dirs no DAG can reach — a whole-backend
+                        # glob would run this suite on every new-source PR. models/** is kept
+                        # because facade.models re-exports flow through it. Mirrors the
+                        # product's turbo.json backend:contract-check surface.
+                        - 'products/warehouse_sources/backend/types.py'
+                        - 'products/warehouse_sources/backend/facade/**'
+                        - 'products/warehouse_sources/backend/models/**'
                         - 'products/error_tracking/backend/**/*.py'
                         - 'products/event_definitions/backend/**/*.py'
                         - 'products/growth/backend/**/*.py'
