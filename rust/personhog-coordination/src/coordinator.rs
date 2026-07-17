@@ -42,9 +42,16 @@ impl Default for CoordinatorConfig {
     fn default() -> Self {
         Self {
             name: "coordinator-0".to_string(),
-            leader_lease_ttl: 15,
-            keepalive_interval: Duration::from_secs(5),
-            election_retry_interval: Duration::from_secs(5),
+            // A crashed leader blocks every handoff until its election
+            // lease expires and a survivor's next campaign fires, so the
+            // worst-case coordinator outage is ttl + retry. 5s + 1s keeps
+            // that near the pod-crash detection window, while the 1s
+            // keepalive gives the leader several attempts within the TTL
+            // before it abdicates. Graceful exits don't wait on any of
+            // this — the lease is revoked on the way out.
+            leader_lease_ttl: 5,
+            keepalive_interval: Duration::from_secs(1),
+            election_retry_interval: Duration::from_secs(1),
             rebalance_debounce_interval: Duration::from_secs(1),
             reconcile_interval: Duration::from_secs(5),
         }
@@ -78,60 +85,92 @@ impl Coordinator {
     /// or cancellation is requested.
     pub async fn run(&self, cancel: CancellationToken) -> Result<()> {
         loop {
+            if cancel.is_cancelled() {
+                return Ok(());
+            }
+            // Awaited to completion, never raced against cancellation:
+            // dropping try_lead mid-cleanup would strand the election
+            // lease until TTL expiry, stalling every handoff while the
+            // next coordinator's campaign waits it out. try_lead observes
+            // `cancel` internally and returns promptly on shutdown.
+            match self.try_lead(cancel.clone()).await {
+                Ok(true) => tracing::info!(name = %self.config.name, "leadership ended normally"),
+                Ok(false) => {}
+                Err(e) => {
+                    tracing::warn!(name = %self.config.name, error = %e, "leader loop ended with error")
+                }
+            }
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
-                result = self.try_lead(cancel.clone()) => {
-                    match result {
-                        Ok(()) => tracing::info!(name = %self.config.name, "leadership ended normally"),
-                        Err(e) => tracing::warn!(name = %self.config.name, error = %e, "leader loop ended with error"),
-                    }
-                    tokio::select! {
-                        _ = cancel.cancelled() => return Ok(()),
-                        _ = tokio::time::sleep(self.config.election_retry_interval) => {}
-                    }
-                }
+                _ = tokio::time::sleep(self.config.election_retry_interval) => {}
             }
         }
     }
 
-    async fn try_lead(&self, cancel: CancellationToken) -> Result<()> {
+    /// One leadership attempt; returns whether this candidate actually
+    /// led. Always runs its cleanup — keepalive shutdown and election
+    /// lease revoke — before returning, so a graceful exit frees the
+    /// election immediately instead of stranding it until TTL expiry.
+    /// `run` relies on that by awaiting this call to completion.
+    async fn try_lead(&self, cancel: CancellationToken) -> Result<bool> {
         let lease_id = self.store.grant_lease(self.config.leader_lease_ttl).await?;
 
-        let acquired = self
+        let acquired = match self
             .store
             .try_acquire_leadership(&self.config.name, lease_id)
-            .await?;
+            .await
+        {
+            Ok(acquired) => acquired,
+            Err(e) => {
+                drop(self.store.revoke_lease(lease_id).await);
+                return Err(e);
+            }
+        };
 
         if !acquired {
             tracing::debug!(name = %self.config.name, "another coordinator is leader, standing by");
-            return Ok(());
+            // Nothing hangs off the lease; revoke it rather than leaking
+            // one lease per election retry from every standby candidate.
+            drop(self.store.revoke_lease(lease_id).await);
+            return Ok(false);
         }
 
         tracing::info!(name = %self.config.name, "acquired leadership");
 
-        // Spawn lease keepalive
+        // A failed keepalive means the lease is gone (or about to be) and
+        // another candidate can win the election: abdicate rather than
+        // keep coordinating as a zombie alongside the successor. The
+        // successor's bootstrap reconciles in-flight state, and handoff
+        // transitions are CAS-guarded against exactly this overlap.
         let keepalive_cancel = cancel.child_token();
+        let lease_lost = CancellationToken::new();
         let keepalive_handle = {
             let store = Arc::clone(&self.store);
             let interval = self.config.keepalive_interval;
             let token = keepalive_cancel.clone();
+            let lease_lost = lease_lost.clone();
             tokio::spawn(async move {
                 if let Err(e) = util::run_lease_keepalive(store, lease_id, interval, token).await {
-                    tracing::error!(error = %e, "keepalive failed");
+                    tracing::error!(error = %e, "election lease keepalive failed");
+                    lease_lost.cancel();
                 }
             })
         };
 
-        let result = self.run_coordination_loop(cancel.clone()).await;
+        let result = tokio::select! {
+            _ = lease_lost.cancelled() => Err(Error::leadership_lost()),
+            result = self.run_coordination_loop(cancel.clone()) => result,
+        };
 
         // Clean up keepalive
         keepalive_cancel.cancel();
         drop(keepalive_handle.await);
 
-        // Best-effort revoke so next leader can take over quickly
+        // Revoke so the next candidate's campaign wins immediately instead
+        // of waiting out the lease TTL.
         drop(self.store.revoke_lease(lease_id).await);
 
-        result
+        result.map(|()| true)
     }
 
     async fn run_coordination_loop(&self, cancel: CancellationToken) -> Result<()> {
