@@ -84,6 +84,9 @@ class TestNormalizeHost:
             # Plaintext HTTP to a remote host is upgraded to HTTPS so credentials aren't sent in the clear.
             ("http://grafana.mycompany.com", "https://grafana.mycompany.com"),
             ("HTTP://grafana.mycompany.com/api", "https://grafana.mycompany.com"),
+            # URL-embedded credentials are stripped so they're never persisted or sent.
+            ("https://admin:hunter2@grafana.mycompany.com", "https://grafana.mycompany.com"),
+            ("https://admin:hunter2@grafana.mycompany.com:3000/api", "https://grafana.mycompany.com:3000"),
         ],
     )
     def test_normalize_host(self, raw, expected):
@@ -205,6 +208,21 @@ class TestValidateCredentials:
             valid, msg = validate_credentials("https://10.0.0.1", _token_auth(), team_id=99)
             assert valid is False
             assert msg == "internal address"
+            session.get.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "host",
+        ["https://admin:hunter2@grafana.mycompany.com", "admin:hunter2@grafana.mycompany.com"],
+    )
+    def test_rejects_url_embedded_credentials(self, host):
+        # The host field is stored as non-secret config, so a password embedded in the URL would
+        # be exposed to anyone who can view the source configuration.
+        session = mock.MagicMock()
+        with _patch_session(session):
+            valid, msg = validate_credentials(host, _token_auth())
+            assert valid is False
+            assert msg is not None
+            assert "hunter2" not in msg
             session.get.assert_not_called()
 
     def test_missing_token_surfaces_before_probe(self):

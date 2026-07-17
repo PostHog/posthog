@@ -75,6 +75,26 @@ class GrafanaResumeConfig:
     annotations_from_ms: int | None = None
 
 
+def _with_default_scheme(host: str) -> str:
+    host = host.strip()
+    if not re.match(r"^https?://", host, flags=re.IGNORECASE):
+        host = f"https://{host}"
+    return host
+
+
+def has_embedded_credentials(host: str) -> bool:
+    """Whether the URL carries userinfo (``https://user:pass@host``).
+
+    The host field is stored as non-secret config, so credentials embedded in it would be
+    visible to anyone who can view the source configuration — reject them at validation.
+    """
+    try:
+        parsed = urlparse(_with_default_scheme(host))
+        return bool(parsed.username or parsed.password)
+    except ValueError:
+        return False
+
+
 def normalize_host(host: str) -> str:
     """Turn whatever the user typed into a bare instance base URL (scheme + host, no path).
 
@@ -84,15 +104,18 @@ def normalize_host(host: str) -> str:
     ``https://`` so credentials are never sent over the network in cleartext — except for
     loopback hosts (local dev / self-hosted on the same box), which are left untouched.
     """
-    host = host.strip()
-    if not re.match(r"^https?://", host, flags=re.IGNORECASE):
-        host = f"https://{host}"
-    parsed = urlparse(host)
+    parsed = urlparse(_with_default_scheme(host))
     scheme = parsed.scheme.lower()
-    if scheme == "http" and (parsed.hostname or "").lower() not in LOOPBACK_HOSTS:
+    hostname = (parsed.hostname or "").lower()
+    if scheme == "http" and hostname not in LOOPBACK_HOSTS:
         scheme = "https"
-    # Keep only scheme + host:port — urlparse drops any trailing path/slashes (e.g. "/api").
-    return f"{scheme}://{parsed.netloc}"
+    # Rebuild netloc from hostname + port only: drops any trailing path (e.g. "/api") and any
+    # userinfo — URL-embedded credentials must never be persisted or sent (see
+    # has_embedded_credentials, which rejects them at validation as well).
+    if ":" in hostname:  # a bare IPv6 address needs its brackets back
+        hostname = f"[{hostname}]"
+    netloc = f"{hostname}:{parsed.port}" if parsed.port else hostname
+    return f"{scheme}://{netloc}"
 
 
 def _hostname(host: str) -> str:
@@ -257,6 +280,11 @@ def validate_credentials(
     probe — let source creation through (per-endpoint scope is reported separately via
     ``get_endpoint_permissions``) and only fail when a specific ``schema_name`` is being checked.
     """
+    if has_embedded_credentials(host):
+        return False, (
+            "Remove the username and password from the instance URL. Use the authentication method fields instead."
+        )
+
     try:
         base_url = normalize_host(host)
     except Exception:
