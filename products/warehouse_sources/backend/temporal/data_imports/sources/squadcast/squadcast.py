@@ -474,8 +474,9 @@ def validate_credentials(
     """
     auth_host, api_host = _hosts_for_region(region)
     # Same credential hardening as SquadcastClient: mask the refresh token, never follow
-    # redirects with credentialed headers, and keep the token exchange out of sample capture.
-    session = make_tracked_session(redact_values=(refresh_token,), allow_redirects=False)
+    # redirects with credentialed headers, and keep both the token exchange and the API probe
+    # out of sample capture — the probe response body carries customer operational data.
+    session = make_tracked_session(redact_values=(refresh_token,), allow_redirects=False, capture=False)
     auth_session = make_tracked_session(redact_values=(refresh_token,), allow_redirects=False, capture=False)
 
     try:
