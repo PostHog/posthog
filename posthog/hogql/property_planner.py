@@ -23,6 +23,11 @@ from posthog.hogql.type_system import (
     runtime_type_from_constant_type,
 )
 
+from posthog.clickhouse.events_json import (
+    EVENTS_JSON_INDEXED_PROPERTY_NAMES,
+    EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
+    PERSON_PROPERTIES_JSON_SUBCOLUMNS,
+)
 from posthog.clickhouse.materialized_columns import (
     MATERIALIZATION_VALID_TABLES,
     MaterializedColumn,
@@ -30,10 +35,10 @@ from posthog.clickhouse.materialized_columns import (
     get_materialized_column_for_property,
 )
 from posthog.clickhouse.property_groups import property_groups
-from posthog.models.property import PropertyName, TableColumn
+from posthog.property_columns import PropertyName, TableColumn
 from posthog.schema_enums import PropertyGroupsMode
 
-from products.event_definitions.backend.models.property_definition import PropertyType
+from products.event_definitions.backend.property_type import PropertyType
 
 
 class PropertyScope(StrEnum):
@@ -292,12 +297,31 @@ def _plan_property_source(
 ) -> PropertySourcePlan:
     table_info = _materialized_table_info(property_type.field_type, context)
     if table_info is None:
-        return _json_source_plan()
+        return _json_source_plan(context=context)
 
     table_name, field_name = table_info
     restricted = is_property_type_restricted(property_type, context)
     if restricted or context.modifiers.materializationMode == "disabled":
-        return _json_source_plan(table_name=table_name, field_name=field_name, restricted=restricted)
+        return _json_source_plan(
+            table_name=table_name,
+            field_name=field_name,
+            property_name=property_name,
+            restricted=restricted,
+            context=context,
+        )
+
+    if (
+        context.uses_new_events_schema()
+        and table_name == "events"
+        and field_name
+        in (
+            "properties",
+            "person_properties",
+        )
+    ):
+        return _json_source_plan(
+            table_name=table_name, field_name=field_name, property_name=property_name, context=context
+        )
 
     materialized_column = get_materialized_column_for_property(
         cast(TablesWithMaterializedColumns, table_name),
@@ -340,23 +364,65 @@ def _plan_property_source(
                 has_bloom_filter_index=True,
             )
 
-    return _json_source_plan(table_name=table_name, field_name=field_name)
+    return _json_source_plan(table_name=table_name, field_name=field_name, property_name=property_name, context=context)
 
 
 def _json_source_plan(
     table_name: str | None = None,
     field_name: str | None = None,
+    property_name: str | None = None,
     restricted: bool = False,
+    context: HogQLContext | None = None,
 ) -> PropertySourcePlan:
+    has_minmax_index = _json_source_has_index(table_name, field_name, property_name, "minmax", context)
+    has_bloom_filter_index = _json_source_has_index(table_name, field_name, property_name, "bloom_filter", context)
+    physical_type = _json_source_physical_type(table_name, field_name, property_name, context)
+
     return PropertySourcePlan(
         kind=PropertySourceKind.JSON,
         table_name=table_name,
         field_name=field_name,
         column_name=field_name,
-        physical_type=ast.StringType(nullable=True),
-        is_nullable=True,
+        physical_type=physical_type,
+        is_nullable=physical_type.nullable,
+        has_minmax_index=has_minmax_index,
+        has_bloom_filter_index=has_bloom_filter_index,
         restricted=restricted,
     )
+
+
+def _json_source_physical_type(
+    table_name: str | None,
+    field_name: str | None,
+    property_name: str | None,
+    context: HogQLContext | None,
+) -> ast.ConstantType:
+    if context is None or not context.uses_new_events_schema():
+        return ast.StringType(nullable=True)
+    if table_name != "events" or field_name is None or property_name is None:
+        return ast.StringType(nullable=True)
+
+    subcolumns = {
+        "properties": EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
+        "person_properties": PERSON_PROPERTIES_JSON_SUBCOLUMNS,
+    }.get(field_name)
+    if subcolumns is None or property_name not in subcolumns:
+        return ast.StringType(nullable=True)
+    return constant_type_from_runtime_type(parse_sql_runtime_type(subcolumns[property_name]))
+
+
+def _json_source_has_index(
+    table_name: str | None,
+    field_name: str | None,
+    property_name: str | None,
+    index_type: str,
+    context: HogQLContext | None,
+) -> bool:
+    if context is None or not context.uses_new_events_schema():
+        return False
+    if table_name != "events" or field_name not in ("properties", "person_properties") or property_name is None:
+        return False
+    return property_name in EVENTS_JSON_INDEXED_PROPERTY_NAMES(field_name, index_type)
 
 
 def _unwrap_table_type(table_type: ast.Type) -> ast.Type:

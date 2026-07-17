@@ -124,6 +124,24 @@ tools:
             silently skipped until the next period. Pair with `vision-scanners-estimate-create` to size a new scanner
             against the remaining budget.
         feature_flag: replay-vision
+    vision-scanners-affected-cohort-create:
+        operation: vision_scanners_affected_cohort_create
+        enabled: true
+        scopes:
+            - replay_scanner:read
+            - cohort:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Save a scanner's affected users as a cohort
+        description: >
+            Create a static cohort of the users a scanner matched within the trailing window (default 30 days). Monitors
+            count verdict-yes observations and take no qualifiers; classifiers require `tag`; scorers require
+            `min_score` and/or `max_score`. The cohort is a dated snapshot and does not live-update; calling again
+            creates a new cohort. Use it anywhere cohorts work: funnel breakdowns, retention, survey targeting,
+            experiment exclusion. Fails when the window has no users or none resolve to a person profile.
+        feature_flag: replay-vision
     vision-scanners-create:
         operation: vision_scanners_create
         enabled: true
@@ -210,6 +228,22 @@ tools:
             type-specific prompt and response schema parameters), the `RecordingsQuery` used to select sessions, and
             operational fields like `enabled`, `sampling_rate`, `provider`, `model`, `emits_signals`, `scanner_version`,
             and `last_swept_at`.
+        feature_flag: replay-vision
+    vision-scanners-impact-retrieve:
+        operation: vision_scanners_impact_retrieve
+        enabled: true
+        scopes:
+            - replay_scanner:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a scanner's impact counts
+        description: >
+            Affected sessions and users for a scanner over a trailing window, counted from its observations. Monitors
+            count verdict-yes observations and take no qualifiers; classifiers require `tag`; scorers require
+            `min_score` and/or `max_score`. `sessions_without_user` reports affected sessions that carried no distinct
+            ID, so the user count reads honestly against the session count.
         feature_flag: replay-vision
     vision-scanners-list:
         operation: vision_scanners_list
