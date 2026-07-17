@@ -68,11 +68,13 @@ describe('StateManager', () => {
                 JSON.stringify({ scope: 'user:read agents:read agents:write', org_id: 'org-1' })
             ).toString('base64url')
             const token = `${header}.${payload}.signature`
+            const getUser = vi.fn().mockResolvedValue({ success: true, data: mockUser })
+            const introspect = vi.fn().mockRejectedValue(new Error('ID-JAG tokens must not be introspected'))
             const api = {
                 config: { apiToken: token },
-                users: () => ({ me: async () => ({ success: true, data: mockUser }) }),
+                users: () => ({ me: getUser }),
                 apiKeys: () => ({ current: async () => ({ success: false }) }),
-                oauth: () => ({ introspect: async () => ({ success: false }) }),
+                oauth: () => ({ introspect }),
             } as unknown as ApiClient
             stateManager = new StateManager(cache, api)
 
@@ -81,6 +83,29 @@ describe('StateManager', () => {
                 scoped_teams: [],
                 scoped_organizations: ['org-1'],
             })
+            expect(getUser).toHaveBeenCalledOnce()
+            expect(introspect).not.toHaveBeenCalled()
+        })
+
+        it('rejects ID-JAG claims when PostHog does not authenticate the token', async () => {
+            const header = Buffer.from(JSON.stringify({ typ: 'at+jwt', alg: 'RS256' })).toString('base64url')
+            const payload = Buffer.from(JSON.stringify({ scope: 'agents:write', org_id: 'org-1' })).toString(
+                'base64url'
+            )
+            const token = `${header}.${payload}.signature`
+            const api = {
+                config: { apiToken: token },
+                users: () => ({ me: async () => ({ success: false, error: { message: 'Unauthorized' } }) }),
+                apiKeys: () => ({ current: async () => ({ success: false }) }),
+                oauth: () => ({
+                    introspect: async () => {
+                        throw new Error('ID-JAG tokens must not be introspected')
+                    },
+                }),
+            } as unknown as ApiClient
+            stateManager = new StateManager(cache, api)
+
+            await expect(stateManager.getApiKey()).rejects.toThrow('Failed to get user: Unauthorized')
         })
     })
 
