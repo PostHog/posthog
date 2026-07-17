@@ -38,6 +38,11 @@ MAX_RETRY_AFTER_SECONDS = 300.0
 # rate-limited endpoint surfaces an error instead of sleeping on `Retry-After`.
 DEFAULT_RETRY_ATTEMPTS = 5
 
+# Per-request timeout (seconds) applied to every `session.send`. `requests` waits forever
+# without one, so a stalled — or customer-controlled — upstream could tie up an import worker
+# indefinitely. A read timeout on an idempotent GET is retried by the adapter's DEFAULT_RETRY.
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 60.0
+
 
 def _parse_retry_after(response: Response) -> Optional[float]:
     """Best-effort retry delay (seconds) from a rate-limited / erroring response.
@@ -106,12 +111,16 @@ class RESTClient:
         paginator: Optional[BasePaginator] = None,
         session: Optional[Session] = None,
         max_retry_attempts: int = DEFAULT_RETRY_ATTEMPTS,
+        request_timeout: Optional[float | tuple[float, float]] = DEFAULT_REQUEST_TIMEOUT_SECONDS,
     ) -> None:
         self.base_url = base_url or ""
         self.headers = headers or {}
         self.auth = auth
         self.paginator = paginator
         self._max_retry_attempts = max_retry_attempts
+        # `None` disables the bound (only for callers that manage their own timeout on the
+        # passed-in session, e.g. the inline preview). A `(connect, read)` tuple splits it.
+        self._request_timeout = request_timeout
         # Default to the tracked session so every source built on top of
         # `RESTClient` participates in HTTP logging, metrics, and sample
         # capture. Callers can pass a pre-built `Session` for tests or
@@ -190,7 +199,7 @@ class RESTClient:
         # `send` reads the body eagerly (stream=False), so a connection dropped mid-stream
         # surfaces here as ChunkedEncodingError. Reissue it like a truncated/partial body below.
         try:
-            response = self.session.send(prepared)
+            response = self.session.send(prepared, timeout=self._request_timeout)
         except ChunkedEncodingError as e:
             raise RESTClientRetryableError(f"Connection broken while reading response: {e}") from e
 

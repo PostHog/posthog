@@ -2663,7 +2663,7 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
 
         sent_urls: list[str] = []
 
-        def _send(prepared):
+        def _send(prepared, **kwargs):
             sent_urls.append(prepared.url)
             if prepared.url.endswith("/forms"):
                 return _response({"items": [{"id": f"f{index}"} for index in range(PREVIEW_MAX_FANOUT_PARENTS + 20)]})

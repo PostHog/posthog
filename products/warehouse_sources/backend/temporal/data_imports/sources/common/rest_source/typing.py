@@ -170,6 +170,10 @@ class ClientConfig(TypedDict, total=False):
     # Cap on retry attempts per request. Left unset, RESTClient uses its default;
     # the inline preview sets 1 so a rate-limited endpoint errors instead of sleeping.
     max_retries: int
+    # Per-request timeout (seconds, or a `(connect, read)` tuple) passed to `session.send`.
+    # Left unset, RESTClient applies its bounded default; `None` disables the bound for
+    # callers that manage their own timeout on the passed-in session.
+    request_timeout: Optional[float | tuple[float, float]]
 
 
 class IncrementalArgs(TypedDict, total=False):

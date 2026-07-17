@@ -56,7 +56,7 @@ def _wire(session: mock.MagicMock, responses: dict[str, dict[str, Any]]) -> list
         prepared.url = url
         return prepared
 
-    def _send(prepared: Any) -> Response:
+    def _send(prepared: Any, **_kwargs: Any) -> Response:
         resp = Response()
         resp.status_code = 200
         resp.url = prepared.url
