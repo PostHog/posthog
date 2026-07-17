@@ -159,6 +159,10 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
         return <NotFound object="event" />
     }
 
+    // Virtual properties (e.g. bot detection) are synthesized from the taxonomy and have no
+    // database row, so they can't be edited or deleted.
+    const isVirtual = isProperty && !!(definition as PropertyDefinition).virtual
+
     const definitionStatus = definition.verified ? 'verified' : definition.hidden ? 'hidden' : 'visible'
 
     const statusProps = getStatusProps(isProperty)
@@ -210,63 +214,67 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                                 data-attr="event-definition-view-recordings"
                             />
                         )}
-                        <LemonButton
-                            data-attr="delete-definition"
-                            type="secondary"
-                            status="danger"
-                            size="small"
-                            onClick={() =>
-                                LemonDialog.open({
-                                    title: `Delete this ${singular} definition?`,
-                                    description: (
-                                        <>
-                                            <p>
-                                                <strong>
-                                                    {getFilterLabel(
-                                                        definition.name,
-                                                        isEvent
-                                                            ? TaxonomicFilterGroupType.Events
-                                                            : TaxonomicFilterGroupType.EventProperties
-                                                    )}
-                                                </strong>{' '}
-                                                will no longer appear in selectors. Associated data will remain in the
-                                                database.
-                                            </p>
-                                            <p>
-                                                This definition will be recreated if the ${singular} is ever seen again
-                                                in the event stream.
-                                            </p>
-                                        </>
-                                    ),
-                                    primaryButton: {
-                                        status: 'danger',
-                                        children: 'Delete definition',
-                                        onClick: () => deleteDefinition(),
-                                    },
-                                    secondaryButton: {
-                                        children: 'Cancel',
-                                    },
-                                    width: 448,
-                                })
-                            }
-                            tooltip="Delete this definition. Associated data will remain."
-                        >
-                            Delete
-                        </LemonButton>
-                        <LemonButton
-                            data-attr="edit-definition"
-                            type="secondary"
-                            size="small"
-                            onClick={() => {
-                                if (isProperty) {
-                                    router.actions.push(urls.propertyDefinitionEdit(definition.id))
-                                } else {
-                                    router.actions.push(urls.eventDefinitionEdit(definition.id))
+                        {!isVirtual && (
+                            <LemonButton
+                                data-attr="delete-definition"
+                                type="secondary"
+                                status="danger"
+                                size="small"
+                                onClick={() =>
+                                    LemonDialog.open({
+                                        title: `Delete this ${singular} definition?`,
+                                        description: (
+                                            <>
+                                                <p>
+                                                    <strong>
+                                                        {getFilterLabel(
+                                                            definition.name,
+                                                            isEvent
+                                                                ? TaxonomicFilterGroupType.Events
+                                                                : TaxonomicFilterGroupType.EventProperties
+                                                        )}
+                                                    </strong>{' '}
+                                                    will no longer appear in selectors. Associated data will remain in
+                                                    the database.
+                                                </p>
+                                                <p>
+                                                    This definition will be recreated if the ${singular} is ever seen
+                                                    again in the event stream.
+                                                </p>
+                                            </>
+                                        ),
+                                        primaryButton: {
+                                            status: 'danger',
+                                            children: 'Delete definition',
+                                            onClick: () => deleteDefinition(),
+                                        },
+                                        secondaryButton: {
+                                            children: 'Cancel',
+                                        },
+                                        width: 448,
+                                    })
                                 }
-                            }}
-                        >
-                            Edit
-                        </LemonButton>
+                                tooltip="Delete this definition. Associated data will remain."
+                            >
+                                Delete
+                            </LemonButton>
+                        )}
+                        {!isVirtual && (
+                            <LemonButton
+                                data-attr="edit-definition"
+                                type="secondary"
+                                size="small"
+                                onClick={() => {
+                                    if (isProperty) {
+                                        router.actions.push(urls.propertyDefinitionEdit(definition.id))
+                                    } else {
+                                        router.actions.push(urls.eventDefinitionEdit(definition.id))
+                                    }
+                                }}
+                            >
+                                Edit
+                            </LemonButton>
+                        )}
                     </>
                 }
                 forceBackTo={
