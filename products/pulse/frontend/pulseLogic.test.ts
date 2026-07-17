@@ -184,6 +184,7 @@ describe('pulseLogic', () => {
             .toFinishAllListeners()
             .toMatchValues({
                 aiConsentRequired: true,
+                showAiConsentBanner: true,
                 generatedBrief: null,
                 briefs: [],
             })

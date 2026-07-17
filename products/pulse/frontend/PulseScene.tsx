@@ -30,7 +30,7 @@ const PULSE_DESCRIPTION =
 
 export function PulseScene(): JSX.Element {
     const isEnabled = useFeatureFlag('PULSE')
-    const { briefConfigs, selectedConfigId, dataProcessingAccepted } = useValues(pulseLogic)
+    const { briefConfigs, selectedConfigId, showAiConsentBanner } = useValues(pulseLogic)
     const { selectConfig, openConfigModal } = useActions(pulseLogic)
 
     if (!isEnabled) {
@@ -53,7 +53,7 @@ export function PulseScene(): JSX.Element {
                 }
             />
 
-            {!dataProcessingAccepted && (
+            {showAiConsentBanner && (
                 <LemonBanner type="warning">
                     Pulse runs AI over your project data, and your organization has not approved AI data processing yet.
                     Approve it in{' '}
