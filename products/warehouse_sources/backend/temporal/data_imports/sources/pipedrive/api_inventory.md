@@ -28,13 +28,21 @@ Reference: <https://developers.pipedrive.com/docs/api/v1>
 | products            | `/api/v2/products`           | cursor     | id          | add_time      |
 | pipelines           | `/api/v2/pipelines`          | cursor     | id          | add_time      |
 | stages              | `/api/v2/stages`             | cursor     | id          | add_time      |
-| activities          | `/api/v1/activities`         | offset     | id          | add_time      |
+| activities          | `/api/v2/activities` (v2), `/api/v1/activities` (v1) | cursor / offset | id          | add_time      |
 | notes               | `/api/v1/notes`              | offset     | id          | add_time      |
 | leads               | `/api/v1/leads`              | offset     | id          | add_time      |
 | users               | `/api/v1/users`              | offset     | id          | —             |
 | deal_fields         | `/api/v1/dealFields`         | offset     | id          | —             |
 | person_fields       | `/api/v1/personFields`       | offset     | id          | —             |
 | organization_fields | `/api/v1/organizationFields` | offset     | id          | —             |
+
+## Source versions
+
+The source declares two versions (`ExternalDataSource.api_version`), `v1` and `v2`, differing
+only in the `activities` endpoint — Pipedrive deprecated `/api/v1/activities` (sunset
+2025-12-31) in favour of the cursor-paginated `/api/v2/activities`. New sources default to `v2`.
+The other endpoints don't change: `notes`, `leads`, `users`, and the `*_fields` endpoints have
+no v2 replacement and stay on v1 under both labels; the rest were already on v2.
 
 ## Incremental sync
 

@@ -17,14 +17,17 @@ class PipedriveEndpointConfig:
     partition_key: Optional[str] = "add_time"
 
 
-PIPEDRIVE_ENDPOINTS: dict[str, PipedriveEndpointConfig] = {
+# Endpoints whose path and pagination are identical across every supported source version.
+# Their v1 collection endpoints have no v2 replacement (notes, leads, users, *_fields) or were
+# already on v2 (deals, persons, organizations, products, pipelines, stages), so they don't
+# change between our `v1` and `v2` labels.
+_SHARED_ENDPOINTS: dict[str, PipedriveEndpointConfig] = {
     "deals": PipedriveEndpointConfig(name="deals", path="/api/v2/deals", pagination="cursor"),
     "persons": PipedriveEndpointConfig(name="persons", path="/api/v2/persons", pagination="cursor"),
     "organizations": PipedriveEndpointConfig(name="organizations", path="/api/v2/organizations", pagination="cursor"),
     "products": PipedriveEndpointConfig(name="products", path="/api/v2/products", pagination="cursor"),
     "pipelines": PipedriveEndpointConfig(name="pipelines", path="/api/v2/pipelines", pagination="cursor"),
     "stages": PipedriveEndpointConfig(name="stages", path="/api/v2/stages", pagination="cursor"),
-    "activities": PipedriveEndpointConfig(name="activities", path="/api/v1/activities", pagination="offset"),
     "notes": PipedriveEndpointConfig(name="notes", path="/api/v1/notes", pagination="offset"),
     "leads": PipedriveEndpointConfig(name="leads", path="/api/v1/leads", pagination="offset"),
     "users": PipedriveEndpointConfig(name="users", path="/api/v1/users", pagination="offset", partition_key=None),
@@ -39,4 +42,21 @@ PIPEDRIVE_ENDPOINTS: dict[str, PipedriveEndpointConfig] = {
     ),
 }
 
-ENDPOINTS = tuple(PIPEDRIVE_ENDPOINTS.keys())
+# `activities` is the only endpoint that differs by version: Pipedrive deprecated the v1
+# offset endpoint in favour of the v2 cursor endpoint (same `id`/`add_time` fields).
+_ACTIVITIES_BY_VERSION: dict[str, PipedriveEndpointConfig] = {
+    "v1": PipedriveEndpointConfig(name="activities", path="/api/v1/activities", pagination="offset"),
+    "v2": PipedriveEndpointConfig(name="activities", path="/api/v2/activities", pagination="cursor"),
+}
+
+
+def endpoints_for_version(api_version: str) -> dict[str, PipedriveEndpointConfig]:
+    """Endpoint configs for a resolved source version. Unknown pins fall back to the legacy
+    (v1) activities endpoint, the conservative choice for a label we don't recognise."""
+    activities = _ACTIVITIES_BY_VERSION.get(api_version, _ACTIVITIES_BY_VERSION["v1"])
+    return {**_SHARED_ENDPOINTS, "activities": activities}
+
+
+# Endpoint names are version-independent (`activities` exists under both), so schema discovery
+# can enumerate them without a resolved version.
+ENDPOINTS = (*_SHARED_ENDPOINTS.keys(), "activities")

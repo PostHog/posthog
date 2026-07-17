@@ -14,7 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.
     pipedrive_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.settings import PIPEDRIVE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.settings import endpoints_for_version
 
 
 class TestNormalizeCompanyDomain:
@@ -60,19 +60,43 @@ class TestNormalizeCompanyDomain:
         assert base_url("https://MyCompany.pipedrive.com") == "https://mycompany.pipedrive.com"
 
 
+class TestEndpointsForVersion:
+    @pytest.mark.parametrize(
+        "api_version, expected_path, expected_pagination",
+        [
+            ("v1", "/api/v1/activities", "offset"),
+            ("v2", "/api/v2/activities", "cursor"),
+            # A pin we don't recognise resolves to the legacy (v1) endpoint.
+            ("v99", "/api/v1/activities", "offset"),
+        ],
+    )
+    def test_activities_endpoint_switches_by_version(
+        self, api_version: str, expected_path: str, expected_pagination: str
+    ) -> None:
+        activities = endpoints_for_version(api_version)["activities"]
+        assert activities.path == expected_path
+        assert activities.pagination == expected_pagination
+
+    def test_shared_endpoints_are_version_independent(self) -> None:
+        # Only `activities` diverges; everything else must be identical across versions.
+        v1 = {name: cfg for name, cfg in endpoints_for_version("v1").items() if name != "activities"}
+        v2 = {name: cfg for name, cfg in endpoints_for_version("v2").items() if name != "activities"}
+        assert v1 == v2
+
+
 class TestInitialUrl:
     def test_cursor_endpoint_only_sets_limit(self) -> None:
-        url = _initial_url("acme", PIPEDRIVE_ENDPOINTS["deals"])
+        url = _initial_url("acme", endpoints_for_version("v2")["deals"])
         assert url == f"https://acme.pipedrive.com/api/v2/deals?limit={PAGE_SIZE}"
 
     def test_offset_endpoint_sets_start_and_limit(self) -> None:
-        url = _initial_url("acme", PIPEDRIVE_ENDPOINTS["activities"])
+        url = _initial_url("acme", endpoints_for_version("v1")["activities"])
         assert url == f"https://acme.pipedrive.com/api/v1/activities?limit={PAGE_SIZE}&start=0"
 
 
 class TestNextUrl:
     def test_cursor_returns_next_page_url(self) -> None:
-        config = PIPEDRIVE_ENDPOINTS["deals"]
+        config = endpoints_for_version("v2")["deals"]
         response = {"data": [{"id": 1}], "additional_data": {"next_cursor": "abc123"}}
         assert _next_url("acme", config, response) == (
             f"https://acme.pipedrive.com/api/v2/deals?limit={PAGE_SIZE}&cursor=abc123"
@@ -87,11 +111,11 @@ class TestNextUrl:
         ],
     )
     def test_cursor_terminates_when_no_next_cursor(self, additional_data: dict[str, Any]) -> None:
-        config = PIPEDRIVE_ENDPOINTS["deals"]
+        config = endpoints_for_version("v2")["deals"]
         assert _next_url("acme", config, {"data": [], "additional_data": additional_data}) is None
 
     def test_offset_returns_next_page_url(self) -> None:
-        config = PIPEDRIVE_ENDPOINTS["activities"]
+        config = endpoints_for_version("v1")["activities"]
         response = {
             "data": [{"id": 1}],
             "additional_data": {"pagination": {"more_items_in_collection": True, "next_start": 500}},
@@ -109,7 +133,7 @@ class TestNextUrl:
         ],
     )
     def test_offset_terminates(self, additional_data: dict[str, Any]) -> None:
-        config = PIPEDRIVE_ENDPOINTS["activities"]
+        config = endpoints_for_version("v1")["activities"]
         assert _next_url("acme", config, {"data": [], "additional_data": additional_data}) is None
 
 
@@ -157,7 +181,7 @@ class TestGetRows:
         mock_session.return_value.get.side_effect = [page1, page2]
 
         manager = self._manager()
-        batches = list(get_rows("acme", "token", "deals", mock.MagicMock(), manager))
+        batches = list(get_rows("acme", "token", "deals", "v2", mock.MagicMock(), manager))
 
         assert batches == [[{"id": 1}], [{"id": 2}]]
         # The session masks the token in logged URLs and captured samples.
@@ -178,7 +202,7 @@ class TestGetRows:
         resume_url = f"https://acme.pipedrive.com/api/v2/deals?limit={PAGE_SIZE}&cursor=resume-me"
         manager = self._manager(PipedriveResumeConfig(next_url=resume_url))
 
-        batches = list(get_rows("acme", "token", "deals", mock.MagicMock(), manager))
+        batches = list(get_rows("acme", "token", "deals", "v2", mock.MagicMock(), manager))
 
         assert batches == [[{"id": 9}]]
         assert mock_session.return_value.get.call_args.args[0] == resume_url
@@ -192,7 +216,7 @@ class TestGetRows:
         mock_session.return_value.get.return_value = page
 
         manager = self._manager()
-        batches = list(get_rows("acme", "token", "users", mock.MagicMock(), manager))
+        batches = list(get_rows("acme", "token", "users", "v2", mock.MagicMock(), manager))
 
         assert batches == [[{"id": 1}, {"id": 2}]]
         manager.save_state.assert_not_called()
@@ -206,7 +230,7 @@ class TestGetRows:
         mock_session.return_value.get.return_value = page
 
         with pytest.raises(Exception, match="401 Client Error"):
-            list(get_rows("acme", "token", "deals", mock.MagicMock(), self._manager()))
+            list(get_rows("acme", "token", "deals", "v2", mock.MagicMock(), self._manager()))
 
 
 class TestPipedriveSource:
@@ -222,7 +246,7 @@ class TestPipedriveSource:
     def test_source_response_partitioning(
         self, endpoint: str, expected_partition_keys: list[str] | None, expected_mode: str | None
     ) -> None:
-        response = pipedrive_source("acme", "token", endpoint, mock.MagicMock(), mock.MagicMock())
+        response = pipedrive_source("acme", "token", endpoint, "v2", mock.MagicMock(), mock.MagicMock())
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         assert response.partition_keys == expected_partition_keys
