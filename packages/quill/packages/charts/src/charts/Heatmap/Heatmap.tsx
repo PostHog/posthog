@@ -15,7 +15,10 @@ import type {
     ResolvedSeries,
     ResolveValueFn,
     Series,
+    TooltipContext,
 } from '../../core/types'
+import { DefaultTooltip } from '../../overlays/DefaultTooltip'
+import { findClosestSeriesKey } from '../../overlays/tooltipUtils'
 import {
     cellRect,
     computeHeatmapLayout,
@@ -26,7 +29,18 @@ import {
     type HeatmapColorScale,
     type HeatmapLayout,
 } from './heatmap-layout'
-import { HeatmapTooltip, type HeatmapRowMeta, type HeatmapTooltipContext } from './HeatmapTooltip'
+
+/** Meta attached to the adapter series the Heatmap hands to the base `Chart` — one series
+ *  per row, carrying its row index so tooltip/click code can map back to the grid. */
+export interface HeatmapRowMeta {
+    rowIndex: number
+}
+
+/** Tooltip context handed to consumer-supplied `tooltip` callbacks — `TooltipContext` with
+ *  the row meta baked in. Each `seriesData` entry is one row at the hovered column; use
+ *  `findClosestSeriesKey(ctx.seriesData, ctx.hoverPosition.y)` (as the built-in tooltip does)
+ *  to narrow to the single hovered cell. */
+export type HeatmapTooltipContext = TooltipContext<HeatmapRowMeta>
 
 /** Stash slot — survives a render via `ChartScales._private` so drawStatic/drawHover/
  *  wrapClickData can read the grid layout without recomputing it. */
@@ -307,11 +321,23 @@ function HeatmapInner({
                 // The base chart's `ctx.label` is the per-column key; restore the display label
                 // before it reaches either the custom or default tooltip.
                 const mapped = { ...ctx, label: resolveColumnLabel(ctx.label) }
-                return tooltip ? (
-                    tooltip(mapped)
-                ) : (
-                    <HeatmapTooltip
-                        ctx={mapped}
+                if (tooltip) {
+                    return tooltip(mapped)
+                }
+                // Narrow to the single hovered cell — rows carry their cell's exact pixel range
+                // (yPixel/yPixelBottom), so containment resolves it — and let DefaultTooltip
+                // render that one row rather than maintaining a bespoke tooltip surface.
+                const key = mapped.hoverPosition
+                    ? findClosestSeriesKey(mapped.seriesData, mapped.hoverPosition.y)
+                    : null
+                const entry = mapped.seriesData.find((s) => s.series.key === key)
+                if (!entry) {
+                    return null
+                }
+                return (
+                    <DefaultTooltip
+                        {...mapped}
+                        seriesData={[entry]}
                         labelFormatter={tooltipLabelFormatter}
                         valueFormatter={tooltipValueFormatter}
                     />
