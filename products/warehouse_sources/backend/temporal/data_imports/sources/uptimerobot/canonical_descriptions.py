@@ -52,7 +52,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "friendly_name": "Display name given to the alert contact.",
             "type": "Contact channel: 1 = SMS, 2 = email, 3 = Twitter, 5 = webhook, 6 = Pushbullet, 7 = Zapier, 9 = Pushover, 11 = Slack, and other integration types.",
             "status": "Contact status: 0 = not activated, 1 = paused, 2 = active.",
-            "value": "The contact's address for the channel (email address, phone number, webhook URL, etc.).",
+            "value": "The contact's address for the channel (email address, phone number, webhook URL, etc.). Webhook and integration values are URLs that may embed a secret token — treat this column as sensitive.",
         },
     },
     "maintenance_windows": {
