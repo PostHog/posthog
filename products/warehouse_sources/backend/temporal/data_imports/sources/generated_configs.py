@@ -4556,7 +4556,8 @@ class UsersnapSourceConfig(config.Config):
 
 @config.config
 class UservoiceSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
