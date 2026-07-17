@@ -148,6 +148,7 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode, SessionTableVersion
 from posthog.scopes import APIScopeObject
 from posthog.synthetic_user import SyntheticUser
+from posthog.week_start_day import WeekStartDay
 
 # The Django ORM / products models below are imported lazily inside the functions that build a
 # Database (Database._fetch_sources / _build_from_sources / serialize and their helpers) so this
@@ -168,7 +169,7 @@ if TYPE_CHECKING:
     )
 
     from posthog.models import User
-    from posthog.models.team.team import Team, WeekStartDay
+    from posthog.models.team.team import Team
     from posthog.rbac.user_access_control import UserAccessControl
     from posthog.shared_link_user import SharedLinkUser
 
@@ -550,8 +551,6 @@ class Database(BaseModel):
         return self._timezone or "UTC"
 
     def get_week_start_day(self) -> WeekStartDay:
-        from posthog.models.team.team import WeekStartDay  # noqa: PLC0415
-
         return self._week_start_day or WeekStartDay.SUNDAY
 
     def get_serialization_errors(self) -> dict[str, str]:
