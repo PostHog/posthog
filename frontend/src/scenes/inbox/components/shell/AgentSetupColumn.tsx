@@ -1,14 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import {
-    IconBolt,
-    IconCheckCircle,
-    IconChevronRight,
-    IconCompass,
-    IconGithub,
-    IconRocket,
-    IconServer,
-} from '@posthog/icons'
+import { IconBolt, IconCheckCircle, IconChevronRight, IconCompass, IconGithub, IconServer } from '@posthog/icons'
 import { LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 import { mcpStoreLogic } from '@posthog/products-mcp-store/frontend/mcpStoreLogic'
 import { ServerIcon } from '@posthog/products-mcp-store/frontend/scene/icons'
@@ -209,28 +201,6 @@ function ScoutTroopWidget(): JSX.Element {
     )
 }
 
-function SelfDrivingWidget(): JSX.Element {
-    const { teamConfig, teamConfigLoading, autostartEnabled, defaultAutostartPriority } =
-        useValues(signalTeamConfigLogic)
-    const { openSetupModal } = useActions(agentSetupModalLogic)
-    const status = !autostartEnabled
-        ? 'Manual review only'
-        : defaultAutostartPriority === 'P4'
-          ? 'Auto-starts all reports'
-          : `Auto-starts ${defaultAutostartPriority} and above`
-    return (
-        <SetupWidgetCard
-            icon={<IconRocket />}
-            title="Self-driving"
-            size="md"
-            tone={autostartEnabled ? 'done' : 'neutral'}
-            loading={teamConfigLoading && teamConfig === null}
-            status={status}
-            onClick={() => openSetupModal('self-driving')}
-        />
-    )
-}
-
 function CodeAccessWidget(): JSX.Element {
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
     const hasGithub = getIntegrationsByKind(['github']).length > 0
@@ -329,12 +299,6 @@ const SETUP_MODALS: Record<
         width: 760,
         body: <ScoutsFleetSection />,
     },
-    'self-driving': {
-        title: 'Self-driving',
-        description: 'Choose whether agents start work on actionable reports automatically.',
-        width: 560,
-        body: <SelfDrivingSection />,
-    },
     slack: {
         title: 'Notifications',
         description: 'Get pinged in Slack when you’re a suggested reviewer on a new inbox item.',
@@ -384,7 +348,7 @@ export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JS
             <SetupSection title="Agents">
                 <SignalSourcesWidget />
                 <ScoutTroopWidget />
-                <SelfDrivingWidget />
+                <SelfDrivingSection />
             </SetupSection>
             <SetupSection title="Connections">
                 <CodeAccessWidget />
