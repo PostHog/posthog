@@ -83,14 +83,14 @@ pub struct State {
     /// When present, the v1 analytics handler publishes events through this.
     pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     /// Routing policy for diverting `$ai_*` events to the dedicated AI topic
-    /// (`AI_EVENTS_TOPIC`), derived from `AI_EVENTS_TOPIC_MODE` and
-    /// `AI_EVENTS_TOPIC_ALLOWLIST_TOKENS`. `Primary` keeps everything on the
+    /// (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`), derived from `CAPTURE_ANALYTICS_AI_EVENTS_MODE` and
+    /// `CAPTURE_ANALYTICS_AI_EVENTS_ALLOWLIST_TOKENS`. `Primary` keeps everything on the
     /// analytics main topic; the other modes divert per batch token, in both
     /// the v0 pipeline (via `DataType::AiEvents`, mapped to the topic in the
     /// kafka sink) and the v1 pipeline (via `Destination::AiEvents`, mapped
     /// via the `topic_ai` injected into each sink config at setup).
     pub ai_routing: AiRouting,
-    /// Whether the AI overflow valve is armed (`AI_EVENTS_OVERFLOW_TOPIC` is
+    /// Whether the AI overflow valve is armed (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` is
     /// set). Gates overflow stamping for the AI lane in both pipelines: when
     /// false, AI events never overflow (pre-overflow behavior).
     pub ai_events_overflow_enabled: bool,

@@ -253,7 +253,7 @@ pub async fn process_events(
     // A request carries a single token, so the `$ai_*` lane decision is per
     // batch, mirroring v1's `process_batch`. The flag feeds
     // `DataType::from_event_name` via `process_single_event`; the kafka sink
-    // maps the resulting `DataType::AiEvents` to `AI_EVENTS_TOPIC`.
+    // maps the resulting `DataType::AiEvents` to `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`.
     let route_ai_events = ai_routing.routes_to_secondary(&context.token);
 
     // Build the processed batch one raw event at a time so we can split a
@@ -1739,7 +1739,7 @@ mod tests {
     }
 
     /// End-to-end gate for the AI overflow valve: a diverted `$ai_*` event
-    /// is overflow-stamped only when `AI_EVENTS_OVERFLOW_TOPIC` is
+    /// is overflow-stamped only when `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` is
     /// configured, and keeps its AI lane either way.
     #[rstest]
     #[case::armed(true, Some(OverflowReason::ForceLimited))]

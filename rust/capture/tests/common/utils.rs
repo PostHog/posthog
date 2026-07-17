@@ -85,8 +85,8 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
         kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
         kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
-        ai_events_topic: None,
-        ai_events_overflow_topic: None,
+        capture_analytics_ai_events_topic: None,
+        capture_analytics_ai_events_overflow_topic: None,
         kafka_traces_topic: "ingestion_traces".to_string(),
         kafka_metrics_topic: "ingestion_metrics".to_string(),
         kafka_tls: false,
@@ -158,8 +158,8 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     ai_secondary_kafka_topic: None,
     ai_secondary_kafka_tls: false,
     ai_secondary_kafka_client_id: String::new(),
-    ai_events_topic_mode: capture::config::AiSinkMode::Primary,
-    ai_events_topic_allowlist_tokens: None,
+    capture_analytics_ai_events_mode: capture::config::AiSinkMode::Primary,
+    capture_analytics_ai_events_allowlist_tokens: None,
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
     body_read_chunk_size_kb: 256,             // 256KB default

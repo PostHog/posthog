@@ -31,7 +31,7 @@ use crate::v0_request::{DataType, OverflowReason, ProcessedEvent};
 /// `force_overflow` flag stamped by event restrictions.
 ///
 /// Two lanes can overflow: `AnalyticsMain` always, and `AiEvents` only when
-/// `ai_events_overflow_enabled` is set (i.e. `AI_EVENTS_OVERFLOW_TOPIC` is
+/// `ai_events_overflow_enabled` is set (i.e. `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` is
 /// configured). The stamp carries no topic; the kafka sink maps it to the
 /// lane's own overflow topic, so an overflowing AI event lands on AI
 /// overflow, never analytics overflow.
@@ -368,7 +368,7 @@ mod tests {
     }
 
     /// The AI lane joins overflow stamping only when the AI overflow valve
-    /// (`AI_EVENTS_OVERFLOW_TOPIC`) is armed; unarmed keeps today's
+    /// (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`) is armed; unarmed keeps today's
     /// never-overflows behavior even for a force-routed key.
     #[rstest::rstest]
     #[case::armed(true, Some(OverflowReason::ForceLimited), true)]

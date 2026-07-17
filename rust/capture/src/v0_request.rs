@@ -168,7 +168,7 @@ pub enum DataType {
     SnapshotMain,
     /// Dedicated `$ai_*` lane, mirroring v1's `Destination::AiEvents`. Only
     /// produced when the deployment's `AiRouting` policy diverts the batch
-    /// token; the kafka sink maps it to `AI_EVENTS_TOPIC`. Like heatmaps and
+    /// token; the kafka sink maps it to `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`. Like heatmaps and
     /// exceptions, AI events never overflow and never reroute historical.
     AiEvents,
 }

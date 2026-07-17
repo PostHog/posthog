@@ -535,7 +535,7 @@ fn apply_overflow_stamping(
         // Each overflowing lane keeps its own overflow destination, so an
         // overflowing AI event lands on AI overflow, never analytics
         // overflow. The AI lane only participates when the AI overflow valve
-        // (AI_EVENTS_OVERFLOW_TOPIC) is armed.
+        // (CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC) is armed.
         let overflow_destination = match event.destination {
             Destination::AnalyticsMain => Destination::Overflow,
             Destination::AiEvents if ai_events_overflow_enabled => Destination::AiEventsOverflow,
@@ -2759,7 +2759,7 @@ mod tests {
 
     /// The AI lane converts to its own overflow destination under the same
     /// conditions as AnalyticsMain, but only when the AI overflow valve
-    /// (AI_EVENTS_OVERFLOW_TOPIC) is armed; unarmed it is never touched.
+    /// (CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC) is armed; unarmed it is never touched.
     #[rstest::rstest]
     #[case::armed(true, Destination::AiEventsOverflow, true)]
     #[case::unarmed(false, Destination::AiEvents, false)]

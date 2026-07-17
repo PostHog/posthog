@@ -182,11 +182,11 @@ pub struct KafkaTopicConfig {
     pub dlq_topic: String,
     pub error_tracking_topic: String,
     pub traces_topic: String,
-    /// Dedicated topic for `DataType::AiEvents` (`AI_EVENTS_TOPIC`). Optional
+    /// Dedicated topic for `DataType::AiEvents` (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`). Optional
     /// because the AI lane is opt-in: startup validation guarantees it is set
     /// whenever the routing policy can produce `AiEvents` records.
     pub ai_events_topic: Option<String>,
-    /// Overflow topic for the AI lane (`AI_EVENTS_OVERFLOW_TOPIC`). Unset
+    /// Overflow topic for the AI lane (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`). Unset
     /// means AI events never overflow; when set, stamped/forced overflow on
     /// `AiEvents` records reroutes here with the same key semantics as the
     /// analytics overflow topic.
@@ -205,8 +205,8 @@ impl From<&KafkaConfig> for KafkaTopicConfig {
             dlq_topic: config.kafka_dlq_topic.clone(),
             error_tracking_topic: config.kafka_error_tracking_topic.clone(),
             traces_topic: config.kafka_traces_topic.clone(),
-            ai_events_topic: config.ai_events_topic.clone(),
-            ai_events_overflow_topic: config.ai_events_overflow_topic.clone(),
+            ai_events_topic: config.capture_analytics_ai_events_topic.clone(),
+            ai_events_overflow_topic: config.capture_analytics_ai_events_overflow_topic.clone(),
         }
     }
 }
@@ -238,7 +238,7 @@ impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
 
 /// Overflow routing shared by the lanes that own a dedicated overflow topic:
 /// the analytics main lane always, and the AI lane once
-/// `AI_EVENTS_OVERFLOW_TOPIC` is set. Keeping both lanes on one function
+/// `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` is set. Keeping both lanes on one function
 /// guarantees identical semantics, including the partition-key handling
 /// driven by `overflow_preserve_partition_locality`.
 ///
@@ -576,14 +576,14 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                     // on the default route (v1 only nulls keys for
                     // Main/Overflow-shaped destinations). An unset topic
                     // should be impossible here (startup validation requires
-                    // AI_EVENTS_TOPIC whenever the routing policy can produce
+                    // CAPTURE_ANALYTICS_AI_EVENTS_TOPIC whenever the routing policy can produce
                     // AiEvents), so fall back to the main topic rather than
                     // failing the batch.
                     let default_topic: &str = match self.topics.ai_events_topic.as_deref() {
                         Some(topic) if !topic.is_empty() => topic,
                         _ => {
                             warn!(
-                                "AI_EVENTS_TOPIC not configured for an AiEvents record; falling back to main topic"
+                                "CAPTURE_ANALYTICS_AI_EVENTS_TOPIC not configured for an AiEvents record; falling back to main topic"
                             );
                             &self.topics.main_topic
                         }
@@ -919,8 +919,8 @@ mod tests {
             kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
             kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
             kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
-            ai_events_topic: None,
-            ai_events_overflow_topic: None,
+            capture_analytics_ai_events_topic: None,
+            capture_analytics_ai_events_overflow_topic: None,
             kafka_traces_topic: "traces_ingestion".to_string(),
             kafka_metrics_topic: "metrics_ingestion".to_string(),
             kafka_tls: false,
@@ -2023,7 +2023,7 @@ mod tests {
         // ==================== AiEvents ====================
         // The dedicated $ai_* lane routes to its own topic, keyed on the
         // event key. test_topics() arms the AI overflow valve
-        // (AI_EVENTS_OVERFLOW_TOPIC), so overflow handling mirrors the
+        // (CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC), so overflow handling mirrors the
         // AnalyticsMain arm onto the AI topics; the unarmed tests below
         // override the valve off.
 
@@ -2135,7 +2135,7 @@ mod tests {
 
         #[tokio::test]
         async fn ai_events_unarmed_never_overflows() {
-            // Without AI_EVENTS_OVERFLOW_TOPIC the lane keeps today's
+            // Without CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC the lane keeps today's
             // behavior: force_overflow and any stamped reason (which the
             // gated pipeline would not produce anyway) are ignored.
             let producer = MockKafkaProducer::new();
