@@ -321,6 +321,24 @@ export const userInterviewTopicsSharedLinkCreate = async (
     })
 }
 
+export const getUserInterviewTopicsSharedLinkDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/user_interview_topics/${id}/shared_link/`
+}
+
+/**
+ * Revoke this topic's shared (non-personalised) interview link so an already-distributed URL can no longer start interviews. Idempotent — a no-op when no active shared link exists. A subsequent shared_link POST mints a fresh link (rotation).
+ */
+export const userInterviewTopicsSharedLinkDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getUserInterviewTopicsSharedLinkDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getUserInterviewTopicsTestLinkRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/user_interview_topics/${id}/test_link/`
 }

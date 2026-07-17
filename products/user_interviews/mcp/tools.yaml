@@ -310,6 +310,9 @@ tools:
     user-interview-topics-shared-link-create:
         operation: user_interview_topics_shared_link_create
         enabled: false
+    user-interview-topics-shared-link-destroy:
+        operation: user_interview_topics_shared_link_destroy
+        enabled: false
     user-interview-topics-test-link-retrieve:
         operation: user_interview_topics_test_link_retrieve
         enabled: false
