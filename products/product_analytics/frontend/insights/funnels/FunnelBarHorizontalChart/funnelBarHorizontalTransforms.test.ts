@@ -1,4 +1,4 @@
-import { EntityTypes, FunnelStepReference, type FunnelStepWithConversionMetrics } from '~/types'
+import { EntityTypes, type FunnelStepWithConversionMetrics } from '~/types'
 
 import {
     buildFunnelBarHorizontalCompareData,
@@ -43,7 +43,6 @@ function makeStep({
 }
 
 const options = {
-    stepReference: FunnelStepReference.total,
     getColor: () => '#1d4aff',
     getLabel: (variant: FunnelStepWithConversionMetrics) => String(variant.breakdown_value ?? variant.name),
     fillerColor: '#eef0f3',
@@ -212,42 +211,43 @@ describe('buildFunnelBarHorizontalData', () => {
     })
 
     describe('reference step', () => {
-        it.each([
-            { stepReference: FunnelStepReference.total, expected: [100, 50, 20] },
-            { stepReference: FunnelStepReference.previous, expected: [100, 50, 20] },
-        ])(
-            'uses precomputed fromBasisStep for non-breakdown layouts (stepReference=$stepReference)',
-            ({ stepReference, expected }) => {
-                const steps = [
-                    makeStep({ count: 100, fromBasisStep: 1, name: 'Viewed' }),
-                    makeStep({ count: 50, fromBasisStep: 0.5, name: 'Signed up' }),
-                    makeStep({ count: 20, fromBasisStep: 0.2, name: 'Purchased' }),
-                ]
-                const result = buildFunnelBarHorizontalData(steps, { ...options, stepReference })
-                expect(dataAcross(result, 0)).toEqual(expected)
-            }
-        )
-
-        it('honors stepReference.previous as the basis for breakdown fractions', () => {
+        it('sizes breakdown stacks from the precomputed aggregate rate, not the neighboring step count', () => {
+            // Optional steps + "relative to previous step": fromBasisStep is computed against the last
+            // non-optional step, and an optional step can out-count its immediate predecessor. Deriving
+            // the basis from steps[i - 1] here would put step 2 at 130/50 = 260%, clamped to a full bar.
             const steps: FunnelStepWithConversionMetrics[] = [
-                makeStep({ count: 100, fromBasisStep: 1, name: 'Viewed' }),
-                makeStep({ count: 50, fromBasisStep: 0.5, name: 'Signed up' }),
                 makeStep({
-                    count: 30,
-                    fromBasisStep: 0.3,
-                    name: 'Purchased',
+                    count: 2000,
+                    fromBasisStep: 1,
+                    name: 'Viewed',
                     nested_breakdown: [
-                        makeStep({ count: 20, fromBasisStep: 0.4, breakdown_value: 'mobile' }),
-                        makeStep({ count: 10, fromBasisStep: 0.2, breakdown_value: 'desktop' }),
+                        makeStep({ count: 1200, fromBasisStep: 1, breakdown_value: 'mobile' }),
+                        makeStep({ count: 800, fromBasisStep: 1, breakdown_value: 'desktop' }),
+                    ],
+                }),
+                makeStep({
+                    count: 50,
+                    fromBasisStep: 0.025,
+                    name: 'Connected (optional)',
+                    nested_breakdown: [
+                        makeStep({ count: 30, fromBasisStep: 0.025, breakdown_value: 'mobile' }),
+                        makeStep({ count: 20, fromBasisStep: 0.025, breakdown_value: 'desktop' }),
+                    ],
+                }),
+                makeStep({
+                    count: 130,
+                    fromBasisStep: 0.065,
+                    name: 'Pushed (optional)',
+                    nested_breakdown: [
+                        makeStep({ count: 100, fromBasisStep: 0.083, breakdown_value: 'mobile' }),
+                        makeStep({ count: 30, fromBasisStep: 0.0375, breakdown_value: 'desktop' }),
                     ],
                 }),
             ]
-            const result = buildFunnelBarHorizontalData(steps, {
-                ...options,
-                stepReference: FunnelStepReference.previous,
-            })
-            // Step 0 has no nested_breakdown, so the non-breakdown path is taken regardless of stepReference.
-            expect(dataAcross(result, 0)).toEqual([100, 50, 30])
+            const result = buildFunnelBarHorizontalData(steps, options)
+            expect(dataAcross(result, 0)).toEqual([60, 1.5, 5]) // mobile: count share of the aggregate rate
+            expect(dataAcross(result, 1)).toEqual([40, 1, 1.5]) // desktop
+            expect(result.map(stackTotal)).toEqual([100, 100, 100]) // segments + filler always close the track
         })
     })
 
