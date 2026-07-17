@@ -85,6 +85,41 @@ describe('experimentReplayTabLogic', () => {
         remounted.unmount()
     })
 
+    it('falls back to "All" when the persisted variant no longer exists', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setSelectedVariantKey('test')
+        }).toMatchValues({ selectedVariantKey: 'test' })
+        logic.unmount()
+
+        // Same experiment id, so the persisted "test" rehydrates — but the variant has since been renamed.
+        const renamed = {
+            ...EXPERIMENT,
+            feature_flag: {
+                filters: {
+                    multivariate: {
+                        variants: [
+                            { key: 'control', rollout_percentage: 50 },
+                            { key: 'test_v2', rollout_percentage: 50 },
+                        ],
+                    },
+                },
+            },
+        } as unknown as Experiment
+        const remounted = experimentReplayTabLogic({ experiment: renamed })
+        remounted.mount()
+
+        expect(remounted.values.selectedVariantKey).toBe('test')
+        expect(remounted.values.effectiveVariantKey).toBeNull()
+        // The stale key must not leak into the query; the filter falls back to all variants.
+        expect(remounted.values.recordingsFilters.filter_group.values).toEqual([
+            {
+                type: FilterLogicalOperator.And,
+                values: getViewRecordingFiltersForVariant(renamed, undefined),
+            },
+        ])
+        remounted.unmount()
+    })
+
     it('narrows the filter to the selected variant, keeping the run window', async () => {
         await expectLogic(logic, () => {
             logic.actions.setSelectedVariantKey('test')

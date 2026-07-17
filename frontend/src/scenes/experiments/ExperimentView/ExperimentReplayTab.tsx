@@ -17,7 +17,7 @@ const ALL_VARIANTS = '$all'
 
 export function ExperimentReplayTab({ experiment }: { experiment: Experiment }): JSX.Element {
     const logic = experimentReplayTabLogic({ experiment })
-    const { selectedVariantKey, variantKeys, recordingsFilters, exposureUnlinkable } = useValues(logic)
+    const { effectiveVariantKey, variantKeys, recordingsFilters, exposureUnlinkable } = useValues(logic)
     const { setSelectedVariantKey } = useActions(logic)
 
     if (!isLaunched(experiment)) {
@@ -33,7 +33,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
             <div className="mb-2">
                 <LemonSegmentedButton
                     size="small"
-                    value={selectedVariantKey ?? ALL_VARIANTS}
+                    value={effectiveVariantKey ?? ALL_VARIANTS}
                     onChange={(value) => setSelectedVariantKey(value === ALL_VARIANTS ? null : value)}
                     options={[
                         { value: ALL_VARIANTS, label: 'All' },

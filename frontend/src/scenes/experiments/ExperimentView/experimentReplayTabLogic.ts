@@ -19,6 +19,7 @@ export interface experimentReplayTabLogicValues {
     linkabilityLoaded: boolean // viewRecordingsLinkabilityLogic
     unlinkableEventNames: Set<string> // viewRecordingsLinkabilityLogic
     exposureUnlinkable: boolean
+    effectiveVariantKey: string | null
     recordingsFilters: RecordingUniversalFilters
     selectedVariantKey: string | null
     variantKeys: string[]
@@ -37,7 +38,8 @@ export interface experimentReplayTabLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         variantKeys: (arg: any) => string[]
         exposureUnlinkable: (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, arg: any) => boolean
-        recordingsFilters: (selectedVariantKey: string | null, arg: any) => RecordingUniversalFilters
+        effectiveVariantKey: (selectedVariantKey: string | null, variantKeys: string[]) => string | null
+        recordingsFilters: (effectiveVariantKey: string | null, arg: any) => RecordingUniversalFilters
     }
 }
 
@@ -93,9 +95,14 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 applySessionLinkability(getViewRecordingFiltersForVariant(experiment), unlinkableEventNames)
                     .exposureUnlinkable,
         ],
+        effectiveVariantKey: [
+            (s) => [s.selectedVariantKey, s.variantKeys],
+            (selectedVariantKey: string | null, variantKeys: string[]): string | null =>
+                selectedVariantKey !== null && variantKeys.includes(selectedVariantKey) ? selectedVariantKey : null,
+        ],
         recordingsFilters: [
-            (s) => [s.selectedVariantKey, (_, props) => props.experiment],
-            (selectedVariantKey: string | null, experiment: Experiment): RecordingUniversalFilters => ({
+            (s) => [s.effectiveVariantKey, (_, props) => props.experiment],
+            (effectiveVariantKey: string | null, experiment: Experiment): RecordingUniversalFilters => ({
                 ...DEFAULT_RECORDING_FILTERS,
                 date_from: experiment.start_date ?? DEFAULT_RECORDING_FILTERS.date_from,
                 date_to: experiment.end_date ?? null,
@@ -105,7 +112,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                     values: [
                         {
                             type: FilterLogicalOperator.And,
-                            values: getViewRecordingFiltersForVariant(experiment, selectedVariantKey ?? undefined),
+                            values: getViewRecordingFiltersForVariant(experiment, effectiveVariantKey ?? undefined),
                         },
                     ],
                 },
