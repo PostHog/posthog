@@ -121,6 +121,12 @@ class BriefSettingsSerializer(serializers.Serializer):
         max_value=20,
         help_text="Maximum opportunities kept per brief. Default 3.",
     )
+    max_annotations = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=100,
+        help_text="Maximum annotations gathered as context per brief. Default 20.",
+    )
 
 
 class BriefConfigSerializer(serializers.ModelSerializer):
@@ -308,6 +314,14 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
     posthog_feature_flag = PULSE_FEATURE_FLAG
     permission_classes = [PostHogFeatureFlagPermission, PulseProjectWritePermission]
     queryset = ProductBrief.objects.unscoped()
+
+    def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
+        source_read_scopes = ["annotation:read", "subscription:read", "alert:read", "insight:read"]
+        if self.action == "generate":
+            return ["project:write", *source_read_scopes]
+        if self.action in ("list", "retrieve"):
+            return ["project:read", *source_read_scopes]
+        return None
 
     def safely_get_queryset(self, queryset: QuerySet[ProductBrief]) -> QuerySet[ProductBrief]:
         return (
