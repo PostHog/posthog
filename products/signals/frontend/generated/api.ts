@@ -269,8 +269,8 @@ export const getSignalsReportsStateCreateUrl = (projectId: string, id: string) =
  * so internal transition_to kwargs (reset_weight, error, ...) can't be injected.
  *
  * Body: {
- *     "state": "suppressed" | "potential",
- *     # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
+ *     "state": "suppressed" | "potential" | "resolved",
+ *     # Optional dismissal feedback (honored when state == "suppressed", "potential", or "resolved"):
  *     "dismissal_reason": "<canonical reason code, see SIGNAL_REPORT_DISMISSAL_REASON_CHOICES>",
  *     "dismissal_note": "free-form text",
  *     # Optional, only honored for state == "potential":

@@ -120,11 +120,11 @@ tools:
             for clearing, snoozing, or resolving a batch of inbox reports without one request per report. Pass `ids`
             (1–100 report ids) and a `state` ('resolved' when the requested work is done, 'suppressed' to dismiss,
             'potential' to snooze/restore); the optional `dismissal_reason` (same canonical codes as the single-report
-            tool), `dismissal_note`, and `snooze_for` apply to every id. Each
-            id is processed independently, so the whole call returns 200 even on partial failure: inspect `results` (one
-            entry per id, in request order) and the `transitioned_count` / `skipped_count` / `failed_count` /
-            `not_found_count` summary. An id whose transition isn't allowed from its current status comes back as
-            `skipped` (the single-report 409) while the rest still go through.
+            tool), `dismissal_note`, and `snooze_for` apply to every id. Each id is processed independently, so the
+            whole call returns 200 even on partial failure: inspect `results` (one entry per id, in request order) and
+            the `transitioned_count` / `skipped_count` / `failed_count` / `not_found_count` summary. An id whose
+            transition isn't allowed from its current status comes back as `skipped` (the single-report 409) while the
+            rest still go through.
     inbox-reports-list:
         operation: signals_reports_list
         enabled: true
@@ -231,8 +231,8 @@ tools:
             from the inbox UI (`already_fixed`, `report_unclear`, `analysis_wrong`, `wontfix_intentional`,
             `wontfix_irrelevant`, `other`), so it renders as a labelled chip rather than a raw string; on a 'resolved'
             transition it records why it was resolved. When the requested work is done, prefer state='resolved' over
-            `already_fixed`+snooze — reserve `already_fixed` with state='potential' for "fixed by something else /
-            might recur" cases, so the report reappears if the issue comes back. Use `other` plus a `dismissal_note`
+            `already_fixed`+snooze — reserve `already_fixed` with state='potential' for "fixed by something else / might
+            recur" cases, so the report reappears if the issue comes back. Use `other` plus a `dismissal_note`
             (free-form text, up to 4000 chars) for anything that doesn't fit a code. Both are persisted as a DISMISSAL
             artefact on the report so the rationale survives later transitions. Returns 409 if the transition is not
             allowed from the report's current status. To transition several reports at once, use
