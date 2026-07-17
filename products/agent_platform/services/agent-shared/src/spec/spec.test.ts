@@ -1157,4 +1157,28 @@ describe('authoritative_provider trigger gating (fail-closed)', () => {
             })
         ).toThrow(/not yet enforced/)
     })
+
+    describe('memory_spaces grants', () => {
+        it('parses grants and defaults access to read', () => {
+            const spec = AgentSpecSchema.parse({ memory_spaces: [{ space: 'team-runbooks' }] })
+            expect(spec.memory_spaces).toEqual([{ space: 'team-runbooks', access: 'read' }])
+        })
+
+        it('accepts read_write and rejects an invalid slug', () => {
+            expect(
+                AgentSpecSchema.safeParse({ memory_spaces: [{ space: 'audit', access: 'read_write' }] }).success
+            ).toBe(true)
+            expect(AgentSpecSchema.safeParse({ memory_spaces: [{ space: 'Bad Slug' }] }).success).toBe(false)
+        })
+
+        it('rejects duplicate space grants', () => {
+            const res = AgentSpecSchema.safeParse({
+                memory_spaces: [{ space: 'dup' }, { space: 'dup', access: 'read_write' }],
+            })
+            expect(res.success).toBe(false)
+            if (!res.success) {
+                expect(res.error.issues.some((i) => i.path.includes('memory_spaces'))).toBe(true)
+            }
+        })
+    })
 })

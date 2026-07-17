@@ -141,6 +141,9 @@ export const TypedSpecSchema = z
         // source of truth) rather than re-spelling it — the old string-only
         // array silently rejected host-scoped secrets at bundle PUT.
         secrets: z.array(SecretRefSchema).optional(),
+        // Shared memory space grants — author-written, passed through here and
+        // validated in full by AgentSpecSchema at freeze (see MemorySpaceGrantSchema).
+        memory_spaces: z.array(z.unknown()).optional(),
         limits: z.unknown().optional(),
         reasoning: z.string().optional(),
         framework_prompt: z.unknown().optional(),

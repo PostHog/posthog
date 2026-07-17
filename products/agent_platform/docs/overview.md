@@ -26,7 +26,7 @@ flowchart TB
     pg[("POSTHOG_DB<br/>applications · revisions<br/>(spec + bundle_uri)")]
     ag[("AGENT_DB<br/>session queue · users · identities")]
     bundles[("Bundle store · S3")]
-    memory[("Memory store · S3<br/>per team + app")]
+    memory[("Memory store · S3<br/>per team + app, or shared space")]
 
     authors -->|author spec + tools| django
     django <-->|bundle ops| janitor

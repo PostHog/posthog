@@ -6,7 +6,8 @@
  * logs, dedup, and simple lookups (seen-sets, archive logs, etc.) live here.
  *
  * Storage: one JSONL object per table at
- *   <bucketPrefix>/team/<team_id>/agent/<application_slug>/tables/<name>.jsonl
+ *   <bucketPrefix>/team/<team_id>/agent/<application_id>/tables/<name>.jsonl (private)
+ *   <bucketPrefix>/team/<team_id>/space/<slug>/tables/<name>.jsonl           (shared space)
  * Rows are JSON objects. The determinism lives in THIS code (Node), not in S3
  * and not in the model: each op GETs the whole object, computes in-process, and
  * conditionally PUTs back. S3 is a blob store, so whole-object read-modify-write
@@ -19,7 +20,7 @@
  * Where the backend ignores conditionals it degrades to last-write-wins.
  */
 
-import { MemoryScope } from './store'
+import { MemoryScope, memoryOwnerSegment } from './store'
 
 export type TableScalar = string | number | boolean | null
 export type TableRow = Record<string, unknown>
@@ -126,7 +127,7 @@ export function tableKeyFor(scope: MemoryScope, name: string, bucketPrefix: stri
 
 export function tablesPrefixFor(scope: MemoryScope, bucketPrefix: string): string {
     const trimmed = bucketPrefix.replace(/^\/+|\/+$/g, '')
-    return `${trimmed}/team/${scope.teamId}/agent/${scope.applicationId}/tables/`
+    return `${trimmed}/team/${scope.teamId}/${memoryOwnerSegment(scope)}/tables/`
 }
 
 /** Parse JSONL into rows, skipping blank/corrupt lines (graceful degradation). */

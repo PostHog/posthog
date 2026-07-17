@@ -112,6 +112,17 @@ export interface ToolContext {
      */
     tabularStore?: TabularStore
     /**
+     * Shared memory spaces this agent's spec grants access to, keyed by space
+     * slug → { access }. Built once at session start straight from
+     * `spec.memory_spaces` — no DB lookup, no enumerating other agents. The
+     * memory/table tools accept an optional `space` arg and consult this map:
+     * reads need a `read` or `read_write` grant, writes need `read_write`; an
+     * ungranted space returns `access_denied`. `teamId` is never taken from a
+     * tool arg, so a grant only reaches spaces in the agent's own team.
+     * Absent/empty → the agent can use only its own private memory.
+     */
+    memorySpaceGrants?: ReadonlyMap<string, { access: 'read' | 'read_write' }>
+    /**
      * Resolve a per-session credential by target name. Set by ingress at
      * /run + /send (see `CredentialBroker`); returns null when the broker
      * isn't wired or the target isn't bound. Convention names:

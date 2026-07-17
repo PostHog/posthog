@@ -984,6 +984,27 @@ export const IdentityProviderConfigSchema = z.discriminatedUnion('kind', [
 export type IdentityProviderConfig = z.infer<typeof IdentityProviderConfigSchema>
 
 /**
+ * A grant of access to a shared memory space. `space` is a team-local slug; the
+ * space is owned by the space itself — not any agent — and several agents can be
+ * granted access to it, decoupling the data from any single agent. `access` is
+ * read-only or read+write. The runner builds the grant map straight off the
+ * frozen spec (no team-wide scan of other agents). `teamId` is always the
+ * session's team, so a grant can only reach spaces in the agent's own team
+ * (cross-team impossible). (Prefix/"folder"-scoped grants are a planned follow-up.)
+ */
+export const MemorySpaceGrantSchema = z.object({
+    space: z
+        .string()
+        .regex(/^[a-z0-9][a-z0-9_-]{0,63}$/, 'space must be a slug: lowercase a-z 0-9 _ - , no slashes')
+        .describe('Team-local shared memory space slug this agent may access.'),
+    access: z
+        .enum(['read', 'read_write'])
+        .default('read')
+        .describe('read = list/search/read only; read_write = also write/append/mutate within the space.'),
+})
+export type MemorySpaceGrant = z.infer<typeof MemorySpaceGrantSchema>
+
+/**
  * Base object shape, before the cross-field superRefine. Exported so the
  * author-facing `TypedSpecSchema` (storage/typed-bundle.ts) can guard its key
  * set against this single source of truth — a top-level field added here that
@@ -1055,6 +1076,13 @@ export const AgentSpecObjectSchema = z.object({
             'Secret names this agent can resolve from its encrypted env. Bare string = resolvable but no network-egress authority; object form pins the secret to allowed_hosts so @posthog/http-request may send it there.'
         )
         .default([]),
+    memory_spaces: z
+        .array(MemorySpaceGrantSchema)
+        .max(50)
+        .describe(
+            "Shared memory spaces this agent may use, beyond its own private memory. Each grant names a team-local space slug + access level (read or read_write). The memory/table tools take an optional `space` arg resolved against these grants; omit it to use the agent's own private memory. Empty = private memory only."
+        )
+        .default([]),
     limits: SpecLimitsSchema.default({
         max_turns: 50,
         max_tool_calls: 200,
@@ -1083,6 +1111,22 @@ export const AgentSpecObjectSchema = z.object({
 const ADMISSION_WIRED_TRIGGER_TYPES: readonly Trigger['type'][] = ['slack', 'chat']
 
 export const AgentSpecSchema = AgentSpecObjectSchema.superRefine((spec, ctx) => {
+    // Reject duplicate memory_spaces slugs so the runner's grant map can't have an
+    // ambiguous entry (slug FORMAT is enforced by the field regex).
+    const spaceSlugs = spec.memory_spaces.map((g) => g.space)
+    const dupSpace = spaceSlugs.find((s, i) => spaceSlugs.indexOf(s) !== i)
+    if (dupSpace) {
+        ctx.addIssue({
+            code: 'custom',
+            path: ['memory_spaces'],
+            message: `duplicate memory_spaces grant for "${dupSpace}" — declare each space at most once.`,
+        })
+    }
+    // NOTE: gating shared-space grants on agents reachable by untrusted callers
+    // (a posthog `authenticated` audience or `public` auth) is intentionally NOT
+    // handled here — that belongs with the untrusted-caller envelope in the
+    // authentication work, not this memory mechanism. See the PR description.
+
     // authoritative_provider must reference an identity_providers[] entry that can
     // prove a subject (posthog, or oauth2 with userinfo_url) — else admission
     // either 500s (unknown) or soft-locks (no subject) at runtime.

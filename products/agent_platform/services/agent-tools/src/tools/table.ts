@@ -13,6 +13,12 @@
  *
  * `where` is a map of column → value (equality) or a predicate object:
  *   { in: [...] } | { gt|gte|lt|lte: <number|string> }   (conditions AND together)
+ *
+ * Every tool accepts an optional `space` (a shared memory space slug): the op
+ * runs against that space's tables instead of the agent's own, but only when the
+ * agent's spec grants access — reads need a `read` grant, writes need
+ * `read_write`. `teamId` is never taken from the arg, so a grant can only reach
+ * spaces in the agent's own team. Omit `space` for the agent's own tables.
  */
 
 import {
@@ -42,8 +48,30 @@ type Result<T> = { ok: true; data: T } | { ok: false; error: string; code: strin
 const ok = <T>(data: T): Result<T> => ({ ok: true, data })
 const err = (error: string, code = 'error'): Result<never> => ({ ok: false, error, code })
 
-function scope(ctx: ToolContext): { teamId: number; applicationId: string } {
-    return { teamId: ctx.teamId, applicationId: ctx.applicationId }
+type Scope = { teamId: number; applicationId: string; space?: string }
+// Resolve the storage scope. `space` targets a shared memory space (see
+// MemoryStore); it's honoured only when the agent's spec grants access — reads
+// need any grant, writes need `read_write`. Omitting `space` = the agent's own
+// private tables (always allowed). `teamId` is NEVER taken from an arg, so a
+// grant can only reach spaces in the agent's own team. null = access denied.
+function resolveScope(ctx: ToolContext, space: string | undefined, needWrite: boolean): Scope | null {
+    if (space === undefined) {
+        return { teamId: ctx.teamId, applicationId: ctx.applicationId }
+    }
+    const grant = ctx.memorySpaceGrants?.get(space)
+    if (!grant || (needWrite && grant.access !== 'read_write')) {
+        return null
+    }
+    return { teamId: ctx.teamId, applicationId: ctx.applicationId, space }
+}
+const SPACE = Type.Optional(
+    Type.String({
+        description:
+            'Use a shared memory space instead of your own private tables: the space slug. Works only when your agent is granted access to that space (same team). Reads need a read grant; writes need read_write. Omit to use your own private tables.',
+    })
+)
+function denied(space: string | undefined): Result<never> {
+    return err(`no memory access to space '${space}'`, 'access_denied')
 }
 function storeOrError(ctx: ToolContext): TabularStore | { error: string } {
     if (!ctx.tabularStore) {
@@ -75,6 +103,7 @@ export const tableMembershipV1 = defineNativeTool({
         table: TABLE,
         key_column: Type.String({ description: 'The column holding the identifier to test membership against.' }),
         values: Type.Array(SCALAR, { description: 'Candidate values to test.' }),
+        space: SPACE,
     }),
     returns: RESULT,
     cost_hint: 'cheap',
@@ -83,8 +112,12 @@ export const tableMembershipV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error, 'unavailable')
         }
+        const sc = resolveScope(ctx, args.space, false)
+        if (!sc) {
+            return denied(args.space)
+        }
         try {
-            const res = await s.membership(scope(ctx), args.table, args.key_column, args.values)
+            const res = await s.membership(sc, args.table, args.key_column, args.values)
             return ok(res)
         } catch (e) {
             return err(asError(e), asCode(e))
@@ -103,6 +136,7 @@ export const tableAppendV1 = defineNativeTool({
         dedupe_on: Type.Optional(
             Type.String({ description: 'Column to dedupe on; skip rows whose key already exists.' })
         ),
+        space: SPACE,
     }),
     returns: RESULT,
     cost_hint: 'cheap',
@@ -111,8 +145,12 @@ export const tableAppendV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error, 'unavailable')
         }
+        const sc = resolveScope(ctx, args.space, true)
+        if (!sc) {
+            return denied(args.space)
+        }
         try {
-            const res = await s.append(scope(ctx), args.table, args.rows, { dedupeOn: args.dedupe_on })
+            const res = await s.append(sc, args.table, args.rows, { dedupeOn: args.dedupe_on })
             return ok(res)
         } catch (e) {
             return err(asError(e), asCode(e))
@@ -132,6 +170,7 @@ export const tableQueryV1 = defineNativeTool({
         order_by: Type.Optional(Type.String({ description: 'Sort by this column.' })),
         desc: Type.Optional(Type.Boolean({ description: 'Descending order.' })),
         limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })),
+        space: SPACE,
     }),
     returns: RESULT,
     cost_hint: 'cheap',
@@ -140,8 +179,12 @@ export const tableQueryV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error, 'unavailable')
         }
+        const sc = resolveScope(ctx, args.space, false)
+        if (!sc) {
+            return denied(args.space)
+        }
         try {
-            const rows = await s.query(scope(ctx), args.table, {
+            const rows = await s.query(sc, args.table, {
                 where: args.where as Where,
                 columns: args.columns,
                 order_by: args.order_by,
@@ -159,7 +202,7 @@ export const tableCountV1 = defineNativeTool({
     id: '@posthog/table-count',
     approval: 'allow',
     description: 'Count rows in a table matching `where` (or all rows if omitted).',
-    args: Type.Object({ table: TABLE, where: Type.Optional(WHERE) }),
+    args: Type.Object({ table: TABLE, where: Type.Optional(WHERE), space: SPACE }),
     returns: RESULT,
     cost_hint: 'cheap',
     async run(args, ctx) {
@@ -167,8 +210,12 @@ export const tableCountV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error, 'unavailable')
         }
+        const sc = resolveScope(ctx, args.space, false)
+        if (!sc) {
+            return denied(args.space)
+        }
         try {
-            return ok({ count: await s.count(scope(ctx), args.table, args.where as Where) })
+            return ok({ count: await s.count(sc, args.table, args.where as Where) })
         } catch (e) {
             return err(asError(e), asCode(e))
         }
@@ -179,7 +226,7 @@ export const tableDeleteV1 = defineNativeTool({
     id: '@posthog/table-delete',
     approval: 'allow',
     description: 'Delete rows from a table matching `where` (required). Returns how many were removed.',
-    args: Type.Object({ table: TABLE, where: WHERE }),
+    args: Type.Object({ table: TABLE, where: WHERE, space: SPACE }),
     returns: RESULT,
     cost_hint: 'cheap',
     async run(args, ctx) {
@@ -187,8 +234,12 @@ export const tableDeleteV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error, 'unavailable')
         }
+        const sc = resolveScope(ctx, args.space, true)
+        if (!sc) {
+            return denied(args.space)
+        }
         try {
-            return ok(await s.delete(scope(ctx), args.table, args.where as Where))
+            return ok(await s.delete(sc, args.table, args.where as Where))
         } catch (e) {
             return err(asError(e), asCode(e))
         }
@@ -199,7 +250,7 @@ export const tableTruncateV1 = defineNativeTool({
     id: '@posthog/table-truncate',
     approval: 'allow',
     description: 'Remove an entire table (all rows). Use to reset state.',
-    args: Type.Object({ table: TABLE }),
+    args: Type.Object({ table: TABLE, space: SPACE }),
     returns: RESULT,
     cost_hint: 'cheap',
     async run(args, ctx) {
@@ -207,8 +258,12 @@ export const tableTruncateV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error, 'unavailable')
         }
+        const sc = resolveScope(ctx, args.space, true)
+        if (!sc) {
+            return denied(args.space)
+        }
         try {
-            await s.truncate(scope(ctx), args.table)
+            await s.truncate(sc, args.table)
             return ok({ truncated: args.table })
         } catch (e) {
             return err(asError(e), asCode(e))
