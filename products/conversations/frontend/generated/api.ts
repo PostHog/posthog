@@ -17,6 +17,7 @@ import type {
     ComposeTicketApi,
     ComposeTicketResponseApi,
     ConversationApi,
+    ConversationMinimalApi,
     ConversationsListParams,
     ConversationsTicketsListParams,
     ConversationsTicketsMessagesListParams,
@@ -288,6 +289,24 @@ export const conversationsQueueClearCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(conversationApi),
+    })
+}
+
+export const getConversationsShareCreateUrl = (projectId: string, conversation: string) => {
+    return `/api/projects/${projectId}/conversations/${conversation}/share/`
+}
+
+/**
+ * Share an internal conversation for direct-link access. Only available while impersonating (support agents). The conversation stays out of everyone's history, so only people who have the link can open it.
+ */
+export const conversationsShareCreate = async (
+    projectId: string,
+    conversation: string,
+    options?: RequestInit
+): Promise<ConversationMinimalApi> => {
+    return apiMutator<ConversationMinimalApi>(getConversationsShareCreateUrl(projectId, conversation), {
+        ...options,
+        method: 'POST',
     })
 }
 

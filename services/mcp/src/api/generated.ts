@@ -14832,6 +14832,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly is_internal: boolean | null;
+      /** Whether an internal conversation has been explicitly shared for direct-link access. When true, project members who have the link can open the conversation even though it never appears in their history. */
+      readonly shared_via_link: boolean;
       /**
          * Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'
          * @nullable
@@ -14891,6 +14893,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly is_internal: boolean | null;
+      /** Whether an internal conversation has been explicitly shared for direct-link access. When true, project members who have the link can open the conversation even though it never appears in their history. */
+      readonly shared_via_link: boolean;
       /**
          * Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'
          * @nullable
@@ -42782,6 +42786,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly is_internal?: boolean | null;
+      /** Whether an internal conversation has been explicitly shared for direct-link access. When true, project members who have the link can open the conversation even though it never appears in their history. */
+      readonly shared_via_link?: boolean;
       /**
          * Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'
          * @nullable
