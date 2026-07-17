@@ -46,7 +46,7 @@ import argparse
 from collections import Counter
 from collections.abc import Iterator
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import requests
 
@@ -118,7 +118,13 @@ def setup_session_auth(session: requests.Session, host: str, session_id: str) ->
     Before anything runs - reads included - the operator must type the authenticated user's
     email to confirm they know who the session acts as.
     """
-    session.cookies.set("sessionid", session_id)
+    parsed = urlparse(host)
+    is_local = parsed.hostname in ("localhost", "127.0.0.1")
+    if parsed.scheme != "https" and not is_local:
+        raise PruneError(f"Refusing to send a session cookie to a non-HTTPS host: {host}")
+    # Scope the cookie to this host (and require HTTPS) so requests never attaches the
+    # session to another origin - e.g. via a mistyped --host or a cross-origin redirect.
+    session.cookies.set("sessionid", session_id, domain=parsed.hostname, secure=not is_local)
     request_with_retries(session, "GET", f"{host}/login")
     csrf_token = session.cookies.get("posthog_csrftoken")
     if not csrf_token:
