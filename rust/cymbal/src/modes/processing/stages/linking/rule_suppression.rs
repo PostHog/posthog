@@ -38,7 +38,7 @@ impl ValueOperator for RuleSuppression {
         rules.sort_unstable_by_key(|r| r.order_key);
 
         // Only serialize the event once we know the team has suppression rules.
-        let props_json = input.to_properties_value();
+        let props_json = input.suppression_rule_properties();
 
         for rule in rules {
             match rule.should_suppress(&props_json, &input.uuid()) {
