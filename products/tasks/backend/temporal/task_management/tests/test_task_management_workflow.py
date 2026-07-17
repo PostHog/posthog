@@ -327,6 +327,51 @@ class TestShouldRunCIFollowUp:
         assert decision is expected_decision
         assert workflow._pr_fingerprint == expected_fingerprint
 
+    @pytest.mark.parametrize(
+        "prev_threads,new_threads,fingerprint,expected_decision",
+        [
+            # New review threads are feedback — fire even when the fingerprint
+            # hasn't moved.
+            (0, 2, "fp-0", CIFollowUpDecision.FIRE),
+            # Resolving threads is not feedback.
+            (2, 1, "fp-0", CIFollowUpDecision.SKIP),
+            # A green change with a stable thread count stays quiet.
+            (2, 2, "fp-1", CIFollowUpDecision.SKIP),
+            # A green change accompanied by new feedback fires.
+            (0, 3, "fp-1", CIFollowUpDecision.FIRE),
+        ],
+    )
+    async def test_new_review_threads_fire_follow_up(
+        self,
+        monkeypatch,
+        silent_workflow_logger,
+        prev_threads,
+        new_threads,
+        fingerprint,
+        expected_decision,
+    ):
+        workflow = TaskManagementWorkflow()
+        workflow._context = _build_context()
+        workflow._pr_fingerprint = "fp-0"
+        workflow._pr_unresolved_threads = prev_threads
+
+        async def fake_execute_activity(activity_fn, *args, **kwargs):
+            return GetPrContextOutput(
+                pr_url="https://github.com/org/repo/pull/1",
+                pr_state="open",
+                fingerprint=fingerprint,
+                ci_status="passing",
+                unresolved_threads=new_threads,
+            )
+
+        monkeypatch.setattr(task_management_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        decision = await workflow._should_run_ci_follow_up()
+
+        assert decision is expected_decision
+        # The count must track last-seen (not max) so post-resolve feedback re-fires.
+        assert workflow._pr_unresolved_threads == new_threads
+
     async def test_returns_skip_when_fingerprint_unchanged(self, monkeypatch, silent_workflow_logger):
         workflow = TaskManagementWorkflow()
         workflow._context = _build_context()

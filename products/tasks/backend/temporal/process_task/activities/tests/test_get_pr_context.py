@@ -178,6 +178,7 @@ class TestGetPrContextActivity:
         # its fire/skip decision on them.
         assert result.ci_status == "failing"
         assert result.changes_requested is True
+        assert result.unresolved_threads == 1
         integration.get_pull_request_snapshot.assert_called_once_with(pr_url)
 
     @pytest.mark.django_db

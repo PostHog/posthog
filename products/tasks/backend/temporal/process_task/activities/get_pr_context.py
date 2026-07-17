@@ -30,6 +30,7 @@ class GetPrContextOutput:
     # Defaults keep replay of pre-rollout activity results deserializable.
     ci_status: str = "none"
     changes_requested: bool = False
+    unresolved_threads: int = 0
 
 
 def is_pr_actionable(pr: GetPrContextOutput) -> bool:
@@ -152,4 +153,5 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
             fingerprint=fingerprint,
             ci_status=pull_request.get("ci_status", "none"),
             changes_requested=pull_request.get("review_decision") == "changes_requested",
+            unresolved_threads=pull_request.get("unresolved_threads", 0),
         )
