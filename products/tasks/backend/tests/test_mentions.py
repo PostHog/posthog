@@ -2,7 +2,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.tasks.backend.mentions import extract_mention_emails
+from products.tasks.backend.mentions import extract_mention_emails, render_mention_tokens
 
 
 class ExtractMentionEmailsTest(SimpleTestCase):
@@ -25,3 +25,21 @@ class ExtractMentionEmailsTest(SimpleTestCase):
     )
     def test_extract_mention_emails(self, _name, content, expected):
         assert extract_mention_emails(content) == expected
+
+
+class RenderMentionTokensTest(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("single_mention", "hey @[Ann](ann@example.com), thoughts?", "hey @Ann, thoughts?"),
+            (
+                "multiple_mentions",
+                "@[Ann](ann@example.com) and @[Bob Two](bob@example.com)",
+                "@Ann and @Bob Two",
+            ),
+            ("non_token_text_untouched", "mail ann@example.com directly", "mail ann@example.com directly"),
+            ("malformed_token_untouched", "@[Ann](not-an-email)", "@[Ann](not-an-email)"),
+            ("empty_content", "", ""),
+        ]
+    )
+    def test_render_mention_tokens(self, _name, content, expected):
+        assert render_mention_tokens(content) == expected

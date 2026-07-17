@@ -903,6 +903,31 @@ class TaskThreadMessageMention(TeamScopedRootMixin):
         return f"Mention of user {self.mentioned_user_id} in message {self.message_id}"
 
 
+class CodeUserNotificationSettings(models.Model):
+    """Per-user PostHog Code notification preferences. User-scoped, not team-scoped:
+    the settings follow the user across projects (the Slack integration is resolved
+    per-team at send time). A missing row means every opt-in notification is off."""
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # db_constraint=False on the user FK: posthog_user is written on virtually every
+    # request, and adding an FK constraint takes a lock that stalls deploys; Django
+    # still enforces the relation and on_delete at the app level (see safe-django-migrations.md).
+    user = models.OneToOneField(
+        "posthog.User", on_delete=models.CASCADE, related_name="code_notification_settings", db_constraint=False
+    )
+    # Slack DM when someone @-mentions the user in a channel thread. Opt-in.
+    slack_mention_notifications = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_code_user_notification_settings"
+
+    def __str__(self):
+        return f"Code notification settings for user {self.user_id}"
+
+
 class ChannelFeedMessage(TeamScopedRootMixin):
     """A durable, team-visible announcement in a channel's feed — rendered alongside
     task cards as a "PostHog agent" system row (e.g. "Adam created this context").

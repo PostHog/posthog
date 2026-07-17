@@ -4,6 +4,7 @@ import products.tasks.backend.presentation.views.api as tasks
 import products.tasks.backend.presentation.views.seat_api as seats
 import products.tasks.backend.presentation.views.channels_api as channels
 import products.tasks.backend.presentation.views.code_home_api as code_home
+import products.tasks.backend.presentation.views.user_settings_api as user_settings
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -40,4 +41,5 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(r"code_workflow", code_home.CodeWorkflowViewSet, "project_code_workflow", ["team_id"])
     routers.projects.register(r"code_home", code_home.CodeHomeViewSet, "project_code_home", ["team_id"])
     routers.root.register(r"code/invites", tasks.CodeInviteViewSet, "code_invites")
+    routers.root.register(r"code/user_settings", user_settings.CodeUserSettingsViewSet, "code_user_settings")
     routers.root.register(r"seats", seats.SeatViewSet, "seats")

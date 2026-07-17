@@ -25,6 +25,7 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import (
     ChannelDTO,
     ChannelFeedMessageDTO,
+    CodeUserNotificationSettingsDTO,
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
     TaskAutomationDTO,
@@ -1442,6 +1443,27 @@ class TaskMentionSerializer(DataclassSerializer):
             "content",
             "created_at",
         ]
+
+
+class CodeUserNotificationSettingsSerializer(DataclassSerializer):
+    """Response shape for the requester's PostHog Code notification settings."""
+
+    slack_mention_notifications = serializers.BooleanField(
+        help_text="Send a Slack DM when someone @-mentions the requester in a channel thread."
+    )
+
+    class Meta:
+        dataclass = CodeUserNotificationSettingsDTO
+        fields = ["slack_mention_notifications"]
+
+
+class CodeUserNotificationSettingsWriteSerializer(serializers.Serializer):
+    """Write shape for updating the requester's PostHog Code notification settings."""
+
+    slack_mention_notifications = serializers.BooleanField(
+        required=True,
+        help_text="Send a Slack DM when someone @-mentions the requester in a channel thread.",
+    )
 
 
 class TaskRepositoriesResponseSerializer(serializers.Serializer):

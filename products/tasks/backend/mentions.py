@@ -10,7 +10,7 @@ from typing import Any
 
 from django.db.models.functions import Lower
 
-MENTION_TOKEN_PATTERN = re.compile(r"@\[[^\][\n]+\]\(([^\s()]+@[^\s()]+)\)")
+MENTION_TOKEN_PATTERN = re.compile(r"@\[(?P<name>[^\][\n]+)\]\((?P<email>[^\s()]+@[^\s()]+)\)")
 
 # Content length is unbounded, so cap how many distinct emails one message may
 # resolve to keep the lookup's IN list from growing with attacker-sized input.
@@ -19,7 +19,12 @@ MAX_RESOLVED_MENTIONS_PER_MESSAGE = 50
 
 def extract_mention_emails(content: str) -> set[str]:
     """Emails mentioned in the content, lowercased and deduped."""
-    return {match.group(1).lower() for match in MENTION_TOKEN_PATTERN.finditer(content)}
+    return {match.group("email").lower() for match in MENTION_TOKEN_PATTERN.finditer(content)}
+
+
+def render_mention_tokens(content: str) -> str:
+    """Content with mention tokens flattened to ``@Display Name`` for plain-text surfaces."""
+    return MENTION_TOKEN_PATTERN.sub(lambda match: f"@{match.group('name')}", content)
 
 
 def format_mention_token(name: str, email: str) -> str:

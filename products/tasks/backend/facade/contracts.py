@@ -209,6 +209,13 @@ class TaskMentionDTO:
 
 
 @dataclass(frozen=True)
+class CodeUserNotificationSettingsDTO:
+    """The requester's PostHog Code notification preferences."""
+
+    slack_mention_notifications: bool
+
+
+@dataclass(frozen=True)
 class TaskLatestRunSummaryDTO:
     """The latest-run status/environment pair nested in a task summary response."""
 

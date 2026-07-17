@@ -9,8 +9,16 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.integration import Integration
 
-from products.tasks.backend.models import Channel, ChannelFeedMessage, Task, TaskRun, TaskThreadMessage
+from products.tasks.backend.models import (
+    Channel,
+    ChannelFeedMessage,
+    CodeUserNotificationSettings,
+    Task,
+    TaskRun,
+    TaskThreadMessage,
+)
 
 
 class ChannelsAPITestCase(TestCase):
@@ -498,3 +506,72 @@ class ChannelFeedMessageAPITestCase(TestCase):
         # Same org, wrong team in the URL — the channel must not resolve.
         response = self.client.get(f"/api/projects/{other_team.id}/task_channels/{channel_id}/feed/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class ThreadMessageMentionSlackDMTestCase(ChannelTaskAPITestCase):
+    """Posting a thread message that @-mentions an opted-in teammate dispatches a Slack DM."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        Integration.objects.create(team=self.team, kind="slack", sensitive_config={"access_token": "xoxb-test"})
+        CodeUserNotificationSettings.objects.create(user=self.peer, slack_mention_notifications=True)
+
+    def _thread_url(self) -> str:
+        return f"/api/projects/{self.team.id}/tasks/{self.task.id}/thread_messages/"
+
+    def _post_mention(self):
+        # Dispatch rides on transaction.on_commit; Celery runs eagerly in tests.
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.author_client.post(self._thread_url(), {"content": "ping @[Bob](peer@example.com)"})
+
+    @patch("products.tasks.backend.slack_mention_notifications.SlackIntegration")
+    def test_mention_dispatches_slack_dm(self, slack_cls):
+        slack = slack_cls.return_value
+        slack.lookup_user_id_by_email.return_value = "U123"
+
+        response = self._post_mention()
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        slack.client.chat_postMessage.assert_called_once()
+        self.assertEqual(slack.client.chat_postMessage.call_args.kwargs["channel"], "U123")
+
+    @patch("products.tasks.backend.slack_mention_notifications.SlackIntegration")
+    def test_slack_failure_does_not_fail_message_creation(self, slack_cls):
+        slack_cls.return_value.lookup_user_id_by_email.side_effect = Exception("slack down")
+
+        response = self._post_mention()
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+
+    @patch("products.tasks.backend.slack_mention_notifications.SlackIntegration")
+    def test_no_dm_when_recipient_not_opted_in(self, slack_cls):
+        CodeUserNotificationSettings.objects.filter(user=self.peer).update(slack_mention_notifications=False)
+
+        response = self._post_mention()
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        slack_cls.return_value.client.chat_postMessage.assert_not_called()
+
+
+class CodeUserSettingsAPITestCase(ChannelTaskAPITestCase):
+    url = "/api/code/user_settings/"
+
+    def test_defaults_to_disabled_without_a_row(self):
+        response = self.author_client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json(), {"slack_mention_notifications": False})
+
+    def test_post_upserts_and_is_per_user(self):
+        response = self.author_client.post(self.url, {"slack_mention_notifications": True})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json(), {"slack_mention_notifications": True})
+        self.assertEqual(self.author_client.get(self.url).json(), {"slack_mention_notifications": True})
+        # Another user's settings are unaffected.
+        self.assertEqual(self.peer_client.get(self.url).json(), {"slack_mention_notifications": False})
+        # Toggling back off updates the existing row.
+        response = self.author_client.post(self.url, {"slack_mention_notifications": False})
+        self.assertEqual(response.json(), {"slack_mention_notifications": False})
+
+    def test_requires_authentication(self):
+        response = APIClient().get(self.url)
+        self.assertIn(response.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))

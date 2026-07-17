@@ -55,6 +55,7 @@ from products.tasks.backend.models import (
     ChannelFeedMessage,
     CodeInvite,
     CodeInviteRedemption,
+    CodeUserNotificationSettings,
     CodeWorkflowConfig,
     CodeWorkstream,
     SandboxCustomImage,
@@ -5037,6 +5038,8 @@ def _index_thread_message_mentions(message: TaskThreadMessage) -> None:
     mentioned_user_ids = resolve_mentioned_user_ids(
         User, message.content, team_id=message.team_id, author_id=message.author_id
     )
+    if not mentioned_user_ids:
+        return
     TaskThreadMessageMention.objects.for_team(message.team_id).bulk_create(
         [
             TaskThreadMessageMention(
@@ -5050,6 +5053,15 @@ def _index_thread_message_mentions(message: TaskThreadMessage) -> None:
         ],
         ignore_conflicts=True,
     )
+
+    from products.tasks.backend.tasks import (
+        send_thread_message_mention_dms,  # noqa: PLC0415 - keep celery task import lazy
+    )
+
+    # After commit so the task reads the mention rows it just indexed; Slack
+    # delivery stays off the request path and can never fail message creation.
+    message_id, team_id = str(message.id), message.team_id
+    transaction.on_commit(lambda: send_thread_message_mention_dms.delay(message_id, team_id))
 
 
 def list_mentions(
@@ -5081,6 +5093,24 @@ def list_mentions(
         )
         for mention in mentions
     ]
+
+
+def get_code_user_notification_settings(user_id: int) -> contracts.CodeUserNotificationSettingsDTO:
+    """The user's PostHog Code notification settings; all-defaults when never saved."""
+    config = CodeUserNotificationSettings.objects.filter(user_id=user_id).first()
+    return contracts.CodeUserNotificationSettingsDTO(
+        slack_mention_notifications=bool(config and config.slack_mention_notifications)
+    )
+
+
+def update_code_user_notification_settings(
+    user_id: int, *, slack_mention_notifications: bool
+) -> contracts.CodeUserNotificationSettingsDTO:
+    """Upsert the user's PostHog Code notification settings."""
+    CodeUserNotificationSettings.objects.update_or_create(
+        user_id=user_id, defaults={"slack_mention_notifications": slack_mention_notifications}
+    )
+    return contracts.CodeUserNotificationSettingsDTO(slack_mention_notifications=slack_mention_notifications)
 
 
 def delete_thread_message(message_id: str | UUID, task_id: str | UUID, team_id: int, user_id: int | None) -> str:

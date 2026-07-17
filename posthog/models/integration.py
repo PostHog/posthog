@@ -1511,6 +1511,34 @@ class SlackIntegration:
     def missing_scopes(self, required: Iterable[str]) -> frozenset[str]:
         return frozenset(required) - self.granted_scopes()
 
+    def lookup_user_id_by_email(self, email: str) -> str | None:
+        """The workspace member id for an email, or None when no member matches.
+
+        Swallows the expected ``users_not_found`` error; other Slack errors are
+        logged and treated as no-match so callers stay best-effort. Requires the
+        ``users:read.email`` scope.
+        """
+        normalized_email = email.strip().lower()
+        if not normalized_email:
+            return None
+
+        try:
+            response = self.client.users_lookupByEmail(email=normalized_email)
+        except SlackApiError as exc:
+            error_code = exc.response.get("error") if exc.response else None
+            if error_code != "users_not_found":
+                logger.warning("slack_user_email_lookup_failed", email=normalized_email, error=error_code)
+            return None
+
+        data = response.data if isinstance(getattr(response, "data", None), dict) else response
+        if not isinstance(data, dict) or not data.get("ok"):
+            return None
+
+        slack_user = data.get("user")
+        if not isinstance(slack_user, dict) or not slack_user.get("id"):
+            return None
+        return str(slack_user["id"])
+
     def list_channels(self, should_include_private_channels: bool, authed_user: str) -> list[dict]:
         # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
         # We load public and private channels separately as when mixed, the Slack API pagination is buggy
