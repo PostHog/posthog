@@ -1,5 +1,4 @@
 import json
-import threading
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -329,29 +328,6 @@ class _FakeStream:
     def iter_content(self, chunk_size: int = 1) -> Any:
         yield from self._chunks
 
-    def close(self) -> None:
-        pass
-
-
-class _NeverEndingStream:
-    """A read that blocks and never yields on its own — models a peer dripping bytes under the idle
-    read timeout, which closing the socket does not reliably interrupt. The deadline must be
-    enforced by bounding the wait, not by this stream cooperating."""
-
-    def __init__(self) -> None:
-        self._gate = threading.Event()
-        self.close_called = threading.Event()
-
-    def iter_content(self, chunk_size: int = 1) -> Any:
-        self._gate.wait()
-        return iter(())
-
-    def close(self) -> None:
-        self.close_called.set()
-
-    def release(self) -> None:
-        self._gate.set()
-
 
 class TestReadBounded:
     @pytest.mark.parametrize(
@@ -371,18 +347,13 @@ class TestReadBounded:
         with pytest.raises(ValueError):
             sonarqube._read_bounded(_FakeStream([b"aaaa", b"b"]))  # type: ignore[arg-type]
 
-    def test_deadline_fires_even_when_a_read_stays_blocked(self, monkeypatch) -> None:
-        # A read blocked mid-chunk (a server dripping bytes under the idle timeout) that never
-        # unblocks on its own must still fail by MAX_TRANSFER_SECONDS — the wait is bounded rather
-        # than relying on close() to interrupt the socket read.
-        monkeypatch.setattr(sonarqube, "MAX_TRANSFER_SECONDS", 0.05)
-        stream = _NeverEndingStream()
-        try:
-            with pytest.raises(ValueError):
-                sonarqube._read_bounded(stream)  # type: ignore[arg-type]
-            assert stream.close_called.is_set()  # best-effort close attempted at the deadline
-        finally:
-            stream.release()  # let the orphaned reader thread unwind
+    def test_raises_when_transfer_exceeds_deadline(self, monkeypatch) -> None:
+        # Fake monotonic clock: deadline is set on the first read, jumps past it before the second chunk.
+        ticks = iter([0.0, 1.0, 999.0])
+        monkeypatch.setattr(sonarqube.time, "monotonic", lambda: next(ticks))
+        monkeypatch.setattr(sonarqube, "MAX_TRANSFER_SECONDS", 10)
+        with pytest.raises(ValueError):
+            sonarqube._read_bounded(_FakeStream([b"aaaa", b"bbbb"]))  # type: ignore[arg-type]
 
 
 class TestValidateCredentials:

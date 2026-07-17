@@ -1,5 +1,5 @@
 import json
-import threading
+import time
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -127,54 +127,35 @@ def _extract_paging(data: dict[str, Any]) -> tuple[int, int, int]:
 
 
 def _read_bounded(response: requests.Response) -> bytes:
-    """Read a streamed response body into memory under a byte cap and a hard wall-clock deadline.
+    """Read a streamed response body into memory under a byte cap and a wall-clock deadline.
 
     `iter_content` yields content-decoded chunks, so the running total also caps decompressed
-    size — a small gzip bomb can't blow past the limit. The read runs in a helper thread that the
-    caller only waits on for ``MAX_TRANSFER_SECONDS``: closing a socket from another thread does
-    not reliably interrupt a urllib3 read blocked mid-chunk, so rather than depend on that we bound
-    the *wait*. A peer that drips bytes under the per-read idle timeout therefore can't hold the
-    import iterator past the deadline — we stop waiting and best-effort close the response so the
-    orphaned read can unwind. Raises a non-retryable ``ValueError`` when either bound is exceeded;
-    genuine transport errors surface unchanged so the caller's retry still applies.
+    size — a small gzip bomb can't blow past the limit. A monotonic deadline checked between
+    chunks bounds the whole transfer so a server that drips data can't hold the worker
+    indefinitely. Raises a non-retryable ``ValueError`` when either bound is exceeded. This mirrors
+    the `_read_capped_body` convention shared by the langfuse/instana/formbricks/qualys_vmdr
+    sources; the per-read idle timeout and the platform's 2-minute activity heartbeat are the
+    backstops for a read blocked mid-chunk.
     """
-    outcome: dict[str, Any] = {}
-
-    def _read() -> None:
-        chunks: list[bytes] = []
-        total = 0
-        try:
-            for chunk in response.iter_content(chunk_size=1024 * 1024):
-                if not chunk:
-                    continue
-                total += len(chunk)
-                if total > MAX_RESPONSE_BYTES:
-                    outcome["error"] = ValueError(
-                        f"SonarQube response exceeded the {MAX_RESPONSE_BYTES // (1024 * 1024)} MiB limit; "
-                        "check the configured server URL."
-                    )
-                    return
-                chunks.append(chunk)
-            outcome["body"] = b"".join(chunks)
-        except Exception as exc:
-            outcome["error"] = exc
-
-    reader = threading.Thread(target=_read, name="sonarqube-read", daemon=True)
-    reader.start()
-    reader.join(MAX_TRANSFER_SECONDS)
-
-    if reader.is_alive():
-        # The read is still blocked at the deadline (e.g. a peer dripping bytes under the idle
-        # timeout). Stop waiting so the import iterator isn't held; close best-effort so the
-        # orphaned reader can unwind once the connection tears down.
-        response.close()
-        raise ValueError(
-            f"SonarQube response exceeded the {MAX_TRANSFER_SECONDS}s transfer limit; check the configured server URL."
-        )
-
-    if "error" in outcome:
-        raise outcome["error"]
-    return outcome.get("body", b"")
+    started = time.monotonic()
+    total = 0
+    chunks: list[bytes] = []
+    for chunk in response.iter_content(chunk_size=1024 * 1024):
+        if not chunk:
+            continue
+        total += len(chunk)
+        if total > MAX_RESPONSE_BYTES:
+            raise ValueError(
+                f"SonarQube response exceeded the {MAX_RESPONSE_BYTES // (1024 * 1024)} MiB limit; "
+                "check the configured server URL."
+            )
+        if time.monotonic() - started > MAX_TRANSFER_SECONDS:
+            raise ValueError(
+                f"SonarQube response exceeded the {MAX_TRANSFER_SECONDS}s transfer limit; "
+                "check the configured server URL."
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 @retry(
