@@ -159,7 +159,10 @@ export interface dashboardSubscribeNudgeLogicMeta {
             isNotified: boolean,
             isDashboardEligible: boolean
         ) => boolean
-        isWithinSubscriptionLimit: (hasSubscriptionsFeature: boolean, freeTierSubscriptionCount: number | null) => boolean
+        isWithinSubscriptionLimit: (
+            hasSubscriptionsFeature: boolean,
+            freeTierSubscriptionCount: number | null
+        ) => boolean
         isEligible: (
             isCandidate: boolean,
             hasExistingSubscription: boolean | null,
