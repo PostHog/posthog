@@ -11520,6 +11520,7 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
     )
     _REDDIT_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source"
     _LINKEDIN_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source"
+    _SNAPCHAT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.source"
     _META_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.source"
 
     def setUp(self):
@@ -11609,6 +11610,73 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         # raises NotImplementedError — it must surface as a 400, not an unhandled 500.
         response = self.client.get(self._url("Salesforce", 1))
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def _snapchat_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="snapchat",
+            config={},
+            sensitive_config={"access_token": "token"},
+            integration_id="snapchat_test",
+            created_by=self.user,
+        )
+
+    def test_snapchat_maps_accounts_grouped_by_organization(self):
+        integration = self._snapchat_integration()
+        listed = [
+            ({"id": "acc-1", "name": "PostHog Self Service", "status": "PENDING"}, "PostHog"),
+            ({"id": "acc-2", "name": "PostHog", "status": "ACTIVE"}, "PostHog"),
+        ]
+        with (
+            patch(f"{self._SNAPCHAT_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._SNAPCHAT_MODULE}.list_ad_accounts", return_value=listed),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("SnapchatAds", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["accounts"] == [
+            {
+                "value": "acc-1",
+                "display_name": "PostHog Self Service",
+                "is_primary": False,
+                "badges": ["Pending"],
+                "group": "PostHog",
+                "secondary_text": None,
+            },
+            {
+                "value": "acc-2",
+                "display_name": "PostHog",
+                "is_primary": False,
+                "badges": ["Active"],
+                "group": "PostHog",
+                "secondary_text": None,
+            },
+        ]
+
+    @parameterized.expand([(401,), (403,)])
+    def test_snapchat_auth_error_returns_actionable_400(self, status_code: int):
+        integration = self._snapchat_integration()
+        with (
+            patch(f"{self._SNAPCHAT_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._SNAPCHAT_MODULE}.list_ad_accounts", side_effect=self._http_error(status_code)),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("SnapchatAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "reconnect your snapchat ads" in str(response.json()).lower()
+
+    def test_snapchat_non_auth_api_error_is_not_swallowed(self):
+        integration = self._snapchat_integration()
+        with (
+            patch(f"{self._SNAPCHAT_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._SNAPCHAT_MODULE}.list_ad_accounts", side_effect=self._http_error(500)),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("SnapchatAds", integration.id))
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
 
     def _reddit_integration(self, **kwargs) -> Integration:
         return Integration.objects.create(
