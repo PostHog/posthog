@@ -134,7 +134,11 @@ export default defineConfig(({ mode }) => {
             devSourcemap: true,
         },
         optimizeDeps: {
-            include: ['react', 'react-dom', 'buffer'],
+            // Pre-bundle the automatic JSX runtime that @vitejs/plugin-react injects into every .tsx
+            // file. If Vite discovers it mid-session instead of at cold start, it re-optimizes the dep
+            // cache, bumps the ?v= hash on .vite/deps URLs, and breaks in-flight dynamic imports
+            // ("error loading dynamically imported module").
+            include: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'buffer'],
             // snappy-wasm: don't pre-bundle so the WASM file stays with the JS.
             // @posthog/brand: its PNG stubs resolve assets via `new URL(..., import.meta.url)`,
             // which pre-bundling rewrites to .vite/deps/ where the images don't exist — hoggie
