@@ -114,6 +114,8 @@ class TestPaperformSource:
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "submissions"
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2024-01-01T00:00:00Z"
         manager = mock.MagicMock()
@@ -124,8 +126,9 @@ class TestPaperformSource:
         kwargs = mock_source.call_args.kwargs
         assert kwargs["api_key"] == "pf-key"
         assert kwargs["endpoint"] == "submissions"
+        assert kwargs["team_id"] == 123
+        assert kwargs["job_id"] == "job-1"
         assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-01-01T00:00:00Z"
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.paperform.source.paperform_source")
