@@ -2036,6 +2036,29 @@ export const TasksRunsLivingArtifactsEditBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Renders a PostHog insight (ad-hoc query JSON or a saved insight) to a PNG server-side and registers it as a slack_file living artifact in one call. Blocks until the render finishes.
+ * @summary Render an insight chart and attach it as a living artifact
+ */
+export const tasksRunsLivingArtifactsChartBodyNameMax = 255
+
+export const TasksRunsLivingArtifactsChartBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(tasksRunsLivingArtifactsChartBodyNameMax)
+        .describe('Chart title, also used as the delivered file name.'),
+    query: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Insight query JSON to render ad hoc, e.g. {\"kind\": \"InsightVizNode\", \"source\": {\"kind\": \"TrendsQuery\", ...}}. SQL queries (DataVisualizationNode, HogQLQuery) are not supported yet. Provide exactly one of query or insight_id.'
+        ),
+    insight_id: zod
+        .number()
+        .optional()
+        .describe('Numeric id of a saved insight to render. Provide exactly one of query or insight_id.'),
+})
+
+/**
  * API for a task's thread — the human-only side conversation around a task. Messages
  * reach the agent only via the explicit send_to_agent action, gated to the task author.
  * @summary Post a thread message

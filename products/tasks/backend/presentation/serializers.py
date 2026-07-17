@@ -11,7 +11,8 @@ from django.utils import timezone as django_timezone
 
 import posthoganalytics
 from croniter import croniter
-from drf_spectacular.utils import PolymorphicProxySerializer
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
@@ -886,6 +887,46 @@ class TaskRunLivingArtifactCreateRequestSerializer(serializers.Serializer):
                     {"content_base64": build_task_run_artifact_size_error(attrs.get("name"), max_size_bytes)}
                 )
         return attrs
+
+
+@extend_schema_field(OpenApiTypes.OBJECT)
+class InsightQueryJSONField(serializers.JSONField):
+    """Insight query JSON — freeform across query kinds, so typed as a plain object."""
+
+
+class TaskRunLivingArtifactChartRequestSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=255,
+        help_text="Chart title, also used as the delivered file name.",
+    )
+    query = InsightQueryJSONField(
+        required=False,
+        help_text=(
+            "Insight query JSON to render ad hoc, e.g. "
+            '{"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. '
+            "SQL queries (DataVisualizationNode, HogQLQuery) are not supported yet. "
+            "Provide exactly one of query or insight_id."
+        ),
+    )
+    insight_id = serializers.IntegerField(
+        required=False,
+        help_text="Numeric id of a saved insight to render. Provide exactly one of query or insight_id.",
+    )
+
+    def validate(self, attrs):
+        if (attrs.get("query") is None) == (attrs.get("insight_id") is None):
+            raise serializers.ValidationError({"query": "Provide exactly one of query or insight_id."})
+        return attrs
+
+
+class TaskRunLivingArtifactChartResponseSerializer(serializers.Serializer):
+    artifact = TaskRunLivingArtifactResponseSerializer(help_text="The living artifact registered for delivery.")
+    export_asset_id = serializers.IntegerField(help_text="Id of the rendered PNG export backing the chart.")
+    url = serializers.URLField(
+        allow_null=True,
+        required=False,
+        help_text="Link to explore this chart interactively in PostHog.",
+    )
 
 
 class TaskRunLivingArtifactEditRequestSerializer(serializers.Serializer):

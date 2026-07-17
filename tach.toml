@@ -712,6 +712,7 @@ depends_on = [
     "posthog",
     "products.error_tracking",
     "products.event_definitions",
+    "products.exports",
     "products.feature_flags",
     "products.ai_observability",
     "products.mcp_store",

@@ -11,6 +11,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.tasks.backend.logic.services.living_artifacts import (
     deliver_pending_slack_file_artifacts,
     has_pending_slack_file_artifacts,
+    has_pending_slack_image_artifacts,
 )
 
 logger = get_logger(__name__)
@@ -239,6 +240,10 @@ def _strip_inline_markdown(cell: str) -> str:
 # splitting at 3500 leaves comfortable headroom for the mention prefix and code-fence overhead.
 SLACK_MESSAGE_TEXT_LIMIT = 3500
 
+# Section blocks in a composed answer+charts message cap at 3000 characters — tighter
+# than plain message text; headroom for the mention prefix.
+SLACK_SECTION_TEXT_LIMIT = 2900
+
 _FENCED_CODE_RE = re.compile(r"```([^\n]*)\n([\s\S]*?)\n```")
 
 
@@ -393,11 +398,17 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
             origin_product=mapping.task.origin_product,
         )
 
+    # Pending chart images compose into a single Slack message together with the answer
+    # text (section blocks cap at 3000 chars, tighter than plain messages), so pick the
+    # chunk limit before splitting.
+    compose_with_charts = has_pending_slack_files and has_pending_slack_image_artifacts(task_run)
+    chunk_limit = SLACK_SECTION_TEXT_LIMIT if compose_with_charts else SLACK_MESSAGE_TEXT_LIMIT
+
     # Split the raw markdown first, then convert each chunk independently. Converting
     # per-chunk means an inline span broken by a hard char split (e.g. ``**bold**``
     # halved) stays literal in the output instead of leaving dangling Slack-mrkdwn
     # markers that would garble the rendering of surrounding text.
-    chunks = [_markdown_to_slack_mrkdwn(chunk) for chunk in _split_markdown_for_slack(text)]
+    chunks = [_markdown_to_slack_mrkdwn(chunk) for chunk in _split_markdown_for_slack(text, limit=chunk_limit)]
 
     context = SlackThreadContext(
         integration_id=mapping.integration_id,
@@ -413,19 +424,20 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     if input.delete_progress:
         handler.delete_progress()
 
-    delivered_file_count = 0
-    chunks_to_post = chunks
-    if has_pending_slack_files and chunks:
-        delivered_file_count = deliver_pending_slack_file_artifacts(
-            task_run,
-            initial_comment=f"{mention_prefix}{chunks[0]}",
-        )
-        if delivered_file_count:
-            chunks_to_post = chunks[1:]
+    answer_posted = False
+    if compose_with_charts:
+        sections = list(chunks)
+        if sections:
+            sections[0] = f"{mention_prefix}{sections[0]}"
+        answer_posted = deliver_pending_slack_file_artifacts(task_run, answer_sections=sections).answer_posted
 
-    for index, chunk in enumerate(chunks_to_post):
-        prefix = mention_prefix if delivered_file_count == 0 and index == 0 else ""
-        handler.post_thread_message(f"{prefix}{chunk}")
+    if not answer_posted:
+        for index, chunk in enumerate(chunks):
+            prefix = mention_prefix if index == 0 else ""
+            handler.post_thread_message(f"{prefix}{chunk}")
+        if has_pending_slack_files and not compose_with_charts:
+            deliver_pending_slack_file_artifacts(task_run)
+
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)
 

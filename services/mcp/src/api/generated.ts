@@ -61116,6 +61116,91 @@ export namespace Schemas {
     }
 
     /**
+     * Insight query JSON to render ad hoc, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. SQL queries (DataVisualizationNode, HogQLQuery) are not supported yet. Provide exactly one of query or insight_id.
+     */
+    export type TaskRunLivingArtifactChartRequestQuery = { [key: string]: unknown };
+
+    export interface TaskRunLivingArtifactChartRequest {
+      /**
+         * Chart title, also used as the delivered file name.
+         * @maxLength 255
+         */
+      name: string;
+      /** Insight query JSON to render ad hoc, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. SQL queries (DataVisualizationNode, HogQLQuery) are not supported yet. Provide exactly one of query or insight_id. */
+      query?: TaskRunLivingArtifactChartRequestQuery;
+      /** Numeric id of a saved insight to render. Provide exactly one of query or insight_id. */
+      insight_id?: number;
+    }
+
+    export type TaskRunLivingArtifactResponseVersionsItem = { [key: string]: unknown };
+
+    export interface TaskRunLivingArtifactResponse {
+      /** Stable living artifact id. Use this id when editing the artifact. */
+      id: string;
+      /** Task id this living artifact belongs to. */
+      task_id: string;
+      /** Task run id that created or currently owns this artifact. */
+      run_id: string;
+      /** Project id that owns this artifact. */
+      team_id: number;
+      /** Human-readable artifact name. */
+      name: string;
+      /** Artifact format or delivery surface, such as document, spreadsheet, slack_canvas, file, or slack_message.
+       *
+       * * `slack_message` - slack_message
+       * * `slack_canvas` - slack_canvas
+       * * `document` - document
+       * * `spreadsheet` - spreadsheet
+       * * `dashboard` - dashboard
+       * * `file` - file
+       * * `github_pr` - github_pr */
+      artifact_type: ArtifactTypeEnum;
+      /** Adapter that currently stores or edits the artifact.
+       *
+       * * `slack_message` - slack_message
+       * * `slack_canvas` - slack_canvas
+       * * `slack_file` - slack_file
+       * * `document_connector` - document_connector
+       * * `github_pr` - github_pr */
+      adapter: AdapterEnum;
+      /** Current registry status for the artifact.
+       *
+       * * `active` - active
+       * * `failed` - failed */
+      status: TaskArtifactStatusEnum;
+      /** Adapter-specific location, such as S3 key or Slack canvas id. */
+      location: unknown;
+      /** Adapter-specific metadata for external storage and source tracking. */
+      metadata: unknown;
+      /** Current version number for the artifact. */
+      current_version: number;
+      /** Chronological version records for this artifact. */
+      versions: TaskRunLivingArtifactResponseVersionsItem[];
+      /**
+         * ISO timestamp when created.
+         * @nullable
+         */
+      created_at?: string | null;
+      /**
+         * ISO timestamp when last updated.
+         * @nullable
+         */
+      updated_at?: string | null;
+    }
+
+    export interface TaskRunLivingArtifactChartResponse {
+      /** The living artifact registered for delivery. */
+      artifact: TaskRunLivingArtifactResponse;
+      /** Id of the rendered PNG export backing the chart. */
+      export_asset_id: number;
+      /**
+         * Link to explore this chart interactively in PostHog.
+         * @nullable
+         */
+      url?: string | null;
+    }
+
+    /**
      * Optional metadata to persist with the living artifact.
      */
     export type TaskRunLivingArtifactCreateRequestMetadata = { [key: string]: unknown };
@@ -61254,62 +61339,6 @@ export namespace Schemas {
          * @nullable
          */
       content?: string | null;
-    }
-
-    export type TaskRunLivingArtifactResponseVersionsItem = { [key: string]: unknown };
-
-    export interface TaskRunLivingArtifactResponse {
-      /** Stable living artifact id. Use this id when editing the artifact. */
-      id: string;
-      /** Task id this living artifact belongs to. */
-      task_id: string;
-      /** Task run id that created or currently owns this artifact. */
-      run_id: string;
-      /** Project id that owns this artifact. */
-      team_id: number;
-      /** Human-readable artifact name. */
-      name: string;
-      /** Artifact format or delivery surface, such as document, spreadsheet, slack_canvas, file, or slack_message.
-       *
-       * * `slack_message` - slack_message
-       * * `slack_canvas` - slack_canvas
-       * * `document` - document
-       * * `spreadsheet` - spreadsheet
-       * * `dashboard` - dashboard
-       * * `file` - file
-       * * `github_pr` - github_pr */
-      artifact_type: ArtifactTypeEnum;
-      /** Adapter that currently stores or edits the artifact.
-       *
-       * * `slack_message` - slack_message
-       * * `slack_canvas` - slack_canvas
-       * * `slack_file` - slack_file
-       * * `document_connector` - document_connector
-       * * `github_pr` - github_pr */
-      adapter: AdapterEnum;
-      /** Current registry status for the artifact.
-       *
-       * * `active` - active
-       * * `failed` - failed */
-      status: TaskArtifactStatusEnum;
-      /** Adapter-specific location, such as S3 key or Slack canvas id. */
-      location: unknown;
-      /** Adapter-specific metadata for external storage and source tracking. */
-      metadata: unknown;
-      /** Current version number for the artifact. */
-      current_version: number;
-      /** Chronological version records for this artifact. */
-      versions: TaskRunLivingArtifactResponseVersionsItem[];
-      /**
-         * ISO timestamp when created.
-         * @nullable
-         */
-      created_at?: string | null;
-      /**
-         * ISO timestamp when last updated.
-         * @nullable
-         */
-      updated_at?: string | null;
     }
 
     export interface TaskRunLivingArtifactsResponse {

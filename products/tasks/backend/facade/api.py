@@ -24,6 +24,7 @@ from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, close_old_connections, transaction
 from django.db.models import CharField, Count, Exists, F, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
@@ -1636,6 +1637,14 @@ def _get_task_for_run_control(task_id: str | UUID, team_id: int, user_id: int | 
 def _get_visible_run(run_id: str | UUID, task_id: str | UUID, team_id: int) -> TaskRun | None:
     """A run scoped to its parent task + team. Caller is responsible for task visibility."""
     return _task_run_queryset().filter(pk=run_id, team_id=team_id, task_id=task_id).first()
+
+
+def task_run_exists(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bool:
+    """Cheap visibility precheck so callers can 404 before doing expensive work (e.g. a render)."""
+    try:
+        return _get_visible_run(run_id, task_id, team_id) is not None
+    except (ValueError, TypeError, DjangoValidationError):
+        return False
 
 
 def task_accessible_for_run_view(

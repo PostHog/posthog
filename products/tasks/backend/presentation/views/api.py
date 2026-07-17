@@ -6,12 +6,13 @@ import logging
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 from uuid import UUID
 
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 
+import pydantic
 import requests as http_requests
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
@@ -19,20 +20,26 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+
+from posthog.schema import QuerySchemaRoot
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.models import User
 from posthog.permissions import APIScopePermission
-from posthog.rate_limit import CodeInviteThrottle
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, CodeInviteThrottle
 from posthog.renderers import ServerSentEventRenderer
+from posthog.schema_migrations.upgrade import upgrade
+from posthog.utils import absolute_uri
 
+from products.exports.backend.facade.api import render_png_export
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as tasks_facade,
@@ -47,6 +54,7 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_length_on_connect,
     observe_stream_resume_gap,
 )
+from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskArtifactType
 from products.tasks.backend.facade.streams import (
     TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
     TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS,
@@ -93,6 +101,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
     TaskRunErrorResponseSerializer,
+    TaskRunLivingArtifactChartRequestSerializer,
+    TaskRunLivingArtifactChartResponseSerializer,
     TaskRunLivingArtifactCreateRequestSerializer,
     TaskRunLivingArtifactEditRequestSerializer,
     TaskRunLivingArtifactOpenResponseSerializer,
@@ -2138,6 +2148,120 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
         serializer = TaskRunLivingArtifactResponseSerializer(artifact)
         return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=TaskRunLivingArtifactChartRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunLivingArtifactChartResponseSerializer,
+                description="Chart rendered and registered as a living artifact",
+            ),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Render or delivery failed"),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Render an insight chart and attach it as a living artifact",
+        description=(
+            "Renders a PostHog insight (ad-hoc query JSON or a saved insight) to a PNG server-side and registers "
+            "it as a slack_file living artifact in one call. Blocks until the render finishes."
+        ),
+        strict_request_validation=True,
+        operation_id="tasks_runs_living_artifacts_chart",
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="chart",
+        # query:read because the body executes arbitrary insight queries — task:write alone
+        # must not become a data-read scope.
+        required_scopes=["task:write", "query:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def chart(self, request, *args, **kwargs):
+        task_id = self._ensure_task_accessible()
+        # The render below is expensive (executes the query, blocks on the export
+        # workflow) — refuse unknown runs before it, like every sibling action does.
+        if not tasks_facade.task_run_exists(self._run_id(), task_id, self.team_id):
+            raise NotFound()
+        name = request.validated_data["name"]
+        query = request.validated_data.get("query")
+        if query is not None:
+            # Allow-list, not deny-list: QuerySchemaRoot admits dozens of kinds
+            # (DataTableNode, EventsQuery, bare HogQLQuery, ...) that render as table
+            # dumps or nothing. Only InsightVizNode renders a chart deterministically;
+            # its source schema excludes SQL, so this also covers the SQL-unsupported rule.
+            if not isinstance(query, dict) or query.get("kind") != "InsightVizNode":
+                return Response(
+                    TaskRunErrorResponseSerializer(
+                        {
+                            "error": "Only insight queries wrapped in an InsightVizNode can be charted — "
+                            "SQL and table queries are not supported yet"
+                        }
+                    ).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                QuerySchemaRoot.model_validate(upgrade(query))
+            # upgrade() raises TypeError/KeyError/ValueError on malformed shapes an LLM
+            # plausibly produces (string versions, list kinds) — all must stay typed 400s.
+            except (pydantic.ValidationError, TypeError, KeyError, ValueError):
+                return Response(
+                    TaskRunErrorResponseSerializer({"error": "Invalid insight query"}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        if not isinstance(request.user, User):
+            # Scoped-token auth guarantees a real user; the facade's access checks need one.
+            raise NotAuthenticated()
+        try:
+            asset, png = render_png_export(
+                team=self.team,
+                created_by=request.user,
+                export_context={"source": query} if query is not None else None,
+                insight_id=request.validated_data.get("insight_id"),
+            )
+        except ValueError as e:
+            return Response(TaskRunErrorResponseSerializer({"error": str(e)}).data, status=status.HTTP_400_BAD_REQUEST)
+        if png is None:
+            return Response(
+                TaskRunErrorResponseSerializer({"error": asset.exception or "Chart render failed"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Persisted on the artifact so Slack delivery can compose the chart card:
+        # image_url lets Slack's image proxy fetch the rendered PNG from us (no
+        # files:write scope needed), posthog_url powers the "Open in PostHog" button.
+        # The delivery-purposed token works for orgs that disallow publicly shared
+        # resources, same as subscription images.
+        url = self._chart_url(query, asset)
+        chart_metadata: dict = {"image_url": asset.get_subscription_delivery_content_url()}
+        if url:
+            chart_metadata["posthog_url"] = url
+        artifact, error = tasks_facade.create_task_run_living_artifact(
+            self._run_id(),
+            task_id,
+            self.team_id,
+            artifact={
+                "name": name,
+                "artifact_type": TaskArtifactType.FILE,
+                "adapter": TaskArtifactAdapter.SLACK_FILE,
+                "content_type": "image/png",
+                "content_bytes": png,
+                "metadata": chart_metadata,
+            },
+        )
+        if artifact is None and error is None:
+            raise NotFound()
+        if error is not None:
+            return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
+        serializer = TaskRunLivingArtifactChartResponseSerializer(
+            {"artifact": artifact, "export_asset_id": asset.id, "url": url}
+        )
+        return Response(serializer.data)
+
+    def _chart_url(self, query: dict | None, asset) -> str | None:
+        if query is not None:
+            return absolute_uri(f"/project/{self.team_id}/insights/new#q={quote(json.dumps(query))}")
+        if asset.insight_id and asset.insight:
+            return absolute_uri(f"/project/{self.team_id}/insights/{asset.insight.short_id}")
+        return None
 
     @validated_request(
         responses={

@@ -4,7 +4,7 @@ from typing import Any, ClassVar
 
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 
@@ -626,9 +626,35 @@ class TestLivingArtifacts(TestCase):
             current_version=1,
         )
 
-        delivered = deliver_pending_slack_file_artifacts(self.task_run, initial_comment="done")
+        delivery = deliver_pending_slack_file_artifacts(self.task_run)
 
-        self.assertEqual(delivered, 0)
+        self.assertFalse(delivery.answer_posted)
+        self.assertEqual(delivery.delivered_count, 0)
         mock_integration_for_mapping.assert_not_called()
         artifact.refresh_from_db()
         self.assertEqual(artifact.versions[0]["delivery_status"], "pending")
+
+
+class TestChartCardBlockBuilders(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("url_within_limit", "https://us.posthog.com/project/1/insights/abc", True),
+            ("url_over_slack_button_cap", "https://us.posthog.com/project/1/insights/new#q=" + "x" * 3000, False),
+        ]
+    )
+    def test_button_only_added_when_url_fits_slack_cap(self, _name, url, expect_button):
+        from products.tasks.backend.logic.services.living_artifacts import _chart_card_blocks
+
+        artifact = TaskArtifact(name="Chart", metadata={"posthog_url": url})
+        blocks = _chart_card_blocks(artifact, "F123")
+        self.assertEqual(
+            [b["type"] for b in blocks], ["section", "image", "actions"] if expect_button else ["section", "image"]
+        )
+
+    def test_oversized_sections_split_below_block_char_cap(self):
+        from products.tasks.backend.logic.services.living_artifacts import _section_blocks
+
+        blocks = _section_blocks(["a" * 6000, "short"])
+        self.assertEqual(len(blocks), 4)
+        self.assertTrue(all(len(b["text"]["text"]) <= 2900 for b in blocks))
+        self.assertEqual(blocks[-1]["text"]["text"], "short")

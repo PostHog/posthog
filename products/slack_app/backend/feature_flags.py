@@ -116,10 +116,11 @@ def is_slack_app_agent_design_enabled(integration: Integration) -> bool:
 
 
 def is_slack_app_canvas_file_artifacts_enabled(integration: Integration) -> bool:
-    """Gate for living-artifact delivery that depends on the in-review Slack scopes
-    (``canvases:write`` for the canvas adapter, ``files:write`` for the file adapter).
-    Stays off until Slack approves those scopes for the public app; the adapters also
-    verify the granted scopes at point of use. Keyed on the Slack workspace + PostHog org."""
+    """Gate for living-artifact delivery. Canvas (``canvases:write``) and non-image file
+    (``files:write``) delivery additionally need in-review Slack scopes, verified at point
+    of use — but chart images post by public url and work on ``chat:write`` alone, so this
+    flag can roll charts out before Slack approves the scopes. Keyed on the Slack
+    workspace + PostHog org."""
     try:
         return bool(
             posthoganalytics.feature_enabled(

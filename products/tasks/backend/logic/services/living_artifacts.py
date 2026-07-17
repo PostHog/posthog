@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import os
 import json
+import time
 import uuid
 import zipfile
 import mimetypes
@@ -784,69 +785,128 @@ def has_pending_slack_file_artifacts(run: TaskRun) -> bool:
     return any(_pending_slack_file_version(artifact) is not None for artifact in artifacts)
 
 
-def deliver_pending_slack_file_artifacts(run: TaskRun, *, initial_comment: str) -> int:
-    mapping = _get_slack_mapping(run, raise_if_missing=False)
-    if mapping is None:
-        return 0
+@dataclass
+class SlackFileDeliveryResult:
+    answer_posted: bool = False
+    delivered_count: int = 0
 
-    if not _living_artifacts_enabled_for_mapping(mapping):
-        logger.warning("task_artifact.slack_living_artifacts_disabled", task_run_id=str(run.id))
-        return 0
 
-    if not _canvas_file_artifacts_enabled(mapping):
-        logger.warning("task_artifact.slack_file_delivery_disabled", task_run_id=str(run.id))
-        return 0
-
-    slack_integration = _slack_integration_for_mapping(mapping)
-    missing_scopes = slack_integration.missing_scopes(frozenset({SLACK_FILE_SCOPE}))
-    if missing_scopes:
-        logger.warning(
-            "task_artifact.slack_file_delivery_missing_scope",
-            task_run_id=str(run.id),
-            missing_scopes=sorted(missing_scopes),
-        )
-        return 0
-
-    artifacts = list(
-        TaskArtifact.objects.for_team(run.team_id)
-        .filter(
-            task_id=run.task_id,
-            adapter=TaskArtifact.Adapter.SLACK_FILE,
-            status=TaskArtifact.Status.ACTIVE,
-        )
-        .order_by("created_at", "id")
-    )
-    slack = slack_integration.client
-    delivered_count = 0
-    next_initial_comment = initial_comment.strip()
-    for artifact in artifacts:
+def has_pending_slack_image_artifacts(run: TaskRun) -> bool:
+    for artifact in _pending_slack_file_queryset(run):
         pending = _pending_slack_file_version(artifact)
         if pending is None:
             continue
+        content_type = _pending_slack_content_type(artifact, pending[1])
+        if content_type.startswith("image/"):
+            return True
+    return False
 
-        _version_index, version_payload = pending
-        raw_location = version_payload.get("location")
-        location = raw_location if isinstance(raw_location, dict) else {}
-        storage_path = str(location.get("storage_path") or (artifact.location or {}).get("storage_path") or "")
-        if not storage_path:
-            logger.warning("task_artifact.slack_file_missing_storage_path", artifact_id=str(artifact.id))
+
+def deliver_pending_slack_file_artifacts(
+    run: TaskRun, *, answer_sections: list[str] | None = None
+) -> SlackFileDeliveryResult:
+    """Deliver pending slack_file artifacts to the mapped thread.
+
+    Images compose into a single chat message together with ``answer_sections``
+    (the relay's converted answer text): text sections first, then one card per
+    chart (title, image block, "Open in PostHog" button). Chart images carry a
+    public ``image_url`` in metadata — Slack's image proxy fetches the PNG from
+    us, so no file upload (and no files:write scope) is involved; other images
+    upload without a channel share and are referenced by file id. chat.postMessage
+    is synchronous, so the whole answer lands atomically — unlike channel file
+    shares, which Slack materializes asynchronously. Non-image files still deliver
+    as channel shares (these do need files:write), after the composed message.
+    ``answer_posted`` tells the caller whether the answer text went out in the
+    composed message so it isn't posted twice.
+    """
+    result = SlackFileDeliveryResult()
+    mapping = _get_slack_mapping(run, raise_if_missing=False)
+    if mapping is None:
+        return result
+
+    if not _living_artifacts_enabled_for_mapping(mapping):
+        logger.warning("task_artifact.slack_living_artifacts_disabled", task_run_id=str(run.id))
+        return result
+
+    if not _canvas_file_artifacts_enabled(mapping):
+        logger.warning("task_artifact.slack_file_delivery_disabled", task_run_id=str(run.id))
+        return result
+
+    slack_integration = _slack_integration_for_mapping(mapping)
+    has_file_scope = not slack_integration.missing_scopes(frozenset({SLACK_FILE_SCOPE}))
+
+    slack = slack_integration.client
+    pending_files: list[tuple[TaskArtifact, dict[str, Any], str]] = []
+    for artifact in _pending_slack_file_queryset(run):
+        pending = _pending_slack_file_version(artifact)
+        if pending is None:
             continue
+        _version_index, version_payload = pending
+        pending_files.append((artifact, version_payload, _pending_slack_content_type(artifact, version_payload)))
 
-        payload = object_storage.read_bytes(storage_path, missing_ok=True)
-        if payload is None:
+    image_files = [f for f in pending_files if f[2].startswith("image/")]
+    other_files = [f for f in pending_files if not f[2].startswith("image/")]
+
+    image_cards: list[_SlackImageCard] = []
+    for artifact, version_payload, content_type in image_files:
+        image_url = (artifact.metadata or {}).get("image_url")
+        if isinstance(image_url, str) and image_url:
+            # Slack fetches the image from the url in the card — nothing to upload.
+            image_cards.append((artifact, version_payload, None, None))
+            continue
+        if not has_file_scope:
             logger.warning(
-                "task_artifact.slack_file_pending_content_missing",
+                "task_artifact.slack_file_delivery_missing_scope",
                 artifact_id=str(artifact.id),
-                storage_path=storage_path,
+                missing_scopes=[SLACK_FILE_SCOPE],
             )
             continue
+        payload = _read_pending_slack_file_bytes(artifact, version_payload)
+        if payload is None:
+            continue
+        try:
+            file_id, file_response = _upload_slack_file(
+                slack, channel=None, thread_ts=None, name=artifact.name, content=payload, content_type=content_type
+            )
+        except Exception:
+            logger.warning("task_artifact.slack_file_delivery_failed", artifact_id=str(artifact.id), exc_info=True)
+            continue
+        image_cards.append((artifact, version_payload, file_id, file_response))
 
-        content_type = str(
-            version_payload.get("content_type")
-            or location.get("content_type")
-            or (artifact.location or {}).get("content_type")
-            or _guess_content_type(artifact.name)
+    if image_cards:
+        result.answer_posted, delivered_cards = _post_composed_answer_message(
+            slack, mapping=mapping, image_cards=image_cards, answer_sections=answer_sections or []
         )
+        # Only cards that actually reached the thread are delivered — an unposted image
+        # is invisible (it uploaded with no channel share), so marking it delivered
+        # would lose it permanently instead of leaving it pending for the next relay.
+        for artifact, version_payload, card_file_id, card_file_response in delivered_cards:
+            if _mark_slack_file_artifact_delivered(
+                artifact=artifact,
+                version_number=int(version_payload.get("version") or artifact.current_version or 0),
+                file_id=card_file_id,
+                file_response=card_file_response,
+            ):
+                result.delivered_count += 1
+    elif answer_sections is not None:
+        # Compose was requested but every image upload failed: the answer text must
+        # still land — and before the non-image shares below, to keep thread order.
+        sections = [section for section in answer_sections if section.strip()]
+        for section in sections:
+            _post_thread_text(slack, mapping=mapping, text=section)
+        result.answer_posted = bool(sections)
+
+    for artifact, version_payload, content_type in other_files:
+        if not has_file_scope:
+            logger.warning(
+                "task_artifact.slack_file_delivery_missing_scope",
+                artifact_id=str(artifact.id),
+                missing_scopes=[SLACK_FILE_SCOPE],
+            )
+            continue
+        payload = _read_pending_slack_file_bytes(artifact, version_payload)
+        if payload is None:
+            continue
         try:
             file_id, file_response = _upload_slack_file(
                 slack,
@@ -855,22 +915,227 @@ def deliver_pending_slack_file_artifacts(run: TaskRun, *, initial_comment: str) 
                 name=artifact.name,
                 content=payload,
                 content_type=content_type,
-                initial_comment=next_initial_comment,
             )
         except Exception:
             logger.warning("task_artifact.slack_file_delivery_failed", artifact_id=str(artifact.id), exc_info=True)
             continue
-
-        next_initial_comment = ""
         if _mark_slack_file_artifact_delivered(
             artifact=artifact,
             version_number=int(version_payload.get("version") or artifact.current_version or 0),
             file_id=file_id,
             file_response=file_response,
         ):
-            delivered_count += 1
+            result.delivered_count += 1
 
-    return delivered_count
+    return result
+
+
+def _pending_slack_file_queryset(run: TaskRun) -> Any:
+    return (
+        TaskArtifact.objects.for_team(run.team_id)
+        .filter(
+            task_id=run.task_id,
+            adapter=TaskArtifact.Adapter.SLACK_FILE,
+            status=TaskArtifact.Status.ACTIVE,
+        )
+        .order_by("created_at", "id")
+    )
+
+
+def _read_pending_slack_file_bytes(artifact: TaskArtifact, version_payload: dict[str, Any]) -> bytes | None:
+    raw_location = version_payload.get("location")
+    location = raw_location if isinstance(raw_location, dict) else {}
+    storage_path = str(location.get("storage_path") or (artifact.location or {}).get("storage_path") or "")
+    if not storage_path:
+        logger.warning("task_artifact.slack_file_missing_storage_path", artifact_id=str(artifact.id))
+        return None
+    payload = object_storage.read_bytes(storage_path, missing_ok=True)
+    if payload is None:
+        logger.warning(
+            "task_artifact.slack_file_pending_content_missing",
+            artifact_id=str(artifact.id),
+            storage_path=storage_path,
+        )
+        return None
+    return payload
+
+
+def _pending_slack_content_type(artifact: TaskArtifact, version_payload: dict[str, Any]) -> str:
+    raw_location = version_payload.get("location")
+    location = raw_location if isinstance(raw_location, dict) else {}
+    return str(
+        version_payload.get("content_type")
+        or location.get("content_type")
+        or (artifact.location or {}).get("content_type")
+        or _guess_content_type(artifact.name)
+    )
+
+
+# Slack caps a message at 50 blocks; leading answer sections spill into plain
+# messages when a message would exceed it.
+_SLACK_MESSAGE_BLOCK_LIMIT = 50
+
+
+# (artifact, pending version, uploaded file id, upload response) — the last two are
+# None for url-referenced images, which involve no upload.
+_SlackImageCard = tuple[TaskArtifact, dict[str, Any], "str | None", "dict[str, Any] | None"]
+
+
+def _post_composed_answer_message(
+    slack: Any,
+    *,
+    mapping: Any,
+    image_cards: list[_SlackImageCard],
+    answer_sections: list[str],
+) -> tuple[bool, list[_SlackImageCard]]:
+    """Post answer text and chart cards, composed into one message when possible.
+
+    Returns ``(answer_posted, delivered_cards)`` — only cards that actually reached
+    the thread may be marked delivered by the caller."""
+    sections = [section for section in answer_sections if section.strip()]
+    section_blocks = _section_blocks(sections)
+    card_blocks: list[dict[str, Any]] = []
+    for artifact, _version_payload, file_id, _file_response in image_cards:
+        card_blocks.extend(_chart_card_blocks(artifact, file_id))
+
+    spill_count = max(len(section_blocks) - max(_SLACK_MESSAGE_BLOCK_LIMIT - len(card_blocks), 0), 0)
+    for block in section_blocks[:spill_count]:
+        _post_thread_text(slack, mapping=mapping, text=block["text"]["text"])
+    kept = section_blocks[spill_count:]
+
+    # Cards alone can exceed the block cap (17+ charts) — composing would then fail
+    # deterministically as invalid_blocks, so go straight to the per-card path.
+    if len(kept) + len(card_blocks) <= _SLACK_MESSAGE_BLOCK_LIMIT:
+        fallback_text = sections[0] if sections else image_cards[0][0].name
+        try:
+            _post_blocks_with_processing_retry(
+                slack,
+                channel=mapping.channel,
+                thread_ts=mapping.thread_ts,
+                text=fallback_text,
+                blocks=[*kept, *card_blocks],
+            )
+            return bool(sections), list(image_cards)
+        except Exception:
+            logger.warning("task_artifact.slack_composed_message_failed", exc_info=True)
+
+    # Degraded path: the answer must not be lost — post the text plainly, then each
+    # card on its own so one bad card can't sink the others.
+    for block in kept:
+        _post_thread_text(slack, mapping=mapping, text=block["text"]["text"])
+    delivered: list[_SlackImageCard] = []
+    for card in image_cards:
+        artifact, _version_payload, file_id, _file_response = card
+        try:
+            _post_blocks_with_processing_retry(
+                slack,
+                channel=mapping.channel,
+                thread_ts=mapping.thread_ts,
+                text=artifact.name,
+                blocks=_chart_card_blocks(artifact, file_id),
+                attempts=_IMAGE_BLOCK_FALLBACK_ATTEMPTS,
+            )
+            delivered.append(card)
+        except Exception:
+            logger.warning("task_artifact.slack_file_delivery_failed", artifact_id=str(artifact.id), exc_info=True)
+    return bool(sections), delivered
+
+
+# Section blocks hard-cap at 3000 chars, and mrkdwn conversion can expand text past
+# the relay's pre-conversion split (table column padding) — re-split after conversion.
+_SLACK_SECTION_BLOCK_CHAR_LIMIT = 2900
+
+
+def _section_blocks(sections: list[str]) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = []
+    for section in sections:
+        for start in range(0, len(section), _SLACK_SECTION_BLOCK_CHAR_LIMIT):
+            piece = section[start : start + _SLACK_SECTION_BLOCK_CHAR_LIMIT]
+            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": piece}})
+    return blocks
+
+
+def _post_thread_text(slack: Any, *, mapping: Any, text: str) -> None:
+    try:
+        slack.chat_postMessage(channel=mapping.channel, thread_ts=mapping.thread_ts, text=text)
+    except Exception:
+        logger.warning("task_artifact.slack_thread_text_failed", exc_info=True)
+
+
+# A freshly completed upload can't be referenced in blocks until Slack finishes
+# processing it — chat.postMessage returns invalid_blocks ("invalid slack file")
+# for a second or two. Verified empirically; retry until the reference resolves.
+_IMAGE_BLOCK_POST_ATTEMPTS = 8
+# The per-card fallback runs once per chart after the composed attempt already burned
+# its budget; keep it short so the relay activity stays within its timeout.
+_IMAGE_BLOCK_FALLBACK_ATTEMPTS = 3
+_IMAGE_BLOCK_POST_RETRY_INTERVAL_S = 1.0
+_RATE_LIMIT_MAX_WAIT_S = 10.0
+# Slack rejects button urls over 3000 chars, and an ad-hoc chart url embeds the whole
+# encoded query JSON — a fat multi-series query can exceed it.
+_SLACK_BUTTON_URL_MAX_CHARS = 3000
+
+
+def _chart_card_blocks(artifact: TaskArtifact, file_id: str | None) -> list[dict[str, Any]]:
+    metadata = artifact.metadata or {}
+    image_url = metadata.get("image_url")
+    if isinstance(image_url, str) and image_url:
+        image_block: dict[str, Any] = {"type": "image", "image_url": image_url, "alt_text": artifact.name}
+    else:
+        image_block = {"type": "image", "slack_file": {"id": file_id}, "alt_text": artifact.name}
+    blocks: list[dict[str, Any]] = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"*{_escape_slack_mrkdwn_text(artifact.name)}*"}},
+        image_block,
+    ]
+    posthog_url = metadata.get("posthog_url")
+    if isinstance(posthog_url, str) and 0 < len(posthog_url) <= _SLACK_BUTTON_URL_MAX_CHARS:
+        blocks.append(
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Open in PostHog", "emoji": True},
+                        "url": posthog_url,
+                    }
+                ],
+            }
+        )
+    elif isinstance(posthog_url, str) and posthog_url:
+        logger.warning(
+            "task_artifact.chart_url_too_long_for_button",
+            artifact_id=str(artifact.id),
+            url_length=len(posthog_url),
+        )
+    return blocks
+
+
+def _post_blocks_with_processing_retry(
+    slack: Any,
+    *,
+    channel: str,
+    thread_ts: str,
+    text: str,
+    blocks: list[dict[str, Any]],
+    attempts: int = _IMAGE_BLOCK_POST_ATTEMPTS,
+) -> None:
+    for attempt in range(1, attempts + 1):
+        try:
+            slack.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text, blocks=blocks)
+            return
+        except SlackApiError as e:
+            error = e.response.get("error")
+            if attempt == attempts or error not in ("invalid_blocks", "ratelimited"):
+                raise
+            if error == "ratelimited":
+                headers = getattr(e.response, "headers", None) or {}
+                try:
+                    retry_after = float(headers.get("Retry-After") or _IMAGE_BLOCK_POST_RETRY_INTERVAL_S)
+                except (TypeError, ValueError):
+                    retry_after = _IMAGE_BLOCK_POST_RETRY_INTERVAL_S
+                time.sleep(min(retry_after, _RATE_LIMIT_MAX_WAIT_S))
+            else:
+                time.sleep(_IMAGE_BLOCK_POST_RETRY_INTERVAL_S)
 
 
 def _pending_slack_file_version(artifact: TaskArtifact) -> tuple[int, dict[str, Any]] | None:
@@ -903,9 +1168,11 @@ def _mark_slack_file_artifact_delivered(
     *,
     artifact: TaskArtifact,
     version_number: int,
-    file_id: str,
-    file_response: dict[str, Any],
+    file_id: str | None,
+    file_response: dict[str, Any] | None,
 ) -> bool:
+    """``file_id``/``file_response`` are None for url-referenced images, which post
+    without a Slack file upload."""
     with transaction.atomic():
         locked = TaskArtifact.objects.for_team(artifact.team_id).select_for_update().get(pk=artifact.pk)
         pending = _pending_slack_file_version(locked)
@@ -916,28 +1183,20 @@ def _mark_slack_file_artifact_delivered(
         if int(version_payload.get("version") or 0) != version_number:
             return False
 
-        file_title = str(file_response.get("title") or locked.name)
-        file_permalink = file_response.get("permalink")
-        delivered_location = {
-            **(locked.location or {}),
-            "file_id": file_id,
-            "delivery_status": "delivered",
-        }
-        delivered_version = {
-            **version_payload,
-            "slack_file_id": file_id,
-            "slack_file_title": file_title,
-            "delivery_status": "delivered",
-        }
-        delivered_metadata = {
-            **(locked.metadata or {}),
-            "slack_file_id": file_id,
-            "slack_file_title": file_title,
-            "delivery_status": "delivered",
-        }
-        if file_permalink:
-            delivered_version["slack_file_permalink"] = file_permalink
-            delivered_metadata["slack_file_permalink"] = file_permalink
+        delivered_location = {**(locked.location or {}), "delivery_status": "delivered"}
+        delivered_version = {**version_payload, "delivery_status": "delivered"}
+        delivered_metadata = {**(locked.metadata or {}), "delivery_status": "delivered"}
+        if file_id:
+            file_title = str((file_response or {}).get("title") or locked.name)
+            file_permalink = (file_response or {}).get("permalink")
+            delivered_location["file_id"] = file_id
+            delivered_version["slack_file_id"] = file_id
+            delivered_version["slack_file_title"] = file_title
+            delivered_metadata["slack_file_id"] = file_id
+            delivered_metadata["slack_file_title"] = file_title
+            if file_permalink:
+                delivered_version["slack_file_permalink"] = file_permalink
+                delivered_metadata["slack_file_permalink"] = file_permalink
 
         versions = list(locked.versions or [])
         versions[version_index] = delivered_version
@@ -1038,12 +1297,11 @@ def _slack_integration_for_mapping(mapping: Any):
 def _upload_slack_file(
     slack: Any,
     *,
-    channel: str,
-    thread_ts: str,
+    channel: str | None,
+    thread_ts: str | None,
     name: str,
     content: bytes,
     content_type: str,
-    initial_comment: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     upload_response = slack.api_call(
         "files.getUploadURLExternal",
@@ -1062,14 +1320,11 @@ def _upload_slack_file(
     )
     response.raise_for_status()
 
-    complete_payload = {
-        "files": json.dumps([{"id": file_id, "title": name}]),
-        "channel_id": channel,
-        "thread_ts": thread_ts,
-    }
-    if initial_comment:
-        complete_payload["initial_comment"] = initial_comment
-
+    complete_payload = {"files": json.dumps([{"id": file_id, "title": name}])}
+    if channel:
+        complete_payload["channel_id"] = channel
+        if thread_ts:
+            complete_payload["thread_ts"] = thread_ts
     complete_response = slack.api_call("files.completeUploadExternal", data=complete_payload)
     files = complete_response.get("files") or []
     file_response = files[0] if files and isinstance(files[0], dict) else {"id": file_id, "title": name}
