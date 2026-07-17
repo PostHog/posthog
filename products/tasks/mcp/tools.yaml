@@ -32,7 +32,7 @@ tools:
         description: >
             Create a new loop: a named, cloud-executed agent automation that runs on a schedule, a GitHub event, or an
             authenticated API call. Set `instructions` (the prompt delivered to the agent on every run),
-            `runtime_adapter`/`model`/`reasoning_effort`, `repositories` (up to 5, may be empty for a connector-only
+            `runtime_adapter`/`model`/`reasoning_effort`, `repositories` (at most 1, may be empty for a connector-only
             loop), `visibility` (`personal` or `team`), `behaviors` (PR creation, CI watch, auto-fix) and `triggers`.
         feature_flag: tasks
     loops-destroy:
