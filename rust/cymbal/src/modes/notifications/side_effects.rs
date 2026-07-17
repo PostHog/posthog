@@ -13,7 +13,7 @@ use crate::metric_consts::FINGERPRINT_EMBEDDING_SKIPPED;
 use crate::modes::notifications::stacktrace::print_stacktrace;
 use crate::modes::notifications::types::NotificationIssue;
 use crate::modes::processing::fingerprinting::FingerprintRecordPart;
-use crate::types::OutputErrProps;
+use crate::types::ProcessedExceptionProperties;
 
 /// SDKs whose fingerprint embeddings we don't generate — they emit too many
 /// distinct issues, so embedding every fingerprint isn't worth the cost.
@@ -24,7 +24,7 @@ struct IssueLifecycleInternalEvent<'a, I: NotificationIssue> {
     notification_id: Uuid,
     issue: &'a I,
     assignee: Option<String>,
-    output_props: &'a OutputErrProps,
+    processed_properties: &'a ProcessedExceptionProperties,
     event_timestamp: &'a DateTime<Utc>,
 }
 
@@ -32,20 +32,20 @@ pub async fn send_new_fingerprint_event<I: NotificationIssue>(
     producer: &FutureProducer<KafkaContext>,
     embedding_worker_topic: &str,
     issue: &I,
-    output_props: &OutputErrProps,
+    processed_properties: &ProcessedExceptionProperties,
 ) -> Result<(), UnhandledError> {
-    if let Some(reason) = skip_fingerprint_embedding_reason(output_props) {
+    if let Some(reason) = skip_fingerprint_embedding_reason(processed_properties) {
         metrics::counter!(FINGERPRINT_EMBEDDING_SKIPPED, "reason" => reason).increment(1);
         debug!(
             team_id = issue.team_id(),
-            fingerprint = %output_props.fingerprint,
+            fingerprint = %processed_properties.fingerprint(),
             reason,
             "skipping fingerprint embedding request"
         );
         return Ok(());
     }
 
-    let request = fingerprint_embedding_request(issue, output_props);
+    let request = fingerprint_embedding_request(issue, processed_properties);
 
     let res = send_iter_to_kafka(producer, embedding_worker_topic, &[request])
         .await
@@ -62,24 +62,29 @@ pub async fn send_new_fingerprint_event<I: NotificationIssue>(
 /// the user controls — manual fingerprints and custom grouping rules — since
 /// embedding-based similarity grouping doesn't apply to them, nor events from
 /// SDKs in `EMBEDDING_DISABLED_LIBS` (they emit too many issues).
-fn skip_fingerprint_embedding_reason(output_props: &OutputErrProps) -> Option<&'static str> {
-    if output_props
-        .fingerprint_record
+fn skip_fingerprint_embedding_reason(
+    processed_properties: &ProcessedExceptionProperties,
+) -> Option<&'static str> {
+    if processed_properties
+        .fingerprint_record()
         .iter()
         .any(|part| matches!(part, FingerprintRecordPart::Manual))
     {
         return Some("manual_fingerprint");
     }
 
-    if output_props
-        .fingerprint_record
+    if processed_properties
+        .fingerprint_record()
         .iter()
         .any(|part| matches!(part, FingerprintRecordPart::Custom { .. }))
     {
         return Some("custom_grouping_rule");
     }
 
-    let lib = output_props.other.get("$lib").and_then(Value::as_str);
+    let lib = processed_properties
+        .properties()
+        .get("$lib")
+        .and_then(Value::as_str);
     if lib.is_some_and(|lib| EMBEDDING_DISABLED_LIBS.contains(&lib)) {
         return Some("disabled_sdk");
     }
@@ -89,16 +94,16 @@ fn skip_fingerprint_embedding_reason(output_props: &OutputErrProps) -> Option<&'
 
 fn fingerprint_embedding_request<I: NotificationIssue>(
     issue: &I,
-    output_props: &OutputErrProps,
+    processed_properties: &ProcessedExceptionProperties,
 ) -> EmbeddingRequest {
     EmbeddingRequest {
         team_id: issue.team_id(),
         product: "error_tracking".to_string(),
         document_type: "fingerprint".to_string(),
         rendering: "type_message_and_stack".to_string(),
-        document_id: output_props.fingerprint.clone(),
+        document_id: processed_properties.fingerprint().to_string(),
         timestamp: issue.created_at(),
-        content: print_stacktrace(output_props, Some(7000)),
+        content: print_stacktrace(processed_properties, Some(7000)),
         models: vec![EmbeddingModel::OpenAITextEmbeddingLarge],
         metadata: Default::default(),
     }
@@ -110,7 +115,7 @@ pub async fn send_issue_created_internal_event<I: NotificationIssue>(
     notification_id: Uuid,
     issue: &I,
     assignee: Option<String>,
-    output_props: &OutputErrProps,
+    processed_properties: &ProcessedExceptionProperties,
     event_timestamp: &DateTime<Utc>,
 ) -> Result<(), UnhandledError> {
     send_internal_event_with_producer(
@@ -121,7 +126,7 @@ pub async fn send_issue_created_internal_event<I: NotificationIssue>(
             notification_id,
             issue,
             assignee,
-            output_props,
+            processed_properties,
             event_timestamp,
         },
     )
@@ -134,7 +139,7 @@ pub async fn send_issue_reopened_internal_event<I: NotificationIssue>(
     notification_id: Uuid,
     issue: &I,
     assignee: Option<String>,
-    output_props: &OutputErrProps,
+    processed_properties: &ProcessedExceptionProperties,
     event_timestamp: &DateTime<Utc>,
 ) -> Result<(), UnhandledError> {
     send_internal_event_with_producer(
@@ -145,7 +150,7 @@ pub async fn send_issue_reopened_internal_event<I: NotificationIssue>(
             notification_id,
             issue,
             assignee,
-            output_props,
+            processed_properties,
             event_timestamp,
         },
     )
@@ -214,7 +219,7 @@ async fn send_internal_event_with_producer<I: NotificationIssue>(
         notification_id,
         issue,
         assignee,
-        output_props,
+        processed_properties,
         event_timestamp,
     } = request;
 
@@ -227,9 +232,9 @@ async fn send_internal_event_with_producer<I: NotificationIssue>(
         .insert_prop("description", issue.description())
         .expect("Strings are serializable");
     event.insert_prop("status", issue.status())?;
-    event.insert_prop("fingerprint", &output_props.fingerprint)?;
+    event.insert_prop("fingerprint", processed_properties.fingerprint())?;
     event.insert_prop("exception_timestamp", event_timestamp)?;
-    event.insert_prop("exception_props", output_props)?;
+    event.insert_prop("exception_props", processed_properties)?;
 
     if let Some(assignee) = assignee {
         event
@@ -273,17 +278,28 @@ async fn send_internal_event_with_producer<I: NotificationIssue>(
 mod tests {
     use super::*;
 
-    fn props_with(record: Vec<FingerprintRecordPart>, lib: Option<&str>) -> OutputErrProps {
-        let mut props = OutputErrProps {
-            fingerprint_record: record,
-            ..Default::default()
-        };
+    fn props_with(
+        record: Vec<FingerprintRecordPart>,
+        lib: Option<&str>,
+    ) -> ProcessedExceptionProperties {
+        let mut value = serde_json::json!({
+            "$exception_list": [{"type": "Error", "value": "boom"}],
+            "$exception_fingerprint": "test-fingerprint",
+            "$exception_fingerprint_record": record,
+            "$exception_issue_id": Uuid::nil(),
+            "$exception_handled": false,
+            "$exception_types": ["Error"],
+            "$exception_values": ["boom"],
+            "$exception_sources": [],
+            "$exception_functions": [],
+        });
         if let Some(lib) = lib {
-            props
-                .other
+            value
+                .as_object_mut()
+                .unwrap()
                 .insert("$lib".to_string(), Value::String(lib.to_string()));
         }
-        props
+        serde_json::from_value(value).unwrap()
     }
 
     #[test]
