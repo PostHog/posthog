@@ -11,12 +11,15 @@ import { Request } from 'express'
 import { createHash } from 'node:crypto'
 import type { z } from 'zod'
 
-import { TRIGGER_ROUTES } from '@posthog/agent-shared'
+import { createLogger, TRIGGER_ROUTES } from '@posthog/agent-shared'
 
 import { principalDisplay } from '../enqueue/acl'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { defineRoute, type AuthedRouteCtx, type TriggerModule } from './types'
+import { payloadMatchesFilters } from './webhook-filters'
 import { WebhookBodySchema } from './webhook.schemas'
+
+const log = createLogger('webhook-trigger')
 
 async function webhookHandler(ctx: AuthedRouteCtx<z.infer<typeof WebhookBodySchema>>): Promise<void> {
     const { req, res, deps, resolved } = ctx
@@ -26,6 +29,20 @@ async function webhookHandler(ctx: AuthedRouteCtx<z.infer<typeof WebhookBodySche
         return
     }
     const body = ctx.parsed
+    // Deterministic payload gate, AFTER auth (the mount guard already
+    // verified the caller): a non-matching delivery is ACKed 2xx with no
+    // session, so chatty providers stay healthy without spending a model
+    // session per irrelevant event.
+    const trigger = resolved.revision.spec.triggers.find((t) => t.type === 'webhook')
+    const filters = trigger?.type === 'webhook' ? trigger.config.filters : undefined
+    if (!payloadMatchesFilters(body, filters)) {
+        // Log it: a filter whose path never matches (e.g. one that points
+        // through an array) silently drops every delivery, and the provider
+        // only sees a healthy 200 — this line is the one place that shows why.
+        log.info({ slug: resolved.application.slug }, 'webhook_delivery_filtered')
+        res.json({ ok: true, filtered: true })
+        return
+    }
     const externalKeyHeader = req.headers['x-external-key']
     const externalKey = typeof externalKeyHeader === 'string' ? externalKeyHeader : null
     const idempotencyKey = extractProviderIdempotencyKey(req, body)

@@ -109,6 +109,25 @@ export const AuthConfigSchema = z.object({
     modes: z.array(AuthModeSchema).default([{ type: 'posthog_internal' }]),
 })
 
+/**
+ * One deterministic gate on a webhook payload: the value at the dot-path in
+ * the JSON body must strictly equal `equals` (own properties only, no type
+ * coercion). All filters on a trigger must match (AND) for a delivery to
+ * create a session; a non-matching delivery is ACKed `200 {ok, filtered}`
+ * WITHOUT running the agent, so a chatty provider (GitHub sends every
+ * pull_request action) doesn't spend a model session per irrelevant event and
+ * still sees the 2xx it needs to keep the hook healthy.
+ */
+export const WebhookFilterSchema = z.object({
+    /** Dot-path into the JSON body, e.g. `action` or `requested_team.slug`.
+     *  Traverses objects only — a path segment that lands on an array (or any
+     *  non-object) resolves to no value and the filter never matches, so a
+     *  delivery is filtered out. Address a scalar field, not one inside a list. */
+    path: z.string().min(1),
+    equals: z.union([z.string(), z.number(), z.boolean()]),
+})
+export type WebhookFilter = z.infer<typeof WebhookFilterSchema>
+
 export const TriggerSchema = z.discriminatedUnion('type', [
     /**
      * Slack trigger. These spec flags only control what the INGRESS does with
@@ -232,6 +251,9 @@ export const TriggerSchema = z.discriminatedUnion('type', [
         type: z.literal('webhook'),
         config: z.object({
             path: z.string(),
+            /** Deterministic payload gate — see {@link WebhookFilterSchema}.
+             *  Omitted/empty = every authenticated delivery runs the agent. */
+            filters: z.array(WebhookFilterSchema).max(16).optional(),
         }),
         auth: AuthConfigSchema,
     }),
