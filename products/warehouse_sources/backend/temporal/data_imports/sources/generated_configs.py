@@ -3755,7 +3755,9 @@ class SecodaSourceConfig(config.Config):
 
 @config.config
 class SecureframeSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
+    region: Literal["us", "uk"] = config.value(default="us")
 
 
 @config.config
