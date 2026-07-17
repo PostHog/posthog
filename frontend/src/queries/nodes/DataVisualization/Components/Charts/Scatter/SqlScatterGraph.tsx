@@ -7,6 +7,7 @@ import { Color, GridLineOptions, TickOptions } from 'lib/Chart'
 import { getGraphColors } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { useChart } from 'lib/hooks/useChart'
+import { hexToRGBA } from 'lib/utils/colors'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { urls } from 'scenes/urls'
 
@@ -101,11 +102,15 @@ export function SqlScatterGraph({ className }: { className?: string }): JSX.Elem
             return {
                 type: 'scatter',
                 data: {
+                    // Translucent borderless fills so overlapping dots compound into darker areas,
+                    // reading as density; the hovered dot goes opaque to stand out.
                     datasets: chartData.series.map((series) => ({
                         label: series.label,
                         data: series.points,
-                        backgroundColor: series.color,
+                        backgroundColor: hexToRGBA(series.color, 0.45),
                         borderColor: series.color,
+                        borderWidth: 0,
+                        hoverBackgroundColor: series.color,
                         pointRadius: 3,
                         pointHoverRadius: 5,
                     })),
