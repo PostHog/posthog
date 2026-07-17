@@ -436,9 +436,11 @@ class EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra(SignalExtraBase):
     repo_name: str
     workflow_name: str
     branch: str
-    # Success rate over completed runs in the window, in [0, 1].
-    success_rate: float
-    run_count: int
+    # Success rate in [0, 1] over runs that reached a verdict (success / failure / timed_out).
+    # Cancelled and skipped runs are excluded: they decided nothing, and counting them makes any
+    # workflow whose concurrency group cancels superseded trunk runs read as permanently failing.
+    conclusive_success_rate: float
+    conclusive_run_count: int
     latest_conclusion: str
     window_hours: int
 

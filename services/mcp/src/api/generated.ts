@@ -21664,8 +21664,8 @@ export namespace Schemas {
       repo_name: string;
       workflow_name: string;
       branch: string;
-      success_rate: number;
-      run_count: number;
+      conclusive_success_rate: number;
+      conclusive_run_count: number;
       latest_conclusion: string;
       window_hours: number;
     }
