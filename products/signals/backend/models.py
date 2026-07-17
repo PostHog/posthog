@@ -1389,10 +1389,13 @@ class SignalRepositoryAreaActivity(TeamScopedRootMixin, UUIDModel):
     (`last_used_at`), so abandoned areas age out of the warm set.
     """
 
+    # db_constraint=False: creating an FK constraint locks the hot posthog_team table and
+    # has blocked deploys — app-level enforcement only (same as SignalReportRefund).
     team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
         related_name="signal_repo_area_activities",
+        db_constraint=False,
     )
     # Normalized "owner/repo", lowercase.
     repository = models.CharField(max_length=400)
