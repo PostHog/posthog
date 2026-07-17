@@ -112,10 +112,6 @@ def _enforce_alert_feature_flags(context: dict[str, Any], insight: Insight) -> N
     kind = insight.alertable_query_kind
     if kind is None:
         raise ValidationError("Alerts are not supported for this insight.")
-    if kind == NodeKind.HOG_QL_QUERY and not _insight_alert_flag_enabled(context, "hogql-insight-alerts"):
-        raise ValidationError("SQL insight alerts are not enabled for your account.")
-    if kind == NodeKind.FUNNELS_QUERY and not _insight_alert_flag_enabled(context, "funnel-insight-alerts"):
-        raise ValidationError("Funnel insight alerts are not enabled for your account.")
     # Gated on the Metrics product flag itself: anyone who can see the product can alert on it.
     if kind == NodeKind.METRICS_QUERY and not _insight_alert_flag_enabled(context, "metrics"):
         raise ValidationError("Metrics insight alerts are not enabled for your account.")

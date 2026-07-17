@@ -145,6 +145,13 @@ class UsageReportCounters:
     mobile_recording_bytes_in_period: int
     mobile_billable_recording_count_in_period: int
 
+    # Heatmaps
+    # Measurement-only counter (like the langfuse/helicone event counts below): heatmaps are not
+    # billed today, and there is no billing product mapped to this field, so it stays internal to
+    # the "organization usage report" telemetry and never surfaces to customers. It lets us size
+    # heatmap interaction volume per team before deciding whether/how to charge for it.
+    heatmap_events_count_in_period: int
+
     # Replay Vision
     replay_vision_credits_used_in_period: int
 
@@ -981,6 +988,27 @@ def get_teams_with_recording_count_in_period(
                 "end": end,
                 "snapshot_source": snapshot_source,
             },
+            workload=Workload.OFFLINE,
+            settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
+        )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_heatmap_count_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    # Heatmap interactions (click / rageclick / mousemove / scrolldepth) live in their own
+    # `heatmaps` table, never in `events`, so they are invisible to every other counter here.
+    # This is measurement-only for now — see the note on UsageReportCounters.heatmap_events_count_in_period.
+    with tags_context(product=Product.HEATMAPS, feature=Feature.USAGE_REPORT):
+        return sync_execute(
+            """
+            SELECT team_id, count() as count
+            FROM heatmaps
+            WHERE timestamp >= %(begin)s AND timestamp < %(end)s
+            GROUP BY team_id
+        """,
+            {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
             ch_user=ClickHouseUser.BILLING,
@@ -2460,6 +2488,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_elixir_events_count_in_period": all_metrics["elixir_events"],
         "teams_with_unity_events_count_in_period": all_metrics["unity_events"],
         "teams_with_rust_events_count_in_period": all_metrics["rust_events"],
+        "teams_with_heatmap_count_in_period": get_teams_with_heatmap_count_in_period(period_start, period_end),
         "teams_with_recording_count_in_period": get_teams_with_recording_count_in_period(
             period_start, period_end, snapshot_source="web"
         ),
@@ -2733,6 +2762,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         mobile_billable_recording_count_in_period=all_data["teams_with_mobile_billable_recording_count_in_period"].get(
             team.id, 0
         ),
+        heatmap_events_count_in_period=all_data["teams_with_heatmap_count_in_period"].get(team.id, 0),
         replay_vision_credits_used_in_period=all_data["teams_with_replay_vision_credits_used_in_period"].get(
             team.id, 0
         ),

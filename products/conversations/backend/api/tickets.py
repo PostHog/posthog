@@ -317,7 +317,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
                 )
             },
             "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved"},
-            "priority": {"help_text": "Ticket priority: low, medium, or high. Null if unset."},
+            "priority": {"help_text": "Ticket priority: low, medium, high, or critical. Null if unset."},
             "sla_due_at": {"help_text": "SLA deadline set via workflows. Null means no SLA."},
             "anonymous_traits": {"help_text": "Customer-provided traits such as name and email"},
             "organization_id": {
@@ -627,7 +627,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 location=OpenApiParameter.QUERY,
                 description=(
                     "Filter by priority. Accepts a single value or a comma-separated list "
-                    "(e.g. `medium,high`). Valid values: `low`, `medium`, `high`."
+                    "(e.g. `medium,high`). Valid values: `low`, `medium`, `high`, `critical`."
                 ),
             ),
             OpenApiParameter(

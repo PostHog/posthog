@@ -30,6 +30,30 @@ import type {
 } from './identity-provider'
 import { Oauth2AuthProvider } from './oauth2-identity-provider'
 
+function posthogMcpHost(host: string): string | null {
+    if (host === 'us.posthog.com' || host === 'app.posthog.com') {
+        return 'mcp.us.posthog.com'
+    }
+    if (host === 'eu.posthog.com') {
+        return 'mcp.eu.posthog.com'
+    }
+    if (host === 'posthog.com') {
+        return 'mcp.posthog.com'
+    }
+    return null
+}
+
+function withPosthogMcpHost(hosts: string[]): string[] {
+    const allowedHosts = new Set(hosts)
+    for (const host of hosts) {
+        const mcpHost = posthogMcpHost(host)
+        if (mcpHost) {
+            allowedHosts.add(mcpHost)
+        }
+    }
+    return [...allowedHosts]
+}
+
 export class PostHogAuthProvider extends Oauth2AuthProvider {
     // Linking proves WHO the principal is; `complete()` stamps the userinfo `sub`
     // (read by the inherited `fetchSubject`) as the credential subject.
@@ -39,6 +63,10 @@ export class PostHogAuthProvider extends Oauth2AuthProvider {
     // tools both key off `posthog_api`; the linked store stays keyed by `id`.
     override get credentialTarget(): string {
         return 'posthog_api'
+    }
+
+    override allowedHosts(): string[] {
+        return withPosthogMcpHost(super.allowedHosts())
     }
 }
 
@@ -66,7 +94,7 @@ export class SeedOnlyPostHogProvider implements IdentityProvider {
     }
 
     allowedHosts(): string[] {
-        return [this.host]
+        return withPosthogMcpHost([this.host])
     }
 
     async initiate(_input: IdentityInitiateInput): Promise<IdentityInitiateResult> {
