@@ -6,10 +6,14 @@ from django.utils import timezone
 import requests
 import structlog
 
-from ..models.community_skills import CommunitySkill, CommunitySkillFile
+from ..models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillTrustTier
 from .skill_services import MAX_SKILL_BODY_BYTES, MAX_SKILL_FILE_BYTES, MAX_SKILL_FILE_COUNT
 
 logger = structlog.get_logger(__name__)
+
+_VALID_TRUST_TIERS = set(CommunitySkillTrustTier.values)
+# CharField columns that raise DataError past their max_length — checked before persisting.
+_CHECKED_CHAR_FIELDS = ("slug", "name", "description", "license", "compatibility", "author_handle", "github_url")
 
 COMMUNITY_SKILLS_REPO = "PostHog/community-skills"
 COMMUNITY_SKILLS_BRANCH = "main"
@@ -20,19 +24,35 @@ COMMUNITY_SKILLS_SYNC_TIMEOUT_SECONDS = 30
 
 
 def _validate_entry_within_caps(entry: dict[str, Any]) -> None:
-    """Reject oversized registry entries before persisting, mirroring the skill import caps.
+    """Reject entries that would violate a DB constraint before persisting.
 
-    The registry is built in a review-gated repo, but the same body/file caps the normal
-    import path enforces are cheap insurance against one bad entry bloating Postgres.
+    The registry is built in a review-gated repo, but a single entry that overflows a column
+    (oversized body/file, an overlong slug/name, a duplicate file path) would otherwise raise
+    DataError/IntegrityError mid-loop — aborting the whole sync and skipping the soft-delete
+    reconciliation. Raising ValueError here keeps that failure isolated to the one bad entry.
     """
     body = entry.get("body", "") or ""
     if len(body.encode("utf-8")) > MAX_SKILL_BODY_BYTES:
         raise ValueError(f"body exceeds the {MAX_SKILL_BODY_BYTES} byte limit")
 
+    for field in _CHECKED_CHAR_FIELDS:
+        value = entry.get(field, "") or ""
+        max_length = CommunitySkill._meta.get_field(field).max_length
+        if max_length is not None and len(value) > max_length:
+            raise ValueError(f"'{field}' exceeds the {max_length} character limit")
+
     files = entry.get("files", []) or []
     if len(files) > MAX_SKILL_FILE_COUNT:
         raise ValueError(f"has more than {MAX_SKILL_FILE_COUNT} files")
+    path_max = CommunitySkillFile._meta.get_field("path").max_length
+    seen_paths: set[str] = set()
     for f in files:
+        path = f.get("path", "") or ""
+        if path_max is not None and len(path) > path_max:
+            raise ValueError(f"file path '{path}' exceeds the {path_max} character limit")
+        if path in seen_paths:
+            raise ValueError(f"duplicate file path '{path}'")
+        seen_paths.add(path)
         content = f.get("content", "") or ""
         if len(content.encode("utf-8")) > MAX_SKILL_FILE_BYTES:
             raise ValueError(f"file '{f.get('path')}' exceeds the {MAX_SKILL_FILE_BYTES} byte limit")
@@ -48,6 +68,13 @@ def _upsert_community_skill(entry: dict[str, Any]) -> bool:
     if existing is not None and existing.source_sha and existing.source_sha == source_sha and not existing.deleted:
         return False
 
+    # Model choices aren't DB-enforced, so an unknown tier would persist raw and break consumers
+    # that coerce it back to CommunitySkillTrustTier — fall back to the least-privileged tier.
+    trust_tier = entry.get("trust_tier") or CommunitySkillTrustTier.COMMUNITY.value
+    if trust_tier not in _VALID_TRUST_TIERS:
+        logger.warning("community_skills_sync_unknown_trust_tier", slug=slug, trust_tier=trust_tier)
+        trust_tier = CommunitySkillTrustTier.COMMUNITY.value
+
     defaults: dict[str, Any] = {
         "name": entry["name"],
         "description": entry["description"],
@@ -57,7 +84,7 @@ def _upsert_community_skill(entry: dict[str, Any]) -> bool:
         "allowed_tools": entry.get("allowed_tools", []),
         "metadata": entry.get("metadata", {}),
         "tags": entry.get("tags", []),
-        "trust_tier": entry.get("trust_tier", "community"),
+        "trust_tier": trust_tier,
         "author_handle": entry.get("author_handle", ""),
         "github_url": entry.get("github_url", ""),
         "source_sha": source_sha,
