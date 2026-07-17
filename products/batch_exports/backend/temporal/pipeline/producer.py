@@ -39,6 +39,9 @@ class S3FileResumeState:
     schema: pa.Schema | None = None
     # Full object size, from the first (non-ranged) GET.
     object_size: int | None = None
+    # ETag from the first GET, so a resumed range GET can assert (via IfMatch) it is
+    # reading the same object and fail loudly with a 412 if not.
+    etag: str | None = None
 
 
 class Producer:
@@ -115,6 +118,7 @@ class Producer:
                     if not keys:
                         return
 
+                    # Read in batches
                     await self._stream_record_batches_from_s3(
                         s3_client, keys, queue, max_record_batch_size_bytes, min_records_per_batch
                     )
@@ -149,7 +153,7 @@ class Producer:
         Returns the byte stream to read, or `None` if the file was already fully consumed.
         """
         if state.offset > 0:
-            assert state.schema is not None and state.object_size is not None
+            assert state.schema is not None and state.object_size is not None and state.etag is not None
 
             if state.offset >= state.object_size:
                 # Defensive: a previous attempt consumed every batch (e.g. the file lacks
@@ -158,8 +162,14 @@ class Producer:
                 return None
 
             self.logger.info("Resuming stream after retryable failure", key=key, offset=state.offset)
+            # `IfMatch` guards against the object changing under us: staging files are write-once
+            # today, but if that ever changes, ranging into a different object fails with a 412
+            # instead of silently yielding the wrong data.
             s3_ob = await s3_client.get_object(
-                Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Key=key, Range=f"bytes={state.offset}-"
+                Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET,
+                Key=key,
+                Range=f"bytes={state.offset}-",
+                IfMatch=state.etag,
             )
         else:
             self.logger.info("Starting stream", key=key)
@@ -170,6 +180,7 @@ class Producer:
         if state.offset == 0:
             # On a range GET, `ContentLength` is the length of the range, not the object.
             state.object_size = s3_ob["ContentLength"]
+            state.etag = s3_ob["ETag"]
 
         return s3_ob["Body"]
 
@@ -211,7 +222,6 @@ class Producer:
                 state.offset = base_offset + reader.bytes_consumed
                 state.schema = reader.schema
 
-            resume_states.pop(key, None)
             self.logger.info("Finished stream", key=key)
 
         stream_func = make_retryable_with_exponential_backoff(stream_from_s3_file, max_attempts=5, max_retry_delay=1)
