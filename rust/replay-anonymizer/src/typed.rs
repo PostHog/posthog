@@ -17,7 +17,7 @@
 
 use std::collections::BTreeMap;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Deserializer, Serialize};
 use simd_json::borrowed::Value;
 use simd_json::StaticNode;
@@ -488,16 +488,28 @@ pub enum AttrValue {
     Obj(BTreeMap<String, AttrValue>),
 }
 
+/// Deserialize a mutation sub-field that may be absent, `null`, or an array into a `Vec`. Both scrub
+/// paths keep a `null` sub-field verbatim (`cv.rs` and `bytewalk::walk_cv_sub`), so `null` is valid,
+/// expected data — not a reason to fail the typed parse. `#[serde(default)]` alone covers absent
+/// keys but rejects an explicit `null`, so route through `Option` to fold both to an empty `Vec`.
+fn null_tolerant_vec<'de, D, T>(d: D) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Ok(Option::<Vec<T>>::deserialize(d)?.unwrap_or_default())
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MutationData {
     pub source: IncrementalSource, // == Mutation (0)
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_tolerant_vec")]
     pub texts: Vec<TextMutation>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_tolerant_vec")]
     pub attributes: Vec<AttributeMutation>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_tolerant_vec")]
     pub removes: Vec<RemovedNodeMutation>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_tolerant_vec")]
     pub adds: Vec<AddedNodeMutation>,
     #[serde(
         default,
@@ -582,10 +594,11 @@ pub struct MetaData {
 /// Typed, scrubbed rrweb event from one JSONL line (bare event or `["window_id", event]` tuple).
 /// Offline/non-hot-path only: this parse allocates an AST.
 ///
-/// `Ok(None)` mirrors [`crate::anonymize_line`]'s policy — JSON that parses but is not
-/// recognizably an rrweb event (wrong shape, or a missing/non-numeric `type` or `timestamp`).
-/// `Err` = the line could not be scrubbed or its typed payload is malformed; fail closed, the
-/// caller must drop the line.
+/// `Ok(None)` = an object with no numeric `type`/`timestamp`, i.e. not an rrweb event envelope
+/// (nothing typed to hand back). `Err` = a wrong top-level shape (mirrors [`crate::anonymize_line`],
+/// fail closed), a scrub failure, or a payload the typed model can't represent — an unknown enum
+/// discriminant from a newer rrweb, say, which is the signal to extend this crate rather than
+/// silently drop or mis-type the event. Fail closed: drop the line on `Err`.
 pub fn parse_scrubbed_event(allow: &AllowLists, line: &mut [u8]) -> Result<Option<Event>> {
     parse_scrubbed_event_with_ctx(&Ctx::new(allow), line)
 }
@@ -606,10 +619,12 @@ pub fn parse_scrubbed_event_with_ctx(ctx: &Ctx<'_>, line: &mut [u8]) -> Result<O
                         (Some(Value::String(id)), Some(event @ Value::Object(_)), None) => {
                             (Some(id.into_owned()), event)
                         }
-                        _ => return Ok(None),
+                        _ => bail!("jsonl line is an array but not a [window_id, event] tuple"),
                     }
                 }
-                _ => return Ok(None),
+                _ => bail!(
+                    "jsonl line is neither an rrweb event object nor a [window_id, event] tuple"
+                ),
             };
             route_event(ctx, &mut event)?;
             build_typed(ctx, window_id, event)

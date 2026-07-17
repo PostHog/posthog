@@ -209,12 +209,48 @@ fn tuple_lines_carry_the_window_id_and_bare_lines_do_not() {
     assert_eq!(bare.window_id, None);
     assert_eq!(bare.data, tuple.data);
 
-    // Not recognizably an event: same policy as `anonymize_line`.
-    assert!(parse(&allow, r#"["w-1","not an event"]"#).is_none());
+    // A wrong top-level shape fails closed (same policy as `anonymize_line`); an object with no
+    // event envelope (missing type/timestamp) has nothing typed to return, so it is `Ok(None)`.
+    let mut wrong_shape = br#"["w-1","not an event"]"#.to_vec();
+    assert!(parse_scrubbed_event(&allow, &mut wrong_shape).is_err());
     assert!(
         parse(&allow, r#"{"type":2}"#).is_none(),
         "missing timestamp"
     );
+}
+
+#[test]
+fn mutation_with_null_subfields_parses_as_empty() {
+    // Both scrub paths keep a `null` mutation sub-field verbatim, so it is valid data the typed
+    // parse must accept (as empty), not fail on.
+    let allow = allow_hello();
+    let line = json!({ "type": 3, "timestamp": 1.0, "data": {
+        "source": 0,
+        "texts": null,
+        "attributes": null,
+        "removes": null,
+        "adds": null,
+    }})
+    .to_string();
+    let event = parse(&allow, &line).unwrap();
+    let EventData::Incremental(IncrementalData::Mutation(m)) = &event.data else {
+        panic!("expected Mutation data, got {:?}", event.data);
+    };
+    assert!(
+        m.texts.is_empty() && m.attributes.is_empty() && m.removes.is_empty() && m.adds.is_empty()
+    );
+}
+
+#[test]
+fn unknown_enum_discriminant_is_a_loud_error() {
+    // A MouseInteraction kind newer than this crate knows must surface as `Err` (extend the crate),
+    // not silently downgrade or mis-type. `source: 2` routes to the typed MouseInteraction model.
+    let allow = allow_hello();
+    let mut line = json!({ "type": 3, "timestamp": 1.0,
+                           "data": { "source": 2, "type": 99, "id": 4 } })
+    .to_string()
+    .into_bytes();
+    assert!(parse_scrubbed_event(&allow, &mut line).is_err());
 }
 
 #[test]

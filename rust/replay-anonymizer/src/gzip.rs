@@ -27,6 +27,11 @@ pub const ZSTD_MAGIC: [u8; 4] = [0x28, 0xb5, 0x2f, 0xfd];
 /// 289.2 MB, and the loader-side decompress is ~30% faster. Levels below -1 gain nothing.
 const CV_ZSTD_LEVEL: i32 = -1;
 
+/// zstd `windowLogMax` cap. The decoder's back-reference window can't exceed our decompressed-size
+/// cap (2^26 = 64 MiB), so a frame header declaring a huge `windowLog` can't force an outsized
+/// working-buffer allocation before the size cap engages. Real cv payloads sit far below this.
+const CV_ZSTD_WINDOW_LOG_MAX: u32 = 26;
+
 thread_local! {
     // Reused per thread: each codec state is a one-time ~50-300 KB malloc and cv work runs several
     // times per event.
@@ -36,8 +41,12 @@ thread_local! {
     static ZSTD_COMPRESSOR: RefCell<zstd::bulk::Compressor<'static>> = RefCell::new(
         zstd::bulk::Compressor::new(CV_ZSTD_LEVEL).expect("static zstd level is valid"),
     );
-    static ZSTD_DECOMPRESSOR: RefCell<zstd::bulk::Decompressor<'static>> =
-        RefCell::new(zstd::bulk::Decompressor::new().expect("default zstd decompressor is valid"));
+    static ZSTD_DECOMPRESSOR: RefCell<zstd::bulk::Decompressor<'static>> = RefCell::new({
+        let mut d = zstd::bulk::Decompressor::new().expect("default zstd decompressor is valid");
+        d.set_parameter(zstd::zstd_safe::DParameter::WindowLogMax(CV_ZSTD_WINDOW_LOG_MAX))
+            .expect("window log max is a valid decompression parameter");
+        d
+    });
 }
 
 /// Gunzip a single-member stream. The output buffer is sized exactly from the stream's ISIZE
@@ -78,7 +87,19 @@ pub fn gzip(payload: &[u8]) -> Result<Vec<u8>> {
 /// declares its content size the output buffer is sized from it (a declaration past
 /// [`MAX_DECOMPRESSED_BYTES`] is rejected before allocating), and a frame without one falls back to
 /// a streaming decode capped at the same limit.
+///
+/// The input must be exactly one frame that consumes every byte. Trailing bytes, concatenated
+/// frames, and appended skippable frames all decode to less than the input; accepting them would
+/// let never-decompressed bytes ride verbatim into a "kept unchanged" re-emit (the cv scrub keeps
+/// an unchanged zstd payload's original bytes). Fail closed on anything but a single self-contained
+/// frame — the gzip leg gets this for free (an unchanged gzip payload always re-emits, never keeps
+/// its bytes), so only the zstd leg needs the explicit check.
 pub fn unzstd(raw: &[u8]) -> Result<Vec<u8>> {
+    match zstd::zstd_safe::find_frame_compressed_size(raw) {
+        Ok(n) if n == raw.len() => {}
+        Ok(_) => bail!("zstd cv payload is not a single self-contained frame"),
+        Err(code) => bail!("zstd frame: {}", zstd::zstd_safe::get_error_name(code)),
+    }
     match zstd::zstd_safe::get_frame_content_size(raw) {
         Ok(Some(size)) => {
             if size > MAX_DECOMPRESSED_BYTES as u64 {
@@ -89,8 +110,9 @@ pub fn unzstd(raw: &[u8]) -> Result<Vec<u8>> {
                 .map_err(|e| anyhow!("unzstd: {e}"))
         }
         Ok(None) => {
+            let mut decoder = zstd::stream::read::Decoder::new(raw)?;
+            decoder.window_log_max(CV_ZSTD_WINDOW_LOG_MAX)?;
             let mut out = Vec::new();
-            let decoder = zstd::stream::read::Decoder::new(raw)?;
             decoder
                 .take(MAX_DECOMPRESSED_BYTES as u64 + 1)
                 .read_to_end(&mut out)
@@ -191,6 +213,39 @@ mod tests {
     fn unzstd_rejects_garbage() {
         assert!(unzstd(b"").is_err());
         assert!(unzstd(&[0x28, 0xb5, 0x2f, 0xfd, 0x00]).is_err());
+    }
+
+    #[test]
+    fn unzstd_rejects_non_single_frame_payloads() {
+        // Bytes past the first frame would ride verbatim into a "kept unchanged" re-emit without
+        // ever being decompressed/scrubbed, so a single self-contained frame is required.
+        let frame = compress_cv(b"clean cv content").unwrap();
+
+        // Two concatenated frames.
+        let mut concatenated = frame.clone();
+        concatenated.extend_from_slice(&frame);
+        assert!(unzstd(&concatenated)
+            .unwrap_err()
+            .to_string()
+            .contains("single self-contained frame"));
+
+        // A skippable frame appended (magic 0x184D2A50, 4-byte LE length, then arbitrary bytes).
+        let mut with_skippable = frame.clone();
+        with_skippable.extend_from_slice(&[0x50, 0x2a, 0x4d, 0x18]);
+        with_skippable.extend_from_slice(&4u32.to_le_bytes());
+        with_skippable.extend_from_slice(b"junk");
+        assert!(unzstd(&with_skippable)
+            .unwrap_err()
+            .to_string()
+            .contains("single self-contained frame"));
+
+        // Trailing garbage after a complete frame.
+        let mut with_trailing = frame.clone();
+        with_trailing.extend_from_slice(b"trailing");
+        assert!(unzstd(&with_trailing).is_err());
+
+        // The clean single frame still decodes.
+        assert_eq!(unzstd(&frame).unwrap(), b"clean cv content");
     }
 
     #[test]

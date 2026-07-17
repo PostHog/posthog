@@ -19,13 +19,23 @@ pub(crate) fn contain_unwind<T, E>(
     catch_unwind(AssertUnwindSafe(f)).unwrap_or_else(|panic| Err(err(panic_message(&*panic))))
 }
 
+/// Cap on the panic text carried into an error. Standard slice/`expect` panics interpolate a chunk
+/// of the offending value (`byte index N is not a char boundary ... of \`<raw input>\``), so the
+/// message can embed unscrubbed input; this error flows into DLQ detail on the ingestion path,
+/// logged at volume. Bound it — the DLQ reason (not the panic text) is what classifies the failure.
+const MAX_PANIC_MESSAGE_LEN: usize = 200;
+
 fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
-    if let Some(s) = panic.downcast_ref::<&str>() {
-        (*s).to_string()
+    let raw = if let Some(s) = panic.downcast_ref::<&str>() {
+        *s
     } else if let Some(s) = panic.downcast_ref::<String>() {
-        s.clone()
+        s.as_str()
     } else {
-        "non-string panic payload".to_string()
+        "non-string panic payload"
+    };
+    match raw.char_indices().nth(MAX_PANIC_MESSAGE_LEN) {
+        Some((cut, _)) => format!("{}…", &raw[..cut]),
+        None => raw.to_string(),
     }
 }
 

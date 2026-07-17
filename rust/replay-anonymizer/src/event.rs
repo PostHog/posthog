@@ -71,13 +71,15 @@ pub fn anonymize_message(allow: &AllowLists, json: &mut [u8]) -> Result<Option<S
 }
 
 /// Scrub one JSONL line: a bare rrweb event object or the PostHog `["window_id", event]` tuple.
-/// `Ok(None)` = unchanged (the caller keeps its original bytes, byte-for-byte).
-/// `Err` = could not anonymize; the caller must drop the line (fail closed).
+/// `Ok(Some(scrubbed))` = the line changed. `Ok(None)` = a recognized event that needed no
+/// scrubbing (identical to the input). `Err` = could not anonymize; fail closed, drop the line.
 ///
-/// Tuple lines come back with the wrapper intact and the window id untouched. JSON that parses but
-/// is neither shape — a scalar, or an array that is not a `[string, object]` pair — returns
-/// `Ok(None)`: nothing is recognizably scrubbable, so keeping or dropping the line is the caller's
-/// policy. Invalid JSON is an `Err`.
+/// `line` is scratch — the in-place parse consumes it, so on `Ok(None)` keep a prior copy of the
+/// bytes, not this buffer. Tuple lines come back with the wrapper intact and the window id
+/// untouched. Anything that is not one of the two recognized shapes — a scalar, or an array that is
+/// not a `[string, object]` pair — is an `Err`, not a silent pass-through: a scrubber must fail
+/// closed on input it doesn't understand rather than leave the caller to guess whether unrecognized
+/// bytes were safe to keep. Invalid JSON is likewise an `Err`.
 pub fn anonymize_line(allow: &AllowLists, line: &mut [u8]) -> Result<Option<String>> {
     anonymize_line_with_ctx(&Ctx::new(allow), line)
 }
@@ -95,9 +97,11 @@ pub fn anonymize_line_with_ctx(ctx: &Ctx<'_>, line: &mut [u8]) -> Result<Option<
             Value::Object(_) => route_event(ctx, &mut root)?,
             Value::Array(items) => match items.as_mut_slice() {
                 [Value::String(_), event @ Value::Object(_)] => route_event(ctx, event)?,
-                _ => return Ok(None),
+                _ => bail!("jsonl line is an array but not a [window_id, event] tuple"),
             },
-            _ => return Ok(None),
+            _ => {
+                bail!("jsonl line is neither an rrweb event object nor a [window_id, event] tuple")
+            }
         };
         if !changed {
             return Ok(None);
@@ -299,16 +303,12 @@ mod tests {
     }
 
     #[test]
-    fn line_returns_none_for_unchanged_and_unrecognized_shapes() {
+    fn line_returns_none_only_for_unchanged_recognized_events() {
         let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
-        // Unchanged event (type 1 is pass-through), and every documented not-an-event shape.
+        // Recognized events that need no scrubbing (type 1 is pass-through), bare and tuple-wrapped.
         for line in [
             br#"{"type":1,"data":{}}"#.as_slice(),
-            br#"["w-1","not an event"]"#.as_slice(),
-            br#"[{"type":1},{"type":1}]"#.as_slice(),
-            br#"["w-1",{"type":1},{"extra":1}]"#.as_slice(),
-            br#"42"#.as_slice(),
-            br#""just a string""#.as_slice(),
+            br#"["w-1",{"type":1,"data":{}}]"#.as_slice(),
         ] {
             let mut bytes = line.to_vec();
             assert!(
@@ -317,9 +317,27 @@ mod tests {
                 String::from_utf8_lossy(line)
             );
         }
-        // Invalid JSON fails closed.
-        let mut broken = b"{not json".to_vec();
-        assert!(anonymize_line(&allow, &mut broken).is_err());
+    }
+
+    #[test]
+    fn line_fails_closed_on_unrecognized_shapes_and_invalid_json() {
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        // A scrubber must not silently pass through input it doesn't recognize as an event.
+        for line in [
+            br#"["w-1","not an event"]"#.as_slice(), // tuple with a non-object second element
+            br#"[{"type":1},{"type":1}]"#.as_slice(), // array of events, not a [window_id, event] pair
+            br#"["w-1",{"type":1},{"extra":1}]"#.as_slice(), // three-element array
+            br#"42"#.as_slice(),                      // scalar
+            br#""just a string""#.as_slice(),         // scalar
+            br#"{not json"#.as_slice(),               // invalid JSON
+        ] {
+            let mut bytes = line.to_vec();
+            assert!(
+                anonymize_line(&allow, &mut bytes).is_err(),
+                "expected Err for {}",
+                String::from_utf8_lossy(line)
+            );
+        }
     }
 
     #[test]
