@@ -13,10 +13,12 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import onnxruntime as ort
+
+from products.signals.backend.grouping_replay.artifacts import load_hash_pinned_json_object, load_json_object
 
 if TYPE_CHECKING:
     from products.signals.backend.grouping_replay.oracle import OracleService
@@ -655,9 +657,31 @@ class PythonPipeline:
         self.signals = signals
         self.embeddings = np.stack([signal.embedding for signal in signals])
         self.oracle_service = oracle_service
-        self.models = json.loads((artifact_dir / "models-stack.json").read_text())
-        self.group_manifest = json.loads((artifact_dir / "groupjoin_direct.manifest.json").read_text())
-        self.shuffler_manifest = json.loads((artifact_dir / "integrated_report_shuffler.manifest.json").read_text())
+        models_path = artifact_dir / "models-stack.json.gz"
+        if not models_path.is_file():
+            models_path = artifact_dir / "models-stack.json"
+        group_manifest_path = artifact_dir / "groupjoin_direct.manifest"
+        if not group_manifest_path.is_file():
+            group_manifest_path = artifact_dir / "groupjoin_direct.manifest.json"
+        shuffler_manifest_path = artifact_dir / "integrated_report_shuffler.manifest"
+        if not shuffler_manifest_path.is_file():
+            shuffler_manifest_path = artifact_dir / "integrated_report_shuffler.manifest.json"
+        self.models = load_json_object(models_path)
+        self.group_manifest = load_json_object(group_manifest_path)
+        self.shuffler_manifest = load_json_object(shuffler_manifest_path)
+        compatibility_record = self.shuffler_manifest["compatibility_consensus"]
+        if isinstance(compatibility_record, dict) and "artifact" in compatibility_record:
+            self.shuffler_compatibility = cast(
+                dict[str, dict[str, object]],
+                load_hash_pinned_json_object(
+                    artifact_dir,
+                    compatibility_record["artifact"],
+                ),
+            )
+        elif isinstance(compatibility_record, dict):
+            self.shuffler_compatibility = cast(dict[str, dict[str, object]], compatibility_record)
+        else:
+            raise ValueError("shuffler compatibility record must be an object")
         self.group_onnx = ort.InferenceSession(
             str(artifact_dir / self.group_manifest["artifact"]["path"]), providers=["CPUExecutionProvider"]
         )
@@ -1246,8 +1270,7 @@ class PythonPipeline:
         for edge in edges:
             features = self.compatibility_features(edge, edges, len(left_rows), len(right_rows))
             edge.compatibility = {
-                name: portable_predict(model, features)
-                for name, model in self.shuffler_manifest["compatibility_consensus"].items()
+                name: portable_predict(model, features) for name, model in self.shuffler_compatibility.items()
             }
         return edges
 

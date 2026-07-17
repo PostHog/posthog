@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 import hashlib
 from dataclasses import dataclass
@@ -28,6 +29,33 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def load_json_object(path: Path) -> dict[str, object]:
+    encoded = path.read_bytes()
+    payload = gzip.decompress(encoded) if path.suffix == ".gz" else encoded
+    value = json.loads(payload)
+    if not isinstance(value, dict):
+        raise ValueError(f"{path} must contain a JSON object")
+    return {str(key): item for key, item in value.items()}
+
+
+def load_hash_pinned_json_object(root: Path, record: object) -> dict[str, object]:
+    if not isinstance(record, dict):
+        raise ValueError("compressed JSON artifact record must be an object")
+    relative_path = record.get("path")
+    expected_hash = record.get("sha256")
+    if not isinstance(relative_path, str) or not relative_path:
+        raise ValueError("compressed JSON artifact record has no path")
+    if not isinstance(expected_hash, str) or len(expected_hash) != 64:
+        raise ValueError("compressed JSON artifact record has no SHA-256 digest")
+    resolved_root = root.resolve()
+    path = (resolved_root / relative_path).resolve()
+    if not path.is_relative_to(resolved_root):
+        raise ValueError("compressed JSON artifact path escapes the artifact directory")
+    if sha256_file(path) != expected_hash:
+        raise ValueError(f"artifact hash mismatch: {path}")
+    return load_json_object(path)
+
+
 def runtime_source_sha256() -> str:
     digest = hashlib.sha256()
     root = Path(__file__).resolve().parent
@@ -41,9 +69,7 @@ def runtime_source_sha256() -> str:
 
 def load_frozen_pipeline(root: Path = STATIC_ROOT) -> FrozenPipeline:
     pipeline_path = root / "pipeline.json"
-    value = json.loads(pipeline_path.read_text(encoding="utf-8"))
-    if not isinstance(value, dict):
-        raise ValueError(f"{pipeline_path} must contain a JSON object")
+    value = load_json_object(pipeline_path)
     manifest_path = root / str(value.get("artifact_manifest", ""))
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     expected = manifest.get("artifacts") if isinstance(manifest, dict) else None

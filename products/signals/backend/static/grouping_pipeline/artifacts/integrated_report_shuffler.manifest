@@ -1,0 +1,202 @@
+{
+    "bipartite": {
+        "buckets": [
+            {
+                "artifact": {
+                    "bytes": 5316254,
+                    "path": "integrated_late_interaction_report_shuffler_8.onnx",
+                    "sha256": "14425369ba0c2a1e52835eb555c995dc173bb62677d4cc3f22435853bb8fa37c"
+                },
+                "width": 8
+            },
+            {
+                "artifact": {
+                    "bytes": 5316254,
+                    "path": "integrated_late_interaction_report_shuffler_32.onnx",
+                    "sha256": "a5c61669c8b6a865d166069b85c9fa0822ca7b4212a63f92a7ed72c2f00759c1"
+                },
+                "width": 32
+            },
+            {
+                "artifact": {
+                    "bytes": 5316254,
+                    "path": "integrated_late_interaction_report_shuffler_64.onnx",
+                    "sha256": "4462b538d5f0a27e42c0ec310bcc3cd620503bb208c889ef0aa0fdb9501a843b"
+                },
+                "width": 64
+            },
+            {
+                "artifact": {
+                    "bytes": 5316264,
+                    "path": "integrated_late_interaction_report_shuffler_128.onnx",
+                    "sha256": "774b5410c9a551f4ec5b0202d0826c84553d10e6a524ef4960a65dd51f94bd15"
+                },
+                "width": 128
+            },
+            {
+                "artifact": {
+                    "bytes": 5316264,
+                    "path": "integrated_late_interaction_report_shuffler_300.onnx",
+                    "sha256": "8b75a010db78bc6763e50646cffb5c6ee98863dbc9a95131a4ea2a0a2f169efb"
+                },
+                "width": 300
+            }
+        ],
+        "input_shapes": {
+            "edge_features": [
+                "report_pairs",
+                "bucketed_members",
+                "bucketed_members",
+                15
+            ],
+            "edge_mask": [
+                "report_pairs",
+                "bucketed_members",
+                "bucketed_members"
+            ],
+            "left_embeddings": [
+                "report_pairs",
+                "bucketed_members",
+                1536
+            ],
+            "left_features": [
+                "report_pairs",
+                "bucketed_members",
+                48
+            ],
+            "member_threshold": [
+                "report_pairs",
+                1
+            ],
+            "right_embeddings": [
+                "report_pairs",
+                "bucketed_members",
+                1536
+            ],
+            "right_features": [
+                "report_pairs",
+                "bucketed_members",
+                48
+            ]
+        },
+        "interaction": "late_interaction",
+        "output_shapes": {
+            "action_logit": [
+                "report_pairs"
+            ],
+            "left_logits": [
+                "report_pairs",
+                "bucketed_members"
+            ],
+            "right_logits": [
+                "report_pairs",
+                "bucketed_members"
+            ],
+            "safety_logit": [
+                "report_pairs"
+            ]
+        },
+        "variant": "integrated"
+    },
+    "caps": {
+        "embedding_dims": 1536,
+        "max_combined_members": 450,
+        "max_report_members": 300,
+        "top_k_each_direction": 24
+    },
+    "compatibility_consensus": {
+        "artifact": {
+            "bytes": 96073,
+            "format": "deterministic-json-gzip",
+            "path": "integrated_report_shuffler.compatibility.json.gz",
+            "sha256": "c0f486b836a5ff8678eb7a04fb2e678d8adf32431dcafe02695537bed785aeb4"
+        },
+        "model_names": [
+            "context-hgb-d2",
+            "context-hgb-d3",
+            "context-logistic",
+            "direct-hgb-d2",
+            "direct-hgb-d3",
+            "direct-logistic",
+            "rich-context-logistic",
+            "rich-direct-hgb-d2",
+            "rich-direct-hgb-d3"
+        ]
+    },
+    "edge_feature_names": [
+        "probability:direct-logistic",
+        "probability:direct-hgb-d2",
+        "probability:direct-hgb-d3",
+        "probability:context-logistic",
+        "probability:context-hgb-d2",
+        "probability:context-hgb-d3",
+        "probability:rich-direct-hgb-d2",
+        "probability:rich-direct-hgb-d3",
+        "probability:rich-context-logistic",
+        "pair_raw",
+        "pair_cal",
+        "embedding_cosine",
+        "left_rank_filled",
+        "right_rank_filled",
+        "mutual_top_k_float"
+    ],
+    "feature_contract": "lab2-exact-member-v3-integrated-shuffler-v1",
+    "feature_independence": {
+        "external_operation_risk_in_neural_input": false,
+        "external_report_gate_in_neural_input": false
+    },
+    "interaction": "late_interaction",
+    "model_family": "integrated_bipartite_report_shuffler",
+    "node_feature_names": [
+        "context-logistic_max",
+        "context-logistic_mean",
+        "context-logistic_q75",
+        "context-logistic_q90",
+        "context-logistic_margin",
+        "context-logistic_share_ge_0.30",
+        "context-logistic_share_ge_0.50",
+        "context-logistic_share_ge_0.70",
+        "context-logistic_share_ge_0.85",
+        "context-logistic_mutual_max",
+        "direct-hgb-d3_max",
+        "direct-hgb-d3_mean",
+        "direct-hgb-d3_q75",
+        "direct-hgb-d3_q90",
+        "direct-hgb-d3_margin",
+        "direct-hgb-d3_share_ge_0.30",
+        "direct-hgb-d3_share_ge_0.50",
+        "direct-hgb-d3_share_ge_0.70",
+        "direct-hgb-d3_share_ge_0.85",
+        "direct-hgb-d3_mutual_max",
+        "rich-context-logistic_max",
+        "rich-context-logistic_mean",
+        "rich-context-logistic_q75",
+        "rich-context-logistic_q90",
+        "rich-context-logistic_margin",
+        "rich-context-logistic_share_ge_0.30",
+        "rich-context-logistic_share_ge_0.50",
+        "rich-context-logistic_share_ge_0.70",
+        "rich-context-logistic_share_ge_0.85",
+        "rich-context-logistic_mutual_max",
+        "pair_raw_max",
+        "pair_raw_mean",
+        "pair_cal_max",
+        "embedding_cosine_max",
+        "side_left",
+        "left_size",
+        "right_size",
+        "member_side_size",
+        "opposite_side_size",
+        "member_side_size_log",
+        "opposite_side_size_log",
+        "combined_size_log",
+        "context-logistic_relative_to_report_max",
+        "context-logistic_member_rank_share",
+        "direct-hgb-d3_relative_to_report_max",
+        "direct-hgb-d3_member_rank_share",
+        "rich-context-logistic_relative_to_report_max",
+        "rich-context-logistic_member_rank_share"
+    ],
+    "schema_version": 2,
+    "status": "integrated member, action, and safety outputs exported for Rust replay"
+}
