@@ -53,6 +53,9 @@ class JamfProEndpointConfig:
     incremental_sort: Optional[str] = None
     # Repeated `section=` values (computers-inventory only).
     sections: list[str] = field(default_factory=list)
+    # Whether responses may enter opt-in HTTP sample capture. Disabled for endpoints whose
+    # bodies carry arbitrary customer content the name-based scrubbers can't recognise.
+    capture_samples: bool = True
 
 
 JAMF_PRO_ENDPOINTS: dict[str, JamfProEndpointConfig] = {
@@ -103,6 +106,8 @@ JAMF_PRO_ENDPOINTS: dict[str, JamfProEndpointConfig] = {
     "scripts": JamfProEndpointConfig(
         name="scripts",
         path="/api/v1/scripts",
+        # scriptContents routinely embeds deployment credentials; keep it out of sample capture.
+        capture_samples=False,
     ),
     "packages": JamfProEndpointConfig(
         name="packages",

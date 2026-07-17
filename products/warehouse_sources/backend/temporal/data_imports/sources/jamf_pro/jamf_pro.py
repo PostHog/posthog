@@ -242,7 +242,9 @@ def validate_credentials(
         if not host_ok:
             return False, host_err or HOST_NOT_ALLOWED_ERROR
 
-    session = make_tracked_session()
+    # capture=False keeps the minted bearer token (returned in the response body) and any probed
+    # row content out of opt-in HTTP sample capture — the name-based scrubbers can't recognise them.
+    session = make_tracked_session(capture=False)
     token_manager = JamfProTokenManager(session, normalized, credentials)
     try:
         token = token_manager.get_token()
@@ -302,10 +304,12 @@ def get_rows(
     if not host_ok:
         raise JamfProHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
 
-    # One session reused across the token mint and every page so urllib3 keeps the connection
-    # alive; Jamf recommends few concurrent connections rather than many short-lived ones.
-    session = make_tracked_session()
-    token_manager = JamfProTokenManager(session, host, credentials)
+    # Token responses carry the bearer credential in the body, which the name-based sample
+    # scrubbers can't recognise — keep auth exchanges out of sample capture entirely. The data
+    # session is reused across every page so urllib3 keeps the connection alive; Jamf recommends
+    # few concurrent connections rather than many short-lived ones.
+    token_manager = JamfProTokenManager(make_tracked_session(capture=False), host, credentials)
+    session = make_tracked_session(capture=config.capture_samples)
 
     @retry(
         retry=retry_if_exception_type((JamfProRetryableError, requests.ReadTimeout, requests.ConnectionError)),

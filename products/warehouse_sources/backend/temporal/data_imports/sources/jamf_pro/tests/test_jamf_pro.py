@@ -38,8 +38,9 @@ def _response(*, status_code: int = 200, json_data: Any = None, text: str = "") 
     response.text = text
     response.json.return_value = json_data
     if status_code >= 400:
-        error = requests.HTTPError(f"{status_code} Client Error: for url: https://example.jamfcloud.com")
-        error.response = response
+        error = requests.HTTPError(
+            f"{status_code} Client Error: for url: https://example.jamfcloud.com", response=response
+        )
         response.raise_for_status.side_effect = error
     return response
 
@@ -208,10 +209,12 @@ class TestValidateCredentials:
 
     def test_successful_token_mint_is_enough_at_source_create(self):
         session = _session(post_responses=[_response(json_data=TOKEN_JSON)])
-        with self._patch_session(session):
+        with self._patch_session(session) as factory:
             assert validate_credentials("example.jamfcloud.com", CLIENT_CREDENTIALS) == (True, None)
         # Privileges are per-resource in Jamf, so create-time must not probe endpoints.
         session.get.assert_not_called()
+        # The mint response body carries the bearer token; it must stay out of sample capture.
+        assert factory.call_args.kwargs == {"capture": False}
 
     def test_invalid_credentials(self):
         session = _session(post_responses=[_response(status_code=401)])
@@ -393,6 +396,34 @@ class TestGetRows:
         manager = self._manager()
         with pytest.raises(JamfProHostNotAllowedError):
             self._run(manager, [_response(status_code=302)])
+
+    @pytest.mark.parametrize(
+        "endpoint, data_capture",
+        [
+            ("computers", True),
+            # scriptContents routinely embeds deployment credentials, so the scripts data
+            # session must stay out of sample capture too.
+            ("scripts", False),
+        ],
+    )
+    def test_token_mint_session_is_excluded_from_sample_capture(self, endpoint, data_capture):
+        # The mint response body carries the bearer token, which the name-based sample
+        # scrubbers can't recognise — re-enabling capture there would persist a live credential.
+        manager = self._manager()
+        page = _response(json_data={"totalCount": 1, "results": [{"id": "1"}]})
+        session = _session(post_responses=[_response(json_data=TOKEN_JSON)], get_responses=[page])
+        with mock.patch.object(jamf_pro_module, "make_tracked_session", return_value=session) as factory:
+            list(
+                get_rows(
+                    host="example.jamfcloud.com",
+                    credentials=CLIENT_CREDENTIALS,
+                    endpoint=endpoint,
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=manager,
+                    team_id=1,
+                )
+            )
+        assert factory.call_args_list == [mock.call(capture=False), mock.call(capture=data_capture)]
 
     def test_requests_do_not_follow_redirects(self):
         manager = self._manager()
