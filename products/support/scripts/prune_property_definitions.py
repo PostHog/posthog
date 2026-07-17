@@ -412,7 +412,11 @@ def main() -> int:
             f"\nAbout to permanently delete {len(matched)} {args.prop_type} property definitions "
             f"from project {args.project_id}. Type 'prune' to continue: "
         )
-        if input(prompt).strip().lower() != "prune":
+        try:
+            confirmed = input(prompt).strip().lower()
+        except EOFError as err:
+            raise PruneError("Confirmation requires interactive input; pass --yes for non-interactive runs.") from err
+        if confirmed != "prune":
             log("Aborted.")
             return 1
 
