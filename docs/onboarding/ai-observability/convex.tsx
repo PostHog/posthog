@@ -65,28 +65,9 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                         because Convex may finish the action while the processor's batch is still pending.
                     </Markdown>
 
-                    <Markdown>
-                        First, create `convex/polyfills.ts` to provide the `performance` global OpenTelemetry expects:
-                    </Markdown>
-
                     <CodeBlock
                         language="typescript"
                         code={dedent`
-                            if (typeof performance === 'undefined') {
-                              const timeOrigin = Date.now()
-                              globalThis.performance = {
-                                timeOrigin,
-                                now: () => Date.now() - timeOrigin,
-                              } as unknown as typeof performance
-                            }
-                        `}
-                    />
-
-                    <CodeBlock
-                        language="typescript"
-                        code={dedent`
-                            import './polyfills.js'
-
                             import { trace } from '@opentelemetry/api'
                             import { BasicTracerProvider } from '@opentelemetry/sdk-trace-base'
                             import { resourceFromAttributes } from '@opentelemetry/resources'
@@ -161,8 +142,6 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                     <CodeBlock
                         language="typescript"
                         code={dedent`
-                            import './polyfills.js'
-
                             import { trace } from '@opentelemetry/api'
                             import { BasicTracerProvider } from '@opentelemetry/sdk-trace-base'
                             import { resourceFromAttributes } from '@opentelemetry/resources'
