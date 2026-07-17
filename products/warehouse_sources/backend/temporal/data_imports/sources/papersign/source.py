@@ -134,6 +134,8 @@ The Papersign API requires a paid Paperform plan (Standard or Business tier)."""
         return papersign_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Papersign endpoint is full refresh
         )
