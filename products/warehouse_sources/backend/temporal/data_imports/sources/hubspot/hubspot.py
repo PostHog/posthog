@@ -41,12 +41,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.he
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import (
     ASSOCIATIONS_BATCH_SIZE,
     DEFAULT_PROPS,
+    HUBSPOT_API_VERSION_V3,
     HUBSPOT_ENDPOINTS,
     OBJECT_TYPE_SINGULAR,
     SEARCH_PAGE_SIZE,
     SEARCH_RESULT_CAP,
     SEARCH_WINDOW_DAYS,
     STARTDATE,
+    apply_crm_api_version,
 )
 
 PROPERTY_LENGTH_LIMIT = 16_000  # Empirically determined rough limit for the HubSpot API
@@ -79,11 +81,14 @@ def _get_properties_str(
     logger: FilteringBoundLogger,
     include_custom_props: bool = True,
     source_id: str | None = None,
+    api_version: str = HUBSPOT_API_VERSION_V3,
 ) -> str:
     """Builds a comma-separated string of properties to request from the HubSpot API (GET path)."""
     props = list(props)
     if include_custom_props:
-        all_props = _get_property_names(api_key, refresh_token, object_type, source_id=source_id)
+        all_props = _get_property_names(
+            api_key, refresh_token, object_type, source_id=source_id, api_version=api_version
+        )
         custom_props = [prop for prop in all_props if not prop.startswith("hs_")]
         props = props + [c for c in custom_props if c not in props]
 
@@ -114,6 +119,7 @@ def _resolve_search_properties(
     required_props: Sequence[str],
     logger: FilteringBoundLogger,
     source_id: str | None,
+    api_version: str = HUBSPOT_API_VERSION_V3,
 ) -> tuple[list[str], list[str]]:
     """Resolve the properties list for the search body.
 
@@ -127,7 +133,9 @@ def _resolve_search_properties(
     with thousands of custom properties can otherwise blow up CPU/memory at scale).
     """
     if selected_properties:
-        available_props = set(_get_property_names(api_key, refresh_token, object_type, source_id=source_id))
+        available_props = set(
+            _get_property_names(api_key, refresh_token, object_type, source_id=source_id, api_version=api_version)
+        )
         invalid_props = [p for p in selected_properties if p not in available_props]
         if invalid_props:
             logger.warning(
@@ -145,7 +153,9 @@ def _resolve_search_properties(
     else:
         props = list(DEFAULT_PROPS[endpoint])
         if include_custom_props:
-            all_props = _get_property_names(api_key, refresh_token, object_type, source_id=source_id)
+            all_props = _get_property_names(
+                api_key, refresh_token, object_type, source_id=source_id, api_version=api_version
+            )
             custom = [p for p in all_props if not p.startswith("hs_") and p not in props]
             props.extend(custom)
 
@@ -247,6 +257,7 @@ def get_rows(
     include_custom_props: bool = True,
     selected_properties: list[str] | None = None,
     source_id: str | None = None,
+    api_version: str = HUBSPOT_API_VERSION_V3,
 ) -> Iterator[Any]:
     """Full-refresh (and seed-incremental) fetch via the paginated GET endpoint."""
     config = HUBSPOT_ENDPOINTS[endpoint]
@@ -260,7 +271,9 @@ def get_rows(
 
     if selected_properties:
         # Validate selected properties against what HubSpot actually has
-        available_props = set(_get_property_names(api_key, refresh_token, object_type, source_id=source_id))
+        available_props = set(
+            _get_property_names(api_key, refresh_token, object_type, source_id=source_id, api_version=api_version)
+        )
         invalid_props = [p for p in selected_properties if p not in available_props]
         if invalid_props:
             logger.warning(
@@ -284,6 +297,7 @@ def get_rows(
             include_custom_props=False,
             logger=logger,
             source_id=source_id,
+            api_version=api_version,
         )
     else:
         props_str = _get_properties_str(
@@ -294,6 +308,7 @@ def get_rows(
             include_custom_props=include_custom_props,
             logger=logger,
             source_id=source_id,
+            api_version=api_version,
         )
         expected_properties = props_str.split(",") if props_str else []
 
@@ -308,7 +323,7 @@ def get_rows(
         logger.debug(f"Hubspot: resuming from URL: {url}")
     else:
         url = _build_initial_url(
-            path=config.path,
+            path=apply_crm_api_version(config.path, api_version),
             associations=config.associations,
             properties=props_str,
         )
@@ -387,6 +402,7 @@ def _batch_read_associations(
     refresh_token: str,
     source_id: str | None,
     logger: FilteringBoundLogger,
+    api_version: str = HUBSPOT_API_VERSION_V3,
 ) -> dict[str, list[dict[str, Any]]]:
     """POST /crm/v4/associations/{from}/{to}/batch/read in chunks of ASSOCIATIONS_BATCH_SIZE.
 
@@ -396,7 +412,10 @@ def _batch_read_associations(
     if not ids:
         return {}
 
-    url = urllib.parse.urljoin(BASE_URL, f"/crm/v4/associations/{from_entity_plural}/{to_entity_plural}/batch/read")
+    url = urllib.parse.urljoin(
+        BASE_URL,
+        apply_crm_api_version(f"/crm/v4/associations/{from_entity_plural}/{to_entity_plural}/batch/read", api_version),
+    )
     by_from: dict[str, list[dict[str, Any]]] = {}
 
     @retry(
@@ -473,6 +492,7 @@ def _backfill_associations_into_results(
     refresh_token: str,
     source_id: str | None,
     logger: FilteringBoundLogger,
+    api_version: str = HUBSPOT_API_VERSION_V3,
 ) -> None:
     """Hydrate `result["associations"]` for each search result so _flatten_result handles it uniformly."""
     if not association_types or not results:
@@ -489,6 +509,7 @@ def _backfill_associations_into_results(
             refresh_token=refresh_token,
             source_id=source_id,
             logger=logger,
+            api_version=api_version,
         )
         for r in results:
             tos = mapping.get(str(r.get("id", "")), [])
@@ -507,6 +528,7 @@ def get_rows_via_search(
     selected_properties: list[str] | None = None,
     source_id: str | None = None,
     now_ms: Optional[int] = None,
+    api_version: str = HUBSPOT_API_VERSION_V3,
 ) -> Iterator[Any]:
     """Incremental fetch via POST /crm/v3/objects/{entity}/search.
 
@@ -535,10 +557,11 @@ def get_rows_via_search(
         required_props=[cursor_prop, "hs_object_id"],
         logger=logger,
         source_id=source_id,
+        api_version=api_version,
     )
 
     headers = _get_headers(api_key)
-    search_url = urllib.parse.urljoin(BASE_URL, f"{config.path}/search")
+    search_url = urllib.parse.urljoin(BASE_URL, f"{apply_crm_api_version(config.path, api_version)}/search")
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -645,6 +668,7 @@ def get_rows_via_search(
                     refresh_token=refresh_token,
                     source_id=source_id,
                     logger=logger,
+                    api_version=api_version,
                 )
 
             for result in results:
@@ -718,6 +742,7 @@ def hubspot_source(
     source_id: str | None = None,
     db_incremental_field_last_value: Any = None,
     use_search_path: bool = False,
+    api_version: str = HUBSPOT_API_VERSION_V3,
 ) -> SourceResponse:
     """Build a SourceResponse for the pipeline.
 
@@ -743,6 +768,7 @@ def hubspot_source(
             include_custom_props=include_custom_props,
             selected_properties=selected_properties,
             source_id=source_id,
+            api_version=api_version,
         )
     else:
         items = lambda: get_rows(
@@ -754,6 +780,7 @@ def hubspot_source(
             include_custom_props=include_custom_props,
             selected_properties=selected_properties,
             source_id=source_id,
+            api_version=api_version,
         )
 
     return SourceResponse(

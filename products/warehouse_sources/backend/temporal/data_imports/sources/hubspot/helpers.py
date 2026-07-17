@@ -12,7 +12,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 
 from .auth import HubspotRetryableError, hubspot_refresh_access_token
-from .settings import OBJECT_TYPE_PLURAL
+from .settings import HUBSPOT_API_VERSION_V3, OBJECT_TYPE_PLURAL, apply_crm_api_version
 
 BASE_URL = "https://api.hubapi.com/"
 
@@ -210,7 +210,13 @@ def fetch_data(
             _data = None
 
 
-def _get_property_names(api_key: str, refresh_token: str, object_type: str, source_id: str | None = None) -> list[str]:
+def _get_property_names(
+    api_key: str,
+    refresh_token: str,
+    object_type: str,
+    source_id: str | None = None,
+    api_version: str = HUBSPOT_API_VERSION_V3,
+) -> list[str]:
     """
     Retrieve property names for a given entity from the HubSpot API.
 
@@ -224,7 +230,7 @@ def _get_property_names(api_key: str, refresh_token: str, object_type: str, sour
         Exception: If an error occurs during the API request.
     """
     properties = []
-    endpoint = f"/crm/v3/properties/{OBJECT_TYPE_PLURAL[object_type]}"
+    endpoint = apply_crm_api_version(f"/crm/v3/properties/{OBJECT_TYPE_PLURAL[object_type]}", api_version)
 
     for page in fetch_data(endpoint, api_key, refresh_token, source_id=source_id):
         properties.extend([prop["name"] for prop in page])

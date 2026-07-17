@@ -8,6 +8,22 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 
 STARTDATE = datetime(year=2000, month=1, day=1)
 
+# Vendor API version labels. HubSpot moved to date-based versioning ("YYYY-MM"); the legacy
+# "v3" pin keeps the historical /crm/v3/ (objects, properties) + /crm/v4/ (association
+# batch-read) URL split, while date versions collapse every CRM path onto the date segment.
+HUBSPOT_API_VERSION_V3 = "v3"
+HUBSPOT_API_VERSION_2026_03 = "2026-03"
+
+
+def apply_crm_api_version(path: str, api_version: str) -> str:
+    """Rewrite the CRM version segment of a HubSpot path (/crm/v3/, /crm/v4/) to the pinned
+    vendor API version. The legacy "v3" pin is returned unchanged so existing syncs are
+    byte-for-byte unaffected."""
+    if api_version == HUBSPOT_API_VERSION_V3:
+        return path
+    return path.replace("/crm/v3/", f"/crm/{api_version}/").replace("/crm/v4/", f"/crm/{api_version}/")
+
+
 CONTACT = "contact"
 COMPANY = "company"
 DEAL = "deal"

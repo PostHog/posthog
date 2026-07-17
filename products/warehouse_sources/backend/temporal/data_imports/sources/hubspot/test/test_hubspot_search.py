@@ -19,6 +19,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hu
     hubspot_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import (
+    HUBSPOT_API_VERSION_2026_03,
+    HUBSPOT_API_VERSION_V3,
     HUBSPOT_ENDPOINTS,
     SEARCH_PAGE_SIZE,
     SEARCH_RESULT_CAP,
@@ -248,6 +250,37 @@ class TestBatchReadAssociations:
         assert calls[0]["json"] == {"inputs": [{"id": "1"}, {"id": "2"}, {"id": "3"}]}
         assert result["1"] == [{"id": "9", "type": "x"}]
 
+    @pytest.mark.parametrize(
+        "api_version,expected_suffix",
+        [
+            (HUBSPOT_API_VERSION_V3, "/crm/v4/associations/contacts/deals/batch/read"),
+            (HUBSPOT_API_VERSION_2026_03, "/crm/2026-03/associations/contacts/deals/batch/read"),
+        ],
+    )
+    def test_url_carries_pinned_api_version(self, api_version: str, expected_suffix: str) -> None:
+        calls = []
+
+        def _post(url, headers=None, json=None, timeout=None):  # noqa: ARG001
+            calls.append({"url": url})
+            return _make_response(200, {"results": []})
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(_post)})(),
+        ):
+            _batch_read_associations(
+                from_entity_plural="contacts",
+                to_entity_plural="deals",
+                ids=["1"],
+                headers={"authorization": "Bearer x"},
+                refresh_token="r",
+                source_id=None,
+                logger=MagicMock(),
+                api_version=api_version,
+            )
+
+        assert calls[0]["url"].endswith(expected_suffix)
+
     def test_splits_into_chunks_of_batch_size(self) -> None:
         posts = []
 
@@ -469,6 +502,38 @@ class TestGetRowsViaSearch:
         body = captured[0]["json"]
         assert int(body["filterGroups"][0]["filters"][0]["value"]) == last + 1  # last_cursor_ms + 1
         assert int(body["filterGroups"][0]["filters"][1]["value"]) == end  # sync_end_ms from state, not now_ms
+
+    @pytest.mark.parametrize(
+        "api_version,expected_suffix",
+        [
+            (HUBSPOT_API_VERSION_V3, "/crm/v3/objects/deals/search"),
+            (HUBSPOT_API_VERSION_2026_03, "/crm/2026-03/objects/deals/search"),
+        ],
+    )
+    def test_search_url_carries_pinned_api_version(self, api_version: str, expected_suffix: str) -> None:
+        manager = _make_manager()
+        logger = MagicMock()
+        side_effect, captured = _setup_search_post([_make_response(200, _search_page([]))])
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
+        ):
+            list(
+                get_rows_via_search(
+                    api_key="k",
+                    refresh_token="r",
+                    endpoint="deals",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                    db_incremental_field_last_value=_RECENT_SEED_ISO,
+                    include_custom_props=False,
+                    now_ms=_FIXED_NOW_MS,
+                    api_version=api_version,
+                )
+            )
+
+        assert captured[0]["url"].endswith(expected_suffix)
 
     def test_ignores_next_url_resume_state(self) -> None:
         # A stale next_url from the GET path should not leak into the search path.

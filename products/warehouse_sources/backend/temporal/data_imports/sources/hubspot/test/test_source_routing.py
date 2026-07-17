@@ -6,9 +6,15 @@ from unittest.mock import MagicMock, patch
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import (
     DEFAULT_PROPS,
+    HUBSPOT_API_VERSION_2026_03,
+    HUBSPOT_API_VERSION_V3,
     HUBSPOT_ENDPOINTS,
+    apply_crm_api_version,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.source import HubspotSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.source import (
+    HubspotSource,
+    HubspotSourceOldConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
@@ -20,6 +26,7 @@ def _make_inputs(
     schema_id: str = "schema-1",
     team_id: int = 1,
     source_id: str = "source-1",
+    api_version: str | None = None,
 ) -> SourceInputs:
     return SourceInputs(
         schema_name=schema_name,
@@ -34,6 +41,7 @@ def _make_inputs(
         job_id="job-1",
         logger=MagicMock(),
         reset_pipeline=reset_pipeline,
+        api_version=api_version,
     )
 
 
@@ -246,6 +254,71 @@ def test_missing_token_error_is_non_retryable(error_msg: str) -> None:
     assert any(pattern in error_msg for pattern in patterns), (
         f"HubSpot error {error_msg!r} did not match any non-retryable pattern"
     )
+
+
+class TestApiVersion:
+    def test_defaults_to_latest_date_version(self) -> None:
+        src = HubspotSource()
+        assert src.default_version == HUBSPOT_API_VERSION_2026_03
+        # A source with no pin (a newly created one) resolves to the new default...
+        assert src.resolve_api_version(None) == HUBSPOT_API_VERSION_2026_03
+        # ...while an existing v3 pin is honored verbatim so its syncs are unaffected.
+        assert src.resolve_api_version(HUBSPOT_API_VERSION_V3) == HUBSPOT_API_VERSION_V3
+
+    def test_both_versions_supported(self) -> None:
+        assert set(HubspotSource().supported_versions) == {HUBSPOT_API_VERSION_V3, HUBSPOT_API_VERSION_2026_03}
+
+    @pytest.mark.parametrize(
+        "path,api_version,expected",
+        [
+            # Legacy pin: paths are returned byte-for-byte, keeping the historical v3/v4 split.
+            ("/crm/v3/objects/contacts", HUBSPOT_API_VERSION_V3, "/crm/v3/objects/contacts"),
+            (
+                "/crm/v4/associations/contacts/deals/batch/read",
+                HUBSPOT_API_VERSION_V3,
+                "/crm/v4/associations/contacts/deals/batch/read",
+            ),
+            # Date version: both v3 and v4 CRM segments collapse onto the date label.
+            ("/crm/v3/objects/contacts", HUBSPOT_API_VERSION_2026_03, "/crm/2026-03/objects/contacts"),
+            ("/crm/v3/properties/deals", HUBSPOT_API_VERSION_2026_03, "/crm/2026-03/properties/deals"),
+            (
+                "/crm/v4/associations/contacts/deals/batch/read",
+                HUBSPOT_API_VERSION_2026_03,
+                "/crm/2026-03/associations/contacts/deals/batch/read",
+            ),
+        ],
+    )
+    def test_apply_crm_api_version(self, path: str, api_version: str, expected: str) -> None:
+        assert apply_crm_api_version(path, api_version) == expected
+
+    @pytest.mark.parametrize(
+        "pin,expected",
+        [
+            (None, HUBSPOT_API_VERSION_2026_03),
+            (HUBSPOT_API_VERSION_V3, HUBSPOT_API_VERSION_V3),
+            (HUBSPOT_API_VERSION_2026_03, HUBSPOT_API_VERSION_2026_03),
+        ],
+    )
+    def test_source_for_pipeline_threads_resolved_version(self, pin: str | None, expected: str) -> None:
+        src = HubspotSource()
+        old_config = HubspotSourceOldConfig.from_dict(
+            {"hubspot_secret_key": "secret", "hubspot_refresh_token": "refresh"}
+        )
+        inputs = _make_inputs(should_use_incremental_field=False, api_version=pin)
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.source.hubspot_source",
+                return_value=MagicMock(),
+            ) as hubspot_source_mock,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.source.hubspot_access_token_is_valid",
+                return_value=True,
+            ),
+        ):
+            src.source_for_pipeline(old_config, MagicMock(), inputs)
+
+        assert hubspot_source_mock.call_args.kwargs["api_version"] == expected
 
 
 @pytest.mark.parametrize(

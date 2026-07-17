@@ -35,6 +35,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hu
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import (
     DEFAULT_PROPS,
     ENDPOINTS as HUBSPOT_ENDPOINTS,
+    HUBSPOT_API_VERSION_2026_03,
+    HUBSPOT_API_VERSION_V3,
     HUBSPOT_ENDPOINTS as HUBSPOT_ENDPOINT_CONFIGS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -48,9 +50,9 @@ class HubspotSourceOldConfig(config.Config):
 
 @SourceRegistry.register
 class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig, HubspotResumeConfig], OAuthMixin):
-    supported_versions = ("v3",)
-    default_version = "v3"
-    api_docs_url = "https://developers.hubspot.com/docs"
+    supported_versions = (HUBSPOT_API_VERSION_V3, HUBSPOT_API_VERSION_2026_03)
+    default_version = HUBSPOT_API_VERSION_2026_03
+    api_docs_url = "https://developers.hubspot.com/docs/api-reference/latest/overview"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -210,6 +212,7 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             source_id=inputs.source_id,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             use_search_path=use_search_path,
+            api_version=self.resolve_api_version(inputs.api_version),
         )
 
     def _should_use_search_path(self, inputs: SourceInputs) -> bool:
