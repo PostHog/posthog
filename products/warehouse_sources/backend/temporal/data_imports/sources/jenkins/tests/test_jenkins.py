@@ -6,6 +6,7 @@ import pytest
 from unittest import mock
 from unittest.mock import MagicMock
 
+import urllib3
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -408,3 +409,14 @@ class TestValidateCredentials:
             ok, error = validate_credentials("https://user@evil.example.com", "user", "token")
         assert ok is False
         make_session.assert_not_called()
+
+    def test_request_uses_total_bounded_timeout(self) -> None:
+        # A total-bounded timeout is what stops a dripped-header response from stalling the request
+        # before the body watchdog is armed; a plain int read timeout would reintroduce that hang.
+        session = MagicMock()
+        session.get.return_value = _resp({}, status=200)
+        with mock.patch.object(jenkins, "make_tracked_session", return_value=session):
+            validate_credentials("https://jenkins.example.com", "user", "token")
+        timeout = session.get.call_args.kwargs["timeout"]
+        assert isinstance(timeout, urllib3.Timeout)
+        assert timeout.total == jenkins.MAX_DOWNLOAD_SECONDS

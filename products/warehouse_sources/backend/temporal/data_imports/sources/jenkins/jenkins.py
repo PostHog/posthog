@@ -2,9 +2,10 @@ import threading
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import urlparse
 
+import urllib3
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
@@ -109,6 +110,17 @@ def _headers() -> dict[str, str]:
     return {"Accept": "application/json"}
 
 
+def _request_timeout() -> urllib3.Timeout:
+    """Timeout that also bounds the connection + response-header phase, not just idle-socket reads.
+
+    A plain read timeout resets whenever a byte arrives, so a host dripping response-header bytes just
+    under it could block `session.get` (which returns only after the status line and headers are read)
+    before the body watchdog is ever armed. urllib3's `total` caps the whole connect + header phase, so
+    a header drip can't outrun it; the streamed body read stays additionally guarded by the watchdog.
+    """
+    return urllib3.Timeout(connect=REQUEST_TIMEOUT_SECONDS, read=REQUEST_TIMEOUT_SECONDS, total=MAX_DOWNLOAD_SECONDS)
+
+
 def _is_job_container(job: dict[str, Any]) -> bool:
     """Whether a job actually holds nested jobs (Folder, Organization Folder, Multibranch Pipeline).
 
@@ -140,7 +152,8 @@ def _fetch(
 ) -> requests.Response:
     # Stream so the status/headers arrive before the body, letting us cap the decoded size (see
     # _read_body_capped) rather than letting `requests` buffer an unbounded response up front.
-    response = session.get(url, auth=auth, headers=_headers(), timeout=REQUEST_TIMEOUT_SECONDS, stream=True)
+    # `requests` accepts a urllib3.Timeout at runtime but its stubs only type the numeric forms.
+    response = session.get(url, auth=auth, headers=_headers(), timeout=cast(Any, _request_timeout()), stream=True)
 
     # No documented rate limits (bounded by the customer's own server), but honor 429 if a reverse
     # proxy imposes one, and retry transient 5xx.
@@ -219,9 +232,10 @@ def validate_credentials(
     session = make_tracked_session(redact_values=(api_token,), allow_redirects=False)
     try:
         # Stream and only read the status line: the probe never needs the body, so a hostile host
-        # can't make us buffer a large response just to validate credentials.
+        # can't make us buffer a large response just to validate credentials. The total-bounded
+        # timeout also stops a dripped-header response from stalling the probe indefinitely.
         response = session.get(
-            url, auth=(username, api_token), headers=_headers(), timeout=REQUEST_TIMEOUT_SECONDS, stream=True
+            url, auth=(username, api_token), headers=_headers(), timeout=cast(Any, _request_timeout()), stream=True
         )
     except requests.exceptions.RequestException as e:
         return False, str(e)
