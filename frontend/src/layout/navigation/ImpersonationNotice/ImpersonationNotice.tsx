@@ -27,11 +27,20 @@ import {
 import { ImpersonationReasonModal } from './ImpersonationReasonModal'
 
 // One row in the "Change user" dropdown: name on top, email beneath in muted text, level pill on the right.
-function ChangeUserMenuItemLabel({ member }: { member: OrganizationMemberType }): JSX.Element {
+function ChangeUserMenuItemLabel({
+    member,
+    isCurrentUser = false,
+}: {
+    member: OrganizationMemberType
+    isCurrentUser?: boolean
+}): JSX.Element {
     return (
         <span className="flex items-center gap-2 justify-between w-full">
             <span className="flex flex-col">
-                <span>{fullName(member.user)}</span>
+                <span>
+                    {fullName(member.user)}
+                    {isCurrentUser && <span className="text-muted"> (you)</span>}
+                </span>
                 <span className="text-xs text-muted">{member.user.email}</span>
             </span>
             <LemonTag>
@@ -145,6 +154,7 @@ function ImpersonationNoticeContent(): JSX.Element {
         changeableMembers,
         isChangingUser,
         membersLoading,
+        me: currentMember,
     } = useValues(impersonationNoticeLogic)
     const {
         closeUpgradeModal,
@@ -163,16 +173,27 @@ function ImpersonationNoticeContent(): JSX.Element {
     // used to pre-fill the change-user and upgrade modals.
     const storedReason = user?.is_impersonated_reason
 
-    const changeUserItems =
-        changeableMembers.length === 0
-            ? [{ label: membersLoading ? 'Loading…' : 'No other members', disabledReason: ' ' }]
-            : changeableMembers.map((member) => ({
-                  key: member.user.uuid,
-                  label: <ChangeUserMenuItemLabel member={member} />,
-                  disabledReason: isChangingUser ? 'Switching user…' : undefined,
-                  // Always confirm via the modal (reason pre-filled) rather than switching silently.
-                  onClick: () => setPendingUserId(member.user.id),
-              }))
+    // The current user always leads the list, disabled, so their access level is visible at a glance.
+    // Other members follow and are clickable to switch into.
+    const changeUserItems = [
+        ...(currentMember
+            ? [
+                  {
+                      key: currentMember.user.uuid,
+                      label: <ChangeUserMenuItemLabel member={currentMember} isCurrentUser />,
+                      disabledReason: "You're currently signed in as this user",
+                  },
+              ]
+            : []),
+        ...changeableMembers.map((member) => ({
+            key: member.user.uuid,
+            label: <ChangeUserMenuItemLabel member={member} />,
+            disabledReason: isChangingUser ? 'Switching user…' : undefined,
+            // Always confirm via the modal (reason pre-filled) rather than switching silently.
+            onClick: () => setPendingUserId(member.user.id),
+        })),
+        ...(changeableMembers.length === 0 && membersLoading ? [{ label: 'Loading…', disabledReason: ' ' }] : []),
+    ]
 
     const handleSessionExpired = useCallback((): void => {
         if (user) {
