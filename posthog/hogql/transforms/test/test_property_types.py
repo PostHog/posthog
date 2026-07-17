@@ -720,6 +720,8 @@ class TestPropertyTypes(BaseTest):
         ]
     )
     def test_exception_array_property_extracted_for_array_membership_functions(self, fn_name: str, expr: str):
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.skipTest("Materialized column JSONExtract wrapping is not used on events_json schema")
         # $exception_* array properties are stored as a raw JSON String once materialized, so passing the
         # bare column to an array function raises ILLEGAL_TYPE_OF_ARGUMENT. It must first be extracted to
         # Array(String) — the same wrapping property_to_expr applies to typed exception filters.
