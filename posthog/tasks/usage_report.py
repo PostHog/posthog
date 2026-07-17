@@ -2734,6 +2734,11 @@ def _get_teams_for_usage_reports() -> Sequence[Team]:
 
 
 def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounters:
+    # A Temporal usage-report run started before a new QUERIES entry shipped records its query set
+    # without the new key, so the post-deploy aggregation reads a key that isn't in `all_data`. Fall
+    # back to an empty per-team map for any missing metric so a stale in-flight run can't crash the
+    # aggregation — new metrics simply report 0 for the crossing run. See temporal-workflow-versioning.
+    all_data = defaultdict(dict, all_data)
     decide_requests_count_in_period = all_data["teams_with_decide_requests_count_in_period"].get(team.id, 0)
     local_evaluation_requests_count_in_period = all_data["teams_with_local_evaluation_requests_count_in_period"].get(
         team.id, 0
