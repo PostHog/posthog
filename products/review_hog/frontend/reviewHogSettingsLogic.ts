@@ -193,7 +193,7 @@ export interface reviewHogSettingsLogicActions {
         blindSpots: ReviewBlindSpotsConfigApi[]
         payload?: any
     }
-    loadPerspectiveStats: () => any
+    loadPerspectiveStats: (_?: any) => any
     loadPerspectiveStatsFailure: (
         error: string,
         errorObject?: any
@@ -493,7 +493,15 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         perspectiveStats: [
             null as ReviewPerspectiveStatsApi | null,
             {
-                loadPerspectiveStats: async () => await reviewHogReviewsPerspectiveStatsRetrieve(currentProjectId()),
+                // The default param keeps the action zero-arg in the generated logic type.
+                loadPerspectiveStats: async (_ = null, breakpoint) => {
+                    const response = await reviewHogReviewsPerspectiveStatsRetrieve(currentProjectId(), {
+                        scope: values.reviewsScope,
+                    })
+                    // A scope change mid-flight dispatched a newer load — drop this stale response.
+                    breakpoint()
+                    return response
+                },
             },
         ],
     })),
@@ -570,7 +578,18 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                     state.includes(reviewId) ? state.filter((id) => id !== reviewId) : [...state, reviewId],
             },
         ],
+        perspectiveStats: {
+            // A different scope is different data — drop the old numbers so the stat cards show
+            // skeletons instead of the wrong scope's stats while the reload is in flight.
+            setReviewsScope: () => null,
+            applyDefaultReviewsScope: () => null,
+        },
         recentReviewsPage: {
+            // A different scope is a different list — drop it together with perspectiveStats so
+            // the section shows skeletons instead of the other scope's rows (and never strands
+            // them if the reload fails). Poll refreshes still keep prior rows.
+            setReviewsScope: () => null,
+            applyDefaultReviewsScope: () => null,
             // "Show fewer" collapses instantly from data already loaded; the listener's refetch
             // reconciles silently and breakpoint-drops any wider in-flight response (e.g. a poll).
             showFewerReviews: (state: ReviewRecentReviewsPageApi | null) =>
@@ -604,8 +623,9 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 loadRecentReviewsFailure: () => false,
             },
         ],
-        // Whose reviews the "recent reviews" block lists — mirrors the inbox's
-        // "For you / Entire project" switch.
+        // The page-level "For you / Entire project" switch (mirroring the inbox's): it scopes the
+        // recent-reviews list AND every stat surface fed by perspectiveStats (hero proof card,
+        // effectiveness cards). Skill lists and their toggles stay per-user regardless.
         reviewsScope: [
             ReviewHogReviewsListScope.Mine as ReviewHogReviewsListScope,
             { persist: true },
@@ -768,8 +788,14 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         stopTriggeredReviewWatch: () => {
             cache.disposables.dispose('triggeredReviewWatch')
         },
-        setReviewsScope: () => actions.loadRecentReviews(),
-        applyDefaultReviewsScope: () => actions.loadRecentReviews(),
+        setReviewsScope: () => {
+            actions.loadRecentReviews()
+            actions.loadPerspectiveStats()
+        },
+        applyDefaultReviewsScope: () => {
+            actions.loadRecentReviews()
+            actions.loadPerspectiveStats()
+        },
         showMoreReviews: () => actions.loadRecentReviews(),
         showFewerReviews: () => actions.loadRecentReviews(),
         loadAll: () => {
