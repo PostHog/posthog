@@ -1254,6 +1254,29 @@ class TestWebOverviewSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
+            ("flag_expands_beyond_allowlist", False, True, True),
+            ("flag_off_fails_closed", False, False, False),
+            ("allowlist_independent_of_flag", True, False, True),
+        ]
+    )
+    def test_session_id_set_feature_flag_gating(
+        self, _name: str, in_allowlist: bool, flag_enabled: bool, expected: bool
+    ):
+        allowlist = [self.team.pk] if in_allowlist else []
+        with (
+            override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=allowlist),
+            patch(
+                "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.posthoganalytics.feature_enabled",
+                return_value=flag_enabled,
+            ),
+        ):
+            runner = self._make_runner(
+                properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/pricing")]
+            )
+            assert runner.should_use_session_id_set == expected
+
+    @parameterized.expand(
+        [
             (
                 "event_test_filter",
                 [{"key": "$host", "type": "event", "operator": "exact", "value": "example.com"}],

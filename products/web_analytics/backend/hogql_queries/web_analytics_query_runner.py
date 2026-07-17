@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 
 import structlog
+import posthoganalytics
 from prometheus_client import Counter
 from structlog.contextvars import bound_contextvars
 
@@ -70,6 +71,10 @@ WEB_ANALYTICS_NO_JOIN_SERVED = Counter(
 # the shipped set stops paying is ~20M. 10M caps session-id-set memory at ~2 GiB —
 # under half the join's typical footprint — with margin before the crossover.
 SESSION_ID_SET_MAX_MATCHING_SESSIONS = 10_000_000
+
+# Expands the env allowlist without a deploy: per-team/percent targeting and the
+# kill switch live in the flag UI. The allowlist stays as the flag-independent base.
+SESSION_ID_SET_FEATURE_FLAG_KEY = "web-analytics-session-id-set"
 
 WebQueryNode = Union[
     WebOverviewQuery,
@@ -250,6 +255,26 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         # path for everyone on a team, so the rollout unit is the team, not the user.
         return percent > 0 and self.team.pk % 100 < percent
 
+    @cached_property
+    def _session_id_set_flag_enabled(self) -> bool:
+        """Evaluate the rollout flag locally — fails closed on flag-service errors."""
+        return bool(
+            posthoganalytics.feature_enabled(
+                SESSION_ID_SET_FEATURE_FLAG_KEY,
+                str(self.team.uuid),
+                groups={
+                    "organization": str(self.team.organization_id),
+                    "project": str(self.team.id),
+                },
+                group_properties={
+                    "organization": {"id": str(self.team.organization_id)},
+                    "project": {"id": str(self.team.id)},
+                },
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
+
     def _session_id_set_common_eligibility(self) -> bool:
         """Shared gates for the session-id-set fast paths (filtered two-scan shape).
 
@@ -258,7 +283,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         person-on-events). Session/cohort filters can't feed the id collection
         and keep the join path. Runners add their own shape-specific gates on top.
         """
-        if self.team.pk not in settings.WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS:
+        if self.team.pk not in settings.WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS and not self._session_id_set_flag_enabled:
             return False
         if getattr(self.query, "conversionGoal", None):
             return False
