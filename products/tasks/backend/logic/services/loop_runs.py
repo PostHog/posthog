@@ -466,20 +466,32 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
     watches_ci = bool(behaviors.get("create_prs", False)) and bool(behaviors.get("watch_ci", False))
     if not watches_ci:
         extra_state["inactivity_timeout_seconds"] = LOOP_RUN_IDLE_TIMEOUT_SECONDS
+
+    # Report-only by default: an omitted behaviors dict reads as create_prs=False through the
+    # API (LoopBehaviorsDTO), so the fire-time fallback must match, or a loop the caller never
+    # opted into PR creation for could still push branches and open PRs.
+    create_pr = bool(behaviors.get("create_prs", False))
+    needs_file_system_write = outputs["update_context"] or bool(outputs["canvas_id"])
+    posthog_mcp_scopes = _augment_scopes_for_context(
+        _resolve_posthog_mcp_scopes(loop.connectors), needs_write=needs_file_system_write
+    )
+    # Same contract as Task.create_and_run: persist the dispatch params on the row so the
+    # orphaned-QUEUED-run reconciler re-dispatches a lost fire with the loop's real
+    # configuration instead of its generic defaults (create_pr=True, full MCP scopes),
+    # which would silently escalate a report-only, read-only loop.
+    extra_state["pending_dispatch"] = {
+        "create_pr": create_pr,
+        "posthog_mcp_scopes": posthog_mcp_scopes,
+        "user_id": loop.created_by_id,
+        "slack_thread_context": None,
+        "workflow_id_prefix": None,
+    }
     task_run = task.create_run(mode="background", extra_state=extra_state)
 
     team_id = loop.team_id
     user_id = loop.created_by_id
     task_id = str(task.id)
     run_id = str(task_run.id)
-    # Report-only by default: an omitted behaviors dict reads as create_prs=False through the
-    # API (LoopBehaviorsDTO), so the fire-time fallback must match, or a loop the caller never
-    # opted into PR creation for could still push branches and open PRs.
-    create_pr = bool((loop.behaviors or {}).get("create_prs", False))
-    needs_file_system_write = outputs["update_context"] or bool(outputs["canvas_id"])
-    posthog_mcp_scopes = _augment_scopes_for_context(
-        _resolve_posthog_mcp_scopes(loop.connectors), needs_write=needs_file_system_write
-    )
 
     transaction.on_commit(
         lambda: _execute_task_processing_workflow_for_loop(

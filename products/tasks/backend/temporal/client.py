@@ -352,6 +352,12 @@ def _resolve_mcp_scopes(task_run: TaskRun) -> PosthogMcpScopes:
     if task_run.task.origin_product == Task.OriginProduct.SIGNALS_SCOUT:
         return "signals_scout_reports"
 
+    # Loop-fired runs persist their real scopes in pending_dispatch; a row missing it must
+    # degrade to read_only, never escalate to the full write surface the generic fallback
+    # below grants (loop runs carry no run_source).
+    if task_run.task.origin_product == Task.OriginProduct.LOOP:
+        return "read_only"
+
     run_source = parse_run_state(task_run.state).run_source
     return "full" if run_source in (None, RunSource.MANUAL, RunSource.SIGNAL_REPORT) else "read_only"
 
@@ -402,9 +408,12 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
     workflow_id = TaskRun.get_workflow_id(task_id, run_id, workflow_id_prefix)
     if workflow_id_prefix:
         _record_prefixed_workflow_id(run_id, workflow_id)
+    # Loop-fired runs are report-only unless their pending_dispatch says otherwise; every
+    # other run keeps the historical True default.
+    default_create_pr = task.origin_product != Task.OriginProduct.LOOP
     workflow_input = ProcessTaskInput(
         run_id=run_id,
-        create_pr=dispatch_params.get("create_pr", True),
+        create_pr=dispatch_params.get("create_pr", default_create_pr),
         slack_thread_context=dispatch_params.get("slack_thread_context"),
         posthog_mcp_scopes=dispatch_params.get("posthog_mcp_scopes") or _resolve_mcp_scopes(task_run),
     )

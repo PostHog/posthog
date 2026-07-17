@@ -397,6 +397,30 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
 
     @parameterized.expand(
         [
+            ("report_only_read_only_default", {}, {}, False, "read_only"),
+            ("create_prs_and_full_scopes_opt_in", {"create_prs": True}, {"posthog_mcp_scopes": "full"}, True, "full"),
+        ]
+    )
+    def test_fire_persists_pending_dispatch_for_the_orphan_reconciler(
+        self, _name, behaviors, connectors, expected_create_pr, expected_scopes
+    ):
+        # The orphaned-QUEUED-run reconciler re-dispatches from state["pending_dispatch"]; without
+        # it, its generic defaults (create_pr=True, full MCP scopes) would silently escalate a
+        # report-only, read-only loop's recovered run.
+        loop = self.create_loop(behaviors=behaviors, connectors=connectors)
+        trigger = self.create_trigger(loop)
+
+        result = fire_loop(loop, trigger, "fire-1", "ctx")
+
+        assert result.task_run_id is not None
+        task_run = TaskRun.objects.get(id=result.task_run_id)
+        pending_dispatch = task_run.state["pending_dispatch"]
+        self.assertEqual(pending_dispatch["create_pr"], expected_create_pr)
+        self.assertEqual(pending_dispatch["posthog_mcp_scopes"], expected_scopes)
+        self.assertEqual(pending_dispatch["user_id"], self.user.id)
+
+    @parameterized.expand(
+        [
             ("sandbox_environment_configured", True),
             ("no_sandbox_environment_configured", False),
         ]
