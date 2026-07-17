@@ -169,6 +169,36 @@ async def aretry_on_db_connection_drop(operation: Callable[[], Coroutine[Any, An
         return await operation()
 
 
+# PostgreSQL SQLSTATE codes that signal a transient, self-healing loss of the server
+# connection — an admin restart, crash recovery, or the server still starting up. The
+# connection recovers once the server is back, so these must stay retryable rather than
+# fail an activity or surface as a defect in error tracking.
+_RETRYABLE_DB_SQLSTATES = frozenset(
+    {
+        "57P01",  # admin_shutdown — connection terminated by an administrator command (e.g. restart)
+        "57P02",  # crash_shutdown — server is shutting down after a backend crash
+        "57P03",  # cannot_connect_now — server is starting up and not yet accepting connections
+    }
+)
+# SQLSTATE class 08 covers connection exceptions (connection failure, does-not-exist, etc.).
+_RETRYABLE_DB_SQLSTATE_CLASSES = ("08",)
+
+
+def is_retryable_db_connection_error(exc: BaseException) -> bool:
+    """Return whether ``exc`` is a transient database connection error worth retrying.
+
+    Recognizes the SQLSTATE codes a database driver (e.g. psycopg) attaches when the server
+    drops or refuses the connection for a self-healing reason — an admin restart
+    (``AdminShutdown``), crash recovery, startup, or a connection-class (``08*``) failure.
+    Duck-typed on ``.sqlstate`` so it stays decoupled from any specific driver; non-database
+    exceptions (no ``sqlstate``) return ``False``.
+    """
+    sqlstate = getattr(exc, "sqlstate", None)
+    if not isinstance(sqlstate, str):
+        return False
+    return sqlstate in _RETRYABLE_DB_SQLSTATES or sqlstate.startswith(_RETRYABLE_DB_SQLSTATE_CLASSES)
+
+
 def get_scheduled_start_time():
     """Return the start time of a workflow.
 

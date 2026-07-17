@@ -3,7 +3,13 @@ import inspect
 import pytest
 from unittest.mock import patch
 
-from posthog.temporal.common.utils import close_db_connections, make_sync_retryable_with_exponential_backoff
+from psycopg import errors as psycopg_errors
+
+from posthog.temporal.common.utils import (
+    close_db_connections,
+    is_retryable_db_connection_error,
+    make_sync_retryable_with_exponential_backoff,
+)
 
 
 def test_make_sync_retryable_with_exponential_backoff_called_max_attempts():
@@ -76,6 +82,28 @@ def test_make_sync_retryable_with_exponential_backoff_raises_if_not_retryable():
         make_sync_retryable_with_exponential_backoff(raise_value_error, retryable_exceptions=(TypeError,))()
 
     assert counter == 1
+
+
+@pytest.mark.parametrize(
+    "exc,expected",
+    [
+        # Transient server-side connection loss — must stay retryable.
+        (psycopg_errors.AdminShutdown("terminating connection due to administrator command"), True),
+        (psycopg_errors.CrashShutdown("crash"), True),
+        (psycopg_errors.CannotConnectNow("starting up"), True),
+        # SQLSTATE class 08 — connection exceptions.
+        (psycopg_errors.ConnectionFailure("connection lost"), True),
+        (psycopg_errors.ConnectionDoesNotExist("gone"), True),
+        # Genuinely non-retryable database errors carry non-connection SQLSTATEs.
+        (psycopg_errors.NotNullViolation("null in a not-null column"), False),
+        (psycopg_errors.UniqueViolation("dupe"), False),
+        (psycopg_errors.DiskFull("no space"), False),
+        # Non-database exceptions have no sqlstate and must never be treated as retryable here.
+        (ValueError("nothing to do with the database"), False),
+    ],
+)
+def test_is_retryable_db_connection_error(exc, expected):
+    assert is_retryable_db_connection_error(exc) is expected
 
 
 CLOSE_OLD_CONNECTIONS_TARGET = "posthog.temporal.common.utils._close_initialized_connections"

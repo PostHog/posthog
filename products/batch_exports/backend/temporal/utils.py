@@ -11,6 +11,7 @@ import orjson
 import pyarrow as pa
 
 from posthog.temporal.common.logger import get_write_only_logger
+from posthog.temporal.common.utils import is_retryable_db_connection_error
 
 from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.service import aupdate_batch_export_run
@@ -332,6 +333,11 @@ def handle_non_retryable_errors(non_retryable_error_types: typing.Sequence[str])
     For now, we just take in a list of error class names that should not be retried.
     In the future, we should use actual exception classes instead of strings.
 
+    Transient database connection drops (e.g. the destination Postgres restarting) are always
+    kept retryable, even if a broad ancestor like ``OperationalError`` is in the list — matching
+    a class name string can't distinguish a self-healing ``AdminShutdown`` from a permanent
+    failure, so we recognize those explicitly and let Temporal retry.
+
     Args:
         non_retryable_error_types: List of error class names that should not be retried.
 
@@ -355,6 +361,12 @@ def handle_non_retryable_errors(non_retryable_error_types: typing.Sequence[str])
                 # If we catch an error at any point during this activity, we check if it's a non-retryable error.
                 # If it is, we return a BatchExportResult with the error.
                 # If it's not, we re-raise the error.
+                # A transient database connection drop (e.g. the destination Postgres restarting) is a
+                # self-healing OperationalError subclass — keep it retryable regardless of what the
+                # string-based list says, so Temporal retries instead of failing the export.
+                if is_retryable_db_connection_error(e):
+                    LOGGER.warning("Retryable database connection error caught in activity", exc_info=e)
+                    raise
                 # TODO: Use actual exception classes instead of strings.
                 if e.__class__.__name__ in non_retryable_error_types:
                     LOGGER.exception("Non-retryable error caught in activity")
