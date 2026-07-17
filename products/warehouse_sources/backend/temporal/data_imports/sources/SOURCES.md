@@ -192,6 +192,7 @@ the row lists both.
 | easypromos                       | HTTP                        | requests                                                        | ✅                          |
 | elevenlabs                       | HTTP                        | requests                                                        | ✅                          |
 | freshcaller                      | HTTP                        | requests                                                        | ✅                          |
+| freshchat                        | HTTP                        | requests                                                        | ✅                          |
 | freshdesk                        | HTTP                        | requests                                                        | ✅                          |
 | freshsales                       | HTTP                        | requests                                                        | ✅                          |
 | freshservice                     | HTTP                        | requests                                                        | ✅                          |
@@ -709,7 +710,6 @@ doesn't conflict with concurrent PRs.
 - freeagent
 - freightview
 - freshbooks
-- freshchat
 - freshservice
 - fulcrum
 - gerrit

@@ -1678,7 +1678,8 @@ class FreshcallerSourceConfig(config.Config):
 
 @config.config
 class FreshchatSourceConfig(config.Config):
-    pass
+    domain: str
+    api_key: str
 
 
 @config.config
