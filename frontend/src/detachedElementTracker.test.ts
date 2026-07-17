@@ -122,7 +122,12 @@ describe('getDetachedElementTrackingContext', () => {
     it('resets the route baseline when the path changes', () => {
         const firstScan = getDetachedElementTrackingContext(createDetachedElementTrackingState(), 100, '/groups')
         const sameRouteScan = getDetachedElementTrackingContext(firstScan.nextState, 130, '/groups')
-        const nextRouteScan = getDetachedElementTrackingContext(sameRouteScan.nextState, 150, '/pipeline/new/source')
+        const nextRouteScan = getDetachedElementTrackingContext(sameRouteScan.nextState, 50, '/pipeline/new/source')
+        const nextRouteGrowthScan = getDetachedElementTrackingContext(
+            nextRouteScan.nextState,
+            70,
+            '/pipeline/new/source'
+        )
 
         expect(firstScan).toMatchObject({
             detachedElementsDelta: null,
@@ -136,9 +141,15 @@ describe('getDetachedElementTrackingContext', () => {
             routeDetachedElementsDelta: 30,
         })
         expect(nextRouteScan).toMatchObject({
-            detachedElementsDelta: 20,
+            detachedElementsDelta: -80,
             pathChanged: true,
-            routeBaselineDetachedElements: 130,
+            routeBaselineDetachedElements: 50,
+            routeDetachedElementsDelta: 0,
+        })
+        expect(nextRouteGrowthScan).toMatchObject({
+            detachedElementsDelta: 20,
+            pathChanged: false,
+            routeBaselineDetachedElements: 50,
             routeDetachedElementsDelta: 20,
         })
     })

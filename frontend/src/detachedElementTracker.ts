@@ -39,7 +39,7 @@ export function getDetachedElementTrackingContext(
 ): DetachedElementTrackingContext {
     const pathChanged = state.currentPath !== null && state.currentPath !== currentPath
     const routeBaselineDetachedElements = pathChanged
-        ? (state.previousDetachedCount ?? currentCount)
+        ? currentCount
         : (state.routeBaselineDetachedCount ?? currentCount)
 
     return {
