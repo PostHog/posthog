@@ -1,5 +1,5 @@
 import json
-import time
+import threading
 import dataclasses
 from collections.abc import Iterator
 from typing import Any
@@ -37,9 +37,10 @@ MAX_PAGES_PER_RESOURCE = 10_000
 # The cap counts decoded bytes, so a gzip bomb can't slip past it.
 MAX_RESPONSE_BYTES = 256 * 1024 * 1024
 _READ_CHUNK_BYTES = 1024 * 1024
-# The per-read timeout only bounds the gap between chunks, so a host that trickles one byte just
-# before each read timeout could keep a worker busy until the activity's timeout. A monotonic
-# total-transfer deadline caps how long a single body read may take end to end.
+# The per-read socket timeout only bounds the gap between bytes, so a host that trickles one byte
+# just before each read timeout could keep a worker busy until the activity's timeout. This
+# absolute wall-clock deadline (enforced in `_read_bounded`) caps how long a single body read may
+# take end to end, even while a read is blocked mid-chunk.
 MAX_RESPONSE_SECONDS = 600
 # Bytes pulled from an error body for a diagnostic message — error bodies are never needed in full.
 _ERROR_SNIPPET_BYTES = 2048
@@ -64,22 +65,42 @@ def _read_bounded(
 ) -> bytes:
     """Read a streamed response body under both a byte cap and a total-transfer deadline.
 
-    The deadline covers time spent waiting for each chunk, so a slow-drip body that stays under
-    the per-read timeout but never finishes is aborted instead of holding the worker.
+    The read runs on a worker thread bounded by ``join(timeout=max_seconds)``, so the deadline is
+    enforced as absolute wall-clock time even while a read is blocked: ``iter_content`` fills a
+    whole chunk before it yields, so a host that trickles bytes just under the per-read socket
+    timeout could otherwise never let an in-loop deadline check run. On timeout we close the
+    response to unblock the pending socket read and let the daemon thread unwind.
     """
-    total = 0
-    chunks: list[bytes] = []
-    deadline = time.monotonic() + max_seconds
-    for chunk in response.iter_content(chunk_size=_READ_CHUNK_BYTES):
-        total += len(chunk)
-        if total > max_bytes:
-            raise FlagsmithResponseTooLargeError(f"Flagsmith API response exceeded the size limit ({max_bytes} bytes)")
-        if time.monotonic() > deadline:
-            raise FlagsmithResponseTimeoutError(
-                f"Flagsmith API response exceeded the download time limit ({max_seconds:g}s)"
-            )
-        chunks.append(chunk)
-    return b"".join(chunks)
+    box: dict[str, Any] = {}
+
+    def _reader() -> None:
+        try:
+            total = 0
+            chunks: list[bytes] = []
+            for chunk in response.iter_content(chunk_size=_READ_CHUNK_BYTES):
+                total += len(chunk)
+                if total > max_bytes:
+                    box["error"] = FlagsmithResponseTooLargeError(
+                        f"Flagsmith API response exceeded the size limit ({max_bytes} bytes)"
+                    )
+                    return
+                chunks.append(chunk)
+            box["data"] = b"".join(chunks)
+        except Exception as exc:  # surfaced on the calling thread below
+            box["error"] = exc
+
+    thread = threading.Thread(target=_reader, name="flagsmith-read-bounded", daemon=True)
+    thread.start()
+    thread.join(timeout=max_seconds)
+    if thread.is_alive():
+        # Close the socket so the blocked read raises and the daemon thread can exit.
+        response.close()
+        raise FlagsmithResponseTimeoutError(
+            f"Flagsmith API response exceeded the download time limit ({max_seconds:g}s)"
+        )
+    if "error" in box:
+        raise box["error"]
+    return box.get("data", b"")
 
 
 def _error_snippet(response: requests.Response) -> str:

@@ -1,4 +1,5 @@
 import json
+import threading
 from typing import Any
 
 import pytest
@@ -316,12 +317,23 @@ class TestReadBounded:
         with pytest.raises(FlagsmithResponseTooLargeError):
             _read_bounded(resp, max_bytes=15)
 
-    def test_raises_when_transfer_exceeds_deadline(self):
+    def test_aborts_when_read_blocks_past_deadline(self):
+        # A trickle host makes `iter_content` block mid-chunk so no in-loop deadline check runs;
+        # the wall-clock deadline must still abort the read and close the response to unblock it.
+        blocker = threading.Event()
+
+        def _stalled_iter(*args, **kwargs):
+            blocker.wait(timeout=10)
+            yield b"late"
+
         resp = mock.MagicMock()
-        resp.iter_content.return_value = iter([b"a", b"b"])
-        # A deadline already in the past trips on the first chunk regardless of pacing.
-        with pytest.raises(FlagsmithResponseTimeoutError):
-            _read_bounded(resp, max_bytes=100, max_seconds=-1)
+        resp.iter_content.side_effect = _stalled_iter
+        try:
+            with pytest.raises(FlagsmithResponseTimeoutError):
+                _read_bounded(resp, max_bytes=100, max_seconds=0.1)
+            resp.close.assert_called_once()
+        finally:
+            blocker.set()
 
 
 class TestFlagsmithSourceResponse:
