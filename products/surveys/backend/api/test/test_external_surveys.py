@@ -7,6 +7,7 @@ from urllib.parse import parse_qsl
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.test import TestCase
 
@@ -294,6 +295,23 @@ class TestExternalSurveys(APIBaseTest):
         project_config = json.loads(config_match.group(1))
         assert "api_host" in project_config
         assert "token" in project_config
+
+    def test_assets_load_from_app_origin_behind_reverse_proxy(self):
+        survey = self.create_external_survey()
+
+        # Simulate serving the page through a reverse-proxy domain
+        response = self.client.get(f"/external_surveys/{survey.id}/", HTTP_HOST="surveys.proxy-domain.example.com")
+        assert response.status_code == 200
+
+        content = response.content.decode()
+        # Proxy domains route /static/* to the SDK asset CDN, which doesn't serve Django
+        # staticfiles — asset URLs must point at the app origin, not the serving host.
+        assert f'<link rel="stylesheet" href="{settings.SITE_URL}/static/surveys/hosted-survey.css' in content
+        assert 'href="/static/' not in content
+        # Capture must keep following the request host so events route through the proxy
+        project_config = self.get_json_script_value(content, "project-config")
+        assert isinstance(project_config, dict)
+        assert project_config["api_host"] == "http://surveys.proxy-domain.example.com"
 
     @parameterized.expand(
         [

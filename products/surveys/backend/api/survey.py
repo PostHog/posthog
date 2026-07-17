@@ -3491,6 +3491,7 @@ def public_survey_page(request, survey_id: str):
             {
                 "error_title": "Invalid request",
                 "error_message": "The requested survey is not available.",
+                "site_url": settings.SITE_URL,
             },
             status=400,
         )
@@ -3508,6 +3509,7 @@ def public_survey_page(request, survey_id: str):
             {
                 "error_title": "Survey not available",
                 "error_message": "The requested survey is not available.",
+                "site_url": settings.SITE_URL,
             },
             status=404,
         )
@@ -3520,6 +3522,7 @@ def public_survey_page(request, survey_id: str):
             {
                 "error_title": "Service unavailable",
                 "error_message": "The service is temporarily unavailable. Please try again later.",
+                "site_url": settings.SITE_URL,
             },
             status=503,
         )
@@ -3544,6 +3547,7 @@ def public_survey_page(request, survey_id: str):
                 "error_title": "Feels quiet in here",
                 "error_message": "This survey isn't taking responses right now. It might be closed, expired, or not live yet.",
                 "appearance": survey.appearance or {},
+                "site_url": settings.SITE_URL,
             },
             status=404,  # Use 404 instead of 403 to prevent information leakage
         )
@@ -3564,6 +3568,9 @@ def public_survey_page(request, survey_id: str):
         "survey_id": survey_id,
         "survey_data": survey_data,
         "project_config": project_config,
+        # Static assets must load from the app origin even when the page is served
+        # through a reverse-proxy domain, which doesn't serve Django staticfiles.
+        "site_url": settings.SITE_URL,
         "display_language": get_hosted_survey_display_language(request),
         "debug": settings.DEBUG,
         "embed_mode": request.GET.get("embed") == "true",
