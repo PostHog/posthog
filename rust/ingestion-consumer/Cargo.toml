@@ -11,7 +11,7 @@ common-alloc = { path = "../common/alloc" }
 dashmap = { workspace = true }
 envconfig = { workspace = true }
 futures = { workspace = true }
-k8s-openapi = { version = "0.24", features = ["latest"] }
+k8s-awareness = { path = "../common/k8s-awareness" }
 kube = { version = "0.98", features = ["client", "runtime"] }
 lifecycle = { path = "../common/lifecycle" }
 metrics = { workspace = true }
