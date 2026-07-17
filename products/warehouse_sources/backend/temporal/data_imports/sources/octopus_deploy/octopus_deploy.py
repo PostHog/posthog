@@ -50,10 +50,18 @@ MAX_DOWNLOAD_SECONDS = 300
 # malicious server trips it. Non-retryable: the same host returns the same runaway response.
 MAX_PAGES_PER_LISTING = 100_000
 
+# The page ceiling bounds memory, not time: each page may legitimately take up to MAX_DOWNLOAD_SECONDS,
+# so a host that returns nonempty pages advertising `Page.Next` (or stalls before each fetch) could
+# keep a shared worker paginating far longer than any real sync while never tripping the page ceiling.
+# Cap the cumulative wall-clock a single listing loop may spend — generous for real syncs (fast pages
+# walk enormous volumes well within it) yet far below the import activity's one-week timeout, so a slow
+# or malicious host is cut off. Non-retryable, like the page ceiling: the same host reproduces it.
+MAX_LISTING_SECONDS = 6 * 60 * 60
+
 HOST_NOT_ALLOWED_ERROR = "Octopus Deploy host is not allowed"
 RESPONSE_TOO_LARGE_ERROR = "Octopus Deploy response body was too large"
 RESPONSE_TOO_SLOW_ERROR = "Octopus Deploy response download was too slow"
-PAGINATION_LIMIT_ERROR = "Octopus Deploy pagination exceeded the maximum page budget"
+PAGINATION_LIMIT_ERROR = "Octopus Deploy pagination exceeded the maximum budget"
 
 
 class OctopusDeployRetryableError(Exception):
@@ -233,6 +241,7 @@ def _get_space_ids(
     """Enumerate every space the API key can see, sorted by id for a deterministic fan-out order."""
     space_ids: list[str] = []
     skip = 0
+    deadline = time.monotonic() + MAX_LISTING_SECONDS
     for _ in range(MAX_PAGES_PER_LISTING):
         url = f"{_base_url(host)}/api/spaces?{urlencode({'skip': skip, 'take': SPACES_PAGE_SIZE})}"
         data = _fetch_page(session, url, headers, logger)
@@ -242,6 +251,10 @@ def _get_space_ids(
         space_ids.extend(item["Id"] for item in items)
         if "Page.Next" not in (data.get("Links") or {}):
             break
+        if time.monotonic() > deadline:
+            raise OctopusDeployPaginationLimitError(
+                f"{PAGINATION_LIMIT_ERROR}: spaces listing exceeded {MAX_LISTING_SECONDS}s time budget"
+            )
         skip += len(items)
     else:
         raise OctopusDeployPaginationLimitError(
@@ -268,6 +281,7 @@ def _paginate(
     offsets — worst case we re-fetch a row (merge dedupes on the primary key), never skip one.
     """
     skip = initial_skip
+    deadline = time.monotonic() + MAX_LISTING_SECONDS
     for _ in range(MAX_PAGES_PER_LISTING):
         params = _build_params(config, skip, should_use_incremental_field, db_incremental_field_last_value)
         data = _fetch_page(session, f"{url}?{urlencode(params)}", headers, logger)
@@ -287,6 +301,11 @@ def _paginate(
 
         if not has_next:
             break
+
+        if time.monotonic() > deadline:
+            raise OctopusDeployPaginationLimitError(
+                f"{PAGINATION_LIMIT_ERROR}: {url} exceeded {MAX_LISTING_SECONDS}s time budget"
+            )
 
         # Save AFTER yielding so a crash re-yields the last page rather than skipping it — merge
         # dedupes on the primary key.
