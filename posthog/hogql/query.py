@@ -99,6 +99,11 @@ class HogQLQueryExecutor:
     user: Optional[User] = None
     bypass_warehouse_access_control: bool = False
     user_access_control: Optional[UserAccessControl] = None
+    # The hogql-dialect resolve+print exists only to fill response.hogql and
+    # response.columns; hot runners that consume results positionally and never
+    # surface the HogQL string can opt out of that whole pass (a per-query AST
+    # clone, type resolution, and print). Leaves response.hogql/columns empty.
+    generate_hogql_string: bool = True
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -262,6 +267,9 @@ class HogQLQueryExecutor:
         )
 
         self._apply_optimizers()
+
+        if not self.generate_hogql_string:
+            return
 
         with self.timings.measure("clone"):
             cloned_query = clone_expr(self.select_query, True)

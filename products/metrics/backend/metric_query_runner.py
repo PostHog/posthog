@@ -333,6 +333,7 @@ class MetricQueryRunner:
             settings=_QUERY_SETTINGS,
             context=_static_schema_context(self.team),
             pretty=False,  # response.hogql is never surfaced from this runner
+            generate_hogql_string=False,
         )
         self._raise_on_truncation(response.results)
 
@@ -362,6 +363,7 @@ class MetricQueryRunner:
             settings=_QUERY_SETTINGS,
             context=_static_schema_context(self.team),
             pretty=False,  # response.hogql is never surfaced from this runner
+            generate_hogql_string=False,
         )
         self._raise_on_truncation(response.results)
 
