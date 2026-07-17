@@ -798,7 +798,8 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: ${{ needs.get_clickhouse_versions.outputs.local_image }}
-              run: bin/ci-wait-for-docker wait
+              # objectstorage answers InvalidAccessKeyId until its bootstrap registers identities.
+              run: bin/ci-wait-for-docker wait objectstorage
 
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.schema_cache_key != '' }}
