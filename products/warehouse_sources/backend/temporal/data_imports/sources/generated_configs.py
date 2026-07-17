@@ -446,7 +446,8 @@ class Auth0SourceConfig(config.Config):
 
 @config.config
 class AutomoxSourceConfig(config.Config):
-    pass
+    api_key: str
+    organization_id: str | None = None
 
 
 @config.config
