@@ -410,11 +410,15 @@ class TestApiVersionDispatch:
 
     @parameterized.expand([("v1",), ("v2",)])
     def test_get_rows_threads_version_into_request_host(self, api_version: str) -> None:
-        # Guards the end-to-end thread from get_rows(api_version=...) to the request URL for each
-        # supported version — the default "v2" and the retained "v1" pin alike.
+        # Route each version to a distinct sentinel host so the assertion fails if get_rows stops
+        # threading api_version into the base-URL selection (e.g. reverts to a hardcoded host).
+        sentinel = f"https://host-{api_version}.test"
         calls: list[tuple[str, Any]] = []
-        pages = {f"{BASE}/lists": {"data": [{"id": "L1"}], "paging": {"next": None}}}
-        with patch.object(emailoctopus, "_fetch_page", _make_fake_fetch(pages, calls)):
+        pages = {f"{sentinel}/lists": {"data": [{"id": "L1"}], "paging": {"next": None}}}
+        with (
+            patch.object(emailoctopus, "_base_url_for_version", lambda v: f"https://host-{v}.test"),
+            patch.object(emailoctopus, "_fetch_page", _make_fake_fetch(pages, calls)),
+        ):
             list(
                 get_rows(
                     api_key="eo_key",
@@ -425,4 +429,4 @@ class TestApiVersionDispatch:
                 )
             )
         assert calls
-        assert all(url.startswith(BASE) for url, _ in calls)
+        assert all(url.startswith(sentinel) for url, _ in calls)
