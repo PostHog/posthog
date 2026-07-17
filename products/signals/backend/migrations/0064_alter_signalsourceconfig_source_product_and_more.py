@@ -4,9 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("signals", "0062_add_analytics_anomaly_investigation_source"),
-    ]
+    dependencies = [("signals", "0063_alter_signalreportartefact_type")]
 
     operations = [
         migrations.AlterField(
