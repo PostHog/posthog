@@ -66770,6 +66770,10 @@ export namespace Schemas {
       schemas_reset?: number;
     };
 
+    export type EnvironmentsExternalDataSourcesResumeCdcCreate200 = {
+      success?: boolean;
+    };
+
     export type EnvironmentsExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
       valid?: boolean;
       errors?: string[];
@@ -74179,6 +74183,10 @@ export namespace Schemas {
     export type ExternalDataSourcesRepairCdcCreate200 = {
       success?: boolean;
       schemas_reset?: number;
+    };
+
+    export type ExternalDataSourcesResumeCdcCreate200 = {
+      success?: boolean;
     };
 
     export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
