@@ -177,6 +177,7 @@ class OffsetPaginator(BasePaginator):
         offset_param: str = "offset",
         limit_param: str = "limit",
         total_path: Optional[TJsonPath] = "total",
+        total_header: Optional[str] = None,
         maximum_offset: Optional[int] = None,
         stop_after_empty_page: bool = True,
     ) -> None:
@@ -186,6 +187,9 @@ class OffsetPaginator(BasePaginator):
         self.offset_param = offset_param
         self.limit_param = limit_param
         self.total_path = total_path
+        # Some APIs report the grand total in a response header (e.g. X-*-Total) rather than the body;
+        # when set, this takes precedence over total_path for the stop check.
+        self.total_header = total_header
         self.maximum_offset = maximum_offset
         self.stop_after_empty_page = stop_after_empty_page
 
@@ -205,6 +209,16 @@ class OffsetPaginator(BasePaginator):
         if self.maximum_offset is not None and self.offset >= self.maximum_offset:
             self._has_next_page = False
             return
+
+        if self.total_header:
+            raw_total = response.headers.get(self.total_header)
+            if raw_total is not None:
+                try:
+                    if self.offset >= int(raw_total):
+                        self._has_next_page = False
+                        return
+                except (TypeError, ValueError):
+                    pass
 
         if self.total_path:
             try:
