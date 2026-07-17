@@ -331,7 +331,10 @@ mod tests {
                 .saturating_mul(2u32.saturating_pow(attempt - 1))
                 .min(max);
             // Never below the capped exponential, never more than 50% above it.
-            assert!(b >= expected_cap, "attempt {attempt}: {b:?} < {expected_cap:?}");
+            assert!(
+                b >= expected_cap,
+                "attempt {attempt}: {b:?} < {expected_cap:?}"
+            );
             assert!(
                 b <= expected_cap + expected_cap / 2,
                 "attempt {attempt}: {b:?} exceeds jitter ceiling"
