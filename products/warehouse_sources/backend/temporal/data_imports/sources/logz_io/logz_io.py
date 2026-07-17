@@ -108,8 +108,9 @@ def validate_credentials(api_token: str, region: str | None, schema_name: str | 
     url = f"{base_url}/v2/alerts"
     try:
         # X-API-TOKEN isn't in the tracked transport's auth-header denylist, so the raw token must be
-        # registered for redaction or sample capture would persist it.
-        response = make_tracked_session(redact_values=(api_token,)).get(
+        # registered for redaction or sample capture would persist it. Redirects stay disabled so a
+        # 3xx to another host can't replay the token in this custom header.
+        response = make_tracked_session(redact_values=(api_token,), allow_redirects=False).get(
             url, headers=_get_headers(api_token), timeout=10
         )
     except Exception:
@@ -282,8 +283,9 @@ def get_rows(
     base_url = base_url_for_region(region)
     headers = _get_headers(api_token)
     # X-API-TOKEN isn't in the tracked transport's auth-header denylist, so the raw token must be
-    # registered for redaction or sample capture would persist it.
-    session = make_tracked_session(redact_values=(api_token,))
+    # registered for redaction or sample capture would persist it. Redirects stay disabled so a
+    # 3xx to another host can't replay the token in this custom header.
+    session = make_tracked_session(redact_values=(api_token,), allow_redirects=False)
 
     if config.transport == "scroll":
         query_body = _build_log_query(should_use_incremental_field, db_incremental_field_last_value, incremental_field)
