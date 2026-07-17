@@ -10,7 +10,7 @@ use crate::{
         resolution::{exception::ExceptionResolver, frame::FrameResolver, ResolutionStage},
     },
     types::{
-        exception_properties::ExceptionProperties,
+        exception_event::{ExceptionEvent, Parsed},
         operator::{OperatorResult, ValueOperator},
         ExceptionList,
     },
@@ -19,15 +19,15 @@ use crate::{
 /// Resolves the legacy-order snapshot through the local exception + frame
 /// resolvers, in the same order the canonical list is resolved.
 async fn resolve_legacy(
-    evt: &ExceptionProperties,
+    evt: &ExceptionEvent<Parsed>,
     legacy: ExceptionList,
     ctx: ResolutionStage,
 ) -> Result<ExceptionList, UnhandledError> {
-    let team_id = evt.team_id;
+    let team_id = evt.team_id();
     // Match the canonical pipeline order: exception resolution (java/dart
     // reshaping) then frame resolution.
     let legacy = ExceptionResolver::resolve_exception_list(team_id, legacy, ctx.clone()).await?;
-    let debug_images = Arc::new(evt.debug_images.clone());
+    let debug_images = Arc::new(evt.debug_images().to_vec());
     FrameResolver::resolve_exception_list_frames(team_id, legacy, debug_images, ctx).await
 }
 
@@ -41,7 +41,7 @@ async fn resolve_legacy(
 pub struct LegacyOrderResolver;
 
 impl ValueOperator for LegacyOrderResolver {
-    type Item = ExceptionProperties;
+    type Item = ExceptionEvent<Parsed>;
     type Context = ResolutionStage;
     type HandledError = HandledError;
     type UnhandledError = UnhandledError;
@@ -52,10 +52,10 @@ impl ValueOperator for LegacyOrderResolver {
 
     async fn execute_value(
         &self,
-        mut evt: ExceptionProperties,
+        mut evt: ExceptionEvent<Parsed>,
         ctx: ResolutionStage,
     ) -> OperatorResult<Self> {
-        let Some(legacy) = evt.legacy_order_exception_list.take() else {
+        let Some(legacy) = evt.take_legacy_order_exception_list() else {
             return Ok(Ok(evt));
         };
 
@@ -67,10 +67,10 @@ impl ValueOperator for LegacyOrderResolver {
         // fingerprint just falls back to the pre-normalization behavior of
         // creating a fresh issue.
         match resolve_legacy(&evt, legacy, ctx).await {
-            Ok(resolved) => evt.legacy_order_resolved = Some(resolved),
+            Ok(resolved) => evt.set_legacy_order_resolved(resolved),
             Err(e) => {
                 metrics::counter!(LEGACY_ORDER_RESOLVE_FAILED).increment(1);
-                debug!(event = %evt.uuid, "legacy-order resolution failed, skipping alias: {e}");
+                debug!(event = %evt.uuid(), "legacy-order resolution failed, skipping alias: {e}");
             }
         }
         Ok(Ok(evt))

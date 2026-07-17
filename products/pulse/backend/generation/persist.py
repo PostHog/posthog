@@ -52,6 +52,16 @@ def _resolve_citations(citation_ids: list[str], evidence_index: dict[str, Eviden
     return resolved
 
 
+def _section_dict(section: BriefSectionOut, evidence_index: dict[str, EvidenceRef]) -> dict[str, object]:
+    return {
+        "kind": section.kind,
+        "title": section.title,
+        "markdown": section.markdown,
+        "citations": [ref.citation for ref in _resolve_citations(section.citations, evidence_index)],
+        "confidence": section.confidence,
+    }
+
+
 def _validate_output_references(out: BriefOut, items: list[SourceItem]) -> BriefOut:
     evidence_index = build_evidence_index(items)
     allowed_citation_ids = set(evidence_index)
@@ -171,7 +181,7 @@ def persist_brief_output(*, brief: ProductBrief, out: BriefOut, items: list[Sour
     # Same index the render side built, so the ids the model cited resolve back to the same refs.
     evidence_index = build_evidence_index(items)
     with transaction.atomic():
-        brief.sections = [s.model_dump() for s in out.sections]
+        brief.sections = [_section_dict(s, evidence_index) for s in out.sections]
         # A brief with only opportunities still has something to say — QUIET means nothing survived the gate.
         has_content = bool(out.sections or out.opportunities)
         brief.status = ProductBrief.Status.READY if has_content else ProductBrief.Status.QUIET
