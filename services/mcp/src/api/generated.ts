@@ -8530,6 +8530,47 @@ export namespace Schemas {
       results: AgentFleetLiveSessionSummary[];
     }
 
+    /**
+     * Body for `agent-applications-invoke` — start a new session on the agent's live (promoted) revision.
+     */
+    export interface AgentInvokeRequest {
+      /** The user message that starts the session. Required, non-empty. */
+      message: string;
+      /** Optional idempotency / threading key. A repeat invoke with the same external_key resumes the existing session instead of starting a new one. */
+      external_key?: string;
+    }
+
+    export interface AgentInvokeResponse {
+      /** The newly-created (or resumed, if external_key matched) session id. Feed to agent-applications-send / agent-applications-listen. */
+      session_id: string;
+      /** Session state right after enqueue — `queued`. Poll agent-applications-listen for progress.
+       *
+       * * `queued` - queued
+       * * `running` - running
+       * * `completed` - completed
+       * * `closed` - closed
+       * * `cancelled` - cancelled
+       * * `failed` - failed */
+      state: AgentSessionStateEnum;
+      /** True if an existing session matched `external_key` and was resumed, rather than a new one being created. */
+      resumed: boolean;
+    }
+
+    export interface AgentListenResponse {
+      session_id: string;
+      state: AgentSessionStateEnum;
+      /** Total messages in the conversation so far. */
+      turns: number;
+      /** Pass back as `cursor` on the next call to page forward — high-water mark of messages seen. */
+      next_cursor: number;
+      /** Compact, payload-free progress summary: last assistant text, one-line tool activity, state/usage. */
+      digest: string;
+      /** True when the digest was clipped to `max_chars` — read the full transcript via `agent-applications-sessions-retrieve`. */
+      truncated: boolean;
+      /** True once the current turn has finished (`completed`) or the session ended (`closed`/`cancelled`/`failed`) — stop polling. A `completed` session is still open: `agent-applications-send` to continue it. */
+      done: boolean;
+    }
+
     export interface AgentMemoryFile {
       /** Full markdown body. */
       content: string;
@@ -8830,6 +8871,28 @@ export namespace Schemas {
       Langgraph: 'langgraph',
       Sandbox: 'sandbox',
     } as const;
+
+    /**
+     * Body for `agent-applications-send` — append a message to an existing live session.
+     */
+    export interface AgentSendRequest {
+      /** The session to append to (returned by agent-applications-invoke). Must belong to this agent. */
+      session_id: string;
+      /** The user message to append. Required, non-empty. */
+      message: string;
+    }
+
+    export interface AgentSendResponse {
+      /** Session state after the message was appended — `queued` (a new turn will run).
+       *
+       * * `queued` - queued
+       * * `running` - running
+       * * `completed` - completed
+       * * `closed` - closed
+       * * `cancelled` - cancelled
+       * * `failed` - failed */
+      state: AgentSessionStateEnum;
+    }
 
     export interface AgentTableHeader {
       /** Table name. */
@@ -12415,6 +12478,12 @@ export namespace Schemas {
          * @maximum 20
          */
       max_opportunities?: number;
+      /**
+         * Maximum annotations gathered as context per brief. Default 20.
+         * @minimum 1
+         * @maximum 100
+         */
+      max_annotations?: number;
     }
 
     export interface BriefConfig {
@@ -33094,6 +33163,13 @@ export namespace Schemas {
          * @maxLength 4096
          */
       description: string;
+      /** Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response. */
+      readonly body_total_length: number;
+      /**
+         * When body_length paging stops before the end of the body, the character offset to request next (pass as body_offset). Null when the returned body reaches the end.
+         * @nullable
+         */
+      readonly body_next_offset: number | null;
       /** The SKILL.md instruction content (markdown). */
       body: string;
       /**
@@ -33162,6 +33238,13 @@ export namespace Schemas {
          * @maxLength 4096
          */
       description: string;
+      /** Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response. */
+      readonly body_total_length: number;
+      /**
+         * When body_length paging stops before the end of the body, the character offset to request next (pass as body_offset). Null when the returned body reaches the end.
+         * @nullable
+         */
+      readonly body_next_offset: number | null;
       /** The SKILL.md instruction content (markdown). */
       body: string;
       /**
@@ -41703,6 +41786,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly error_reason: string | null;
+      /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
+      readonly is_recovery: boolean;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -46875,6 +46960,8 @@ export namespace Schemas {
        * * `should_fix` - Should Fix
        * * `must_fix` - Must Fix */
       urgency_threshold?: UrgencyThresholdEnum;
+      /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
+      readonly can_trigger_reviews?: boolean;
     }
 
     export interface PatchedReviewValidatorConfigSelect {
@@ -54990,6 +55077,23 @@ export namespace Schemas {
       stale: number;
     }
 
+    export interface ReviewTriggerError {
+      /** Human-readable explanation of why the trigger was rejected. */
+      error: string;
+    }
+
+    export interface ReviewTriggerRequest {
+      /** GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. The repository must be accessible to the project's GitHub App installation. */
+      pr_url: string;
+    }
+
+    export interface ReviewTriggerResponse {
+      /** Temporal workflow id for the started review run; empty when no run was started. */
+      workflow_id: string;
+      /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review (no new run starts). */
+      status: string;
+    }
+
     export interface ReviewUserSettings {
       /** Automatically review pull requests opened by PostHog agents from the user's Inbox. Stored but not consumed yet — the Inbox auto-review trigger is not built. */
       review_inbox_prs?: boolean;
@@ -55001,6 +55105,8 @@ export namespace Schemas {
        * * `should_fix` - Should Fix
        * * `must_fix` - Must Fix */
       urgency_threshold?: UrgencyThresholdEnum;
+      /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
+      readonly can_trigger_reviews: boolean;
     }
 
     export interface ReviewValidatorConfig {
@@ -62449,6 +62555,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly error_reason: string | null;
+      /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
+      readonly is_recovery: boolean;
       readonly created_at: string;
       readonly updated_at: string;
       /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
@@ -67857,6 +67965,16 @@ export namespace Schemas {
 
     export type EnvironmentsLlmSkillsNameRetrieveParams = {
     /**
+     * Maximum number of characters of the body to return starting at body_offset. Omit to return the whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.
+     * @minimum 1
+     */
+    body_length?: number;
+    /**
+     * Zero-based character offset to start the returned body from. Use with body_length to page through a large body that a client would otherwise truncate. Compare the returned body length against body_total_length to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of body).
+     * @minimum 0
+     */
+    body_offset?: number;
+    /**
      * Specific skill version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
@@ -69234,7 +69352,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -69312,7 +69430,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -69347,7 +69465,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -69382,7 +69500,7 @@ export namespace Schemas {
      */
     recent_days?: number;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -70674,6 +70792,21 @@ export namespace Schemas {
      * Filter by approval state. Comma-separated list accepted. Valid values: queued, approving, dispatched, dispatched_failed, rejected, expired. Defaults to all states.
      */
     state?: string;
+    };
+
+    export type AgentApplicationsListenParams = {
+    /**
+     * `next_cursor` from the previous call. Omit on the first read; pass it back to summarize only what's new.
+     */
+    cursor?: number;
+    /**
+     * Digest character budget (default 4000, range 1–20000). The digest is clipped to fit and `truncated` is set.
+     */
+    max_chars?: number;
+    /**
+     * Session to read (must belong to this agent).
+     */
+    session_id: string;
     };
 
     export type AgentApplicationsPreviewProxyGetParams = {
@@ -75475,6 +75608,16 @@ export namespace Schemas {
 
     export type LlmSkillsNameRetrieveParams = {
     /**
+     * Maximum number of characters of the body to return starting at body_offset. Omit to return the whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.
+     * @minimum 1
+     */
+    body_length?: number;
+    /**
+     * Zero-based character offset to start the returned body from. Use with body_length to page through a large body that a client would otherwise truncate. Compare the returned body length against body_total_length to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of body).
+     * @minimum 0
+     */
+    body_offset?: number;
+    /**
      * Specific skill version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
@@ -77961,7 +78104,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -78039,7 +78182,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -78074,7 +78217,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -78109,7 +78252,7 @@ export namespace Schemas {
      */
     recent_days?: number;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
