@@ -27,6 +27,28 @@ describe('StateManager', () => {
         scoped_teams: [],
     }
 
+    const createIdJagAccessToken = (scope: string): string => {
+        const header = Buffer.from(JSON.stringify({ typ: 'at+jwt', alg: 'RS256', kid: 'test-key' })).toString(
+            'base64url'
+        )
+        const payload = Buffer.from(
+            JSON.stringify({
+                iss: 'https://us.posthog.com',
+                sub: 'posthog-code:test@example.com',
+                email: 'test@example.com',
+                aud: 'https://us.posthog.com',
+                client_id: 'posthog-code',
+                scope,
+                app_org: 'posthog-code',
+                org_id: 'org-1',
+                jti: 'test-token',
+                iat: 1_700_000_000,
+                exp: 1_700_000_300,
+            })
+        ).toString('base64url')
+        return `${header}.${payload}.signature`
+    }
+
     beforeEach(async () => {
         cache = new MemoryCache('test-user')
         await cache.clear()
@@ -63,11 +85,7 @@ describe('StateManager', () => {
 
     describe('getApiKey', () => {
         it('bootstraps ID-JAG metadata without personal-key lookup or OAuth introspection', async () => {
-            const header = Buffer.from(JSON.stringify({ typ: 'at+jwt', alg: 'RS256' })).toString('base64url')
-            const payload = Buffer.from(
-                JSON.stringify({ scope: 'user:read agents:read agents:write', org_id: 'org-1' })
-            ).toString('base64url')
-            const token = `${header}.${payload}.signature`
+            const token = createIdJagAccessToken('user:read agents:read agents:write')
             const getUser = vi.fn().mockResolvedValue({ success: true, data: mockUser })
             const getCurrentApiKey = vi.fn().mockRejectedValue(new Error('ID-JAG tokens are not personal API keys'))
             const introspect = vi.fn().mockRejectedValue(new Error('ID-JAG tokens must not be introspected'))
@@ -90,11 +108,7 @@ describe('StateManager', () => {
         })
 
         it('rejects ID-JAG claims when PostHog does not authenticate the token', async () => {
-            const header = Buffer.from(JSON.stringify({ typ: 'at+jwt', alg: 'RS256' })).toString('base64url')
-            const payload = Buffer.from(JSON.stringify({ scope: 'agents:write', org_id: 'org-1' })).toString(
-                'base64url'
-            )
-            const token = `${header}.${payload}.signature`
+            const token = createIdJagAccessToken('agents:write')
             const api = {
                 config: { apiToken: token },
                 users: () => ({ me: async () => ({ success: false, error: { message: 'Unauthorized' } }) }),
