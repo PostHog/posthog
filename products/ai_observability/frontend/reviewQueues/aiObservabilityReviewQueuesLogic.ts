@@ -10,8 +10,8 @@ import { pluralize } from 'lib/utils/strings'
 
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
+import { tabAwareActionToUrl } from '~/lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
-import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { urls } from '~/scenes/urls'
 
 import type {
@@ -783,7 +783,7 @@ export const aiObservabilityReviewQueuesLogic = kea<aiObservabilityReviewQueuesL
         },
     })),
 
-    trackedActionToUrl(({ values }) => ({
+    tabAwareActionToUrl(({ values }) => ({
         setQueueFilters: () => {
             const nextValues = getQueueUrlState(values.queueFilters, values.selectedQueueId, values.queueItemFilters)
             const urlValues = getQueueUrlState(

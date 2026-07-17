@@ -24,8 +24,8 @@ import { pluralize } from 'lib/utils/strings'
 import { CountedPaginatedResponse } from '~/lib/api'
 import { ApiConfig } from '~/lib/api'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
+import { tabAwareActionToUrl } from '~/lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
-import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { urls } from '~/scenes/urls'
 
 import { llmAnalyticsScoreDefinitionsList as aiObservabilityScoreDefinitionsList } from '../generated/api'
@@ -323,7 +323,7 @@ export const aiObservabilityReviewsLogic = kea<aiObservabilityReviewsLogicType>(
         },
     })),
 
-    trackedActionToUrl(({ values }) => ({
+    tabAwareActionToUrl(({ values }) => ({
         setFilters: () => {
             const nextValues = { ...getUrlFilters(values.filters), human_reviews_tab: 'reviews' }
             const urlValues = {

@@ -2,8 +2,8 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { router } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { urls } from 'scenes/urls'
 
@@ -427,7 +427,7 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
         },
     })),
 
-    trackedActionToUrl(({ values }) => {
+    tabAwareActionToUrl(({ values }) => {
         const actionToUrl = ({
             dateFilter = values.dateFilter,
             endpointFilter = values.endpointFilter,

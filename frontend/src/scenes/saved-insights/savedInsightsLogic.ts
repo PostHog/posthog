@@ -7,9 +7,9 @@ import { dayjs, type Dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectDiffShallow, objectsEqual } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
@@ -694,7 +694,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             lemonToast.error('Failed to restore insights')
         },
     })),
-    trackedActionToUrl(({ values }) => {
+    tabAwareActionToUrl(({ values }) => {
         const changeUrl = ():
             | [
                   string,

@@ -22,8 +22,8 @@ import { objectsEqual } from 'lib/utils/objects'
 import api, { CountedPaginatedResponse } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
+import { tabAwareActionToUrl } from '~/lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
-import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { teamLogic } from '~/scenes/teamLogic'
@@ -581,7 +581,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
         },
     })),
 
-    trackedActionToUrl(({ values }) => ({
+    tabAwareActionToUrl(({ values }) => ({
         closeModalAndRefetchDatasetItems: () => {
             const nextSearchParams = { ...router.values.searchParams, item: undefined }
             return [

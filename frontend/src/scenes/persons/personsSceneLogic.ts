@@ -4,9 +4,9 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers, select
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -146,7 +146,7 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
         ],
     }),
 
-    trackedActionToUrl(({ values }) => ({
+    tabAwareActionToUrl(({ values }) => ({
         setQuery: () => [
             urls.persons(),
             {},

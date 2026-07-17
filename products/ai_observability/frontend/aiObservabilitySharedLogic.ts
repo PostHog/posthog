@@ -17,8 +17,8 @@ import { router } from 'kea-router'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { objectsEqual } from 'lib/utils/objects'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
@@ -467,7 +467,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
         }
     }),
 
-    trackedActionToUrl(() => {
+    tabAwareActionToUrl(() => {
         // Pass through params owned by other logics (e.g. review_*, queue_*) —
         // only rewrite the shared params and drop stale trace-view params.
         function passthroughSearchParams(): Record<string, unknown> {

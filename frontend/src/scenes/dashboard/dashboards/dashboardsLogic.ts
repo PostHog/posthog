@@ -5,9 +5,9 @@ import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectClean, objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
@@ -366,7 +366,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             }),
         ],
     }),
-    trackedActionToUrl(({ values }) => ({
+    tabAwareActionToUrl(({ values }) => ({
         setCurrentTab: () => {
             const tab = values.currentTab === DashboardsTab.All ? undefined : values.currentTab
             if (router.values.searchParams['tab'] === tab) {

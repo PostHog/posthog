@@ -19,8 +19,8 @@ import type { DragEvent, RefObject } from 'react'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { AppMetricsTotalsRequest, loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { uuid } from 'lib/utils/dom'
 import { objectsEqual, reconcileById } from 'lib/utils/objects'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
@@ -2757,7 +2757,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         },
     })),
 
-    trackedActionToUrl(({ values }) => {
+    tabAwareActionToUrl(({ values }) => {
         const syncProperty = (
             key: string,
             value: string | null

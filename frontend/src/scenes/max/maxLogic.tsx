@@ -7,8 +7,8 @@ import { IconBook } from '@posthog/icons'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { inStorybook, inStorybookTestRunner, uuid } from 'lib/utils/dom'
 import { objectsEqual } from 'lib/utils/objects'
@@ -971,7 +971,7 @@ export const maxLogic = kea<maxLogicType>([
         },
     })),
 
-    trackedActionToUrl(({ values, props }) => {
+    tabAwareActionToUrl(({ values, props }) => {
         // Embedded chats and the side panel float over another scene, so they must never rewrite the
         // route. Only the scene instance, which owns /ai, syncs Max state into the URL.
         if (!shouldSyncMaxUrl(props)) {
