@@ -263,8 +263,8 @@ class GitHubRecorder:
             return FakeResponse(200, json_data=data)
         login = str(variables.get("login") or "")
         slugs = self.teams_by_login.get(login, [])
-        data = {"data": {"organization": {"teams": {"nodes": [{"slug": s} for s in slugs]}}}}
-        return FakeResponse(200, json_data=data)
+        teams_data = {"data": {"organization": {"teams": {"nodes": [{"slug": s} for s in slugs]}}}}
+        return FakeResponse(200, json_data=teams_data)
 
     def _record_write(self, kind: str, repo: str, number: int, body: dict | None) -> FakeResponse:
         new_id = self._alloc_id()
