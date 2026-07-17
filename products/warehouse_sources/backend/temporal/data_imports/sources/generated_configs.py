@@ -3439,6 +3439,11 @@ class ProductiveSourceConfig(config.Config):
 
 
 @config.config
+class PromptWatchSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class PromptingCompanySourceConfig(config.Config):
     pass
 
@@ -5518,6 +5523,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PRINTIFY: PrintifySourceConfig,
         ExternalDataSourceType.PRODUCTBOARD: ProductboardSourceConfig,
         ExternalDataSourceType.PRODUCTIVE: ProductiveSourceConfig,
+        ExternalDataSourceType.PROMPTWATCH: PromptWatchSourceConfig,
         ExternalDataSourceType.PROMPTINGCOMPANY: PromptingCompanySourceConfig,
         ExternalDataSourceType.PULUMICLOUD: PulumiCloudSourceConfig,
         ExternalDataSourceType.PYPI: PyPISourceConfig,

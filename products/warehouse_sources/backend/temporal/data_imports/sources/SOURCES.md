@@ -851,6 +851,7 @@ doesn't conflict with concurrent PRs.
 - primetric
 - productive
 - prompting_company
+- promptwatch
 - qdrant
 - qonto
 - qualtrics
