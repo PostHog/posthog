@@ -50,4 +50,20 @@ describe('insight error states', () => {
             query_id: 'test-query-id',
         })
     })
+
+    // The retry button only offers a side action (query debugger link) when it has a query. Without
+    // one, `sideAction` must stay undefined so LemonButton doesn't render a stray empty side action.
+    it.each([
+        { name: 'without a query', query: undefined, expectsSideAction: false },
+        {
+            name: 'with a query',
+            query: { kind: 'InsightVizNode', source: { kind: 'TrendsQuery' } },
+            expectsSideAction: true,
+        },
+    ])('retry button side action $name', ({ query, expectsSideAction }) => {
+        const { container } = render(<InsightErrorState onRetry={() => {}} query={query} />)
+
+        expect(container.querySelector('[data-attr="insight-retry-button"]')).not.toBeNull()
+        expect(container.querySelector('.LemonButtonWithSideAction') !== null).toBe(expectsSideAction)
+    })
 })
