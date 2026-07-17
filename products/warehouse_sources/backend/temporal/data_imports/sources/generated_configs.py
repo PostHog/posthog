@@ -2933,7 +2933,8 @@ class OneHundredMsSourceConfig(config.Config):
 
 @config.config
 class OnePasswordSourceConfig(config.Config):
-    pass
+    api_token: str
+    region: Literal["us", "ca", "eu", "enterprise"] = config.value(default="us")
 
 
 @config.config
