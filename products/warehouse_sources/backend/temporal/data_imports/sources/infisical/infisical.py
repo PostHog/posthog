@@ -47,6 +47,11 @@ MAX_RESPONSE_SECONDS = 300
 # compresses anyway only breaks its own JSON parse; the size/time caps still hold.
 IDENTITY_ENCODING_HEADERS = {"Accept-Encoding": "identity"}
 MAX_PAGES = 100_000
+# The project fan-out makes one request per project, so a customer-controlled host that returns
+# a huge project list (still under the byte cap) could turn one sync into millions of requests
+# and hold an import worker for the activity's lifetime. Bound the fan-out; far above any
+# legitimate org's project count.
+MAX_FAN_OUT_PROJECTS = 10_000
 # Cap how much of an error response body reaches the logs — the host is untrusted.
 ERROR_BODY_LOG_LIMIT = 500
 
@@ -552,6 +557,14 @@ def _get_project_fan_out_rows(
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     projects = _list_org_projects(client, organization_id)
+    if len(projects) > MAX_FAN_OUT_PROJECTS:
+        # base_url is customer-controlled, so a hostile host could return far more projects than
+        # any real org has to fan the sync out into unbounded requests. Cap it.
+        logger.warning(
+            f"Infisical: {len(projects)} projects for {config.name} exceeds "
+            f"MAX_FAN_OUT_PROJECTS={MAX_FAN_OUT_PROJECTS}; capping fan-out"
+        )
+        projects = projects[:MAX_FAN_OUT_PROJECTS]
 
     for project in projects:
         project_id = project.get("id")

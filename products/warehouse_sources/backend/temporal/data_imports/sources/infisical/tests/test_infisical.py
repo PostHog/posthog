@@ -260,6 +260,21 @@ class TestProjectMembershipsFanOut:
         with pytest.raises(requests.HTTPError):
             _run_get_rows([_login_response(), projects, bad_request], "project_memberships")
 
+    def test_fan_out_is_capped(self):
+        # base_url is customer-controlled: a host returning far more projects than any real org
+        # (still under the byte cap) would fan one sync out into a request per project and hold
+        # the worker. The fan-out must stop at MAX_FAN_OUT_PROJECTS.
+        projects = _response(json_data={"projects": [{"id": f"p{i}", "orgId": "org-123"} for i in range(3)]})
+        membership = _response(json_data={"memberships": [{"id": "m1", "projectId": "p0"}]})
+        with mock.patch.object(infisical_module, "MAX_FAN_OUT_PROJECTS", 2):
+            _rows, session, _manager = _run_get_rows(
+                [_login_response(), projects, membership, membership], "project_memberships"
+            )
+
+        # Only the first 2 of the 3 projects are fetched (1 project list + 2 membership calls).
+        membership_paths = [p for p in (urlparse(u).path for u in _get_urls(session)) if "memberships" in p]
+        assert membership_paths == ["/api/v1/projects/p0/memberships", "/api/v1/projects/p1/memberships"]
+
 
 class TestOrgScoping:
     # /api/v1/projects isn't org-scoped — a machine identity shared with several orgs sees them
