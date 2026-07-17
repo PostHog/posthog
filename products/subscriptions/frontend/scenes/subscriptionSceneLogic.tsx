@@ -28,6 +28,7 @@ import { subscriptionName } from './components/SubscriptionsTable'
 
 export type SubscriptionSceneLogicProps = {
     id: string
+    tabId?: string
 }
 
 export type DeliveryFeedback = 'positive' | 'negative'
@@ -157,7 +158,7 @@ export type subscriptionSceneLogicType = MakeLogicType<
 
 export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
     props({} as SubscriptionSceneLogicProps),
-    key(({ id }) => id),
+    key(({ id, tabId }) => `${tabId ?? ''}-${id}`),
     path((key) => ['scenes', 'subscriptions', 'subscriptionSceneLogic', key]),
     actions({
         deliverSubscription: (id: number) => ({ id }),

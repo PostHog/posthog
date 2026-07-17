@@ -46,7 +46,7 @@ describe('subscriptionsSceneLogic', () => {
         userLogic.mount()
         userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
         router.actions.push(urls.subscriptions())
-        logic = subscriptionsSceneLogic()
+        logic = subscriptionsSceneLogic({ tabId: '1' })
         logic.mount()
     })
 

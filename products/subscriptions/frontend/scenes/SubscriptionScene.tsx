@@ -6,7 +6,8 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { SceneExport } from 'scenes/sceneTypes'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { SceneExport, type SceneProps } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -21,10 +22,12 @@ import { SubscriptionSummary } from './components/SubscriptionSummary'
 import { subscriptionSceneLogic } from './subscriptionSceneLogic'
 import { subscriptionsSceneLogic } from './subscriptionsSceneLogic'
 
-function SubscriptionDetailActions({ sub }: { sub: SubscriptionApi }): JSX.Element {
+function SubscriptionDetailActions({ sub, tabId }: { sub: SubscriptionApi; tabId?: string }): JSX.Element {
     const { push } = useActions(router)
+    const { activeTabId } = useValues(sceneLogic)
     const { setEnabled, deliverSubscription } = useActions(subscriptionSceneLogic)
     const { subscriptionLoading, deliveringSubscriptionId } = useValues(subscriptionSceneLogic)
+    const listTabId = tabId ?? activeTabId ?? undefined
     const editHref = subscriptionEditHref(sub)
     const enabled = isSubscriptionEnabled(sub)
     const isDelivering = deliveringSubscriptionId === sub.id
@@ -38,7 +41,9 @@ function SubscriptionDetailActions({ sub }: { sub: SubscriptionApi }): JSX.Eleme
                 name,
             },
             callback: () => {
-                subscriptionsSceneLogic.findMounted()?.actions.deleteSubscriptionSuccess()
+                if (listTabId) {
+                    subscriptionsSceneLogic.findMounted({ tabId: listTabId })?.actions.deleteSubscriptionSuccess()
+                }
                 push(urls.subscriptions())
             },
         })
@@ -83,7 +88,7 @@ function SubscriptionDetailActions({ sub }: { sub: SubscriptionApi }): JSX.Eleme
     )
 }
 
-export function SubscriptionScene(): JSX.Element {
+export function SubscriptionScene({ tabId }: SceneProps): JSX.Element {
     const {
         subscription,
         subscriptionLoading,
@@ -110,7 +115,9 @@ export function SubscriptionScene(): JSX.Element {
                         description={null}
                         resourceType={{ type: 'inbox' }}
                         isLoading={subscriptionLoading}
-                        actions={subscription ? <SubscriptionDetailActions sub={subscription} /> : undefined}
+                        actions={
+                            subscription ? <SubscriptionDetailActions sub={subscription} tabId={tabId} /> : undefined
+                        }
                     />
                     {subscription ? (
                         // Mute the body when the subscription is paused — the LemonTag in the
