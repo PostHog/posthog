@@ -21,7 +21,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import UserAccessControlError
 
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation, MetricType
-from products.metrics.backend.metrics_query_runner import MetricsQueryRunner
+from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
 from products.metrics.backend.tests._seeder import seed_metric
 
 from ee.models.rbac.access_control import AccessControl

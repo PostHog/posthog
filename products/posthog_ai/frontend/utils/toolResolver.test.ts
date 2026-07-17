@@ -17,6 +17,15 @@ describe('toolResolver', () => {
             expect(resolved.innerInput).toEqual({ kind: 'TrendsQuery' })
         })
 
+        it('does not expose malformed single-exec arguments as valid empty input', () => {
+            const resolved = resolveToolKey('posthog', 'exec', {
+                command: 'call query-trends {not-json',
+            })
+            expect(resolved.resolvedKey).toEqual('query-trends')
+            expect(resolved.innerToolName).toEqual('query-trends')
+            expect(resolved.innerInput).toBeUndefined()
+        })
+
         it('maps discovery verbs to sentinels', () => {
             expect(resolveToolKey('posthog', 'exec', { command: 'tools' }).resolvedKey).toEqual(
                 '__posthog_exec_tools__'
