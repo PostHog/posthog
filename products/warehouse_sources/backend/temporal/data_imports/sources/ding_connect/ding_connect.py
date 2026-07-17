@@ -1,14 +1,20 @@
 import dataclasses
-from collections.abc import Iterator
 from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    SinglePagePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.ding_connect.settings import (
     DING_CONNECT_ENDPOINTS,
     DingConnectEndpointConfig,
@@ -24,62 +30,10 @@ TRANSFER_RECORDS_PAGE_SIZE = 100
 _ENVELOPE_KEYS = ("ResultCode", "ErrorCodes", "ThereAreMoreItems")
 
 
-class DingConnectRetryableError(Exception):
-    pass
-
-
-@dataclasses.dataclass
-class DingConnectResumeConfig:
-    # Number of TransferRecords rows already returned; the Skip value the next page resumes from.
-    # Only the paginated TransferRecords endpoint persists this; reference endpoints complete in a
-    # single request and never save state.
-    skip: int = 0
-
-
-def _get_headers(api_key: str) -> dict[str, str]:
-    return {
-        "api_key": api_key,
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-
-
-@retry(
-    retry=retry_if_exception_type((DingConnectRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _request(
-    session: requests.Session,
-    method: str,
-    url: str,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    json_body: Optional[dict[str, Any]] = None,
-) -> dict[str, Any]:
-    response = session.request(method, url, headers=headers, json=json_body, timeout=60)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise DingConnectRetryableError(f"DingConnect API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        # Truncate the body: DingConnect error responses can echo row data (e.g. AccountNumber from
-        # TransferRecords), so we log only a short preview to avoid persisting PII in logs.
-        logger.error(f"DingConnect API error: status={response.status_code}, body={response.text[:500]}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
-
-
-def validate_credentials(api_key: str) -> bool:
-    # GetBalance is the cheapest call that proves both the key is valid and an account is attached.
-    url = f"{DING_CONNECT_BASE_URL}/api/V1/GetBalance"
-    try:
-        response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_get_headers(api_key), timeout=30)
-        return response.status_code == 200
-    except Exception:
-        return False
+def _non_secret_headers() -> dict[str, str]:
+    # The api_key travels via the framework `api_key` auth so its value is redacted from logs and
+    # raised error messages; only the non-secret content-negotiation headers are set here.
+    return {"Accept": "application/json", "Content-Type": "application/json"}
 
 
 def _flatten_transfer_record(record: dict[str, Any]) -> dict[str, Any]:
@@ -97,96 +51,130 @@ def _row_from_single_object(body: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in body.items() if key not in _ENVELOPE_KEYS}
 
 
-def _get_reference_rows(
-    session: requests.Session,
-    config: DingConnectEndpointConfig,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-) -> Iterator[list[dict[str, Any]]]:
-    url = f"{DING_CONNECT_BASE_URL}{config.path}"
-    body = _request(session, config.method, url, headers, logger)
+class DingConnectTransferRecordsPaginator(BasePaginator):
+    """Skip/Take offset paging carried in the POST body.
 
-    if config.data_selector == "":
-        yield [_row_from_single_object(body)]
-        return
+    ListTransferRecords paginates via ``{"Skip": n, "Take": page_size}`` in the JSON payload and
+    signals continuation with the documented ``ThereAreMoreItems`` flag; when that flag is absent we
+    fall back to "a full page implies more". No built-in paginator reads a body-level boolean, so this
+    keeps the exact termination the hand-rolled source had while remaining resumable.
+    """
 
-    items = body.get(config.data_selector, []) or []
-    if items:
-        yield items
+    def __init__(self, skip: int = 0) -> None:
+        super().__init__()
+        self._skip = skip
 
+    def _inject(self, request: Request) -> None:
+        if request.json is None:
+            request.json = {}
+        request.json["Skip"] = self._skip
+        request.json["Take"] = TRANSFER_RECORDS_PAGE_SIZE
 
-def _get_transfer_record_rows(
-    session: requests.Session,
-    config: DingConnectEndpointConfig,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[DingConnectResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    url = f"{DING_CONNECT_BASE_URL}{config.path}"
+    def init_request(self, request: Request) -> None:
+        self._inject(request)
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    skip = resume.skip if resume is not None else 0
-    if skip:
-        logger.debug(f"DingConnect: resuming TransferRecords from skip={skip}")
-
-    while True:
-        body = _request(
-            session,
-            config.method,
-            url,
-            headers,
-            logger,
-            json_body={"Skip": skip, "Take": TRANSFER_RECORDS_PAGE_SIZE},
-        )
-
-        items = body.get(config.data_selector, []) or []
-        if items:
-            yield [_flatten_transfer_record(item) for item in items]
-
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        items = data or []
+        try:
+            body = response.json()
+        except Exception:
+            body = {}
+        there_are_more = body.get("ThereAreMoreItems") if isinstance(body, dict) else None
         # `ThereAreMoreItems` is the documented continuation flag; fall back to a short final page.
-        there_are_more = body.get("ThereAreMoreItems")
-        has_next = there_are_more if there_are_more is not None else len(items) == TRANSFER_RECORDS_PAGE_SIZE
+        has_next = bool(there_are_more) if there_are_more is not None else len(items) == TRANSFER_RECORDS_PAGE_SIZE
         if not items or not has_next:
-            break
+            self._has_next_page = False
+            return
+        self._skip += TRANSFER_RECORDS_PAGE_SIZE
+        self._has_next_page = True
 
-        skip += TRANSFER_RECORDS_PAGE_SIZE
-        # Save AFTER yielding so a crash re-yields the last page rather than skipping it; the
-        # full-refresh replace plus the TransferRef primary key dedupe any re-pulled rows.
-        resumable_source_manager.save_state(DingConnectResumeConfig(skip=skip))
+    def update_request(self, request: Request) -> None:
+        self._inject(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        # self._skip already points at the next page to fetch (update_state advanced it).
+        return {"skip": self._skip} if self._has_next_page else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        skip = state.get("skip")
+        if skip is not None:
+            self._skip = int(skip)
+            self._has_next_page = True
 
 
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[DingConnectResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = DING_CONNECT_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
-    session = make_tracked_session(redact_values=(api_key,))
+@dataclasses.dataclass
+class DingConnectResumeConfig:
+    # Number of TransferRecords rows already returned; the Skip value the next page resumes from.
+    # Only the paginated TransferRecords endpoint persists this; reference endpoints complete in a
+    # single request and never save state.
+    skip: int = 0
+
+
+def _build_resource(endpoint: str, config: DingConnectEndpointConfig) -> dict[str, Any]:
+    endpoint_config: dict[str, Any] = {"path": config.path, "method": config.method}
+    resource: dict[str, Any] = {"name": endpoint, "endpoint": endpoint_config}
 
     if config.paginated:
-        yield from _get_transfer_record_rows(session, config, headers, logger, resumable_source_manager)
+        # TransferRecords: paged POST; the paginator injects Skip/Take into the JSON body.
+        endpoint_config["data_selector"] = config.data_selector
+        endpoint_config["paginator"] = DingConnectTransferRecordsPaginator()
+        resource["data_map"] = _flatten_transfer_record
+    elif config.data_selector == "":
+        # GetBalance returns a single object at the top level; wrap it as one row and strip the
+        # envelope keys so only the balance fields land.
+        endpoint_config["paginator"] = SinglePagePaginator()
+        resource["data_map"] = _row_from_single_object
     else:
-        yield from _get_reference_rows(session, config, headers, logger)
+        # Reference/catalog lookups return their whole bounded list under `Items` in one response.
+        endpoint_config["data_selector"] = config.data_selector
+        endpoint_config["paginator"] = SinglePagePaginator()
+
+    return resource
 
 
 def ding_connect_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[DingConnectResumeConfig],
 ) -> SourceResponse:
     config = DING_CONNECT_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": DING_CONNECT_BASE_URL,
+            "headers": _non_secret_headers(),
+            "auth": {"type": "api_key", "api_key": api_key, "name": "api_key", "location": "header"},
+        },
+        "resources": [_build_resource(endpoint, config)],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"skip": resume.skip}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (the full-refresh replace plus the primary key dedupe any re-pulled rows)
+        # rather than skipping it. Only the paginated TransferRecords endpoint ever produces state.
+        if state and state.get("skip") is not None:
+            resumable_source_manager.save_state(DingConnectResumeConfig(skip=int(state["skip"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,  # full refresh only — no DingConnect endpoint exposes a server-side timestamp filter
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1 if config.partition_key else None,
         partition_size=1 if config.partition_key else None,
@@ -194,3 +182,13 @@ def ding_connect_source(
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
     )
+
+
+def validate_credentials(api_key: str) -> bool:
+    # GetBalance is the cheapest call that proves both the key is valid and an account is attached.
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{DING_CONNECT_BASE_URL}/api/V1/GetBalance",
+        headers={"api_key": api_key, **_non_secret_headers()},
+    )
+    return ok
