@@ -16,6 +16,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.models.scoping import team_scope
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 
+from products.pulse.backend.config import MAX_ITEMS
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import Opportunity, ProductBrief
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, SourceItemKind
@@ -52,6 +53,33 @@ def _source_item() -> SourceItem:
         evidence=[EvidenceRef(type=EvidenceType.INSIGHT, ref="abc", label="Pageviews", url="/project/1/insights/abc")],
         fingerprint_hint="abc:0",
     )
+
+
+class _RaisingSource:
+    name = "raising"
+
+    def gather(self, team, config, lookback_days) -> list[SourceItem]:
+        raise RuntimeError("db exploded")
+
+
+class _EmptySource:
+    name = "empty"
+
+    def gather(self, team, config, lookback_days) -> list[SourceItem]:
+        return []
+
+
+class _ManyItemsSource:
+    def __init__(self, kind: str, count: int) -> None:
+        self.name = f"many_{kind}"
+        self._kind = SourceItemKind(kind)
+        self._count = count
+
+    def gather(self, team, config, lookback_days) -> list[SourceItem]:
+        return [
+            SourceItem(source=self.name, kind=self._kind, title=f"{self._kind} {i}", description="d")
+            for i in range(self._count)
+        ]
 
 
 @sync_to_async
@@ -183,6 +211,42 @@ def test_resolve_period_since_last_run_vs_last_n_days() -> None:
     # since_last_run with no prior run falls back to the default window.
     first = resolve_period({"type": "since_last_run"}, now, last_run=None)
     assert first.lookback_days == 7
+
+
+@pytest.mark.parametrize(
+    "sources,expect_raise",
+    [
+        ([_RaisingSource(), _EmptySource()], False),  # partial failure in a quiet week -> empty brief, no raise
+        ([_RaisingSource(), _RaisingSource()], True),  # every source failed -> retryable error
+    ],
+)
+async def test_gather_activity_failed_sources(team, sources, expect_raise) -> None:
+    await _set_ai_consent(team, True)
+    env = ActivityEnvironment()
+    inputs = GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None)
+    with patch("products.pulse.backend.temporal.activities.get_sources", return_value=sources):
+        if expect_raise:
+            with pytest.raises(ApplicationError) as exc_info:
+                await env.run(gather_brief_inputs_activity, inputs)
+            assert exc_info.value.non_retryable is False
+        else:
+            assert await env.run(gather_brief_inputs_activity, inputs) == []
+
+
+async def test_gather_activity_cap_orders_all_three_kinds(team) -> None:
+    # health > movement > context: with all three over the cap, health and movement survive whole
+    # and context is the only kind truncated — a priority swap between movement and context fails this.
+    await _set_ai_consent(team, True)
+    env = ActivityEnvironment()
+    sources = [_ManyItemsSource("context", 30), _ManyItemsSource("movement", 25), _ManyItemsSource("health", 10)]
+    with patch("products.pulse.backend.temporal.activities.get_sources", return_value=sources):
+        items = await env.run(
+            gather_brief_inputs_activity,
+            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None),
+        )
+    assert len(items) == MAX_ITEMS
+    kept = {kind: sum(1 for item in items if item["kind"] == kind) for kind in ("health", "movement", "context")}
+    assert kept == {"health": 10, "movement": 25, "context": 15}
 
 
 async def test_workflow_marks_brief_failed_when_gather_fails(team, user) -> None:

@@ -5,9 +5,11 @@ from django.db.models import QuerySet
 
 import structlog
 
+from products.alerts.backend.models import AlertConfiguration
 from products.annotations.backend.models.annotation import Annotation
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
+from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import Opportunity, ProductBrief, ResourceLink, build_action
@@ -86,28 +88,35 @@ def _build_opportunity(
     )
 
 
-def _resolve_link_fks(
-    team_id: int, evidence: list[EvidenceRef]
-) -> dict[tuple[EvidenceType, str], Insight | Dashboard | Annotation | Experiment]:
+_LinkTarget = Insight | Dashboard | Annotation | Experiment | AlertConfiguration | Subscription
+
+
+def _resolve_link_fks(team_id: int, evidence: list[EvidenceRef]) -> dict[tuple[EvidenceType, str], _LinkTarget]:
     """Batch-resolve cited refs to the model instances the ResourceLink FKs point at, per team.
 
-    Keyed by EvidenceRef.key. Insights are looked up by short_id; dashboards/annotations/experiments
-    by id. Events have no model. A ref that resolves to nothing is still linked (cached columns
-    only) — the resource may have been deleted since the brief cited it.
+    Keyed by EvidenceRef.key. Insights are looked up by short_id; alerts by UUID id; dashboards/
+    annotations/experiments/subscriptions by integer id. Events have no model. A ref that resolves
+    to nothing is still linked (cached columns only) — the resource may have been deleted since.
     """
     by_type: dict[EvidenceType, set[str]] = {}
     for ref in evidence:
         by_type.setdefault(ref.type, set()).add(ref.ref)
 
-    resolved: dict[tuple[EvidenceType, str], Insight | Dashboard | Annotation | Experiment] = {}
-    insight_ids = by_type.get(EvidenceType.INSIGHT)
-    if insight_ids:
-        for insight in Insight.objects.filter(team_id=team_id, short_id__in=insight_ids):
+    resolved: dict[tuple[EvidenceType, str], _LinkTarget] = {}
+    insight_refs = by_type.get(EvidenceType.INSIGHT)
+    if insight_refs:
+        for insight in Insight.objects.filter(team_id=team_id, short_id__in=insight_refs):
             resolved[(EvidenceType.INSIGHT, insight.short_id)] = insight
+    alert_refs = by_type.get(EvidenceType.ALERT)
+    if alert_refs:
+        # AlertConfiguration has a UUID primary key, so its refs aren't numeric.
+        for alert in AlertConfiguration.objects.filter(team_id=team_id, id__in=alert_refs):
+            resolved[(EvidenceType.ALERT, str(alert.id))] = alert
     for evidence_type, model in (
         (EvidenceType.DASHBOARD, Dashboard),
         (EvidenceType.ANNOTATION, Annotation),
         (EvidenceType.EXPERIMENT, Experiment),
+        (EvidenceType.SUBSCRIPTION, Subscription),
     ):
         refs = by_type.get(evidence_type)
         if not refs:
@@ -121,7 +130,7 @@ def _resolve_link_fks(
 def _build_links(
     opportunity: Opportunity,
     evidence: list[EvidenceRef],
-    resolved_fks: dict[tuple[EvidenceType, str], Insight | Dashboard | Annotation | Experiment],
+    resolved_fks: dict[tuple[EvidenceType, str], _LinkTarget],
 ) -> list[ResourceLink]:
     links: list[ResourceLink] = []
     for ref in evidence:

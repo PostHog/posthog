@@ -1,10 +1,17 @@
+from datetime import timedelta
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.models.scoping import team_scope
+from django.utils import timezone
 
+from posthog.models.scoping import team_scope
+from posthog.schema_enums import AlertState
+
+from products.alerts.backend.models import AlertConfiguration
+from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.generation.persist import _fingerprint, persist_brief_output
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
@@ -191,3 +198,49 @@ class TestPersistBriefOutput(BaseTest):
         out = BriefOut(sections=[], opportunities=_out().opportunities)
         brief = persist_brief_output(brief=self._brief(), out=out, items=[_item()])
         assert brief.status == ProductBrief.Status.READY
+
+    def test_alert_and_subscription_refs_resolve_to_typed_links(self) -> None:
+        # Alerts (UUID pk) and subscriptions (int pk) are first-class evidence types with their own
+        # FKs; a "fix" opportunity citing both must persist links with each FK resolved.
+        with team_scope(self.team.pk, canonical=True):
+            insight = Insight.objects.create(team=self.team, name="Signups")
+            alert = AlertConfiguration.objects.create(
+                team=self.team, insight=insight, name="a", state=AlertState.ERRORED, enabled=True
+            )
+            subscription = Subscription.objects.create(
+                team=self.team,
+                title="s",
+                target_type="email",
+                target_value="x@y.com",
+                frequency="weekly",
+                start_date=timezone.now() - timedelta(days=1),
+            )
+        item = SourceItem(
+            source="resource_health",
+            kind=SourceItemKind.HEALTH,
+            title="t",
+            description="d",
+            evidence=[
+                EvidenceRef(type=EvidenceType.ALERT, ref=str(alert.id), label="a", url=""),
+                EvidenceRef(type=EvidenceType.SUBSCRIPTION, ref=str(subscription.id), label="s", url=""),
+            ],
+            fingerprint_hint="alert:x",
+        )
+        out = BriefOut(
+            sections=[],
+            opportunities=[
+                OpportunityOut(
+                    kind="fix",
+                    title="t",
+                    summary="s",
+                    suggested_action="a",
+                    evidence_refs=["c1", "c2"],
+                    fingerprint_hint="alert:x",
+                    confidence=0.9,
+                )
+            ],
+        )
+        persist_brief_output(brief=self._brief(), out=out, items=[item])
+        links = {link.resource_type: link for link in self._links()}
+        assert links[ResourceType.ALERT].alert_id == alert.id
+        assert links[ResourceType.SUBSCRIPTION].subscription_id == subscription.id
