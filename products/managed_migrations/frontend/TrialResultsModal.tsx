@@ -49,7 +49,7 @@ export function TrialResultsModal(): JSX.Element {
             isOpen={!!trialResultsId}
             onClose={closeTrialResults}
             title="Trial run results"
-            description="Each source record is shown with the event(s) it would produce on a real import, or the reason it would be dropped. No events were ingested."
+            description="Each source record is shown with the event(s) it would produce on a real import, or the reason it failed. No events were ingested."
             width={960}
         >
             <div className="space-y-4">
@@ -57,14 +57,18 @@ export function TrialResultsModal(): JSX.Element {
                     <div className="flex gap-8">
                         <SummaryStat label="Records processed" value={trialRecords?.total_records ?? 0} />
                         <SummaryStat label="Events to import" value={summary.output_events} />
-                        <SummaryStat label="Dropped" value={summary.dropped_records} />
+                        <SummaryStat label="Failed" value={summary.dropped_records} />
                         <SummaryStat label="Skipped" value={summary.skipped_records} />
                     </div>
                 )}
 
                 {errorEntries.length > 0 && (
                     <LemonBanner type="warning">
-                        <div className="font-semibold mb-1">Some records would be dropped</div>
+                        <div className="font-semibold mb-1">Some records can't be imported</div>
+                        <div className="mb-1">
+                            These errors are not retriable. A full import will pause when it reaches the first failing
+                            record, and stay paused until the source data is fixed.
+                        </div>
                         <ul className="list-disc pl-4">
                             {errorEntries.map(([message, count]) => (
                                 <li key={message}>
@@ -96,7 +100,7 @@ export function TrialResultsModal(): JSX.Element {
                             key: 'result',
                             render: (_: any, record: TrialRecord) => {
                                 if (record.error) {
-                                    return <LemonTag type="danger">Dropped</LemonTag>
+                                    return <LemonTag type="danger">Failed</LemonTag>
                                 }
                                 if (record.outputs.length === 0) {
                                     return <LemonTag type="muted">Skipped</LemonTag>

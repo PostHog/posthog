@@ -5,6 +5,7 @@ import { router, urlToAction } from 'kea-router'
 
 import api, { ApiConfig } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
@@ -72,6 +73,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
         pauseMigration: (id: string) => ({ id }),
         resumeMigration: (id: string) => ({ id }),
         promoteTrial: (id: string) => ({ id }),
+        confirmPromoteTrial: (id: string) => ({ id }),
         promoteTrialFinished: true,
         viewTrialResults: (id: string) => ({ id }),
         closeTrialResults: true,
@@ -84,7 +86,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
         trialResultsId: [null as string | null, { viewTrialResults: (_, { id }) => id, closeTrialResults: () => null }],
         promotingMigrationId: [
             null as string | null,
-            { promoteTrial: (_, { id }) => id, promoteTrialFinished: () => null },
+            { confirmPromoteTrial: (_, { id }) => id, promoteTrialFinished: () => null },
         ],
     }),
     loaders(({ values }) => ({
@@ -292,7 +294,27 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
             }
             actions.closeTrialResults()
         },
-        promoteTrial: async ({ id }) => {
+        promoteTrial: ({ id }) => {
+            const trial = values.migrations.find((migration: ManagedMigration) => migration.id === id)
+            const failedRecords = trial?.state?.trial?.summary?.dropped_records ?? 0
+            if (failedRecords === 0) {
+                actions.confirmPromoteTrial(id)
+                return
+            }
+            LemonDialog.open({
+                title: 'Start the full import?',
+                description: `This trial found ${failedRecords} record${
+                    failedRecords === 1 ? '' : 's'
+                } that can't be imported. These errors are not retriable: the import will pause when it reaches the first failing record, and stay paused until the source data is fixed.`,
+                primaryButton: {
+                    children: 'Start import anyway',
+                    type: 'primary',
+                    onClick: () => actions.confirmPromoteTrial(id),
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
+        },
+        confirmPromoteTrial: async ({ id }) => {
             try {
                 const projectId = String(ApiConfig.getCurrentProjectId())
                 await managedMigrationsPromoteCreate(projectId, id)
