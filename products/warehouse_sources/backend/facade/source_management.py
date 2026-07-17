@@ -53,6 +53,8 @@ _LAZY = {
     "CustomSource": "sources.custom.source",
     "manifest_request_hosts": "sources.custom.source",
     "CustomSourceConfig": "sources.generated_configs",
+    "GithubSource": "sources.github.source",
+    "GithubSourceConfig": "sources.generated_configs",
     "MySQLSourceConfig": "sources.generated_configs",
     "PostgresSourceConfig": "sources.generated_configs",
     "SnowflakeSourceConfig": "sources.generated_configs",

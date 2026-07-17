@@ -7,6 +7,12 @@
             "enum": ["full", "preview", "none"],
             "type": "string"
         },
+        "label": {
+            "description": "Fetch the version this label currently points to, e.g. 'production'. Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version.",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+        },
         "prompt_name": {
             "pattern": "^[^/]+$",
             "type": "string"

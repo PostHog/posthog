@@ -22,6 +22,12 @@ from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsT
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
 
+from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
+
+
+def events_table_clickhouse_table_ref(context) -> str:
+    return DISTRIBUTED_EVENTS_JSON_TABLE if context.uses_new_events_schema() else "events"
+
 
 class EventsPersonSubTable(VirtualTable):
     fields: dict[str, FieldOrTable] = {
@@ -36,6 +42,14 @@ class EventsPersonSubTable(VirtualTable):
     }
 
     def to_printed_clickhouse(self, context):
+        return "events"
+
+    def to_printed_clickhouse_table_ref(self, context, use_logical_alias=True):
+        if context.uses_new_events_schema() and use_logical_alias:
+            return f"{events_table_clickhouse_table_ref(context)} AS events"
+        return events_table_clickhouse_table_ref(context)
+
+    def to_printed_postgres(self, context):
         return "events"
 
     def to_printed_hogql(self):
@@ -56,6 +70,14 @@ class EventsGroupSubTable(VirtualTable):
         return []
 
     def to_printed_clickhouse(self, context):
+        return "events"
+
+    def to_printed_clickhouse_table_ref(self, context, use_logical_alias=True):
+        if context.uses_new_events_schema() and use_logical_alias:
+            return f"{events_table_clickhouse_table_ref(context)} AS events"
+        return events_table_clickhouse_table_ref(context)
+
+    def to_printed_postgres(self, context):
         return "events"
 
     def to_printed_hogql(self):
@@ -171,6 +193,14 @@ class EventsTable(Table):
     }
 
     def to_printed_clickhouse(self, context):
+        return "events"
+
+    def to_printed_clickhouse_table_ref(self, context, use_logical_alias=True):
+        if context.uses_new_events_schema() and use_logical_alias:
+            return f"{events_table_clickhouse_table_ref(context)} AS events"
+        return events_table_clickhouse_table_ref(context)
+
+    def to_printed_postgres(self, context):
         return "events"
 
     def to_printed_hogql(self):
