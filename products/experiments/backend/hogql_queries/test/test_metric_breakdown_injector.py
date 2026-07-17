@@ -108,6 +108,9 @@ class TestMetricBreakdownInjector:
         assert isinstance(in_top.right, ast.SelectQuery)
         assert isinstance(in_top.right.limit, ast.Constant)
         assert in_top.right.limit.value == 3
+        # count() DESC plus a breakdown-value tiebreak keeps the cutoff deterministic on ties
+        assert in_top.right.order_by is not None
+        assert [o.order for o in in_top.right.order_by] == ["DESC", "ASC"]
         other = final_alias.expr.args[2]
         assert isinstance(other, ast.Constant)
         assert other.value == "$$_posthog_breakdown_other_$$"

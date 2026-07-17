@@ -11,6 +11,9 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.schema import (
+    Breakdown,
+    BreakdownFilter,
+    DateRange,
     EventsNode,
     ExperimentExposureQuery,
     ExperimentFunnelMetric,
@@ -21,6 +24,7 @@ from posthog.schema import (
     IntervalType,
 )
 
+from posthog.hogql import ast
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, get_default_hogql_global_settings
 
 from posthog.clickhouse.client import sync_execute
@@ -33,6 +37,8 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.analytics_platform.backend.models import PreaggregationJob
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window
+from products.experiments.backend.hogql_queries.breakdown_injector import BreakdownInjector
+from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
@@ -43,6 +49,7 @@ from products.experiments.backend.hogql_queries.experiment_query_runner import (
     ExperimentQueryRunner,
 )
 from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
+from products.experiments.backend.hogql_queries.metric_breakdown_injector import MetricBreakdownInjector
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 
 
@@ -934,3 +941,49 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         # be surfaced to error tracking rather than silently masked.
         mock_capture.assert_called_once()
         assert mock_capture.call_args.kwargs["additional_properties"]["precomputation_path"] == expected_path
+
+
+@override_settings(IN_UNIT_TESTING=True)
+class TestExposurePreaggregationBreakdownGating(ExperimentQueryRunnerBaseTest):
+    @parameterized.expand(
+        [
+            ("metric_event_injector", MetricBreakdownInjector, "experiment_exposures_preaggregated"),
+            ("exposure_injector", BreakdownInjector, "events"),
+        ]
+    )
+    def test_precomputed_exposures_gated_on_exposure_attributed_breakdowns(self, _name, injector_cls, expected_table):
+        breakdowns = [Breakdown(property="$browser")]
+        metric = ExperimentFunnelMetric(
+            series=[EventsNode(event="purchase")],
+            breakdownFilter=BreakdownFilter(breakdowns=breakdowns),
+        )
+        exposure_config, multiple_variant_handling, filter_test_accounts = get_exposure_config_params_for_builder(None)
+        builder = ExperimentQueryBuilder(
+            team=self.team,
+            feature_flag_key="test-flag",
+            exposure_config=exposure_config,
+            filter_test_accounts=filter_test_accounts,
+            multiple_variant_handling=multiple_variant_handling,
+            variants=["control", "test"],
+            date_range_query=QueryDateRange(
+                date_range=DateRange(date_from="2024-01-01", date_to="2024-01-14"),
+                team=self.team,
+                interval=IntervalType.DAY,
+                now=datetime(2024, 1, 14, tzinfo=UTC),
+            ),
+            entity_key="person_id",
+            metric=metric,
+            breakdowns=breakdowns,
+            breakdown_injector=injector_cls(breakdowns, metric),
+        )
+
+        exposure_builder = ExposureQueryBuilder(
+            context=builder.context,
+            breakdown_injector=builder.breakdown_injector,
+            preaggregation_job_ids=["job-1"],
+        )
+        query = exposure_builder.select_query()
+
+        assert query.select_from is not None
+        assert isinstance(query.select_from.table, ast.Field)
+        assert query.select_from.table.chain == [expected_table]
