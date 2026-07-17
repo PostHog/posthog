@@ -336,7 +336,8 @@ INCLUDE_DASHBOARDS_PARAM = "include_dashboards"
 DEPRECATED_DASHBOARDS_FIELD_USED_COUNTER = Counter(
     "posthog_api_insight_deprecated_dashboards_field_used_total",
     "Times the deprecated insight `dashboards` field was served in an insight payload (usage=read) "
-    "or accepted as write input (usage=write), by authentication method.",
+    "or applied as an effective write that changed an insight's dashboards (usage=write), by "
+    "authentication method. No-op writes (unchanged dashboard list) are not counted.",
     labelnames=["usage", "access_method"],
 )
 
@@ -372,8 +373,13 @@ def should_serve_deprecated_dashboards_field(context: dict) -> bool:
 
 
 def _record_deprecated_dashboards_field_used(context: dict, usage: str) -> None:
+    request = context.get("request")
+    if request is None:
+        # Internal serialization (exports, subscriptions, my_last_viewed) has no requesting
+        # client to migrate, so it shouldn't count toward the token-caller removal signal.
+        return
     DEPRECATED_DASHBOARDS_FIELD_USED_COUNTER.labels(
-        usage=usage, access_method=_dashboards_field_access_method(context.get("request"))
+        usage=usage, access_method=_dashboards_field_access_method(request)
     ).inc()
 
 
@@ -1079,10 +1085,11 @@ class InsightSerializer(InsightBasicSerializer):
         # we store them and can use that list to correct the response
         # and avoid refreshing from the DB
         #
-        # `after_dashboard_changes` is only populated when this request itself wrote `dashboards`
-        # (see _update_insight_dashboards), so a caller that isn't opted into the deprecated field
-        # for reads still needs to see the corrected value for the write it just made.
-        if self.context.get("after_dashboard_changes"):
+        # `after_dashboard_changes` is only set (even to an empty list) when this request itself
+        # wrote `dashboards` (see _update_insight_dashboards), so a caller that isn't opted into
+        # the deprecated field for reads still needs to see the corrected value for the write it
+        # just made — including the "removed from all dashboards" case.
+        if "after_dashboard_changes" in self.context:
             representation["dashboards"] = [
                 described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
             ]
