@@ -234,6 +234,23 @@ class TestFetch:
         # The host prefix is preserved so non-retryable-error matching still works.
         assert "for url: https://pagespeedonline.googleapis.com" in message
 
+    def test_chunked_encoding_error_is_retried(self):
+        # A connection broken mid-response surfaces as ChunkedEncodingError, which isn't a subclass of
+        # ConnectionError — it must still be retried rather than failing the sync on the first hiccup.
+        session = mock.MagicMock()
+        session.get.side_effect = [
+            requests.exceptions.ChunkedEncodingError(
+                "Connection broken: InvalidChunkLength(got length b'', 0 bytes read)"
+            ),
+            _response(200, {"analysisUTCTimestamp": "2024-01-15T12:34:56Z"}),
+        ]
+
+        with mock.patch.object(_fetch.retry, "sleep"):
+            body = _fetch(session, "k", "DESKTOP", "https://posthog.com", structlog.get_logger())
+
+        assert body == {"analysisUTCTimestamp": "2024-01-15T12:34:56Z"}
+        assert session.get.call_count == 2
+
     @pytest.mark.parametrize("exc_type", [requests.ConnectionError, requests.ReadTimeout, requests.exceptions.SSLError])
     def test_transport_error_redacts_key_and_preserves_type(self, exc_type):
         # Transport failures (no HTTP response) embed the full request URL, including `key=...`, in
