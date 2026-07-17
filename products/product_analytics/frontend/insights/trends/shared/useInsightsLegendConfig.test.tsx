@@ -1,7 +1,6 @@
 import { renderHook } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -23,15 +22,9 @@ const wrapper = ({ children }: { children: React.ReactNode }): JSX.Element => (
     </BindLogic>
 )
 
-function setup({
-    trendsFilter,
-    flagEnabled = true,
-}: { trendsFilter?: TrendsFilter; flagEnabled?: boolean } = {}): void {
+function setup({ trendsFilter }: { trendsFilter?: TrendsFilter } = {}): void {
     initKeaTests()
     featureFlagLogic.mount()
-    featureFlagLogic.actions.setFeatureFlags([], {
-        [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]: flagEnabled,
-    })
 
     dataNodeLogic({ key: 'InsightViz.new', query: {} as DataNode }).mount()
     insightDataLogic(insightProps).mount()
@@ -43,14 +36,6 @@ function setup({
 }
 
 describe('useInsightsLegendConfig', () => {
-    it('returns undefined when the quill legend flag is off', () => {
-        setup({ flagEnabled: false, trendsFilter: { showLegend: true } })
-
-        const { result } = renderHook(() => useInsightsLegendConfig({ insightProps }), { wrapper })
-
-        expect(result.current).toBeUndefined()
-    })
-
     it.each([
         { legendPosition: 'left', expected: 'left' },
         { legendPosition: 'right', expected: 'right' },

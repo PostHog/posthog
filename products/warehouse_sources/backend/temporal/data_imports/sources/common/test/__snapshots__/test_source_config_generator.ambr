@@ -630,6 +630,7 @@
           ExternalDataSourceType.PRINTIFY: PrintifySourceConfig,
           ExternalDataSourceType.PRODUCTBOARD: ProductboardSourceConfig,
           ExternalDataSourceType.PRODUCTIVE: ProductiveSourceConfig,
+          ExternalDataSourceType.PROMPTWATCH: PromptWatchSourceConfig,
           ExternalDataSourceType.PROMPTINGCOMPANY: PromptingCompanySourceConfig,
           ExternalDataSourceType.PULUMICLOUD: PulumiCloudSourceConfig,
           ExternalDataSourceType.PYPI: PyPISourceConfig,

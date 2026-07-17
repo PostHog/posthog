@@ -1381,6 +1381,58 @@ class TestConversationSandboxRoute(APIBaseTest):
         self.assertEqual(passed_conversation.task_id, task.id)
         self.mock_select_repo.assert_not_awaited()
 
+    def test_open_rejects_binding_a_pi_task(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            runtime=Task.Runtime.PI,
+            created_by=self.user,
+        )
+        conversation_id = str(uuid.uuid4())
+
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.api.conversation.SandboxSession") as m_session,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation_id}/open/",
+                {"content": "continue this task", "trace_id": str(uuid.uuid4()), "task_id": str(task.id)},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Conversation.objects.filter(id=conversation_id).exists())
+        m_session.return_value.open.assert_not_called()
+
+    def test_open_rejects_existing_pi_task_conversation(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            runtime=Task.Runtime.PI,
+            created_by=self.user,
+        )
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+            task=task,
+        )
+
+        with patch("ee.api.conversation.SandboxSession") as m_session:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
+                {"content": "continue this task", "trace_id": str(uuid.uuid4())},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        m_session.return_value.open.assert_not_called()
+
     def test_open_rejects_task_id_from_another_team(self):
         # IDOR guard: a Task from another team isn't visible, so the serializer rejects it (400) and
         # no conversation row is created.

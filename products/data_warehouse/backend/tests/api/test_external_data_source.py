@@ -75,6 +75,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
     PreviewResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsApiError
+from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads import (
+    MetaAdsRateLimitError,
+    MetaAdsTokenRefreshError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     PostgresDiscoveredSchema,
@@ -504,6 +508,52 @@ class TestExternalDataSource(APIBaseTest):
                 },
             },
             headers={"user-agent": user_agent},
+        )
+
+        assert response.status_code == 201, response.json()
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+        assert source.created_via == expected_created_via
+
+    @parameterized.expand(
+        [
+            # The MCP server overwrites User-Agent with its own token and forwards the wizard's real
+            # UA in X-Posthog-Mcp-User-Agent. The self-driving marker lives there, not on User-Agent.
+            (
+                "self_driving_marker_in_mcp_header",
+                "posthog/wizard; version: 2.45.0; program: self-driving-setup",
+                ExternalDataSource.CreatedVia.SELF_DRIVING,
+            ),
+            # Same proxy shape, plain wizard run: stays wizard, not self_driving.
+            (
+                "plain_wizard_no_marker",
+                "posthog/wizard; version: 2.45.0",
+                ExternalDataSource.CreatedVia.WIZARD,
+            ),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_self_driving_via_proxied_mcp_user_agent(
+        self, _name, mcp_user_agent, expected_created_via, _mock_validate
+    ):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": ExternalDataSource.CreatedVia.MCP,
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+            headers={
+                "user-agent": "posthog/mcp-server; version: 1.0.0; for posthog/wizard",
+                "x-posthog-mcp-user-agent": mcp_user_agent,
+            },
         )
 
         assert response.status_code == 201, response.json()
@@ -4731,18 +4781,21 @@ class TestExternalDataSource(APIBaseTest):
 
         data = response.json()
 
-        assert response.status_code, status.HTTP_200_OK
+        assert response.status_code == status.HTTP_200_OK
         assert len(data) == 1
         assert data[0]["id"] == str(job.pk)
         assert data[0]["status"] == "Completed"
         assert data[0]["rows_synced"] == 100
         assert data[0]["schema"]["id"] == str(schema.pk)
         assert data[0]["workflow_run_id"] is not None
+        assert data[0]["billable"] is True
 
-    def test_source_jobs_billable_job(self):
+    def test_source_jobs_includes_non_billable(self):
+        # Non-billable jobs (system-initiated runs the customer isn't charged for) must show up
+        # in the sync history, flagged so the UI can tag them.
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
-        ExternalDataJob.objects.create(
+        job = ExternalDataJob.objects.create(
             team=self.team,
             pipeline=source,
             schema=schema,
@@ -4759,8 +4812,10 @@ class TestExternalDataSource(APIBaseTest):
 
         data = response.json()
 
-        assert response.status_code, status.HTTP_200_OK
-        assert len(data) == 0
+        assert response.status_code == status.HTTP_200_OK
+        assert len(data) == 1
+        assert data[0]["id"] == str(job.pk)
+        assert data[0]["billable"] is False
 
     def test_source_jobs_pagination(self):
         source = self._create_external_data_source()
@@ -11154,6 +11209,7 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.BingAdsClient.list_accounts"
     )
     _LINKEDIN_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source"
+    _META_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.source"
 
     def setUp(self):
         super().setUp()
@@ -11198,6 +11254,16 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
             created_by=self.user,
         )
 
+    def _meta_ads_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="meta-ads",
+            config={},
+            sensitive_config={"access_token": "token"},
+            integration_id="meta_ads_test",
+            created_by=self.user,
+        )
+
     @staticmethod
     def _http_error(status_code: int) -> requests.HTTPError:
         response = requests.Response()
@@ -11232,6 +11298,78 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         # raises NotImplementedError — it must surface as a 400, not an unhandled 500.
         response = self.client.get(self._url("Salesforce", 1))
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_meta_ads_maps_ad_accounts_to_accounts(self):
+        integration = self._meta_ads_integration()
+        listed = [
+            {"account_id": "1234567890", "name": "Acme Ads", "account_status": 1},
+            {"account_id": "9876543210", "name": "Old Ads", "account_status": 101},
+        ]
+        with (
+            patch(f"{self._META_ADS_MODULE}.get_integration_by_id"),
+            patch(f"{self._META_ADS_MODULE}.list_ad_accounts", return_value=listed),
+        ):
+            response = self.client.get(self._url("MetaAds", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["accounts"] == [
+            {
+                "value": "1234567890",
+                "display_name": "Acme Ads",
+                "is_primary": False,
+                "badges": ["Active"],
+                "group": None,
+                "secondary_text": None,
+            },
+            {
+                "value": "9876543210",
+                "display_name": "Old Ads",
+                "is_primary": False,
+                "badges": ["Closed"],
+                "group": None,
+                "secondary_text": None,
+            },
+        ]
+
+    def test_meta_ads_token_refresh_error_returns_actionable_400(self):
+        # Meta refusing to refresh the stored token is a customer-side state (revoked access), so it
+        # must reach the user as an actionable 400 rather than an unhandled 500.
+        integration = self._meta_ads_integration()
+        error = MetaAdsTokenRefreshError(
+            "Failed to refresh token for Meta Ads integration. Please re-authorize the integration."
+        )
+        with patch(f"{self._META_ADS_MODULE}.get_integration_by_id", side_effect=error):
+            response = self.client.get(self._url("MetaAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "re-authorize" in str(response.json()).lower()
+
+    def test_meta_ads_rate_limit_returns_actionable_400(self):
+        # Meta throttling us is not a bug — it must not page us as a 500. The user just retries.
+        integration = self._meta_ads_integration()
+        with (
+            patch(f"{self._META_ADS_MODULE}.get_integration_by_id"),
+            patch(
+                f"{self._META_ADS_MODULE}.list_ad_accounts",
+                side_effect=MetaAdsRateLimitError("Meta is rate limiting requests for this connection."),
+            ),
+        ):
+            response = self.client.get(self._url("MetaAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "rate limiting" in str(response.json()).lower()
+
+    def test_meta_ads_unexpected_error_is_not_swallowed(self):
+        # Only the classified branches become a 400 — anything else is a genuine bug and must keep
+        # surfacing as a 500 instead of being reported to the user as bad input.
+        integration = self._meta_ads_integration()
+        with (
+            patch(f"{self._META_ADS_MODULE}.get_integration_by_id"),
+            patch(f"{self._META_ADS_MODULE}.list_ad_accounts", side_effect=RuntimeError("boom")),
+        ):
+            response = self.client.get(self._url("MetaAds", integration.id))
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
 
     def test_gsc_success_maps_sites_to_accounts(self):
         integration = self._gsc_integration()
