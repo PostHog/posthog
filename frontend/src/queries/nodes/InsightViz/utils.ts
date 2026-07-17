@@ -94,8 +94,7 @@ export function getQueryBasedInsightModel<T extends InputInsightModel>(insight: 
     // callers, eventually for all); derive it from `dashboard_tiles` so remaining readers
     // keep working regardless of whether the response still carries it.
     const dashboards =
-        insight.dashboards ??
-        insight.dashboard_tiles?.filter((tile) => !tile.deleted).map((tile) => tile.dashboard_id)
+        insight.dashboards ?? insight.dashboard_tiles?.filter((tile) => !tile.deleted).map((tile) => tile.dashboard_id)
     return {
         ...baseInsight,
         ...(dashboards ? { dashboards } : {}),

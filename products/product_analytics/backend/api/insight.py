@@ -337,8 +337,8 @@ INCLUDE_DASHBOARDS_PARAM = "include_dashboards"
 DEPRECATED_DASHBOARDS_FIELD_USED_COUNTER = Counter(
     "posthog_api_insight_deprecated_dashboards_field_used_total",
     "Times the deprecated insight `dashboards` field was served in an insight payload (usage=read) "
-    "or applied as an effective write that changed an insight's dashboards (usage=write), by "
-    "authentication method. No-op writes (unchanged dashboard list) are not counted.",
+    "or accepted as write input on a permitted create/update (usage=write, including no-op writes), "
+    "by authentication method. Rejected requests are not counted.",
     labelnames=["usage", "access_method"],
 )
 
@@ -737,8 +737,9 @@ class InsightSerializer(InsightBasicSerializer):
                 if dashboard.team_id != team_id:
                     raise serializers.ValidationError("Dashboard not found")
 
-            if target_dashboards:
-                _record_deprecated_dashboards_field_used(self.context, usage="write")
+            # Counts the field being accepted as write input (even an empty list), after
+            # permission checks so rejected requests don't inflate the metric.
+            _record_deprecated_dashboards_field_used(self.context, usage="write")
 
         insight = Insight.objects.create(
             team_id=team_id,
@@ -897,6 +898,10 @@ class InsightSerializer(InsightBasicSerializer):
         return []
 
     def _update_insight_dashboards(self, dashboards: list[Dashboard], instance: Insight) -> None:
+        # Counts the field being accepted as write input — before the no-op early return, so
+        # integrations that round-trip an unchanged dashboards list still register as writers.
+        _record_deprecated_dashboards_field_used(self.context, usage="write")
+
         old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
         new_dashboard_ids = [d.id for d in dashboards if not d.deleted]
 
@@ -968,8 +973,6 @@ class InsightSerializer(InsightBasicSerializer):
                     team=instance.team,
                     request=self.context["request"],
                 )
-
-        _record_deprecated_dashboards_field_used(self.context, usage="write")
 
         self.context["after_dashboard_changes"] = [describe_change(d) for d in dashboards if not d.deleted]
 
@@ -1834,6 +1837,7 @@ class InsightViewSet(
                 description="Maximum number of insights to return. Defaults to 10. Capped at 100.",
                 required=False,
             ),
+            INCLUDE_DASHBOARDS_PARAMETER,
         ],
         responses={200: TrendingInsightSerializer(many=True)},
         description=(

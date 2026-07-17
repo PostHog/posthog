@@ -64,23 +64,25 @@ class TestDeprecatedDashboardsFieldAPI(APIBaseTest):
             secure_value=hash_key_value(token),
             scopes=["insight:read"],
         )
-        self.token_auth = {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+        self.bearer = f"Bearer {token}"
 
     @override_settings(INSIGHT_DASHBOARDS_OPT_IN_ENFORCED=True)
     def test_enforced_personal_api_key_must_opt_in_to_deprecated_dashboards_field(self):
         url = f"/api/projects/{self.team.id}/insights/{self.insight.id}/"
 
-        default_response = self.client.get(url, **self.token_auth)
+        default_response = self.client.get(url, HTTP_AUTHORIZATION=self.bearer)
         assert default_response.status_code == status.HTTP_200_OK
         assert "dashboards" not in default_response.json()
         assert [tile["dashboard_id"] for tile in default_response.json()["dashboard_tiles"]] == [self.dashboard.id]
 
-        opted_in_response = self.client.get(url, {"include_dashboards": "true"}, **self.token_auth)
+        opted_in_response = self.client.get(url, {"include_dashboards": "true"}, HTTP_AUTHORIZATION=self.bearer)
         assert opted_in_response.status_code == status.HTTP_200_OK
         assert opted_in_response.json()["dashboards"] == [self.dashboard.id]
 
     def test_unenforced_personal_api_key_still_receives_deprecated_dashboards_field(self):
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/{self.insight.id}/", **self.token_auth)
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/", HTTP_AUTHORIZATION=self.bearer
+        )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["dashboards"] == [self.dashboard.id]
 

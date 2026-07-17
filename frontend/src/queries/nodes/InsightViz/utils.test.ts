@@ -22,7 +22,12 @@ describe('getQueryBasedInsightModel', () => {
     it.each([
         [
             'derives dashboards from dashboard_tiles when the response omits the deprecated field',
-            { dashboard_tiles: [{ id: 10, dashboard_id: 1 }, { id: 11, dashboard_id: 2 }] },
+            {
+                dashboard_tiles: [
+                    { id: 10, dashboard_id: 1 },
+                    { id: 11, dashboard_id: 2 },
+                ],
+            },
             [1, 2],
         ],
         [
