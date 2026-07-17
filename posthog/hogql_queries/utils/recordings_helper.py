@@ -9,6 +9,11 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
 from posthog.models.user import User
 
+# Session IDs are inlined as constants in the query's `session_id IN (...)` filter, so a page with
+# many recordings can push the serialized SQL past ClickHouse's 1MB max_query_size. Query in batches
+# and union the results to keep each generated query comfortably under the ceiling.
+SESSION_ID_BATCH_SIZE = 3000
+
 
 class RecordingsHelper:
     def __init__(self, team: Team, user: User | None = None):
@@ -19,10 +24,21 @@ class RecordingsHelper:
         self,
         session_ids: Iterable[str],
     ) -> set[str]:
-        if not session_ids:
+        session_id_list = list(session_ids)
+        if not session_id_list:
             # no need to query if we get invalid input
             return set()
 
+        matching: set[str] = set()
+        for start in range(0, len(session_id_list), SESSION_ID_BATCH_SIZE):
+            batch = session_id_list[start : start + SESSION_ID_BATCH_SIZE]
+            matching |= self._matching_clickhouse_recordings_batch(batch)
+        return matching
+
+    def _matching_clickhouse_recordings_batch(
+        self,
+        session_ids: list[str],
+    ) -> set[str]:
         matches_provided_session_ids = ast.CompareOperation(
             op=ast.CompareOperationOp.In,
             left=ast.Field(chain=["session_id"]),
