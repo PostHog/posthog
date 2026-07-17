@@ -265,6 +265,22 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-07-17 — one-shot LLM stages retry across provider overload spells
+
+First cross-repo dogfood run (a `PostHog/billing` PR via the Stage 5c UI trigger) died in dedup on
+Anthropic 529s — nothing repo-specific: the review wave completed 9/9, then all four dedup attempts
+(2 activity attempts × 2 parent-workflow retries, ~40s apart) landed inside the same overload spell
+and the run failed within 2 minutes flat. The same spell had hit chunking ~17 minutes earlier and
+recovered on its immediate retry, so overload is intermittent-but-minutes-long — the failure mode is
+retry _spacing_, not retry _count_. Fix: the fatal one-shot LLM stages (chunking, selection, dedup)
+now run under `_ONESHOT_RETRY` (5 attempts, 30s initial, ×2 backoff capped at 4m — ~7.5m of waits
+per run, ~2× with the parent retry) instead of `_RETRY`'s two back-to-back attempts. Failed 529
+attempts are free (the call aborts before persistence) and the non-retryable classes (4xx,
+max_tokens truncation) still fail fast. The gateway's Bedrock fallback was NOT the lever: it's
+deliberately off for one-shot calls, whose `output_config` (effort pin + schema constraint) the
+Bedrock path would silently strip. Sandbox-stage units keep `_RETRY` — their overload exposure is
+absorbed by the best-effort fan-out + failure floor, not by a single fatal call.
+
 ### ✅ BUILT 2026-07-16 — inline finding comments: colored severity badges replace the text meta
 
 The inline comment `_format_issue_comment` builds (`publish_review.py`) had its meta line recolored after comparing it against Greptile's PR comments — a deliberately minimal change that leaves the four collapsed sections (`Issue description`, `Suggested fix`, `Why we think it's a valid issue`, `Prompt to fix with AI`) exactly as they were.
