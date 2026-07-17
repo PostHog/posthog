@@ -78,7 +78,8 @@ _EMAIL_FALLBACK_CHANNELS = frozenset({Channel.EMAIL.value, Channel.SLACK.value, 
 MIN_ANALYTICS_ATTRIBUTION_EVENTS = 3
 
 # Pick the org group the customer's events carry most often (not merely the most recent),
-# and return its event count so the caller can enforce the durability floor above.
+# and return its event count so the caller can enforce the durability floor above. The
+# secondary sort on the org key makes ties resolve deterministically rather than arbitrarily.
 GROUPS_FROM_EVENTS_QUERY = """
 SELECT
     {org_col} AS organization_key,
@@ -89,7 +90,7 @@ WHERE distinct_id IN {{distinct_ids}}
   AND timestamp >= now() - INTERVAL 30 DAY
   AND {org_col} != ''
 GROUP BY {org_col}
-ORDER BY event_count DESC
+ORDER BY event_count DESC, {org_col} ASC
 LIMIT 1
 """
 
@@ -154,6 +155,7 @@ def _resolve_groups_from_analytics(team: Team, distinct_ids: list[str]) -> dict 
 
     groups: dict | None = None
     if response.results:
+        # Positional columns, in GROUPS_FROM_EVENTS_QUERY's SELECT order: org key, event count, customer.
         org_key, event_count, customer_key = response.results[0]
         if org_key and event_count >= MIN_ANALYTICS_ATTRIBUTION_EVENTS:
             groups = {"instance": SITE_URL, "project": str(team.uuid), "organization": org_key}

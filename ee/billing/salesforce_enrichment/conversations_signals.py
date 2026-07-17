@@ -130,8 +130,8 @@ def _tickets_with_verified_org() -> QuerySet[Ticket]:
     analytics path is what keeps a single spoofed event from dictating the org, so
     the enrichment can trust the stamped value without re-deriving it region-locally.
     """
-    return (
-        Ticket.objects.filter(identity_verified=True).exclude(organization_id__isnull=True).exclude(organization_id="")
+    return Ticket.objects.filter(identity_verified=True).exclude(
+        Q(organization_id__isnull=True) | Q(organization_id="")
     )
 
 

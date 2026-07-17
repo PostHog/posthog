@@ -916,6 +916,48 @@ class TestResolveGroupsFromAnalyticsClickHouse(ClickhouseTestMixin, APIBaseTest)
 
     @patch(
         "products.conversations.backend.events.get_group_types_for_project",
+        return_value=[{"group_type": "organization", "group_type_index": 1}],
+    )
+    def test_prefers_most_frequent_org_over_a_single_recent_event(self, _mock_group_types):
+        # A single (more recent) event carrying a different org — a stray or spoofed group —
+        # must not outweigh the org the customer's events consistently carry.
+        for _ in range(4):
+            _create_event(
+                team=self.team, event="$pageview", distinct_id="eu-user-did", properties={"$group_1": "org-real"}
+            )
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="eu-user-did", properties={"$group_1": "org-spoof"}
+        )
+        flush_persons_and_events()
+
+        groups = _resolve_groups_from_analytics(self.team, ["eu-user-did"])
+
+        assert groups is not None
+        assert groups["organization"] == "org-real"
+
+    @patch(
+        "products.conversations.backend.events.get_group_types_for_project",
+        return_value=[{"group_type": "organization", "group_type_index": 1}],
+    )
+    def test_tied_org_counts_resolve_deterministically(self, _mock_group_types):
+        # Equal event counts across two orgs must resolve to a stable org (lexicographically
+        # first via the ORDER BY tie-break), not an arbitrary pick that can flip between runs.
+        for _ in range(3):
+            _create_event(
+                team=self.team, event="$pageview", distinct_id="eu-user-did", properties={"$group_1": "org-bbb"}
+            )
+            _create_event(
+                team=self.team, event="$pageview", distinct_id="eu-user-did", properties={"$group_1": "org-aaa"}
+            )
+        flush_persons_and_events()
+
+        groups = _resolve_groups_from_analytics(self.team, ["eu-user-did"])
+
+        assert groups is not None
+        assert groups["organization"] == "org-aaa"
+
+    @patch(
+        "products.conversations.backend.events.get_group_types_for_project",
         return_value=[
             {"group_type": "project", "group_type_index": 0},
             {"group_type": "organization", "group_type_index": 1},
