@@ -57,13 +57,32 @@ T = TypeVar("T")
 
 # Temporal Cloud surfaces transient server-side conditions as gRPC errors that a short backoff
 # usually clears: per-namespace throttling (RESOURCE_EXHAUSTED — e.g. "namespace rate limit
-# exceeded") and request deadlines on the visibility/history services (DEADLINE_EXCEEDED — e.g.
-# "downstream duration timeout"). Riding these out in-process keeps a brief blip from failing the
-# whole import activity (which would rebuild the client and restart pagination) and avoids
-# error-tracking noise. Persistent failures re-raise so Temporal's activity retry still applies.
+# exceeded"), request deadlines on the visibility/history services (DEADLINE_EXCEEDED — e.g.
+# "downstream duration timeout"), and connection-level blips. A dropped HTTP/2 connection arrives
+# either as UNAVAILABLE or as an UNKNOWN carrying an "h2 protocol error" message (e.g. "error
+# reading a body from connection"). We retry UNAVAILABLE outright, but only retry UNKNOWN when its
+# message looks connection-level — UNKNOWN is otherwise too broad to blanket-retry. Riding these
+# out in-process keeps a brief blip from failing the whole import activity (which would rebuild the
+# client and restart pagination) and avoids error-tracking noise. Persistent failures re-raise so
+# Temporal's activity retry still applies.
 _MAX_TRANSIENT_RPC_ATTEMPTS = 6
 
-_RETRYABLE_RPC_STATUSES = frozenset({RPCStatusCode.RESOURCE_EXHAUSTED, RPCStatusCode.DEADLINE_EXCEEDED})
+_RETRYABLE_RPC_STATUSES = frozenset(
+    {
+        RPCStatusCode.RESOURCE_EXHAUSTED,
+        RPCStatusCode.DEADLINE_EXCEEDED,
+        RPCStatusCode.UNAVAILABLE,
+    }
+)
+
+_RETRYABLE_RPC_MESSAGE_FRAGMENTS = ("h2 protocol error",)
+
+
+def _is_transient_rpc_error(e: RPCError) -> bool:
+    if e.status in _RETRYABLE_RPC_STATUSES:
+        return True
+    message = (e.message or "").lower()
+    return any(fragment in message for fragment in _RETRYABLE_RPC_MESSAGE_FRAGMENTS)
 
 
 async def _with_transient_rpc_retry(
@@ -78,7 +97,7 @@ async def _with_transient_rpc_retry(
             return await operation()
         except RPCError as e:
             attempt += 1
-            if attempt >= max_attempts or e.status not in _RETRYABLE_RPC_STATUSES:
+            if attempt >= max_attempts or not _is_transient_rpc_error(e):
                 raise
             backoff = min(2 * attempt, 30)
             logger.debug(
