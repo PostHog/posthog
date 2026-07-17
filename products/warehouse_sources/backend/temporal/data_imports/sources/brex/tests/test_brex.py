@@ -29,12 +29,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.brex.setti
 # Both supported versions resolve to identical Brex paths today (Brex versions each product API
 # in the URL, with no global segment), so the behavior tests below run under the default version;
 # `TestPathResolution` pins the dispatched path per version.
-def get_rows(*args, api_version: str = BREX_API_VERSION_V2, **kwargs):
-    return _get_rows(*args, api_version=api_version, **kwargs)
+def get_rows(*args, **kwargs):
+    kwargs.setdefault("api_version", BREX_API_VERSION_V2)
+    return _get_rows(*args, **kwargs)
 
 
-def brex_source(*args, api_version: str = BREX_API_VERSION_V2, **kwargs):
-    return _brex_source(*args, api_version=api_version, **kwargs)
+def brex_source(*args, **kwargs):
+    kwargs.setdefault("api_version", BREX_API_VERSION_V2)
+    return _brex_source(*args, **kwargs)
 
 
 def _make_manager(resume_state: BrexResumeConfig | None = None) -> mock.MagicMock:
