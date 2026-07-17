@@ -96,15 +96,15 @@ function AlertEditorStory({
 const meta: Meta<AlertEditorStoryArgs> = {
     title: 'Products/Alerts/Alert editor',
     args: {
-        title: 'New alert',
+        title: 'Edit alert',
         description: 'Get notified when a condition is met.',
-        isEditing: false,
+        isEditing: true,
         isSubmitting: false,
-        hasChanges: false,
+        hasChanges: true,
         hasPendingChanges: false,
         showBackButton: true,
         showEnabledField: true,
-        showLeadingAction: false,
+        showLeadingAction: true,
     },
     render: (args) => <AlertEditorStory key={JSON.stringify(args)} {...args} />,
 }
@@ -113,36 +113,4 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const Create: Story = {}
-
-export const EditWithChanges: Story = {
-    args: {
-        title: 'Edit alert',
-        isEditing: true,
-        hasChanges: true,
-        showLeadingAction: true,
-    },
-}
-
-export const EditWithoutChanges: Story = {
-    args: {
-        title: 'Edit alert',
-        isEditing: true,
-        showLeadingAction: true,
-    },
-}
-
-export const EditWithPendingChanges: Story = {
-    args: {
-        title: 'Edit alert',
-        isEditing: true,
-        hasPendingChanges: true,
-        showLeadingAction: true,
-    },
-}
-
-export const Submitting: Story = {
-    args: {
-        isSubmitting: true,
-    },
-}
+export const Default: Story = {}
