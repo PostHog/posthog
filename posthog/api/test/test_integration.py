@@ -1996,21 +1996,6 @@ class TestIntegrationAPIKeyAccess:
         assert results[0]["kind"] == "twilio"
 
 
-class TestGithubAccountTypeHelper:
-    @parameterized.expand(
-        [
-            ("organization", "Organization", "organization"),
-            ("user", "User", "personal"),
-            ("missing", None, None),
-            ("unknown", "Bot", None),
-        ]
-    )
-    def test_github_account_type(self, _name, owner_type, expected):
-        from posthog.api.integration import _github_account_type
-
-        assert _github_account_type(owner_type) == expected
-
-
 class TestGitHubIntegrationStateValidation:
     @pytest.fixture(autouse=True)
     def setup_environment(self, db):
@@ -2216,7 +2201,12 @@ class TestGitHubIntegrationStateValidation:
             team=self.team,
             kind="github",
             integration_id="12345",
-            config={"installation_id": "12345", "account": {"type": "Organization", "name": "acme"}},
+            config={
+                "installation_id": "12345",
+                "account": {"type": "Organization", "name": "acme"},
+                "repository_selection": "selected",
+                "repository_count": 4,
+            },
             sensitive_config={"access_token": "ghs_test"},
         )
 
@@ -2232,6 +2222,8 @@ class TestGitHubIntegrationStateValidation:
         assert props["integration_kind"] == "github"
         assert props["repo_owner_type"] == "Organization"
         assert props["account_type"] == "organization"
+        assert props["repository_selection"] == "selected"
+        assert props["repository_count"] == 4
 
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
