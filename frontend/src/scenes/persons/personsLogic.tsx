@@ -51,6 +51,7 @@ export interface PersonsLogicProps {
     syncWithUrl?: boolean
     urlId?: string
     fixedProperties?: PersonPropertyFilter[]
+    tabId?: string
 }
 
 export const PERSON_EVENTS_CONTEXT_KEY = 'person-profile-events'
@@ -321,8 +322,10 @@ export type personsLogicType = MakeLogicType<
 export const personsLogic = kea<personsLogicType>([
     props({} as PersonsLogicProps),
     key((props) => {
+        const tabKey = props.tabId ? `tab_${props.tabId}_` : ''
+
         if (props.urlId) {
-            return `url_${props.urlId}`
+            return `${tabKey}url_${props.urlId}`
         }
 
         if (props.fixedProperties) {

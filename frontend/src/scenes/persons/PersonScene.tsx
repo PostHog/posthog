@@ -177,7 +177,7 @@ function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Elem
     )
 }
 
-export function PersonScene(): JSX.Element | null {
+export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
     const mountedPersonsLogic = useMountedLogic(personsLogic)
     const {
         feedEnabled,
@@ -212,7 +212,7 @@ export function PersonScene(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { user } = useValues(userLogic)
-    const eventsQueryLogicKey = `${PERSON_EVENTS_CONTEXT_KEY}-${mountedPersonsLogic.key}`
+    const eventsQueryLogicKey = `${PERSON_EVENTS_CONTEXT_KEY}-${tabId ?? mountedPersonsLogic.key}`
 
     if (personError) {
         return (
@@ -333,13 +333,15 @@ export function PersonScene(): JSX.Element | null {
                         label: <span data-attr="persons-events-tab">Events</span>,
                         content: (
                             <Query
-                                uniqueKey="person-profile-events"
+                                uniqueKey={`person-profile-events-${tabId}`}
                                 attachTo={mountedPersonsLogic}
                                 query={eventsQuery}
                                 setQuery={(q) => setEventsQuery(q)}
+                                tabId={tabId}
                                 context={{
                                     insightProps: {
                                         dashboardItemId: `new-${PERSON_EVENTS_CONTEXT_KEY}`,
+                                        tabId,
                                         dataNodeCollectionId: eventsQueryLogicKey,
                                     },
                                     customActions: (
@@ -413,10 +415,11 @@ export function PersonScene(): JSX.Element | null {
                         label: <span data-attr="persons-exceptions-tab">Exceptions</span>,
                         content: (
                             <Query
-                                uniqueKey="person-profile-exceptions"
+                                uniqueKey={`person-profile-exceptions-${tabId}`}
                                 attachTo={mountedPersonsLogic}
                                 query={exceptionsQuery}
                                 setQuery={(q) => setExceptionsQuery(q)}
+                                tabId={tabId}
                             />
                         ),
                     },
@@ -425,10 +428,11 @@ export function PersonScene(): JSX.Element | null {
                         label: <span data-attr="persons-survey-responses-tab">Surveys</span>,
                         content: (
                             <Query
-                                uniqueKey="person-profile-surveys"
+                                uniqueKey={`person-profile-surveys-${tabId}`}
                                 attachTo={mountedPersonsLogic}
                                 query={surveyResponsesQuery}
                                 setQuery={(q) => setSurveyResponsesQuery(q)}
+                                tabId={tabId}
                             />
                         ),
                     },
@@ -485,7 +489,7 @@ export function PersonScene(): JSX.Element | null {
                 ]}
             />
 
-            {splitMergeModalShown && person && <MergeSplitPerson person={person} />}
+            {splitMergeModalShown && person && <MergeSplitPerson person={person} tabId={tabId} />}
         </SceneContent>
     )
 }

@@ -72,7 +72,7 @@ describe('cohortsSceneLogic', () => {
         sceneLogic.actions.setTabs([
             { id: '1', title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
         ])
-        logic = cohortsSceneLogic()
+        logic = cohortsSceneLogic({ tabId: '1' })
         logic.mount()
     })
 
