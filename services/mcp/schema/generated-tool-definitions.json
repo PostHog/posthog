@@ -459,12 +459,42 @@
         },
         "feature_flag": "agent-platform"
     },
+    "agent-applications-invoke": {
+        "description": "Start a new session on the agent's LIVE (promoted) revision and return its `session_id`. Requires the agent to have a live revision and a `chat` trigger. Your PAT is forwarded so the session runs as you. Drive the conversation with `agent-applications-send` and read progress with `agent-applications-listen`. For a non-live / draft revision use `agent-applications-preview-proxy` instead.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Invoke a live agent (start a session)",
+        "title": "Invoke a live agent (start a session)",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform"
+    },
     "agent-applications-list": {
         "description": "List every agent application in the project. Returns id, slug, name, description, live_revision, archived state. Use the slug to drive subsequent calls — it's stable and human-readable. Playbook: read the `reading-an-agent` playbook via `agent-resolve-resource` for how to inspect and summarize an agent.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "List agent applications",
         "title": "List agent applications",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform"
+    },
+    "agent-applications-listen": {
+        "description": "Read a live session as a single JSON digest (non-streaming): last assistant text, a one-line tool-activity summary, and state / usage. Pass the returned `next_cursor` back as `cursor` to summarize only what's new, and stop when `done` is true. Use this instead of the SSE `/listen` stream from an MCP client.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Poll a live session's progress",
+        "title": "Poll a live session's progress",
         "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
@@ -861,6 +891,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform"
+    },
+    "agent-applications-send": {
+        "description": "Append a message to an existing live session (from `agent-applications-invoke`) and re-queue it for another turn. `session_id` must belong to this agent. A `completed` session is still open — send re-queues it for another turn; only truly-terminal sessions (failed / cancelled / closed) fail cleanly with a 410.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Send a message to a live session",
+        "title": "Send a message to a live session",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "agent-platform"
     },
@@ -2171,7 +2216,7 @@
         }
     },
     "data-warehouse-source-connect-link": {
-        "description": "Return a secure browser link to connect a data warehouse source WITHOUT the user pasting secrets into the chat. The link opens a minimal page rendering the source's full connection form — the user authorizes via OAuth or enters credentials there, whichever the source offers — and the page stores the connection details encrypted and temporarily; it does NOT create the source. This is the preferred, secure way to collect credentials: share the returned connect_url with the user, wait for them to confirm they're done, then find the stored credential via 'data-warehouse-stored-credentials-list' (filter by source_type, newest first) and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use and expire after 24 hours. Never ask the user to paste raw database passwords, API keys, or OAuth tokens into the chat.",
+        "description": "Return a secure browser link to connect a data warehouse source WITHOUT the user pasting secrets into the chat. The link opens a minimal page rendering the source's full connection form — the user authorizes via OAuth or enters credentials there, whichever the source offers — and the page stores the connection details encrypted and temporarily; it does NOT create the source. This is the preferred, secure way to collect credentials: share the returned connect_url with the user, wait for them to confirm they're done, then find the stored credential via 'data-warehouse-stored-credentials-list' (filter by source_type, newest first) and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use, expire after 24 hours, and are only visible to the PostHog user who entered them — the page must be filled by the same user this session authenticates as. Never ask the user to paste raw database passwords, API keys, or OAuth tokens into the chat.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Get a secure connect link for a source",
@@ -2199,7 +2244,7 @@
         }
     },
     "data-warehouse-stored-credentials-list": {
-        "description": "List credentials the user stored via the 'data-warehouse-source-connect-link' page that haven't been consumed yet. Returns metadata only (credential_id, source_type, created_at, expires_at) — never the secrets themselves. Newest first; filter by source_type. After the user confirms they've finished the connect page, take the newest credential_id for the source type and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use — they are deleted as soon as setup consumes them — and expire after 24 hours if never used.",
+        "description": "List credentials the authenticated user stored via the 'data-warehouse-source-connect-link' page that haven't been consumed yet. Only credentials this user created are visible — a teammate's stored credentials cannot be listed or consumed. Returns metadata only (credential_id, source_type, created_at, expires_at) — never the secrets themselves. Newest first; filter by source_type. After the user confirms they've finished the connect page, take the newest credential_id for the source type and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use — they are deleted as soon as setup consumes them — and expire after 24 hours if never used.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List stored source credentials awaiting setup",
@@ -2687,6 +2732,21 @@
         "feature": "engineering_analytics",
         "summary": "List connected GitHub sources",
         "title": "List connected GitHub sources",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "engineering-analytics"
+    },
+    "engineering-analytics-team-ci-health": {
+        "description": "Per-owning-team rollup of the CI test surfaces each team owns, over a window (date_from default -14d, maximum 30 days): flaky-test count (same qualification bar as the flaky-test leaderboard), failed/error span count, and pass-on-retry count, each with an equal-length previous-window twin (*_prior) for honest deltas. Use this for \"which team owns the flakiest surfaces right now\" and to route a flaky-test or CI Signal to its owning team. Ownership is stamped on the spans at CI emission time from the repo's ownership map (products/*/product.yaml + CODEOWNERS); spans without a stamp aggregate under the literal team 'unowned' (a nonempty 'unowned' row means ownership gaps, not a real team). Teams are organizational owners of code surfaces, never authors. Read all counts as absolute signal, never rates: fast passing runs are not emitted, so there is no honest denominator.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "Team CI health roster",
+        "title": "Team CI health roster",
         "required_scopes": ["engineering_analytics:read"],
         "annotations": {
             "destructiveHint": false,
@@ -3596,7 +3656,7 @@
         }
     },
     "external-data-sources-connections-list": {
-        "description": "List external data sources that can be used as a connectionId when running execute-sql against an external source (direct-query Postgres and MySQL connections). Returns a lightweight id, prefix, and engine for each — unlike external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to discover valid connectionId values.",
+        "description": "List external data sources that can be used as a connectionId when running execute-sql against an external source: pure direct-query connections (Postgres, MySQL, Snowflake, Redshift) plus synced warehouse sources that have live queries enabled (direct_query_enabled). Returns a lightweight id, prefix, engine, source_type, access_method ('direct' for pure live-query sources, 'warehouse' for synced sources with live queries on), and supports_hogql for each; when supports_hogql is false, only raw SQL (sendRawQuery) works. Unlike external-data-sources-list, it does not include table schemas or sources that cannot be live-queried. Use this to discover valid connectionId values.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List direct-query connections",
@@ -7783,7 +7843,7 @@
         }
     },
     "skill-get": {
-        "description": "Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows the Agent Skills specification (agentskills.io). To link a user to this skill in the PostHog app, build the URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.",
+        "description": "Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows the Agent Skills specification (agentskills.io). The response always includes body_total_length (the full body length in characters) — if the body you received is shorter than that, it was truncated in transit, so page through it with body_offset and body_length and continue from body_next_offset until it is null. To link a user to this skill in the PostHog app, build the URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.",
         "category": "Skills",
         "feature": "skills",
         "summary": "Get skill",

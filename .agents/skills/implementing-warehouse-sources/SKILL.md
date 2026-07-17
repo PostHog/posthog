@@ -68,7 +68,7 @@ Follow this order. Each step maps to TODOs in `source.template`.
    - `externalDataSources` at `frontend/src/queries/schema/schema-general.ts` (`lower-kebab-case`)
 
 3. **Pick the base class** (see above) and rename the class / `source_type` return.
-4. **Define `get_source_config`** — name, **category** (required — see "Source category & keywords"), label, caption, docsUrl, iconPath, fields, and optional `keywords`. Use appropriate field types (see below).
+4. **Define `get_source_config`** — name, **category** (required — see "Source category & keywords"), label, caption, docsUrl, iconPath, fields, and optional `keywords`. Use appropriate field types (see below). Also set the vendor API version metadata class attributes — see "Vendor API version metadata".
 5. **Register** the source — add an import line to `products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py` and include it in `__all__`. (The `@SourceRegistry.register` decorator on the class handles runtime registration.)
 6. **Run the config generator**: `pnpm run generate:source-configs`. Confirm the new config class appears in `products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs.py`. **Do not edit that file by hand.** Every time you change `get_source_config.fields`, re-run the generator.
 7. **Swap the generic `Config` type** in `source.py` for the generated `{Source}SourceConfig` class.
@@ -237,6 +237,44 @@ enum. Adding a **new** category means editing that array and rebuilding — don'
 `keywords` is an optional list of lowercase search aliases — only add when the source has a common acronym or
 alternate spelling a user might type (e.g. `["ga4", "ga"]`, `["sql server"]`, `["facebook ads"]`). Skip it when
 the name already obviously matches; don't add noise.
+
+## Vendor API version metadata
+
+Every source declares three class attributes (on the source class body, alongside `lists_tables_without_credentials`)
+describing the vendor's API version.
+The framework (`common/base.py`) records the version each `ExternalDataSource` runs against so old pins keep working
+and deprecations can be surfaced;
+`sources/tests/test_source_versions.py` enforces the invariants below across every registered source, so a new
+source that gets these wrong fails CI.
+
+Two cases:
+
+- **The vendor exposes a real, pinnable API version** — a URL path segment (`/v3/`, `/2/`), a required version
+  header value (a dated `2022-11-28`), a dated query/version param, or a named release. Declare all three:
+
+  ```python
+  class MySource(SimpleSource[MySourceConfig]):
+      supported_versions = ("v3",)          # opaque vendor labels — never parsed or ordered
+      default_version = "v3"                 # stamped onto newly created sources; must be in supported_versions
+      api_docs_url = "https://vendor.example/docs/api"   # API reference or changelog page (https, not the marketing site)
+  ```
+
+  Pin **the version the source's own code actually calls** (the base URL path, a version header, or a version
+  constant in `settings.py` / `{source}.py`) — not the vendor's newest version. Examples already in the tree:
+  GitHub `("2022-11-28",)` (dated header), HubSpot `("v3",)` (path), Klaviyo `("2024-10-15",)` (dated revision).
+
+- **The vendor has no meaningful API versioning** — set only `api_docs_url`; leave `supported_versions` /
+  `default_version` at the framework default (`("v1",)`, the `UNVERSIONED_API_VERSION` sentinel). A bare `/v1/`
+  that has never changed and isn't a documented version choice is this case.
+
+Rules:
+
+- `default_version` must equal the single entry in `supported_versions`, and `api_docs_url` must be `https://`.
+- Use the vendor's exact version string; never invent one.
+- Don't hardcode a fallback version in the transport/request layer — resolve it from the source class
+  (`self.resolve_api_version(inputs.api_version)`), which already falls back to `default_version`.
+- Adding support for a **new** vendor version later, or **deprecating** an old one, is the
+  `/warehouse-source-new-version` skill — not this one.
 
 ## Source fields (the form the user fills in)
 
@@ -621,6 +659,8 @@ Bootstrapping:
 Source implementation:
 - [ ] Set category on get_source_config (required — DataWarehouseSourceCategory; groups the source in the wizard catalog)
 - [ ] Add keywords if the source has a common acronym / alternate spelling (optional, lowercase)
+- [ ] Set api_docs_url (https, vendor API docs/changelog); add supported_versions + default_version if the vendor
+      exposes a real version token — pin what the code actually calls (see "Vendor API version metadata")
 - [ ] Define source fields in get_source_config
 - [ ] Implement validate_credentials
 - [ ] Implement get_schemas
