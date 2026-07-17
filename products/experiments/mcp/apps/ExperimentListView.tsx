@@ -64,10 +64,10 @@ export function ExperimentListView({ data, onExperimentClick }: ExperimentListVi
                             ),
                     },
                     {
-                        key: 'parameters' as keyof ExperimentData,
+                        key: 'feature_flag' as keyof ExperimentData,
                         header: 'Variants',
                         render: (row): ReactNode => {
-                            const variants = row.parameters?.feature_flag_variants
+                            const variants = row.feature_flag?.filters?.multivariate?.variants
                             if (!variants || variants.length === 0) {
                                 return <span className="text-muted-foreground">&mdash;</span>
                             }
@@ -76,9 +76,7 @@ export function ExperimentListView({ data, onExperimentClick }: ExperimentListVi
                                     {variants.map((v) => (
                                         <Badge key={v.key} variant={v.key === 'control' ? 'default' : 'info'}>
                                             {v.key}
-                                            {(v.split_percent ?? v.rollout_percentage) != null
-                                                ? `: ${v.split_percent ?? v.rollout_percentage}%`
-                                                : ''}
+                                            {v.rollout_percentage != null ? `: ${v.rollout_percentage}%` : ''}
                                         </Badge>
                                     ))}
                                 </div>

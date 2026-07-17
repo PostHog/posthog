@@ -3,6 +3,7 @@ from typing import Optional, cast
 from django.conf import settings
 
 import gspread
+from google.auth import exceptions as google_auth_exceptions
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
+    api_docs_url = "https://developers.google.com/sheets/api"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GOOGLESHEETS
@@ -47,6 +50,12 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
             # `str(SpreadsheetNotFound)` is otherwise just `<Response [404]>`, with nothing to match.
             # Retrying cannot recover.
             "Spreadsheet not found": "Import failed: the Google Sheet could not be found. It may have been deleted or moved. Please check the spreadsheet URL and that it is shared with our service account.",
+            # The values-read calls (`get_all_values`/`get_all_records`) hit the Sheets API directly and
+            # gspread does NOT wrap their 404 into `SpreadsheetNotFound` — it raises the raw `APIError`,
+            # whose `str()` is "APIError: [404]: Requested entity was not found." (Google's stable 404
+            # text). So the sheet/worksheet vanishing mid-read bypasses the `SpreadsheetNotFound` branch
+            # above and would be retried forever. The 404 is deterministic — retrying cannot recover.
+            "Requested entity was not found": "Import failed: the Google Sheet or worksheet could not be found. It may have been deleted or moved, or is no longer shared with our service account. Please check the spreadsheet URL and its sharing settings.",
         }
 
     def get_schemas(
@@ -118,6 +127,23 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
                 "Google Sheets could not open this spreadsheet. Please check the URL and that it is shared "
                 "with our service account as described at https://posthog.com/docs/cdp/sources/google-sheets",
             )
+        except (google_auth_exceptions.RefreshError, google_auth_exceptions.TransportError) as e:
+            # These come from fetching PostHog's own service-account OAuth token (the user only shares
+            # their sheet with our service account), not from the user's credentials. google-auth flags
+            # a transient Google-side blip as retryable; its str() is otherwise a raw server message like
+            # "A server error occurred." A non-retryable failure (e.g. invalid_grant from a rotated key)
+            # is a persistent problem on our side, so don't dress it up as merely temporary.
+            if getattr(e, "retryable", False):
+                return (
+                    False,
+                    "PostHog couldn't verify access to your Google Sheet right now because Google returned a "
+                    "temporary error. Please try again in a moment.",
+                )
+            return (
+                False,
+                "PostHog couldn't authenticate with Google to verify access to your Google Sheet. This looks "
+                "like a problem on our side, so please contact support if it keeps happening.",
+            )
         except Exception as e:
             return False, str(e)
 
@@ -127,7 +153,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
             name=SchemaExternalDataSourceType.GOOGLE_SHEETS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Google Sheets",
-            caption="Ensure you have granted PostHog access to your Google Sheet as instructed in the [documentation](https://posthog.com/docs/cdp/sources/google-sheets)",
+            caption="Ensure you have granted PostHog access to your Google Sheet as instructed in the [documentation](https://posthog.com/docs/cdp/sources/google-sheets). The first row of each sheet must contain unique column headers, since PostHog reads it as the column names when syncing.",
             releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/Google_Sheets.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/google-sheets",

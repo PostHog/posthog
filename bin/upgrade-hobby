@@ -55,6 +55,35 @@ else
     fi
 fi
 
+# Upgrading pulls a full set of new images, which needs significant free disk.
+# A nearly full disk fails the pull or leaves containers crashing mid-upgrade,
+# so check up front and offer to prune old images before anything is changed.
+# This runs after the data-loss volume check above so the user has acknowledged
+# that warning before `docker system prune` removes any stopped containers.
+DOCKER_ROOT_DIR=$(docker info --format '{{ .DockerRootDir }}' 2>/dev/null || echo /var/lib/docker)
+disk_use_pct() {
+    df -P "$DOCKER_ROOT_DIR" 2>/dev/null | awk 'NR==2 { gsub(/%/,""); print $5 }'
+}
+DISK_USE=$(disk_use_pct)
+if [ -n "$DISK_USE" ] && [ "$DISK_USE" -ge 80 ]; then
+    echo ""
+    echo "⚠️  The disk holding Docker data ($DOCKER_ROOT_DIR) is ${DISK_USE}% full."
+    echo "The upgrade pulls a full set of new images and may fail or leave the stack broken without enough free space."
+    read -r -p "Remove unused Docker images and build cache now? (docker system prune -a --force) [y/N] " response
+    if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]; then
+        docker system prune -a --force
+        DISK_USE=$(disk_use_pct)
+        echo "Disk is now ${DISK_USE:-unknown}% full."
+    fi
+    if [ -n "$DISK_USE" ] && [ "$DISK_USE" -ge 90 ]; then
+        read -r -p "Disk is still ${DISK_USE}% full. Continue with the upgrade anyway? [y/N] " response
+        if [[ ! "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]; then
+            echo "Upgrade cancelled. Free up disk space and try again."
+            exit 1
+        fi
+    fi
+fi
+
 # a previous version of the deploy script should have been quoting the caddy_host env var
 tmp="$(mktemp)"
 awk '
@@ -290,6 +319,17 @@ if grep -qE 'postgres:12-alpine|postgres:12' posthog/docker-compose.hobby.yml 2>
     fi
 fi
 
+# Async migrations only exist for upgrades from versioned releases (the last one
+# targets PostHog <= 1.49.99). Every versioned release ships posthog/version.py and
+# it was removed once PostHog moved to continuous deployment, so its presence in the
+# current checkout (inspected before git pull replaces it) tells us whether the
+# async migrations check is needed. CHECK_ASYNC_MIGRATIONS=1/0 overrides either way.
+ASYNC_MIGRATIONS_CHECK_NEEDED=FALSE
+if [ -f posthog/posthog/version.py ]; then
+    ASYNC_MIGRATIONS_CHECK_NEEDED=TRUE
+    echo "Detected an old versioned PostHog release ($(grep VERSION posthog/posthog/version.py || true)), the async migrations check will run"
+fi
+
 cd posthog
 git pull --prune
 cd ../
@@ -329,8 +369,31 @@ rm docker-compose.yml.tmpl
 
 docker-compose pull
 
-echo "Checking if async migrations are up to date"
-sudo -E docker-compose run asyncmigrationscheck
+RUN_ASYNC_MIGRATIONS_CHECK="$ASYNC_MIGRATIONS_CHECK_NEEDED"
+if [[ "${CHECK_ASYNC_MIGRATIONS:-}" =~ ^([yY][eE][sS]|[yY]|1|[tT][rR][uU][eE])$ ]]; then
+    RUN_ASYNC_MIGRATIONS_CHECK=TRUE
+elif [[ "${CHECK_ASYNC_MIGRATIONS:-}" =~ ^([nN][oO]|[nN]|0|[fF][aA][lL][sS][eE])$ ]]; then
+    RUN_ASYNC_MIGRATIONS_CHECK=FALSE
+fi
+
+# Mid pg12 -> pg15 migration the postgres volume is empty until data is restored
+# after the stack restarts, so there is no async migration state to check yet.
+if [ -f ".pg12_migration_pending" ]; then
+    RUN_ASYNC_MIGRATIONS_CHECK=FALSE
+fi
+
+if [ "$RUN_ASYNC_MIGRATIONS_CHECK" == 'TRUE' ]; then
+    echo "Checking if async migrations are up to date"
+    # The asyncmigrationscheck container has no depends_on, so bring up the data
+    # stores it needs before running it (a previously interrupted upgrade can leave
+    # the stack stopped). It reads async migration state from Postgres and boots the
+    # Django app, which connects to Redis and ClickHouse. We deliberately avoid a
+    # full `up -d` so the web container doesn't run its migrate entrypoint first.
+    sudo -E docker-compose up -d db redis7 clickhouse
+    sudo -E docker-compose run --rm asyncmigrationscheck
+else
+    echo "Skipping async migrations check, it's only needed when upgrading from a versioned release (set CHECK_ASYNC_MIGRATIONS=1 to force it)"
+fi
 
 echo "Stopping the stack!"
 docker-compose stop

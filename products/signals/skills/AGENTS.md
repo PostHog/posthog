@@ -10,7 +10,7 @@ Two distinct skill families live in this directory:
    agent how to write, edit, and adapt scouts (per-team via the skills store, or canonically
    in this directory), and `exploring-scouts/` is its read-only counterpart —
    teaching a caller how to observe and make sense of what a project's scouts are doing and
-   how they're performing (the `signals-scout-config-list` / `-runs-list` / `-runs-retrieve`
+   how they're performing (the `scout-config-list` / `-runs-list` / `-runs-retrieve`
    / `-scratchpad-search` / `-project-profile-get` tools, run anatomy, and health
    assessment). They are not part of the automated agent path — humans (and human-driven
    agents) reach for them on demand.
@@ -85,7 +85,12 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   row-volume cliffs, and failed/abandoned materialized views. Its discriminator is
   configured-to-sync (`should_sync: true`) vs actually-syncing and
   promised-freshness vs actual-freshness — paused schemas, billing limits, and
-  draft sources are operator choices, not signal. The mirror image of
+  draft sources are operator choices, not signal. Also carries a second,
+  lower-priority **optimization lane** that runs only when the integrity lane is
+  quiet: reads the per-team `query_log` table for recurring, multi-user query
+  time and read-bytes concentrated on one warehouse table or query shape
+  (materialization candidates, queries bypassing an existing matview, matviews
+  with no readers), filing each as a capped, evergreen-deduped P3 suggestion. The mirror image of
   data-pipelines (which watches data leaving PostHog); active `external_data_failure`
   health issues overlap the health-checks scout, so it dedupes against the inbox and
   owns the silent gaps the active-failure summary misses (staleness behind a green
@@ -121,7 +126,8 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   (response-rate drops, sentiment shifts, completion-funnel regressions).
 - `signals-scout-web-analytics/` — acquisition + site-health watcher for web traffic.
   Reads the `sessions` table for per-channel volume diverging from
-  seasonality-aligned baselines (same 24h window 7/14 days back), attribution
+  seasonality-aligned baselines (robust z against the median/MAD of four
+  same-weekday aligned windows), attribution
   breakage (paid traffic reclassifying into Direct/Unknown when UTM tagging breaks),
   entry-path bounce steps and traffic cliffs, and 404 spikes (via the project's own
   not-found event, discovered by name). Its
@@ -141,8 +147,10 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   with a page-scoped-vs-site-wide second axis (one page is code/content; all pages
   together is a population / CDN / third-party shift). Every finding carries a
   metric-specific cause hypothesis and a concrete remediation (bundled
-  `references/remediation.md`). Vitals-capture _absence_ is the health-checks scout's
-  territory, not this one's.
+  `references/remediation.md`). On the **report channel** (`emit_report` /
+  `edit_report`): files each page+metric finding as a 1:1 inbox report, editing the
+  live report while the page stays slow. Vitals-capture _absence_ is the health-checks
+  scout's territory, not this one's.
 - `signals-scout-experiments/` — validity watcher for A/B experiments. Audits the
   measurement machinery rather than the results: sample ratio mismatch, `$multiple`
   contamination, exposure stalls, mid-run flag mutations, plus lifecycle drift
@@ -186,6 +194,20 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   prioritizes issues an agent can resolve via the MCP over credential-gated ones.
   Its discriminator is kind-concentration × severity × agent-fixability ×
   persistence, not raw firing count.
+- `signals-scout-ingestion-warnings/` — root-cause watcher for the ingestion
+  warnings stream: events and person/group updates dropped, mangled, or partially
+  rejected at ingestion, read via the `ingestion-warnings-list` MCP tool. Watches
+  for new warning types, bursts above a type's own baseline, and error-severity
+  clusters with broad reach. Warning counts are debounced by the producers
+  (some types bypass the debounce and record every occurrence), so it weights
+  by reach — distinct affected IDs — not raw count; its discriminator is
+  severity-weighted data loss × reach ×
+  novelty against the type's own baseline (`error` = dropped, `warning` =
+  ingested-but-modified, `info` = intentional). On the **report channel**
+  (`emit_report` / `edit_report`): files one report per actionable root cause —
+  which may span several warning types — with the dated onset, reach, and the
+  fix. Triage of `ingestion_warning` _health issues_ stays with the health-checks
+  scout; this scout owns the stream depth the deterministic check can't reach.
 - `signals-scout-inbox-validation/` — follow-up watcher for the inbox itself.
   Watches reports that recently transitioned to `resolved` (implementation PR
   merged), waits out a deployment soak window, then re-probes the entities the
@@ -254,9 +276,12 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   fields the project captures (they split by regime — PostHog's own hono server vs
   external SDK servers) and picks lenses to match, resting detection only on always-present
   fields (error flag, duration, tool name, session). On the **report channel**
-  (`emit_report` / `edit_report`): files one report per tool carrying the fix hypothesis,
-  editing the live report when the problem persists; bundles `references/queries.md`, a
-  HogQL cookbook validated against real telemetry.
+  (`emit_report` / `edit_report`): files one report per problem category
+  (`$mcp_tool_category`, the owning product team) listing that category's problem tools
+  each with a fix hypothesis, editing the live category report while the category still
+  has problem tools; falls back to one report per tool where category coverage is absent
+  (external-SDK regime); bundles `references/queries.md`, a HogQL cookbook validated
+  against real telemetry.
 
 ### How the coordinator decides what runs
 
@@ -271,15 +296,15 @@ every 24 hours) and a `last_run_at` stamp. Every tick the coordinator:
 2. Auto-registers a config for any `signals-scout-*` skill missing one
    (`scout_harness/config_registry.register_missing_configs`) — on an enrolled team,
    authoring a skill is enough to get a scout. To register (and tune) one immediately
-   instead, use the `signals-scout-config-create` endpoint.
+   instead, use the `scout-config-create` endpoint.
 3. Dispatches every enabled scout whose schedule is due (`last_run_at is None`, or
    `now - last_run_at >= run_interval_minutes`), most-overdue first, capped at
    `MAX_RUNS_PER_TICK` per tick. Each due scout becomes one `RunSignalsScoutWorkflow`
    child run; `last_run_at` is advanced for everything dispatched.
 
 Pausing a scout is `enabled=False` on its config; slowing it is a larger
-`run_interval_minutes`. Both are tunable via the `signals-scout-config-update` MCP
-tool, and settable at creation time via `signals-scout-config-create` (an upsert that
+`run_interval_minutes`. Both are tunable via the `scout-config-update` MCP
+tool, and settable at creation time via `scout-config-create` (an upsert that
 registers the config immediately instead of waiting for the tick). See
 `scout_coordinator._collect_planned_runs` for the exact due-check.
 
@@ -311,7 +336,7 @@ and column wrapping only adds diff noise.
 The generalist (`signals-scout-general`) is **report-only** — it authors `SignalReport`s
 directly and does not `emit_signal`. The **report-channel contract** (when to author a fresh
 report vs. edit an existing one, the field schema, the safety × actionability status mapping,
-reviewer routing via `signals-scout-members-list`, and the non-idempotency + pipeline-rewrite
+reviewer routing via `scout-members-list`, and the non-idempotency + pipeline-rewrite
 caveats) lives in the **harness prompt** (`scout_harness/prompt.py`), which forks on the scout's
 channel and injects it into every report-channel scout — so it is **not** duplicated as a
 per-scout reference. The generalist keeps one bundled reference:
@@ -319,9 +344,8 @@ per-scout reference. The generalist keeps one bundled reference:
 - **`references/conventions.md`** — the four-states author/edit classifier, scratchpad
   key-prefix vocabulary, and cross-project noise patterns.
 
-The canonical fleet is on the **report channel** (ported one scout per PR,
-biggest reach first — see the `scouts-emit-reports` spec; `signals-scout-web-vitals`
-is the last one still on the signal channel, with its port planned as a follow-up). A report-channel scout is
+The entire canonical fleet is on the **report channel** (ported one scout per PR,
+biggest reach first — see the `scouts-emit-reports` spec). A report-channel scout is
 report-only — its frontmatter `allowed_tools` lists `emit_report` / `edit_report` — and it
 carries only its _domain-specific_ report framing **inline in its body** (what's
 report-shaped for its surface, its `reviewer:<domain>` / `report:<domain>` scratchpad
@@ -330,10 +354,9 @@ bundles **no** `report.md`. The exception is `signals-scout-anomaly-detection`, 
 slimmed `references/report-contract.md` for its genuinely scout-specific **notebook write-up +
 embedded-chart recipe** (it defers the generic contract to the prompt). The legacy signal
 channel (weak `emit_signal` findings for the pipeline to cluster) still exists in the
-harness for scouts that never opted in via `allowed_tools`, but it is deprecated: the
-user-facing skills (`authoring-scouts`, `exploring-scouts`) no longer teach it — new
-scouts always list the report tools. When the last signal-channel scout is ported,
-update this note.
+harness for custom scouts that never opted in via `allowed_tools`, but it is deprecated:
+no canonical scout uses it, and the user-facing skills (`authoring-scouts`,
+`exploring-scouts`) no longer teach it — new scouts always list the report tools.
 
 The specialists each carry their own domain discriminator + investigation patterns.
 Most are a single self-contained `SKILL.md`; a few bundle surface-specific references

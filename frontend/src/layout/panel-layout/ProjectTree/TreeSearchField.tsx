@@ -1,14 +1,15 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
 
 import { IconCdCase, IconDocument, IconPlug, IconUser } from '@posthog/icons'
 
 import { SearchAutocomplete } from 'lib/components/SearchAutocomplete/SearchAutocomplete'
+import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { fileSystemTypes } from '~/products'
 import { FileSystemType } from '~/types'
 
-import { panelLayoutLogic } from '../panelLayoutLogic'
 import { iconForType } from './defaultTree'
 import { projectTreeLogic } from './projectTreeLogic'
 
@@ -35,27 +36,42 @@ const productTypesMapped = [
 interface TreeSearchFieldProps {
     root?: string
     placeholder?: string
+    /** The tree this search field belongs to — ArrowDown moves focus into it. Multiple trees can be
+     * mounted at once (panel switching keeps them alive), so a shared global ref would focus the
+     * wrong, possibly hidden, tree. */
+    treeRef: React.RefObject<LemonTreeRef>
+    /** True while this field's panel is the active one. Kept-mounted panels don't remount on
+     * re-open, so `autoFocus` fires only once — refocus on every activation to keep the
+     * "open panel, type to search" flow working. */
+    isActive?: boolean
 }
 
-export function TreeSearchField({ root, placeholder }: TreeSearchFieldProps): JSX.Element {
-    const { panelTreeRef } = useValues(panelLayoutLogic)
+export function TreeSearchField({ root, placeholder, treeRef, isActive }: TreeSearchFieldProps): JSX.Element {
     const { searchTerm } = useValues(projectTreeLogic)
     const { setSearchTerm, clearSearch } = useActions(projectTreeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const containerRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        if (isActive) {
+            containerRef.current?.querySelector('input')?.focus()
+        }
+    }, [isActive])
 
     function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
         if (e.key === 'ArrowDown') {
             e.preventDefault() // Prevent scrolling
-            const visibleItems = panelTreeRef?.current?.getVisibleItems()
+            const visibleItems = treeRef.current?.getVisibleItems()
             if (visibleItems && visibleItems.length > 0) {
                 e.currentTarget.blur() // Remove focus from input
-                panelTreeRef?.current?.focusItem(visibleItems[0].id)
+                treeRef.current?.focusItem(visibleItems[0].id)
             }
         }
     }
 
     return (
         <SearchAutocomplete
+            ref={containerRef}
             inputPlaceholder={placeholder}
             includeNegation
             defaultValue={searchTerm}

@@ -56,6 +56,6 @@ describe('SuccessStep', () => {
             />
         )
 
-        expect(screen.getByText('Up to 2 times, every 90 days')).toBeInTheDocument()
+        expect(screen.getByText('Up to 2 times, every 90 days from launch')).toBeInTheDocument()
     })
 })

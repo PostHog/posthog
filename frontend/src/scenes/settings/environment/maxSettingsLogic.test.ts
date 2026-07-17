@@ -2,12 +2,14 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { maxSettingsLogic } from './maxSettingsLogic'
 
 describe('maxSettingsLogic', () => {
+    afterEach(resumeKeaLoadersErrors)
     let logic: ReturnType<typeof maxSettingsLogic.build>
 
     beforeEach(() => {
@@ -56,6 +58,7 @@ describe('maxSettingsLogic', () => {
     )
 
     it('lets non-HTTP errors propagate so real regressions stay visible', async () => {
+        silenceKeaLoadersErrors()
         // A programming error (not an ApiError) should surface as a failure, not be silently swallowed.
         jest.spyOn(api.coreMemory, 'list').mockRejectedValueOnce(new TypeError('boom'))
         logic = maxSettingsLogic()

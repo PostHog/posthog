@@ -177,11 +177,7 @@ services:
             retries: 10
 
     clickhouse:
-        #
-        # Note: please keep the default version in sync across
-        #       `posthog` and the `charts-clickhouse` repos
-        #
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:26.3.10.60}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:26.6.1.1193}
         restart: on-failure
         environment:
             CLICKHOUSE_SKIP_USER_SETUP: 1
@@ -792,6 +788,18 @@ services:
             - jaeger
         networks:
             - otel_network
+        # Cap the footprint: the collector parses every container's logs, so one
+        # log-flooding container could otherwise peg many cores and balloon RAM.
+        cpus: 2
+        mem_limit: 2g
+        environment:
+            # Keep Go's GC under mem_limit so pressure triggers collection, not an OOM kill.
+            GOMEMLIMIT: 1750MiB
+        logging:
+            driver: json-file
+            options:
+                max-size: '50m'
+                max-file: '3'
 
     jaeger:
         image: jaegertracing/all-in-one:1.76.0

@@ -4,18 +4,23 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.presentation.serializers import (
+    ChannelFeedMessageSerializer,
+    ChannelFeedMessageWriteSerializer,
     ChannelSerializer,
     ChannelWriteSerializer,
+    TaskMentionQuerySerializer,
+    TaskMentionSerializer,
     TaskThreadMessageSerializer,
     TaskThreadMessageWriteSerializer,
 )
@@ -90,6 +95,108 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if result == "personal":
             raise PermissionDenied("Personal channels cannot be deleted")
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ChannelFeedMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """
+    API for a channel's system-announcement feed — durable "PostHog agent" rows
+    (context created, CONTEXT.md being built) rendered alongside the channel's task
+    cards. Read by any team member for a public channel; personal channels are owner-only.
+    """
+
+    authentication_classes = [
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"
+    http_method_names = ["get", "post", "head", "options"]
+    serializer_class = ChannelFeedMessageSerializer
+
+    def _channel_id(self) -> str:
+        channel_id = self.kwargs.get("parent_lookup_channel_id")
+        if not channel_id:
+            raise NotFound("Channel ID is required")
+        try:
+            UUID(channel_id)
+        except (ValueError, TypeError):
+            raise NotFound("Channel not found")
+        return channel_id
+
+    def _user_id(self) -> int | None:
+        return getattr(self.request.user, "id", None)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=ChannelFeedMessageSerializer(many=True), description="Feed messages, chronological"
+            )
+        },
+        summary="List channel feed messages",
+        description="A channel's system announcements in chronological order.",
+    )
+    def list(self, request, *args, **kwargs):
+        messages = tasks_facade.list_channel_feed_messages(self._channel_id(), self.team_id, self._user_id())
+        if messages is None:
+            raise NotFound("Channel not found")
+        return Response(ChannelFeedMessageSerializer(messages, many=True).data)
+
+    @extend_schema(
+        request=ChannelFeedMessageWriteSerializer,
+        responses={201: ChannelFeedMessageSerializer},
+        summary="Post a channel feed message",
+    )
+    def create(self, request, **kwargs):
+        serializer = ChannelFeedMessageWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        message = tasks_facade.create_channel_feed_message(
+            self._channel_id(),
+            self.team_id,
+            self._user_id(),
+            event=serializer.validated_data["event"],
+            payload=serializer.validated_data.get("payload") or {},
+            created_at=serializer.validated_data.get("created_at"),
+        )
+        if message is None:
+            raise NotFound("Channel not found")
+        if message == "full":
+            raise ValidationError("This channel's feed is full.")
+        return Response(ChannelFeedMessageSerializer(message).data, status=status.HTTP_201_CREATED)
+
+
+class TaskMentionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """
+    API for the requester's mentions feed — thread messages across the team's tasks
+    that @-mention them, indexed at write time.
+    """
+
+    authentication_classes = [
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"
+    http_method_names = ["get", "head", "options"]
+    serializer_class = TaskMentionSerializer
+
+    def _user_id(self) -> int | None:
+        return getattr(self.request.user, "id", None)
+
+    @validated_request(
+        query_serializer=TaskMentionQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=TaskMentionSerializer(many=True), description="Mentions, newest first"),
+        },
+        summary="List mentions of the requester",
+        description="Thread messages that @-mention the requester, newest first, restricted to tasks they can see.",
+    )
+    def list(self, request, *args, **kwargs):
+        since = request.validated_query_data.get("since")
+        limit = request.validated_query_data["limit"]
+        mentions = tasks_facade.list_mentions(self.team_id, self._user_id(), since=since, limit=limit)
+        return Response(TaskMentionSerializer(mentions, many=True).data)
 
 
 class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

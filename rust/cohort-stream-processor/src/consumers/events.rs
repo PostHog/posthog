@@ -1,8 +1,9 @@
 //! The `cohort_stream_events` wire envelope and the group consumer that drives it.
 //!
-//! [`CohortStreamEvent`] is the processor's own deserialize struct, deliberately decoupled from
-//! `cohort-event-shuffler`'s producer type: the two services share only the JSON field names, so a
-//! private copy means neither can break the other by adding a one-sided field.
+//! [`CohortStreamEvent`] is defined in `cohort-core` and intentionally shared with the backfill
+//! seeder, which produces the same envelope. It stays decoupled from `cohort-event-shuffler`'s
+//! producer type — they share only the JSON field names, so neither can break the other by adding a
+//! one-sided field.
 //!
 //! The Kafka-free routing core lives in [`EventDispatcher`] so it can be unit-tested with an
 //! in-process router/store/catalog and no broker.
@@ -19,8 +20,9 @@ use metrics::{counter, gauge, histogram};
 use rdkafka::consumer::{CommitMode, Consumer, ConsumerContext, StreamConsumer};
 use rdkafka::message::Message;
 use rdkafka::{Offset, TopicPartitionList};
-use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
+
+pub use cohort_core::events::CohortStreamEvent;
 
 use crate::consumers::merges::{ConsumedCascade, ConsumedMerge, ConsumedTransfer};
 use crate::filters::manager::CatalogHandle;
@@ -47,8 +49,8 @@ use crate::partitions::router::{PartitionRouter, SendOutcome};
 use crate::partitions::shuffle_message::ShuffleMessage;
 use crate::producer::MembershipSink;
 use crate::store::durability::OffsetManifest;
-use crate::store::CohortStore;
-use crate::workers::{EventNameGating, MergeWorkerDeps, PersonMemoConfig, Stage1Worker};
+use crate::store::StoreHandle;
+use crate::workers::{EventNameGating, MergeWorkerDeps, Stage1Worker};
 
 /// Back-off after a Kafka transport error so a fast-failing `recv()` can't spin a consume loop.
 pub(crate) const RECV_ERROR_BACKOFF: Duration = Duration::from_millis(500);
@@ -62,38 +64,6 @@ const RESTORE_SEEK_TIMEOUT: Duration = Duration::from_secs(10);
 /// typical outbox in a single round; a larger backlog is drained across successive pages, bounding
 /// peak memory per page.
 const EAGER_BOOT_REDRIVE_PAGE_SIZE: usize = 100_000;
-
-/// One re-keyed event as published to `cohort_stream_events`. Field names mirror the shuffler
-/// envelope exactly.
-///
-/// `properties` / `person_properties` are raw JSON strings parsed lazily in globals construction.
-/// `source_partition` / `source_offset` are the upstream coordinates for replay-safe counter
-/// increments.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CohortStreamEvent {
-    pub team_id: i32,
-    pub person_id: String,
-    pub distinct_id: String,
-    pub uuid: String,
-    pub event: String,
-    /// ClickHouse wire format `"YYYY-MM-DD HH:MM:SS.ffffff"`; normalized to ISO 8601 in globals.
-    pub timestamp: String,
-    pub properties: Option<String>,
-    pub person_properties: Option<String>,
-    pub elements_chain: Option<String>,
-    pub source_offset: i64,
-    pub source_partition: i32,
-    /// The merge origin person, set when a post-merge straggler is redirected to the merged-into
-    /// person. `None` for a normal event. Stage 1 routes replay-dedup through
-    /// `redirect_dedup[origin]` when set, preventing double-fold.
-    #[serde(default)]
-    pub redirected_from: Option<String>,
-    /// Cross-partition re-produce hops this straggler has taken through the tombstone redirect.
-    /// `0` for a normal event; incremented on each re-key produce. At the cap
-    /// (`MAX_CROSS_PARTITION_REDIRECT_HOPS`) the worker degrades to an inline fold to break cycles.
-    #[serde(default)]
-    pub redirect_hops: u8,
-}
 
 /// One event consumed from `cohort_stream_events`, paired with its commit coordinates on that topic.
 ///
@@ -114,7 +84,7 @@ pub struct EventDispatcher {
     workers: Arc<DashMap<i32, Stage1Worker>>,
     /// Partitions currently assigned to this consumer.
     owned: Arc<DashSet<i32>>,
-    store: CohortStore,
+    handle: StoreHandle,
     catalog: Arc<CatalogHandle>,
     sink: Arc<dyn MembershipSink>,
     merge: Arc<MergeWorkerDeps>,
@@ -128,8 +98,6 @@ pub struct EventDispatcher {
     /// after boot. `OnceLock` is `Sync`; the only race (get sees `None` before set) resolves to
     /// "skip", so a boot partition is never wiped.
     boot_assignment: OnceLock<HashSet<i32>>,
-    /// Person-memo config for spawned workers, set once at startup. Unset → disabled.
-    person_memo: OnceLock<PersonMemoConfig>,
     /// Event-name fan-out gating for spawned workers, set once at startup. Unset → disabled.
     event_name_gating: OnceLock<EventNameGating>,
 }
@@ -138,7 +106,7 @@ impl EventDispatcher {
     pub fn new(
         router: PartitionRouter,
         tracker: Arc<OffsetTracker>,
-        store: CohortStore,
+        handle: StoreHandle,
         catalog: Arc<CatalogHandle>,
         sink: Arc<dyn MembershipSink>,
         merge: Arc<MergeWorkerDeps>,
@@ -148,14 +116,13 @@ impl EventDispatcher {
             tracker,
             workers: Arc::new(DashMap::new()),
             owned: Arc::new(DashSet::new()),
-            store,
+            handle,
             catalog,
             sink,
             merge,
             draining: AtomicBool::new(false),
             durable_restore: AtomicBool::new(false),
             boot_assignment: OnceLock::new(),
-            person_memo: OnceLock::new(),
             event_name_gating: OnceLock::new(),
         }
     }
@@ -170,18 +137,6 @@ impl EventDispatcher {
     }
 
     /// Must be called before any worker spawns; later calls are ignored.
-    pub fn set_person_memo_config(&self, config: PersonMemoConfig) {
-        let _ = self.person_memo.set(config);
-    }
-
-    fn person_memo_config(&self) -> PersonMemoConfig {
-        self.person_memo
-            .get()
-            .copied()
-            .unwrap_or(PersonMemoConfig::DISABLED)
-    }
-
-    /// Must be called before any worker spawns; later calls are ignored.
     pub fn set_event_name_gating(&self, gating: EventNameGating) {
         let _ = self.event_name_gating.set(gating);
     }
@@ -193,8 +148,8 @@ impl EventDispatcher {
             .unwrap_or(EventNameGating::Disabled)
     }
 
-    pub(crate) fn store(&self) -> &CohortStore {
-        &self.store
+    pub(crate) fn handle(&self) -> &StoreHandle {
+        &self.handle
     }
 
     /// Blocking events dispatch, retained for tests; the consume loop uses
@@ -467,16 +422,15 @@ impl EventDispatcher {
                 }
                 match self.router.add_partition(partition) {
                     Some(receiver) => {
-                        let worker = Stage1Worker::spawn_with_memo(
+                        let worker = Stage1Worker::spawn_with_gating(
                             partition as u16,
                             receiver,
-                            self.store.clone(),
+                            self.handle.clone(),
                             self.catalog.clone(),
                             self.sink.clone(),
                             self.tracker.clone(),
                             self.merge.clone(),
                             self.durable_restore_enabled(),
-                            self.person_memo_config(),
                             self.event_name_gating(),
                         );
                         slot.insert(worker);
@@ -629,7 +583,7 @@ impl EventDispatcher {
             );
             return;
         };
-        match self.store.delete_partition(partition_id) {
+        match self.handle.delete_partition(partition_id).await {
             Ok(()) => counter!(PARTITION_STATE_DELETED_TOTAL).increment(1),
             Err(err) => {
                 warn!(partition, error = %err, "failed to delete revoked partition state")
@@ -659,7 +613,9 @@ impl EventDispatcher {
             );
             return;
         };
-        match self.store.delete_partition(partition_id) {
+        // Sync escape hatch: runs under the partition's DashMap shard guard, so no `.await`. The
+        // delete is one range tombstone per CF and rare (a post-boot move-in).
+        match self.handle.delete_partition_blocking(partition_id) {
             Ok(()) => counter!(DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL).increment(1),
             Err(err) => warn!(
                 partition,
@@ -671,7 +627,7 @@ impl EventDispatcher {
     /// Delete on-disk slices for partitions in `0..partition_count` not in `assignment`: they
     /// moved away while this pod was down. `assignment` must be the settled (non-empty) assignment
     /// — an empty set would delete all slices.
-    pub(crate) fn reclaim_unassigned_partitions_on_boot(
+    pub(crate) async fn reclaim_unassigned_partitions_on_boot(
         &self,
         assignment: &std::collections::HashSet<i32>,
         partition_count: usize,
@@ -684,7 +640,7 @@ impl EventDispatcher {
                 continue;
             }
             if let Some(partition_id) = partition_to_store_id(partition) {
-                match self.store.delete_partition(partition_id) {
+                match self.handle.delete_partition(partition_id).await {
                     Ok(()) => wiped += 1,
                     Err(err) => warn!(
                         partition,
@@ -703,7 +659,7 @@ impl EventDispatcher {
 
     /// Record the boot assignment snapshot, then sweep stale on-disk slices. Recording first makes
     /// the assign path defer to the boot decision and reclaim only post-boot move-ins.
-    pub(crate) fn reconcile_boot_assignment(
+    pub(crate) async fn reconcile_boot_assignment(
         &self,
         assignment: &HashSet<i32>,
         partition_count: usize,
@@ -711,7 +667,8 @@ impl EventDispatcher {
         if self.boot_assignment.set(assignment.clone()).is_err() {
             debug!("boot assignment snapshot already recorded; keeping the first");
         }
-        self.reclaim_unassigned_partitions_on_boot(assignment, partition_count);
+        self.reclaim_unassigned_partitions_on_boot(assignment, partition_count)
+            .await;
     }
 
     /// Re-produce every staged `cf_pending_transfers` entry for the owned partitions at boot,
@@ -757,11 +714,11 @@ impl EventDispatcher {
         let mut cursor: Option<Vec<u8>> = None;
         let mut recovered = 0usize;
         loop {
-            let page = match self.store.scan_pending_transfers(
-                store_partition,
-                cursor.as_deref(),
-                page_size,
-            ) {
+            let page = match self
+                .handle
+                .scan_pending_transfers(store_partition, cursor.clone(), page_size)
+                .await
+            {
                 Ok(page) => page,
                 Err(error) => {
                     warn!(
@@ -811,7 +768,7 @@ impl EventDispatcher {
                     );
                     continue;
                 }
-                if let Err(error) = self.store.clear_pending_transfer(&key) {
+                if let Err(error) = self.handle.clear_pending_transfer(&key).await {
                     warn!(
                         partition,
                         team_id,
@@ -983,7 +940,8 @@ impl CohortStreamEventsConsumer {
                 outcome = self.consume_batch() => {
                     // Sweep before dispatching, so the reclaim never races a worker spawn.
                     if !boot_sweep_done {
-                        boot_sweep_done = self.run_boot_staleness_sweep(&mut prev_assignment);
+                        boot_sweep_done =
+                            self.run_boot_staleness_sweep(&mut prev_assignment).await;
                     }
                     // Redrive after the boot sweep settles. Skip dispatching this batch so boot
                     // recovery completes before any fold work.
@@ -1027,24 +985,26 @@ impl CohortStreamEventsConsumer {
         let tracker = self.dispatcher.shutdown().await;
         let offsets = self.dispatcher.owned_committable_offsets();
         fsync_then_commit(
-            self.dispatcher.store(),
+            self.dispatcher.handle(),
             &self.consumer,
             &tracker,
             offsets,
             &self.topic,
             CommitMode::Sync,
-        );
+        )
+        .await;
         info!(topic = %self.topic, "cohort_stream_events consume loop stopped");
     }
 
     /// Returns `true` once the boot snapshot is reconciled, `false` while the assignment is unsettled.
-    fn run_boot_staleness_sweep(&self, prev: &mut Option<HashSet<i32>>) -> bool {
+    async fn run_boot_staleness_sweep(&self, prev: &mut Option<HashSet<i32>>) -> bool {
         let assignment = self.assigned_partitions();
         if !boot_assignment_settled(&assignment, prev) {
             return false;
         }
         self.dispatcher
-            .reconcile_boot_assignment(&assignment, self.events_partitions);
+            .reconcile_boot_assignment(&assignment, self.events_partitions)
+            .await;
         true
     }
 
@@ -1289,8 +1249,12 @@ pub(crate) fn commit_offsets<C: ConsumerContext>(
 
 /// fsync the store's WAL before committing offsets, upholding `committed <= durable`. Unconditional
 /// so reopen-live is safe whenever the durability gate is flipped. A fsync error skips the commit.
-pub(crate) fn fsync_then_commit<C: ConsumerContext>(
-    store: &CohortStore,
+///
+/// The caller captures `offsets` before this runs, so the fsync makes durable exactly what they
+/// already reflect. It runs on the write lane with no permit so the commit cadence never queues
+/// behind reads.
+pub(crate) async fn fsync_then_commit<C: ConsumerContext>(
+    handle: &StoreHandle,
     consumer: &StreamConsumer<C>,
     tracker: &OffsetTracker,
     offsets: HashMap<i32, i64>,
@@ -1300,7 +1264,7 @@ pub(crate) fn fsync_then_commit<C: ConsumerContext>(
     if offsets.is_empty() {
         return;
     }
-    if store.flush_wal_sync().is_err() {
+    if handle.flush_wal_sync().await.is_err() {
         return; // store counted the error; skip commit so `committed` never outruns `durable`
     }
     commit_offsets(consumer, tracker, offsets, topic, mode);
@@ -1323,13 +1287,14 @@ async fn run_commit_loop(
             _ = handle.shutdown_recv() => break,
             _ = ticker.tick() => {
                 fsync_then_commit(
-                    dispatcher.store(),
+                    dispatcher.handle(),
                     &consumer,
                     dispatcher.tracker(),
                     dispatcher.owned_committable_offsets(),
                     &topic,
                     CommitMode::Async,
-                );
+                )
+                .await;
             }
         }
     }
@@ -1354,6 +1319,9 @@ async fn run_pauser_loop(
 }
 
 #[cfg(test)]
+// Tests seed and assert against `CohortStore` directly while the dispatchers hold the `StoreHandle`
+// facade.
+#[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
     use chrono_tz::UTC;
@@ -1374,14 +1342,26 @@ mod tests {
     use crate::stage1::state::AppliedOffsets;
     use crate::stage1::{Stage1State, StatefulRecord};
     use crate::store::{
-        LeafStateKey, MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage1Key, StoreConfig,
-        TombstoneKey,
+        Behavioral, BehavioralKey, CohortStore, LeafStateKey, MergeAppliedKey, MergeDrainKey,
+        OffloadConfig, OffloadMode, PendingTransferKey, StoreConfig, TombstoneKey,
     };
     use crate::workers::TransferRetryPolicy;
 
     const TEAM: i32 = 7;
     const BEHAVIORAL_HASH: [u8; 16] = *b"0123456789abcdef";
     const BASE_TS: &str = "2026-05-26 12:34:56.789000";
+
+    /// Wrap a test store in the `All` operating point so the dispatcher runs on the blocking pool.
+    fn test_handle(store: &CohortStore) -> StoreHandle {
+        StoreHandle::new(
+            store.clone(),
+            OffloadConfig {
+                mode: OffloadMode::All,
+                event_read_permits: 16,
+                maintenance_permits: 6,
+            },
+        )
+    }
 
     /// Broker-free [`PartitionPauser`] recording every pause/resume call, to exercise the pauser task
     /// without a Kafka client.
@@ -1722,7 +1702,7 @@ mod tests {
         let dispatcher = EventDispatcher::new(
             PartitionRouter::new(64),
             Arc::new(OffsetTracker::new()),
-            store.clone(),
+            test_handle(store),
             catalog,
             sink.clone(),
             merge.clone(),
@@ -1776,14 +1756,9 @@ mod tests {
         person: Uuid,
         lsk: LeafStateKey,
     ) -> Option<Stage1State> {
-        let key = Stage1Key {
-            partition_id,
-            team_id: TEAM as u64,
-            leaf_state_key: lsk,
-            person_id: person,
-        };
+        let key = BehavioralKey::new(partition_id, TEAM as u64, person, lsk);
         store
-            .get_stage1(&key)
+            .get_behavioral(&key)
             .unwrap()
             .map(|bytes| StatefulRecord::decode(&bytes).unwrap().state)
     }
@@ -1791,13 +1766,8 @@ mod tests {
     fn seed_slice(store: &CohortStore, partition: u16, lsk: LeafStateKey) {
         store
             .write_batch(|b| {
-                b.put_stage1(
-                    &Stage1Key {
-                        partition_id: partition,
-                        team_id: TEAM as u64,
-                        leaf_state_key: lsk,
-                        person_id: person(1),
-                    },
+                b.put::<Behavioral>(
+                    &BehavioralKey::new(partition, TEAM as u64, person(1), lsk),
                     b"state",
                 )
             })
@@ -1806,12 +1776,7 @@ mod tests {
 
     fn slice_present(store: &CohortStore, partition: u16, lsk: LeafStateKey) -> bool {
         store
-            .get_stage1(&Stage1Key {
-                partition_id: partition,
-                team_id: TEAM as u64,
-                leaf_state_key: lsk,
-                person_id: person(1),
-            })
+            .get_behavioral(&BehavioralKey::new(partition, TEAM as u64, person(1), lsk))
             .unwrap()
             .is_some()
     }
@@ -1827,7 +1792,9 @@ mod tests {
 
         // Boot snapshot includes 6 (reopen-live) but not 5 (post-boot move-in); partition_count 5
         // keeps the boot sweep off both 5 and 6.
-        dispatcher.reconcile_boot_assignment(&[6].into_iter().collect(), 5);
+        dispatcher
+            .reconcile_boot_assignment(&[6].into_iter().collect(), 5)
+            .await;
 
         dispatcher.reclaim_stale_slice(5);
         assert!(
@@ -1852,7 +1819,9 @@ mod tests {
 
         seed_slice(&store, 5, lsk);
         // Boot excludes 5 (a post-boot move-in); partition_count 5 keeps the boot sweep off 5.
-        dispatcher.reconcile_boot_assignment(&[6].into_iter().collect(), 5);
+        dispatcher
+            .reconcile_boot_assignment(&[6].into_iter().collect(), 5)
+            .await;
         dispatcher.assign_partition(5);
 
         dispatcher.ensure_worker(5);
@@ -1886,7 +1855,9 @@ mod tests {
         // Durable restore left off: ensure_worker must never reclaim — wipe-on-start handles staleness.
 
         seed_slice(&store, 5, lsk);
-        dispatcher.reconcile_boot_assignment(&[6].into_iter().collect(), 5);
+        dispatcher
+            .reconcile_boot_assignment(&[6].into_iter().collect(), 5)
+            .await;
         dispatcher.assign_partition(5);
 
         dispatcher.ensure_worker(5);
@@ -1928,7 +1899,9 @@ mod tests {
         }
 
         let assignment: HashSet<i32> = [0, 2].into_iter().collect();
-        dispatcher.reclaim_unassigned_partitions_on_boot(&assignment, 3);
+        dispatcher
+            .reclaim_unassigned_partitions_on_boot(&assignment, 3)
+            .await;
 
         assert!(
             slice_present(&store, 0, lsk),
@@ -2061,7 +2034,7 @@ mod tests {
         EventDispatcher::new(
             PartitionRouter::new(buffer),
             Arc::new(OffsetTracker::new()),
-            store.clone(),
+            test_handle(store),
             catalog,
             sink,
             MergeWorkerDeps::capture(),
@@ -2080,7 +2053,7 @@ mod tests {
         EventDispatcher::new(
             PartitionRouter::with_intake_cap(buffer, cap),
             Arc::new(OffsetTracker::new()),
-            store.clone(),
+            test_handle(store),
             catalog,
             sink,
             MergeWorkerDeps::capture(),
@@ -2787,6 +2760,8 @@ mod tests {
             source_offset: source.1,
             leaves,
             forward_hops: 0,
+
+            person_dedup: None,
         }
     }
 
@@ -2988,7 +2963,7 @@ mod tests {
         let dispatcher_b = EventDispatcher::new(
             PartitionRouter::new(64),
             Arc::new(OffsetTracker::new()),
-            store.clone(),
+            test_handle(&store),
             catalog,
             Arc::new(CaptureSink::new()),
             merge.clone(),
@@ -3154,7 +3129,7 @@ mod tests {
         let dispatcher_b = EventDispatcher::new(
             PartitionRouter::new(64),
             Arc::new(OffsetTracker::new()),
-            store.clone(),
+            test_handle(&store),
             catalog.clone(),
             Arc::new(CaptureSink::new()),
             merge.clone(),
@@ -3179,7 +3154,7 @@ mod tests {
         let dispatcher_c = EventDispatcher::new(
             PartitionRouter::new(64),
             Arc::new(OffsetTracker::new()),
-            store.clone(),
+            test_handle(&store),
             catalog,
             Arc::new(apply_sink.clone()),
             merge.clone(),
@@ -3454,23 +3429,10 @@ mod tests {
         let partition = partition_of(TeamId(TEAM), &p_new, COHORT_PARTITION_COUNT) as i32;
         let p_old = person(1);
         let lsk = LeafStateKey([0xAB; 16]);
-        let p_old_key = Stage1Key {
-            partition_id: partition as u16,
-            team_id: TEAM as u64,
-            leaf_state_key: lsk,
-            person_id: p_old,
-        };
+        let p_old_key = BehavioralKey::new(partition as u16, TEAM as u64, p_old, lsk);
         store
             .write_batch(|batch| {
-                batch.put_stage1(&p_old_key, &behavioral_match_record().encode());
-                batch.merge_person_index(
-                    &crate::store::PersonIndexKey {
-                        partition_id: partition as u16,
-                        team_id: TEAM as u64,
-                        person_id: p_old,
-                    },
-                    crate::store::IndexOp::Append(lsk),
-                );
+                batch.put::<Behavioral>(&p_old_key, &behavioral_match_record().encode());
             })
             .unwrap();
 
@@ -3502,7 +3464,7 @@ mod tests {
             .unwrap()
             .is_some(),);
         assert!(
-            store.get_stage1(&p_old_key).unwrap().is_none(),
+            store.get_behavioral(&p_old_key).unwrap().is_none(),
             "P_old's state was deleted",
         );
         assert!(sink.changes().is_empty(), "drifted leaves emit nothing");
@@ -3557,12 +3519,7 @@ mod tests {
         );
         assert!(
             store
-                .get_stage1(&Stage1Key {
-                    partition_id: 0,
-                    team_id: TEAM as u64,
-                    leaf_state_key: lsk,
-                    person_id: p_new,
-                })
+                .get_behavioral(&BehavioralKey::new(0, TEAM as u64, p_new, lsk))
                 .unwrap()
                 .is_none(),
             "the drifted leaf wrote no state",

@@ -51,6 +51,17 @@ def get_extraction_duration_metric(team_id: int, source_id: str, status: str) ->
     )
 
 
+def get_tick_skipped_metric(team_id: int, source_id: str, stuck: bool) -> MetricCounter:
+    return (
+        _meter()
+        .with_additional_attributes({"team_id": str(team_id), "source_id": source_id, "stuck": str(stuck).lower()})
+        .create_counter(
+            "cdc_ticks_skipped_pending_load_total",
+            "Total extraction ticks skipped because a previous run's batches are still loading",
+        )
+    )
+
+
 def get_slot_advance_metric(team_id: int, source_id: str) -> MetricCounter:
     return _source_meter(team_id, source_id).create_counter("cdc_slot_advance_total", "Total replication slot advances")
 

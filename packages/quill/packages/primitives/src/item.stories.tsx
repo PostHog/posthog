@@ -84,10 +84,51 @@ export const Pressable: Story = {
     ),
 } satisfies Story
 
+// Semantic `tone` is orthogonal to `variant` — here paired with `pressable`
+// (the right way to build a clickable, link-like row). Each renders as an <a>.
+export const Tones: Story = {
+    render: () => {
+        const tones = [
+            { tone: undefined, title: 'Default', description: 'Neutral pressable row' },
+            { tone: 'info' as const, title: 'Info', description: 'Informational status' },
+            { tone: 'success' as const, title: 'Success', description: 'Completed successfully' },
+            { tone: 'warning' as const, title: 'Warning', description: 'Needs attention' },
+            { tone: 'completed' as const, title: 'Completed', description: 'Merged / terminal state' },
+            { tone: 'destructive' as const, title: 'Destructive', description: 'Failed or removed' },
+        ]
+        return (
+            <ItemGroup className="max-w-md">
+                {tones.map(({ tone, title, description }) => (
+                    <Item
+                        key={title}
+                        variant="pressable"
+                        tone={tone}
+                        render={
+                            // eslint-disable-next-line react/forbid-elements
+                            <a href="#">
+                                <ItemMedia variant="icon">
+                                    <BadgeCheckIcon className="size-5" />
+                                </ItemMedia>
+                                <ItemContent>
+                                    <ItemTitle>{title}</ItemTitle>
+                                    <ItemDescription>{description}</ItemDescription>
+                                </ItemContent>
+                                <ItemActions>
+                                    <ChevronRightIcon className="size-4" />
+                                </ItemActions>
+                            </a>
+                        }
+                    />
+                ))}
+            </ItemGroup>
+        )
+    },
+} satisfies Story
+
 export const Group: Story = {
     render: () => (
         <ItemGroup>
-            <ItemGroup>
+            <ItemGroup combined>
                 <Item variant="outline">
                     <ItemContent>
                         <ItemTitle>Basic Item</ItemTitle>
@@ -168,7 +209,7 @@ export const DropdownInItem: Story = {
         const [open, setOpen] = useState(true)
 
         return (
-            <Item variant="outline" className="max-w-sm">
+            <Item variant="outline" className="max-w-md">
                 <ItemContent>
                     <ItemTitle>Basic Item</ItemTitle>
                     <ItemDescription>A simple item with title and description.</ItemDescription>
@@ -218,7 +259,7 @@ export const DropdownCheckboxesInItem: Story = {
             setChecked((prev) => ({ ...prev, [username]: !prev[username] }))
         }
         return (
-            <Item variant="outline" className="max-w-sm">
+            <Item variant="outline" className="max-w-md">
                 <ItemContent>
                     <ItemTitle>Basic Item</ItemTitle>
                     <ItemDescription>A simple item with title and description.</ItemDescription>
@@ -270,7 +311,7 @@ export const DropdownCheckboxesInItemWithSelectAll: Story = {
         }
 
         return (
-            <Item variant="outline" className="max-w-sm">
+            <Item variant="outline" className="max-w-md">
                 <ItemContent>
                     <ItemTitle>Basic Item</ItemTitle>
                     <ItemDescription>
@@ -323,7 +364,7 @@ export const DropdownRadiosInItem: Story = {
         const [radioValue, setRadioValue] = useState('John Doe')
 
         return (
-            <Item variant="outline" className="max-w-sm">
+            <Item variant="outline" className="max-w-md">
                 <ItemContent>
                     <ItemTitle>Basic Item</ItemTitle>
                     <ItemDescription>A simple item with title and description.</ItemDescription>
@@ -365,7 +406,7 @@ export const SelectInItem: Story = {
         const [open, setOpen] = useState(true)
 
         return (
-            <Item variant="outline" className="max-w-sm mt-32">
+            <Item variant="outline" className="max-w-md mt-32">
                 <ItemContent>
                     <ItemTitle>Basic Item</ItemTitle>
                     <ItemDescription>A simple item with title and description.</ItemDescription>
@@ -412,7 +453,7 @@ export const ComboboxInItem: Story = {
         const [open, setOpen] = useState(true)
 
         return (
-            <Item variant="outline" className="max-w-sm mt-32">
+            <Item variant="outline" className="max-w-md mt-32">
                 <ItemContent>
                     <ItemTitle>Basic Item</ItemTitle>
                     <ItemDescription>A simple item with title and description.</ItemDescription>

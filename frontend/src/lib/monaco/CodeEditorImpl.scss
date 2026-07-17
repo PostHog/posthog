@@ -20,7 +20,10 @@
 // to overlap the button. Force a single-row layout so the tooltip stays
 // short and clear of the button. Scoped to when the find widget is open so
 // tooltips on other action bars are unaffected.
-body:has(.monaco-editor .find-widget.visible) .workbench-hover-container {
+// `.has-monaco-find-widget-open` is toggled on <body> by findWidgetBodyClass.ts and stands in
+// for `body:has(.monaco-editor .find-widget.visible)`. Do not reintroduce near-root `:has()`
+// anchors: they make any class change anywhere cost a full-document style recalc.
+body.has-monaco-find-widget-open .workbench-hover-container {
     pointer-events: none !important;
 
     &,

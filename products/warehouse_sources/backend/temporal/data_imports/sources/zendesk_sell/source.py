@@ -35,6 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZendeskSellSource(ResumableSource[ZendeskSellSourceConfig, ZendeskSellResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developer.zendesk.com/api-reference/sales-crm/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ZENDESKSELL
@@ -52,7 +56,6 @@ Create a personal access token under **Settings > Integrations > OAuth > Access 
             iconPath="/static/services/zendesk_sell.png",
             docsUrl="https://posthog.com/docs/cdp/sources/zendesk-sell",
             # Alpha: ships hidden until the end-to-end sync is verified against a live account.
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

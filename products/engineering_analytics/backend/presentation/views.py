@@ -7,29 +7,39 @@ contract. These same endpoints back both the MCP tools and the UI:
 - ``ci_cards`` — backlog headline counts.
 - ``pull_requests`` — PR list with head-SHA CI rollup.
 - ``workflow_health`` — per-workflow CI health over a window.
+- ``current_branch_health`` — complete current default-branch CI verdict.
 - ``pr_lifecycle`` — a single PR's header plus its ordered CI timeline.
 - ``quarantine`` — the repo's checked-in flaky-test quarantine file.
 """
 
+from datetime import datetime
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import (
+    FLAKY_TEST_SIGNAL_CAVEAT,
     GitHubSourceNotConnectedError,
     QuarantineRequest,
     QuarantineWriteError,
+    WorkflowHealthRunScope,
 )
 from products.engineering_analytics.backend.presentation.serializers import (
+    BranchPRMatchSerializer,
+    BrokenTestsResultSerializer,
     CICardSummarySerializer,
     CIFailureLogsSerializer,
+    CurrentBranchHealthSerializer,
+    FlakyTestListSerializer,
     GitHubSourceSerializer,
     MasterFailureGroupSerializer,
     PRCostSummarySerializer,
@@ -40,6 +50,9 @@ from products.engineering_analytics.backend.presentation.serializers import (
     QuarantineRequestSerializer,
     RepoOverviewSerializer,
     RunFailureLogsSerializer,
+    TeamCIActivitySerializer,
+    TeamCIHealthListSerializer,
+    TeamMergeTrendSerializer,
     WorkflowCostSerializer,
     WorkflowHealthItemSerializer,
     WorkflowJobAggregateSerializer,
@@ -86,6 +99,17 @@ _BRANCH = OpenApiParameter(
     "Omit or leave blank to aggregate across all branches.",
 )
 
+_RUN_SCOPE = OpenApiParameter(
+    name="run_scope",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    enum=[scope.value for scope in WorkflowHealthRunScope],
+    description="Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs "
+    "attributed to pull requests, excluding default-branch (master/main) runs. Fork PRs carry no PR attribution "
+    "(a GitHub limitation), so 'pull_request' covers same-repo PRs only. Any other value is a 400.",
+)
+
 _SOURCE_ID = OpenApiParameter(
     name="source_id",
     type=OpenApiTypes.UUID,
@@ -122,17 +146,45 @@ def _optional_int_param(request: Request, name: str) -> int | None:
         raise ValueError(f"{name} must be an integer") from None
 
 
+def _optional_datetime_param(request: Request, name: str) -> datetime | None:
+    """Optional ISO8601 datetime query param; None when absent/blank, ValueError when present but unparseable."""
+    raw = request.query_params.get(name)
+    if not raw:
+        return None
+    try:
+        return serializers.DateTimeField().to_internal_value(raw)
+    except serializers.ValidationError:
+        raise ValueError(f"{name} must be an ISO8601 datetime") from None
+
+
+def _bool_param(request: Request, name: str, *, default: bool) -> bool:
+    """Optional boolean query param; the default when absent/blank, ValueError when present but not true/false."""
+    raw = request.query_params.get(name)
+    if not raw:
+        return default
+    lowered = raw.lower()
+    if lowered in ("true", "1"):
+        return True
+    if lowered in ("false", "0"):
+        return False
+    raise ValueError(f"{name} must be true or false")
+
+
 @extend_schema(tags=[ENGINEERING_ANALYTICS_TAG])
 class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """PR and CI lifecycle analytics over the GitHub warehouse data."""
 
     scope_object = "engineering_analytics"
+    # Same rollout flag as the UI scene and the MCP tools, so the product is gated end to end.
+    permission_classes = [PostHogFeatureFlagPermission]
+    posthog_feature_flag = "engineering-analytics"
     scope_object_read_actions = [
         "sources",
         "ci_cards",
         "pull_requests",
         "workflow_health",
         "pr_lifecycle",
+        "resolve_branch",
         "quarantine",
         "pr_runs",
         "ci_failure_logs",
@@ -143,7 +195,11 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         "workflow_runner_costs",
         "author_workflow_costs",
         "workflow_jobs",
+        "flaky_tests",
+        "broken_tests",
         "repo_overview",
+        "repo_run_activity",
+        "current_branch_health",
         "master_failures",
         "run_failure_logs",
         "job_aggregates",
@@ -240,19 +296,20 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     @extend_schema(
         operation_id="engineering_analytics_workflow_health",
-        parameters=[_WORKFLOW_DATE_FROM, _DATE_TO, _BRANCH, _SOURCE_ID],
+        parameters=[_WORKFLOW_DATE_FROM, _DATE_TO, _BRANCH, _RUN_SCOPE, _SOURCE_ID],
         responses={
             200: WorkflowHealthItemSerializer(many=True),
             400: OpenApiResponse(
-                description="Invalid date_from, date_to, or source_id, or a window longer than 366 days."
+                description="Invalid date_from, date_to, run_scope, or source_id, or a window longer than 366 days."
             ),
         },
         description=(
             "Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success "
-            "rate, p50/p95 duration over completed runs, last failure time, latest-run status, and a zero-filled "
-            "run history bucketed by hour/day/week to fit the window. Optionally scope to a single git branch via "
-            "`branch`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two "
-            "windows to get a trend."
+            "rate, p50/p95 duration, last failure time, latest-run status, and a zero-filled run history bucketed "
+            "by hour/day/week to fit the window. p50/p95 are over successful runs only, so cancelled (superseded) "
+            "and failed runs never bias the duration trend. Optionally scope to a single git branch via `branch`, "
+            "or to attributed pull-request runs via `run_scope=pull_request`. Use this for 'is CI getting slower' "
+            "and 'which workflow is the long pole'; compare two windows to get a trend."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -263,6 +320,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
                 branch=request.query_params.get("branch") or None,
+                run_scope=request.query_params.get("run_scope") or None,
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
             )
@@ -319,6 +377,64 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         if result is None:
             return Response({"detail": "Pull request not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(PRLifecycleSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_resolve_branch",
+        parameters=[
+            OpenApiParameter(
+                name="branch",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Git branch (the PR's head ref) to resolve. Open PRs are returned first, then most "
+                "recently updated.",
+            ),
+            OpenApiParameter(
+                name="repo",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Optional 'owner/name' repository to narrow matching to a single repo.",
+            ),
+            OpenApiParameter(
+                name="timestamp",
+                type=OpenApiTypes.DATETIME,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Optional ISO8601 timestamp, e.g. the trace's capture time. When a branch name has been "
+                "reused across PRs over time, the PR whose lifetime window contains this moment is ranked first so the "
+                "result matches the PR that was active when the trace was captured. A preference only, not a filter; "
+                "omit to rank purely by open state then recency.",
+            ),
+            _SOURCE_ID,
+        ],
+        responses={
+            200: BranchPRMatchSerializer(many=True),
+            400: OpenApiResponse(description="Branch missing/empty, or invalid repo/timestamp/source_id."),
+        },
+        description=(
+            "Resolve a git branch to the pull request(s) it belongs to — the cross-product link seam so another "
+            "product (the LLM analytics UI) can turn a git branch into a PR detail link. Matches the PR's head ref, "
+            "open PRs first then most recently updated. Pass `timestamp` (the trace's capture time) to prefer the PR "
+            "that was active at that moment when a branch name has been reused across PRs. `branch` is required. "
+            "Returns a possibly-empty, possibly-multi list — an empty list is a valid 200 (the caller renders a plain "
+            "chip)."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def resolve_branch(self, request: Request, **kwargs) -> Response:
+        try:
+            matches = api.resolve_branch(
+                team=self.team,
+                branch=request.query_params.get("branch") or None,
+                repo=request.query_params.get("repo") or None,
+                timestamp=_optional_datetime_param(request, "timestamp"),
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Provide a branch")
+        return Response(BranchPRMatchSerializer(instance=matches, many=True).data)
 
     @extend_schema(
         operation_id="engineering_analytics_pr_runs",
@@ -444,7 +560,8 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             "Estimated CI cost for a pull request, summed over the jobs of all its workflow runs. "
             "Billable self-hosted Linux runners only — provider-hosted (free GitHub-hosted) and non-Linux "
             "jobs are excluded. Every figure is zero/null with `jobs_available` false when the job-level "
-            "source isn't synced yet."
+            "source isn't synced yet. `llm_spend` carries the agent LLM token spend attributed to the PR "
+            "by git branch, or null when no `$ai_generation` event matched."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -752,18 +869,310 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         return Response(WorkflowJobSerializer(instance=jobs, many=True).data)
 
     @extend_schema(
+        operation_id="engineering_analytics_flaky_tests",
+        parameters=[
+            OpenApiParameter(
+                name="date_from",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Window start: relative ('-7d', '-30d') or ISO8601. Defaults to -7d; the window "
+                "may span at most 30 days.",
+            ),
+            _DATE_TO,
+            OpenApiParameter(
+                name="min_rerun_passes",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="A test qualifies once it passed on retry at least this many times in the window "
+                "(OR-ed with min_failed_prs). Minimum 1. Defaults to 1.",
+            ),
+            OpenApiParameter(
+                name="min_failed_prs",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="A test qualifies once it failed on at least this many distinct pull requests in "
+                "the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.",
+            ),
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Maximum number of tests to return (1-200). Defaults to 50.",
+            ),
+            _SOURCE_ID,
+        ],
+        responses={
+            200: FlakyTestListSerializer,
+            400: OpenApiResponse(
+                description="Invalid date, threshold, limit, or source_id, or a window longer than 30 days."
+            ),
+        },
+        description=(
+            "The flaky-test leaderboard: backend tests ranked by flakiness signal from the per-test CI spans, "
+            "over a window (default -7d, maximum 30 days). A test qualifies by passing on retry at least "
+            "min_rerun_passes times OR failing on at least min_failed_prs distinct PRs. " + FLAKY_TEST_SIGNAL_CAVEAT
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def flaky_tests(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.list_flaky_tests(
+                team=self.team,
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                min_rerun_passes=_optional_int_param(request, "min_rerun_passes"),
+                min_failed_prs=_optional_int_param(request, "min_failed_prs"),
+                limit=_optional_int_param(request, "limit"),
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid date, threshold, limit, or source_id")
+        return Response(FlakyTestListSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_team_ci_health",
+        parameters=[
+            OpenApiParameter(
+                name="date_from",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window "
+                "may span at most 30 days. An equal-length prior window is scanned for the *_prior twins; "
+                "near the 30-day ceiling that prior window can reach past Traces retention, deflating "
+                "*_prior counts and overstating deltas.",
+            ),
+            _DATE_TO,
+            OpenApiParameter(
+                name="min_rerun_passes",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="A test counts as flaky once it passed on retry at least this many times in the "
+                "window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.",
+            ),
+            OpenApiParameter(
+                name="min_failed_prs",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="A test counts as flaky once it failed on at least this many distinct pull "
+                "requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.",
+            ),
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Maximum number of teams to return (1-200). Defaults to 100.",
+            ),
+            _SOURCE_ID,
+        ],
+        responses={
+            200: TeamCIHealthListSerializer,
+            400: OpenApiResponse(
+                description="Invalid date, threshold, limit, or source_id, or a window longer than 30 days."
+            ),
+        },
+        description=(
+            "Per-owning-team rollup of the CI test surfaces each team owns: flaky-test count, failure and "
+            "pass-on-retry span counts, each with an equal-length previous-window twin for honest deltas. "
+            "Ownership is stamped on the spans at CI emission time from the repo's ownership map "
+            "(products/*/product.yaml + CODEOWNERS); unstamped spans aggregate under the literal team "
+            "'unowned'. Teams are organizational owners of code surfaces, never authors. " + FLAKY_TEST_SIGNAL_CAVEAT
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def team_ci_health(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.list_team_ci_health(
+                team=self.team,
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                min_rerun_passes=_optional_int_param(request, "min_rerun_passes"),
+                min_failed_prs=_optional_int_param(request, "min_failed_prs"),
+                limit=_optional_int_param(request, "limit"),
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid date, threshold, limit, or source_id")
+        return Response(TeamCIHealthListSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_team_ci_activity",
+        parameters=[
+            OpenApiParameter(
+                name="owner_team",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Owning team slug to scope to (as returned by team_ci_health), e.g. 'team-replay', "
+                "or the literal 'unowned' for tests with no ownership stamp.",
+            ),
+            OpenApiParameter(
+                name="date_from",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window "
+                "may span at most 30 days. An equal-length prior window feeds the *_prior twins; near the "
+                "30-day ceiling that prior window can reach past Traces retention, deflating *_prior counts.",
+            ),
+            _DATE_TO,
+            OpenApiParameter(
+                name="test_limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Maximum number of per-test signal rows to return (1-100). Defaults to 25.",
+            ),
+            _SOURCE_ID,
+        ],
+        responses={
+            200: TeamCIActivitySerializer,
+            400: OpenApiResponse(
+                description="Missing owner_team, invalid date, test_limit, or source_id, or a window longer "
+                "than 30 days."
+            ),
+        },
+        description=(
+            "One owning team's CI test activity: per-test current-vs-prior signal pairs (the before/after "
+            "comparison) over the window and its equal-length prior twin. Signal = failed + error + "
+            "pass-on-retry spans on the team's owned tests. " + FLAKY_TEST_SIGNAL_CAVEAT
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def team_ci_activity(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.get_team_ci_activity(
+                team=self.team,
+                owner_team=request.query_params.get("owner_team") or "",
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                test_limit=_optional_int_param(request, "test_limit"),
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid owner_team, date, test_limit, or source_id")
+        return Response(TeamCIActivitySerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_team_merge_trend",
+        parameters=[
+            OpenApiParameter(
+                name="owner_team",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Team slug to scope to (as returned by team_ci_health), matched against the "
+                "GitHub org team slug of the source's team_members snapshot. The literal 'unowned' names "
+                "an ownership gap, not an org team, and has no merge trend.",
+            ),
+            OpenApiParameter(
+                name="date_from",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window "
+                "may span at most 30 days.",
+            ),
+            _DATE_TO,
+            _SOURCE_ID,
+        ],
+        responses={
+            200: TeamMergeTrendSerializer,
+            400: OpenApiResponse(
+                description="Missing owner_team, invalid date or source_id, or a window longer than 30 days."
+            ),
+        },
+        description=(
+            "One team's daily time-to-merge trend: the median and average open→merge seconds over the PRs "
+            "the team's members merged each day (PR author login → GitHub org team membership). Team-level "
+            "aggregates only, never per-member figures or cross-team rankings. Timing is the coarse "
+            "open→merge (draft + review time combined); bots are excluded. Requires the GitHub source's "
+            "team_members snapshot; has_membership_data is false without it."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def team_merge_trend(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.get_team_merge_trend(
+                team=self.team,
+                owner_team=request.query_params.get("owner_team") or "",
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid owner_team, date, or source_id")
+        return Response(TeamMergeTrendSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_broken_tests",
+        parameters=[_SOURCE_ID],
+        responses={
+            200: BrokenTestsResultSerializer,
+            400: OpenApiResponse(description="Invalid source_id."),
+        },
+        description=(
+            "The broken-tests triage panel: live CI failures over the last 2 days grouped into distinct "
+            "failures (by test id + normalized error signature) and classified by how each is behaving right "
+            "now — breaking trunk, a new failure spreading across branches, probably-resolved, flaky, or one "
+            "PR's own problem — ranked with the most urgent first. Also returns breaking_master_jobs, the "
+            "default-branch jobs whose latest run is red. Reach for this to answer 'what CI failures should I "
+            "care about right now'; expand a row's latest_run_id via run_failure_logs for the failing lines. "
+            "Fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and "
+            "the breaking/resolved distinction needs the job-level source synced — without it those failures "
+            "fall through to flaky/pr_only rather than being misreported."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def broken_tests(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.get_broken_tests(
+                team=self.team,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid source_id")
+        return Response(BrokenTestsResultSerializer(instance=result).data)
+
+    @extend_schema(
         operation_id="engineering_analytics_repo_overview",
-        parameters=[_DATE_FROM, _DATE_TO, _SOURCE_ID],
+        parameters=[
+            _DATE_FROM,
+            _DATE_TO,
+            OpenApiParameter(
+                name="include_series",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Set false to skip the chart series (cost_series, time_to_green_series, "
+                "success_rate_series, open_to_merge_series return empty) and their query cost — for "
+                "headline-only consumers like the weekly digest. Defaults to true.",
+            ),
+            _SOURCE_ID,
+        ],
         responses={
             200: RepoOverviewSerializer,
             400: OpenApiResponse(description="Invalid date_from, date_to, or source_id, or a window over 366 days."),
         },
         description=(
             "Repo-level headline aggregates over a window (default -30d): run count, success rate, re-run "
-            "cycles, median PR open-to-merge (bots and drafts excluded; coarse — draft and ready time fused), "
-            "and billable minutes + estimated cost — each with its equal-length previous-window twin so a "
-            "caller can render honest deltas. Also carries the detected default branch and its completed-run "
-            "history series. Cost figures are null until the job-level source is synced."
+            "cycles, merged-PR count (bots included), median PR open-to-merge (bots and drafts excluded; "
+            "coarse — draft and ready time fused), and billable minutes + estimated cost — each with its "
+            "equal-length previous-window twin so a caller can render honest deltas. Also carries the "
+            "detected default branch and its completed-run history series (skippable via include_series=false). "
+            "Cost figures are null until the job-level source is synced."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -773,12 +1182,84 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 team=self.team,
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
+                include_series=_bool_param(request, "include_series", default=True),
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid date_from, date_to, include_series, or source_id")
+        return Response(RepoOverviewSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_current_branch_health",
+        parameters=[_SOURCE_ID],
+        responses={
+            200: CurrentBranchHealthSerializer,
+            400: OpenApiResponse(description="Invalid source_id."),
+        },
+        description=(
+            "Current default-branch CI verdict over the fixed last-24-hours window. Counts every workflow whose "
+            "latest completed run failed or timed out; failing workflow names are a bounded preview. The default "
+            "branch is detected from the same window, independently of analytics date filters."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def current_branch_health(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.get_current_branch_health(
+                team=self.team,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid source_id")
+        return Response(CurrentBranchHealthSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_repo_run_activity",
+        parameters=[
+            _DATE_FROM,
+            _DATE_TO,
+            # This endpoint never aggregates across branches, so the shared _BRANCH "omit to aggregate"
+            # wording would misdescribe the omit behavior in every generated client.
+            OpenApiParameter(
+                name="branch",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Optional exact git branch (head_branch) to chart, e.g. 'main'. "
+                "Omit or leave blank to use the repo's detected default branch.",
+            ),
+            _SOURCE_ID,
+        ],
+        responses={
+            200: WorkflowRunActivitySerializer,
+            400: OpenApiResponse(description="Invalid date_from, date_to, or source_id, or a window over 366 days."),
+        },
+        description=(
+            "Default-branch health as compact chart points over a window (default -30d), newest first, for the "
+            "repo-hub run-activity chart. All of a commit's workflow runs are collapsed into ONE point per commit "
+            "(head SHA): its earliest workflow start, wall-clock duration until the last workflow settled (null "
+            "while any is still running), and an overall conclusion that is 'failure' if any workflow decisively "
+            "failed, else 'success' when at least one passed, else 'neutral'. `branch` overrides the detected "
+            "default branch. `truncated` is true when more commits matched than the cap, so the chart covers only "
+            "the most recent commits."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def repo_run_activity(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.get_repo_run_activity(
+                team=self.team,
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                branch=request.query_params.get("branch") or None,
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid date_from, date_to, or source_id")
-        return Response(RepoOverviewSerializer(instance=result).data)
+        return Response(WorkflowRunActivitySerializer(instance=result).data)
 
     @extend_schema(
         operation_id="engineering_analytics_master_failures",

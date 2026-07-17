@@ -44,6 +44,7 @@ from posthog.models.person.sql import (
 )
 from posthog.models.property import Property, PropertyGroup
 from posthog.schema_enums import PersonsOnEventsMode, ProductKey
+from posthog.schema_migrations.upgrade import upgrade
 
 from products.actions.backend.models.action import Action
 from products.actions.backend.models.util import format_action_filter
@@ -328,7 +329,8 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
     if not cohort.query:
         raise ValueError("Cohort has no query")
 
-    query_dict = _sanitize_query_for_cohort(cast(dict, cohort.query))
+    # The stored query (and any insight query nested in its source) may predate the current schema
+    query_dict = upgrade(_sanitize_query_for_cohort(cast(dict, cohort.query)))
 
     query = get_query_runner(query_dict, team=team, limit_context=LimitContext.COHORT_CALCULATION).to_query()
 
@@ -612,7 +614,7 @@ def _cohort_calculation_modifiers() -> HogQLQueryModifiers:
 
 def format_filter_query(cohort: Cohort, index: int) -> tuple[str, dict[str, Any]]:
     distinct_ids_sql, params = _cohort_distinct_ids_sql(cohort, index, team=cohort.team)
-    # The leading `SELECT distinct_id` is load-bearing: breakdown_props rewrites it via string replace.
+    # Callers embed this in `distinct_id IN (...)`, so it must select exactly distinct_id.
     return f"SELECT distinct_id FROM ({distinct_ids_sql})", params
 
 
@@ -1349,7 +1351,9 @@ def delete_cohort_member(team_id: int, cohort_id: int, person_id: int) -> bool:
 _DELETE_BULK_MAX_ITERATIONS = 10_000
 
 
-def _delete_cohort_members_bulk_via_personhog(cohort_ids: list[int], batch_size: int) -> int:
+def _delete_cohort_members_bulk_via_personhog(
+    cohort_ids: list[int], batch_size: int, timeout: float | None = None
+) -> int:
     from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.proto import DeleteCohortMembersBulkRequest
 
@@ -1360,7 +1364,8 @@ def _delete_cohort_members_bulk_via_personhog(cohort_ids: list[int], batch_size:
     total_deleted = 0
     for _ in range(_DELETE_BULK_MAX_ITERATIONS):
         resp = client.delete_cohort_members_bulk(
-            DeleteCohortMembersBulkRequest(cohort_ids=cohort_ids, batch_size=batch_size)
+            DeleteCohortMembersBulkRequest(cohort_ids=cohort_ids, batch_size=batch_size),
+            timeout=timeout,
         )
         total_deleted += resp.deleted_count
         if resp.deleted_count < batch_size:
@@ -1375,7 +1380,9 @@ def _delete_cohort_members_bulk_via_personhog(cohort_ids: list[int], batch_size:
     return total_deleted
 
 
-def delete_cohort_members_bulk(team_id: int, cohort_ids: list[int], batch_size: int = 10_000) -> int:
+def delete_cohort_members_bulk(
+    team_id: int, cohort_ids: list[int], batch_size: int = 10_000, timeout: float | None = None
+) -> int:
     """Delete all cohort membership rows for the given cohort IDs via personhog.
 
     Returns the total number of deleted rows.
@@ -1387,7 +1394,7 @@ def delete_cohort_members_bulk(team_id: int, cohort_ids: list[int], batch_size: 
 
     return personhog_call(
         "delete_cohort_members_bulk",
-        lambda: _delete_cohort_members_bulk_via_personhog(cohort_ids, batch_size),
+        lambda: _delete_cohort_members_bulk_via_personhog(cohort_ids, batch_size, timeout),
     )
 
 

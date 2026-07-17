@@ -4,11 +4,8 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
-import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep/wizardActiveSessionDetectorLogic'
-import {
-    activeCloudRunLogic,
-    type CloudRunHandle,
-} from 'scenes/onboarding/self-driving/sdks/OnboardingInstallStep/activeCloudRunLogic'
+import { activeCloudRunLogic, type CloudRunHandle } from 'scenes/onboarding/shared/wizard-sync/activeCloudRunLogic'
+import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/shared/wizard-sync/wizardActiveSessionDetectorLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 

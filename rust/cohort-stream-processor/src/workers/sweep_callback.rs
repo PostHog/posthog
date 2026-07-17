@@ -1,9 +1,10 @@
 //! Per-key time-driven eviction.
 //!
-//! [`sweep_evict`] is a pure read-and-compute pass: for each due key it reads the stored state,
-//! drops aged-out bucket(s), recomputes the predicate, and returns the membership transition, state
-//! mutation, and next eviction deadline --- but writes nothing. The worker orchestrates
-//! produce-before-write ordering so a produce failure can replay against still-un-evicted state.
+//! [`sweep_evict`] is a pure compute pass over states the caller has already read: for each due key
+//! it drops aged-out bucket(s), recomputes the predicate, and returns the membership transition,
+//! state mutation, and next eviction deadline --- reading and writing nothing. The worker prefetches
+//! the states, orders produce before write (so a produce failure can replay against still-un-evicted
+//! state), and applies the resulting writes.
 
 use chrono_tz::Tz;
 use metrics::counter;
@@ -16,11 +17,10 @@ use crate::observability::metrics::{
 use crate::stage1::bucket_tz::{daily_bucket_len, day_idx_in_tz};
 use crate::stage1::compressed_history;
 use crate::stage1::daily::{daily_eviction_deadline, slide_window_forward};
-use crate::stage1::key::Stage1Key;
 use crate::stage1::predicate::{compressed_predicate, daily_predicate, predicate};
 use crate::stage1::state::{Stage1State, StateVariant, StatefulRecord};
 use crate::stage1::transition::{LeafTransition, TransitionKind};
-use crate::store::{CohortStore, StoreError};
+use crate::store::BehavioralKey;
 
 /// The state mutation an eviction implies.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,7 +34,7 @@ pub(crate) enum EvictionAction {
 /// The outcome of evicting one key: optional transition, state mutation, and next deadline.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EvictionResult {
-    pub key: Stage1Key,
+    pub key: BehavioralKey,
     pub variant: StateVariant,
     pub transition: Option<LeafTransition>,
     pub action: EvictionAction,
@@ -72,20 +72,22 @@ pub(crate) struct SweepEvictions {
     pub drops: Vec<SweepDropReason>,
 }
 
-/// Compute the eviction for each due key against a team's frozen filters, **without writing**.
-/// All `due_keys` must belong to `filters`' team.
+/// Compute the eviction for each due key against a team's frozen filters. `values` is aligned with
+/// `due_keys` (same order and length, `None` for an absent key). All `due_keys` must belong to
+/// `filters`' team. Pure: no reads, no writes.
 pub(crate) fn sweep_evict(
     filters: &TeamFilters,
-    due_keys: &[Stage1Key],
-    store: &CohortStore,
+    due_keys: &[BehavioralKey],
+    values: Vec<Option<Vec<u8>>>,
     due_before_ms: i64,
-) -> Result<SweepEvictions, StoreError> {
+) -> SweepEvictions {
     let mut out = SweepEvictions {
         results: Vec::with_capacity(due_keys.len()),
         drops: Vec::new(),
     };
-    for &key in due_keys {
-        let record = match store.get_stage1(&key)? {
+    // Alignment-safe zip: `multi_get_behavioral` preserves input order, `None` for absent keys.
+    for (&key, bytes) in due_keys.iter().zip(values) {
+        let record = match bytes {
             None => {
                 out.drops.push(SweepDropReason::MissingState);
                 continue;
@@ -99,7 +101,7 @@ pub(crate) fn sweep_evict(
                 }
             },
         };
-        let Some(meta) = filters.by_lsk.get(&key.leaf_state_key) else {
+        let Some(meta) = filters.by_lsk.get(&key.lsk()) else {
             out.drops.push(SweepDropReason::LeafDrift);
             continue;
         };
@@ -118,12 +120,12 @@ pub(crate) fn sweep_evict(
             Err(reason) => out.drops.push(reason),
         }
     }
-    Ok(out)
+    out
 }
 
 /// Evict a `performed_event` single: always deletes.
 fn evict_single(
-    key: Stage1Key,
+    key: BehavioralKey,
     meta: &LeafStateMeta,
     record: StatefulRecord,
 ) -> Result<EvictionResult, SweepDropReason> {
@@ -145,7 +147,7 @@ fn evict_single(
 /// Slide the daily window forward, recompute the predicate, and return the net membership flip.
 /// Rewrites while any bucket survives; deletes when every bucket drains.
 fn evict_daily(
-    key: Stage1Key,
+    key: BehavioralKey,
     meta: &LeafStateMeta,
     record: StatefulRecord,
     tz: Tz,
@@ -224,7 +226,7 @@ fn evict_daily(
 /// Slide the compressed window forward and return the net membership flip (sparse run-length
 /// analog of [`evict_daily`]).
 fn evict_compressed(
-    key: Stage1Key,
+    key: BehavioralKey,
     meta: &LeafStateMeta,
     record: StatefulRecord,
     tz: Tz,
@@ -296,11 +298,15 @@ fn evict_compressed(
     })
 }
 
-fn transition_for(key: Stage1Key, meta: &LeafStateMeta, kind: TransitionKind) -> LeafTransition {
+fn transition_for(
+    key: BehavioralKey,
+    meta: &LeafStateMeta,
+    kind: TransitionKind,
+) -> LeafTransition {
     LeafTransition {
-        team_id: TeamId(key.team_id as i32),
-        leaf_state_key: key.leaf_state_key,
-        person_id: key.person_id,
+        team_id: TeamId(key.team_id() as i32),
+        leaf_state_key: key.lsk(),
+        person_id: key.person_id(),
         condition_hash: meta.condition_hash,
         kind,
     }
@@ -311,7 +317,6 @@ mod tests {
     use super::*;
     use chrono_tz::UTC;
     use serde_json::{json, Value};
-    use tempfile::TempDir;
     use uuid::Uuid;
 
     use crate::filters::{CohortId, TeamFiltersBuilder, TeamId};
@@ -319,7 +324,6 @@ mod tests {
     use crate::stage1::key::LeafStateKey;
     use crate::stage1::state::AppliedOffsets;
     use crate::stage1::time::clickhouse_timestamp_to_millis;
-    use crate::store::StoreConfig;
 
     const TEAM: u64 = 7;
     const HASH: [u8; 16] = *b"0123456789abcdef";
@@ -328,16 +332,6 @@ mod tests {
     const WINDOW_DAYS: u32 = 7;
     const LEN: usize = WINDOW_DAYS as usize + 1;
     const COMPRESSED_WINDOW_DAYS: u32 = 365;
-
-    fn temp_store() -> (TempDir, CohortStore) {
-        let dir = TempDir::new().unwrap();
-        let store = CohortStore::open(&StoreConfig {
-            path: dir.path().join("db"),
-            ..StoreConfig::default()
-        })
-        .unwrap();
-        (dir, store)
-    }
 
     fn freeze(values: Vec<Value>) -> TeamFilters {
         let cohort = json!({ "properties": { "type": "AND", "values": values } });
@@ -385,20 +379,18 @@ mod tests {
         })
     }
 
-    fn key_for(filters: &TeamFilters, person: u128) -> Stage1Key {
-        Stage1Key {
-            partition_id: PARTITION,
-            team_id: TEAM,
-            leaf_state_key: filters.by_condition_to_lsk[&HASH][0],
-            person_id: Uuid::from_u128(person),
-        }
+    fn key_for(filters: &TeamFilters, person: u128) -> BehavioralKey {
+        BehavioralKey::new(
+            PARTITION,
+            TEAM,
+            Uuid::from_u128(person),
+            filters.by_condition_to_lsk[&HASH][0],
+        )
     }
 
-    fn write(store: &CohortStore, key: &Stage1Key, state: Stage1State) {
-        let record = StatefulRecord::new(state, AppliedOffsets::default());
-        store
-            .write_batch(|b| b.put_stage1(key, &record.encode()))
-            .unwrap();
+    /// `state` encoded as the worker's prefetch would hand it to `sweep_evict`.
+    fn encoded(state: Stage1State) -> Option<Vec<u8>> {
+        Some(StatefulRecord::new(state, AppliedOffsets::default()).encode())
     }
 
     fn day_of(ts: &str) -> i32 {
@@ -407,24 +399,17 @@ mod tests {
 
     #[test]
     fn single_eviction_emits_left_and_deletes() {
-        let (_dir, store) = temp_store();
         let filters = freeze(vec![single_leaf(7)]);
         let key = key_for(&filters, 1);
         let event_ms = clickhouse_timestamp_to_millis("2026-05-20 10:00:00.000000").unwrap();
         let deadline = event_ms + 7 * 86_400 * 1_000;
-        write(
-            &store,
-            &key,
-            Stage1State::BehavioralSingle {
-                has_match: true,
-                last_event_at_ms: event_ms,
-                earliest_eviction_at_ms: deadline,
-            },
-        );
+        let values = vec![encoded(Stage1State::BehavioralSingle {
+            has_match: true,
+            last_event_at_ms: event_ms,
+            earliest_eviction_at_ms: deadline,
+        })];
 
-        let results = sweep_evict(&filters, &[key], &store, deadline + 86_400_000)
-            .unwrap()
-            .results;
+        let results = sweep_evict(&filters, &[key], values, deadline + 86_400_000).results;
         assert_eq!(results.len(), 1);
         let result = &results[0];
         assert_eq!(result.variant, StateVariant::BehavioralSingle);
@@ -434,7 +419,7 @@ mod tests {
             transition.condition_hash, HASH,
             "condition_hash from the meta"
         );
-        assert_eq!(transition.person_id, key.person_id);
+        assert_eq!(transition.person_id, key.person_id());
         assert_eq!(transition.team_id, TeamId(TEAM as i32));
         assert_eq!(result.action, EvictionAction::Delete);
         assert_eq!(result.reschedule, None);
@@ -442,7 +427,6 @@ mod tests {
 
     #[test]
     fn daily_all_buckets_drain_emits_left_and_deletes() {
-        let (_dir, store) = temp_store();
         let filters = freeze(vec![daily_leaf(7, "gte", 3)]);
         let key = key_for(&filters, 1);
 
@@ -451,21 +435,15 @@ mod tests {
         buckets[LEN - 1] = 3;
         let window_start = day - WINDOW_DAYS as i32;
         let deadline = daily_eviction_deadline(&buckets, window_start, WINDOW_DAYS, UTC);
-        write(
-            &store,
-            &key,
-            Stage1State::BehavioralDailyBuckets {
-                buckets,
-                window_start_day: window_start,
-                last_event_at_ms: 1_700_000_000_000,
-                earliest_eviction_at_ms: deadline,
-            },
-        );
+        let values = vec![encoded(Stage1State::BehavioralDailyBuckets {
+            buckets,
+            window_start_day: window_start,
+            last_event_at_ms: 1_700_000_000_000,
+            earliest_eviction_at_ms: deadline,
+        })];
 
         let cutoff = start_of_day_ms_in_tz(day + WINDOW_DAYS as i32 + 1, UTC);
-        let results = sweep_evict(&filters, &[key], &store, cutoff)
-            .unwrap()
-            .results;
+        let results = sweep_evict(&filters, &[key], values, cutoff).results;
         assert_eq!(results.len(), 1);
         let result = &results[0];
         assert_eq!(
@@ -478,7 +456,6 @@ mod tests {
 
     #[test]
     fn daily_drops_oldest_bucket_keeps_member_and_reschedules_later() {
-        let (_dir, store) = temp_store();
         let filters = freeze(vec![daily_leaf(7, "gte", 1)]);
         let key = key_for(&filters, 1);
 
@@ -488,21 +465,15 @@ mod tests {
         buckets[0] = 1; // day window_start
         buckets[4] = 1; // day window_start + 4
         let deadline = daily_eviction_deadline(&buckets, window_start, WINDOW_DAYS, UTC);
-        write(
-            &store,
-            &key,
-            Stage1State::BehavioralDailyBuckets {
-                buckets,
-                window_start_day: window_start,
-                last_event_at_ms: 1_700_000_000_000,
-                earliest_eviction_at_ms: deadline,
-            },
-        );
+        let values = vec![encoded(Stage1State::BehavioralDailyBuckets {
+            buckets,
+            window_start_day: window_start,
+            last_event_at_ms: 1_700_000_000_000,
+            earliest_eviction_at_ms: deadline,
+        })];
 
         let cutoff = start_of_day_ms_in_tz(window_start + WINDOW_DAYS as i32 + 1, UTC);
-        let results = sweep_evict(&filters, &[key], &store, cutoff)
-            .unwrap()
-            .results;
+        let results = sweep_evict(&filters, &[key], values, cutoff).results;
         assert_eq!(results.len(), 1);
         let result = &results[0];
         assert!(result.transition.is_none(), "still ≥ 1 match → no Left");
@@ -529,7 +500,6 @@ mod tests {
 
     #[test]
     fn daily_eq_slide_into_range_emits_entered() {
-        let (_dir, store) = temp_store();
         let filters = freeze(vec![daily_leaf(7, "eq", 1)]);
         let key = key_for(&filters, 1);
 
@@ -539,21 +509,15 @@ mod tests {
         buckets[0] = 1;
         buckets[4] = 1;
         let deadline = daily_eviction_deadline(&buckets, window_start, WINDOW_DAYS, UTC);
-        write(
-            &store,
-            &key,
-            Stage1State::BehavioralDailyBuckets {
-                buckets,
-                window_start_day: window_start,
-                last_event_at_ms: 1_700_000_000_000,
-                earliest_eviction_at_ms: deadline,
-            },
-        );
+        let values = vec![encoded(Stage1State::BehavioralDailyBuckets {
+            buckets,
+            window_start_day: window_start,
+            last_event_at_ms: 1_700_000_000_000,
+            earliest_eviction_at_ms: deadline,
+        })];
 
         let cutoff = start_of_day_ms_in_tz(window_start + WINDOW_DAYS as i32 + 1, UTC);
-        let results = sweep_evict(&filters, &[key], &store, cutoff)
-            .unwrap()
-            .results;
+        let results = sweep_evict(&filters, &[key], values, cutoff).results;
         assert_eq!(results.len(), 1);
         let result = &results[0];
         assert_eq!(
@@ -577,7 +541,6 @@ mod tests {
 
     #[test]
     fn daily_lte_slide_into_range_emits_entered() {
-        let (_dir, store) = temp_store();
         let filters = freeze(vec![daily_leaf(7, "lte", 2)]);
         let key = key_for(&filters, 1);
 
@@ -587,21 +550,15 @@ mod tests {
         buckets[0] = 1;
         buckets[4] = 2;
         let deadline = daily_eviction_deadline(&buckets, window_start, WINDOW_DAYS, UTC);
-        write(
-            &store,
-            &key,
-            Stage1State::BehavioralDailyBuckets {
-                buckets,
-                window_start_day: window_start,
-                last_event_at_ms: 1_700_000_000_000,
-                earliest_eviction_at_ms: deadline,
-            },
-        );
+        let values = vec![encoded(Stage1State::BehavioralDailyBuckets {
+            buckets,
+            window_start_day: window_start,
+            last_event_at_ms: 1_700_000_000_000,
+            earliest_eviction_at_ms: deadline,
+        })];
 
         let cutoff = start_of_day_ms_in_tz(window_start + WINDOW_DAYS as i32 + 1, UTC);
-        let results = sweep_evict(&filters, &[key], &store, cutoff)
-            .unwrap()
-            .results;
+        let results = sweep_evict(&filters, &[key], values, cutoff).results;
         assert_eq!(results.len(), 1);
         let result = &results[0];
         assert_eq!(
@@ -619,7 +576,6 @@ mod tests {
 
     #[test]
     fn compressed_all_entries_drain_emits_left_and_deletes() {
-        let (_dir, store) = temp_store();
         let filters = freeze(vec![compressed_leaf(
             COMPRESSED_WINDOW_DAYS as i64,
             "gte",
@@ -632,21 +588,15 @@ mod tests {
         let window_start = day - COMPRESSED_WINDOW_DAYS as i32;
         let deadline =
             compressed_history::compressed_eviction_deadline(&entries, COMPRESSED_WINDOW_DAYS, UTC);
-        write(
-            &store,
-            &key,
-            Stage1State::BehavioralCompressedHistory {
-                entries,
-                window_start_day: window_start,
-                last_event_at_ms: 1_700_000_000_000,
-                earliest_eviction_at_ms: deadline,
-            },
-        );
+        let values = vec![encoded(Stage1State::BehavioralCompressedHistory {
+            entries,
+            window_start_day: window_start,
+            last_event_at_ms: 1_700_000_000_000,
+            earliest_eviction_at_ms: deadline,
+        })];
 
         let cutoff = start_of_day_ms_in_tz(day + COMPRESSED_WINDOW_DAYS as i32 + 1, UTC);
-        let results = sweep_evict(&filters, &[key], &store, cutoff)
-            .unwrap()
-            .results;
+        let results = sweep_evict(&filters, &[key], values, cutoff).results;
         assert_eq!(results.len(), 1);
         let result = &results[0];
         assert_eq!(result.variant, StateVariant::BehavioralCompressedHistory);
@@ -660,7 +610,6 @@ mod tests {
 
     #[test]
     fn compressed_drops_oldest_entry_keeps_member_and_reschedules_later() {
-        let (_dir, store) = temp_store();
         let filters = freeze(vec![compressed_leaf(
             COMPRESSED_WINDOW_DAYS as i64,
             "gte",
@@ -673,21 +622,15 @@ mod tests {
         let entries = vec![(window_start, 1u32), (window_start + 100, 1u32)];
         let deadline =
             compressed_history::compressed_eviction_deadline(&entries, COMPRESSED_WINDOW_DAYS, UTC);
-        write(
-            &store,
-            &key,
-            Stage1State::BehavioralCompressedHistory {
-                entries,
-                window_start_day: window_start,
-                last_event_at_ms: 1_700_000_000_000,
-                earliest_eviction_at_ms: deadline,
-            },
-        );
+        let values = vec![encoded(Stage1State::BehavioralCompressedHistory {
+            entries,
+            window_start_day: window_start,
+            last_event_at_ms: 1_700_000_000_000,
+            earliest_eviction_at_ms: deadline,
+        })];
 
         let cutoff = start_of_day_ms_in_tz(window_start + COMPRESSED_WINDOW_DAYS as i32 + 1, UTC);
-        let results = sweep_evict(&filters, &[key], &store, cutoff)
-            .unwrap()
-            .results;
+        let results = sweep_evict(&filters, &[key], values, cutoff).results;
         assert_eq!(results.len(), 1);
         let result = &results[0];
         assert!(result.transition.is_none(), "still ≥ 1 match → no Left");
@@ -714,7 +657,6 @@ mod tests {
 
     #[test]
     fn compressed_eq_slide_into_range_emits_entered() {
-        let (_dir, store) = temp_store();
         let filters = freeze(vec![compressed_leaf(
             COMPRESSED_WINDOW_DAYS as i64,
             "eq",
@@ -727,21 +669,15 @@ mod tests {
         let entries = vec![(window_start, 1u32), (window_start + 100, 1u32)];
         let deadline =
             compressed_history::compressed_eviction_deadline(&entries, COMPRESSED_WINDOW_DAYS, UTC);
-        write(
-            &store,
-            &key,
-            Stage1State::BehavioralCompressedHistory {
-                entries,
-                window_start_day: window_start,
-                last_event_at_ms: 1_700_000_000_000,
-                earliest_eviction_at_ms: deadline,
-            },
-        );
+        let values = vec![encoded(Stage1State::BehavioralCompressedHistory {
+            entries,
+            window_start_day: window_start,
+            last_event_at_ms: 1_700_000_000_000,
+            earliest_eviction_at_ms: deadline,
+        })];
 
         let cutoff = start_of_day_ms_in_tz(window_start + COMPRESSED_WINDOW_DAYS as i32 + 1, UTC);
-        let results = sweep_evict(&filters, &[key], &store, cutoff)
-            .unwrap()
-            .results;
+        let results = sweep_evict(&filters, &[key], values, cutoff).results;
         assert_eq!(results.len(), 1);
         let result = &results[0];
         assert_eq!(
@@ -762,7 +698,6 @@ mod tests {
 
     #[test]
     fn compressed_lte_slide_into_range_emits_entered() {
-        let (_dir, store) = temp_store();
         let filters = freeze(vec![compressed_leaf(
             COMPRESSED_WINDOW_DAYS as i64,
             "lte",
@@ -775,21 +710,15 @@ mod tests {
         let entries = vec![(window_start, 1u32), (window_start + 100, 2u32)];
         let deadline =
             compressed_history::compressed_eviction_deadline(&entries, COMPRESSED_WINDOW_DAYS, UTC);
-        write(
-            &store,
-            &key,
-            Stage1State::BehavioralCompressedHistory {
-                entries,
-                window_start_day: window_start,
-                last_event_at_ms: 1_700_000_000_000,
-                earliest_eviction_at_ms: deadline,
-            },
-        );
+        let values = vec![encoded(Stage1State::BehavioralCompressedHistory {
+            entries,
+            window_start_day: window_start,
+            last_event_at_ms: 1_700_000_000_000,
+            earliest_eviction_at_ms: deadline,
+        })];
 
         let cutoff = start_of_day_ms_in_tz(window_start + COMPRESSED_WINDOW_DAYS as i32 + 1, UTC);
-        let results = sweep_evict(&filters, &[key], &store, cutoff)
-            .unwrap()
-            .results;
+        let results = sweep_evict(&filters, &[key], values, cutoff).results;
         assert_eq!(results.len(), 1);
         let result = &results[0];
         assert_eq!(
@@ -807,20 +736,15 @@ mod tests {
 
     #[test]
     fn daily_length_mismatch_skips_without_panic() {
-        let (_dir, store) = temp_store();
         let filters = freeze(vec![daily_leaf(7, "gte", 1)]); // expects length 8
         let key = key_for(&filters, 1);
-        write(
-            &store,
-            &key,
-            Stage1State::BehavioralDailyBuckets {
-                buckets: vec![1, 2, 3], // wrong length
-                window_start_day: 100,
-                last_event_at_ms: 1,
-                earliest_eviction_at_ms: 2,
-            },
-        );
-        let out = sweep_evict(&filters, &[key], &store, i64::MAX).unwrap();
+        let values = vec![encoded(Stage1State::BehavioralDailyBuckets {
+            buckets: vec![1, 2, 3], // wrong length
+            window_start_day: 100,
+            last_event_at_ms: 1,
+            earliest_eviction_at_ms: 2,
+        })];
+        let out = sweep_evict(&filters, &[key], values, i64::MAX);
         assert!(
             out.results.is_empty(),
             "a length mismatch is skipped, not panicked"
@@ -834,24 +758,22 @@ mod tests {
 
     #[test]
     fn person_property_key_is_skipped() {
-        let (_dir, store) = temp_store();
+        // A scheduled person-property key should never occur, but if one does the sweep drops it on the
+        // `StateVariant::PersonProperty` arm. The stored value decodes before the variant dispatch, so a
+        // behavioral shape under the person LSK still reaches and exercises that arm.
         let filters = freeze(vec![person_leaf()]);
-        let key = Stage1Key {
-            partition_id: PARTITION,
-            team_id: TEAM,
-            leaf_state_key: LeafStateKey::for_person_property(&PERSON_HASH),
-            person_id: Uuid::from_u128(1),
-        };
-        write(
-            &store,
-            &key,
-            Stage1State::PersonProperty {
-                matches: true,
-                last_updated_at_ms: 1,
-                last_updated_offset: 2,
-            },
+        let key = BehavioralKey::new(
+            PARTITION,
+            TEAM,
+            Uuid::from_u128(1),
+            LeafStateKey::for_person_property(&PERSON_HASH),
         );
-        let out = sweep_evict(&filters, &[key], &store, i64::MAX).unwrap();
+        let values = vec![encoded(Stage1State::BehavioralSingle {
+            has_match: true,
+            last_event_at_ms: 1,
+            earliest_eviction_at_ms: 2,
+        })];
+        let out = sweep_evict(&filters, &[key], values, i64::MAX);
         assert!(
             out.results.is_empty(),
             "person-property leaves are never time-evicted",
@@ -865,28 +787,26 @@ mod tests {
 
     #[test]
     fn unknown_leaf_and_missing_state_are_skipped() {
-        let (_dir, store) = temp_store();
         let filters = freeze(vec![single_leaf(7)]);
 
-        let drifted = Stage1Key {
-            partition_id: PARTITION,
-            team_id: TEAM,
-            leaf_state_key: LeafStateKey([0xFF; 16]),
-            person_id: Uuid::from_u128(1),
-        };
-        write(
-            &store,
-            &drifted,
-            Stage1State::BehavioralSingle {
+        let drifted = BehavioralKey::new(
+            PARTITION,
+            TEAM,
+            Uuid::from_u128(1),
+            LeafStateKey([0xFF; 16]),
+        );
+        let missing = key_for(&filters, 999);
+        // The drifted key has state; the missing key reads back as `None`.
+        let values = vec![
+            encoded(Stage1State::BehavioralSingle {
                 has_match: true,
                 last_event_at_ms: 1,
                 earliest_eviction_at_ms: 2,
-            },
-        );
+            }),
+            None,
+        ];
 
-        let missing = key_for(&filters, 999);
-
-        let out = sweep_evict(&filters, &[drifted, missing], &store, i64::MAX).unwrap();
+        let out = sweep_evict(&filters, &[drifted, missing], values, i64::MAX);
         assert!(
             out.results.is_empty(),
             "drift and missing rows both skip cleanly"
@@ -900,23 +820,19 @@ mod tests {
 
     #[test]
     fn evicts_multiple_keys_in_one_pass() {
-        let (_dir, store) = temp_store();
         let filters = freeze(vec![single_leaf(7)]);
-        let keys: Vec<Stage1Key> = (1..=3).map(|p| key_for(&filters, p)).collect();
-        for key in &keys {
-            write(
-                &store,
-                key,
-                Stage1State::BehavioralSingle {
+        let keys: Vec<BehavioralKey> = (1..=3).map(|p| key_for(&filters, p)).collect();
+        let values: Vec<Option<Vec<u8>>> = keys
+            .iter()
+            .map(|_| {
+                encoded(Stage1State::BehavioralSingle {
                     has_match: true,
                     last_event_at_ms: 1_000,
                     earliest_eviction_at_ms: 2_000,
-                },
-            );
-        }
-        let results = sweep_evict(&filters, &keys, &store, 10_000)
-            .unwrap()
-            .results;
+                })
+            })
+            .collect();
+        let results = sweep_evict(&filters, &keys, values, 10_000).results;
         assert_eq!(results.len(), 3, "every member key evicts to a Left+Delete");
         assert!(results
             .iter()

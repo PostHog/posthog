@@ -32,6 +32,8 @@ import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { applyDataVisualizationQueryUpdate } from '~/queries/nodes/DataVisualization/queryUpdateUtils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
 import { connectionSelectorLogic } from './connectionSelectorLogic'
@@ -65,6 +67,9 @@ interface SQLEditorProps {
     runQueryLoading?: boolean
     runQueryDisabledReason?: string
     runQueryTooltip?: string
+    /** With onRunQuery: flips the run button to Cancel while runQueryLoading. */
+    onCancelQuery?: () => void
+    cancelQueryLoading?: boolean
     onShareTab?: () => void
     queryPaneDefaultHeight?: number
     /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
@@ -82,6 +87,8 @@ export function SQLEditor({
     runQueryLoading,
     runQueryDisabledReason,
     runQueryTooltip,
+    onCancelQuery,
+    cancelQueryLoading,
     onShareTab,
     queryPaneDefaultHeight,
     autoFocusQueryPane,
@@ -253,6 +260,8 @@ export function SQLEditor({
                                                             runQueryLoading={runQueryLoading}
                                                             runQueryDisabledReason={runQueryDisabledReason}
                                                             runQueryTooltip={runQueryTooltip}
+                                                            onCancelQuery={onCancelQuery}
+                                                            cancelQueryLoading={cancelQueryLoading}
                                                             onShareTab={onShareTab}
                                                             autoFocusQueryPane={autoFocusQueryPane}
                                                         />
@@ -370,6 +379,14 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     } = useActions(sqlEditorLogic)
     const { response, responseError, responseLoading } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
+
+    useAttachedContext([
+        {
+            type: 'sql_editor_state',
+            value: JSON.stringify(getExecuteSqlToolContext(queryInput, sourceQuery)),
+            label: 'Current query',
+        },
+    ])
 
     const saveAsViewAccessDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.WarehouseObjects,
@@ -617,6 +634,17 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                             </>
                         ) : editingInsight ? (
                             <>
+                                {featureFlags[FEATURE_FLAGS.SQL_EDITOR_QUERY_HISTORY] && (
+                                    <LemonButton
+                                        onClick={() => openHistoryModal()}
+                                        icon={<IconBook />}
+                                        type="secondary"
+                                        size="small"
+                                        data-attr="sql-editor-insight-history-button"
+                                    >
+                                        History
+                                    </LemonButton>
+                                )}
                                 <LemonButton
                                     disabledReason={
                                         !isSourceQueryLastRun

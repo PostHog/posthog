@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
 
-import { createBatch, createContext, createNewBatchPipeline, createOkContext } from './helpers'
+import { createBatch, createContext, createNewChunkPipeline, createOkContext } from './helpers'
 import { sideEffectResultCounter } from './metrics'
 import { dlq, drop, ok } from './results'
 import {
@@ -44,7 +44,7 @@ describe('SideEffectHandlingPipeline', () => {
 
     describe('feed', () => {
         it('should delegate to sub-pipeline', () => {
-            const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
+            const subPipeline = createNewChunkPipeline<{ message: Message }>().build()
             const spy = jest.spyOn(subPipeline, 'feed')
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler)
 
@@ -58,7 +58,7 @@ describe('SideEffectHandlingPipeline', () => {
 
     describe('next', () => {
         it('should return null when sub-pipeline returns null', async () => {
-            const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
+            const subPipeline = createNewChunkPipeline<{ message: Message }>().build()
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler)
 
             const result = await pipeline.next()
@@ -66,7 +66,7 @@ describe('SideEffectHandlingPipeline', () => {
         })
 
         it('should process results with no side effects', async () => {
-            const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
+            const subPipeline = createNewChunkPipeline<{ message: Message }>().build()
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler)
 
             const batch = createBatch([{ message }])
@@ -87,7 +87,7 @@ describe('SideEffectHandlingPipeline', () => {
                 }, 10)
             })
 
-            const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
+            const subPipeline = createNewChunkPipeline<{ message: Message }>().build()
             const config: SideEffectHandlingConfig = { await: true }
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
@@ -120,7 +120,7 @@ describe('SideEffectHandlingPipeline', () => {
                 }, 20)
             })
 
-            const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
+            const subPipeline = createNewChunkPipeline<{ message: Message }>().build()
             const config: SideEffectHandlingConfig = { await: true }
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
@@ -158,7 +158,7 @@ describe('SideEffectHandlingPipeline', () => {
 
             const message2 = { ...message, offset: 2 } as Message
 
-            const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
+            const subPipeline = createNewChunkPipeline<{ message: Message }>().build()
             const config: SideEffectHandlingConfig = { await: true }
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
@@ -183,7 +183,7 @@ describe('SideEffectHandlingPipeline', () => {
         it('should handle failed side effects gracefully', async () => {
             const failingSideEffect = Promise.reject(new Error('Side effect failed'))
 
-            const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
+            const subPipeline = createNewChunkPipeline<{ message: Message }>().build()
             const config: SideEffectHandlingConfig = { await: true }
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
@@ -229,7 +229,7 @@ describe('SideEffectHandlingPipeline', () => {
         it('should use promise scheduler when not awaiting side effects', async () => {
             const sideEffectPromise = Promise.resolve('done')
 
-            const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
+            const subPipeline = createNewChunkPipeline<{ message: Message }>().build()
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler)
 
             const batchWithSideEffects = [createOkContext({ message }, { message, sideEffects: [sideEffectPromise] })]
@@ -244,7 +244,7 @@ describe('SideEffectHandlingPipeline', () => {
         it('should not use promise scheduler when awaiting side effects', async () => {
             const sideEffectPromise = Promise.resolve('done')
 
-            const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
+            const subPipeline = createNewChunkPipeline<{ message: Message }>().build()
             const config: SideEffectHandlingConfig = { await: true }
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
@@ -268,7 +268,7 @@ describe('SideEffectHandlingPipeline', () => {
                 }, 50) // Longer delay to test async behavior
             })
 
-            const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
+            const subPipeline = createNewChunkPipeline<{ message: Message }>().build()
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler) // Default config
 
             const batchWithSideEffects = [createOkContext({ message }, { message, sideEffects: [sideEffectPromise] })]
@@ -296,7 +296,7 @@ describe('SideEffectHandlingPipeline', () => {
             })
 
             const config: SideEffectHandlingConfig = { await: true }
-            const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
+            const subPipeline = createNewChunkPipeline<{ message: Message }>().build()
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
             const batchWithSideEffects = [createOkContext({ message }, { message, sideEffects: [sideEffectPromise] })]
@@ -320,7 +320,7 @@ describe('SideEffectHandlingPipeline', () => {
             })
 
             const config: SideEffectHandlingConfig = { await: false }
-            const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
+            const subPipeline = createNewChunkPipeline<{ message: Message }>().build()
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
             const batchWithSideEffects = [createOkContext({ message }, { message, sideEffects: [sideEffectPromise] })]
@@ -342,7 +342,7 @@ describe('SideEffectHandlingPipeline', () => {
             const sideEffectPromise = Promise.resolve('done')
 
             const config: SideEffectHandlingConfig = { await: false }
-            const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
+            const subPipeline = createNewChunkPipeline<{ message: Message }>().build()
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
             const batchWithSideEffects = [createOkContext({ message }, { message, sideEffects: [sideEffectPromise] })]
@@ -359,7 +359,7 @@ describe('SideEffectHandlingPipeline', () => {
             const successfulSideEffect1 = Promise.resolve('success1')
             const successfulSideEffect2 = Promise.resolve('success2')
 
-            const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
+            const subPipeline = createNewChunkPipeline<{ message: Message }>().build()
             const config: SideEffectHandlingConfig = { await: true }
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
@@ -384,7 +384,7 @@ describe('SideEffectHandlingPipeline', () => {
             const failingSideEffect1 = Promise.reject(new Error('fail1'))
             const failingSideEffect2 = Promise.reject(new Error('fail2'))
 
-            const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
+            const subPipeline = createNewChunkPipeline<{ message: Message }>().build()
             const config: SideEffectHandlingConfig = { await: true }
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
@@ -403,7 +403,7 @@ describe('SideEffectHandlingPipeline', () => {
             const successfulSideEffect = Promise.resolve('success')
             const failingSideEffect = Promise.reject(new Error('fail'))
 
-            const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
+            const subPipeline = createNewChunkPipeline<{ message: Message }>().build()
             const config: SideEffectHandlingConfig = { await: true }
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
@@ -422,7 +422,7 @@ describe('SideEffectHandlingPipeline', () => {
         it('should not track metrics when await is false', async () => {
             const sideEffect = Promise.resolve('success')
 
-            const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
+            const subPipeline = createNewChunkPipeline<{ message: Message }>().build()
             const config: SideEffectHandlingConfig = { await: false }
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
@@ -437,7 +437,7 @@ describe('SideEffectHandlingPipeline', () => {
         })
 
         it('should not track metrics when there are no side effects', async () => {
-            const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
+            const subPipeline = createNewChunkPipeline<{ message: Message }>().build()
             const config: SideEffectHandlingConfig = { await: true }
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 
@@ -455,7 +455,7 @@ describe('SideEffectHandlingPipeline', () => {
             const failSideEffect = Promise.reject(new Error('fail'))
             const message2 = { ...message, offset: 2 } as Message
 
-            const subPipeline = createNewBatchPipeline<{ message: Message }>().build()
+            const subPipeline = createNewChunkPipeline<{ message: Message }>().build()
             const config: SideEffectHandlingConfig = { await: true }
             const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
 

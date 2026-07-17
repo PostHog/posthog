@@ -39,9 +39,11 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 
 from ..facade.api import (
+    FACET_COLUMNS,
     annotate_self_time,
     run_attribute_breakdown_query,
     run_count_query,
@@ -210,10 +212,6 @@ class _TracingTimeseriesQueryBodySerializer(serializers.Serializer):
     )
 
 
-class _TracingTimeseriesRequestSerializer(serializers.Serializer):
-    query = _TracingTimeseriesQueryBodySerializer(help_text="The sparkline / duration-histogram query to execute.")
-
-
 class _TracingDurationHistogramQueryBodySerializer(_TracingTimeseriesQueryBodySerializer):
     rootSpans = serializers.BooleanField(
         required=False,
@@ -365,11 +363,22 @@ class _TracingAggregationRequestSerializer(serializers.Serializer):
 class _TracingAttributeBreakdownQueryBodySerializer(serializers.Serializer):
     breakdownKey = serializers.CharField(
         required=True,
-        help_text='Attribute key to group by (e.g. "server.address", "http.response.status_code"). Discover keys with apm-attributes-list.',
+        help_text='Attribute key to group by (e.g. "server.address", "http.response.status_code"). Discover keys with apm-attributes-list. For the "span" breakdown type, must be one of the allowlisted top-level columns: "service_name", "status_code".',
     )
     breakdownType = serializers.ChoiceField(
-        choices=["span_attribute", "span_resource_attribute"],
-        help_text='Where the key lives: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.',
+        choices=["span", "span_attribute", "span_resource_attribute"],
+        help_text='Where the key lives: "span" for allowlisted top-level span columns, "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.',
+    )
+    excludeBreakdownFilter = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Drop filters targeting the breakdown key itself (including serviceNames for a service_name breakdown), so a facet's value list stays complete while one of its values is selected.",
+    )
+    facetSearch = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Type-ahead filter over the breakdown field's own values (case-insensitive substring match). "
+        "An empty string means no filter. Lets a facet's value search reach past the row limit.",
     )
     orderBy = serializers.ChoiceField(
         choices=["count", "error_count"],
@@ -399,6 +408,28 @@ class _TracingAttributeBreakdownQueryBodySerializer(serializers.Serializer):
 
 class _TracingAttributeBreakdownRequestSerializer(serializers.Serializer):
     query = _TracingAttributeBreakdownQueryBodySerializer(help_text="The attribute breakdown query to execute.")
+
+
+class _TracingAttributeBreakdownRowSerializer(serializers.Serializer):
+    value = serializers.CharField(
+        help_text="The attribute's value for this group. Spans without the attribute group under ''."
+    )
+    count = serializers.IntegerField(help_text="Number of matching spans with this value.")
+    error_count = serializers.IntegerField(help_text="Number of matching error spans (status_code = 2).")
+    p50_duration_nano = serializers.FloatField(help_text="Median span duration in nanoseconds.")
+    p95_duration_nano = serializers.FloatField(help_text="95th percentile span duration in nanoseconds.")
+
+
+class _TracingAttributeBreakdownResponseSerializer(serializers.Serializer):
+    results = _TracingAttributeBreakdownRowSerializer(
+        many=True,
+        help_text="One row per distinct attribute value, ordered by the requested column descending.",
+    )
+    compare = _TracingAttributeBreakdownRowSerializer(
+        many=True,
+        allow_null=True,
+        help_text="Rows for the comparison window when compareFilter.compare is true, else null.",
+    )
 
 
 class _TracingTreeQueryBodySerializer(serializers.Serializer):
@@ -609,6 +640,13 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         if isinstance(filter_group, dict):
             return filter_group
         return {"type": "AND", "values": []}
+
+    def _report_usage(self, request: Request, event: str, properties: dict) -> None:
+        # Usage telemetry must never turn a successful read into a 5xx, so swallow and record any failure.
+        try:
+            report_user_action(request.user, event, properties, team=self.team, request=request)
+        except Exception as e:
+            capture_exception(e)
 
     @extend_schema(parameters=[_TracingServiceNamesQuerySerializer])
     @action(detail=False, methods=["GET"], url_path="service-names", required_scopes=["tracing:read"])
@@ -910,13 +948,26 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except (ValidationError, ValueError, ParseError):
             filter_group = None
 
+        root_spans = query_data.get("rootSpans", True)
         response = run_duration_histogram_query(
             team=self.team,
             date_range=date_range,
             service_names=query_data.get("serviceNames", None),
             status_codes=query_data.get("statusCodes", None),
             filter_group=filter_group,
-            root_spans=query_data.get("rootSpans", True),
+            root_spans=root_spans,
+        )
+
+        self._report_usage(
+            request,
+            "tracing duration histogram queried",
+            {
+                "buckets_count": len(response.results),
+                "root_spans": root_spans,
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "service_names_count": len(query_data.get("serviceNames") or []),
+                "status_codes_count": len(query_data.get("statusCodes") or []),
+            },
         )
 
         return Response({"results": response.results}, status=status.HTTP_200_OK)
@@ -951,6 +1002,17 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             compare_filter=compare_filter,
             filter_group=filter_group,
             service_names=query_data.get("serviceNames", None),
+        )
+
+        self._report_usage(
+            request,
+            "tracing aggregation queried",
+            {
+                "results_count": len(response.results),
+                "has_compare": bool(query_data.get("compareFilter")),
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "service_names_count": len(query_data.get("serviceNames") or []),
+            },
         )
 
         return Response(
@@ -1017,7 +1079,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(request=_TracingAttributeBreakdownRequestSerializer)
+    @extend_schema(
+        request=_TracingAttributeBreakdownRequestSerializer,
+        responses={200: _TracingAttributeBreakdownResponseSerializer},
+    )
     @action(detail=False, methods=["POST"], url_path="attribute-breakdown", required_scopes=["tracing:read"])
     def attribute_breakdown(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -1034,7 +1099,13 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             breakdown_type = TraceSpanBreakdownType(query_data.get("breakdownType") or "")
         except ValueError:
             return Response(
-                {"detail": '`breakdownType` must be "span_attribute" or "span_resource_attribute".'},
+                {"detail": '`breakdownType` must be "span", "span_attribute" or "span_resource_attribute".'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if breakdown_type == TraceSpanBreakdownType.SPAN and breakdown_key not in FACET_COLUMNS:
+            return Response(
+                {"detail": f"`breakdownKey` for a span column breakdown must be one of: {sorted(FACET_COLUMNS)}."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1076,6 +1147,8 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             compare_filter=compare_filter,
             filter_group=filter_group,
             service_names=query_data.get("serviceNames", None),
+            exclude_breakdown_filter=bool(query_data.get("excludeBreakdownFilter")),
+            facet_search=query_data.get("facetSearch") or None,
         )
 
         return Response(
@@ -1142,6 +1215,17 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         # Self-time needs a span's children present. On a paged (truncated) trace it overstates for
         # spans whose children fall on a later page — an accepted bound, same as the prior 2000 cap.
         annotate_self_time(results)
+
+        self._report_usage(
+            request,
+            "tracing trace fetched",
+            {
+                "spans_count": len(results),
+                "has_more": has_more,
+                "is_paginated": offset > 0,
+                "has_filter_group": bool(query_data.get("filterGroup")),
+            },
+        )
 
         return Response(
             {

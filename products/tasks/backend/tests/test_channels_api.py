@@ -1,13 +1,16 @@
+from datetime import timedelta
+
 from unittest.mock import patch
 
 from django.test import TestCase
+from django.utils import timezone as django_timezone
 
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Organization, OrganizationMembership, Team, User
 
-from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage
+from products.tasks.backend.models import Channel, ChannelFeedMessage, Task, TaskRun, TaskThreadMessage
 
 
 class ChannelsAPITestCase(TestCase):
@@ -141,7 +144,9 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
-class ThreadMessagesAPITestCase(TestCase):
+class ChannelTaskAPITestCase(TestCase):
+    """Shared fixture: an org with two members, a public channel, and a task in it."""
+
     def setUp(self) -> None:
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Growth Team")
@@ -171,6 +176,8 @@ class ThreadMessagesAPITestCase(TestCase):
         self.peer_client = APIClient()
         self.peer_client.force_authenticate(self.peer)
 
+
+class ThreadMessagesAPITestCase(ChannelTaskAPITestCase):
     def _thread_url(self) -> str:
         return f"/api/projects/{self.team.id}/tasks/{self.task.id}/thread_messages/"
 
@@ -231,4 +238,263 @@ class ThreadMessagesAPITestCase(TestCase):
         )
         url = f"/api/projects/{self.team.id}/tasks/{private_task.id}/thread_messages/"
         response = self.peer_client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
+    def _mentions_url(self) -> str:
+        return f"/api/projects/{self.team.id}/task_mentions/"
+
+    def _thread_url(self, task) -> str:
+        return f"/api/projects/{self.team.id}/tasks/{task.id}/thread_messages/"
+
+    def _post_message(self, client, content: str, task=None) -> dict:
+        response = client.post(self._thread_url(task or self.task), {"content": content})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        return response.json()
+
+    def test_mention_appears_in_mentioned_users_feed(self):
+        message = self._post_message(self.author_client, "ping @[Bob](peer@example.com), thoughts?")
+
+        mentions = self.peer_client.get(self._mentions_url()).json()
+        self.assertEqual(len(mentions), 1)
+        self.assertEqual(mentions[0]["message_id"], message["id"])
+        self.assertEqual(mentions[0]["task_id"], str(self.task.id))
+        self.assertEqual(mentions[0]["task_title"], "A Task")
+        self.assertEqual(mentions[0]["channel_id"], str(self.channel.id))
+        self.assertEqual(mentions[0]["channel_name"], "growth")
+        self.assertEqual(mentions[0]["author"]["id"], self.author.id)
+        self.assertEqual(mentions[0]["content"], "ping @[Bob](peer@example.com), thoughts?")
+        # The author wasn't mentioned, so their own feed stays empty.
+        self.assertEqual(self.author_client.get(self._mentions_url()).json(), [])
+
+    def test_mentions_resolve_case_insensitively(self):
+        self._post_message(self.author_client, "cc @[Bob](Peer@Example.COM)")
+        self.assertEqual(len(self.peer_client.get(self._mentions_url()).json()), 1)
+
+    def test_self_mentions_and_non_members_are_not_indexed(self):
+        self._post_message(self.peer_client, "note to self @[Bob](peer@example.com)")
+        self._post_message(self.author_client, "ask @[Sam](sam@other-org.example.com)")
+        self.assertEqual(self.peer_client.get(self._mentions_url()).json(), [])
+        self.assertEqual(self.author_client.get(self._mentions_url()).json(), [])
+
+    def test_since_filters_by_created_at(self):
+        self._post_message(self.author_client, "hey @[Bob](peer@example.com)")
+        created_at = self.peer_client.get(self._mentions_url()).json()[0]["created_at"]
+
+        after = self.peer_client.get(self._mentions_url(), {"since": created_at}).json()
+        self.assertEqual(after, [])
+        before = self.peer_client.get(self._mentions_url(), {"since": "2020-01-01T00:00:00Z"}).json()
+        self.assertEqual(len(before), 1)
+
+    def test_mentions_are_newest_first(self):
+        first = self._post_message(self.author_client, "one @[Bob](peer@example.com)")
+        second = self._post_message(self.author_client, "two @[Bob](peer@example.com)")
+        ids = [m["message_id"] for m in self.peer_client.get(self._mentions_url()).json()]
+        self.assertEqual(ids, [second["id"], first["id"]])
+
+        limited = self.peer_client.get(self._mentions_url(), {"limit": 1}).json()
+        self.assertEqual([m["message_id"] for m in limited], [second["id"]])
+
+    def test_unparseable_since_is_a_400(self):
+        response = self.peer_client.get(self._mentions_url(), {"since": "not-a-date"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_mention_on_invisible_task_is_hidden(self):
+        private_task = Task.objects.create(
+            team=self.team,
+            created_by=self.author,
+            title="Private",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        self._post_message(self.author_client, "fyi @[Bob](peer@example.com)", task=private_task)
+        self.assertEqual(self.peer_client.get(self._mentions_url()).json(), [])
+
+    def test_mentions_are_team_scoped(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_channel = Channel(team=other_team, name="growth", created_by=self.author)
+        other_channel.save()
+        other_task = Task.objects.create(
+            team=other_team,
+            created_by=self.author,
+            channel=other_channel,
+            title="Elsewhere",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        response = self.author_client.post(
+            f"/api/projects/{other_team.id}/tasks/{other_task.id}/thread_messages/",
+            {"content": "over here @[Bob](peer@example.com)"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+
+        self.assertEqual(self.peer_client.get(self._mentions_url()).json(), [])
+        other_team_mentions = self.peer_client.get(f"/api/projects/{other_team.id}/task_mentions/").json()
+        self.assertEqual(len(other_team_mentions), 1)
+
+
+class ChannelFeedMessageAPITestCase(TestCase):
+    def setUp(self) -> None:
+        self.organization = Organization.objects.create(name="Feed Org")
+        self.team = Team.objects.create(organization=self.organization, name="Feed Team")
+        self.user = User.objects.create_user(email="owner@example.com", first_name="Ann", password="password")
+        self.other_user = User.objects.create_user(email="peer@example.com", first_name="Bob", password="password")
+        for user in (self.user, self.other_user):
+            self.organization.members.add(user)
+            OrganizationMembership.objects.filter(user=user, organization=self.organization).update(
+                level=OrganizationMembership.Level.ADMIN
+            )
+
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+        self.other_client = APIClient()
+        self.other_client.force_authenticate(self.other_user)
+
+    def _channels_url(self) -> str:
+        return f"/api/projects/{self.team.id}/task_channels/"
+
+    def _feed_url(self, channel_id) -> str:
+        return f"/api/projects/{self.team.id}/task_channels/{channel_id}/feed/"
+
+    def _public_channel(self) -> str:
+        return self.client.post(self._channels_url(), {"name": "mobile"}).json()["id"]
+
+    def test_post_and_list_feed_message(self):
+        channel_id = self._public_channel()
+        response = self.client.post(
+            self._feed_url(channel_id),
+            {"event": "context_created", "payload": {"context_name": "mobile"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        body = response.json()
+        self.assertEqual(body["event"], "context_created")
+        # Client posts are marked human-authored; system/agent kinds are reserved
+        # for server-side writers so a member can't forge trusted rows.
+        self.assertEqual(body["author_kind"], "human")
+        self.assertEqual(body["author"]["id"], self.user.id)
+        self.assertEqual(body["payload"], {"context_name": "mobile"})
+
+        listing = self.client.get(self._feed_url(channel_id)).json()
+        # Creating the channel auto-emits a channel_created row, so the feed holds
+        # both that and the posted context_created.
+        self.assertEqual([m["event"] for m in listing], ["channel_created", "context_created"])
+        self.assertIn(body["id"], [m["id"] for m in listing])
+
+    def test_feed_message_is_visible_to_the_team(self):
+        channel_id = self._public_channel()
+        self.client.post(
+            self._feed_url(channel_id),
+            {"event": "context_md_building", "payload": {"context_name": "mobile"}},
+            format="json",
+        )
+        peer_listing = self.other_client.get(self._feed_url(channel_id)).json()
+        events = [m["event"] for m in peer_listing]
+        # The peer sees the team-visible feed: the auto channel_created + the post.
+        self.assertEqual(events, ["channel_created", "context_md_building"])
+
+    def test_invalid_event_is_rejected(self):
+        channel_id = self._public_channel()
+        response = self.client.post(self._feed_url(channel_id), {"event": "nope"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_unknown_channel_is_404(self):
+        response = self.client.get(self._feed_url("00000000-0000-0000-0000-000000000000"))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_personal_channel_feed_is_owner_only(self):
+        # Listing provisions the requester's personal channel.
+        mine = self.client.get(self._channels_url()).json()
+        personal_id = next(c["id"] for c in mine if c["channel_type"] == "personal")
+        self.client.post(
+            self._feed_url(personal_id),
+            {"event": "context_created", "payload": {"context_name": "me"}},
+            format="json",
+        )
+        # A peer cannot read someone else's personal channel feed.
+        peer = self.other_client.get(self._feed_url(personal_id))
+        self.assertEqual(peer.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_channel_creation_emits_channel_created(self):
+        channel_id = self._public_channel()
+        feed = self.client.get(self._feed_url(channel_id)).json()
+        created = [m for m in feed if m["event"] == "channel_created"]
+        self.assertEqual(len(created), 1)
+        self.assertEqual(created[0]["author_kind"], "system")
+        self.assertEqual(created[0]["author"]["id"], self.user.id)
+        self.assertEqual(created[0]["payload"], {"channel_name": "mobile"})
+
+    def test_resolving_existing_channel_does_not_reemit(self):
+        channel_id = self._public_channel()
+        # Resolve the same name again — must not add a second channel_created.
+        self.client.post(self._channels_url(), {"name": "mobile"})
+        feed = self.client.get(self._feed_url(channel_id)).json()
+        self.assertEqual(len([m for m in feed if m["event"] == "channel_created"]), 1)
+
+    def test_client_created_at_orders_a_burst(self):
+        channel_id = self._public_channel()
+        now = django_timezone.now()
+        # Post out of order with explicit timestamps; the feed must sort by created_at.
+        second = (now + timedelta(seconds=2)).isoformat()
+        first = (now + timedelta(seconds=1)).isoformat()
+        self.client.post(
+            self._feed_url(channel_id),
+            {"event": "context_md_building", "payload": {}, "created_at": second},
+            format="json",
+        )
+        self.client.post(
+            self._feed_url(channel_id),
+            {"event": "context_created", "payload": {}, "created_at": first},
+            format="json",
+        )
+        events = [m["event"] for m in self.client.get(self._feed_url(channel_id)).json()]
+        self.assertEqual(events, ["channel_created", "context_created", "context_md_building"])
+
+    def test_created_at_outside_window_is_rejected(self):
+        channel_id = self._public_channel()
+        for delta in (timedelta(hours=-1), timedelta(hours=1)):
+            stamp = (django_timezone.now() + delta).isoformat()
+            response = self.client.post(
+                self._feed_url(channel_id),
+                {"event": "context_created", "created_at": stamp},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, stamp)
+
+    def test_oversized_payload_is_rejected(self):
+        channel_id = self._public_channel()
+        response = self.client.post(
+            self._feed_url(channel_id),
+            {"event": "context_created", "payload": {"context_name": "x" * 9000}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_post_to_full_feed_is_rejected(self):
+        channel_id = self._public_channel()
+        # channel_created already occupies one slot; a cap of 2 leaves room for one post.
+        with patch("products.tasks.backend.facade.api.CHANNEL_FEED_MAX_MESSAGES", 2):
+            ok = self.client.post(self._feed_url(channel_id), {"event": "context_created"}, format="json")
+            self.assertEqual(ok.status_code, status.HTTP_201_CREATED)
+            full = self.client.post(self._feed_url(channel_id), {"event": "context_md_building"}, format="json")
+            self.assertEqual(full.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_list_returns_newest_rows_ascending_when_over_cap(self):
+        channel_id = self._public_channel()
+        now = django_timezone.now()
+        for i, event in enumerate(["context_created", "context_md_building"]):
+            ChannelFeedMessage(
+                team=self.team, channel_id=channel_id, event=event, created_at=now + timedelta(seconds=i + 1)
+            ).save()
+        with patch("products.tasks.backend.facade.api.CHANNEL_FEED_MAX_MESSAGES", 2):
+            events = [m["event"] for m in self.client.get(self._feed_url(channel_id)).json()]
+        # Three rows, cap 2: the oldest (channel_created) drops, newest two stay ascending.
+        self.assertEqual(events, ["context_created", "context_md_building"])
+
+    def test_feed_is_team_scoped(self):
+        channel_id = self._public_channel()
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        # Same org, wrong team in the URL — the channel must not resolve.
+        response = self.client.get(f"/api/projects/{other_team.id}/task_channels/{channel_id}/feed/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

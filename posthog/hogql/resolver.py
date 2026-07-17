@@ -62,7 +62,7 @@ from posthog.hogql.type_system import (
 from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
-from posthog.models.utils import UUIDT
+from posthog.uuidt import UUIDT
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
 
@@ -1528,6 +1528,17 @@ class Resolver(CloningVisitor):
             node.type = ast.FloatType()
         elif isinstance(left_type, ast.DateTimeType) or isinstance(right_type, ast.DateTimeType):
             node.type = ast.DateTimeType()
+        elif isinstance(left_type, ast.DecimalType) or isinstance(right_type, ast.DecimalType):
+            # ClickHouse widens Decimal combined with a Float to Float; Decimal combined with a
+            # Decimal or Integer stays Decimal. Anything else (e.g. Decimal + String) is unknown.
+            if isinstance(left_type, ast.FloatType) or isinstance(right_type, ast.FloatType):
+                node.type = ast.FloatType()
+            elif isinstance(left_type, ast.DecimalType | ast.IntegerType) and isinstance(
+                right_type, ast.DecimalType | ast.IntegerType
+            ):
+                node.type = ast.DecimalType()
+            else:
+                node.type = ast.UnknownType()
         elif isinstance(left_type, ast.UnknownType) or isinstance(right_type, ast.UnknownType):
             node.type = ast.UnknownType()
         else:
@@ -1596,7 +1607,9 @@ class Resolver(CloningVisitor):
                     matches_action(node=node, args=node.args, context=self.context, events_alias=events_alias)
                 )
             if node.name == "getSurveyResponse":
-                return self.visit(get_survey_response(node=node, args=node.args))
+                return self.visit(
+                    get_survey_response(node=node, args=node.args, use_new_schema=self.context.uses_new_events_schema())
+                )
             if node.name == "uniqueSurveySubmissionsFilter":
                 return self.visit(
                     unique_survey_submissions_filter(node=node, args=node.args, team_id=self.context.team_id)

@@ -25,7 +25,6 @@ from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import PluginConfig
-from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
@@ -211,7 +210,7 @@ class RemoteConfig(UUIDTModel):
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
 
-        from products.error_tracking.backend.remote_config import build_error_tracking_config
+        from products.error_tracking.backend.facade import build_error_tracking_config
         from products.feature_flags.backend.models.feature_flag import FeatureFlag
         from products.surveys.backend.api.survey import get_surveys_opt_in, get_surveys_response
 
@@ -468,6 +467,7 @@ class RemoteConfig(UUIDTModel):
                 settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT,
                 headers={"Authorization": f"Bearer {settings.REMOTE_CONFIG_CDN_PURGE_TOKEN}"},
                 json=data,
+                timeout=10,
             )
 
             if res.status_code != 200:
@@ -492,6 +492,7 @@ class RemoteConfig(UUIDTModel):
                 settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT,
                 headers={"Authorization": f"Bearer {settings.REMOTE_CONFIG_CDN_PURGE_TOKEN}"},
                 json=data,
+                timeout=10,
             )
             if res.status_code != 200:
                 raise Exception(f"Failed to purge CDN by tag {tag}: {res.status_code} {res.text}")
@@ -580,8 +581,8 @@ def product_tour_deleted(sender, instance, **kwargs):
     transaction.on_commit(_on_commit)
 
 
-@receiver(post_save, sender=ErrorTrackingSuppressionRule)
-def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppressionRule", created, **kwargs):
+@receiver(post_save, sender="error_tracking.ErrorTrackingSuppressionRule")
+def error_tracking_suppression_rule_saved(sender, instance, created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 

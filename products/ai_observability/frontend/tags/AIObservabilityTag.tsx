@@ -33,7 +33,7 @@ import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-ge
 
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
-import { LLMProviderKey } from '../settings/llmProviderKeysLogic'
+import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import {
     getUnhealthyProviderKey,
     providerKeyStateIssueDescription,
@@ -121,11 +121,13 @@ function TaggerModelPicker({ id }: { id: string }): JSX.Element {
     } = useValues(modelPickerLogic)
     const { selectedModel, selectedPickerProviderKeyId } = useValues(llmTaggerLogic({ id }))
     const { selectModelFromPicker } = useActions(llmTaggerLogic({ id }))
+    const { requiresProviderKey } = useValues(llmProviderKeysLogic)
 
-    const allModels = hasByokKeys ? byokModels : trialModels
+    const showTrialModels = !hasByokKeys && !requiresProviderKey
+    const allModels = showTrialModels ? trialModels : byokModels
     const selectedModelName = allModels.find((m) => m.id === selectedModel)?.name
-    const groups = hasByokKeys ? providerModelGroups : trialProviderModelGroups
-    const loading = hasByokKeys ? byokModelsLoading || providerKeysLoading : trialModelsLoading
+    const groups = showTrialModels ? trialProviderModelGroups : providerModelGroups
+    const loading = showTrialModels ? trialModelsLoading : byokModelsLoading || providerKeysLoading
 
     const footerLink = getModelPickerFooterLink(hasByokKeys)
 

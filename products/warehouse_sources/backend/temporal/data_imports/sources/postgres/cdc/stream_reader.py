@@ -44,6 +44,17 @@ _SLOT_ADVANCE_MAX_ATTEMPTS = 3
 _SLOT_READ_MAX_ATTEMPTS = 4
 
 
+def _is_slot_already_ahead_error(exc: psycopg.errors.ObjectNotInPrerequisiteState) -> bool:
+    """Whether Postgres refused a slot advance because the slot is already at or past the target
+    LSN ("cannot advance replication slot to X, minimum is Y" with Y > X).
+
+    Distinct from slot invalidation (``is_slot_invalidation_error``): the slot is healthy and
+    simply ahead of the requested position, so the advance is a benign no-op rather than a failure.
+    """
+    message = str(exc).lower()
+    return "cannot advance replication slot to" in message and "minimum is" in message
+
+
 @dataclass(frozen=True, slots=True)
 class PgCDCConnectionParams:
     host: str
@@ -225,6 +236,14 @@ class PgCDCStreamReader:
         )
         try:
             self._advance_slot(advance_conn, query)
+        except psycopg.errors.ObjectNotInPrerequisiteState as e:
+            if not _is_slot_already_ahead_error(e):
+                raise
+            # The slot's confirmed position already sits at or beyond `position` — a retried or
+            # overlapping run advanced it further — so the WAL up to here is already released and
+            # there is nothing to do. Postgres refuses a backward advance; treat it as a no-op.
+            logger.info("slot_already_ahead", slot_name=self._params.slot_name, position=position)
+            return
         finally:
             advance_conn.close()
 

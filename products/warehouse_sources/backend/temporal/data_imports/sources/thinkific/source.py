@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ThinkificSource(ResumableSource[ThinkificSourceConfig, ThinkificResumeConfig]):
+    api_docs_url = "https://developers.thinkific.com/api/api-documentation"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.THINKIFIC
@@ -53,7 +55,6 @@ You can create an API key under **Settings → Code & analytics → API** in you
             docsUrl="https://posthog.com/docs/cdp/sources/thinkific",
             keywords=["lms", "elearning", "e-learning", "courses"],
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

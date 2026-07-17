@@ -1,5 +1,6 @@
 import type { Experiment } from '~/types'
 
+import { getExperimentVariants } from '../utils'
 import type { FeatureFlagKeyValidation } from './variantsPanelLogic'
 import { getVariantValidationErrors } from './variantsPanelValidation'
 
@@ -27,13 +28,19 @@ export const validateExperimentSubmission = ({
     }
 
     // Check variants
+    const variants = getExperimentVariants(experiment)
     const variantErrors = getVariantValidationErrors({
         flagKey: experiment.feature_flag_key,
-        variants: experiment.parameters?.feature_flag_variants ?? [],
+        variants,
         featureFlagKeyValidation,
         mode,
     })
     errors.push(...variantErrors)
+
+    // The toolbar editor hard-requires 'control', so the backend rejects web experiments without it
+    if (experiment.type === 'web' && variants.length > 0 && !variants.some(({ key }) => key === 'control')) {
+        errors.push("Web experiments require a variant with key 'control'")
+    }
 
     // Include any other experiment errors
     Object.values(experimentErrors).forEach((error) => {

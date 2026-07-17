@@ -1,5 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { userLogic } from 'scenes/userLogic'
+
 import { runInteractionLogic, type RunInteractionLogicProps } from 'products/posthog_ai/frontend/api/logics'
 import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/primitives'
 // Eager, NOT the lazy `api/readableRun` facade: the runner scene is already a route-split chunk and the run
@@ -7,7 +10,9 @@ import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/pr
 // flash. The inbox embeds keep the lazy `ReadonlyRunSurface`.
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 
+import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
+import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
 
 export interface TaskRunChatProps {
@@ -33,7 +38,11 @@ export interface TaskRunChatProps {
  */
 export function TaskRunChat({ taskId, runId, streamKey, onRunStarted }: TaskRunChatProps): JSX.Element {
     const { setSelectedRunId, loadTaskRuns } = useActions(taskDetailSceneLogic({ taskId }))
-    const { selectedRun } = useValues(taskDetailSceneLogic({ taskId }))
+    const { selectedRun, task } = useValues(taskDetailSceneLogic({ taskId }))
+    const { user } = useValues(userLogic)
+    // Staff can view tasks they don't own (support/debugging); those are read-only — hide the composer so
+    // they can't try to drive a run they can't control (the backend rejects the write anyway).
+    const readOnly = !!user?.is_staff && !!task?.created_by && task.created_by.id !== user.id
     const logicProps: RunInteractionLogicProps = {
         taskId,
         runId,
@@ -51,25 +60,18 @@ export function TaskRunChat({ taskId, runId, streamKey, onRunStarted }: TaskRunC
 
     return (
         <BindLogic logic={runInteractionLogic} props={logicProps}>
-            <TaskRunChatContent logicProps={logicProps} />
+            <TaskRunChatContent logicProps={logicProps} readOnly={readOnly} />
         </BindLogic>
     )
 }
 
-function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicProps }): JSX.Element {
-    const { composerForm, isSubmitting, isBusy, queuedMessages, isTerminal, selectedModel, selectedEffort } = useValues(
-        runInteractionLogic(logicProps)
-    )
-    const {
-        setComposerFormValues,
-        submitComposerForm,
-        cancelRun,
-        updateQueuedMessage,
-        removeQueuedMessage,
-        setModel,
-        setEffort,
-    } = useActions(runInteractionLogic(logicProps))
-
+function TaskRunChatContent({
+    logicProps,
+    readOnly,
+}: {
+    logicProps: RunInteractionLogicProps
+    readOnly: boolean
+}): JSX.Element {
     return (
         // `RunSurface.Root` and `runInteractionLogic` deliberately share the same stream key (`streamKey ?? runId`,
         // resolved inside each): the composer slot's gating must read the exact stream the thread renders. The
@@ -82,48 +84,94 @@ function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicPro
         >
             <div className="@container/thread flex flex-col h-full -mx-4">
                 <RunSurface.Thread className="flex-1 min-h-0" listClassName="py-4" rowClassName="px-4" />
-                <RunSurface.Composer>
-                    <RunSurface.Resources />
-                    <Composer.Root
-                        value={composerForm.draft}
-                        onChange={(value) => setComposerFormValues({ draft: value })}
-                        onSubmit={submitComposerForm}
-                        loading={isSubmitting}
-                        isTurnActive={isBusy}
-                        onStop={() => cancelRun()}
-                    >
-                        {queuedMessages.length > 0 && (
-                            <Composer.Banner>
-                                <QueuedMessageList
-                                    messages={queuedMessages}
-                                    onUpdate={updateQueuedMessage}
-                                    onRemove={removeQueuedMessage}
-                                />
-                            </Composer.Banner>
-                        )}
-                        <Composer.Frame>
-                            <Composer.Field>
-                                <Composer.Placeholder>
-                                    {isTerminal ? 'Send a message to start a new run…' : 'Send a follow-up message…'}
-                                </Composer.Placeholder>
-                                <Composer.Textarea data-attr="sandbox-composer-input" submitShortcut="cmd-enter" />
-                            </Composer.Field>
-                            <Composer.Footer>
-                                {/* Model/effort picker: selection lives in the bound runInteractionLogic and is
-                                applied when the message is sent — synced to the running agent on a follow-up,
-                                or used to seed the next run once terminal. */}
-                                <ComposerModelEffortPickers
-                                    selectedModel={selectedModel}
-                                    selectedEffort={selectedEffort}
-                                    onModelChange={setModel}
-                                    onEffortChange={setEffort}
-                                />
-                            </Composer.Footer>
-                        </Composer.Frame>
-                        <Composer.Submit data-attr="sandbox-composer-send" />
-                    </Composer.Root>
-                </RunSurface.Composer>
+                {/* Stay live (stream keeps flowing) but omit the composer entirely for a read-only viewer. */}
+                {!readOnly && (
+                    <RunSurface.Composer>
+                        <RunSurface.Resources />
+                        {/* The composer owns the per-keystroke draft in an isolated child so typing never re-renders
+                        the thread/virtualizer rendered as its sibling above — that cascade is what made the input lag. */}
+                        <LiveComposer logicProps={logicProps} />
+                    </RunSurface.Composer>
+                )}
             </div>
         </RunSurface.Root>
+    )
+}
+
+function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }): JSX.Element {
+    const {
+        composerForm,
+        isSubmitting,
+        isBusy,
+        queuedMessages,
+        isTerminal,
+        selectedModel,
+        selectedEffort,
+        consentBlocked,
+    } = useValues(runInteractionLogic(logicProps))
+    const {
+        setComposerFormValues,
+        submitComposerForm,
+        cancelRun,
+        updateQueuedMessage,
+        removeQueuedMessage,
+        setModel,
+        setEffort,
+        clearConsentBlock,
+    } = useActions(runInteractionLogic(logicProps))
+
+    const draft = useDebouncedDraft(composerForm.draft, (value) => setComposerFormValues({ draft: value }))
+
+    return (
+        <Composer.Root
+            value={draft.value}
+            onChange={draft.onChange}
+            onSubmit={() => draft.submit(submitComposerForm)}
+            loading={isSubmitting}
+            isTurnActive={isBusy}
+            onStop={() => cancelRun()}
+        >
+            {queuedMessages.length > 0 && (
+                <Composer.Banner>
+                    <QueuedMessageList
+                        messages={queuedMessages}
+                        onUpdate={updateQueuedMessage}
+                        onRemove={removeQueuedMessage}
+                    />
+                </Composer.Banner>
+            )}
+            <Composer.Frame>
+                <Composer.Header>
+                    <AttachedContextBar />
+                </Composer.Header>
+                <Composer.Field>
+                    <Composer.Placeholder>
+                        {isTerminal ? 'Send a message to start a new run…' : 'Send a follow-up message…'}
+                    </Composer.Placeholder>
+                    <Composer.Textarea data-attr="sandbox-composer-input" />
+                </Composer.Field>
+                <Composer.Footer>
+                    {/* Model/effort picker: selection lives in the bound runInteractionLogic and is
+                    applied when the message is sent — synced to the running agent on a follow-up,
+                    or used to seed the next run once terminal. */}
+                    <ComposerModelEffortPickers
+                        selectedModel={selectedModel}
+                        selectedEffort={selectedEffort}
+                        onModelChange={setModel}
+                        onEffortChange={setEffort}
+                    />
+                </Composer.Footer>
+            </Composer.Frame>
+            <AIConsentPopoverWrapper
+                placement="top-end"
+                showArrow
+                ignoreDismissal
+                hidden={!consentBlocked}
+                onApprove={() => submitComposerForm()}
+                onDismiss={() => clearConsentBlock()}
+            >
+                <Composer.Submit data-attr="sandbox-composer-send" />
+            </AIConsentPopoverWrapper>
+        </Composer.Root>
     )
 }

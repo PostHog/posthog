@@ -33,6 +33,7 @@ export enum QueryFeature {
     linkDataButton,
     personsSearch,
     groupsSearch,
+    tracesSearch,
     savedEventsQueries,
     columnConfigurator,
     resultIsArrayOfArrays,
@@ -152,6 +153,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.supportTracesFilters)
         features.add(QueryFeature.columnConfigurator)
         features.add(QueryFeature.displayResponseError)
+        features.add(QueryFeature.tracesSearch)
     }
 
     if (isEndpointsUsageTableQuery(query)) {

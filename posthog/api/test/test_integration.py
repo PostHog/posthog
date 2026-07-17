@@ -17,8 +17,14 @@ from django.utils import timezone
 import requests
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.api.github_callback.state import store_unified_authorize_state
+from posthog.api.github_callback.team_services import (
+    GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
+    authorize_link_existing_installation,
+    link_existing_team_github_integration,
+)
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
 from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
 from posthog.models.integration import (
@@ -685,17 +691,20 @@ class TestAwsS3Integration:
         [
             (
                 {"aws_access_key_id": "k", "aws_secret_access_key": "s"},
-                "Name, access key ID, and secret access key must be provided",
+                "A name is required for an AWS S3 integration",
             ),
             (
                 {"name": "n", "aws_secret_access_key": "s"},
-                "Name, access key ID, and secret access key must be provided",
+                "Access key ID is required for an AWS S3 integration",
             ),
-            ({"name": "n", "aws_access_key_id": "k"}, "Name, access key ID, and secret access key must be provided"),
-            ({}, "Name, access key ID, and secret access key must be provided"),
+            (
+                {"name": "n", "aws_access_key_id": "k"},
+                "Secret access key is required for an AWS S3 integration",
+            ),
+            ({}, "A name is required for an AWS S3 integration"),
             (
                 {"name": "n", "aws_access_key_id": "k", "aws_secret_access_key": 1},
-                "Name, access key ID, and secret access key must be strings",
+                "Secret access key is required for an AWS S3 integration",
             ),
         ],
     )
@@ -710,6 +719,79 @@ class TestAwsS3Integration:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == expected_error_message
+
+
+class TestAwsS3RoleBasedIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def test_create_with_valid_config(self, client: HttpClient):
+        client.force_login(self.user)
+
+        role = "arn:aws:iam::123456789012:role/my-role"
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "aws-s3",
+                "config": {
+                    "name": "prod-aws",
+                    "aws_role_arn": role,
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["kind"] == "aws-s3"
+
+        integration = Integration.objects.get(id=response.json()["id"])
+        assert integration.kind == "aws-s3"
+        assert integration.team == self.team
+        assert integration.integration_id == "prod-aws"
+        assert integration.config == {"name": "prod-aws", "aws_role_arn": role}
+        assert integration.sensitive_config == {}
+
+    def test_create_rejects_duplicate_role_in_different_org(self, client: HttpClient):
+        another_org = Organization.objects.create(name="Test Org 2")
+        another_team = Team.objects.create(organization=another_org, name="Test Team")
+        another_user = User.objects.create_and_join(
+            another_org, "test2@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+        client.force_login(another_user)
+        payload = {
+            "kind": "aws-s3",
+            "config": {"name": "prod-aws", "aws_role_arn": "something"},
+        }
+
+        first = client.post(
+            f"/api/environments/{another_team.pk}/integrations", payload, content_type="application/json"
+        )
+        assert first.status_code == status.HTTP_201_CREATED, first.json()
+
+        client.force_login(self.user)
+        second = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Cannot create AWS S3 integration: Invalid role" in second.json()["detail"]
+
+    def test_create_rejects_duplicate_name(self, client: HttpClient):
+        client.force_login(self.user)
+        payload = {
+            "kind": "aws-s3",
+            "config": {"name": "prod-aws", "aws_role_arn": "something"},
+        }
+
+        first = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
+        assert first.status_code == status.HTTP_201_CREATED, first.json()
+
+        second = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
+        assert "An integration named 'prod-aws' already exists" in second.json()["detail"]
+        assert Integration.objects.filter(team=self.team, integration_id="prod-aws").count() == 1
 
 
 class TestS3CompatibleIntegration:
@@ -818,6 +900,164 @@ class TestS3CompatibleIntegration:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == expected_error_message
+
+
+class TestSnowflakeIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def test_create_with_password_auth(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "snowflake",
+                "config": {
+                    "name": "prod-snowflake",
+                    "account": "myorg-myaccount",
+                    "user": "posthog_svc",
+                    "authentication_type": "password",
+                    "password": "secret",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["kind"] == "snowflake"
+
+        integration = Integration.objects.get(id=response.json()["id"])
+        assert integration.integration_id == "prod-snowflake"
+        assert integration.config == {
+            "name": "prod-snowflake",
+            "account": "myorg-myaccount",
+            "user": "posthog_svc",
+            "authentication_type": "password",
+        }
+        assert integration.sensitive_config == {"password": "secret"}
+        # The credential value must never surface anywhere in the API response (sensitive_config is
+        # not a serializer field; this guards against a leak into config or any other exposed field).
+        # Note the word "password" legitimately appears as the non-secret authentication_type.
+        response_body = json.dumps(response.json())
+        assert "secret" not in response_body
+
+    def test_create_with_keypair_auth(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "snowflake",
+                "config": {
+                    "name": "prod-snowflake",
+                    "account": "myorg-myaccount",
+                    "user": "posthog_svc",
+                    "authentication_type": "keypair",
+                    "private_key": "-----BEGIN PRIVATE KEY-----\nxxx\n-----END PRIVATE KEY-----",
+                    "private_key_passphrase": "phrase",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        integration = Integration.objects.get(id=response.json()["id"])
+        assert integration.config["authentication_type"] == "keypair"
+        assert integration.sensitive_config == {
+            "private_key": "-----BEGIN PRIVATE KEY-----\nxxx\n-----END PRIVATE KEY-----",
+            "private_key_passphrase": "phrase",
+        }
+        response_body = json.dumps(response.json())
+        assert "private_key" not in response_body
+        assert "PRIVATE KEY" not in response_body
+        assert "phrase" not in response_body
+
+    def test_create_rejects_duplicate_name(self, client: HttpClient):
+        client.force_login(self.user)
+        payload = {
+            "kind": "snowflake",
+            "config": {
+                "name": "prod-snowflake",
+                "account": "myorg-myaccount",
+                "user": "posthog_svc",
+                "authentication_type": "password",
+                "password": "secret",
+            },
+        }
+
+        first = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
+        assert first.status_code == status.HTTP_201_CREATED, first.json()
+
+        second = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
+        assert "An integration named 'prod-snowflake' already exists" in second.json()["detail"]
+        assert Integration.objects.filter(team=self.team, integration_id="prod-snowflake").count() == 1
+
+    def test_create_rejects_malformed_account(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "snowflake",
+                "config": {
+                    "name": "bad",
+                    "account": "https://myaccount.snowflakecomputing.com",
+                    "user": "posthog_svc",
+                    "authentication_type": "password",
+                    "password": "secret",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "invalid account identifier" in response.json()["detail"]
+
+    @pytest.mark.parametrize(
+        "invalid_config,expected_error_message",
+        [
+            (
+                {"account": "a", "user": "u", "password": "p"},
+                "Name, account, and user must be provided",
+            ),
+            (
+                {"name": "n", "user": "u", "password": "p"},
+                "Name, account, and user must be provided",
+            ),
+            ({}, "Name, account, and user must be provided"),
+            (
+                {"name": "n", "account": "a", "user": "u", "authentication_type": "password"},
+                "Password is required",
+            ),
+            (
+                {"name": "n", "account": "a", "user": "u", "authentication_type": "keypair"},
+                "Private key is required",
+            ),
+            (
+                {"name": "n", "account": "a", "user": "u", "authentication_type": "password", "password": 42},
+                "Password, private key, and private key passphrase must be strings",
+            ),
+        ],
+    )
+    def test_create_with_invalid_config(self, invalid_config, expected_error_message, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": "snowflake", "config": invalid_config},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_error_message in response.json()["detail"]
 
 
 class TestIntegrationAPIKeyAccess:
@@ -2296,14 +2536,15 @@ class TestGitHubTeamIntegrationComplete:
         assert cache.get(f"github_authorize:{state_token}") is None
         assert cache.get(f"github_authorize_pending:{self.user.id}") is None
 
-    def test_non_admin_member_cannot_complete_team_install(self, client: HttpClient):
+    def test_forged_state_cannot_complete_team_install(self, client: HttpClient):
         member = User.objects.create_and_join(
             self.organization, "member@posthog.com", "test", level=OrganizationMembership.Level.MEMBER
         )
         client.force_login(member)
 
         # No valid authorize state — the member supplies the team via the user-controlled `state` `next`,
-        # which resolves team_id purely from the path. Membership alone must not let them complete it.
+        # which resolves team_id purely from the path. Membership now suffices to *add* an integration, so
+        # state-token validation (not the permission gate) is what must stop a forged callback from creating one.
         next_path = f"/project/{self.team.pk}/integrations/github"
         response = client.get(
             "/integrations/github/callback/",
@@ -2316,8 +2557,74 @@ class TestGitHubTeamIntegrationComplete:
         )
 
         assert response.status_code == status.HTTP_302_FOUND
-        assert "github_setup_error=insufficient_permissions" in response["Location"]
+        assert "github_setup_error=invalid_state" in response["Location"]
         assert not Integration.objects.filter(team=self.team, kind="github").exists()
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
+    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    @patch("posthog.models.user_integration.user_github_integration_from_installation")
+    def test_member_can_complete_fresh_team_install(
+        self, mock_user_integration, mock_from_install, mock_from_code, mock_verify, client: HttpClient
+    ):
+        # Adding a brand-new integration only requires project membership.
+        member = User.objects.create_and_join(
+            self.organization, "member@posthog.com", "test", level=OrganizationMembership.Level.MEMBER
+        )
+        client.force_login(member)
+        next_path = f"/project/{self.team.pk}/settings/environment-integrations"
+        state_token = "member-install-token"
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=member.id,
+                team_id=self.team.pk,
+                next_url=next_path,
+            ),
+        )
+        mock_from_code.return_value = self._github_user_authorization()
+        mock_verify.return_value = True
+        # side_effect (not return_value) so the row is created when execute runs — after the
+        # permission check — matching a genuine first-time install where nothing exists yet.
+        mock_from_install.side_effect = lambda *args, **kwargs: self._team_github_integration()
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {
+                "installation_id": "12345",
+                "code": "oauth-code-abc",
+                "setup_action": "install",
+                "state": urlencode({"next": next_path, "token": state_token}),
+            },
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "github_setup_error" not in response["Location"]
+        assert Integration.objects.filter(team=self.team, kind="github", integration_id="12345").exists()
+
+    def test_member_cannot_modify_existing_team_integration(self, client: HttpClient):
+        # An integration already exists, so completing the callback would *modify* it — that still needs admin.
+        existing = self._team_github_integration()
+        member = User.objects.create_and_join(
+            self.organization, "member@posthog.com", "test", level=OrganizationMembership.Level.MEMBER
+        )
+        client.force_login(member)
+        next_path = f"/project/{self.team.pk}/integrations/github"
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {
+                "installation_id": "12345",
+                "setup_action": "update",
+                "state": urlencode({"next": next_path, "token": "no-such-token"}),
+            },
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "github_setup_error=insufficient_permissions" in response["Location"]
+        # The existing integration must be untouched — no member-driven reconnect.
+        assert Integration.objects.filter(id=existing.id).count() == 1
 
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
@@ -2654,6 +2961,108 @@ class TestGitHubTeamIntegrationComplete:
         assert response.status_code == status.HTTP_302_FOUND
         assert response["Location"].startswith("https://github.com/login/oauth/authorize")
         mock_build_oauth_url.assert_called_once()
+
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_admin_links_existing_org_installation_without_personal_github(self, mock_from_install, client: HttpClient):
+        # A GitHub App installs once per org, so a second project hits the Setup URL with
+        # setup_action=update and no OAuth code. A team admin must be able to complete that link
+        # off the installation already connected to a sibling team, without a personal GitHub link.
+        sibling = Team.objects.create(organization=self.organization, name="Sibling Team")
+        Integration.objects.create(
+            team=sibling,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345", "connecting_user_github_login": "owneruser"},
+            sensitive_config={"access_token": "ghs_sibling"},
+        )
+        # self.user is an org admin with no UserIntegration (personal GitHub link).
+        assert not UserIntegration.objects.filter(user=self.user, kind="github").exists()
+        mock_from_install.side_effect = lambda *args, **kwargs: self._team_github_integration()
+
+        client.force_login(self.user)
+        next_path = f"/project/{self.team.pk}/integrations/github"
+        state_token = "link-existing-token"
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=next_path,
+            ),
+        )
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {
+                "installation_id": "12345",
+                "setup_action": "update",
+                "state": urlencode({"next": next_path, "token": state_token}),
+            },
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "github_setup_error" not in response["Location"]
+        assert Integration.objects.filter(team=self.team, kind="github", integration_id="12345").exists()
+
+    def test_authorize_link_existing_requires_personal_github_for_non_admin(self):
+        # The admin bypass must not leak to plain members: without team admin access and without a
+        # personal GitHub link, linking an existing installation still demands the personal token.
+        member = User.objects.create_and_join(
+            self.organization, "member-linker@posthog.com", "test", level=OrganizationMembership.Level.MEMBER
+        )
+        with pytest.raises(ValidationError) as exc_info:
+            authorize_link_existing_installation(user=member, team=self.team, source_installation_id="12345")
+        codes = exc_info.value.get_codes()
+        assert isinstance(codes, list) and GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED in codes
+
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_link_existing_auto_resolves_single_org_installation(self, mock_from_install):
+        # The one-click "Link existing installation" UI sends no source_team_id / installation_id;
+        # the service must resolve the org's single existing installation and link it to this team.
+        sibling = Team.objects.create(organization=self.organization, name="Sibling Team")
+        Integration.objects.create(
+            team=sibling,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={"access_token": "ghs_sibling"},
+        )
+        mock_from_install.side_effect = lambda *args, **kwargs: self._team_github_integration()
+
+        result = link_existing_team_github_integration(
+            user=self.user,
+            organization=self.organization,
+            team_id=self.team.pk,
+            source_team_id=None,
+            installation_id_param=None,
+        )
+
+        assert result is not None
+        assert mock_from_install.call_args.args[0] == "12345"
+        assert mock_from_install.call_args.args[1] == self.team.pk
+
+    @parameterized.expand([("no_installations", []), ("ambiguous_installations", ["111", "222"])])
+    def test_link_existing_auto_resolve_rejects_when_not_exactly_one(self, _name, installation_ids):
+        # Auto-resolve is only safe when the org has exactly one installation: zero has nothing to
+        # link, and multiple is ambiguous, so the caller must disambiguate rather than guess.
+        for idx, installation_id in enumerate(installation_ids):
+            team = Team.objects.create(organization=self.organization, name=f"Sibling {idx}")
+            Integration.objects.create(
+                team=team,
+                kind="github",
+                integration_id=installation_id,
+                config={"installation_id": installation_id},
+                sensitive_config={"access_token": "ghs_sibling"},
+            )
+        with pytest.raises(ValidationError):
+            link_existing_team_github_integration(
+                user=self.user,
+                organization=self.organization,
+                team_id=self.team.pk,
+                source_team_id=None,
+                installation_id_param=None,
+            )
 
     def test_cross_user_state_rejected_on_unified_callback(self, client: HttpClient):
         # State tokens are bound to a user via the pending-pointer cache key.
@@ -3078,6 +3487,121 @@ class TestStripeIntegration:
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert not Integration.objects.filter(team_id=self.team.pk, kind="stripe").exists()
+
+
+class TestOauthIntegrationRevokeOnDisconnect:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db, settings):
+        settings.SALESFORCE_CONSUMER_KEY = "sf-key"
+        settings.SALESFORCE_CONSUMER_SECRET = "sf-secret"
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def _create_salesforce_integration(
+        self,
+        sensitive_config: dict | None = None,
+        instance_url: str = "https://example.my.salesforce.com",
+    ) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="salesforce",
+            config={"instance_url": instance_url},
+            sensitive_config=(
+                {"access_token": "sf-access", "refresh_token": "sf-refresh"}
+                if sensitive_config is None
+                else sensitive_config
+            ),
+            integration_id=instance_url,
+            created_by=self.user,
+        )
+
+    @patch("posthog.models.integration.requests.post")
+    def test_destroy_salesforce_revokes_token_at_provider(self, mock_post, client: HttpClient):
+        integration = self._create_salesforce_integration()
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=integration.id).exists()
+        mock_post.assert_called_once_with(
+            "https://example.my.salesforce.com/services/oauth2/revoke",
+            data={"token": "sf-refresh"},
+            timeout=10,
+            allow_redirects=False,
+        )
+
+    @patch("posthog.models.integration.requests.post")
+    def test_destroy_sandbox_salesforce_revokes_at_sandbox_host(self, mock_post, client: HttpClient):
+        # Sandbox integrations are stored as kind "salesforce" with a sandbox instance_url; revoking
+        # must hit that host, not login.salesforce.com, or the sandbox grant is never invalidated.
+        integration = self._create_salesforce_integration(
+            instance_url="https://example--sandbox.sandbox.my.salesforce.com"
+        )
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=integration.id).exists()
+        mock_post.assert_called_once_with(
+            "https://example--sandbox.sandbox.my.salesforce.com/services/oauth2/revoke",
+            data={"token": "sf-refresh"},
+            timeout=10,
+            allow_redirects=False,
+        )
+
+    @patch("posthog.models.integration.requests.post")
+    def test_destroy_still_deletes_when_revoke_fails(self, mock_post, client: HttpClient):
+        client.force_login(self.user)
+
+        raising = self._create_salesforce_integration()
+        mock_post.side_effect = Exception("Salesforce is down")
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{raising.id}/")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=raising.id).exists()
+
+        rejected = self._create_salesforce_integration()
+        mock_post.side_effect = None
+        rejecting_response = MagicMock(status_code=400)
+        rejecting_response.raise_for_status.side_effect = requests.HTTPError(
+            "400 Client Error", response=rejecting_response
+        )
+        mock_post.return_value = rejecting_response
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{rejected.id}/")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=rejected.id).exists()
+
+    @patch("posthog.models.integration.requests.post")
+    def test_destroy_without_tokens_skips_revoke(self, mock_post, client: HttpClient):
+        integration = self._create_salesforce_integration(sensitive_config={})
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=integration.id).exists()
+        mock_post.assert_not_called()
+
+    @patch("posthog.models.integration.requests.post")
+    def test_destroy_kind_without_revoke_url_skips_revoke(self, mock_post, client: HttpClient):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            config={"authed_user": {"id": "U123"}},
+            sensitive_config={"access_token": "xoxb-test"},
+            created_by=self.user,
+        )
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=integration.id).exists()
+        mock_post.assert_not_called()
 
 
 class TestStripeIntegrationOAuthTokens:
@@ -3961,6 +4485,28 @@ class TestGitHubIntegrationUninstall:
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not Integration.objects.filter(id=integration.id).exists()
 
+    @patch("posthog.api.integration.GitHubIntegration.uninstall_app_installation")
+    @patch("posthog.api.integration.count_in_progress_runs_for_github_integration")
+    def test_destroy_github_blocked_while_background_agent_runs_in_progress(
+        self, mock_count, _mock_uninstall, client: HttpClient
+    ):
+        integration = self._create_github_integration("12345")
+        mock_count.return_value = 2
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "2 in-progress background agent runs" in response.json()["detail"]
+        assert Integration.objects.filter(id=integration.id).exists()
+        mock_count.assert_called_once_with(team_id=self.team.pk, integration_id=integration.id)
+
+        mock_count.return_value = 0
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=integration.id).exists()
+
 
 class TestIntegrationDeletionWorkflowGuard:
     @pytest.fixture(autouse=True)
@@ -4306,78 +4852,64 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
         mock_report.assert_not_called()
 
 
-class TestGoogleSearchConsoleSitesEndpoint:
-    _SESSION_PATH = (
-        "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console."
-        "google_search_console.google_search_console_session"
-    )
-    _LIST_SITES_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console.list_sites"
+class TestIntegrationMembershipPermissions(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # A plain project member: allowed to add integrations, but not edit or remove them.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
 
-    @pytest.fixture(autouse=True)
-    def setup_integration(self, db):
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(organization=self.organization, name="Test Team")
-        self.user = User.objects.create_and_join(
-            self.organization, "gsc@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+    @patch("posthog.models.integration.AwsS3Integration.validate_credentials", return_value="123456789012")
+    def test_member_can_create_integration(self, _mock_validate):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "aws-s3",
+                "config": {"name": "prod-aws", "aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "secret"},
+            },
+            format="json",
         )
 
-    def _create_gsc_integration(self) -> Integration:
-        # No refresh_token → `_ensure_oauth_token_valid` treats the access token as valid and skips refresh.
-        return Integration.objects.create(
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert Integration.objects.filter(id=response.json()["id"], team=self.team).exists()
+
+    def test_member_cannot_delete_integration(self):
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T123", config={})
+
+        response = self.client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert Integration.objects.filter(id=integration.id).exists()
+
+    def test_member_cannot_overwrite_existing_integration(self):
+        # POST is an upsert (update_or_create keyed on team/kind/integration_id), so re-submitting the
+        # same resource edits an existing integration. Members may add a new one, but overwriting an
+        # existing one is an edit and requires admin — the write must roll back, leaving config intact.
+        email = "svc@proj.iam.gserviceaccount.com"
+        existing = Integration.objects.create(
             team=self.team,
-            kind="google-search-console",
-            config={},
-            sensitive_config={"access_token": "ya29.test"},
-            integration_id="gsc_test",
-            created_by=self.user,
+            kind="google-cloud-service-account",
+            integration_id=f"{email}-{self.team.pk}-key-file",
+            config={"project_id": "original-project", "service_account_email": email},
+            sensitive_config={"private_key": "orig", "private_key_id": "orig", "token_uri": "orig"},
         )
 
-    def _url(self, integration_id: int) -> str:
-        return f"/api/environments/{self.team.pk}/integrations/{integration_id}/google_search_console_sites/"
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "google-cloud-service-account",
+                "config": {
+                    "service_account_email": email,
+                    "project_id": "hijacked-project",
+                    "private_key": "new",
+                    "private_key_id": "new",
+                    "token_uri": "new",
+                },
+            },
+            format="json",
+        )
 
-    @staticmethod
-    def _http_error(status_code: int) -> requests.HTTPError:
-        response = requests.Response()
-        response.status_code = status_code
-        return requests.HTTPError(f"{status_code} Client Error", response=response)
-
-    @patch(_LIST_SITES_PATH)
-    @patch(_SESSION_PATH)
-    def test_auth_error_returns_actionable_400(self, mock_session, mock_list_sites, client: HttpClient):
-        # 401 and 403 both mean the connected account can't read Search Console — the endpoint should
-        # turn either into an actionable 400 rather than letting it surface as an unhandled 500.
-        integration = self._create_gsc_integration()
-        client.force_login(self.user)
-
-        for status_code in (401, 403):
-            mock_list_sites.side_effect = self._http_error(status_code)
-
-            response = client.get(self._url(integration.id))
-
-            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-            assert "reconnect your account" in str(response.json()).lower()
-
-    @patch(_LIST_SITES_PATH)
-    @patch(_SESSION_PATH)
-    def test_success_returns_sites(self, mock_session, mock_list_sites, client: HttpClient):
-        integration = self._create_gsc_integration()
-        mock_list_sites.return_value = [{"siteUrl": "https://example.com/", "permissionLevel": "siteOwner"}]
-
-        client.force_login(self.user)
-        response = client.get(self._url(integration.id))
-
-        assert response.status_code == status.HTTP_200_OK, response.content
-        assert response.json()["sites"] == [{"siteUrl": "https://example.com/", "permissionLevel": "siteOwner"}]
-
-    @patch(_LIST_SITES_PATH)
-    @patch(_SESSION_PATH)
-    def test_non_auth_http_error_is_not_swallowed(self, mock_session, mock_list_sites, client: HttpClient):
-        # Only 401/403 are converted to a 400 — any other status keeps surfacing as a server error so
-        # a genuine bug isn't masked by the auth handling.
-        integration = self._create_gsc_integration()
-        mock_list_sites.side_effect = self._http_error(500)
-
-        client.force_login(self.user)
-        response = client.get(self._url(integration.id))
-
-        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        existing.refresh_from_db()
+        assert existing.config["project_id"] == "original-project"
+        assert Integration.objects.filter(team=self.team, kind="google-cloud-service-account").count() == 1

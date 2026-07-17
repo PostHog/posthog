@@ -139,12 +139,14 @@ export function AgentsTab(): JSX.Element {
                     </Subsection>
                 )}
 
-                <Subsection
-                    title="MCP servers"
-                    description="External tools agents can read from. PostHog data is always available; this is everything else."
-                >
-                    <McpServersSection />
-                </Subsection>
+                {featureFlags[FEATURE_FLAGS.MCP_SERVERS] && (
+                    <Subsection
+                        title="MCP servers"
+                        description="External tools agents can read from. PostHog data is always available; this is everything else."
+                    >
+                        <McpServersSection />
+                    </Subsection>
+                )}
             </div>
         </div>
     )

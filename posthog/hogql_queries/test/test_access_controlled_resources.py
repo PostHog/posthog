@@ -60,6 +60,13 @@ class TestQueriedAccessControlledResources(BaseTest):
     def test_unparseable_hogql_fails_closed(self):
         assert queried_access_controlled_resources(HogQLQuery(query="select from from"), self.team) is None
 
+    def test_connection_query_partitions_on_source_and_warehouse_scopes(self):
+        # A connection query reads virtual tables named by ExternalDataSchema.name, which the
+        # warehouse-table name lookup can't match — without these scopes a user denied the source
+        # (or its backing table) would replay an allowed user's cached upstream rows.
+        query = HogQLQuery(query="select * from public.users", connectionId="00000000-0000-0000-0000-000000000001")
+        assert queried_access_controlled_resources(query, self.team) == {"external_data_source", "warehouse_table"}
+
     def test_structured_query_reads_no_system_table(self):
         query = TrendsQuery(series=[EventsNode(event="$pageview")])
         assert queried_access_controlled_resources(query, self.team) == set()
@@ -133,6 +140,26 @@ class TestQueriedAccessControlledResources(BaseTest):
             HogQLQuery(query="select 1 from my_warehouse_table, system.notebooks"), self.team
         )
         assert result == {"warehouse_table", "notebook"}
+
+    def test_catalog_fetch_loads_only_name_fields(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="s",
+            connection_id="c",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix="myprefix",
+        )
+        table = self._create_warehouse_table("stripe_customers")
+        table.external_data_source = source
+        table.save()
+
+        query = HogQLQuery(query="select * from stripe_customers")
+        # One query each for tables and views. A third means either the .only() field list no
+        # longer covers what get_data_warehouse_table_name reads (rows silently defer-load per
+        # row) or the default manager's externaldataschema_set prefetch leaked back in.
+        with self.assertNumQueries(2):
+            assert queried_access_controlled_resources(query, self.team) == {"warehouse_table"}
 
     def test_warehouse_table_of_another_team_not_matched(self):
         from posthog.models import Team

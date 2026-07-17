@@ -13,10 +13,6 @@ If the required events or properties don't exist, tell the user instead of runni
 
 #### Insight query workflow
 
-1. Discover the data schema with `read-data-schema` (see schema-first workflow above).
-2. Choose the appropriate `query-*` tool based on the user's question.
-3. Construct the query schema. Each tool's description includes detailed schema documentation with examples. Be minimalist: only include filters, breakdowns, and settings essential to answer the question.
-4. Execute the query and analyze the results.
-5. Optionally save as an insight with `insight-create` or add to a dashboard.
+After the schema-first steps, choose the `query-*` tool matching the question, construct a minimal query (only the filters, breakdowns, and settings essential to the answer — each tool's description documents its schema with examples), execute, and analyze. Optionally save as an insight with `insight-create` or add to a dashboard.
 
 For complex investigations, combine multiple query types. For example, use `query-trends` to identify when a metric changed, then `query-funnel` to check if conversion was affected, then `query-trends` with breakdowns to isolate the segment.

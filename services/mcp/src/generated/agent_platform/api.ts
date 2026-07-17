@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 36 enabled ops
+ * PostHog API - MCP 40 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -164,7 +164,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .default(agentApplicationsRevisionsCreateBodyBundleUriDefault)
         .describe(
-            'Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
+            'Storage-prefix metadata for the bundle, e.g. `fs:/\/my-agent/`. Optional — leave blank and the server fills `fs:/\/<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
         ),
     spec: zod.unknown().optional(),
 })
@@ -249,7 +249,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
         .string()
         .optional()
         .describe(
-            'Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
+            'Storage-prefix metadata for the bundle, e.g. `fs:/\/my-agent/`. Optional — leave blank and the server fills `fs:/\/<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
         ),
     spec: zod.unknown().optional(),
 })
@@ -756,6 +756,45 @@ export const AgentApplicationsRevisionsToolsDestroyParams = /* @__PURE__ */ zod.
 })
 
 /**
+ * Execute one persisted custom tool in a single-shot sandbox.
+ *
+ * Authoring loop's "test this tool" button. The tool's source must
+ * already be PUT (compiled.js is what runs); this just invokes it
+ * with the caller-supplied args and a stubbed ctx. No real secrets
+ * leave Django — `mock_secrets` is a `{name → placeholder}` map.
+ */
+export const agentApplicationsRevisionsToolsDryRunCreatePathToolIdRegExp = new RegExp('^[a-z0-9][a-z0-9_-]*$')
+
+export const AgentApplicationsRevisionsToolsDryRunCreateParams = /* @__PURE__ */ zod.object({
+    application_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this agent revision.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    tool_id: zod.string().regex(agentApplicationsRevisionsToolsDryRunCreatePathToolIdRegExp),
+})
+
+export const AgentApplicationsRevisionsToolsDryRunCreateBody = /* @__PURE__ */ zod
+    .object({
+        args: zod
+            .unknown()
+            .describe(
+                "Synthetic args the tool's `actions.default` is called with. Free-form JSON; the sandbox doesn't validate against the tool's `args_schema` — that's the author's responsibility to keep in sync."
+            ),
+        mock_secrets: zod
+            .record(zod.string(), zod.string())
+            .optional()
+            .describe(
+                'Optional `{secret_name → placeholder_string}` map. The string is returned verbatim by `ctx.secrets.ref(name)` inside the tool. The real secret value never enters the sandbox.'
+            ),
+    })
+    .describe(
+        "Body shape for POST /revisions/<id>/tools/<tool_id>/dry_run/.\n\nExecutes the persisted compiled.js once in the janitor's single-shot\nsandbox with caller-supplied args + a stubbed ctx. No real secrets\nleave Django — `mock_secrets` is a `{name → opaque nonce}` map the\nsandbox plumbs into `ctx.secrets.ref(name)` so the tool body returns\nsomething deterministic to the author."
+    )
+
+/**
  * Pre-flight checks before freeze + promote: agent.md exists,
  * every native tool id is registered, every custom tool has its
  * compiled.js + schema.json, every skill path exists, every declared
@@ -888,6 +927,67 @@ export const AgentApplicationsDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Start a new session on this agent's LIVE (promoted) revision.
+ *
+ * Bridges to ingress `POST /agents/<slug>/run`, forwarding the caller's PAT
+ * so the session principal is the real caller. Returns the new `session_id`;
+ * drive the conversation with `agent-applications-send` and read progress with
+ * `agent-applications-listen`. For non-live / draft revisions use `preview_proxy` instead.
+ */
+export const AgentApplicationsInvokeParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this agent application.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AgentApplicationsInvokeBody = /* @__PURE__ */ zod
+    .object({
+        message: zod.string().describe('The user message that starts the session. Required, non-empty.'),
+        external_key: zod
+            .string()
+            .optional()
+            .describe(
+                'Optional idempotency / threading key. A repeat invoke with the same external_key resumes the existing session instead of starting a new one.'
+            ),
+    })
+    .describe("Body for `agent-applications-invoke` — start a new session on the agent's live (promoted) revision.")
+
+/**
+ * Poll a LIVE session's progress as a single JSON digest (non-streaming,
+ * MCP-friendly). Bridges to the internal ingress digest RPC — the digest is
+ * built node-side (never in Python). Tenancy is enforced by the team-scoped
+ * `get_object()` here plus the ingress digest's `application_id` re-scope;
+ * there is no janitor pre-check on this polled path (see the comment below).
+ */
+export const AgentApplicationsListenParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this agent application.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AgentApplicationsListenQueryParams = /* @__PURE__ */ zod.object({
+    cursor: zod
+        .number()
+        .optional()
+        .describe(
+            "`next_cursor` from the previous call. Omit on the first read; pass it back to summarize only what's new."
+        ),
+    max_chars: zod
+        .number()
+        .optional()
+        .describe(
+            'Digest character budget (default 4000, range 1–20000). The digest is clipped to fit and `truncated` is set.'
+        ),
+    session_id: zod.string().describe('Session to read (must belong to this agent).'),
+})
+
+/**
  * Authoring-side proxy for invoking a *draft* (or any non-live) revision.
  *
  * Closes the anonymous-draft-invoke gap: the public ingress URL refuses
@@ -933,7 +1033,36 @@ export const AgentApplicationsPreviewProxyBody = /* @__PURE__ */ zod
     )
 
 /**
- * List sessions for this application, newest first. Strips the
+ * Append a message to an existing LIVE session and re-queue it.
+ *
+ * Bridges to ingress `POST /agents/<slug>/send`, forwarding the caller's PAT
+ * so the ACL principal-match passes. A `completed` session is NOT terminal —
+ * it's a per-turn idle state for a multi-turn agent, so send re-queues it for
+ * another turn; only truly-terminal states (failed / cancelled / closed) 410,
+ * which passes through as a 410. A janitor ownership pre-check runs first, but
+ * it's redundant defense-in-depth (ingress `/send` already app-scopes the
+ * load), kept for a clean early 404.
+ */
+export const AgentApplicationsSendParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this agent application.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AgentApplicationsSendBody = /* @__PURE__ */ zod
+    .object({
+        session_id: zod
+            .string()
+            .describe('The session to append to (returned by agent-applications-invoke). Must belong to this agent.'),
+        message: zod.string().describe('The user message to append. Required, non-empty.'),
+    })
+    .describe('Body for `agent-applications-send` — append a message to an existing live session.')
+
+/**
+ * List sessions for this application, most recently active first. Strips the
  * conversation transcript from each summary, but includes a `preview`
  * (last assistant text, ~120 chars) and `usage_total` (token + cost
  * aggregate). Use `agent-applications-sessions-retrieve` for the full

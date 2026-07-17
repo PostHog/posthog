@@ -13,13 +13,15 @@ export const createSegments = (
     start: Dayjs | null,
     end: Dayjs | null,
     trackedWindow: number | null | undefined,
-    snapshotsByWindowId: Record<number, eventWithTime[]>
+    snapshotsByWindowId: Record<number, eventWithTime[]>,
+    isRangeLoaded?: (startTimestamp: number, endTimestamp: number) => boolean | null
 ): RecordingSegment[] => {
     return _createSegments(
         snapshots,
         start?.valueOf() ?? null,
         end?.valueOf() ?? null,
         trackedWindow,
-        snapshotsByWindowId
+        snapshotsByWindowId,
+        isRangeLoaded
     )
 }

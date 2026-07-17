@@ -1,80 +1,17 @@
-//! Session-replay anonymizer: PII-scrubs rrweb events for the ml-mirror pipeline, exposed to Node as
-//! a Neon native addon.
+//! Neon native addon exposing the `posthog-replay-anonymizer` scrubbers to Node for the ml-mirror
+//! pipeline.
 //!
-//! The scrubbers are a Rust port of `nodejs/src/ingestion/pipelines/sessionreplay/anonymize/*.ts`
-//! (the source of truth): text/URL redaction, native image blur, `cv` de/recompression. Parity with
-//! the TS is asserted via shared JSON fixtures under `tests/fixtures/` (the same fixtures the Jest
-//! suite runs against).
-//!
-//! The production surface is the byte-buffer pipeline in [`snapshot`]: the decompressed Kafka payload
-//! goes in, ready-to-write JSONL block lines plus envelope/per-event metadata come out — Rust owns
-//! the parse, the scrub, and the serialize, so no JSON crosses the FFI boundary as a string. The
-//! crate builds both an `rlib` (for `cargo test`) and a `cdylib` (the `index.node` addon).
-
-pub mod allow_lists;
-pub mod assets;
-pub mod blur;
-pub mod bytewalk;
-pub mod canvas;
-pub mod context;
-pub mod css;
-pub mod cv;
-pub mod dom;
-pub mod event;
-pub mod gzip;
-pub mod json;
-pub mod scan;
-pub mod snapshot;
-pub mod text;
-pub mod url;
-pub mod value;
-
-pub use allow_lists::AllowLists;
-pub use context::Ctx;
-pub use event::{anonymize_event, anonymize_event_str, anonymize_message};
-pub use snapshot::{
-    anonymize_kafka_payload, anonymize_kafka_payload_opts, AnonymizeOpts, AnonymizedMessage,
-    FailKind, Failure, Route,
-};
-
-/// Shared helpers for the image-neutralization tests across modules.
-#[cfg(test)]
-pub(crate) mod testkit {
-    use base64::Engine;
-
-    fn encode_png(w: u32, h: u32, color: [u8; 4]) -> Vec<u8> {
-        let img =
-            image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(w, h, image::Rgba(color)));
-        let mut buf = Vec::new();
-        img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
-            .unwrap();
-        buf
-    }
-
-    /// Base64 of an encoded PNG (no `data:` prefix) — e.g. for a canvas Blob's ArrayBuffer.
-    pub fn png_base64(w: u32, h: u32, color: [u8; 4]) -> String {
-        base64::engine::general_purpose::STANDARD.encode(encode_png(w, h, color))
-    }
-
-    pub fn png_data_uri(w: u32, h: u32, color: [u8; 4]) -> String {
-        format!("data:image/png;base64,{}", png_base64(w, h, color))
-    }
-
-    /// Base64 of `w*h` non-uniform RGBA pixels — e.g. for a canvas `ImageData` ArrayBuffer.
-    pub fn rgba_base64(w: u32, h: u32) -> String {
-        let mut raw = Vec::with_capacity((w * h * 4) as usize);
-        for i in 0..(w * h) {
-            let b = (i % 256) as u8;
-            raw.extend_from_slice(&[b, b.wrapping_add(50), b.wrapping_add(100), 255]);
-        }
-        base64::engine::general_purpose::STANDARD.encode(raw)
-    }
-}
+//! The production surface is the byte-buffer pipeline in `posthog_replay_anonymizer::snapshot`: the
+//! decompressed Kafka payload goes in, ready-to-write JSONL block lines plus envelope/per-event
+//! metadata come out — Rust owns the parse, the scrub, and the serialize, so no JSON crosses the FFI
+//! boundary as a string. Behavior is pinned by the shared JSON fixtures in the core crate's
+//! `tests/fixtures/`, which the Jest suite runs against through this addon.
 
 use std::sync::RwLock;
 
 use neon::prelude::*;
 use neon::types::buffer::TypedArray;
+use posthog_replay_anonymizer::{snapshot, AllowLists, FailKind};
 use serde::Deserialize;
 
 // The fail-closed contract depends on `catch_unwind` containing panics on untrusted input. Under
@@ -119,6 +56,13 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
         .argument_opt(1)
         .and_then(|v| v.downcast::<JsString, _>(&mut cx).ok())
         .map(|s| s.value(&mut cx));
+    // A present-but-non-string argument must fail loudly (the caller drops the message), not
+    // silently disable first-party collapsing; only absent/undefined/null mean "no hosts".
+    let first_party_hosts_json: Option<String> = match cx.argument_opt(2) {
+        Some(v) if v.is_a::<JsUndefined, _>(&mut cx) || v.is_a::<JsNull, _>(&mut cx) => None,
+        Some(v) => Some(v.downcast_or_throw::<JsString, _>(&mut cx)?.value(&mut cx)),
+        None => None,
+    };
     let promise = cx
         .task(move || -> TaskOutcome {
             // Contain any panic on untrusted input so it fails closed (the caller drops the message)
@@ -130,12 +74,30 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                 let allow = guard.as_ref().ok_or_else(|| {
                     "anonymizer not initialized (call initAnonymizer first)".to_string()
                 })?;
+                // A malformed host list fails closed (message dropped), never silently unscrubbed.
+                let first_party_hosts: Vec<String> = match &first_party_hosts_json {
+                    Some(json) => {
+                        let hosts: Vec<String> = serde_json::from_str(json)
+                            .map_err(|e| format!("invalid first-party hosts json: {e}"))?;
+                        hosts
+                            .iter()
+                            .map(|h| h.trim().to_ascii_lowercase())
+                            .filter(|h| !h.is_empty())
+                            .collect()
+                    }
+                    None => Vec::new(),
+                };
                 let mut payload =
                     match snapshot::decompress_payload(raw, content_encoding.as_deref()) {
                         Ok(p) => p,
                         Err(f) => return Ok(Err((f.kind.reason(), f.detail))),
                     };
-                match snapshot::anonymize_kafka_payload(allow, &mut payload) {
+                match snapshot::anonymize_kafka_payload_opts(
+                    allow,
+                    &mut payload,
+                    snapshot::AnonymizeOpts::default(),
+                    first_party_hosts,
+                ) {
                     Ok(out) => {
                         let meta = serde_json::to_string(&out.meta)
                             .map_err(|e| format!("serialize meta: {e}"))?;

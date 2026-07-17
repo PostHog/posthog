@@ -1,6 +1,10 @@
 // Components
 export { BarChart } from './charts/BarChart/BarChart'
 export type { BarChartProps } from './charts/BarChart/BarChart'
+export { FunnelChart, FUNNEL_BAND_PADDING } from './charts/FunnelChart/FunnelChart'
+export type { FunnelChartConfig, FunnelChartProps, FunnelStepClickData } from './charts/FunnelChart/FunnelChart'
+export { funnelConversionRate, funnelFromCounts, RATE_TO_PERCENT } from './charts/FunnelChart/funnel-data'
+export type { FunnelFromCountsOptions, FunnelStepCount } from './charts/FunnelChart/funnel-data'
 export { LineChart } from './charts/LineChart/LineChart'
 export type { LineChartProps } from './charts/LineChart/LineChart'
 export { ComboChart } from './charts/ComboChart/ComboChart'
@@ -89,6 +93,7 @@ export type { Gutter } from './core/y-axis-gutters'
 
 // Core types
 export type {
+    AxisLinesConfig,
     BarChartConfig,
     BarsConfig,
     ChartConfig,
@@ -114,7 +119,7 @@ export type {
     YAxis,
     YAxisScale,
 } from './core/types'
-export { DEFAULT_Y_AXIS_ID } from './core/types'
+export { DEFAULT_Y_AXIS_ID, resolveAxisLines } from './core/types'
 
 // Theme: read a ChartTheme from quill data-viz CSS vars (with a built-in fallback palette)
 export { themeFromCssVars, useChartTheme, DEFAULT_CHART_COLORS } from './core/theme'
@@ -136,6 +141,8 @@ export type {
     ReferenceLineStyle,
     ReferenceLineVariant,
 } from './overlays/ReferenceLine'
+export { HighlightedRange } from './overlays/HighlightedRange'
+export type { HighlightedRangeProps } from './overlays/HighlightedRange'
 export { ValueLabels } from './overlays/ValueLabels'
 export type { ValueLabelContext, ValueLabelFormatter, ValueLabelsProps } from './overlays/ValueLabels'
 export { AxisTitles } from './overlays/AxisTitles'

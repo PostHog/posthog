@@ -1,5 +1,4 @@
-import { renderHook, type RenderHookResult } from '@testing-library/react'
-import { act } from 'react'
+import { act, renderHook, type RenderHookResult } from '@testing-library/react'
 
 import { dimensions } from '../../testing'
 import type { ChartScales } from '../types'

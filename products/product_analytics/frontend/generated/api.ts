@@ -21,10 +21,15 @@ import type {
     ElementsStatsRetrieveParams,
     ElementsValuesListParams,
     InsightApi,
+    InsightBulkDeleteRequestApi,
+    InsightBulkDeleteResponseApi,
+    InsightBulkRestoreResponseApi,
     InsightViewedRequestApi,
     InsightsActivityRetrieveParams,
     InsightsAllActivityRetrieveParams,
     InsightsAnalyzeRetrieveParams,
+    InsightsBulkDeleteCreateParams,
+    InsightsBulkRestoreCreateParams,
     InsightsBulkUpdateTagsCreateParams,
     InsightsCancelCreateParams,
     InsightsCreateParams,
@@ -743,6 +748,72 @@ export const insightsAllActivityRetrieve = async (
     return apiMutator<ActivityLogPaginatedResponseApi>(getInsightsAllActivityRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getInsightsBulkDeleteCreateUrl = (projectId: string, params?: InsightsBulkDeleteCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/bulk_delete/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/bulk_delete/`
+}
+
+/**
+ * Soft-delete insights in bulk by ID. Mirrors the single-insight delete: sets deleted=True, soft-deletes the insights' dashboard tiles, and removes their linked alerts. Insights the requester cannot edit are skipped and reported in `skipped`. Reversible via the bulk_restore endpoint.
+ */
+export const insightsBulkDeleteCreate = async (
+    projectId: string,
+    insightBulkDeleteRequestApi: InsightBulkDeleteRequestApi,
+    params?: InsightsBulkDeleteCreateParams,
+    options?: RequestInit
+): Promise<InsightBulkDeleteResponseApi> => {
+    return apiMutator<InsightBulkDeleteResponseApi>(getInsightsBulkDeleteCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightBulkDeleteRequestApi),
+    })
+}
+
+export const getInsightsBulkRestoreCreateUrl = (projectId: string, params?: InsightsBulkRestoreCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/bulk_restore/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/bulk_restore/`
+}
+
+/**
+ * Restore soft-deleted insights in bulk by ID — the inverse of bulk_delete. Sets deleted=False and re-activates the insights' dashboard tiles on dashboards that still exist. Linked alerts are not restored (they are removed on delete). Insights the requester cannot edit are reported in `skipped`.
+ */
+export const insightsBulkRestoreCreate = async (
+    projectId: string,
+    insightBulkDeleteRequestApi: InsightBulkDeleteRequestApi,
+    params?: InsightsBulkRestoreCreateParams,
+    options?: RequestInit
+): Promise<InsightBulkRestoreResponseApi> => {
+    return apiMutator<InsightBulkRestoreResponseApi>(getInsightsBulkRestoreCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightBulkDeleteRequestApi),
     })
 }
 

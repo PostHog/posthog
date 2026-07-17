@@ -247,6 +247,15 @@ def relative_date_parse_with_delta_mapping(
     else:
         parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
 
+    if match_group_dict["kind"] == "q":
+        # Quarter boundaries depend on the resulting month, so they can't be expressed
+        # as a static delta mapping like mStart/yStart — snap after applying the delta
+        quarter_start_month = ((parsed_dt.month - 1) // 3) * 3 + 1
+        if match_group_dict["position"] == "Start":
+            parsed_dt += relativedelta(month=quarter_start_month, day=1)
+        elif match_group_dict["position"] == "End":
+            parsed_dt += relativedelta(month=quarter_start_month + 2, day=31)
+
     if always_truncate:
         # Truncate to the start of the hour for hour-precision datetimes, to the start of the day for larger intervals
         # TODO: Remove this from this function, this should not be the responsibility of it
@@ -329,7 +338,11 @@ def get_delta_mapping_for(
             delta_mapping["seconds"] = int(number)
     elif kind == "q":
         if number:
-            delta_mapping["weeks"] = 13 * int(number)
+            if human_friendly_comparison_periods:
+                # 13 whole weeks keeps weekdays aligned when comparing to the previous quarter
+                delta_mapping["weeks"] = 13 * int(number)
+            else:
+                delta_mapping["months"] = 3 * int(number)
     elif kind == "y":
         if number:
             if human_friendly_comparison_periods:
@@ -646,6 +659,8 @@ def _build_template_context(
     # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view)
     if "oauth_application" in context:
         posthog_app_context["oauth_application"] = context.pop("oauth_application")
+    if "oauth_mcp_consent" in context:
+        posthog_app_context["oauth_mcp_consent"] = context.pop("oauth_mcp_consent")
 
     # JSON dumps here since there may be objects like Queries
     # that are not serializable by Django's JSON serializer
@@ -1062,6 +1077,53 @@ def get_ip_address(request: HttpRequest) -> str:
     return ip
 
 
+def sanitize_ip_address(ip: Any) -> Optional[str]:
+    """Return the value only if it is a valid IP address string, otherwise None.
+
+    Use this before persisting an externally supplied IP so a malformed or non-string
+    value can't reach an IP database column and fail the write.
+    """
+    if not isinstance(ip, str):
+        return None
+    return _normalize_ip(ip)
+
+
+def _normalize_ip(ip: str) -> Optional[str]:
+    """Strip an optional port and validate; returns None if the result isn't a valid IP."""
+    if ip.startswith("["):
+        # IPv6 with brackets, possibly with port: [2001:db8::1]:8080 -> 2001:db8::1
+        bracket_end = ip.find("]")
+        if bracket_end != -1:
+            ip = ip[1:bracket_end]
+    elif ip.count(":") == 1:
+        # IPv4 with port: 192.168.1.1:8080 -> 192.168.1.1
+        ip = ip.split(":")[0]
+    return ip if _is_valid_ip_address(ip) else None
+
+
+def get_trusted_client_ip(request: HttpRequest) -> Optional[str]:
+    """Client IP validated against the trusted-proxy chain (settings.TRUSTED_PROXIES / TRUST_ALL_PROXIES).
+
+    Unlike get_ip_address, which trusts the left-most X-Forwarded-For value, this accepts the
+    forwarded client IP only when every proxy hop is a trusted proxy — otherwise it returns None.
+    Use it for security decisions so a spoofed X-Forwarded-For header can't dictate the result.
+    """
+    client_ip = request.META.get("REMOTE_ADDR")
+    if getattr(settings, "USE_X_FORWARDED_HOST", False):
+        forwarded_for = [ip.strip() for ip in (request.headers.get("x-forwarded-for") or "").split(",") if ip.strip()]
+        if forwarded_for:
+            closest_proxy = client_ip
+            client_ip = forwarded_for.pop(0)
+            if settings.TRUST_ALL_PROXIES:
+                return _normalize_ip(client_ip)
+            trusted = [p.strip() for p in (settings.TRUSTED_PROXIES or "").split(",") if p.strip()]
+            for proxy in [closest_proxy, *forwarded_for]:
+                normalized = _normalize_ip(proxy) if proxy else None
+                if normalized is None or normalized not in trusted:
+                    return None
+    return _normalize_ip(client_ip) if client_ip else None
+
+
 def get_short_user_agent(request: HttpRequest) -> str:
     """Returns browser and OS info from user agent, eg: 'Chrome 135.0.0 on macOS 10.15'"""
     user_agent_str = request.headers.get("user-agent")
@@ -1104,6 +1166,7 @@ def get_compare_period_dates(
     date_from_delta_mapping: Optional[dict[str, int]],
     date_to_delta_mapping: Optional[dict[str, int]],
     interval: str,
+    exclude_incomplete_periods: bool = False,
 ) -> tuple[datetime.datetime, datetime.datetime]:
     diff = date_to - date_from
     new_date_from = date_from - diff
@@ -1129,6 +1192,9 @@ def get_compare_period_dates(
             and date_from_delta_mapping.get("days", None)
             and date_from_delta_mapping["days"] % 7 == 0
             and not date_to_delta_mapping
+            # With excludeIncompletePeriods the ongoing day is clipped out of the range, so -7d
+            # covers exactly 7 complete days and the extra day would misalign the previous period.
+            and not exclude_incomplete_periods
         ):
             # KLUDGE: Unfortunately common relative date ranges such as "Last 7 days" (-7d) or "Last 14 days" (-14d)
             # are wrong because they treat the current ongoing day as an _extra_ one. This means that those ranges
@@ -1661,15 +1727,24 @@ def cache_requested_by_client(request: Request) -> bool | str:
     return _request_has_key_set("use_cache", request)
 
 
-def filters_override_requested_by_client(request: Request, dashboard: Optional["Dashboard"]) -> dict:
+def filters_override_requested_by_client(
+    request: Request, dashboard: Optional["Dashboard"], is_shared: bool = False
+) -> dict:
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
     dashboard_filters = dashboard.filters if dashboard else {}
     raw_override = request.query_params.get("filters_override")
 
-    # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or isinstance(
-        request.successful_authenticator, (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication)
+    # Security: never honor client-supplied overrides for shared/embedded access. The
+    # successful_authenticator check catches token-authenticated refreshes; is_shared also covers
+    # the path-based /shared/<token> page load, where no authenticator runs and the check is blind.
+    if (
+        not raw_override
+        or is_shared
+        or isinstance(
+            request.successful_authenticator,
+            (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication),
+        )
     ):
         return dashboard_filters
 
@@ -1682,7 +1757,10 @@ def filters_override_requested_by_client(request: Request, dashboard: Optional["
 
 
 def variables_override_requested_by_client(
-    request: Optional[Request], dashboard: Optional["Dashboard"], variables: list["InsightVariable"]
+    request: Optional[Request],
+    dashboard: Optional["Dashboard"],
+    variables: list["InsightVariable"],
+    is_shared: bool = False,
 ) -> Optional[dict[str, dict]]:
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
@@ -1691,12 +1769,18 @@ def variables_override_requested_by_client(
     dashboard_variables = (dashboard and dashboard.variables) or {}
     raw_override = request.query_params.get("variables_override") if request else None
 
-    # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or (
-        request
-        and isinstance(
-            request.successful_authenticator,
-            (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication),
+    # Security: never honor client-supplied overrides for shared/embedded access. The
+    # successful_authenticator check catches token-authenticated refreshes; is_shared also covers
+    # the path-based /shared/<token> page load, where no authenticator runs and the check is blind.
+    if (
+        not raw_override
+        or is_shared
+        or (
+            request
+            and isinstance(
+                request.successful_authenticator,
+                (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication),
+            )
         )
     ):
         return map_stale_to_latest(dashboard_variables, variables)
@@ -1709,15 +1793,24 @@ def variables_override_requested_by_client(
     return map_stale_to_latest({**dashboard_variables, **request_variables}, variables)
 
 
-def tile_filters_override_requested_by_client(request: Request, tile: Optional["DashboardTile"]) -> dict:
+def tile_filters_override_requested_by_client(
+    request: Request, tile: Optional["DashboardTile"], is_shared: bool = False
+) -> dict:
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
     tile_filters = tile.filters_overrides if tile and tile.filters_overrides else {}
     raw_override = request.query_params.get("tile_filters_override")
 
-    # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or isinstance(
-        request.successful_authenticator, (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication)
+    # Security: never honor client-supplied overrides for shared/embedded access. The
+    # successful_authenticator check catches token-authenticated refreshes; is_shared also covers
+    # the path-based /shared/<token> page load, where no authenticator runs and the check is blind.
+    if (
+        not raw_override
+        or is_shared
+        or isinstance(
+            request.successful_authenticator,
+            (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication),
+        )
     ):
         return tile_filters
 

@@ -135,11 +135,17 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # Outbound email delivery queue — looked up by PK / comment FK from internal
         # tasks (send + sweeper), never by user-supplied ID through an API.
         "EmailOutboxMessage",
-        "InsightCachingState",
         "InstanceSetting",
         "Schedule",
         # --- Auto-scoped via ProductTeamModel (TeamScopedManager handles filtering) ---
         "SplineReticulator",  # CI scaffold (hogli product:bootstrap)
+        # stamphog lives on a separate product DB; every model is a ProductTeamModel whose
+        # fail-closed manager (.for_team / safely_get_queryset) scopes every query by team_id.
+        "StamphogRepoConfig",
+        "PullRequest",
+        "ReviewRun",
+        "DigestChannel",
+        "DigestRun",
         # --- Accessed via parent FK (no direct team-scoped lookup needed) ---
         "AlertSubscription",
         "Approval",
@@ -153,10 +159,20 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "ErrorTrackingIssueAssignment",
         "StreamlitAppVersion",
         "FeatureFlagEvaluationContext",
+        "ProductPushCampaign",
         "Run",
         "RunSnapshot",
         "TicketAssignment",
         # --- Internal config / OneToOne settings ---
+        # OneToOne extension of Organization, read via the org relation
+        # (enrichment_record), never looked up by user-supplied ID.
+        "OrganizationEnrichment",
+        # Write-once idempotency guard keyed on the org, claimed via get_or_create from an
+        # internal enrichment write-back path, never looked up by user-supplied ID.
+        "EnrichmentSignupSnapshot",
+        # Append-only raw provider-payload archive written by the internal enrichment path;
+        # no API endpoint, never looked up by user-supplied ID.
+        "OrganizationEnrichmentFetch",
         # Model kept to avoid a deletion migration but has no API endpoint
         "ErrorTrackingAutoCaptureControls",
         "DuckLakeBackfill",
@@ -172,6 +188,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "TeamDefaultEvaluationContext",
         "TeamDataWarehouseConfig",
         "TeamExperimentsConfig",
+        "TeamFeatureFlagsConfig",
         "TeamLogsConfig",
         "TeamMarketingAnalyticsConfig",
         "TeamRevenueAnalyticsConfig",
@@ -180,6 +197,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # --- User preferences with no IDOR risk (read own data only) ---
         "FeatureFlagOverride",
         "NotificationReadState",
+        "NotificationArchiveState",
         "NotificationViewed",
         "SessionRecordingPlaylistViewed",
         "UserPromptState",
@@ -317,6 +335,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "LogsAlertCheck",  # via LogsAlertConfiguration
         "LogsAlertEvent",  # via LogsAlertConfiguration
         "NotificationReadState",  # via NotificationEvent
+        "NotificationArchiveState",  # via NotificationEvent
         "PluginStorage",  # via PluginConfig
         "ResourceNotebook",  # via Notebook
         "SchemaPropertyGroupProperty",  # via SchemaPropertyGroup

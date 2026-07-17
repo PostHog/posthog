@@ -343,7 +343,7 @@ export type ApprovalType = z.infer<typeof ApprovalTypeSchema>
  * before the principal/agent split keep parsing. `team_admins` was the owner
  * authority → `agent`; `session_principal` → `principal`.
  */
-function legacyApproversToApprovalType(approvers: unknown): ApprovalType | undefined {
+export function legacyApproversToApprovalType(approvers: unknown): ApprovalType | undefined {
     if (!Array.isArray(approvers)) {
         return undefined
     }
@@ -415,6 +415,13 @@ export const DEFAULT_APPROVAL_POLICY = {
  */
 export const ToolApprovalLevelSchema = z.enum(['allow', 'approve', 'deny'])
 export type ToolApprovalLevel = z.infer<typeof ToolApprovalLevelSchema>
+
+/**
+ * Intrinsic authorization class a native tool declares: the `deny`-excluded subset
+ * of {@link ToolApprovalLevel}. `allow` = read-only/own-footprint, `approve`
+ * reaches outside. `deny` is a resolution outcome, not an intrinsic class.
+ */
+export type NativeApprovalClass = Exclude<ToolApprovalLevel, 'deny'>
 
 export const ToolRefSchema = z.discriminatedUnion('kind', [
     z.object({
@@ -771,6 +778,17 @@ export const SpecLimitsSchema = z.object({
     // Per-turn provider max_tokens. Unset → reasoning-aware default in runner.
     // Clamped at request time to model.maxTokens + operator override.
     max_output_tokens: z.number().int().positive().max(200_000).optional(),
+    /**
+     * Cap on open (queued) approval requests per session. A model looping on
+     * an approval-gated tool can otherwise flood approvers — Slack posts per
+     * queued row, console badge inflation — because args-hash dedupe only
+     * collapses identical calls, not distinct-args floods. At the cap,
+     * further gated calls return a synthetic `approval_budget_exhausted`
+     * error to the model instead of queueing. Decisions and TTL expiry free
+     * budget; an identical re-ask dedupes onto its existing row and is
+     * always allowed.
+     */
+    max_open_approvals: z.number().int().positive().max(100).default(10),
 })
 
 export type AuthMode = z.infer<typeof AuthModeSchema>
@@ -965,41 +983,74 @@ export const IdentityProviderConfigSchema = z.discriminatedUnion('kind', [
 ])
 export type IdentityProviderConfig = z.infer<typeof IdentityProviderConfigSchema>
 
-export const AgentSpecSchema = z.object({
+/**
+ * Base object shape, before the cross-field superRefine. Exported so the
+ * author-facing `TypedSpecSchema` (storage/typed-bundle.ts) can guard its key
+ * set against this single source of truth — a top-level field added here that
+ * the author slice doesn't pass through would be strict-rejected by the
+ * authoring API. The parity test in typed-bundle.test.ts enforces that.
+ */
+export const AgentSpecObjectSchema = z.object({
     /** Model selection: auto level (default) or manual priority list. Resolve via `modelPolicyToList`. */
     models: ModelPolicySchema.default({ mode: 'auto', level: 'medium', optimize_for: 'cost' }),
     triggers: z
         .array(TriggerSchema)
+        .max(50)
         .describe(
             'How sessions start. Each entry is one trigger (a discriminated union on type: slack, webhook, cron, chat, mcp); an agent can be reachable several ways. Empty = no external triggers (preview/manual runs only).'
         )
         .default([]),
     tools: z
         .array(ToolRefSchema)
+        .max(200)
         .describe(
             'Tools the agent can call. kind native = @posthog/* built-ins (call the agent-native-tools-list tool for valid ids), custom = author-written TypeScript, client = fulfilled by the connecting app. Empty = no tools.'
         )
         .default([]),
     mcps: z
         .array(McpRefSchema)
+        // Bounded so a spec write can't fan out an unbounded connection-ownership
+        // `IN (...)` query / parse loop (validate runs on every spec write). 50
+        // mirrors the skill-refs cap; far above any real agent's server count.
+        .max(50)
         .describe(
             'External MCP servers the agent connects to at session start. Each remote tool is exposed to the model name-prefixed by the entry id; auth.provider links a per-user identity, secrets/headers cover bring-your-own-token.'
         )
         .default([]),
     skills: z
         .array(SkillRefSchema)
+        .max(50)
         .describe(
             'Skill references (id + path) listed in the system-prompt index; the model loads one on demand. Server-derived at freeze — set these via the skill-refs endpoints, not authored inline.'
         )
         .default([]),
     identity_providers: z
         .array(IdentityProviderConfigSchema)
+        .max(50)
         .describe(
             'Identity providers users can link against so the agent can act AS the user (the credential axis). kind posthog = managed (provisioned on promote), oauth2 = bring-your-own third-party app.'
         )
         .default([]),
+    /**
+     * The ONE provider that gates admission and is the source-of-truth identity.
+     * Must reference an `identity_providers[]` entry that establishes identity.
+     * When set, every inbound request (regardless of transport) must resolve a
+     * verified identity from this provider before a session runs — the ingress
+     * either finds a durable transport→identity binding, verifies a per-request
+     * credential, or returns an auth block. When unset, the transport claim is
+     * the identity (passthrough / public agents). All OTHER identity_providers
+     * link as secondary credentials to the authoritative (canonical) identity.
+     */
+    authoritative_provider: z
+        .string()
+        .min(1)
+        .describe(
+            'The ONE identity_providers[] id that gates admission and is the canonical identity. When set, every inbound request must resolve a verified identity from it before a session runs (transport-independent). Unset = transport claim is the identity (passthrough/public).'
+        )
+        .optional(),
     secrets: z
         .array(SecretRefSchema)
+        .max(100)
         .describe(
             'Secret names this agent can resolve from its encrypted env. Bare string = resolvable but no network-egress authority; object form pins the secret to allowed_hosts so @posthog/http-request may send it there.'
         )
@@ -1010,6 +1061,7 @@ export const AgentSpecSchema = z.object({
         max_wall_seconds: 15 * 60,
         max_memory_mb: 512,
         max_cpu_cores: 0.25,
+        max_open_approvals: 10,
     }),
     reasoning: ReasoningEffortSchema.describe(
         'Spec-wide default reasoning effort, applied to every model unless a model policy entry overrides it. Omit for the provider default.'
@@ -1020,6 +1072,54 @@ export const AgentSpecSchema = z.object({
     resume: ResumeConfigSchema.describe(
         'Per-agent resumability — keep completed sessions reachable longer than the platform default (e.g. a Slack thread watched across a whole sprint).'
     ).optional(),
+})
+
+/**
+ * Trigger types whose ingress path calls `buildAdmission()` before enqueueing.
+ * Add a type here only once its handler resolves the authoritative identity —
+ * otherwise a spec with `authoritative_provider` set would silently admit the
+ * transport claim as the identity, defeating the gate.
+ */
+const ADMISSION_WIRED_TRIGGER_TYPES: readonly Trigger['type'][] = ['slack', 'chat']
+
+export const AgentSpecSchema = AgentSpecObjectSchema.superRefine((spec, ctx) => {
+    // authoritative_provider must reference an identity_providers[] entry that can
+    // prove a subject (posthog, or oauth2 with userinfo_url) — else admission
+    // either 500s (unknown) or soft-locks (no subject) at runtime.
+    if (!spec.authoritative_provider) {
+        return
+    }
+    const provider = spec.identity_providers.find((p) => p.id === spec.authoritative_provider)
+    if (!provider) {
+        ctx.addIssue({
+            code: 'custom',
+            path: ['authoritative_provider'],
+            message: `authoritative_provider "${spec.authoritative_provider}" must reference an identity_providers[] id`,
+        })
+        return
+    }
+    const establishesIdentity = provider.kind === 'posthog' || (provider.kind === 'oauth2' && !!provider.userinfo_url)
+    if (!establishesIdentity) {
+        ctx.addIssue({
+            code: 'custom',
+            path: ['authoritative_provider'],
+            message: `authoritative_provider "${spec.authoritative_provider}" must establish identity (kind posthog, or oauth2 with userinfo_url)`,
+        })
+    }
+    // Fail-closed: refuse specs that combine an authoritative provider with a
+    // trigger whose ingress path does not yet call admission. Otherwise those
+    // triggers would enqueue sessions using the transport claim as the identity
+    // and bypass the gate. Loosen this as each trigger's ingress wires
+    // `buildAdmission()`.
+    const unsupported = spec.triggers.filter((t) => !ADMISSION_WIRED_TRIGGER_TYPES.includes(t.type))
+    if (unsupported.length > 0) {
+        const types = [...new Set(unsupported.map((t) => t.type))].sort().join(', ')
+        ctx.addIssue({
+            code: 'custom',
+            path: ['authoritative_provider'],
+            message: `authoritative_provider is not yet enforced on trigger types: ${types}. Supported: ${ADMISSION_WIRED_TRIGGER_TYPES.join(', ')}.`,
+        })
+    }
 })
 
 export type AgentSpec = z.infer<typeof AgentSpecSchema>
@@ -1106,6 +1206,24 @@ export function secretHostMatches(pattern: string, host: string): boolean {
 }
 
 /**
+ * If either side went through authoritative admission, both must resolve to
+ * the SAME canonical identity. A rebound canonical (unlink + re-link as a
+ * different subject; or an admission trust model that flipped on/off between
+ * the stored session and this request) is a new principal, not a resume of
+ * the old thread — otherwise the new identity would drive a session that
+ * still references the previous identity's stored credentials.
+ */
+function canonicalIdentityMatches(
+    stored: { canonical_agent_user_id?: string },
+    incoming: { canonical_agent_user_id?: string }
+): boolean {
+    if (stored.canonical_agent_user_id || incoming.canonical_agent_user_id) {
+        return stored.canonical_agent_user_id === incoming.canonical_agent_user_id
+    }
+    return true
+}
+
+/**
  * Strict principal match: same kind + same identifying key. Used at the
  * trigger edge (`/send`, Slack-thread resumes) to keep one user's session
  * scoped to that user, and by the runner's per-asker approval shortcut to
@@ -1127,19 +1245,35 @@ export function principalsMatch(stored: SessionPrincipal | null, incoming: Sessi
         case 'anonymous':
             return true
         case 'posthog':
-            return (
-                incoming.kind === 'posthog' &&
-                stored.user_id === incoming.user_id &&
-                stored.team_id === incoming.team_id
-            )
+            if (
+                incoming.kind !== 'posthog' ||
+                stored.user_id !== incoming.user_id ||
+                stored.team_id !== incoming.team_id
+            ) {
+                return false
+            }
+            return canonicalIdentityMatches(stored, incoming)
         case 'jwt':
-            return incoming.kind === 'jwt' && stored.sub === incoming.sub
+            if (
+                incoming.kind !== 'jwt' ||
+                stored.sub !== incoming.sub ||
+                // Issuer-scoped: `sub` is only meaningful within one issuer's
+                // trust domain — the same sub under a different configured
+                // jwt mode is a different caller, not a resume.
+                stored.issuer_secret_ref !== incoming.issuer_secret_ref
+            ) {
+                return false
+            }
+            return canonicalIdentityMatches(stored, incoming)
         case 'slack':
-            return (
-                incoming.kind === 'slack' &&
-                stored.workspace_id === incoming.workspace_id &&
-                stored.slack_user_id === incoming.slack_user_id
-            )
+            if (
+                incoming.kind !== 'slack' ||
+                stored.workspace_id !== incoming.workspace_id ||
+                stored.slack_user_id !== incoming.slack_user_id
+            ) {
+                return false
+            }
+            return canonicalIdentityMatches(stored, incoming)
         case 'posthog_internal':
             return incoming.kind === 'posthog_internal' && stored.team_id === incoming.team_id
         case 'shared_secret':
@@ -1224,6 +1358,9 @@ export type SessionPrincipal =
           team_id: number
           email?: string
           scopes?: string[]
+          /** Canonical identity (authoritative provider) set by edge admission;
+           *  keys secondary links when present. Absent on passthrough. */
+          canonical_agent_user_id?: string
       }
     /** JWT signed with the agent's configured secret. `sub` + `claims`
      *  are author-defined; the platform treats them as opaque. */
@@ -1232,6 +1369,9 @@ export type SessionPrincipal =
           issuer_secret_ref: string
           sub: string
           claims: Record<string, unknown>
+          /** Canonical identity (authoritative provider) set by edge admission;
+           *  keys secondary links when present. Absent on passthrough. */
+          canonical_agent_user_id?: string
       }
     /**
      * Slack user resolved through the slack integration. Pure Slack
@@ -1247,6 +1387,9 @@ export type SessionPrincipal =
           workspace_id: string
           slack_user_id: string
           agent_user_id?: string
+          /** Canonical identity (authoritative provider) set by edge admission;
+           *  keys secondary links when present. Absent on passthrough. */
+          canonical_agent_user_id?: string
       }
     /** Internal / service-to-service caller (PostHog backend → ingress). */
     | { kind: 'posthog_internal'; team_id?: number }
@@ -1329,6 +1472,10 @@ export const EMPTY_USAGE_TOTAL: SessionUsageTotal = {
     cost_total: 0,
 }
 
+/** The session lifecycle states. Terminal: `closed`, `cancelled`, `failed`.
+ *  See `session-state-reaper.ts` for the totality oracle over this set. */
+export type SessionState = 'queued' | 'running' | 'completed' | 'closed' | 'cancelled' | 'failed'
+
 export interface AgentSession {
     id: string
     application_id: string
@@ -1366,7 +1513,7 @@ export interface AgentSession {
      *               confused with a runtime error.
      *   failed    — error state. Terminal regardless of `allow_restart`.
      */
-    state: 'queued' | 'running' | 'completed' | 'closed' | 'cancelled' | 'failed'
+    state: SessionState
     /**
      * Principal that authenticated `/run`. Subsequent `/send` calls must
      * carry a principal that matches (same kind + id). Null for sessions
@@ -1458,10 +1605,18 @@ export interface AssistantMessageRecord {
         totalTokens?: number
         cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; total?: number }
     }
-    stopReason?: 'stop' | 'length' | 'toolUse' | 'error' | 'aborted'
+    stopReason?: AssistantStopReason
     errorMessage?: string
     timestamp: number
 }
+
+/**
+ * Why the model stopped a turn (mirrors pi-ai). Source of truth for the
+ * vocabulary — Django's serializer `choices` derives from the emitted JSON (see
+ * `spec-codegen.ts`), not a hand-copy.
+ */
+export const ASSISTANT_STOP_REASONS = ['stop', 'length', 'toolUse', 'error', 'aborted'] as const
+export type AssistantStopReason = (typeof ASSISTANT_STOP_REASONS)[number]
 
 export interface ToolResultMessage {
     role: 'toolResult'

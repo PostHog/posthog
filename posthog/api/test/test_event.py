@@ -16,6 +16,7 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
+from django.conf import settings
 from django.utils import timezone
 
 from dateutil import parser
@@ -104,8 +105,10 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # Auth/team/membership/instance-setting lookups, plus the HogQL pipeline's per-probe
         # access-control checks (the progressive-window loop probes several windows on this
         # sparse dataset; the schema is built once and shared). Group-type-mapping is read via
-        # personhog, not Postgres, so it's not in this count.
-        with self.assertNumQueries(16):
+        # personhog, not Postgres, so it's not in this count. Was 16 before passing team=team
+        # into get_restricted_properties_for_team, which lets is_property_access_control_enabled
+        # skip its per-call Team+organization lookup.
+        with self.assertNumQueries(15):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
             assert response["results"][0]["event"] == "event_name"
 
@@ -134,7 +137,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # pipeline's per-probe access-control checks. The progressive-window loop probes several
         # windows on this sparse dataset; the HogQL schema is built once and shared across them.
         # Group-type-mapping is read via personhog, not Postgres, so it's not in this count.
-        expected_queries = 24
+        # Was 24 before passing team=team into get_restricted_properties_for_team, which lets
+        # is_property_access_control_enabled skip its per-call Team+organization lookup.
+        expected_queries = 22 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 23
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(
@@ -864,6 +869,37 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         assert len(response["results"]) == 10
         assert parser.parse(response["results"][0]["timestamp"]) > parser.parse(response["results"][-1]["timestamp"])
         assert "before=" in response["next"]
+
+    def test_retrieve_event_returns_utc_timestamp_when_project_timezone_is_not_utc(self):
+        self.team.timezone = "Africa/Algiers"
+        self.team.save()
+        event_uuid = _create_event(
+            team=self.team,
+            event="watched movie",
+            distinct_id="1",
+            timestamp="2026-06-30T20:44:19.407000Z",
+        )
+        flush_persons_and_events()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/events/{event_uuid}/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["timestamp"] == "2026-06-30T20:44:19.407000+00:00"
+
+    def test_list_events_returns_utc_timestamp_when_project_timezone_is_not_utc(self):
+        self.team.timezone = "Africa/Algiers"
+        self.team.save()
+        with freeze_time("2026-06-30T20:45:00Z"):
+            _create_event(
+                team=self.team,
+                event="watched movie",
+                distinct_id="1",
+                timestamp="2026-06-30T20:44:19.407000Z",
+            )
+            flush_persons_and_events()
+            response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1").json()
+
+        assert len(response["results"]) == 1
+        assert response["results"][0]["timestamp"] == "2026-06-30T20:44:19.407000+00:00"
 
     def test_action_no_steps(self):
         action = Action.objects.create(team=self.team)

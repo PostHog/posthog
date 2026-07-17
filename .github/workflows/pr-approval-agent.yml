@@ -65,7 +65,7 @@ jobs:
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: false
 
             - name: Run review
@@ -74,6 +74,11 @@ jobs:
                   # doesn't break stamphog (and vice versa). The env var name
                   # stays ANTHROPIC_API_KEY — that's what the Claude Agent SDK reads.
                   ANTHROPIC_API_KEY: ${{ secrets.STAMPHOG_ANTHROPIC_API_KEY }}
+                  # ai-gateway cutover: when both are set, the review routes through
+                  # the Go ai-gateway (phs_ secret) instead of Anthropic directly.
+                  # Unset = direct path, so setting them is the cutover.
+                  AI_GATEWAY_URL: ${{ secrets.STAMPHOG_AI_GATEWAY_URL }}
+                  AI_GATEWAY_API_KEY: ${{ secrets.STAMPHOG_AI_GATEWAY_API_KEY }}
                   POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_TOKEN }}
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
@@ -85,10 +90,11 @@ jobs:
             - name: Post review
               if: always()
               env:
-                  # Use GITHUB_TOKEN for approvals so github-actions[bot] is the
-                  # reviewer — its approvals count toward branch protection rules,
-                  # unlike GitHub App bot approvals which show author_association NONE.
-                  GH_TOKEN_APPROVE: ${{ github.token }}
+                  # Everything stamphog does — the approval, the sticky comment,
+                  # the label strip — posts as the Stamphog app (GH_TOKEN) so it
+                  # all carries the bot's own identity. The app approval was
+                  # confirmed to unblock PRs, so the earlier bodyless
+                  # github-actions[bot] fallback approval has been dropped.
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   # Derived from the token step so the sticky-comment author
                   # filter tracks an app rename instead of failing silent.
@@ -97,7 +103,10 @@ jobs:
                   PR=${{ github.event.pull_request.number }}
                   REPO=${{ github.repository }}
                   VERDICT=$(jq -r '.final_verdict // ""' /tmp/review.json 2>/dev/null || echo "")
-                  REASONING=$(jq -r '.reviewer.reasoning // ""' /tmp/review.json 2>/dev/null || echo "")
+                  # Prefer the structured comment body (reasoning + judgment
+                  # bullets + folded gate mechanics); fall back to the bare
+                  # reasoning when the script predates the field.
+                  REASONING=$(jq -r '.review_body // .reviewer.reasoning // ""' /tmp/review.json 2>/dev/null || echo "")
                   REVIEWED_SHA=$(jq -r '.head_sha // ""' /tmp/review.json 2>/dev/null || echo "")
 
                   # Lock the review to the sha the LLM actually saw — `gh pr
@@ -109,7 +118,11 @@ jobs:
                   fi
 
                   if [ "$VERDICT" = "APPROVED" ]; then
-                    GH_TOKEN="$GH_TOKEN_APPROVE" gh api \
+                    # Single Stamphog app approval, carrying the review body.
+                    # Fatal on failure (the step runs under `set -e`): this is
+                    # now the only approval, so if it doesn't post the PR stays
+                    # blocked and that must surface as a red run, not a warning.
+                    gh api \
                       -X POST "repos/$REPO/pulls/$PR/reviews" \
                       "${SHA_ARGS[@]}" \
                       -f event=APPROVE \
@@ -127,12 +140,13 @@ jobs:
                     # Author + leading-marker filter: on a public repo anyone can
                     # post a comment containing the marker; without the filter the
                     # bot would PATCH (clobber) a third-party comment. Slurp so the
-                    # jq runs once over all pages — per-page --jq could emit one
-                    # object per page. The || guard keeps a transient lookup
-                    # failure from aborting the step before the label strip below
-                    # (it degrades to posting a fresh comment instead).
+                    # jq runs once over all pages (per-page filtering could emit
+                    # one object per page); gh rejects --slurp combined with --jq,
+                    # so pipe to standalone jq. The || guard keeps a transient
+                    # lookup failure from aborting the step before the label strip
+                    # below (it degrades to posting a fresh comment instead).
                     EXISTING=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --slurp \
-                      --jq "[.[][] | select(.user.login == \"$BOT_LOGIN\" and (.body | startswith(\"$MARKER\")))][0] // empty" \
+                      | jq "[.[][] | select(.user.login == \"$BOT_LOGIN\" and (.body | startswith(\"$MARKER\")))][0] // empty" \
                       || echo "")
                     COMMENT_ID=""
                     EXISTING_BODY=""
@@ -270,7 +284,7 @@ jobs:
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: false
 
             - name: Decide retain vs dismiss
@@ -322,10 +336,16 @@ jobs:
         # is skipped for bots, which routes here via the 'skipped' fail-closed
         # path. This only ever touches github-actions[bot] approvals, so it's a
         # no-op when there's nothing to dismiss.
+        # Same-repo only: forked / Dependabot PRs don't receive the app secrets,
+        # so the app-token step below would fail on every such synchronize. There
+        # is nothing to dismiss there anyway, since stamphog can never have
+        # approved a fork PR (the review job's app-token step is equally starved
+        # of secrets on forks), so gate the whole job to head branches in this repo.
         if: >-
             always()
             && github.event.action == 'synchronize'
             && !github.event.pull_request.draft
+            && github.event.pull_request.head.repo.full_name == github.repository
             && (
               needs.decide-delta.outputs.dismiss_approval == 'true'
               || needs.decide-delta.result == 'failure'
@@ -335,21 +355,33 @@ jobs:
         timeout-minutes: 5
 
         steps:
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_PRIVATE_KEY }}
+
             - name: Dismiss stale bot approvals
               env:
-                  # Same identity (github-actions[bot]) that posted the approval.
-                  GH_TOKEN: ${{ github.token }}
+                  # Act as the Stamphog app for consistency with every other
+                  # write. pull-requests:write can dismiss any review regardless
+                  # of its author, so the app dismisses both its own approvals
+                  # and any legacy github-actions[bot] ones.
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   PR: ${{ github.event.pull_request.number }}
                   REPO: ${{ github.repository }}
                   REASON: ${{ needs.decide-delta.outputs.reason || (needs.decide-delta.result == 'skipped' && 'label_absent') || 'decide_delta_failed' }}
               run: |
                   set -euo pipefail
 
-                  # Only dismiss APPROVED reviews made by github-actions[bot] —
-                  # human reviews and non-approval reviews are untouched.
+                  # Dismiss APPROVED reviews from either Stamphog identity —
+                  # github-actions[bot] (bodyless approval) and stamphog[bot]
+                  # (the app approval carrying the review body). Human reviews
+                  # and non-approval reviews are untouched.
                   mapfile -t REVIEW_IDS < <(
                       gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
-                        --jq '.[] | select(.user.login == "github-actions[bot]" and .state == "APPROVED") | .id'
+                        --jq '.[] | select((.user.login == "github-actions[bot]" or .user.login == "stamphog[bot]") and .state == "APPROVED") | .id'
                   )
 
                   for id in "${REVIEW_IDS[@]}"; do

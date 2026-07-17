@@ -38,9 +38,11 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
+    TtlSchedule,
     ensure_precomputed,
+    parse_ttl_schedule,
 )
-from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, MULTIPLE_VARIANT_KEY
+from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
@@ -78,6 +80,27 @@ DEFAULT_EXPOSURE_TTL_SECONDS = {
     "4d": 18 * 60 * 60,  # 18 hours; covers windows 2-4 days old
     "default": 60 * 24 * 60 * 60,  # 60 days - data frozen
 }
+
+# Cap on merged precompute job width. Without it, the frozen band (everything
+# older than 4 days, one uniform TTL) merges into a single INSERT, so a cold or
+# TTL-expired long-running experiment scans hundreds of days in one query. For
+# high-volume teams that deterministically exceeds the per-query bytes-to-read
+# cap or the 600s timeout and can never succeed. Seven days keeps the worst
+# observed per-day scan rates comfortably under both limits, while creating far
+# fewer jobs (and fewer rows per user to re-aggregate at read time) than daily
+# chunks. Completed chunks persist, so a wide backfill converges across runs
+# instead of failing atomically on every attempt.
+PRECOMPUTE_MAX_WINDOW_DAYS = 7
+
+
+def experiment_precompute_ttl_schedule(team_timezone: str) -> TtlSchedule:
+    """The experiment TTL schedule with job width capped at PRECOMPUTE_MAX_WINDOW_DAYS."""
+    return parse_ttl_schedule(
+        DEFAULT_EXPOSURE_TTL_SECONDS,
+        team_timezone,
+        max_window_days=PRECOMPUTE_MAX_WINDOW_DAYS,
+    )
+
 
 # Minimum experiment runtime before auto-enabling precomputation. The
 # today-window TTL (DEFAULT_EXPOSURE_TTL_SECONDS["0d"], 15 min) caches the
@@ -163,7 +186,7 @@ class ExperimentQueryRunner(QueryRunner):
         self.as_of = as_of if as_of is not None else (self.experiment.end_date or datetime.now(UTC))
         self.feature_flag = self.experiment.feature_flag
         self.feature_flag_key = self.feature_flag.key_without_tombstone()
-        self.group_type_index = self.feature_flag.filters.get("aggregation_group_type_index")
+        self.group_type_index = self.feature_flag.aggregation_group_type_index
         self.entity_key = get_entity_key(self.group_type_index)
 
         # Holdout is intentionally not appended: holdout users were never exposed to
@@ -176,7 +199,7 @@ class ExperimentQueryRunner(QueryRunner):
         ]
 
         stats_config = self.experiment.stats_config or {}
-        self.baseline_variant_key = stats_config.get("baseline_variant_key", CONTROL_VARIANT_KEY)
+        self.baseline_variant_key = get_baseline_variant_key(stats_config, self.variants)
 
         self.date_range = experiment_window(self.experiment, self.team, self.as_of)
         self.date_range_query = QueryDateRange(
@@ -263,10 +286,13 @@ class ExperimentQueryRunner(QueryRunner):
             insert_query=query_string,
             time_range_start=date_from,
             time_range_end=date_to,
-            ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
+            ttl_seconds=experiment_precompute_ttl_schedule(self.team.timezone),
             table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
+            # High-volume teams' builds OOM even at capped window widths; spilling the
+            # GROUP BY to disk degrades gracefully instead of failing the build.
+            spill_to_disk=True,
         )
 
     def _ensure_metric_events_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
@@ -294,10 +320,11 @@ class ExperimentQueryRunner(QueryRunner):
             insert_query=query_string,
             time_range_start=date_from,
             time_range_end=date_to,
-            ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
+            ttl_seconds=experiment_precompute_ttl_schedule(self.team.timezone),
             table=LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
+            spill_to_disk=True,
         )
 
     @cached_property
@@ -334,6 +361,8 @@ class ExperimentQueryRunner(QueryRunner):
             return "min_runtime"
         if self.is_data_warehouse_query:
             return "data_warehouse"
+        if self.group_type_index is not None:
+            return "group_aggregation"
         return None  # precompute was attempted; a direct path means the build failed / wasn't ready
 
     def _metric_events_precompute_applicable(self) -> bool:
@@ -383,8 +412,11 @@ class ExperimentQueryRunner(QueryRunner):
         metric_events_job_ids: list[str] | None = None
 
         # Skip precomputation for data warehouse metrics because the precomputed table
-        # doesn't include the join keys needed to link exposures to data warehouse tables
-        if should_precompute and not self.is_data_warehouse_query:
+        # doesn't include the join keys needed to link exposures to data warehouse tables.
+        # Group-aggregated experiments are excluded too: their build INSERT references
+        # $group_N, which the INSERT ... SELECT analysis path can't resolve (MATERIALIZED
+        # on sharded_events), so every build fails with UNKNOWN_IDENTIFIER.
+        if should_precompute and not self.is_data_warehouse_query and self.group_type_index is None:
             try:
                 with tags_context(experiment_query_surface="precompute_build", experiment_precompute_table="exposures"):
                     result = self._ensure_exposures_precomputed(builder)

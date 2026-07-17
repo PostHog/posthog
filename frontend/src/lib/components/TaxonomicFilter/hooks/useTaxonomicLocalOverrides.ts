@@ -16,6 +16,7 @@ import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/rece
 import { taxonomicFilterPinnedPropertiesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
     ExcludedOperators,
+    ExcludedProperties,
     SelectingKeyOnly,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroupType,
@@ -35,8 +36,9 @@ export function useTaxonomicLocalOverrides(context: {
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     excludedOperators?: ExcludedOperators
     selectingKeyOnly?: SelectingKeyOnly
+    excludedProperties?: ExcludedProperties
 }): GetLocalOverride {
-    const { taxonomicGroupTypes, excludedOperators, selectingKeyOnly } = context
+    const { taxonomicGroupTypes, excludedOperators, selectingKeyOnly, excludedProperties } = context
     const { actionsSorted } = useValues(actionsModel)
     const { recentFilterItems } = useValues(recentTaxonomicFiltersLogic)
     const { pinnedFilterItems } = useValues(taxonomicFilterPinnedPropertiesLogic)
@@ -49,8 +51,15 @@ export function useTaxonomicLocalOverrides(context: {
     // `useGroupList` memo deps and `useEffect` deps (e.g. the sole-substantive-group
     // recents promotion), where a fresh array per render means an infinite update loop.
     const contextFilteredRecentItems = useMemo(
-        () => filterRecentsForContext(recentFilterItems, taxonomicGroupTypes, excludedOperators, selectingKeyOnly),
-        [recentFilterItems, taxonomicGroupTypes, excludedOperators, selectingKeyOnly]
+        () =>
+            filterRecentsForContext(
+                recentFilterItems,
+                taxonomicGroupTypes,
+                excludedOperators,
+                selectingKeyOnly,
+                excludedProperties
+            ),
+        [recentFilterItems, taxonomicGroupTypes, excludedOperators, selectingKeyOnly, excludedProperties]
     )
 
     return useCallback(

@@ -68,6 +68,9 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     # Lets users pick which columns to sync (and, in the wizard, surfaces the
     # row-filter editor that shares the same column-selection modal).
     supports_column_selection: bool = True
+    supports_row_filters: bool = True
+
+    api_docs_url = "https://clickhouse.com/docs"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -168,6 +171,14 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "Code: 192": None,  # UNKNOWN_USER
             "Code: 497": None,  # ACCESS_DENIED
             "Authentication failed": None,
+            # Raised by the `sshtunnel` library (via the shared `open_ssh_tunnel` helper) when the
+            # SSH tunnel can't be brought up — the bastion host is unreachable, the host/port is
+            # wrong, the SSH key/credentials are rejected, or a firewall blocks PostHog's IPs. It's
+            # in `Any_Source_Errors`, but the import activity's `_handle_import_error` only consults
+            # this per-source dict, so without the entry a down tunnel retries to the maximum and
+            # reports the customer's gateway misconfig as error-tracking noise. Postgres, MySQL, and
+            # MSSQL already treat this identical error as non-retryable.
+            "Could not establish session to SSH gateway": "Could not connect to your SSH tunnel. Check that the SSH host, port, and credentials are correct, the bastion host is running and reachable, and that PostHog's IP addresses are allowed through its firewall.",
             "Could not resolve the ClickHouse host": None,
             "nodename nor servname provided": None,
             "Name or service not known": None,

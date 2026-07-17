@@ -76,6 +76,7 @@ UPSERT_ALERT_TOOL_DESCRIPTION = dedent("""
     - For percentage-based thresholds, set threshold_type to "percentage" and use decimal values (e.g., 0.5 for 50%)
 
     # Calculation intervals
+    - **real_time**: Check in real time (Scale+ required)
     - **every_15_minutes**: Check every 15 minutes (Boost+ required)
     - **hourly**: Check every hour
     - **daily**: Check once per day (default for create)
@@ -115,7 +116,7 @@ class CreateAlertAction(BaseModel):
     )
     calculation_interval: AlertCalculationInterval = Field(
         default=AlertCalculationInterval.DAILY,
-        description="How often to check: every_15_minutes (Boost+), hourly, daily, weekly, or monthly",
+        description="How often to check: real_time (Scale+), every_15_minutes (Boost+), hourly, daily, weekly, or monthly",
     )
     upper_threshold: float | None = Field(
         default=None,
@@ -150,7 +151,7 @@ class UpdateAlertAction(BaseModel):
     condition_type: AlertConditionType | None = Field(default=None, description="New condition type")
     calculation_interval: AlertCalculationInterval | None = Field(
         default=None,
-        description="New calculation interval (every_15_minutes requires Boost+)",
+        description="New calculation interval (real_time requires Scale+, every_15_minutes requires Boost+)",
     )
     upper_threshold: float | None = Field(default=None, description="New upper threshold bound")
     lower_threshold: float | None = Field(default=None, description="New lower threshold bound")
@@ -198,7 +199,7 @@ class UpsertAlertTool(MaxTool):
         else:
             return await self._handle_update(action)
 
-    async def _validate_every_15_minutes_interval(
+    async def _validate_interval_entitlement(
         self,
         calculation_interval: str | AlertCalculationInterval | None,
         *,
@@ -206,7 +207,7 @@ class UpsertAlertTool(MaxTool):
     ) -> str | None:
         team = self._team
         org = await sync_to_async(lambda: team.organization)()
-        return await sync_to_async(AlertConfiguration.every_15_minutes_interval_validation_error)(
+        return await sync_to_async(AlertConfiguration.interval_entitlement_error)(
             calculation_interval=calculation_interval or existing_interval,
             organization=org,
         )
@@ -241,7 +242,7 @@ class UpsertAlertTool(MaxTool):
             if limit_msg := await self._check_alert_limit():
                 return limit_msg, {"error": "plan_limit_reached"}
 
-            if interval_msg := await self._validate_every_15_minutes_interval(action.calculation_interval):
+            if interval_msg := await self._validate_interval_entitlement(action.calculation_interval):
                 return interval_msg, {"error": "validation_failed"}
 
             if real_time_msg := await self._validate_real_time_alert(
@@ -327,7 +328,7 @@ class UpsertAlertTool(MaxTool):
 
             await self.check_object_access(alert, "editor", resource="alert", action="edit")
 
-            if interval_msg := await self._validate_every_15_minutes_interval(
+            if interval_msg := await self._validate_interval_entitlement(
                 action.calculation_interval,
                 existing_interval=alert.calculation_interval,
             ):

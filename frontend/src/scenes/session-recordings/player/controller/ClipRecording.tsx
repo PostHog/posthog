@@ -3,13 +3,13 @@ import { useMemo, useState } from 'react'
 
 import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { IconRecordingClip } from 'lib/lemon-ui/icons'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
 import { cn } from 'lib/utils/css-classes'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { ExporterFormat } from '~/types'
 
 interface ClipTimes {

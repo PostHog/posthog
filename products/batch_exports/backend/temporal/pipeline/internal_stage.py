@@ -13,6 +13,7 @@ from django.conf import settings
 import aioboto3
 from aiobotocore.config import AioConfig
 from aiobotocore.httpsession import AIOHTTPSession as BaseAIOHTTPSession
+from opentelemetry import trace
 from temporalio import activity
 
 from posthog.clickhouse import query_tagging
@@ -70,6 +71,7 @@ from products.batch_exports.backend.temporal.sql import (
 from products.batch_exports.backend.temporal.utils import set_status_to_running_task
 
 LOGGER = get_write_only_logger()
+TRACER = trace.get_tracer(__name__)
 
 
 class DataIntervalEndInFutureError(Exception):
@@ -579,7 +581,8 @@ async def _write_batch_export_record_batches_to_internal_stage(
         # Some tests create data in the future, so we do not check this.
         raise DataIntervalEndInFutureError(end_at)
 
-    await wait_for_delta_past_data_interval_end(end_at, delta)
+    with TRACER.start_as_current_span("batch_export.stage.wait_for_delta"):
+        await wait_for_delta_past_data_interval_end(end_at, delta)
 
     done_ranges: list[tuple[dt.datetime, dt.datetime]] = []
     async with get_client(
@@ -629,9 +632,10 @@ async def _write_batch_export_record_batches_to_internal_stage(
             # however, since we only make use of the most recent attempt, we can save on storage space by deleting the
             # files here.
             try:
-                await _delete_all_from_bucket_with_prefix(
-                    bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, key_prefix=base_s3_staging_folder
-                )
+                with TRACER.start_as_current_span("batch_export.stage.delete_existing_objects"):
+                    await _delete_all_from_bucket_with_prefix(
+                        bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, key_prefix=base_s3_staging_folder
+                    )
             except Exception:
                 logger.exception(
                     "Unexpected error occurred while deleting existing objects from internal S3 staging bucket",
@@ -639,7 +643,10 @@ async def _write_batch_export_record_batches_to_internal_stage(
                 raise
 
             try:
-                written_rows = await _execute_query(client, query, query_parameters)
+                with TRACER.start_as_current_span("batch_export.stage.clickhouse_query") as query_span:
+                    written_rows = await _execute_query(client, query, query_parameters)
+                    if written_rows is not None:
+                        query_span.set_attribute("batch_export.stage.written_rows", written_rows)
             except ClickHouseError:
                 logger.exception(
                     "ClickHouse error occurred while writing record batches to internal S3 staging bucket",

@@ -36,17 +36,6 @@
                     }
                 ]
             }
-        },
-        {
-            "type": "slack",
-            "config": {
-                "mention_only": true,
-                "auto_resume_threads": true,
-                "allow_workspace_participants": false,
-                "allow_direct_messages": true,
-                "trusted_workspaces": "*",
-                "ack_reaction": "eyes"
-            }
         }
     ],
     "tools": [
@@ -61,6 +50,16 @@
         {
             "kind": "native",
             "id": "@posthog/memory-write"
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/memory-update",
+            "requires_approval": true
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/memory-delete",
+            "requires_approval": true
         },
         {
             "kind": "native",
