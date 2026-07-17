@@ -29,6 +29,9 @@ export interface SetupExpressAppOptions {
     internalApiSecret?: string
     // Comma-separated previous secrets still accepted for verification during rotation.
     internalApiSecretFallbacks?: string
+    // Path prefixes exempt from the shared-secret middleware. Used by servers that own auth on
+    // those routes themselves (e.g. recording-api verifies a team-scoped JWT per route instead).
+    internalApiAuthExcludedPathPrefixes?: string[]
 }
 
 export function setupCommonRoutes(
@@ -61,6 +64,7 @@ export function setupExpressApp(options: SetupExpressAppOptions = {}): express.A
                 .split(',')
                 .map((s) => s.trim())
                 .filter(Boolean),
+            excludedPathPrefixes: options.internalApiAuthExcludedPathPrefixes,
         })
     )
 

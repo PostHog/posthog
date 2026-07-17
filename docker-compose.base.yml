@@ -584,6 +584,10 @@ services:
             CLICKHOUSE_VERIFY: 'false'
             SESSION_RECORDING_API_REDIS_HOST: redis7
             SESSION_RECORDING_API_REDIS_PORT: 6379
+            # The image runs as production, so dev defaults don't apply — set auth secrets explicitly
+            # to match Django (INTERNAL_API_SECRET=posthog123, RECORDING_API_JWT_SECRET dev default).
+            INTERNAL_API_SECRET: 'posthog123'
+            RECORDING_API_JWT_SECRET: 'dev-recording-api-jwt-secret'
 
     ingestion-error-tracking:
         command: node nodejs/dist/index.js

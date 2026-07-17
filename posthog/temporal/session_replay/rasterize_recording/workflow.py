@@ -26,6 +26,8 @@ from .activities import (
     finalize_rasterization,
 )
 from .types import (
+    RASTERIZE_RENDER_MAX_ATTEMPTS,
+    RASTERIZE_RENDER_TIMEOUT,
     BuildRasterizationResult,
     FinalizeRasterizationInput,
     RasterizationActivityOutput,
@@ -122,9 +124,9 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
             "rasterize-recording",
             prep.activity_input.model_dump(exclude_none=True),
             task_queue=settings.RASTERIZATION_TASK_QUEUE,
-            start_to_close_timeout=dt.timedelta(minutes=30),
+            start_to_close_timeout=RASTERIZE_RENDER_TIMEOUT,
             heartbeat_timeout=dt.timedelta(seconds=30),
-            retry_policy=common.RetryPolicy(maximum_attempts=2),
+            retry_policy=common.RetryPolicy(maximum_attempts=RASTERIZE_RENDER_MAX_ATTEMPTS),
         )
 
         result = RasterizationActivityOutput.model_validate(raw_result)

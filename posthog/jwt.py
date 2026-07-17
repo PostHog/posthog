@@ -18,6 +18,7 @@ class PosthogJwtAudience(Enum):
     EXPORT_RENDERER = "posthog:export_renderer"
     LIVESTREAM = "posthog:livestream"
     SHARING_PASSWORD_PROTECTED = "posthog:sharing_password_protected"
+    RECORDING_API = "posthog:recording_api"
 
 
 def signing_key_fingerprint(key: str) -> str:
@@ -32,9 +33,14 @@ def _verification_keys() -> list[str]:
     return [_signing_key(), *settings.JWT_SIGNING_KEY_FALLBACKS]
 
 
-def encode_jwt(payload: dict, expiry_delta: timedelta, audience: PosthogJwtAudience) -> str:
+def encode_jwt(
+    payload: dict, expiry_delta: timedelta, audience: PosthogJwtAudience, signing_key: str | None = None
+) -> str:
     """
-    Create a JWT ensuring that the correct audience and signing token is used
+    Create a JWT ensuring that the correct audience and signing token is used.
+
+    ``signing_key`` defaults to the fleet-wide JWT signing key. Pass a dedicated key for
+    audiences that must not be mintable by every holder of the fleet-wide key.
     """
     if not isinstance(audience, PosthogJwtAudience):
         raise Exception("Audience must be in the list of PostHog-supported audiences")
@@ -45,14 +51,14 @@ def encode_jwt(payload: dict, expiry_delta: timedelta, audience: PosthogJwtAudie
             "exp": datetime.now(tz=UTC) + expiry_delta,
             "aud": audience.value,
         },
-        _signing_key(),
+        signing_key if signing_key is not None else _signing_key(),
         algorithm=JWT_ALGORITHM,
     )
 
 
-def decode_jwt(token: str, audience: PosthogJwtAudience) -> dict[str, Any]:
+def decode_jwt(token: str, audience: PosthogJwtAudience, verification_keys: list[str] | None = None) -> dict[str, Any]:
     last_error: jwt.InvalidSignatureError | None = None
-    for key in _verification_keys():
+    for key in verification_keys if verification_keys is not None else _verification_keys():
         try:
             return jwt.decode(token, key, audience=audience.value, algorithms=[JWT_ALGORITHM])
         except jwt.InvalidSignatureError as error:
