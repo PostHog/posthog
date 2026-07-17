@@ -174,8 +174,8 @@ class ReviewMeta:
     # early-exit gate skips a dead re-trigger turn. Distinct from `snapshotted` (head moved) because a
     # head can be unchanged yet not-yet-published (a prior no-publish turn) and must still publish.
     already_published: bool
-    # New inline comments since the last turn's watermark — logged only for now (they don't force a
-    # turn yet; see DECISIONS.md, Stage 5b). Will gate the early-exit once ReviewHog reacts to comments.
+    # New inline comments since the last turn's watermark — logged only for now; they don't force a
+    # turn yet (see DECISIONS.md, Stage 5b). Will gate the early-exit once ReviewHog reacts to comments.
     new_comment_count: int
     # The PR author's GitHub login (`pr_metadata.author`), so the parent can resolve the acting user
     # whose enabled perspectives this review applies.

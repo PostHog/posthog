@@ -848,7 +848,7 @@ team/user/repository; tests updated & green; `ruff check products/review_hog/` c
 
 **Out of scope for Stage 2 (later stages):** productize beyond the CLI (Temporal parent workflow / API trigger
 / Postgres run state — `run.py` carries the `TODO: Make it a parent workflow…`); the remaining
-[Known issues](#known-issues--tech-debt); product isolation (contracts + facade). Durable Postgres run
+[Known issues](./ARCHITECTURE.md#known-issues--tech-debt); product isolation (contracts + facade). Durable Postgres run
 state + cloud persistence is its own effort — now **Stage 3** below.
 
 ### 🔭 Stage 3 — durable persistence & the loop-y review (cloud)
