@@ -75,15 +75,17 @@ interface MountedSceneLogic {
 const generateTabId = (): string => crypto?.randomUUID?.()?.split('-')?.pop() || `${Date.now()}-${Math.random()}`
 
 /**
- * Homepage snapshot for JSON persistence: strips `sceneParams` (deep/cyclic routing state) and
- * ensures an id. Every other `SceneTab` field is kept so new fields aren't forgotten; if a future
- * field holds non-plain data, omit it here explicitly.
+ * Homepage tab snapshot for JSON persistence: strips `sceneParams` (deep/cyclic routing state),
+ * ensures an id, and marks it pinned + inactive. Every other `SceneTab` field is kept so new fields
+ * aren't forgotten; if a future field holds non-plain data, omit it here explicitly.
  */
 const tabToPersistableSnapshot = (tab: SceneTab): SceneTab => {
     const { sceneParams: _omitSceneParams, ...rest } = tab
     return {
         ...rest,
         id: tab.id || generateTabId(),
+        pinned: true,
+        active: false,
     }
 }
 
