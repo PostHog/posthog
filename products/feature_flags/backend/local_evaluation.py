@@ -39,13 +39,20 @@ from posthog.models.group_type_mapping import (
     project_has_group_types_authoritatively,
 )
 from posthog.models.team import Team
-from posthog.storage.hypercache import HYPERCACHE_REBUILD_SKIPPED_COUNTER, HyperCache, KeyType, emit_cache_sync_metrics
+from posthog.storage.hypercache import (
+    HYPERCACHE_REBUILD_SKIPPED_COUNTER,
+    HyperCache,
+    HyperCacheStoreMissing,
+    KeyType,
+    emit_cache_sync_metrics,
+)
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
 from posthog.utils import capture_exception_throttled, get_safe_cache
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, is_cohort_recalculation_only_save
 from products.cohorts.backend.models.util import get_nested_cohort_ids
 from products.experiments.backend.models.experiment import Experiment, live_experiment_exists
+from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
 from products.feature_flags.backend.flags_cache import (
     _compare_flag_fields,
     get_team_ids_with_recently_updated_flags,
@@ -377,10 +384,20 @@ DATABASE_FOR_LOCAL_EVALUATION = (
     else "replica"
 )
 
+
+def _load_flag_definitions_with_cohorts(key: KeyType) -> dict[str, Any] | HyperCacheStoreMissing:
+    if key == EU_CROSS_REGION_MIRROR_CACHE_KEY:
+        # No DB row backs this key — it's a pure cache mirror written only by
+        # cross_region_flag_sync's periodic task. A cold cache should wait for the
+        # next sync tick, not attempt (and fail) a Team lookup.
+        return HyperCacheStoreMissing()
+    return _get_flags_response_for_local_evaluation(HyperCache.team_from_key(key))
+
+
 flag_definitions_hypercache = HyperCache(
     namespace="feature_flags",
     value="flags_with_cohorts.json",
-    load_fn=lambda key: _get_flags_response_for_local_evaluation(HyperCache.team_from_key(key)),
+    load_fn=_load_flag_definitions_with_cohorts,
     cache_ttl=settings.FLAGS_CACHE_TTL,
     cache_miss_ttl=settings.FLAGS_CACHE_MISS_TTL,
     batch_load_fn=lambda teams: _get_flags_response_for_local_evaluation_batch(teams),
@@ -510,9 +527,9 @@ def update_flag_caches(team: Team):
         emit_cache_sync_metrics(result, "feature_flags", "flags_with_cohorts.json", size=size)
 
 
-def clear_flag_definition_caches(team: Team | int, kinds: list[str] | None = None):
+def clear_flag_definition_caches(team: KeyType, kinds: list[str] | None = None):
     """
-    Clear the flag definitions cache for a team.
+    Clear the flag definitions cache for a team (or the EU cross-region mirror sentinel).
 
     Clears from shared cache and removes from expiry tracking.
     Expiry tracking cleanup is handled by HyperCache.clear_cache() internally.
