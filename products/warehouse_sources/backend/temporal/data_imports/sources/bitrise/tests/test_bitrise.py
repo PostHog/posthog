@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bitrise.se
     BITRISE_ENDPOINTS,
     ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 TRACKED_SESSION = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.bitrise.bitrise.make_tracked_session"
@@ -34,7 +35,7 @@ def _response(body: dict[str, Any], status_code: int = 200) -> mock.MagicMock:
     return resp
 
 
-class FakeResumableManager:
+class FakeResumableManager(ResumableSourceManager[BitriseResumeConfig]):
     def __init__(self, state: BitriseResumeConfig | None = None):
         self._state = state
         self.saved: list[BitriseResumeConfig] = []
