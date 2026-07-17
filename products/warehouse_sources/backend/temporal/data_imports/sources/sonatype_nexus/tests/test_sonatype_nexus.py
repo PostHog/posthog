@@ -328,6 +328,24 @@ class TestGetRowsRepositoryFanout:
         assert saved == [("docker-proxy", "TOKEN_A"), ("maven-releases", None)]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_empty_page_with_token_still_checkpoints(self, mock_session):
+        # An empty page that still returns a continuation token must save state, so a crash
+        # resumes from the page's real progression rather than an older token.
+        mock_session.return_value.get.side_effect = [
+            _response(_REPOSITORIES),
+            _response({"items": [], "continuationToken": "TOKEN_A"}),
+            _response({"items": [{"id": "d1"}], "continuationToken": None}),
+            _response({"items": [{"id": "m1"}], "continuationToken": None}),
+        ]
+
+        manager = _make_manager()
+        batches = list(get_rows("https://n.example.com", "u", "p", "components", mock.MagicMock(), manager))
+
+        assert [row["id"] for batch in batches for row in batch] == ["d1", "m1"]
+        saved = [(c.args[0].repository, c.args[0].continuation_token) for c in manager.save_state.call_args_list]
+        assert saved == [("docker-proxy", "TOKEN_A"), ("maven-releases", None)]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_resumes_from_bookmarked_repository_and_token(self, mock_session):
         mock_session.return_value.get.side_effect = [
             _response(_REPOSITORIES),

@@ -276,12 +276,14 @@ def _get_repository_fanout_rows(
 
                 if items:
                     yield items
-                    # Save AFTER yielding so a crash re-yields the in-flight page
-                    # rather than skipping it.
-                    if next_token:
-                        resumable_source_manager.save_state(
-                            SonatypeNexusResumeConfig(continuation_token=next_token, repository=repository)
-                        )
+
+                # Save AFTER yielding so a crash re-yields the in-flight page rather than
+                # skipping it. Save whenever a token exists, even for an empty page, so a
+                # crash resumes from the page's actual progression instead of an older token.
+                if next_token:
+                    resumable_source_manager.save_state(
+                        SonatypeNexusResumeConfig(continuation_token=next_token, repository=repository)
+                    )
 
                 if not next_token:
                     break
