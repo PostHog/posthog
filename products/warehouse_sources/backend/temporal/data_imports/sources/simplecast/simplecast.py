@@ -7,7 +7,6 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.settings import SIMPLECAST_ENDPOINTS
@@ -32,14 +31,8 @@ class SimpleCastResumeConfig:
     offset: int = 0
 
 
-def _headers(api_key: str, api_version: str = UNVERSIONED_API_VERSION) -> dict[str, str]:
-    headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
-    # Legacy-pinned rows send no version header, so their requests stay byte-for-byte identical.
-    # For an explicit vendor version we forward it via the header Simplecast reserves for version
-    # selection; the live 2.0 API ignores an unknown header today and honors it once shipped.
-    if api_version != UNVERSIONED_API_VERSION:
-        headers["X-Api-Version"] = api_version
-    return headers
+def _headers(api_key: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
 
 
 @retry(
@@ -97,10 +90,9 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[SimpleCastResumeConfig],
-    api_version: str = UNVERSIONED_API_VERSION,
 ) -> Iterator[list[dict[str, Any]]]:
     config = SIMPLECAST_ENDPOINTS[endpoint]
-    session = make_tracked_session(headers=_headers(api_key, api_version), redact_values=(api_key,))
+    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     offset = resume.offset if resume else 0
@@ -127,7 +119,6 @@ def simplecast_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[SimpleCastResumeConfig],
-    api_version: str = UNVERSIONED_API_VERSION,
 ) -> SourceResponse:
     config = SIMPLECAST_ENDPOINTS[endpoint]
 
@@ -138,7 +129,6 @@ def simplecast_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
-            api_version=api_version,
         ),
         primary_keys=config.primary_keys,
         partition_count=1,

@@ -127,7 +127,6 @@ class TestSimpleCastSource:
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "podcasts"
-        inputs.api_version = SIMPLECAST_API_VERSION_2_0
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -137,26 +136,6 @@ class TestSimpleCastSource:
         assert kwargs["api_key"] == "sc-token"
         assert kwargs["endpoint"] == "podcasts"
         assert kwargs["resumable_source_manager"] is manager
-
-    @parameterized.expand(
-        [
-            ("unpinned_resolves_to_default", None, SIMPLECAST_API_VERSION_2_0),
-            ("empty_pin_resolves_to_default", "", SIMPLECAST_API_VERSION_2_0),
-            ("legacy_pin_preserved", UNVERSIONED_API_VERSION, UNVERSIONED_API_VERSION),
-            ("v2_pin_preserved", SIMPLECAST_API_VERSION_2_0, SIMPLECAST_API_VERSION_2_0),
-        ]
-    )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.source.simplecast_source")
-    def test_source_for_pipeline_resolves_api_version(
-        self, _name: str, pinned: str | None, expected: str, mock_source: mock.MagicMock
-    ) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "podcasts"
-        inputs.api_version = pinned
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_source.call_args.kwargs["api_version"] == expected
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
         inputs = mock.MagicMock()

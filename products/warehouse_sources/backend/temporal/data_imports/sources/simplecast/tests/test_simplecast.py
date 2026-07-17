@@ -6,11 +6,9 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast import simplecast
 from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.settings import (
     ENDPOINTS,
-    SIMPLECAST_API_VERSION_2_0,
     SIMPLECAST_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.simplecast import (
@@ -108,42 +106,6 @@ class TestGetRows:
         rows = self._collect(manager, monkeypatch, {0: ([], False)})
         assert rows == []
         assert manager.saved == []
-
-
-class TestVersionHeader:
-    # Uses the pytest `monkeypatch` fixture, which parameterized.expand cannot inject.
-    @pytest.mark.parametrize(
-        "api_version, expected_header",
-        [
-            (UNVERSIONED_API_VERSION, None),
-            (SIMPLECAST_API_VERSION_2_0, "2.0"),
-        ],
-    )
-    def test_get_rows_builds_session_with_version_header(
-        self, api_version: str, expected_header: str | None, monkeypatch: Any
-    ) -> None:
-        captured: dict[str, Any] = {}
-
-        def capture_session(**kwargs: Any) -> MagicMock:
-            captured.update(kwargs)
-            return MagicMock()
-
-        monkeypatch.setattr(simplecast, "make_tracked_session", capture_session)
-        monkeypatch.setattr(simplecast, "_fetch_page", lambda *a, **k: ([{"id": 1}], True))
-
-        list(
-            get_rows(
-                api_key="sc-token",
-                endpoint="podcasts",
-                logger=MagicMock(),
-                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-                api_version=api_version,
-            )
-        )
-
-        headers = captured["headers"]
-        assert headers["Authorization"] == "Bearer sc-token"
-        assert headers.get("X-Api-Version") == expected_header
 
 
 class TestFetchPage:
