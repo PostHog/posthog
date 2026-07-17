@@ -197,6 +197,7 @@ the row lists both.
 | elasticemail                     | HTTP                        | requests                                                        | ✅                          |
 | elasticsearch                    | HTTP                        | requests                                                        | ✅                          |
 | emailoctopus                     | HTTP                        | requests                                                        | ✅                          |
+| env0                             | HTTP                        | requests                                                        | ✅                          |
 | eventbrite                       | HTTP                        | requests                                                        | ✅                          |
 | eventee                          | HTTP                        | requests                                                        | ✅                          |
 | eventzilla                       | HTTP                        | requests                                                        | ✅                          |
@@ -682,7 +683,6 @@ doesn't conflict with concurrent PRs.
 - eloqua
 - employment_hero
 - encharge
-- env0
 - expensify
 - facebook_pages
 - fastbill
