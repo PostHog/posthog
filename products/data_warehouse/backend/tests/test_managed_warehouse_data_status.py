@@ -402,6 +402,29 @@ class TestGetSourceSchemaStatuses(TestCase):
 
         assert result == []
 
+    def test_a_direct_query_schema_stays_excluded(self) -> None:
+        # Self-managed/federated (access_method=DIRECT) schemas never sync into the warehouse at
+        # all — a stray sink-state row for one (bootstrap used to create these; see backfill.py)
+        # must not be reported as "backfilled"/"up to date" here, since that table never actually
+        # lands in the warehouse.
+        team = Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_id="a",
+            connection_id="ca",
+            source_type="Postgres",
+            status="Running",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        direct_schema = ExternalDataSchema.objects.create(team=team, name="charges", source=source)
+        DuckgresSinkSchemaState.objects.create(
+            team=team, schema_id=direct_schema.id, state=DuckgresSinkSchemaState.State.PRIMED
+        )
+
+        result = get_source_schema_statuses(team.id, str(source.id))
+
+        assert result == []
+
     def test_reports_the_last_apply_the_sink_stamped(self) -> None:
         # The row surfaces exactly what the sink recorded at apply time — the incident regression
         # was deriving this live from a database the web tier can't reach; now a primed schema

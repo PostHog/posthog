@@ -54,7 +54,7 @@ from prometheus_client import Gauge
 from posthog.exceptions_capture import capture_exception
 from posthog.models import DuckgresSinkSchemaState
 
-from products.warehouse_sources.backend.models import ExternalDataSchema
+from products.warehouse_sources.backend.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill_queue import (
     BACKFILL_JOB_ID,
     REASON_COVERED_BY_SNAPSHOT,
@@ -162,12 +162,19 @@ def blocked_schema_ids(team_ids: list[int] | None) -> list[str]:
     queue grants one exception: replace-head runs bypass the block (they
     rebuild the table from scratch, which is always safe and is the healing
     path for NEEDS_RESYNC).
+
+    Direct-query (self-managed/federated) sources are excluded: they never get
+    a sink state row (see ``_bootstrap_state_rows``) and never produce batches,
+    so including them here would only bloat this list forever with schemas
+    that can never actually be blocked on anything.
     """
     close_old_connections()
     if team_ids is not None and not team_ids:
         return []
 
-    schemas = ExternalDataSchema.objects.exclude(deleted=True)
+    schemas = ExternalDataSchema.objects.exclude(deleted=True).exclude(
+        source__access_method=ExternalDataSource.AccessMethod.DIRECT
+    )
     if team_ids is not None:
         schemas = schemas.filter(team_id__in=team_ids)
     primed = DuckgresSinkSchemaState.objects.filter(state=DuckgresSinkSchemaState.State.PRIMED)
@@ -221,6 +228,10 @@ def sink_eligible_schema_ids(team_ids: list[int]) -> list[str]:
 
     Prod only: the consumer calls this with a concrete team list. Dev mode
     (no team filter) is left ungated by the caller.
+
+    Direct-query (self-managed/federated) schemas are excluded up front: they
+    have no background sync job and never produce batches, so they can never
+    be eligible for the sink to apply anything for regardless of the v3 flag.
     """
     close_old_connections()
     if not team_ids:
@@ -234,6 +245,7 @@ def sink_eligible_schema_ids(team_ids: list[int]) -> list[str]:
 
     schemas = (
         ExternalDataSchema.objects.exclude(deleted=True)
+        .exclude(source__access_method=ExternalDataSource.AccessMethod.DIRECT)
         .filter(team_id__in=team_ids)
         .values("id", "team_id", "source__source_type")
     )
@@ -363,6 +375,12 @@ def _bootstrap_state_rows(team_ids: list[int] | None) -> None:
     - no Delta table yet: the first sync creates everything.
     - cdc: the sink rejects CDC batches outright; do not block the queue on it.
 
+    Direct-query (self-managed/federated) sources get no row at all, not even
+    PRIMED: ``supports_scheduled_sync`` is False for them, so no sync job ever
+    runs and no batch will ever exist for the sink to apply — a state row would
+    be permanently inert and would misreport as "backfilled" in the managed
+    warehouse Data ops status (which reads this table directly).
+
     Memory-bounded: a single team can own tens of thousands of schemas, so we
     anti-join in Postgres to skip schemas that already have a state row, stream
     the rest with a server-side cursor instead of materializing the whole set,
@@ -376,6 +394,7 @@ def _bootstrap_state_rows(team_ids: list[int] | None) -> None:
 
     schemas = (
         ExternalDataSchema.objects.exclude(deleted=True)
+        .exclude(source__access_method=ExternalDataSource.AccessMethod.DIRECT)
         .exclude(id__in=DuckgresSinkSchemaState.objects.values("schema_id"))
         .values("id", "team_id", "sync_type", "table_id", "source__source_type")
     )

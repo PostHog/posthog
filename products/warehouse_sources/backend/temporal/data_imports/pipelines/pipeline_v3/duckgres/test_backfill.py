@@ -22,6 +22,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill import (
     _bootstrap_state_rows,
     _plan_pending,
+    blocked_schema_ids,
+    sink_eligible_schema_ids,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill_queue import (
     backfill_run_uuid,
@@ -237,6 +239,96 @@ class TestBootstrapV3SourceGate:
         primed = set(DuckgresSinkSchemaState.objects.filter(team=team).values_list("schema_id", flat=True))
         assert v3_schema.id in primed
         assert non_v3_schema.id not in primed
+
+    def test_direct_query_sources_get_no_state_row(self, monkeypatch):
+        # Self-managed/federated (access_method=DIRECT) sources have no background sync job and
+        # never produce a batch — a state row for one is permanently inert and gets reported as
+        # "backfilled" in the Data ops UI even though the table never enters the warehouse.
+        # Regression: team 50689 had 1,926 such Postgres tables bootstrapped straight to PRIMED.
+        monkeypatch.setattr(create_job_model, "is_pipeline_v3_enabled", lambda team_id, source_type: True)
+
+        team = Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
+        direct_source = ExternalDataSource.objects.create(
+            team=team,
+            source_id="s1",
+            connection_id="c1",
+            source_type="Postgres",
+            status="Running",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        warehouse_source = ExternalDataSource.objects.create(
+            team=team,
+            source_id="s2",
+            connection_id="c2",
+            source_type="Postgres",
+            status="Running",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+        )
+        direct_schema = ExternalDataSchema.objects.create(team=team, name="direct", source=direct_source)
+        synced_schema = ExternalDataSchema.objects.create(team=team, name="synced", source=warehouse_source)
+
+        backfill_module._bootstrap_state_rows([team.id])
+
+        state_schema_ids = set(DuckgresSinkSchemaState.objects.filter(team=team).values_list("schema_id", flat=True))
+        assert direct_schema.id not in state_schema_ids
+        assert synced_schema.id in state_schema_ids
+
+
+@pytest.mark.django_db
+def test_sink_eligible_schema_ids_excludes_direct_query_schemas(monkeypatch):
+    # Same blind spot as bootstrap: a direct-query schema has no background sync job and will
+    # never produce a batch, so it must never be considered eligible for the sink to claim for.
+    monkeypatch.setattr(create_job_model, "is_pipeline_v3_enabled", lambda team_id, source_type: True)
+    # close_old_connections() is meant for a long-lived worker process; called for real inside a
+    # test transaction it tears down the connection the test itself is using.
+    monkeypatch.setattr(backfill_module, "close_old_connections", lambda: None)
+
+    team = Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
+    direct_source = ExternalDataSource.objects.create(
+        team=team,
+        source_id="s1",
+        connection_id="c1",
+        source_type="Postgres",
+        status="Running",
+        access_method=ExternalDataSource.AccessMethod.DIRECT,
+    )
+    warehouse_source = ExternalDataSource.objects.create(
+        team=team,
+        source_id="s2",
+        connection_id="c2",
+        source_type="Postgres",
+        status="Running",
+        access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+    )
+    direct_schema = ExternalDataSchema.objects.create(team=team, name="direct", source=direct_source)
+    synced_schema = ExternalDataSchema.objects.create(team=team, name="synced", source=warehouse_source)
+
+    eligible = sink_eligible_schema_ids([team.id])
+
+    assert str(direct_schema.id) not in eligible
+    assert str(synced_schema.id) in eligible
+
+
+@pytest.mark.django_db
+def test_blocked_schema_ids_excludes_direct_query_schemas(monkeypatch):
+    # A direct-query schema never gets a state row (see bootstrap) and never produces a batch, so
+    # it must not permanently pollute the blocked-schema list every consumer poll passes to the queue.
+    # close_old_connections() is meant for a long-lived worker process; called for real inside a
+    # test transaction it tears down the connection the test itself is using.
+    monkeypatch.setattr(backfill_module, "close_old_connections", lambda: None)
+
+    team = Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
+    direct_source = ExternalDataSource.objects.create(
+        team=team,
+        source_id="s1",
+        connection_id="c1",
+        source_type="Postgres",
+        status="Running",
+        access_method=ExternalDataSource.AccessMethod.DIRECT,
+    )
+    direct_schema = ExternalDataSchema.objects.create(team=team, name="direct", source=direct_source)
+
+    assert str(direct_schema.id) not in blocked_schema_ids([team.id])
 
 
 # Stands in for the queue-DB connection in _reconcile_one: the SQL results are
