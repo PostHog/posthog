@@ -291,15 +291,36 @@ in `facade/api.py` with the viewset deferred.
       left, presentation thin. `hogli product:lint` blocks the script while deferred
       entries remain, because the skip is unsound until then (see step 5).
    4. **Narrowed `turbo.json` inputs** — restrict `backend:contract-check`
-      inputs to `backend/facade/**` and `backend/presentation/**` so the
-      Django suite is only re-run on facade/presentation changes (see
-      `products/visual_review/turbo.json`). Widen the inputs when core
-      depends on the product **outside the import graph**: add
-      `backend/models.py` if hogql system tables expose the product's
-      tables or core config references its dotted paths (the scan's
-      string-reference section surfaces the latter). tach/import-linter
-      only police the import channel; a mechanical check for these
-      non-import channels is a known gap, noted and deferred.
+      inputs to the facade and presentation surface **plus every wiring
+      location the product actually has**, so the Django suite is only
+      re-run on changes that can affect an external consumer. Always
+      include `backend/facade/**` and `backend/presentation/**`; add
+      `backend/routes.py` (presentation registers its viewsets there).
+      Then add each applicable **wiring location** whose classes core
+      registers and dispatches on — `backend/hogql_queries/**`,
+      `backend/max_tools.py`, `backend/temporal/**`, and
+      `backend/tasks/**` (a flat `backend/tasks.py` qualifies too) — plus
+      any sanctioned model-registration module (a model whose class core
+      keys a registry on, e.g. the team-extension or `FileSystemSyncMixin`
+      unfiled registry). These are **not** optional widening exceptions:
+      core drives these implementations through registered classes with
+      **zero facade imports**, so leaving one out of the inputs preserves
+      an unsound CI skip — a change to a query runner, Max tool, Temporal
+      workflow, or celery task would slip past the check (see
+      [products/architecture.md](../../../products/architecture.md)
+      § Wiring couplings). `products/error_tracking/turbo.json` is the
+      full worked example; `products/visual_review/turbo.json` is the
+      minimal one (facade + presentation + `routes.py` + `tasks/**`).
+      `IsolationChainCheck` enforces the pairing for
+      `# isolation:permanent-interface` DDL modules; for the wiring
+      locations, adding them is your responsibility as author.
+      Beyond wiring, widen further when core depends on the product
+      **outside the import graph**: add `backend/models.py` if hogql
+      system tables expose the product's tables or core config references
+      its dotted paths (the scan's string-reference section surfaces the
+      latter). tach/import-linter only police the import channel; a
+      mechanical check for these non-import channels is a known gap,
+      noted and deferred.
    - **Permanent-interface exception (irreducible import coupling).** Some
      import coupling genuinely cannot be drained: ClickHouse DDL modules
      (`backend.sql`, `backend.embedding`, …) are imported by core's
@@ -471,6 +492,11 @@ Treat migration as complete only when:
   view modules; the presentation wave deletes them.
 - `hogli product:lint <name>` shows no legacy leak warning and the isolation chain is intact.
 - `backend:contract-check` is present in `package.json` with `turbo.json` inputs
-  narrowed to `backend/facade/**` and `backend/presentation/**` (enables the CI skip).
+  narrowed to `backend/facade/**` and `backend/presentation/**`, plus `backend/routes.py`
+  and every wiring location the product has (`backend/hogql_queries/**`,
+  `backend/max_tools.py`, `backend/temporal/**`, `backend/tasks/**`) and any sanctioned
+  model-registration module (enables the CI skip; see step 6.4 and
+  [products/architecture.md](../../../products/architecture.md) § Wiring couplings —
+  omitting a wiring location leaves an unsound skip).
   This is the **last** thing added — `product:lint` blocks it until the `ignore_imports`
   entries above are gone, so the skip only ever turns on for a fully isolated product.
