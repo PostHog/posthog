@@ -89,28 +89,34 @@ def count_preflight_roundtrips() -> tuple[list[tuple[str, str]], list[tuple[str,
     is excluded — the login page is anonymous.
 
     Returns (serial_hits, parallel_hits): probes referenced inside the concurrent
-    fan-out helper `_run_liveness_probes` (ThreadPoolExecutor) run as ONE parallel
+    fan-out helper `_run_preflight_probes` (ThreadPoolExecutor) run as ONE parallel
     batch — their wall-clock cost is max(probe), not sum — so they are reported
     separately and count as a single serial step.
     """
 
-    def _hits_in(fn: ast.FunctionDef, skip_authed: bool) -> list[tuple[str, str]]:
-        authed_nodes: set[int] = set()
-        if skip_authed:
-            # Nodes inside the authenticated-only block don't run for the login page.
+    def _guard_matches(test: ast.expr, names: set[str]) -> bool:
+        if isinstance(test, ast.Name):
+            return test.id in names
+        if isinstance(test, ast.Attribute):
+            return test.attr in names
+        return False
+
+    def _hits_in(fn: ast.FunctionDef, skip_guards: frozenset[str]) -> list[tuple[str, str]]:
+        # Nodes inside guarded-off blocks don't run for the anonymous, non-cloud login
+        # page: the authenticated-extras branch and the cloud-only serial branch.
+        skipped_nodes: set[int] = set()
+        if skip_guards:
             for node in ast.walk(fn):
-                if isinstance(node, ast.If):
-                    test = node.test
-                    if isinstance(test, ast.Attribute) and test.attr == "is_authenticated":
-                        for child in node.body:
-                            for sub in ast.walk(child):
-                                authed_nodes.add(id(sub))
+                if isinstance(node, ast.If) and _guard_matches(node.test, set(skip_guards)):
+                    for child in node.body:
+                        for sub in ast.walk(child):
+                            skipped_nodes.add(id(sub))
 
         found: list[tuple[str, str]] = []
         seen_positions: set[tuple[int, int]] = set()
         for node in ast.walk(fn):
             if isinstance(node, ast.Name | ast.Attribute):
-                if id(node) in authed_nodes:
+                if id(node) in skipped_nodes:
                     continue
                 name = _dotted(node)
                 if name in BLOCKING_CALLS:
@@ -121,14 +127,17 @@ def count_preflight_roundtrips() -> tuple[list[tuple[str, str]], list[tuple[str,
                     found.append((name, BLOCKING_CALLS[name]))
         return found
 
-    serial = _hits_in(_get_func_source(REPO / "posthog" / "views.py", "preflight_check"), skip_authed=True)
+    serial = _hits_in(
+        _get_func_source(REPO / "posthog" / "views.py", "preflight_check"),
+        skip_guards=frozenset({"is_authenticated", "in_cloud"}),
+    )
     parallel: list[tuple[str, str]] = []
     try:
-        pool_fn = _get_func_source(REPO / "posthog" / "views.py", "_run_liveness_probes")
+        pool_fn = _get_func_source(REPO / "posthog" / "views.py", "_run_preflight_probes")
     except SystemExit:
         pool_fn = None
     if pool_fn is not None and any(isinstance(n, ast.Name) and n.id == "ThreadPoolExecutor" for n in ast.walk(pool_fn)):
-        parallel = _hits_in(pool_fn, skip_authed=False)
+        parallel = _hits_in(pool_fn, skip_guards=frozenset())
     return serial, parallel
 
 

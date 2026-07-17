@@ -7,8 +7,12 @@ from dataclasses import dataclass
 from datetime import timedelta
 from functools import wraps
 from html import escape
-from typing import Any, Union
+from typing import TYPE_CHECKING, Any, Union
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+
+if TYPE_CHECKING:
+    from django.contrib.auth.base_user import AbstractBaseUser
+    from django.contrib.auth.models import AnonymousUser
 
 from django.apps import apps
 from django.conf import settings
@@ -213,16 +217,17 @@ def _probe_in_thread(span_name: str, fn: Callable[[], bool]) -> bool:
         connections.close_all()
 
 
-def _run_liveness_probes() -> dict[str, bool]:
-    """Run the independent, side-effect-free liveness probes concurrently.
+def _run_preflight_probes(user: "AbstractBaseUser | AnonymousUser") -> dict[str, Any]:
+    """Run the independent preflight checks concurrently (off-cloud only).
 
-    Each probe can block on a network timeout (Kafka admin, plugin-server HTTP,
-    ClickHouse, S3), so a cold preflight build costs ~max(probe) instead of sum(probes).
-    Probe functions are resolved from module globals at call time so tests patching
+    Covers the liveness probes — each can block on a network timeout (Kafka admin,
+    plugin-server HTTP, ClickHouse, S3) — plus the Postgres-backed existence/permission
+    reads, so a cold preflight build costs ~max(check) instead of sum(checks). Checks
+    are resolved from module globals at call time so tests patching
     `posthog.views.is_kafka_connected` etc. keep working. Span names match the old
     serial ones; each future runs in its own contextvars copy so OTel parenting holds.
     """
-    probes: dict[str, tuple[str, Callable[[], bool]]] = {
+    probes: dict[str, tuple[str, Callable[[], Any]]] = {
         "redis": ("preflight.is_redis_alive", is_redis_alive),
         "plugins": ("preflight.is_plugin_server_alive", is_plugin_server_alive),
         "celery": ("preflight.is_celery_alive", is_celery_alive),
@@ -230,6 +235,12 @@ def _run_liveness_probes() -> dict[str, bool]:
         "kafka": ("preflight.is_kafka_connected", is_kafka_connected),
         "db": ("preflight.is_postgres_alive", is_postgres_alive),
         "object_storage": ("preflight.is_object_storage_available", is_object_storage_available),
+        "initiated": ("preflight.organization_exists", lambda: Organization.objects.exists()),
+        "available_social_auth_providers": (
+            "preflight.available_social_auth_providers",
+            get_instance_available_sso_providers,
+        ),
+        "can_create_org": ("preflight.can_create_org", lambda: get_can_create_org(user)),
     }
     with ThreadPoolExecutor(max_workers=len(probes), thread_name_prefix="preflight-probe") as pool:
         futures = {
@@ -242,7 +253,9 @@ def _run_liveness_probes() -> dict[str, bool]:
 @never_cache
 def preflight_check(request: HttpRequest, *, allow_cached: bool = False) -> JsonResponse:
     global _anonymous_preflight_local
-    use_cache = allow_cached and not request.user.is_authenticated and not settings.TEST
+    # Resolve the lazy user on the request thread, not inside a probe worker thread.
+    is_authenticated = request.user.is_authenticated
+    use_cache = allow_cached and not is_authenticated and not settings.TEST
     in_cloud = is_cloud()
 
     response: dict[str, Any] | None = None
@@ -261,11 +274,17 @@ def preflight_check(request: HttpRequest, *, allow_cached: bool = False) -> Json
         hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
         salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
 
-        # On cloud every probe short-circuits to True, so don't spin the pool up at all.
-        probe_results: dict[str, bool] = {}
-        if not in_cloud:
-            with tracer.start_as_current_span("preflight.liveness_probes"):
-                probe_results = _run_liveness_probes()
+        # On cloud every liveness probe short-circuits and the remaining reads do no
+        # external I/O, so don't spin the pool up at all — keep the cheap serial calls.
+        probe_results: dict[str, Any] = {}
+        if in_cloud:
+            sso_providers = _traced("preflight.available_social_auth_providers", get_instance_available_sso_providers)
+            can_create_org = _traced("preflight.can_create_org", get_can_create_org, request.user)
+        else:
+            with tracer.start_as_current_span("preflight.concurrent_checks"):
+                probe_results = _run_preflight_probes(request.user)
+            sso_providers = probe_results["available_social_auth_providers"]
+            can_create_org = probe_results["can_create_org"]
 
         response = {
             "django": True,
@@ -275,15 +294,13 @@ def preflight_check(request: HttpRequest, *, allow_cached: bool = False) -> Json
             "clickhouse": in_cloud or probe_results["clickhouse"] or settings.TEST,
             "kafka": in_cloud or probe_results["kafka"],
             "db": in_cloud or probe_results["db"],
-            "initiated": in_cloud or _traced("preflight.organization_exists", Organization.objects.exists),
+            "initiated": in_cloud or probe_results["initiated"],
             "cloud": in_cloud,
             "demo": settings.DEMO,
             "realm": get_instance_realm(),
             "region": get_instance_region(),
-            "available_social_auth_providers": _traced(
-                "preflight.available_social_auth_providers", get_instance_available_sso_providers
-            ),
-            "can_create_org": _traced("preflight.can_create_org", get_can_create_org, request.user),
+            "available_social_auth_providers": sso_providers,
+            "can_create_org": can_create_org,
             "email_service_available": in_cloud
             or _traced("preflight.is_email_available", is_email_available, with_absolute_urls=True),
             "slack_service": {
@@ -319,7 +336,7 @@ def preflight_check(request: HttpRequest, *, allow_cached: bool = False) -> Json
     if auth_brand:
         response["auth_brand"] = auth_brand
 
-    if request.user.is_authenticated:
+    if is_authenticated:
         response = {
             **response,
             "available_timezones": _traced("preflight.available_timezones", get_available_timezones_with_offsets),
