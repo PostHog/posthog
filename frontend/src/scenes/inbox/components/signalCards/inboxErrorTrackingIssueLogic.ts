@@ -60,10 +60,10 @@ export interface inboxErrorTrackingIssueLogicActions {
         errorObject?: any
     }
     loadIssueSuccess: (
-        issue: ErrorTrackingRelationalIssue,
+        issue: ErrorTrackingRelationalIssue | null,
         payload?: any
     ) => {
-        issue: ErrorTrackingRelationalIssue
+        issue: ErrorTrackingRelationalIssue | null
         payload?: any
     }
     loadSpikeEvents: () => any
