@@ -25,6 +25,7 @@ import { ERROR_TRACKING_SUB_TEMPLATE_IDS } from 'products/error_tracking/fronten
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { SceneTab } from '../sceneTypes'
+import { QUICKSTART_PRODUCT_ORDER, getQuickstartProductSections, isQuickstartProductFeatured } from './productLayout'
 import { PublicationFeedKey, QuickstartPublication, fetchPublicationsPage } from './publications'
 
 /** How far along the activation ladder a tool is. Quality lives past 'live', not as extra levels. */
@@ -286,23 +287,6 @@ function deriveToolStatus(definition: QuickstartProductDefinition, ctx: StatusCo
         cta,
     }
 }
-
-/** Display order: the tools most teams start with come first. */
-export const QUICKSTART_PRODUCT_ORDER: ProductKey[] = [
-    ProductKey.PRODUCT_ANALYTICS,
-    ProductKey.WEB_ANALYTICS,
-    ProductKey.SESSION_REPLAY,
-    ProductKey.ERROR_TRACKING,
-    ProductKey.FEATURE_FLAGS,
-    ProductKey.SURVEYS,
-    ProductKey.EXPERIMENTS,
-    ProductKey.AI_OBSERVABILITY,
-    ProductKey.DATA_WAREHOUSE,
-    ProductKey.WORKFLOWS,
-    ProductKey.LOGS,
-    ProductKey.MCP_ANALYTICS,
-    ProductKey.CONVERSATIONS,
-]
 
 // Shared rungs. Each is a plain predicate over the context, so ladders can reuse them freely.
 const installAnySdk: ToolMilestone = {
@@ -1108,10 +1092,13 @@ export interface quickstartLogicValues {
     activationData: QuickstartActivationData
     activationDataLoading: boolean
     activeProductCount: number
+    additionalProducts: QuickstartProduct[]
     blogPublications: QuickstartPublication[]
     blogPublicationsLoading: boolean
     companionSetup: QuickstartCompanionSetup | null
     enablingProducts: Record<string, boolean>
+    featuredProductOverrides: Partial<Record<ProductKey, boolean>>
+    featuredProducts: QuickstartProduct[]
     hasIngestedEvent: boolean
     healthIssues: HealthIssue[] | null
     healthIssuesLoading: boolean
@@ -1259,6 +1246,13 @@ export interface quickstartLogicActions {
     redirectIfUnavailable: () => {
         value: true
     }
+    setProductFeatured: (
+        productKey: ProductKey,
+        featured: boolean
+    ) => {
+        featured: boolean
+        productKey: ProductKey
+    }
     setPublicationsHasMore: (
         feed: PublicationFeedKey,
         hasMore: boolean
@@ -1276,6 +1270,14 @@ export interface quickstartLogicMeta {
             currentTeam: TeamPublicType | TeamType | null,
             activationData: QuickstartActivationData,
             healthIssues: HealthIssue[] | null
+        ) => QuickstartProduct[]
+        featuredProducts: (
+            products: QuickstartProduct[],
+            featuredProductOverrides: Partial<Record<ProductKey, boolean>>
+        ) => QuickstartProduct[]
+        additionalProducts: (
+            products: QuickstartProduct[],
+            featuredProductOverrides: Partial<Record<ProductKey, boolean>>
         ) => QuickstartProduct[]
         activeProductCount: (products: QuickstartProduct[]) => number
         totalProductCount: (products: QuickstartProduct[]) => number
@@ -1312,6 +1314,7 @@ export const quickstartLogic = kea<quickstartLogicType>([
     })),
     actions({
         redirectIfUnavailable: true,
+        setProductFeatured: (productKey: ProductKey, featured: boolean) => ({ productKey, featured }),
         enableProduct: (productKey: ProductKey) => ({ productKey }),
         productEnableFinished: (productKey: ProductKey) => ({ productKey }),
         openToolSetupModal: (productKey: ProductKey) => ({ productKey }),
@@ -1553,6 +1556,20 @@ export const quickstartLogic = kea<quickstartLogicType>([
         }
     }),
     reducers({
+        featuredProductOverrides: [
+            {} as Partial<Record<ProductKey, boolean>>,
+            { persist: true },
+            {
+                setProductFeatured: (state, { productKey, featured }) => {
+                    const defaultFeatured = isQuickstartProductFeatured(productKey, {})
+                    if (featured === defaultFeatured) {
+                        const { [productKey]: _, ...rest } = state
+                        return rest
+                    }
+                    return { ...state, [productKey]: featured }
+                },
+            },
+        ],
         enablingProducts: [
             {} as Record<string, boolean>,
             {
@@ -1617,6 +1634,16 @@ export const quickstartLogic = kea<quickstartLogicType>([
                 )
             },
         ],
+        featuredProducts: [
+            (s) => [s.products, s.featuredProductOverrides],
+            (products: QuickstartProduct[], featuredProductOverrides: Partial<Record<ProductKey, boolean>>) =>
+                getQuickstartProductSections(products, featuredProductOverrides).featuredProducts,
+        ],
+        additionalProducts: [
+            (s) => [s.products, s.featuredProductOverrides],
+            (products: QuickstartProduct[], featuredProductOverrides: Partial<Record<ProductKey, boolean>>) =>
+                getQuickstartProductSections(products, featuredProductOverrides).additionalProducts,
+        ],
         activeProductCount: [
             (s) => [s.products],
             (products: QuickstartProduct[]): number =>
@@ -1644,6 +1671,25 @@ export const quickstartLogic = kea<quickstartLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        setProductFeatured: ({ productKey, featured }) => {
+            const product = values.products.find(({ key }) => key === productKey)
+            if (!product) {
+                return
+            }
+            posthog.capture('quickstart product featured changed', {
+                product_key: productKey,
+                featured,
+            })
+            lemonToast.success(
+                featured ? `${product.name} added to Your tools` : `${product.name} moved to Explore more tools`,
+                {
+                    button: {
+                        label: 'Undo',
+                        action: () => actions.setProductFeatured(productKey, !featured),
+                    },
+                }
+            )
+        },
         setFeatureFlags: () => actions.redirectIfUnavailable(),
         redirectIfUnavailable: () => {
             if (

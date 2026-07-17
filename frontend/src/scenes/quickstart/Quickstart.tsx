@@ -16,6 +16,8 @@ import {
     IconGraduationCap,
     IconLogomark,
     IconPeople,
+    IconPin,
+    IconPinFilled,
     IconReceipt,
     IconSearch,
     IconSparkles,
@@ -83,6 +85,7 @@ import {
     SidePanelTab,
 } from '~/types'
 
+import { QUICKSTART_PRODUCT_LAYOUT } from './productLayout'
 import {
     PublicationFeedKey,
     QUICKSTART_BLOG_URL,
@@ -587,14 +590,14 @@ function ToolStatusPanel({
     )
 }
 
-export function ProductCard({ product }: { product: QuickstartProduct }): JSX.Element {
+function ProductActions({ product, compact = false }: { product: QuickstartProduct; compact?: boolean }): JSX.Element {
     const { enablingProducts } = useValues(quickstartLogic)
     const { enableProduct, openToolSetupModal } = useActions(quickstartLogic)
     const { status } = product
 
     const setUpButton = (
         <LemonButton
-            type="primary"
+            type={compact ? 'secondary' : 'primary'}
             size="small"
             to={PRODUCT_SDK_SETUP[product.key] ? undefined : product.setupUrl}
             onClick={() => {
@@ -624,7 +627,7 @@ export function ProductCard({ product }: { product: QuickstartProduct }): JSX.El
     )
     const openButton = (
         <LemonButton
-            type="primary"
+            type={compact ? 'secondary' : 'primary'}
             size="small"
             to={product.url}
             onClick={() => captureQuickstartAction('open_product', product.key)}
@@ -634,59 +637,131 @@ export function ProductCard({ product }: { product: QuickstartProduct }): JSX.El
         </LemonButton>
     )
 
+    if (compact) {
+        return status.level === 'live'
+            ? openButton
+            : status.cta === 'enable'
+              ? enableButton('secondary')
+              : status.cta === 'open'
+                ? openButton
+                : setUpButton
+    }
+
+    return (
+        <div className="flex items-center gap-2 mt-1">
+            {status.level === 'live' ? (
+                <>
+                    {openButton}
+                    {/* e.g. error tracking live from a server SDK can still turn on web autocapture */}
+                    {status.cta === 'enable' && enableButton('secondary')}
+                </>
+            ) : status.cta === 'enable' ? (
+                enableButton('primary')
+            ) : status.cta === 'open' ? (
+                <>
+                    {openButton}
+                    {PRODUCT_SDK_SETUP[product.key] && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => {
+                                captureQuickstartAction('open_sdk_guide', product.key)
+                                openToolSetupModal(product.key)
+                            }}
+                            data-attr={`quickstart-sdk-guide-${product.key}`}
+                        >
+                            SDK guide
+                        </LemonButton>
+                    )}
+                </>
+            ) : (
+                setUpButton
+            )}
+            {product.docsUrl && (
+                <LemonButton
+                    size="small"
+                    to={product.docsUrl}
+                    targetBlank
+                    onClick={() => captureQuickstartAction('open_docs', product.key)}
+                    data-attr={`quickstart-docs-${product.key}`}
+                >
+                    Docs
+                </LemonButton>
+            )}
+        </div>
+    )
+}
+
+export function ProductCard({ product }: { product: QuickstartProduct }): JSX.Element {
+    const { setProductFeatured } = useActions(quickstartLogic)
+
     return (
         <LemonCard hoverEffect={false} className="flex flex-col gap-2 p-4 rounded-lg border-transparent shadow-sm">
-            <div className="flex flex-col gap-2 min-w-0">
-                <span className="text-2xl leading-none">
-                    {getProductIcon(product.icon, { iconColor: product.iconColor })}
-                </span>
-                <h3 className="font-semibold text-base mb-0">{product.name}</h3>
-                <div className="flex flex-col gap-1">
-                    <p className="text-secondary text-sm leading-relaxed mb-0">{product.description}</p>
-                    <ToolActivitySummary product={product} status={status} />
+            <div className="flex items-start justify-between gap-3">
+                <div className="flex flex-col gap-2 min-w-0">
+                    <span className="text-2xl leading-none">
+                        {getProductIcon(product.icon, { iconColor: product.iconColor })}
+                    </span>
+                    <h3 className="font-semibold text-base mb-0">{product.name}</h3>
                 </div>
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconPinFilled />}
+                    tooltip="Remove from Your tools"
+                    aria-label={`Remove ${product.name} from Your tools`}
+                    onClick={() => setProductFeatured(product.key, false)}
+                    data-attr={`quickstart-unfeature-${product.key}`}
+                />
             </div>
-            <ToolStatusPanel status={status} productKey={product.key} />
-            <div className="flex items-center gap-2 mt-1">
-                {status.level === 'live' ? (
-                    <>
-                        {openButton}
-                        {/* e.g. error tracking live from a server SDK can still turn on web autocapture */}
-                        {status.cta === 'enable' && enableButton('secondary')}
-                    </>
-                ) : status.cta === 'enable' ? (
-                    enableButton('primary')
-                ) : status.cta === 'open' ? (
-                    <>
-                        {openButton}
-                        {PRODUCT_SDK_SETUP[product.key] && (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={() => {
-                                    captureQuickstartAction('open_sdk_guide', product.key)
-                                    openToolSetupModal(product.key)
-                                }}
-                                data-attr={`quickstart-sdk-guide-${product.key}`}
-                            >
-                                SDK guide
-                            </LemonButton>
-                        )}
-                    </>
-                ) : (
-                    setUpButton
-                )}
-                {product.docsUrl && (
-                    <LemonButton
+            <div className="flex flex-col gap-1">
+                <p className="text-secondary text-sm leading-relaxed mb-0">{product.description}</p>
+                <ToolActivitySummary product={product} status={product.status} />
+            </div>
+            <ToolStatusPanel status={product.status} productKey={product.key} />
+            <ProductActions product={product} />
+        </LemonCard>
+    )
+}
+
+function CompactProductCard({ product }: { product: QuickstartProduct }): JSX.Element {
+    const { setProductFeatured } = useActions(quickstartLogic)
+    const statusLabel =
+        product.status.level === 'live' ? 'Live' : product.status.level === 'ready' ? 'Waiting for data' : 'Needs setup'
+
+    return (
+        <LemonCard hoverEffect={false} className="flex items-center gap-3 p-3 rounded-lg min-w-0">
+            <span className="text-xl leading-none shrink-0">
+                {getProductIcon(product.icon, { iconColor: product.iconColor })}
+            </span>
+            <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 min-w-0">
+                    <h3 className="font-semibold text-sm mb-0 truncate">{product.name}</h3>
+                    <LemonTag
                         size="small"
-                        to={product.docsUrl}
-                        targetBlank
-                        onClick={() => captureQuickstartAction('open_docs', product.key)}
-                        data-attr={`quickstart-docs-${product.key}`}
+                        type={
+                            product.status.level === 'live'
+                                ? 'success'
+                                : product.status.level === 'ready'
+                                  ? 'warning'
+                                  : 'muted'
+                        }
+                        className="shrink-0"
                     >
-                        Docs
-                    </LemonButton>
-                )}
+                        {statusLabel}
+                    </LemonTag>
+                </div>
+                <p className="text-secondary text-xs mb-0 truncate">{product.description}</p>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+                <ProductActions product={product} compact />
+                <LemonButton
+                    size="small"
+                    icon={<IconPin />}
+                    tooltip="Add to Your tools"
+                    aria-label={`Add ${product.name} to Your tools`}
+                    onClick={() => setProductFeatured(product.key, true)}
+                    data-attr={`quickstart-feature-${product.key}`}
+                />
             </div>
         </LemonCard>
     )
@@ -1285,7 +1360,7 @@ function PublicationsSection(): JSX.Element | null {
 }
 
 export function Quickstart(): JSX.Element {
-    const { products, activeProductCount, totalProductCount } = useValues(quickstartLogic)
+    const { featuredProducts, additionalProducts, activeProductCount, totalProductCount } = useValues(quickstartLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { openCompanionSetup } = useActions(quickstartLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -1364,19 +1439,39 @@ export function Quickstart(): JSX.Element {
             <section>
                 <div className="flex flex-wrap items-start justify-between gap-x-8">
                     <SectionHeader
-                        title="Tool setup and activity"
-                        subtitle="See which Tools are collecting context, complete their setup, and review the next recommended step."
+                        title={QUICKSTART_PRODUCT_LAYOUT.featured.title}
+                        subtitle={QUICKSTART_PRODUCT_LAYOUT.featured.description}
                     />
                     <HeaderStat icon={<IconApps />}>
                         {activeProductCount} of {totalProductCount} live
                     </HeaderStat>
                 </div>
-                <div className="grid grid-cols-1 @2xl/main-content:grid-cols-2 @5xl/main-content:grid-cols-3 gap-4">
-                    {products.map((product) => (
-                        <ProductCard key={product.key} product={product} />
-                    ))}
-                </div>
+                {featuredProducts.length > 0 ? (
+                    <div className="grid grid-cols-1 @2xl/main-content:grid-cols-2 @5xl/main-content:grid-cols-3 gap-4">
+                        {featuredProducts.map((product) => (
+                            <ProductCard key={product.key} product={product} />
+                        ))}
+                    </div>
+                ) : (
+                    <div className="rounded border border-dashed p-6 text-center text-secondary">
+                        Add a product from Explore more tools to keep its setup and activity here.
+                    </div>
+                )}
             </section>
+
+            {additionalProducts.length > 0 && (
+                <section>
+                    <SectionHeader
+                        title={QUICKSTART_PRODUCT_LAYOUT.additional.title}
+                        subtitle={QUICKSTART_PRODUCT_LAYOUT.additional.description}
+                    />
+                    <div className="grid grid-cols-1 @3xl/main-content:grid-cols-2 gap-3">
+                        {additionalProducts.map((product) => (
+                            <CompactProductCard key={product.key} product={product} />
+                        ))}
+                    </div>
+                </section>
+            )}
 
             <section>
                 <SectionHeader
