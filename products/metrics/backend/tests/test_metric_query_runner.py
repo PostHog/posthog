@@ -11,7 +11,9 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
@@ -733,6 +735,27 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
         rows = self._run("rate")
         self.assertEqual([row["value"] for row in rows], [0.5])
 
+    def test_counter_query_partitions_by_hash_not_stringified_map(self):
+        # toString(attributes) stringifies a Map per row for the lagInFrame
+        # window's partition key; cityHash64 gives a fixed-width key at the
+        # same cost resource_fingerprint already pays for resource attributes.
+        # A regression back to toString() silently reintroduces a ~40% p99
+        # latency regression (see the metrics-query-partition-key-hash PR).
+        runner = MetricQueryRunner(
+            team=self.team,
+            metric_name="requests_total",
+            aggregation="rate",
+            date_from=self.anchor - dt.timedelta(minutes=1),
+            date_to=self.anchor + dt.timedelta(minutes=2),
+        )
+        sql, _ = prepare_and_print_ast(
+            runner._build_counter_query(),
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+        )
+        self.assertIn("cityHash64(metrics.attributes)", sql)
+        self.assertNotIn("toString(metrics.attributes)", sql)
+
     def test_counter_reset_counts_post_reset_value(self):
         self._seed_counter(
             [
@@ -899,6 +922,25 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
             self._run(quantile=None)
         with self.assertRaises(ValueError):
             self._run(quantile=1.5)
+
+    def test_histogram_query_partitions_by_hash_not_stringified_map(self):
+        # Same lagInFrame partition-key concern as the counter query's
+        # test_counter_query_partitions_by_hash_not_stringified_map.
+        runner = MetricQueryRunner(
+            team=self.team,
+            metric_name="latency",
+            aggregation="histogram_quantile",
+            quantile=0.5,
+            date_from=self.anchor - dt.timedelta(minutes=1),
+            date_to=self.anchor + dt.timedelta(minutes=2),
+        )
+        sql, _ = prepare_and_print_ast(
+            runner._build_histogram_query(),
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+        )
+        self.assertIn("cityHash64(metrics.attributes)", sql)
+        self.assertNotIn("toString(metrics.attributes)", sql)
 
     def test_group_by_service_name_column(self):
         # service_name resolves to the raw column, which the nested

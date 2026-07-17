@@ -462,7 +462,7 @@ class MetricQueryRunner:
                             attributes,
                             resource_attributes,
                             lagInFrame(toNullable(value)) OVER (
-                                PARTITION BY service_name, resource_fingerprint, toString(attributes)
+                                PARTITION BY service_name, resource_fingerprint, cityHash64(attributes)
                                 ORDER BY timestamp ASC
                                 ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
                             ) AS prev_value
@@ -528,7 +528,7 @@ class MetricQueryRunner:
                             histogram_bounds,
                             arrayMap(x -> toFloat(x), histogram_counts) AS counts_f,
                             lagInFrame(arrayMap(x -> toFloat(x), histogram_counts)) OVER (
-                                PARTITION BY service_name, resource_fingerprint, toString(attributes)
+                                PARTITION BY service_name, resource_fingerprint, cityHash64(attributes)
                                 ORDER BY timestamp ASC
                                 ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
                             ) AS prev_counts
