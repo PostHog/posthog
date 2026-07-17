@@ -175,7 +175,16 @@ class TestNormalization:
         assert row["server"] == "https://k8s.example.com"
 
     def test_repository_secret_fields_are_dropped(self):
-        row = _normalize_repository({"repo": "https://github.com/org/repo", "password": "x", "sshPrivateKey": "y"})
+        # gcpServiceAccountKey carries a GCS service-account JSON — it must be stripped like the
+        # other write-only credential fields in case a server version echoes it back.
+        row = _normalize_repository(
+            {
+                "repo": "https://github.com/org/repo",
+                "password": "x",
+                "sshPrivateKey": "y",
+                "gcpServiceAccountKey": "z",
+            }
+        )
         assert row == {"repo": "https://github.com/org/repo"}
 
 
@@ -303,6 +312,9 @@ class TestGetRows:
             )
         assert patched.call_args.kwargs["capture"] is False
         assert "tok" in patched.call_args.kwargs["redact_values"]
+        # `_fetch` owns the retry budget via tenacity; the adapter must not retry underneath it,
+        # or a stalling host could hold a worker for adapter × tenacity × timeout.
+        assert patched.call_args.kwargs["retry"].total == 0
 
     def test_oversized_response_aborts_instead_of_buffering(self):
         # The host is customer-controlled: a response bigger than the byte cap must fail the
@@ -444,6 +456,9 @@ class TestValidateCredentials:
             validate_credentials("https://argocd.example.com", "tok")
         assert patched.call_args.kwargs["capture"] is False
         assert "tok" in patched.call_args.kwargs["redact_values"]
+        # The probe runs inline on an API worker and takes a single attempt — adapter retries
+        # would let a stalling host hold the worker across several timeouts.
+        assert patched.call_args.kwargs["retry"].total == 0
 
 
 class TestArgocdSourceResponse:

@@ -8,6 +8,7 @@ from urllib.parse import urlencode, urlparse
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.argocd.settings import ARGOCD_ENDPOINTS
@@ -50,6 +51,7 @@ _REPOSITORY_SECRET_FIELDS = (
     "tlsClientCertData",
     "tlsClientCertKey",
     "githubAppPrivateKey",
+    "gcpServiceAccountKey",
 )
 
 
@@ -289,7 +291,10 @@ def get_rows(
     # `capture=False`: raw cluster/repository responses carry credential fields the name-based
     # sample scrubbers can't recognise (camelCase `bearerToken`, `sshPrivateKey`, ...) — they are
     # stripped at row level, but must never reach HTTP sample capture either.
-    session = make_tracked_session(redact_values=(api_token,), capture=False)
+    # `retry=Retry(total=0)`: `_fetch` owns the retry budget via tenacity; leaving the adapter's
+    # default retries on would nest under it, so a host that stalls each read could occupy a
+    # worker for adapter_attempts × tenacity_attempts × timeout.
+    session = make_tracked_session(redact_values=(api_token,), capture=False, retry=Retry(total=0))
     url = _build_url(host, config.path, _list_params(endpoint, project))
     data = _fetch(session, url, _get_headers(api_token), logger)
     items = _items(data)
@@ -354,7 +359,10 @@ def validate_credentials(
         # because the probe runs inline on the API thread and only ever needs the status —
         # the body is never ingested beyond a short error snippet, so a huge response
         # (e.g. an old server ignoring the name filter) can't buffer into memory.
-        response = make_tracked_session(redact_values=(api_token,), capture=False).get(
+        # `retry=Retry(total=0)`: the probe runs inline on an API worker, so it takes a single
+        # attempt — the adapter's default retries would let a stalling host hold the worker for
+        # several timeouts instead of one.
+        response = make_tracked_session(redact_values=(api_token,), capture=False, retry=Retry(total=0)).get(
             _build_url(normalized, ARGOCD_ENDPOINTS[endpoint].path, params),
             headers=_get_headers(api_token),
             timeout=30,
