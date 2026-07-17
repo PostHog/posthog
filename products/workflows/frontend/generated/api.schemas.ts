@@ -331,6 +331,12 @@ export interface PaginatedHogFlowMinimalListApi {
  */
 export type HogFlowApiVariablesItem = { [key: string]: string }
 
+/**
+ * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+ * @nullable
+ */
+export type HogFlowApiActionRedirects = { [key: string]: string } | null
+
 export interface HogFlowConversionEventApi {
     /** Event/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side. */
     filters: HogFunctionFiltersApi
@@ -533,12 +539,23 @@ export interface HogFlowApi {
      * @nullable
      */
     readonly draft_updated_at: string | null
+    /**
+     * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+     * @nullable
+     */
+    readonly action_redirects: HogFlowApiActionRedirects
 }
 
 /**
  * Variable: {key, type: string|number|boolean, default}.
  */
 export type PatchedHogFlowApiVariablesItem = { [key: string]: string }
+
+/**
+ * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+ * @nullable
+ */
+export type PatchedHogFlowApiActionRedirects = { [key: string]: string } | null
 
 /**
  * Mixin for serializers to add user access control fields
@@ -598,6 +615,11 @@ export interface PatchedHogFlowApi {
      * @nullable
      */
     readonly draft_updated_at?: string | null
+    /**
+     * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+     * @nullable
+     */
+    readonly action_redirects?: PatchedHogFlowApiActionRedirects
 }
 
 export interface MessageAssetApi {

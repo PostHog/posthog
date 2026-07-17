@@ -1922,6 +1922,12 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     "When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409."
                 ),
+            action_redirects: zod
+                .record(zod.string(), zod.string())
+                .nullable()
+                .describe(
+                    'Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.'
+                ),
         })
         .describe('Mixin for serializers to add user access control fields')
         .optional()
