@@ -39,6 +39,7 @@ import {
     PopoverTrigger,
 } from '@posthog/quill'
 
+import type { SeriesRename } from 'lib/components/EntityFilterInfo'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { isDefinitionStale } from 'lib/utils/definitions'
@@ -51,7 +52,7 @@ import { recentTaxonomicFiltersLogic } from '../recentTaxonomicFiltersLogic'
 import { taxonomicFilterPinnedPropertiesLogic } from '../taxonomicFilterPinnedPropertiesLogic'
 import { isQuickFilterItem, META_GROUP_TYPES, TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from '../types'
 import { filterPinnedForContext, filterRecentsForContext } from '../utils/suggestedContextFilters'
-import { MenuFilterCombobox, SelectedRename } from './Combobox'
+import { MenuFilterCombobox } from './Combobox'
 import { MenuFilterDwhConfig } from './DwhFlow'
 import { MenuFilterHogQLEditor } from './HogQLEditor'
 import { MenuInputTrigger } from './InputTrigger'
@@ -71,7 +72,7 @@ export interface TaxonomicFilterMenuProps {
     /** Currently-selected entry — drives the trigger label. Optional. */
     selected?: MenuFilterEntry | null
     /** Rename (custom name) carried by the series being edited — applied to the selected row in the combobox. */
-    selectedRename?: SelectedRename | null
+    selectedRename?: SeriesRename | null
     /**
      * Trigger override. Static element or render function receiving
      * trigger state.

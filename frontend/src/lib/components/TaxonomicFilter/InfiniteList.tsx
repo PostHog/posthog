@@ -12,7 +12,7 @@ import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
-import { EntityFilterInfo, getEntityFilterDisplayInfo } from 'lib/components/EntityFilterInfo'
+import { EntityFilterInfo, getSeriesRename } from 'lib/components/EntityFilterInfo'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { AUTOCAPTURE_INTERACTIONS } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
@@ -42,7 +42,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
-import { EntityFilter, EntityTypes, EventDefinition, PropertyDefinition } from '~/types'
+import { EntityFilter, EventDefinition, PropertyDefinition } from '~/types'
 
 import { NO_ITEM_SELECTED, infiniteListLogic } from './infiniteListLogic'
 
@@ -163,7 +163,7 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
  * A renamed series doesn't reveal the thing it queries, so when a row is the committed
  * selection of a renamed series, its label is the series' display name (with the
  * underlying entity as secondary text + tooltip) — connecting the row to the series
- * the user clicked. Data warehouse tabs keep their own committed-selection affordance.
+ * the user clicked.
  */
 const getSelectedItemRenameMeta = (
     selectedItemMeta: EntityFilter | null | undefined,
@@ -173,13 +173,25 @@ const getSelectedItemRenameMeta = (
         !selectedItemMeta ||
         selectedItemMeta.id == null ||
         itemValue == null ||
-        selectedItemMeta.type === EntityTypes.DATA_WAREHOUSE ||
         String(selectedItemMeta.id) !== String(itemValue)
     ) {
         return null
     }
-    return getEntityFilterDisplayInfo(selectedItemMeta).isRenamed ? selectedItemMeta : null
+    return getSeriesRename(selectedItemMeta) ? selectedItemMeta : null
 }
+
+const rowContentsIcon = (
+    item: TaxonomicDefinitionTypes,
+    itemGroup: TaxonomicFilterGroup,
+    isActive: boolean
+): JSX.Element | null =>
+    isActive ? (
+        <div className="taxonomic-list-row-contents-icon">
+            <IconCheck />
+        </div>
+    ) : itemGroup.getIcon ? (
+        <div className="taxonomic-list-row-contents-icon">{itemGroup.getIcon(item)}</div>
+    ) : null
 
 const renderItemContents = ({
     item,
@@ -213,28 +225,15 @@ const renderItemContents = ({
         )
     }
     if (selectedRenameMeta) {
-        const icon = isActive ? (
-            <div className="taxonomic-list-row-contents-icon">
-                <IconCheck />
-            </div>
-        ) : itemGroup.getIcon ? (
-            <div className="taxonomic-list-row-contents-icon">{itemGroup.getIcon(item)}</div>
-        ) : null
         return (
             <div className="taxonomic-list-row-contents min-w-0">
-                {icon}
+                {rowContentsIcon(item, itemGroup, isActive)}
                 <EntityFilterInfo filter={selectedRenameMeta} />
             </div>
         )
     }
     if (hasLocalListContext(item)) {
-        const icon = isActive ? (
-            <div className="taxonomic-list-row-contents-icon">
-                <IconCheck />
-            </div>
-        ) : itemGroup.getIcon ? (
-            <div className="taxonomic-list-row-contents-icon">{itemGroup.getIcon(item)}</div>
-        ) : null
+        const icon = rowContentsIcon(item, itemGroup, isActive)
 
         if (hasRecentContext(item) && item._recentContext.propertyFilter) {
             const label = formatPropertyLabel(item._recentContext.propertyFilter, {})
@@ -270,13 +269,7 @@ const renderItemContents = ({
         (item as PropertyDefinition).is_seen_on_filtered_events !== null &&
         !(item as PropertyDefinition).is_seen_on_filtered_events
 
-    const icon = isActive ? (
-        <div className="taxonomic-list-row-contents-icon">
-            <IconCheck />
-        </div>
-    ) : itemGroup.getIcon ? (
-        <div className="taxonomic-list-row-contents-icon">{itemGroup.getIcon(item)}</div>
-    ) : null
+    const icon = rowContentsIcon(item, itemGroup, isActive)
 
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
         listGroupType === TaxonomicFilterGroupType.EventFeatureFlags ||

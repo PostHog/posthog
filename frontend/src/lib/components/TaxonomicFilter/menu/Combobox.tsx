@@ -35,6 +35,7 @@ import {
     Skeleton,
 } from '@posthog/quill'
 
+import type { SeriesRename } from 'lib/components/EntityFilterInfo'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
@@ -178,7 +179,7 @@ export interface MenuFilterComboboxProps {
     /** Currently-committed selection — rendered with a checkmark + scrolled into view. */
     selectedEntry?: MenuFilterEntry | null
     /** Rename (custom name) carried by the series being edited — applied to the selected row. */
-    selectedRename?: SelectedRename | null
+    selectedRename?: SeriesRename | null
     /** Shared ref to the search input so the popover can target it for focus.
      *  Mutable because the adapter assigns the input element onto it. */
     inputRef?: MutableRefObject<HTMLInputElement | null>
@@ -1230,14 +1231,9 @@ interface RowProps {
     selectedRowId?: string | null
     /** Rename carried by the series being edited — applied to the selected row so its
      *  label matches the series the user clicked, with the raw key as the value cell. */
-    selectedRename?: SelectedRename | null
+    selectedRename?: SeriesRename | null
     /** Commit this row (also fires item-selected telemetry). */
     onSelect: () => void
-}
-
-export interface SelectedRename {
-    label: string
-    raw: string
 }
 
 /**

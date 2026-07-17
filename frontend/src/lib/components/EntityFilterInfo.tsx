@@ -10,7 +10,7 @@ import { ActionFilter, EntityFilter, EntityTypes } from '~/types'
 
 import { TaxonomicFilterGroupType } from './TaxonomicFilter/types'
 
-export interface UnderlyingEntity {
+interface UnderlyingEntity {
     /** The raw key the filter queries: event name as sent, action name, or table name. */
     raw: string
     /** Human-readable form of the raw key (core event labels applied). */
@@ -23,7 +23,7 @@ export interface UnderlyingEntity {
  * A series can be renamed via `custom_name` or by overriding `name` directly (e.g. via the
  * API), so neither of those fields reliably reveals what is actually being queried.
  */
-export function getUnderlyingEntity(filter: EntityFilter | ActionFilter): UnderlyingEntity | null {
+function getUnderlyingEntity(filter: EntityFilter | ActionFilter): UnderlyingEntity | null {
     if (filter.type === EntityTypes.ACTIONS) {
         const raw = ensureStringIsNotBlank(filter.name) ?? (filter.id != null ? String(filter.id) : null)
         return raw ? { raw, display: raw, kind: 'action' } : null
@@ -48,7 +48,7 @@ export function getUnderlyingEntity(filter: EntityFilter | ActionFilter): Underl
     return null
 }
 
-export interface EntityFilterDisplayInfo {
+interface EntityFilterDisplayInfo {
     /** The label users see for the series: `custom_name`, falling back to `name`/`id`. */
     displayName?: string
     underlying: UnderlyingEntity | null
@@ -56,7 +56,7 @@ export interface EntityFilterDisplayInfo {
     isRenamed: boolean
 }
 
-export function getEntityFilterDisplayInfo(
+function getEntityFilterDisplayInfo(
     filter: EntityFilter | ActionFilter,
     filterGroupType?: TaxonomicFilterGroupType
 ): EntityFilterDisplayInfo {
@@ -78,7 +78,27 @@ export function getEntityFilterDisplayInfo(
     }
 }
 
-export function EntityFilterInfoTooltipTitle({
+export interface SeriesRename {
+    /** The label users see for the series. */
+    label: string
+    /** The raw key the series actually queries. */
+    raw: string
+}
+
+/**
+ * The rename a series carries, when its label hides the thing it queries — the pickers
+ * use it to label the committed selection like the series the user clicked. Data
+ * warehouse series keep their own committed-selection affordance, so they never report one.
+ */
+export function getSeriesRename(filter: EntityFilter | ActionFilter | null | undefined): SeriesRename | null {
+    if (!filter || filter.type === EntityTypes.DATA_WAREHOUSE) {
+        return null
+    }
+    const { displayName, underlying, isRenamed } = getEntityFilterDisplayInfo(filter)
+    return isRenamed && displayName && underlying ? { label: displayName, raw: underlying.raw } : null
+}
+
+function EntityFilterInfoTooltipTitle({
     displayName,
     underlying,
 }: {
