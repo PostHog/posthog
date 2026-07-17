@@ -463,6 +463,7 @@ export interface sourceSettingsLogicActions {
             publication_exists?: boolean | undefined
             publication_name?: string | undefined
             published_tables?: string[] | undefined
+            schedule_paused?: boolean | undefined
             slot_exists?: boolean | undefined
             slot_name?: string | undefined
         },
@@ -477,6 +478,7 @@ export interface sourceSettingsLogicActions {
             publication_exists?: boolean | undefined
             publication_name?: string | undefined
             published_tables?: string[] | undefined
+            schedule_paused?: boolean | undefined
             slot_exists?: boolean | undefined
             slot_name?: string | undefined
         }
