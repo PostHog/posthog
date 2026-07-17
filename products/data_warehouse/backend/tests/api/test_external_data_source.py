@@ -44,6 +44,7 @@ from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
 from products.data_warehouse.backend.presentation.views.external_data_source import (
+    ExternalDataSourceCreateSerializer,
     get_direct_connection_metadata,
     get_nonsensitive_and_sensitive_field_names,
     get_oauth_integration_kinds,
@@ -118,6 +119,29 @@ def _configure_source_mock_versioning(mock_get_source) -> None:
     column, and the serializer renders `get_version_deprecation` into the response."""
     mock_get_source.return_value.default_version = "v1"
     mock_get_source.return_value.get_version_deprecation.return_value = None
+
+
+class TestExternalDataSourceCreateSerializerApiVersion(SimpleTestCase):
+    # No DB: the api_version check resolves against the in-memory source registry. Klaviyo has two
+    # real versions, so it exercises both the accept and reject branches.
+    @parameterized.expand(
+        [
+            ("supported", "2024-10-15", True),
+            ("newest", "2026-07-15", True),
+            ("unsupported", "9999-99-99", False),
+            ("omitted", None, True),
+        ]
+    )
+    def test_api_version_validated_against_supported_versions(
+        self, _name: str, api_version: str | None, expected_valid: bool
+    ) -> None:
+        data: dict = {"source_type": "Klaviyo", "payload": {"api_key": "x"}}
+        if api_version is not None:
+            data["api_version"] = api_version
+        serializer = ExternalDataSourceCreateSerializer(data=data)
+        assert serializer.is_valid() == expected_valid
+        if not expected_valid:
+            assert "api_version" in serializer.errors
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -233,6 +257,81 @@ class TestExternalDataSource(APIBaseTest):
             "sunset_at": "2026-12-31",
             "default_version": "2026-02-25.clover",
         }
+
+    @parameterized.expand(
+        [
+            ("selected_version_is_pinned", "2024-10-15", "2024-10-15"),
+            ("omitted_falls_back_to_default", None, "2026-07-15"),
+        ]
+    )
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.sync_discover_schemas_schedule")
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_create_pins_selected_api_version(self, _name, sent_version, expected_pin, mock_get_source, _mock_schedule):
+        source_mock = mock_get_source.return_value
+        source_mock.supported_versions = ("2024-10-15", "2026-07-15")
+        source_mock.default_version = "2026-07-15"
+        source_mock.get_version_deprecation.return_value = None
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.to_dict.return_value = {"api_key": "x"}
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(name="events", supports_incremental=False, supports_append=False)
+        ]
+
+        data: dict = {
+            "source_type": "Klaviyo",
+            "created_via": "web",
+            "payload": {
+                "api_key": "x",
+                "schemas": [{"name": "events", "should_sync": True, "sync_type": "full_refresh"}],
+            },
+        }
+        if sent_version is not None:
+            data["api_version"] = sent_version
+
+        response = self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/", data=data)
+
+        assert response.status_code == 201, response.json()
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+        assert source.api_version == expected_pin
+
+    def test_create_rejects_unsupported_api_version(self):
+        # Wiring guard: the viewset actually runs the serializer's version validation before creating.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "api_version": "not-a-real-version",
+                "payload": {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+            },
+        )
+        assert response.status_code == 400
+        assert "api_version" in str(response.json())
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_database_schema_runs_discovery_on_selected_api_version(self, mock_get_source):
+        # Pre-creation discovery has no persisted pin, so the picked version must ride in the request
+        # and reach get_schemas — a version can change which tables the source exposes.
+        mock_source = mock_get_source.return_value
+        mock_source.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        mock_source.parse_config.return_value = parsed_config
+        mock_source.resolve_api_version.return_value = "2024-10-15"
+        mock_source.validate_credentials.return_value = (True, None)
+        mock_source.get_schemas.return_value = []
+        mock_source.get_endpoint_permissions.return_value = {}
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+            data={"source_type": "Klaviyo", "api_key": "x", "api_version": "2024-10-15"},
+        )
+
+        assert response.status_code == 200
+        mock_source.resolve_api_version.assert_called_once_with("2024-10-15")
+        mock_source.get_schemas.assert_called_once_with(parsed_config, self.team.pk, api_version="2024-10-15")
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -4837,7 +4936,9 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
-        mock_source.get_schemas.assert_called_once_with(parsed_config, self.team.pk)
+        mock_source.get_schemas.assert_called_once_with(
+            parsed_config, self.team.pk, api_version=mock_source.resolve_api_version.return_value
+        )
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_schemas",

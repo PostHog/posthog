@@ -6838,6 +6838,19 @@ export interface SourceConfig {
      * GoogleAnalytics → ["ga4", "ga"]. Matched alongside name/label/category.
      */
     keywords?: string[]
+
+    /**
+     * Vendor API version labels this source supports (opaque, vendor-defined). Populated by the
+     * public source config endpoint. When it has more than one entry, the setup wizard shows a
+     * version picker. Absent/single-entry means there is nothing to pick.
+     */
+    versions?: string[]
+
+    /**
+     * The version a new source is pinned to when the user doesn't pick one (the newest supported).
+     * Used to preselect the wizard's version picker.
+     */
+    defaultVersion?: string
 }
 
 export const externalDataSources = [

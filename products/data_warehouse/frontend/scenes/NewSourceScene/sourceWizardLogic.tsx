@@ -191,14 +191,20 @@ export const buildKeaFormDefaultFromSourceDetails = (
     const sourceDetailsKeys = Object.keys(sourceDetails)
     return sourceDetailsKeys.reduce(
         (defaults, cur) => {
-            const fields = sourceDetails[cur].fields
-            fields.forEach((f) => {
+            const connector = sourceDetails[cur]
+            connector.fields.forEach((f) => {
                 if (f.type === 'ssh-tunnel') {
                     fieldDefaults(SSH_FIELD, defaults['payload'])
                 } else {
                     fieldDefaults(f, defaults['payload'])
                 }
             })
+
+            // Seed the version picker with the newest version when the source offers a choice, so
+            // discovery and creation run on an explicit version rather than an implicit default.
+            if ((connector.versions?.length ?? 0) > 1 && connector.defaultVersion) {
+                defaults['api_version'] = connector.defaultVersion
+            }
 
             return defaults
         },
@@ -399,6 +405,7 @@ export interface sourceWizardLogicValues {
     showWebhookFieldInputsErrors: boolean
     source: {
         access_method: 'direct' | 'warehouse'
+        api_version?: string
         description: string
         direct_query_enabled?: boolean
         payload: Record<string, any>
@@ -1658,6 +1665,7 @@ export interface sourceWizardLogicMeta {
         isDirectQueryMode: (
             source: {
                 access_method: 'direct' | 'warehouse'
+                api_version?: string
                 description: string
                 direct_query_enabled?: boolean
                 payload: Record<string, any>
@@ -1708,6 +1716,7 @@ export interface sourceWizardLogicMeta {
         tablesAllToggledOn: (filteredDatabaseSchema: ExternalDataSourceSyncSchema[]) => boolean | 'indeterminate'
         configuredSchemaName: (source: {
             access_method: 'direct' | 'warehouse'
+            api_version?: string
             description: string
             direct_query_enabled?: boolean
             payload: Record<string, any>
@@ -2006,6 +2015,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 description: string
                 access_method: 'warehouse' | 'direct'
                 direct_query_enabled?: boolean
+                api_version?: string
                 payload: Record<string, any>
             },
             {
@@ -2016,6 +2026,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         access_method: source.access_method ?? state.access_method,
                         direct_query_enabled:
                             'direct_query_enabled' in source ? source.direct_query_enabled : state.direct_query_enabled,
+                        api_version: 'api_version' in source ? source.api_version : state.api_version,
                         payload: {
                             ...state.payload,
                             ...source.payload,
@@ -3335,10 +3346,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 ])
 
 export const getDatabaseSchemaPayload = (
-    source: Pick<ExternalDataSourceCreatePayload, 'access_method' | 'payload'>
+    source: Pick<ExternalDataSourceCreatePayload, 'access_method' | 'payload' | 'api_version'>
 ): Record<string, any> => ({
     ...source.payload,
     access_method: source.access_method ?? 'warehouse',
+    // Discovery must run on the picked version — the source list can differ between versions.
+    ...(source.api_version ? { api_version: source.api_version } : {}),
 })
 
 export const getErrorsForFields = (

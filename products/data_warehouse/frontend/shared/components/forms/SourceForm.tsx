@@ -941,6 +941,25 @@ export function SourceFormComponent({
                         )
                 )}
             </Group>
+            {!isUpdateMode && (sourceConfig.versions?.length ?? 0) > 1 && !customAiIntroActive && (
+                <LemonField
+                    name="api_version"
+                    label="API version"
+                    help="Pin this source to a vendor API version. It affects which tables are available and how they sync. You can change it per table later."
+                >
+                    {({ value, onChange }) => (
+                        <LemonSelect
+                            data-attr="source-api-version"
+                            value={value ?? sourceConfig.defaultVersion}
+                            onChange={onChange}
+                            options={(sourceConfig.versions ?? []).map((version) => ({
+                                value: version,
+                                label: version === sourceConfig.defaultVersion ? `${version} (latest)` : version,
+                            }))}
+                        />
+                    )}
+                </LemonField>
+            )}
             {!isUpdateMode &&
                 showCdcConfig &&
                 CDC_SOURCE_TYPES.includes(sourceConfig.name) &&

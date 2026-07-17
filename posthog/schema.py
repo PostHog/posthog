@@ -29081,6 +29081,13 @@ class SourceConfig(BaseModel):
             " `dataWarehouseSourceCategories`."
         ),
     )
+    defaultVersion: str | None = Field(
+        default=None,
+        description=(
+            "The version a new source is pinned to when the user doesn't pick one (the"
+            " newest supported). Used to preselect the wizard's version picker."
+        ),
+    )
     disabledReason: str | None = None
     docsUrl: str | None = None
     existingSource: bool | None = None
@@ -29126,6 +29133,15 @@ class SourceConfig(BaseModel):
         ),
     )
     unreleasedSource: bool | None = None
+    versions: list[str] | None = Field(
+        default=None,
+        description=(
+            "Vendor API version labels this source supports (opaque, vendor-defined)."
+            " Populated by the public source config endpoint. When it has more than one"
+            " entry, the setup wizard shows a version picker. Absent/single-entry means"
+            " there is nothing to pick."
+        ),
+    )
     webhookFields: (
         list[
             SourceFieldInputConfig

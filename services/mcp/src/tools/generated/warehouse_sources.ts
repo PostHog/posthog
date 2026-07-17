@@ -500,6 +500,9 @@ const externalDataSourcesCreate = (): ToolBase<
         if (params.direct_query_enabled !== undefined) {
             body['direct_query_enabled'] = params.direct_query_enabled
         }
+        if (params.api_version !== undefined) {
+            body['api_version'] = params.api_version
+        }
         body['created_via'] = 'mcp'
         const result = await context.api.request<Schemas.ExternalDataSourceCreateResponse>({
             method: 'POST',

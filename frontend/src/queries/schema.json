@@ -44879,6 +44879,10 @@
                     "$ref": "#/definitions/DataWarehouseSourceCategory",
                     "description": "Catalog bucket this source is grouped under in the new-source wizard. Optional at the type level so partial/in-progress sources don't break, but every registered source must set one (enforced by a test). See `dataWarehouseSourceCategories`."
                 },
+                "defaultVersion": {
+                    "description": "The version a new source is pinned to when the user doesn't pick one (the newest supported). Used to preselect the wizard's version picker.",
+                    "type": "string"
+                },
                 "disabledReason": {
                     "type": ["string", "null"]
                 },
@@ -44943,6 +44947,13 @@
                 },
                 "unreleasedSource": {
                     "type": "boolean"
+                },
+                "versions": {
+                    "description": "Vendor API version labels this source supports (opaque, vendor-defined). Populated by the public source config endpoint. When it has more than one entry, the setup wizard shows a version picker. Absent/single-entry means there is nothing to pick.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "webhookFields": {
                     "items": {

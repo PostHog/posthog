@@ -87,6 +87,23 @@ describe('sourceWizardLogic', () => {
                 host: 'localhost',
             })
         })
+
+        it('forwards the picked api_version so discovery runs on it', () => {
+            expect(
+                getDatabaseSchemaPayload({
+                    api_version: '2024-10-15',
+                    payload: { api_key: 'x' },
+                })
+            ).toEqual({
+                access_method: 'warehouse',
+                api_key: 'x',
+                api_version: '2024-10-15',
+            })
+        })
+
+        it('omits api_version when none is picked', () => {
+            expect(getDatabaseSchemaPayload({ payload: { api_key: 'x' } })).not.toHaveProperty('api_version')
+        })
     })
 
     describe('buildKeaFormDefaultFromSourceDetails', () => {
@@ -117,6 +134,32 @@ describe('sourceWizardLogic', () => {
             })
 
             expect(res).toEqual({ prefix: '', description: '', payload: { test_field: '' } })
+        })
+
+        it('seeds api_version with the default only when the source offers a choice', () => {
+            const multiVersion = buildKeaFormDefaultFromSourceDetails({
+                Test: {
+                    name: 'Klaviyo',
+                    iconPath: '',
+                    caption: null,
+                    fields: [],
+                    versions: ['2024-10-15', '2026-07-15'],
+                    defaultVersion: '2026-07-15',
+                },
+            })
+            expect(multiVersion.api_version).toEqual('2026-07-15')
+
+            const singleVersion = buildKeaFormDefaultFromSourceDetails({
+                Test: {
+                    name: 'Klaviyo',
+                    iconPath: '',
+                    caption: null,
+                    fields: [],
+                    versions: ['2026-07-15'],
+                    defaultVersion: '2026-07-15',
+                },
+            })
+            expect(singleVersion).not.toHaveProperty('api_version')
         })
 
         it('returns defaults for pure select field', async () => {

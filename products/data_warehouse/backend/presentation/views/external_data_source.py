@@ -1379,6 +1379,23 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
             "Defaults to false; ignored for pure direct-query sources."
         ),
     )
+    api_version = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text=(
+            "Vendor API version to pin this source to. Must be one of the source's supported versions "
+            "(see `versions` in the public source config). Defaults to the source's newest version when omitted."
+        ),
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        api_version = attrs.get("api_version")
+        if api_version:
+            source = SourceRegistry.get_source(ExternalDataSourceType(attrs["source_type"]))
+            if api_version not in source.supported_versions:
+                raise ValidationError({"api_version": f"'{api_version}' is not a supported version for this source."})
+        return attrs
 
 
 class SourceSetupSerializer(serializers.Serializer):
@@ -1927,6 +1944,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             access_method=serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE),
             created_via=serializer.validated_data.get("created_via", ExternalDataSource.CreatedVia.API),
             direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
+            api_version=serializer.validated_data.get("api_version"),
         )
         # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.
         if credential is not None and response.status_code == status.HTTP_201_CREATED:
@@ -2054,6 +2072,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         created_via: str,
         direct_query_enabled: bool = False,
         skip_credential_validation: bool = False,
+        api_version: str | None = None,
     ) -> Response:
         # `skip_credential_validation` is set only by the `setup` action, which has already run the
         # full config + credential gate (including the SSRF host check) before discovering schemas.
@@ -2153,7 +2172,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             team=self.team,
             status="Running",
             source_type=source_type_model,
-            api_version=source.default_version,
+            # A caller-chosen pin (validated against supported_versions) wins; otherwise new sources
+            # start on the newest version.
+            api_version=api_version or source.default_version,
             job_inputs=source_config.to_dict(),
             prefix=prefix,
             description=description,
@@ -3045,6 +3066,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
         source_config: Config = source.parse_config(request.data)
 
+        # The source isn't persisted yet, so the version the wizard picked rides in the request.
+        # Discovery must run on it — a version can change which schemas the source exposes.
+        api_version = source.resolve_api_version(request.data.get("api_version"))
+
         access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
         if isinstance(source, (PostgresSource, MySQLSource)):
             credentials_valid, credentials_error = source.validate_credentials_for_access_method(
@@ -3058,7 +3083,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 source_config, self.team_id, owner_user_id=self.request.user.id
             )
         else:
-            credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+            credentials_valid, credentials_error = source.validate_credentials(
+                source_config, self.team_id, api_version=api_version
+            )
         if not credentials_valid:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -3066,7 +3093,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
         try:
-            schemas = source.get_schemas(source_config, self.team_id)
+            schemas = source.get_schemas(source_config, self.team_id, api_version=api_version)
         except NotImplementedError:
             # Source doesn't implement schema discovery (e.g. an unreleased source), so there are
             # no tables to list — a caller mistake, not a server error worth capturing. Mirrors `setup`.
@@ -3086,7 +3113,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # Best-effort per-endpoint scope probe — transient failure falls back to "available".
         try:
             endpoint_permissions = source.get_endpoint_permissions(
-                source_config, self.team_id, [schema.name for schema in schemas]
+                source_config, self.team_id, [schema.name for schema in schemas], api_version=api_version
             )
         except Exception as e:
             capture_exception(e, {"source_type": source_type, "team_id": self.team_id})

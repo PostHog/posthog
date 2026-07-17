@@ -1454,6 +1454,12 @@ export const ExternalDataSourcesCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources.'
         ),
+    api_version: zod
+        .string()
+        .nullish()
+        .describe(
+            "Vendor API version to pin this source to. Must be one of the source's supported versions (see `versions` in the public source config). Defaults to the source's newest version when omitted."
+        ),
 })
 
 /**

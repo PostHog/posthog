@@ -27923,6 +27923,11 @@ export namespace Schemas {
       created_via?: ExternalDataSourceCreateCreatedViaEnum;
       /** Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources. */
       direct_query_enabled?: boolean;
+      /**
+         * Vendor API version to pin this source to. Must be one of the source's supported versions (see `versions` in the public source config). Defaults to the source's newest version when omitted.
+         * @nullable
+         */
+      api_version?: string | null;
     }
 
     export interface ExternalDataSourceCreateResponse {
