@@ -226,7 +226,9 @@ class _BaseSource(ABC, Generic[ConfigType]):
         ``api_version`` is the source instance's resolved vendor API version pin (``None``
         means `default_version`) — callers with a source row pass it so a pinned source
         discovers schemas on the version it actually syncs with. Sources whose discovery
-        doesn't vary by version can ignore it.
+        doesn't vary by version can ignore it; sources that consume it resolve with
+        ``self.resolve_api_version(api_version)`` (a no-op on already-resolved values)
+        instead of special-casing ``None``.
         """
         raise NotImplementedError()
 

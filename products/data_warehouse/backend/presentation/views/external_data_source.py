@@ -4684,7 +4684,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         try:
             source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
             config = source_impl.parse_config(source.job_inputs)
-            discovered = source_impl.get_schemas(config, self.team_id, names=names)
+            discovered = source_impl.get_schemas(
+                config, self.team_id, names=names, api_version=source_impl.resolve_api_version(source.api_version)
+            )
         except Exception as e:
             capture_exception(e)
             reason = "could not read the source to pick default sync settings; check the source credentials"
