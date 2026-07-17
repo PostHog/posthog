@@ -120,7 +120,7 @@ describe('shouldCaptureDetachedElements', () => {
 
 describe('getDetachedElementTrackingContext', () => {
     it('resets the route baseline when the path changes', () => {
-        const firstScan = getDetachedElementTrackingContext(createDetachedElementTrackingState(), 100, '/groups', 1_000)
+        const firstScan = getDetachedElementTrackingContext(createDetachedElementTrackingState(), 100, '/groups')
         const sameRouteScan = getDetachedElementTrackingContext(firstScan.nextState, 130, '/groups')
         const nextRouteScan = getDetachedElementTrackingContext(sameRouteScan.nextState, 150, '/pipeline/new/source')
 
