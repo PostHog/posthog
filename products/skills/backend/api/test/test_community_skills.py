@@ -86,12 +86,48 @@ class TestCommunitySkillAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         self.assertTrue(LLMSkill.objects.filter(team=self.team, name="my-triage").exists())
 
-    def test_install_name_conflict_returns_400(self, _mock_flag) -> None:
+    def test_install_default_name_conflict_omits_new_name_attr(self, _mock_flag) -> None:
         _create_community_skill(slug="web-analytics-triage")
         LLMSkill.objects.create(team=self.team, name="web-analytics-triage", description="x", body="y")
 
         response = self.client.post(self._url("web-analytics-triage/install/"), {})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # Caller never supplied new_name, so the response must not blame that field.
+        self.assertNotIn("attr", response.json())
+
+    def test_install_custom_name_conflict_blames_new_name(self, _mock_flag) -> None:
+        _create_community_skill(slug="web-analytics-triage")
+        LLMSkill.objects.create(team=self.team, name="taken", description="x", body="y")
+
+        response = self.client.post(self._url("web-analytics-triage/install/"), {"new_name": "taken"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "new_name")
+
+    def test_install_blank_new_name_falls_back_to_slug(self, _mock_flag) -> None:
+        _create_community_skill(slug="web-analytics-triage")
+        # A controlled empty text input sends "" — it must mean "use the default", not 400.
+        response = self.client.post(self._url("web-analytics-triage/install/"), {"new_name": ""})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertTrue(LLMSkill.objects.filter(team=self.team, name="web-analytics-triage").exists())
+
+    def test_install_rejects_unsafe_bundled_file_path(self, _mock_flag) -> None:
+        skill = _create_community_skill(slug="web-analytics-triage")
+        # A traversal path in the catalog must not be persisted into the team skill.
+        CommunitySkillFile.objects.create(skill=skill, path="../escape.md", content="x")
+
+        response = self.client.post(self._url("web-analytics-triage/install/"), {})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(LLMSkill.objects.filter(team=self.team).exists())
+        skill.refresh_from_db()
+        self.assertEqual(skill.install_count, 0)
+
+    def test_install_rejects_reserved_scout_namespace(self, _mock_flag) -> None:
+        _create_community_skill(slug="web-analytics-triage")
+        # Installing into the signals-scout- namespace would let a community skill auto-run with
+        # privileged scout scopes, so it must be refused.
+        response = self.client.post(self._url("web-analytics-triage/install/"), {"new_name": "signals-scout-evil"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(LLMSkill.objects.filter(team=self.team, name="signals-scout-evil").exists())
 
     def test_install_unknown_slug_returns_404(self, _mock_flag) -> None:
         response = self.client.post(self._url("does-not-exist/install/"), {})
