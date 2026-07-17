@@ -22,6 +22,11 @@ class TestSourcegraphSource:
     def test_source_type(self):
         assert self.source.source_type == ExternalDataSourceType.SOURCEGRAPH
 
+    def test_connection_host_fields_force_token_reentry_on_host_change(self):
+        # `host` is where the access token is sent; changing it must re-require the
+        # token so the stored secret can't be redirected to an attacker-controlled host.
+        assert self.source.connection_host_fields == ["host"]
+
     def test_get_source_config(self):
         config = self.source.get_source_config
 

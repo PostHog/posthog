@@ -44,6 +44,12 @@ class SourcegraphSource(ResumableSource[SourcegraphSourceConfig, SourcegraphResu
         return ExternalDataSourceType.SOURCEGRAPH
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # The access token is sent to whatever host `host` points at, so retargeting
+        # it must re-require the token (prevents credential exfiltration to another host).
+        return ["host"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SOURCEGRAPH,
