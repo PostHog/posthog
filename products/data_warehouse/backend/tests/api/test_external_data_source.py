@@ -1157,6 +1157,227 @@ class TestExternalDataSource(APIBaseTest):
         assert schema.sync_type == ExternalDataSchema.SyncType.WEBHOOK
 
     @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_apply_sync_defaults_fills_settings_from_source(self, _mock_workflow_exists):
+        # `apply_sync_defaults` on a schema with no sync method: one discovery call fills in the
+        # default sync settings and the schema is enabled with them. Without this the request
+        # would 400 with "Sync type must be set up first before enabling schema".
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+            SourceSchema as _SourceSchema,
+        )
+        from products.warehouse_sources.backend.types import IncrementalFieldType
+
+        source = self._create_external_data_source()
+        schema = ExternalDataSchema.objects.create(
+            name="Customer",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=False,
+            sync_type=None,
+        )
+
+        discovered = [
+            _SourceSchema(
+                name="Customer",
+                supports_incremental=True,
+                supports_append=True,
+                incremental_fields=[
+                    {
+                        "label": "updated_at",
+                        "type": IncrementalFieldType.DateTime,
+                        "field": "updated_at",
+                        "field_type": IncrementalFieldType.DateTime,
+                        "nullable": False,
+                    }
+                ],
+                detected_primary_keys=["id"],
+            )
+        ]
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas",
+                return_value=discovered,
+            ) as mock_get_schemas,
+            patch(
+                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+            ) as mock_sync_workflow,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={"schemas": [{"id": str(schema.id), "should_sync": True, "apply_sync_defaults": True}]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()[0]["should_sync"] is True
+        assert response.json()[0]["sync_type"] == "incremental"
+
+        schema.refresh_from_db()
+        assert schema.should_sync is True
+        assert schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+        assert schema.sync_type_config.get("incremental_field") == "updated_at"
+        assert schema.sync_type_config.get("incremental_field_type") == "datetime"
+        assert schema.sync_type_config.get("primary_key_columns") == ["id"]
+
+        # One discovery round-trip for the whole batch — the webhook-only warm check reuses it.
+        assert mock_get_schemas.call_count == 1
+        assert mock_get_schemas.call_args.kwargs.get("names") == ["Customer"]
+        # The newly enabled schema gets its Temporal schedule created.
+        assert mock_sync_workflow.call_count == 1
+        assert mock_sync_workflow.call_args.kwargs == {"create": True, "should_sync": True}
+
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_apply_sync_defaults_webhook_only_fails_only_that_schema(self, _mock_workflow_exists):
+        # A webhook-only table can't be enabled with polling defaults: it fails with a clear
+        # reason while the rest of the batch is still applied.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+            SourceSchema as _SourceSchema,
+        )
+
+        source = self._create_external_data_source()
+        webhook_only_schema = ExternalDataSchema.objects.create(
+            name="Discount", team_id=self.team.pk, source=source, should_sync=False, sync_type=None
+        )
+        normal_schema = ExternalDataSchema.objects.create(
+            name="Customer", team_id=self.team.pk, source=source, should_sync=False, sync_type=None
+        )
+
+        discovered = [
+            _SourceSchema(
+                name="Discount",
+                supports_incremental=False,
+                supports_append=False,
+                supports_webhooks=True,
+                webhook_only=True,
+            ),
+            _SourceSchema(name="Customer", supports_incremental=False, supports_append=False),
+        ]
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas",
+                return_value=discovered,
+            ),
+            patch(
+                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={
+                    "schemas": [
+                        {"id": str(webhook_only_schema.id), "should_sync": True, "apply_sync_defaults": True},
+                        {"id": str(normal_schema.id), "should_sync": True, "apply_sync_defaults": True},
+                    ]
+                },
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        detail = response.json()["detail"]
+        assert "Discount" in detail
+        assert "webhooks" in detail
+
+        webhook_only_schema.refresh_from_db()
+        normal_schema.refresh_from_db()
+        assert webhook_only_schema.should_sync is False
+        assert webhook_only_schema.sync_type is None
+        assert normal_schema.should_sync is True
+        assert normal_schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        return_value=True,
+    )
+    def test_bulk_update_schemas_apply_sync_defaults_discovery_failure_spares_other_items(self, _mock_workflow_exists):
+        # An unreachable source fails only the items that needed discovery; items that don't
+        # need defaults still apply.
+        source = self._create_external_data_source()
+        unconfigured_schema = ExternalDataSchema.objects.create(
+            name="Customer", team_id=self.team.pk, source=source, should_sync=False, sync_type=None
+        )
+        configured_schema = ExternalDataSchema.objects.create(
+            name="Invoice",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas",
+                side_effect=requests.ConnectionError("connection refused"),
+            ),
+            patch(
+                "products.data_warehouse.backend.presentation.views.external_data_schema.unpause_external_data_schedule"
+            ) as mock_unpause,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={
+                    "schemas": [
+                        {"id": str(unconfigured_schema.id), "should_sync": True, "apply_sync_defaults": True},
+                        {"id": str(configured_schema.id), "should_sync": True},
+                    ]
+                },
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        detail = response.json()["detail"]
+        assert "Customer" in detail
+        assert "could not read the source" in detail
+
+        unconfigured_schema.refresh_from_db()
+        configured_schema.refresh_from_db()
+        assert unconfigured_schema.should_sync is False
+        assert configured_schema.should_sync is True
+        assert mock_unpause.call_count == 1
+
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        return_value=True,
+    )
+    def test_bulk_update_schemas_apply_sync_defaults_noop_for_configured_schema(self, _mock_workflow_exists):
+        # A schema that already has a sync method is just re-enabled: no discovery round-trip,
+        # and its existing sync settings are not clobbered by defaults.
+        source = self._create_external_data_source()
+        schema = ExternalDataSchema.objects.create(
+            name="Customer",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas"
+            ) as mock_get_schemas,
+            patch(
+                "products.data_warehouse.backend.presentation.views.external_data_schema.unpause_external_data_schedule"
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={"schemas": [{"id": str(schema.id), "should_sync": True, "apply_sync_defaults": True}]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        schema.refresh_from_db()
+        assert schema.should_sync is True
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+        mock_get_schemas.assert_not_called()
+
+    @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
