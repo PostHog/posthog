@@ -110,10 +110,18 @@ def _configure_source_mock_versioning(mock_get_source) -> None:
     attributes real values: the create path persists `default_version` into the `api_version`
     column, and the serializer renders `get_version_deprecation` into the response. The create path
     also reads `max_instances_per_team` to enforce the per-team source limit — leave it unset so the
-    limit check is skipped rather than comparing against a MagicMock."""
+    limit check is skipped rather than comparing against a MagicMock.
+
+    The update path also asks the source whether an edit introduces a new connection host or leaves
+    row-backed credentials preserved; a bare MagicMock returns truthy for both, which would wrongly
+    trip the credential-reentry gate. Stub them to their real (falsy) defaults."""
     mock_get_source.return_value.default_version = "v1"
     mock_get_source.return_value.get_version_deprecation.return_value = None
     mock_get_source.return_value.max_instances_per_team = None
+    mock_get_source.return_value.connection_host_fields = []
+    mock_get_source.return_value.server_managed_job_input_fields.return_value = []
+    mock_get_source.return_value.job_inputs_add_connection_host.return_value = False
+    mock_get_source.return_value.has_preserved_row_backed_credentials.return_value = False
 
 
 class TestExternalDataSource(APIBaseTest):
