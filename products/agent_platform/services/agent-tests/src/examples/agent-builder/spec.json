@@ -66,6 +66,50 @@
             "id": "@posthog/web-search"
         },
         {
+            "kind": "native",
+            "id": "@posthog/agent-applications-list"
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/agent-applications-retrieve"
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/agent-applications-create"
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/agent-applications-revisions-create"
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/agent-applications-revisions-retrieve"
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/agent-applications-revisions-partial-update"
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/agent-applications-revisions-agent-md-update"
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/agent-applications-revisions-tools-update"
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/agent-applications-revisions-validate-create"
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/agent-applications-revisions-freeze-create"
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/agent-applications-revisions-promote-create"
+        },
+        {
             "kind": "client",
             "id": "focus_tab",
             "description": "Open one of the agent detail tabs in the read panel: overview, configuration, connections, sessions, memory. Use BEFORE a corresponding read so the user's panel transitions in parallel. ALWAYS pass `slug` \u2014 `focus_*` calls never infer the target agent from the user's current page (the user navigates while you're thinking; relying on URL state silently misroutes). Returns { focused: true } or { focused: false, reason } if follow-mode is off; `unhandled_client_tool` / `client_tool_timeout` outside PostHog Code \u2014 degrade to text.",

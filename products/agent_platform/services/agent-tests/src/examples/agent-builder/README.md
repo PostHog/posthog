@@ -138,10 +138,11 @@ These are platform-side, not bundle-side — and they're in place:
    which carries its whole authoring surface.)
 3. **OAuth principal threading** — the session principal threads
    through every tool call, so writes attribute to the user.
-4. **The MCP authoring tools** — the `agent-applications-*` verbs
-   (including draft-edit + validate) are served by the PostHog MCP,
-   scoped by the entry's curated `tools[]` allow-list, with the
-   destructive verbs approval-gated.
+4. **The authoring tools** — the PostHog MCP serves the full curated
+   `agent-applications-*` surface. Core lifecycle operations are also mounted as
+   native `@posthog/agent-applications-*` tools so a transient MCP startup
+   failure cannot remove the builder's entire authoring surface. Both paths act
+   as the asking user; destructive verbs remain approval-gated.
 
 ## Deploying
 
