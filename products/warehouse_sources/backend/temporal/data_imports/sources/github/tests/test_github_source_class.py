@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from posthog.models.integration import GitHubIntegrationError
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
@@ -82,6 +84,17 @@ class TestGithubSource:
 
         with pytest.raises(IntegrationAccountListingError):
             self.source.get_oauth_accounts(999, self.team_id)
+
+    @mock.patch(_GITHUB_INTEGRATION_PATH)
+    @mock.patch.object(GithubSource, "get_oauth_integration")
+    def test_get_oauth_accounts_maps_github_listing_failure(self, mock_get_oauth, mock_github_integration):
+        mock_get_oauth.return_value = mock.MagicMock()
+        mock_github_integration.return_value.list_cached_repositories.side_effect = GitHubIntegrationError(
+            "GitHubIntegration: list_repositories non-JSON response"
+        )
+
+        with pytest.raises(IntegrationAccountListingError):
+            self.source.get_oauth_accounts(1, self.team_id)
 
     @pytest.mark.parametrize(
         "expected_key",
