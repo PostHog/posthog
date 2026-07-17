@@ -23,6 +23,12 @@ REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRY_ATTEMPTS = 5
 MAX_RETRY_WAIT_SECONDS = 60
 
+# Per-run cap on pages walked for a single resource. `next` links come from a user-supplied
+# (self-hosted) host, so a hostile or misconfigured server can return a non-empty cyclic `next`
+# forever; this bounds each pagination loop so a sync self-terminates instead of issuing
+# credentialed requests until the activity is cancelled. Generous enough not to truncate real data.
+MAX_PAGES_PER_RESOURCE = 10_000
+
 
 class FlagsmithRetryableError(Exception):
     def __init__(self, message: str, retry_after: float | None = None):
@@ -184,9 +190,14 @@ def _iter_pages(
     """Walk a listing (paginated or plain-array) without touching resume state — used to
     enumerate fan-out parents, which must be re-listed from scratch on every run."""
     url: str | None = start_url
+    pages = 0
     while url:
+        if pages >= MAX_PAGES_PER_RESOURCE:
+            logger.warning(f"Flagsmith: page cap ({MAX_PAGES_PER_RESOURCE}) reached for {start_url}, truncating")
+            break
         data = _fetch_page(session, url, headers, logger)
         rows, url = _extract_rows(base, data)
+        pages += 1
         if rows:
             yield rows
 
@@ -229,9 +240,14 @@ def _paginate_resource(
     parent_field: str | None,
 ) -> Iterator[list[dict[str, Any]]]:
     url: str | None = start_url
+    pages = 0
     while url:
+        if pages >= MAX_PAGES_PER_RESOURCE:
+            logger.warning(f"Flagsmith: page cap ({MAX_PAGES_PER_RESOURCE}) reached for {start_url}, truncating")
+            break
         data = _fetch_page(session, url, headers, logger)
         rows, next_url = _extract_rows(base, data)
+        pages += 1
 
         if parent_field:
             for row in rows:

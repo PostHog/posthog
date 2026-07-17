@@ -5,6 +5,7 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.flagsmith import (
     DEFAULT_BASE_URL,
+    MAX_PAGES_PER_RESOURCE,
     FlagsmithResumeConfig,
     _initial_url,
     _pinned_next_url,
@@ -162,6 +163,16 @@ class TestGetRowsTopLevel:
         mock_session.return_value.get.return_value = _resp(_page([], None))
 
         assert list(get_rows("key", None, "organisations", mock.MagicMock(), _make_manager())) == []
+
+    @mock.patch(SESSION_PATH)
+    def test_cyclic_next_link_is_capped(self, mock_session):
+        # A hostile self-hosted host can return a non-empty `next` forever; pagination must
+        # self-terminate at the page cap instead of looping on credentialed requests.
+        mock_session.return_value.get.return_value = _resp(_page([{"id": 1}], f"{API_BASE}/organisations/?page=next"))
+
+        batches = list(get_rows("key", None, "organisations", mock.MagicMock(), _make_manager()))
+
+        assert len(batches) == MAX_PAGES_PER_RESOURCE
 
 
 class TestGetRowsFanout:
