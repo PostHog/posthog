@@ -353,6 +353,21 @@ class TestSendUserMessage:
         )
         assert result.success
 
+    @patch("products.tasks.backend.logic.services.agent_command.send_agent_command")
+    def test_sends_steer_flag(self, mock_send):
+        mock_send.return_value = CommandResult(success=True, status_code=200)
+        task_run = MagicMock()
+
+        send_user_message(task_run, "change direction", steer=True)
+
+        mock_send.assert_called_once_with(
+            task_run,
+            method="user_message",
+            params={"content": "change direction", "steer": True},
+            auth_token=None,
+            timeout=15,
+        )
+
 
 class TestSendCancel:
     @patch("products.tasks.backend.logic.services.agent_command.send_agent_command")
