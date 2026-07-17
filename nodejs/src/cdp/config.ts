@@ -145,6 +145,23 @@ export type CdpConfig = ClickhouseConfig & {
     CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: number
     CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: number
     CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: number
+    // Kill-switch for poison-pill recovery. When false the janitor reverts to
+    // master's pre-recovery behavior — mark poison pills failed with no replay
+    // record (a give-up is lost, exactly as before this change). Flip to false to
+    // roll back the recovery machinery instantly without a redeploy. Default true.
+    CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED: boolean
+    // Timing-edit reschedule sweep (CyclotronV2Manager.rescheduleParkedJobs)
+    // Scoped JWT keys authenticating Django's calls to the reschedule_parked route — comma-separated,
+    // newest first (first signs, all verify). Deliberately NOT the fleet-wide INTERNAL_API_SECRET
+    // (see .agents/security.md): empty in prod means the route fails closed until provisioned.
+    WORKFLOWS_RESCHEDULE_JWT_SECRET: string
+    CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: number
+    CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: number
+    CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: number
+    CYCLOTRON_NODE_RESCHEDULE_MAX_WINDOW_SECONDS: number
+    CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE: number
+    CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: number
+    CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: number
 }
 
 export function getDefaultCdpConfig(): CdpConfig {
@@ -282,5 +299,19 @@ export function getDefaultCdpConfig(): CdpConfig {
         CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: 30000,
         CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: 3,
         CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: 10000,
+        CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED: true,
+        // Floor > the hog flow cache's worst-case staleness (~6 min), so swept jobs
+        // always wake against post-edit config. Rate sized well under hogflow worker
+        // steady-state throughput: the past incident class here is an instantaneous
+        // mass wake, so wakes are trickled (500k parked @ 200/s ≈ 42 min spread).
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOWS_RESCHEDULE_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-reschedule-jwt' : '',
+        CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: 600,
+        CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: 200,
+        CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: 300,
+        CYCLOTRON_NODE_RESCHEDULE_MAX_WINDOW_SECONDS: 14400,
+        CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE: 5000,
+        CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: 20,
+        CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: 100,
     }
 }

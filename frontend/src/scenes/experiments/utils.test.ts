@@ -24,17 +24,20 @@ import {
     FeatureFlagType,
     PropertyFilterType,
     PropertyOperator,
+    UniversalFiltersGroupValue,
 } from '~/types'
 
 import { filterToMetricConfig } from './metricQueryUtils'
 import { getNiceTickValues } from './MetricsView/shared/utils'
 import {
+    applySessionLinkability,
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
     filterToExposureConfig,
     getBaselineVariantKey,
     getEventCountQuery,
     getOrderedMetricsWithResults,
+    getSessionLinkabilityEventNames,
     getViewRecordingFilters,
     getViewRecordingFiltersLegacy,
     isEvenlyDistributed,
@@ -359,6 +362,158 @@ describe('getViewRecordingFilters', () => {
             name: 'action1',
             type: 'actions',
         })
+    })
+})
+
+describe('getSessionLinkabilityEventNames', () => {
+    const experimentBase = {
+        id: 1,
+        name: 'test experiment',
+        feature_flag_key: 'my-flag',
+        exposure_criteria: undefined,
+        filters: {},
+        metrics: [],
+        metrics_secondary: [],
+        primary_metrics_ordered_uuids: null,
+        secondary_metrics_ordered_uuids: null,
+        saved_metrics_ids: [],
+        saved_metrics: [],
+        parameters: {},
+        secondary_metrics: [],
+        created_at: null,
+        created_by: null,
+        updated_at: null,
+        user_access_level: AccessControlLevel.Editor,
+    }
+
+    it('collects the default exposure event and every plain-event metric step, deduped, across primary, secondary and shared metrics', () => {
+        const experiment = {
+            ...experimentBase,
+            metrics: [
+                {
+                    kind: NodeKind.ExperimentMetric,
+                    metric_type: ExperimentMetricType.FUNNEL,
+                    series: [
+                        { kind: NodeKind.EventsNode, event: 'step1', name: 'step1' },
+                        { kind: NodeKind.ActionsNode, id: 123, name: 'action1' },
+                        // "all events" step: no event name, matches recordings unconditionally, so not checked
+                        { kind: NodeKind.EventsNode, event: null },
+                    ],
+                },
+            ],
+            metrics_secondary: [
+                {
+                    kind: NodeKind.ExperimentMetric,
+                    metric_type: ExperimentMetricType.RATIO,
+                    numerator: { kind: NodeKind.EventsNode, event: 'purchase', name: 'purchase' },
+                    denominator: { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                },
+            ],
+            saved_metrics: [
+                {
+                    metadata: { type: 'primary' },
+                    query: {
+                        kind: NodeKind.ExperimentMetric,
+                        metric_type: ExperimentMetricType.MEAN,
+                        source: { kind: NodeKind.EventsNode, event: 'purchase', name: 'purchase' },
+                    },
+                },
+            ],
+        } satisfies Experiment
+
+        expect(getSessionLinkabilityEventNames(experiment)).toEqual([
+            '$feature_flag_called',
+            'step1',
+            'purchase',
+            '$pageview',
+        ])
+    })
+
+    it('includes a custom exposure event but not a custom exposure action', () => {
+        const withEventExposure = {
+            ...experimentBase,
+            exposure_criteria: {
+                exposure_config: {
+                    kind: NodeKind.ExperimentEventExposureConfig,
+                    event: 'exposure_event',
+                    properties: [],
+                },
+            },
+        } satisfies Experiment
+        expect(getSessionLinkabilityEventNames(withEventExposure)).toEqual(['exposure_event'])
+
+        const withActionExposure = {
+            ...experimentBase,
+            exposure_criteria: {
+                exposure_config: { kind: NodeKind.ActionsNode, id: 123, name: 'action1' },
+            },
+        } satisfies Experiment
+        expect(getSessionLinkabilityEventNames(withActionExposure)).toEqual([])
+    })
+})
+
+describe('applySessionLinkability', () => {
+    const exposureFilter: UniversalFiltersGroupValue = {
+        id: '$feature_flag_called',
+        name: '$feature_flag_called',
+        type: 'events',
+        properties: [],
+    }
+    const purchaseEventFilter: UniversalFiltersGroupValue = {
+        id: 'purchase',
+        name: 'purchase',
+        type: 'events',
+        properties: [],
+    }
+    const checkoutEventFilter: UniversalFiltersGroupValue = {
+        id: 'checkout',
+        name: 'checkout',
+        type: 'events',
+        properties: [],
+    }
+    const purchaseActionFilter: UniversalFiltersGroupValue = { id: 123, name: 'purchase', type: 'actions' }
+
+    it.each([
+        {
+            case: 'keeps everything when nothing is unlinkable',
+            filters: [exposureFilter, purchaseEventFilter],
+            unlinkable: new Set<string>(),
+            expected: {
+                filters: [exposureFilter, purchaseEventFilter],
+                droppedMetricEventCount: 0,
+                exposureUnlinkable: false,
+            },
+        },
+        {
+            case: 'drops unlinkable metric event steps but keeps the rest',
+            filters: [exposureFilter, purchaseEventFilter, checkoutEventFilter],
+            unlinkable: new Set(['purchase']),
+            expected: {
+                filters: [exposureFilter, checkoutEventFilter],
+                droppedMetricEventCount: 1,
+                exposureUnlinkable: false,
+            },
+        },
+        {
+            case: 'lets action steps pass through unchecked even when their name matches',
+            filters: [exposureFilter, purchaseActionFilter],
+            unlinkable: new Set(['purchase']),
+            expected: {
+                filters: [exposureFilter, purchaseActionFilter],
+                droppedMetricEventCount: 0,
+                exposureUnlinkable: false,
+            },
+        },
+        {
+            case: 'empties the filters when the exposure event itself is unlinkable',
+            filters: [exposureFilter, purchaseEventFilter],
+            unlinkable: new Set(['$feature_flag_called']),
+            expected: { filters: [], droppedMetricEventCount: 0, exposureUnlinkable: true },
+        },
+    ])('$case', ({ filters, unlinkable, expected }) => {
+        const input = [...filters]
+        expect(applySessionLinkability(filters, unlinkable)).toEqual(expected)
+        expect(filters).toEqual(input) // does not mutate its input
     })
 })
 

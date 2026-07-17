@@ -208,6 +208,17 @@ def _get_image_source_label(
     return "base_image", "published sandbox base image"
 
 
+def get_fresh_image_source_for_context(ctx: TaskProcessingContext) -> tuple[str, str]:
+    """Image source and label for a sandbox provisioned fresh (no snapshot) from this context."""
+    return _get_image_source_label(
+        has_repo=ctx.repository is not None,
+        provider=getattr(settings, "SANDBOX_PROVIDER", None),
+        resume_snapshot_external_id=None,
+        snapshot=None,
+        custom_image_name=ctx.custom_image_name if ctx.use_modal_vm_sandbox else None,
+    )
+
+
 def _build_environment_variables(
     ctx: TaskProcessingContext, task: Task, github_token: str, access_token: str
 ) -> dict[str, str]:
@@ -579,11 +590,15 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
         emit_agent_log(ctx.run_id, "debug", f"Cloning {input.repository} into sandbox")
         sandbox = Sandbox.get_by_id(input.sandbox_id)
 
+        state = ctx.state or {}
+        is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
+
         with StepTimer("repository_clone", used_snapshot=False) as clone_timer:
             clone_result = sandbox.clone_repository(
                 input.repository,
                 github_token=input.github_token,
                 shallow=input.shallow_clone,
+                branch=ctx.branch if is_resume else None,
             )
 
         if clone_result.exit_code != 0:

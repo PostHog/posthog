@@ -503,6 +503,17 @@ export interface PaginatedTaskMentionDTOListApi {
 }
 
 /**
+ * * `acp` - ACP
+ * * `pi` - Pi
+ */
+export type RuntimeEnumApi = (typeof RuntimeEnumApi)[keyof typeof RuntimeEnumApi]
+
+export const RuntimeEnumApi = {
+    Acp: 'acp',
+    Pi: 'pi',
+} as const
+
+/**
  * @nullable
  */
 export type TaskDetailDTOApiJsonSchema = { [key: string]: unknown } | null
@@ -524,6 +535,11 @@ export interface TaskDetailDTOApi {
     title_manually_set: boolean
     description: string
     origin_product: string
+    /** Agent protocol and harness used for this task's runs.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    readonly runtime: RuntimeEnumApi
     /** @nullable */
     repository: string | null
     /** @nullable */
@@ -627,6 +643,130 @@ export const ReasoningEffortEnumApi = {
     Xhigh: 'xhigh',
     Max: 'max',
 } as const
+
+/**
+ * Request body for creating or updating a task.
+ *
+ * Field required/default semantics match the ``Task`` model. The view passes
+ * ``validated_data`` (integration/report PK fields already resolved to instances) to the
+ * facade ``create_task`` / ``update_task`` functions.
+ */
+export interface TaskCreateApi {
+    /**
+     * Short human-readable title. Auto-generated from `description` when omitted.
+     * @maxLength 255
+     */
+    title?: string
+    /** Whether the title was set by a human (vs auto-generated from the description). */
+    title_manually_set?: boolean
+    /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
+    description?: string
+    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+     *
+     * * `onboarding` - Onboarding
+     * * `error_tracking` - Error Tracking
+     * * `eval_clusters` - Eval Clusters
+     * * `user_created` - User Created
+     * * `automation` - Automation
+     * * `slack` - Slack
+     * * `support_queue` - Support Queue
+     * * `session_summaries` - Session Summaries
+     * * `posthog_ai` - PostHog AI
+     * * `experiments` - Experiments
+     * * `signal_report` - Signal Report
+     * * `signals_scout` - Signals Scout
+     * * `support_reply` - Support Reply
+     * * `hogdesk` - HogDesk
+     * * `review_hog` - ReviewHog
+     * * `image_builder` - Image Builder */
+    origin_product?: OriginProductEnumApi
+    /**
+     * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
+    /**
+     * GitHub integration for this task.
+     * @nullable
+     */
+    github_integration?: number | null
+    /**
+     * User-scoped GitHub integration to use for user-authored cloud runs.
+     * @nullable
+     */
+    github_user_integration?: string | null
+    /**
+     * Signal report this task implements, when created from a report.
+     * @nullable
+     */
+    signal_report?: string | null
+    /**
+     * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+     * @maxLength 200
+     */
+    signal_report_task_relationship?: string
+    /** JSON schema used to validate the output of the task. */
+    json_schema?: unknown
+    /** If true, this task is for internal use and should not be exposed to end users. */
+    internal?: boolean
+    /** If true, the task is hidden from default list responses. */
+    archived?: boolean
+    /**
+     * Custom prompt for CI fixes. If blank, a default prompt will be used.
+     * @nullable
+     */
+    ci_prompt?: string | null
+    /**
+     * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
+     * @maxLength 255
+     * @nullable
+     */
+    branch?: string | null
+    /** Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter?: RuntimeAdapterEnumApi | null
+    /**
+     * Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.
+     * @nullable
+     */
+    model?: string | null
+    /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max */
+    reasoning_effort?: ReasoningEffortEnumApi | null
+    /**
+     * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
+     * @nullable
+     */
+    pending_user_message?: string | null
+    /**
+     * Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched.
+     * @items.maxLength 128
+     */
+    pending_user_artifact_ids?: string[]
+    /**
+     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead.
+     * @nullable
+     */
+    auto_publish?: boolean | null
+    /**
+     * Channel this task is owned by (the channel it was kicked off in).
+     * @nullable
+     */
+    channel?: string | null
+    /** Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    runtime?: RuntimeEnumApi
+}
 
 /**
  * Request body for creating or updating a task.
@@ -882,6 +1022,45 @@ export interface TaskPresenceBeaconRequestApi {
 }
 
 /**
+ * * `http` - http
+ * * `sse` - sse
+ */
+export type ImportedMcpServerTypeEnumApi =
+    (typeof ImportedMcpServerTypeEnumApi)[keyof typeof ImportedMcpServerTypeEnumApi]
+
+export const ImportedMcpServerTypeEnumApi = {
+    Http: 'http',
+    Sse: 'sse',
+} as const
+
+export interface ImportedMcpServerHeaderApi {
+    /** @maxLength 256 */
+    name: string
+    /** @maxLength 4096 */
+    value: string
+}
+
+/**
+ * One client-imported MCP server, in the agent server's --mcpServers entry shape.
+ */
+export interface ImportedMcpServerApi {
+    type: ImportedMcpServerTypeEnumApi
+    /** @maxLength 64 */
+    name: string
+    /** @maxLength 2048 */
+    url: string
+    headers?: ImportedMcpServerHeaderApi[]
+}
+
+/**
+ * One desktop-only MCP server relayed into the run — a name only, never configuration.
+ */
+export interface RelayedMcpServerApi {
+    /** @maxLength 64 */
+    name: string
+}
+
+/**
  * * `interactive` - interactive
  * * `background` - background
  */
@@ -945,6 +1124,16 @@ export const InitialPermissionModeEnumApi = {
  * Request body for creating a new task run
  */
 export interface ClaudeTaskRunCreateSchemaApi {
+    /**
+     * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+     * @nullable
+     */
+    imported_mcp_servers?: ImportedMcpServerApi[] | null
+    /**
+     * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+     * @nullable
+     */
+    relayed_mcp_servers?: RelayedMcpServerApi[] | null
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
      *
      * * `interactive` - interactive
@@ -1046,6 +1235,16 @@ export const CodexTaskRunCreateSchemaInitialPermissionModeEnumApi = {
  * Request body for creating a new task run
  */
 export interface CodexTaskRunCreateSchemaApi {
+    /**
+     * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+     * @nullable
+     */
+    imported_mcp_servers?: ImportedMcpServerApi[] | null
+    /**
+     * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+     * @nullable
+     */
+    relayed_mcp_servers?: RelayedMcpServerApi[] | null
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
      *
      * * `interactive` - interactive
@@ -1511,6 +1710,16 @@ export const TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi = {
  * Request body for creating a task run without starting execution yet.
  */
 export interface TaskRunBootstrapCreateRequestApi {
+    /**
+     * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+     * @nullable
+     */
+    imported_mcp_servers?: ImportedMcpServerApi[] | null
+    /**
+     * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+     * @nullable
+     */
+    relayed_mcp_servers?: RelayedMcpServerApi[] | null
     /** Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.
      *
      * * `local` - local
@@ -1595,9 +1804,9 @@ export interface TaskRunBootstrapCreateRequestApi {
  * * `failed` - failed
  * * `cancelled` - cancelled
  */
-export type TaskRunUpdateStatusEnumApi = (typeof TaskRunUpdateStatusEnumApi)[keyof typeof TaskRunUpdateStatusEnumApi]
+export type RunStatusEnumApi = (typeof RunStatusEnumApi)[keyof typeof RunStatusEnumApi]
 
-export const TaskRunUpdateStatusEnumApi = {
+export const RunStatusEnumApi = {
     NotStarted: 'not_started',
     Queued: 'queued',
     InProgress: 'in_progress',
@@ -1625,7 +1834,7 @@ export interface PatchedTaskRunUpdateApi {
      * * `completed` - completed
      * * `failed` - failed
      * * `cancelled` - cancelled */
-    status?: TaskRunUpdateStatusEnumApi
+    status?: RunStatusEnumApi
     /**
      * Git branch name to associate with the task
      * @nullable
@@ -1881,6 +2090,7 @@ export const JsonrpcEnumApi = {
  * * `close` - close
  * * `permission_response` - permission_response
  * * `set_config_option` - set_config_option
+ * * `mcp_response` - mcp_response
  */
 export type MethodEnumApi = (typeof MethodEnumApi)[keyof typeof MethodEnumApi]
 
@@ -1890,6 +2100,7 @@ export const MethodEnumApi = {
     Close: 'close',
     PermissionResponse: 'permission_response',
     SetConfigOption: 'set_config_option',
+    McpResponse: 'mcp_response',
 } as const
 
 /**
@@ -1906,7 +2117,8 @@ export interface TaskRunCommandRequestApi {
      * * `cancel` - cancel
      * * `close` - close
      * * `permission_response` - permission_response
-     * * `set_config_option` - set_config_option */
+     * * `set_config_option` - set_config_option
+     * * `mcp_response` - mcp_response */
     method: MethodEnumApi
     /** Parameters for the command */
     params?: TaskRunCommandRequestApiParams

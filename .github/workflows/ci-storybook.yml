@@ -215,12 +215,30 @@ jobs:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
+            # Vite's dependency optimization cache (node_modules/.vite) is the most
+            # expensive part of the build — without it, Vite re-bundles 15k+ modules
+            # from scratch (~14 min on degraded runners vs <1 min with cache). The
+            # pnpm lockfile hash ensures the cache is invalidated when deps change.
+            - name: Restore Vite build cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: common/storybook/node_modules/.vite
+                  key: storybook-vite-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: storybook-vite-${{ runner.os }}-
+
             - name: Build Storybook
               env:
                   NODE_OPTIONS: --max-old-space-size=32768
               run: |
                   bin/turbo --filter=@posthog/storybook prepare
                   pnpm --filter=@posthog/storybook build --test
+
+            - name: Save Vite build cache
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: common/storybook/node_modules/.vite
+                  key: storybook-vite-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Upload Storybook build artifact
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -292,7 +310,7 @@ jobs:
                   token: ${{ github.token }}
 
             - name: Install VR CLI
-              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build && npm link
+              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
 
             - name: Create VR run
               id: create
@@ -311,7 +329,7 @@ jobs:
                   JOB_CHECK_RUN_ID: ${{ job.check_run_id }}
               run: |
                   # shellcheck disable=SC2086
-                  RUN_ID=$(vr run create \
+                  RUN_ID=$(node vr-cli/products/visual_review/cli/dist/cli/src/index.js run create \
                     --type storybook \
                     --baseline frontend/snapshots.yml \
                     --branch "$VR_BRANCH" \
@@ -485,14 +503,14 @@ jobs:
 
             - name: Install VR CLI
               if: always() && needs.vr-setup.outputs.run_id != ''
-              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build && npm link
+              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
 
             - name: Upload snapshots to Visual Review
               if: always() && needs.vr-setup.outputs.run_id != ''
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
               run: |
-                  vr run upload \
+                  node vr-cli/products/visual_review/cli/dist/cli/src/index.js run upload \
                     --run-id "${{ needs.vr-setup.outputs.run_id }}" \
                     --dir frontend/__snapshots__/ \
                     --baseline frontend/snapshots.yml \
@@ -676,7 +694,7 @@ jobs:
                   token: ${{ github.token }}
 
             - name: Install VR CLI
-              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build && npm link
+              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
 
             - name: Complete Visual Review run
               # On master pushes the run was created with --purpose observe (tracking-only),
@@ -688,7 +706,7 @@ jobs:
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
               run: |
-                  vr run complete \
+                  node vr-cli/products/visual_review/cli/dist/cli/src/index.js run complete \
                     --run-id "${{ needs.vr-setup.outputs.run_id }}" \
                     --baseline frontend/snapshots.yml \
                     --token "$VR_TOKEN"
@@ -734,6 +752,42 @@ jobs:
                   github-token: ${{ steps.telemetry-app-token.outputs.token }}
                   status-job: 'Visual regression tests pass'
 
+    capture-story-selection:
+        name: Capture story selection
+        needs: [select-stories]
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        # select-stories only runs on internal draft PRs; fire only when it produced a
+        # decision. DevEx project only; continue-on-error so telemetry never reds CI.
+        if: |
+            always() && github.run_attempt == '1'
+            && github.actor != 'dependabot[bot]'
+            && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
+            && needs.select-stories.result == 'success'
+        steps:
+            - name: Capture story selection to DevEx PostHog
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'posthog-ci-test-selection'
+                  properties: |
+                      {
+                        "suite": "storybook",
+                        "mode": ${{ toJSON(needs.select-stories.outputs.mode) }},
+                        "narrowed": ${{ needs.select-stories.outputs.narrowed || 'false' }},
+                        "skip_reason": ${{ toJSON(needs.select-stories.outputs.skip_reason || '') }},
+                        "total_story_count": ${{ needs.select-stories.outputs.total_story_count || 'null' }},
+                        "affected_story_count": ${{ needs.select-stories.outputs.affected_story_count || 'null' }},
+                        "suggested_shards": ${{ needs.select-stories.outputs.suggested_shards || 'null' }},
+                        "estimated_minutes_saved": ${{ needs.select-stories.outputs.estimated_minutes_saved || 'null' }},
+                        "event_type": ${{ toJSON(github.event_name) }},
+                        "branch": ${{ toJSON(github.head_ref || github.ref_name) }},
+                        "sha": ${{ toJSON(github.sha) }},
+                        "pr_number": ${{ github.event.pull_request.number || 'null' }},
+                        "run_id": ${{ toJSON(github.run_id) }}
+                      }
+
     # Pick a narrowed visual-regression matrix for draft PRs based on which stories
     # the Vite module graph says are affected by the diff. Ready PRs and drafts with
     # the run-ci-frontend label skip this job and use the full chromium matrix.
@@ -754,6 +808,13 @@ jobs:
             matrix: ${{ steps.classify.outputs.matrix }}
             should_run: ${{ steps.classify.outputs.should_run }}
             affected_files_json: ${{ steps.classify.outputs.affected_files_json }}
+            # Telemetry for the capture-story-selection job below.
+            narrowed: ${{ steps.classify.outputs.narrowed }}
+            skip_reason: ${{ steps.classify.outputs.skip_reason }}
+            total_story_count: ${{ steps.classify.outputs.total_story_count }}
+            affected_story_count: ${{ steps.classify.outputs.affected_story_count }}
+            suggested_shards: ${{ steps.classify.outputs.suggested_shards }}
+            estimated_minutes_saved: ${{ steps.classify.outputs.estimated_minutes_saved }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -804,23 +865,43 @@ jobs:
               run: |
                   set -euo pipefail
 
+                  # Selection telemetry (see the capture-story-selection job). Best-effort
+                  # story counts from the selector JSON; narrowed=false marks a skip/fallback.
+                  emit_metrics() {
+                      local total="" affected="" shards=""
+                      if [[ -s /tmp/selection-result.json ]]; then
+                          total=$(jq -r '.total_story_count // empty' /tmp/selection-result.json)
+                          affected=$(jq -r '.affected_story_count // empty' /tmp/selection-result.json)
+                          shards=$(jq -r '(([.suggested_shards, 16] | min) // empty)' /tmp/selection-result.json)
+                      fi
+                      {
+                          echo "narrowed=$1"
+                          echo "skip_reason=$2"
+                          echo "total_story_count=$total"
+                          echo "affected_story_count=$affected"
+                          echo "suggested_shards=$shards"
+                          echo "estimated_minutes_saved=${3:-}"
+                      } >> "$GITHUB_OUTPUT"
+                  }
+
                   fall_back_to_skip() {
                       echo "mode=skip" >> "$GITHUB_OUTPUT"
                       echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
                       echo "should_run=false" >> "$GITHUB_OUTPUT"
                       echo "affected_files_json=[]" >> "$GITHUB_OUTPUT"
+                      emit_metrics false "$1"
                   }
 
                   if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/selection-result.json ]]; then
                       echo "::warning::story selector did not produce output; skipping draft visual regression"
-                      fall_back_to_skip
+                      fall_back_to_skip selector_error
                       exit 0
                   fi
 
                   MODE=$(jq -r '.mode' /tmp/selection-result.json)
                   if [[ "$MODE" != "selective" ]]; then
                       echo "Selector declined to narrow (mode=$MODE); skipping draft visual regression"
-                      fall_back_to_skip
+                      fall_back_to_skip "$(jq -r '.reason // "full_requested"' /tmp/selection-result.json)"
                       exit 0
                   fi
 
@@ -830,6 +911,7 @@ jobs:
                       echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
                       echo "should_run=false" >> "$GITHUB_OUTPUT"
                       echo "affected_files_json=[]" >> "$GITHUB_OUTPUT"
+                      emit_metrics true no_affected_stories
                       echo "Selective mode: 0 affected stories, skipping draft visual regression"
                       exit 0
                   fi
@@ -843,6 +925,14 @@ jobs:
                   echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
                   echo "should_run=true" >> "$GITHUB_OUTPUT"
                   echo "affected_files_json=$AFFECTED_FILES_JSON" >> "$GITHUB_OUTPUT"
+
+                  # Est. minutes saved vs the full 16-shard run — same formula as the
+                  # "Write summary" step (CURRENT_SHARDS=16, SHARD_OVERHEAD_MINUTES=3).
+                  AFFECTED_DUR=$(jq -r '.affected_duration_seconds' /tmp/selection-result.json)
+                  TOTAL_DUR=$(jq -r '.total_duration_seconds' /tmp/selection-result.json)
+                  FULL_MINUTES=$(( (16 * 3) + (TOTAL_DUR / 60) ))
+                  SELECTIVE_MINUTES=$(( (SHARDS * 3) + (AFFECTED_DUR / 60) ))
+                  emit_metrics true "" "$(( FULL_MINUTES - SELECTIVE_MINUTES ))"
                   echo "Selective mode: $COUNT affected story files across $SHARDS shard(s)"
 
             - name: Write summary
