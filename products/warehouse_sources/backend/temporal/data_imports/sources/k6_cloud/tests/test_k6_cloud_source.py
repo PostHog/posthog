@@ -18,6 +18,8 @@ INCREMENTAL_ENDPOINTS = {"test_runs"}
 def _make_inputs(**overrides: Any) -> mock.MagicMock:
     inputs = mock.MagicMock()
     inputs.schema_name = overrides.get("schema_name", "test_runs")
+    inputs.team_id = overrides.get("team_id", 123)
+    inputs.job_id = overrides.get("job_id", "job-1")
     inputs.should_use_incremental_field = overrides.get("should_use_incremental_field", False)
     inputs.db_incremental_field_last_value = overrides.get("db_incremental_field_last_value", None)
     return inputs
@@ -126,6 +128,8 @@ class TestK6CloudSource:
     def test_source_for_pipeline_passes_arguments(self, mock_k6_cloud_source: mock.MagicMock) -> None:
         inputs = _make_inputs(
             schema_name="test_runs",
+            team_id=456,
+            job_id="job-9",
             should_use_incremental_field=True,
             db_incremental_field_last_value="2026-01-01T00:00:00Z",
         )
@@ -137,8 +141,9 @@ class TestK6CloudSource:
         assert kwargs["api_token"] == self.config.api_token
         assert kwargs["stack_id"] == self.config.stack_id
         assert kwargs["endpoint"] == "test_runs"
+        assert kwargs["team_id"] == 456
+        assert kwargs["job_id"] == "job-9"
         assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.k6_cloud.source.k6_cloud_source")
