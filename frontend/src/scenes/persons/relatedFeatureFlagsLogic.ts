@@ -10,7 +10,6 @@ import { urls } from 'scenes/urls'
 
 import { FeatureFlagReleaseType, FeatureFlagType } from '~/types'
 
-import type { PaginationManual } from '../../../@posthog/lemon-ui/src/index'
 import type { FeatureFlagsResult } from '../feature-flags/featureFlagsLogic'
 import { FeatureFlagMatchReason } from './RelatedFeatureFlags'
 
@@ -41,7 +40,6 @@ export interface RelatedFlagsFilters {
 export interface relatedFeatureFlagsLogicValues {
     featureFlags: FeatureFlagsResult // featureFlagsLogic
     featureFlagsLoading: boolean // featureFlagsLogic
-    pagination: PaginationManual // featureFlagsLogic
     currentProjectId: number | null // projectLogic
     filteredMappedFlags: RelatedFeatureFlag[]
     filters: Partial<RelatedFlagsFilters>
@@ -138,12 +136,7 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
     ),
     key((props) => `${props.distinctId}`),
     connect(() => ({
-        values: [
-            projectLogic,
-            ['currentProjectId'],
-            featureFlagsLogic,
-            ['featureFlags', 'pagination', 'featureFlagsLoading'],
-        ],
+        values: [projectLogic, ['currentProjectId'], featureFlagsLogic, ['featureFlags', 'featureFlagsLoading']],
         actions: [featureFlagsLogic, ['setFeatureFlagsFilters', 'loadFeatureFlags']],
     })),
     actions({
