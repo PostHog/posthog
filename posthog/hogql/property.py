@@ -7,6 +7,7 @@ from django.db.models import Q
 from django.db.models.functions.comparison import Coalesce
 
 import re2
+import structlog
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
@@ -65,6 +66,8 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
+
+logger = structlog.get_logger(__name__)
 
 # Top-level columns on the persons table that the `person_metadata` filter type can target.
 # Keep in sync with the "person_metadata" group in
@@ -1218,15 +1221,24 @@ def property_to_expr(
             raise Exception("Can not convert cohort property to expression without team")
         if not isinstance(property.value, (str, int)):
             raise ValidationError("Cohort property value must be a cohort ID")
-        cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
+        # Kludge: negation is outdated but still used in places
+        is_negated = property.negation or property.operator == PropertyOperator.NOT_IN.value
+        try:
+            cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
+        except Cohort.DoesNotExist:
+            # The cohort was deleted but a saved filter still references it. Degrade gracefully instead
+            # of raising: nobody is in a missing cohort, so "in cohort" matches nothing and "not in
+            # cohort" matches everything.
+            logger.warning(
+                "cohort_property_missing_cohort",
+                cohort_id=property.value,
+                project_id=team.project_id,
+                negated=is_negated,
+            )
+            return ast.Constant(value=is_negated)
         return ast.CompareOperation(
             left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
-            op=(
-                ast.CompareOperationOp.NotInCohort
-                # Kludge: negation is outdated but still used in places
-                if property.negation or property.operator == PropertyOperator.NOT_IN.value
-                else ast.CompareOperationOp.InCohort
-            ),
+            op=(ast.CompareOperationOp.NotInCohort if is_negated else ast.CompareOperationOp.InCohort),
             right=ast.Constant(value=cohort.pk),
         )
 

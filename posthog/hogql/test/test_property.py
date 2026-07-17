@@ -921,6 +921,22 @@ class TestProperty(BaseTest):
             self._parse_expr(f"person_id IN COHORT {cohort.pk}"),
         )
 
+    @parameterized.expand(
+        [
+            # (property overrides, expected constant) — a deleted cohort has no members, so
+            # "in cohort" matches nobody (False) and "not in cohort" matches everybody (True).
+            ("in_cohort", {}, False),
+            ("not_in_cohort_operator", {"operator": "not_in"}, True),
+            ("negated", {"negation": True}, True),
+        ]
+    )
+    def test_cohort_filter_missing_cohort_degrades_gracefully(self, _name, overrides, expected):
+        missing_cohort_id = 999_999_999
+        self.assertEqual(
+            self._property_to_expr({"type": "cohort", "key": "id", "value": missing_cohort_id, **overrides}, self.team),
+            ast.Constant(value=expected),
+        )
+
     def test_person_scope(self):
         self.assertEqual(
             self._property_to_expr(
