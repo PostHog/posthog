@@ -52,7 +52,7 @@ describe('useMcpToolApplyBack', () => {
 
         // Register run-1 as the foreground stream (its own act so the reset effect flushes first).
         act(() => {
-            foregroundStreamLogic.actions.setForegroundStream('run-1')
+            foregroundStreamLogic.actions.setForegroundStream('run-1', 'p1')
         })
 
         // Two matching completions arrive; the later one supersedes the earlier.
@@ -85,7 +85,7 @@ describe('useMcpToolApplyBack', () => {
         const onApply = jest.fn()
         renderHook(() => useMcpToolApplyBack({ tools: ['create_insight'], onApply, applyOn: 'tool_call_completed' }))
         act(() => {
-            foregroundStreamLogic.actions.setForegroundStream('run-1')
+            foregroundStreamLogic.actions.setForegroundStream('run-1', 'p1')
         })
 
         act(() => {

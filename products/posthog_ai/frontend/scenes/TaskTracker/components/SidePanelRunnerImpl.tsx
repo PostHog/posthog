@@ -35,10 +35,10 @@ function SidePanelRunnerContent(): JSX.Element {
     const { activeCreation, historyExpanded } = useValues(taskTrackerSceneLogic)
     const { toggleHistory, updateActiveCreationRun } = useActions(taskTrackerSceneLogic)
 
-    // This compact surface renders only in Max's side panel, so the run it shows IS the foreground
+    // This compact surface renders only in Max's side panel, so the run it shows is a foreground
     // stream. Register its `streamKey` (cleared when the panel drops back to the composer/history, and
-    // re-pointed when it switches runs). The `/tasks` full-page scene and `EmbeddedRunner` render the
-    // run through their own components, never this one, so they never register.
+    // re-pointed when it switches runs). The `/tasks` full-page run view registers its own entry via
+    // `TaskRunChat`; registrations are provider-keyed, so co-mounted surfaces don't clobber each other.
     useForegroundStream(activeCreation?.streamKey ?? null)
 
     if (!activeCreation && historyExpanded) {

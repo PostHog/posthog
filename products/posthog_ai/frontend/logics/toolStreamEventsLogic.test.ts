@@ -67,12 +67,12 @@ describe('toolStreamEventsLogic', () => {
         expect(cb).not.toHaveBeenCalled()
 
         // A different stream is foreground → still withheld.
-        foregroundStreamLogic.actions.setForegroundStream('run-1')
+        foregroundStreamLogic.actions.setForegroundStream('run-1', 'p1')
         logic.actions.emitToolEvent(event({ streamKey: 'run-2' }))
         expect(cb).not.toHaveBeenCalled()
 
         // The event's own stream becomes foreground → the same event is now delivered.
-        foregroundStreamLogic.actions.setForegroundStream('run-2')
+        foregroundStreamLogic.actions.setForegroundStream('run-2', 'p1')
         logic.actions.emitToolEvent(event({ streamKey: 'run-2' }))
         expect(cb).toHaveBeenCalledTimes(1)
     })
@@ -86,19 +86,19 @@ describe('toolStreamEventsLogic', () => {
         })
 
         // A registration renewal with the same key is not a change.
-        foregroundStreamLogic.actions.setForegroundStream('run-1')
-        foregroundStreamLogic.actions.setForegroundStream('run-1')
+        foregroundStreamLogic.actions.setForegroundStream('run-1', 'p1')
+        foregroundStreamLogic.actions.setForegroundStream('run-1', 'p1')
         expect(onChange).toHaveBeenCalledTimes(1)
         expect(onChange).toHaveBeenLastCalledWith('run-1')
 
-        // A key-checked clear for a stale key leaves the value untouched, so no notification.
-        foregroundStreamLogic.actions.clearForegroundStream('run-0')
+        // A clear from a provider that isn't registered leaves the value untouched, so no notification.
+        foregroundStreamLogic.actions.clearForegroundStream('p-stale')
         expect(onChange).toHaveBeenCalledTimes(1)
 
-        foregroundStreamLogic.actions.setForegroundStream('run-2')
+        foregroundStreamLogic.actions.setForegroundStream('run-2', 'p1')
         expect(onChange).toHaveBeenLastCalledWith('run-2')
 
-        foregroundStreamLogic.actions.clearForegroundStream('run-2')
+        foregroundStreamLogic.actions.clearForegroundStream('p1')
         expect(onChange).toHaveBeenLastCalledWith(null)
         expect(onChange).toHaveBeenCalledTimes(3)
     })

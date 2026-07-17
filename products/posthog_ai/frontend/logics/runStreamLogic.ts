@@ -18,6 +18,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { delay } from 'lib/utils/async'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -1252,7 +1253,7 @@ function rendersThreadItemContent(item: ThreadItem): boolean {
 export interface runStreamLogicValues {
     showDebugLogs: boolean // debugLogsLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
-    foregroundStreamKey: string | null // foregroundStreamLogic
+    foregroundStreamKeys: Set<string> // foregroundStreamLogic
     isDev: boolean | undefined // preflightLogic
     currentProjectId: number | null // projectLogic
     toolListeners: Record<string, ToolStreamSubscription> // toolStreamEventsLogic
@@ -1554,7 +1555,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             toolStreamEventsLogic,
             ['toolListeners'],
             foregroundStreamLogic,
-            ['foregroundStreamKey'],
+            ['foregroundStreamKeys'],
         ],
         actions: [toolStreamEventsLogic, ['emitToolEvent', 'emitTurnCompleteEvent', 'emitRunLifecycleEvent']],
     })),
@@ -2637,11 +2638,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
         },
         routePermissionRequest: ({ record, replayedFromHistory }) => {
             // Replayed history is a read-only restore — never auto-approve (the run may be terminal).
-            // Create-family persist tools (dashboards, feature flags, surveys, hog functions, email
-            // templates) must still prompt when this run is the foreground stream (the run rendered in
-            // the side panel the user is watching), even though `defaultPermissionDecision` would
+            // Persist/publish tools (dashboards, feature flags, surveys, hog functions, workflows)
+            // must still prompt when this run is a foreground stream (rendered in a surface the user
+            // is watching and can respond in), even though `defaultPermissionDecision` would
             // auto-approve them as non-destructive. Background and headless runs keep auto-approving.
-            const isForegroundStream = props.streamKey === values.foregroundStreamKey
+            const isForegroundStream = values.foregroundStreamKeys.has(props.streamKey)
             const forcePromptForForeground = isForegroundStream && isPersistPromptTool(record)
             if (
                 !replayedFromHistory &&
@@ -2659,6 +2660,19 @@ export const runStreamLogic = kea<runStreamLogicType>([
         autoApprovePermissionRequest: async ({ record, optionId }) => {
             // Pin it seen up front so a reconnect replay can't re-process the same request mid-POST.
             actions.markPermissionRequestSeen(record.requestId)
+            // A persist tool routed here because no foreground surface was registered yet may have
+            // raced a mounting surface's registration (the SSE frame can land before the layout
+            // effect flushes). Yield one macrotask and re-check; if the stream became foreground,
+            // surface the card instead of silently persisting. Plain `delay`, not a kea breakpoint —
+            // a breakpoint would let a second rapid frame cancel this listener pre-POST and stall
+            // the agent.
+            if (isPersistPromptTool(record)) {
+                await delay(0)
+                if (values.foregroundStreamKeys.has(props.streamKey)) {
+                    actions.ingestPermissionRequest(record)
+                    return
+                }
+            }
             const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
             const resolvedToolCall = resolveToolCall(record.rawToolCall)
             posthog.capture('permission_auto_approved', {

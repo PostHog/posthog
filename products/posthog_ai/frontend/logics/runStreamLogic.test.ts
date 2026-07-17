@@ -3072,14 +3072,17 @@ describe('runStreamLogic', () => {
             })
         })
 
-        describe('foreground gate for create-family persist tools', () => {
+        describe('foreground gate for persist tools', () => {
             // `defaultPermissionDecision` alone auto-approves `dashboard-create` everywhere (it isn't
-            // destructive). The product requirement is that this run must still prompt when it's the
-            // foreground stream (the run rendered in the side panel the user is watching). Proving this
-            // needs the call site (`routePermissionRequest` consulting `foregroundStreamKey`), not just
-            // the pure `isPersistPromptTool` helper.
-            it('prompts for a create-family persist tool when this run is the foreground stream', async () => {
-                foregroundStreamLogic.actions.setForegroundStream('test-conversation')
+            // destructive). The product requirement is that this run must still prompt when it's a
+            // foreground stream (rendered in a surface the user is watching). Proving this needs the
+            // call site (`routePermissionRequest` consulting `foregroundStreamKeys`), not just the
+            // pure `isPersistPromptTool` helper.
+            it('prompts for a persist tool when this run is a foreground stream', async () => {
+                foregroundStreamLogic.actions.setForegroundStream('test-conversation', 'p1')
+                // A second surface watching a different run must not evict ours from the gate — the
+                // old single-slot model regressed exactly this (last write won, ours auto-approved).
+                foregroundStreamLogic.actions.setForegroundStream('other-stream', 'p2')
                 logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
                 await flushPromises()
                 const source = MockStream.latest()
@@ -3097,8 +3100,9 @@ describe('runStreamLogic', () => {
                 expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
             })
 
-            it('still auto-approves a create-family persist tool when this run is not the foreground stream', async () => {
-                // `foregroundStreamKey` defaults to null; no surface is watching this run in the panel.
+            it('still auto-approves a persist tool when this run is not a foreground stream', async () => {
+                // No surface has registered this run; the auto-approve path yields one macrotask
+                // (the race re-check) before POSTing, so drain a timer tick too.
                 logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
                 await flushPromises()
                 const source = MockStream.latest()
@@ -3111,6 +3115,7 @@ describe('runStreamLogic', () => {
                         rawInput: { command: 'call dashboard-create {"name":"New dashboard"}' },
                     },
                 })
+                await new Promise((resolve) => setTimeout(resolve, 0))
 
                 expect(logic.values.pendingPermissionRequest).toBeNull()
                 expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
@@ -3118,6 +3123,29 @@ describe('runStreamLogic', () => {
                     method: 'permission_response',
                     params: { requestId: 'req-dashboard-bg', optionId: 'allow_once' },
                 })
+            })
+
+            it('prompts when the foreground registration lands just after the frame (mount race)', async () => {
+                // A live SSE frame can be processed before a mounting surface's registration effect
+                // flushes. After `emitMessage` the auto-approve listener is parked on its one-macrotask
+                // yield; registering now must flip the decision to the card instead of the POST.
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+                await flushPromises()
+                const source = MockStream.latest()
+
+                await source.emitMessage({
+                    ...permissionFrame,
+                    requestId: 'req-dashboard-race',
+                    toolCall: {
+                        ...permissionFrame.toolCall,
+                        rawInput: { command: 'call dashboard-create {"name":"New dashboard"}' },
+                    },
+                })
+                foregroundStreamLogic.actions.setForegroundStream('test-conversation', 'p-race')
+                await new Promise((resolve) => setTimeout(resolve, 0))
+
+                expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-dashboard-race')
+                expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
             })
         })
 
