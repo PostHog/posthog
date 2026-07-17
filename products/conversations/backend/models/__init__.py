@@ -1,8 +1,9 @@
 from .assignment import TicketAssignment
-from .constants import Channel, ChannelDetail, Priority, RuleType, Status
+from .constants import Channel, ChannelDetail, ImportJobStatus, Priority, RuleType, Status
 from .email_message_mapping import EmailMessageMapping
 from .email_outbox_message import EmailOutboxMessage
 from .github_comment_mapping import GithubCommentMapping
+from .plain_import_job import PlainImportJob
 from .restore_token import ConversationRestoreToken
 from .team_conversations_email_config import EmailChannel
 from .team_conversations_slack_config import TeamConversationsSlackConfig
@@ -20,6 +21,7 @@ __all__ = [
     "EmailMessageMapping",
     "EmailOutboxMessage",
     "GithubCommentMapping",
+    "ImportJobStatus",
     "Priority",
     "RuleType",
     "Status",
@@ -29,5 +31,6 @@ __all__ = [
     "Ticket",
     "TicketAssignment",
     "TicketView",
+    "PlainImportJob",
     "ZendeskImportJob",
 ]

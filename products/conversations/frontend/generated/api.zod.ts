@@ -152,6 +152,27 @@ export const ConversationsQueuePartialUpdateBody = /* @__PURE__ */ zod.looseObje
 
 export const ConversationsQueueClearCreateBody = /* @__PURE__ */ zod.looseObject({})
 
+export const conversationsPlainImportsCreateBodyApiKeyMax = 500
+
+export const ConversationsPlainImportsCreateBody = /* @__PURE__ */ zod.object({
+    api_key: zod
+        .string()
+        .max(conversationsPlainImportsCreateBodyApiKeyMax)
+        .describe('Plain API key with thread:read, timeline:read, and customer:read scopes.'),
+    region: zod
+        .enum(['uk', 'us'])
+        .describe('\* `uk` - UK\n\* `us` - US')
+        .describe(
+            "Plain API region: 'uk' (core-api.uk.plain.com) or 'us' (core-api.us.plain.com).\n\n\* `uk` - UK\n\* `us` - US"
+        ),
+    default_email_channel_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'Optional fallback email channel for email-sourced Plain threads. Omit or null to leave those tickets without an email channel.'
+        ),
+})
+
 export const ConversationsTicketsCreateBody = /* @__PURE__ */ zod
     .object({
         status: zod

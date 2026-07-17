@@ -201,9 +201,9 @@ export interface ChatMessage {
     createdAt: string
     isPrivate?: boolean
     emailDeliveryStatus?: EmailDeliveryStatus
-    /** Imported from an external tool (e.g. Zendesk). Such content is untrusted, so its Markdown
-     * is rendered with external image auto-loading disabled. */
-    fromZendesk?: boolean
+    /** Imported from an external tool (e.g. Zendesk, Plain). Such content is untrusted, so its Markdown
+     * is rendered with external image auto-loading disabled (external images can leak the agent's IP). */
+    fromImport?: boolean
 }
 
 export const statusOptions: { value: TicketStatus | 'all'; label: string }[] = [

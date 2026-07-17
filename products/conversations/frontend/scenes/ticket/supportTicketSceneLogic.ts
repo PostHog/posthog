@@ -795,7 +795,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         createdAt: message.created_at,
                         isPrivate: message.item_context?.is_private || false,
                         emailDeliveryStatus: message.item_context?.email_delivery_status,
-                        fromZendesk: message.item_context?.from_zendesk === true,
+                        fromImport:
+                            message.item_context?.from_zendesk === true || message.item_context?.from_plain === true,
                     }
                 }),
         ],

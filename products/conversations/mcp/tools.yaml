@@ -9,6 +9,12 @@ feature: conversations
 url_prefix: /conversations/tickets
 ui_apps: {}
 tools:
+    conversations-plain-imports-create:
+        operation: conversations_plain_imports_create
+        enabled: false
+    conversations-plain-imports-status-retrieve:
+        operation: conversations_plain_imports_status_retrieve
+        enabled: false
     conversations-tickets-ai-feedback-create:
         operation: conversations_tickets_ai_feedback_create
         enabled: false

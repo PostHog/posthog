@@ -286,6 +286,7 @@ rules:
                               |TeamConversationsTeamsConfig
                               |Ticket
                               |TicketView
+                              |PlainImportJob
                               |ZendeskImportJob
                               |ReviewQueue
                               |ReviewQueueItem
@@ -588,6 +589,7 @@ rules:
                         |TeamConversationsTeamsConfig
                         |Ticket
                         |TicketView
+                        |PlainImportJob
                         |ZendeskImportJob
                         |ReviewQueue
                         |ReviewQueueItem

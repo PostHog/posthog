@@ -569,6 +569,103 @@ export interface SandboxMessageResponseApi {
 }
 
 /**
+ * * `uk` - UK
+ * * `us` - US
+ */
+export type RegionEnumApi = (typeof RegionEnumApi)[keyof typeof RegionEnumApi]
+
+export const RegionEnumApi = {
+    Uk: 'uk',
+    Us: 'us',
+} as const
+
+export interface PlainImportStartApi {
+    /**
+     * Plain API key with thread:read, timeline:read, and customer:read scopes.
+     * @maxLength 500
+     */
+    api_key: string
+    /** Plain API region: 'uk' (core-api.uk.plain.com) or 'us' (core-api.us.plain.com).
+     *
+     * * `uk` - UK
+     * * `us` - US */
+    region: RegionEnumApi
+    /**
+     * Optional fallback email channel for email-sourced Plain threads. Omit or null to leave those tickets without an email channel.
+     * @nullable
+     */
+    default_email_channel_id?: string | null
+}
+
+/**
+ * * `pending` - Pending
+ * * `running` - Running
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type ImportJobStatusEnumApi = (typeof ImportJobStatusEnumApi)[keyof typeof ImportJobStatusEnumApi]
+
+export const ImportJobStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface PlainImportJobApi {
+    /** Unique identifier for the import job. */
+    readonly id: string
+    /** Current job state: pending, running, completed, or failed.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    readonly status: ImportJobStatusEnumApi
+    /**
+     * Plain API region used for this import job.
+     * @nullable
+     */
+    readonly region: string | null
+    /** Whether stored Plain credentials exist for this job (the API key is never returned). */
+    readonly has_credentials: boolean
+    /** Total number of threads discovered for import. */
+    readonly total_tickets: number
+    /** Number of threads processed so far. */
+    readonly processed_tickets: number
+    /** Number of threads successfully imported. */
+    readonly imported_tickets: number
+    /** Number of threads skipped because they were already imported. */
+    readonly skipped_tickets: number
+    /** Number of threads that failed to import. */
+    readonly failed_tickets: number
+    /**
+     * When the import started running.
+     * @nullable
+     */
+    readonly started_at: string | null
+    /**
+     * When the import reached a terminal state.
+     * @nullable
+     */
+    readonly finished_at: string | null
+    /**
+     * Generic, user-safe error message when the job failed.
+     * @nullable
+     */
+    readonly latest_error: string | null
+    /** When the import job was created. */
+    readonly created_at: string
+    /** When the import job was last updated. */
+    readonly updated_at: string
+}
+
+export interface PlainImportErrorApi {
+    /** Human-readable error message. */
+    detail: string
+}
+
+/**
  * * `widget` - Widget
  * * `email` - Email
  * * `slack` - Slack
@@ -1093,22 +1190,6 @@ export interface ZendeskImportStartApi {
     default_email_channel_id?: string | null
 }
 
-/**
- * * `pending` - Pending
- * * `running` - Running
- * * `completed` - Completed
- * * `failed` - Failed
- */
-export type ZendeskImportJobStatusEnumApi =
-    (typeof ZendeskImportJobStatusEnumApi)[keyof typeof ZendeskImportJobStatusEnumApi]
-
-export const ZendeskImportJobStatusEnumApi = {
-    Pending: 'pending',
-    Running: 'running',
-    Completed: 'completed',
-    Failed: 'failed',
-} as const
-
 export interface ZendeskImportJobApi {
     /** Unique identifier for the import job. */
     readonly id: string
@@ -1118,7 +1199,7 @@ export interface ZendeskImportJobApi {
      * * `running` - Running
      * * `completed` - Completed
      * * `failed` - Failed */
-    readonly status: ZendeskImportJobStatusEnumApi
+    readonly status: ImportJobStatusEnumApi
     /**
      * Zendesk subdomain used for this import job.
      * @nullable

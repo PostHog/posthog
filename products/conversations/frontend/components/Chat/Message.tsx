@@ -112,7 +112,7 @@ export function Message({
                                     className="text-sm"
                                 />
                             ) : (
-                                <SupportMarkdown className="text-sm" disableImages={message.fromZendesk}>
+                                <SupportMarkdown className="text-sm" disableImages={message.fromImport}>
                                     {message.content}
                                 </SupportMarkdown>
                             )}

@@ -7,7 +7,7 @@ from posthog.models.utils import UUIDModel
 from products.conversations.backend.models.constants import ImportJobStatus
 
 
-class ZendeskImportJob(TeamScopedRootMixin, UUIDModel):
+class PlainImportJob(TeamScopedRootMixin, UUIDModel):
     Status = ImportJobStatus
 
     # db_constraint=False: a real FK constraint would take SHARE ROW EXCLUSIVE on the
@@ -30,7 +30,7 @@ class ZendeskImportJob(TeamScopedRootMixin, UUIDModel):
     workflow_run_id = models.CharField(max_length=400, null=True, blank=True)
     latest_error = models.TextField(null=True, blank=True)
 
-    # Encrypted: subdomain, email_address, api_token
+    # Encrypted: api_key, region ("uk" | "us")
     job_inputs = EncryptedJSONField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -38,8 +38,8 @@ class ZendeskImportJob(TeamScopedRootMixin, UUIDModel):
 
     class Meta:
         app_label = "conversations"
-        db_table = "posthog_conversations_zendesk_import_job"
+        db_table = "posthog_conversations_plain_import_job"
         indexes = [
-            models.Index(fields=["team", "-created_at"], name="posthog_con_zd_import_team_idx"),
-            models.Index(fields=["team", "status"], name="posthog_con_zd_import_stat_idx"),
+            models.Index(fields=["team", "-created_at"], name="posthog_con_pl_import_team_idx"),
+            models.Index(fields=["team", "status"], name="posthog_con_pl_import_stat_idx"),
         ]
