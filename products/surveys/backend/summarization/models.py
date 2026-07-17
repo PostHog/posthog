@@ -3,9 +3,7 @@
 from enum import StrEnum
 
 
-class GeminiModel(StrEnum):
-    """Supported Gemini models for survey summarization."""
+class AnthropicModel(StrEnum):
+    """Supported Anthropic models for survey summarization, routed through the ai-gateway."""
 
-    GEMINI_3_FLASH_PREVIEW = "gemini-3-flash-preview"
-    GEMINI_2_5_FLASH = "gemini-2.5-flash"
-    GEMINI_2_0_FLASH = "gemini-2.0-flash"
+    CLAUDE_HAIKU_4_5 = "claude-haiku-4-5"

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 from rest_framework import exceptions
 
 from .formatting import format_as_markdown
-from .llm.gemini import SummarizationResult, summarize_with_gemini
+from .llm.anthropic import SummarizationResult, summarize_with_anthropic
 from .llm.schema import SurveySummaryResponse, SurveyTheme
 
 
@@ -76,89 +76,85 @@ class TestFormatAsMarkdown:
         assert "(<10%)" in result
 
 
-class TestSummarizeWithGemini:
-    """Error handling for edge cases and API failures."""
+def _mock_gateway_client(content: str) -> MagicMock:
+    """A build_openai_client stand-in whose chat completion returns `content`."""
+    mock_client = MagicMock()
+    completion = MagicMock()
+    completion.choices = [MagicMock(message=MagicMock(content=content))]
+    mock_client.chat.completions.create.return_value = completion
+    return mock_client
+
+
+VALID_RESPONSE = json.dumps(
+    {
+        "overview": "Users want better performance",
+        "themes": [{"theme": "Speed", "description": "Fast loading times", "frequency": ">50%"}],
+        "key_insight": "Focus on performance",
+    }
+)
+
+
+class TestSummarizeWithAnthropic:
+    """Error handling and gateway tagging for the Anthropic-via-ai-gateway path."""
 
     def test_empty_responses_rejected_before_api_call(self):
         with pytest.raises(exceptions.ValidationError) as exc_info:
-            summarize_with_gemini("Question", [])
+            summarize_with_anthropic("Question", [])
         assert "responses cannot be empty" in str(exc_info.value.detail)
 
-    @patch("products.surveys.backend.llm.client.create_gemini_client")
-    def test_empty_api_response_raises_error(self, mock_create_client):
-        mock_client = MagicMock()
-        mock_create_client.return_value = mock_client
-        mock_client.models.generate_content.return_value = MagicMock(text="")
+    @patch("products.surveys.backend.summarization.llm.anthropic.build_openai_client")
+    def test_empty_api_response_raises_error(self, mock_build_client):
+        mock_build_client.return_value = _mock_gateway_client("")
 
         with pytest.raises(exceptions.ValidationError) as exc_info:
-            summarize_with_gemini("Question", ["Response"])
+            summarize_with_anthropic("Question", ["Response"])
         assert "empty response" in str(exc_info.value.detail)
 
-    @patch("products.surveys.backend.llm.client.create_gemini_client")
-    def test_api_error_wrapped_as_api_exception(self, mock_create_client):
+    @patch("products.surveys.backend.summarization.llm.anthropic.build_openai_client")
+    def test_api_error_wrapped_as_api_exception(self, mock_build_client):
         mock_client = MagicMock()
-        mock_create_client.return_value = mock_client
-        mock_client.models.generate_content.side_effect = Exception("API Error")
+        mock_client.chat.completions.create.side_effect = Exception("API Error")
+        mock_build_client.return_value = mock_client
 
         with pytest.raises(exceptions.APIException) as exc_info:
-            summarize_with_gemini("Question", ["Response"])
+            summarize_with_anthropic("Question", ["Response"])
         assert "Failed to generate response" in str(exc_info.value.detail)
 
-    @patch("products.surveys.backend.llm.client.create_gemini_client")
-    def test_returns_summarization_result_with_trace_id(self, mock_create_client):
-        mock_client = MagicMock()
-        mock_create_client.return_value = mock_client
+    @patch("products.surveys.backend.summarization.llm.anthropic.build_openai_client")
+    def test_returns_summarization_result_with_trace_id(self, mock_build_client):
+        mock_build_client.return_value = _mock_gateway_client(VALID_RESPONSE)
 
-        valid_response = {
-            "overview": "Users want better performance",
-            "themes": [{"theme": "Speed", "description": "Fast loading times", "frequency": ">50%"}],
-            "key_insight": "Focus on performance",
-        }
-        import json
-
-        mock_client.models.generate_content.return_value = MagicMock(text=json.dumps(valid_response))
-
-        result = summarize_with_gemini("What do you want?", ["Make it faster"])
+        result = summarize_with_anthropic("What do you want?", ["Make it faster"])
 
         assert isinstance(result, SummarizationResult)
         assert isinstance(result.summary, SurveySummaryResponse)
         assert result.trace_id is not None
         assert len(result.trace_id) == 36  # UUID format
 
-    @patch("posthog.event_usage.SITE_URL", "https://us.posthog.com")
-    @patch("products.surveys.backend.llm.client.create_gemini_client")
-    def test_generation_is_tagged_billable(self, mock_create_client):
-        mock_client = MagicMock()
-        mock_create_client.return_value = mock_client
-        valid_response = {
-            "overview": "Users want better performance",
-            "themes": [{"theme": "Speed", "description": "Fast loading times", "frequency": ">50%"}],
-            "key_insight": "Focus on performance",
-        }
-        mock_client.models.generate_content.return_value = MagicMock(text=json.dumps(valid_response))
+    @patch("products.surveys.backend.summarization.llm.anthropic.build_openai_client")
+    def test_routes_to_gateway_with_product_and_cheap_model(self, mock_build_client):
+        mock_client = _mock_gateway_client(VALID_RESPONSE)
+        mock_build_client.return_value = mock_client
 
-        summarize_with_gemini("What do you want?", ["Make it faster"], team_id=42)
+        summarize_with_anthropic("What do you want?", ["Make it faster"])
 
-        call_kwargs = mock_client.models.generate_content.call_args.kwargs
-        properties = call_kwargs["posthog_properties"]
-        assert properties["$ai_billable"] is True
-        assert properties["team_id"] == 42
-        assert properties["ai_product"] == "surveys"
+        assert mock_build_client.call_args.args[0] == "survey_summary"
+        assert mock_client.chat.completions.create.call_args.kwargs["model"] == "claude-haiku-4-5"
+
+    @patch("products.surveys.backend.summarization.llm.anthropic.build_openai_client")
+    def test_stamps_gateway_properties_and_trace(self, mock_build_client):
+        mock_client = _mock_gateway_client(VALID_RESPONSE)
+        mock_build_client.return_value = mock_client
+
+        result = summarize_with_anthropic(
+            "What do you want?", ["Make it faster", "Add dark mode"], survey_id="s-1", question_id="q-1"
+        )
+
+        headers = mock_client.chat.completions.create.call_args.kwargs["extra_headers"]
+        assert headers["X-PostHog-Trace-Id"] == result.trace_id
+        properties = json.loads(headers["X-PostHog-Properties"])
+        assert properties["ai_product"] == "survey_summary"
         assert properties["ai_feature"] == "survey_summary"
-        assert call_kwargs["posthog_groups"] == {"project": "42", "instance": "https://us.posthog.com"}
-
-    @patch("products.surveys.backend.llm.client.create_gemini_client")
-    def test_generation_not_billable_without_team_id(self, mock_create_client):
-        mock_client = MagicMock()
-        mock_create_client.return_value = mock_client
-        valid_response = {
-            "overview": "Users want better performance",
-            "themes": [{"theme": "Speed", "description": "Fast loading times", "frequency": ">50%"}],
-            "key_insight": "Focus on performance",
-        }
-        mock_client.models.generate_content.return_value = MagicMock(text=json.dumps(valid_response))
-
-        summarize_with_gemini("What do you want?", ["Make it faster"])
-
-        properties = mock_client.models.generate_content.call_args.kwargs["posthog_properties"]
-        assert "$ai_billable" not in properties
+        assert properties["survey_id"] == "s-1"
+        assert properties["question_id"] == "q-1"
+        assert properties["response_count"] == 2

@@ -3,7 +3,7 @@
 from .fetch import fetch_responses
 from .formatting import format_as_markdown
 from .llm import summarize_responses
-from .llm.gemini import SummarizationResult
+from .llm.anthropic import SummarizationResult
 from .llm.schema import SurveySummaryResponse
 
 __all__ = [

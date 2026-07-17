@@ -1,14 +1,14 @@
 """Main entry point for survey summarization."""
 
 from ..constants import DEFAULT_MODEL
-from ..models import GeminiModel
-from .gemini import SummarizationResult, summarize_with_gemini
+from ..models import AnthropicModel
+from .anthropic import SummarizationResult, summarize_with_anthropic
 
 
 def summarize_responses(
     question_text: str,
     responses: list[str],
-    model: GeminiModel = DEFAULT_MODEL,
+    model: AnthropicModel = DEFAULT_MODEL,
     *,
     distinct_id: str | None = None,
     survey_id: str | None = None,
@@ -30,7 +30,7 @@ def summarize_responses(
     Returns:
         SummarizationResult with summary and trace_id for feedback mapping
     """
-    return summarize_with_gemini(
+    return summarize_with_anthropic(
         question_text,
         responses,
         model,

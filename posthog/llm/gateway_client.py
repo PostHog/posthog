@@ -34,6 +34,7 @@ Product = Literal[
     "warehouse_semantic_enrichment",
     "warehouse_custom_source_builder",
     "stamphog",
+    "survey_summary",
 ]  # If you add a product here, make sure it's also in services/llm-gateway/src/llm_gateway/products/config.py
 
 
