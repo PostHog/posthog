@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import pytest
@@ -7,11 +8,15 @@ import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.sourcegraph.settings import SOURCEGRAPH_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.sourcegraph.sourcegraph import (
+    MAX_RESPONSE_BYTES,
     SourcegraphHostNotAllowedError,
     SourcegraphQueryError,
+    SourcegraphResponseTimeoutError,
+    SourcegraphResponseTooLargeError,
     SourcegraphResumeConfig,
     SourcegraphRetryableError,
     _parse_retry_after,
+    _read_bounded,
     _retry_wait,
     get_endpoint_permissions,
     get_rows,
@@ -24,7 +29,11 @@ MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.sourc
 
 
 def _response(
-    *, status_code: int = 200, json_data: Any = None, headers: dict[str, str] | None = None
+    *,
+    status_code: int = 200,
+    json_data: Any = None,
+    headers: dict[str, str] | None = None,
+    body_bytes: bytes | None = None,
 ) -> mock.MagicMock:
     response = mock.MagicMock()
     response.status_code = status_code
@@ -33,6 +42,14 @@ def _response(
     response.is_permanent_redirect = status_code in (301, 308)
     response.headers = headers or {}
     response.json.return_value = json_data
+    # `_execute` reads the streamed body via `_read_bounded(response, ...)`, so feed the serialized
+    # payload back through `iter_content`; a fresh iterator per call keeps `_error_snippet` working too.
+    if body_bytes is None:
+        body_bytes = json.dumps(json_data).encode() if json_data is not None else b""
+    response.iter_content.side_effect = lambda *args, **kwargs: iter([body_bytes] if body_bytes else [])
+    # `_execute` uses `with session.post(...) as response`, so the mock must return itself on enter.
+    response.__enter__.return_value = response
+    response.__exit__.return_value = False
     if status_code >= 400:
         response.raise_for_status.side_effect = requests.HTTPError(
             f"{status_code} Client Error: for url: https://sourcegraph.example.com/.api/graphql",
@@ -273,6 +290,33 @@ class TestSourcegraphSource:
         assert response.primary_keys == ["id"]
         assert response.partition_mode is None
         assert response.partition_keys is None
+
+
+class TestReadBounded:
+    # The Sourcegraph host is customer-controlled, so a malicious 200 body must fail the sync
+    # rather than exhaust or indefinitely occupy a worker.
+    def test_oversized_body_is_rejected(self):
+        response = mock.MagicMock()
+        response.iter_content.return_value = iter([b"x" * 10, b"y" * 10])
+
+        with pytest.raises(SourcegraphResponseTooLargeError):
+            _read_bounded(response, max_bytes=15)
+
+    def test_slow_drip_body_hits_the_deadline(self):
+        response = mock.MagicMock()
+        response.iter_content.return_value = iter([b"a", b"b", b"c"])
+
+        # First call sets the deadline; the next read is past it, so a body that never exceeds the
+        # per-read timeout but drips forever is still aborted.
+        with mock.patch(f"{MODULE}.time.monotonic", side_effect=[0.0, 100.0]):
+            with pytest.raises(SourcegraphResponseTimeoutError):
+                _read_bounded(response, max_bytes=1000, max_seconds=1.0)
+
+    def test_bounded_body_is_returned(self):
+        response = mock.MagicMock()
+        response.iter_content.return_value = iter([b'{"data', b'": {}}'])
+
+        assert _read_bounded(response, max_bytes=MAX_RESPONSE_BYTES) == b'{"data": {}}'
 
 
 class TestRetryHelpers:

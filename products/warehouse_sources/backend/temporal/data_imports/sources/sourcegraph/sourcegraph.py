@@ -1,4 +1,6 @@
 import re
+import json
+import time
 import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
@@ -27,6 +29,24 @@ UNPAGINATED_FETCH_LIMIT = 1000
 HOST_NOT_ALLOWED_ERROR = "Sourcegraph host is not allowed"
 GRAPHQL_ERROR_PREFIX = "Sourcegraph GraphQL error"
 
+RESPONSE_TOO_LARGE_ERROR = "Sourcegraph API response exceeded the size limit"
+RESPONSE_TIMEOUT_ERROR = "Sourcegraph API response exceeded the download time limit"
+
+# The Sourcegraph host is customer-controlled (self-hosted instances), so responses are
+# streamed and read under a byte cap — an arbitrarily large (or endless) 200 body must fail
+# the sync instead of exhausting worker memory. The cap applies to decoded bytes, so a gzip
+# bomb can't slip past it.
+MAX_RESPONSE_BYTES = 256 * 1024 * 1024
+_READ_CHUNK_BYTES = 1024 * 1024
+# The per-read timeout only bounds the gap between chunks, so a server can trickle one byte
+# just before each read timeout and keep a worker occupied indefinitely. A monotonic
+# total-transfer deadline caps how long a single body read may take end to end, independent
+# of how the bytes are paced, so this slow-drip path fails the sync instead.
+MAX_RESPONSE_SECONDS = 600
+# Bytes read from an error body for a diagnostic message. Error bodies are never needed in
+# full, so only a short bounded snippet is ever pulled into memory.
+_ERROR_SNIPPET_BYTES = 2048
+
 module_logger = structlog.get_logger(__name__)
 
 
@@ -38,6 +58,41 @@ class SourcegraphRetryableError(Exception):
 
 class SourcegraphHostNotAllowedError(Exception):
     pass
+
+
+class SourcegraphResponseTooLargeError(Exception):
+    pass
+
+
+class SourcegraphResponseTimeoutError(Exception):
+    pass
+
+
+def _read_bounded(response: requests.Response, max_bytes: int, max_seconds: float = MAX_RESPONSE_SECONDS) -> bytes:
+    """Read a streamed response body under both a byte cap and a total-transfer deadline.
+
+    The deadline covers time spent waiting for each chunk, so a slow-drip body that stays
+    under the per-read timeout but never finishes is aborted instead of holding the worker.
+    """
+    total = 0
+    chunks: list[bytes] = []
+    deadline = time.monotonic() + max_seconds
+    for chunk in response.iter_content(chunk_size=_READ_CHUNK_BYTES):
+        total += len(chunk)
+        if total > max_bytes:
+            raise SourcegraphResponseTooLargeError(f"{RESPONSE_TOO_LARGE_ERROR} ({max_bytes} bytes)")
+        if time.monotonic() > deadline:
+            raise SourcegraphResponseTimeoutError(f"{RESPONSE_TIMEOUT_ERROR} ({max_seconds:g}s)")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _error_snippet(response: requests.Response) -> str:
+    try:
+        chunk = next(response.iter_content(chunk_size=_ERROR_SNIPPET_BYTES), b"")
+        return chunk[:_ERROR_SNIPPET_BYTES].decode("utf-8", errors="replace")
+    except Exception:
+        return ""
 
 
 class SourcegraphQueryError(Exception):
@@ -107,34 +162,37 @@ def _execute(
 ) -> dict[str, Any]:
     """POST a GraphQL query and return the ``data`` payload, raising on transport or GraphQL errors."""
     # Don't follow redirects: the validated host could 3xx to an internal address, defeating
-    # the host check done before the request (SSRF).
-    response = session.post(
+    # the host check done before the request (SSRF). `stream=True` so the body is only read
+    # through `_read_bounded` / `_error_snippet` under a byte cap.
+    with session.post(
         url,
         json={"query": query, "variables": variables},
         headers=headers,
         timeout=REQUEST_TIMEOUT_SECONDS,
         allow_redirects=False,
-    )
+        stream=True,
+    ) as response:
+        if response.status_code == 429 or response.status_code >= 500:
+            retry_after = _parse_retry_after(response) if response.status_code == 429 else None
+            raise SourcegraphRetryableError(
+                f"Sourcegraph API error (retryable): status={response.status_code}, url={url}",
+                retry_after=retry_after,
+            )
 
-    if response.status_code == 429 or response.status_code >= 500:
-        retry_after = _parse_retry_after(response) if response.status_code == 429 else None
-        raise SourcegraphRetryableError(
-            f"Sourcegraph API error (retryable): status={response.status_code}, url={url}",
-            retry_after=retry_after,
-        )
+        # A 3xx isn't an error status (`response.ok` is True), so reject it explicitly rather than
+        # silently parsing the redirect body as data.
+        if response.is_redirect or response.is_permanent_redirect:
+            raise SourcegraphHostNotAllowedError(
+                f"Sourcegraph API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
+            )
 
-    # A 3xx isn't an error status (`response.ok` is True), so reject it explicitly rather than
-    # silently parsing the redirect body as data.
-    if response.is_redirect or response.is_permanent_redirect:
-        raise SourcegraphHostNotAllowedError(
-            f"Sourcegraph API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
-        )
+        if not response.ok:
+            logger.error(
+                f"Sourcegraph API error: status={response.status_code}, body={_error_snippet(response)}, url={url}"
+            )
+            response.raise_for_status()
 
-    if not response.ok:
-        logger.error(f"Sourcegraph API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    body = response.json()
+        body = json.loads(_read_bounded(response, MAX_RESPONSE_BYTES))
 
     # Sourcegraph returns GraphQL-level failures (bad query, missing site-admin permissions)
     # with HTTP 200 and an `errors` array.

@@ -27,6 +27,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sourcegrap
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sourcegraph.sourcegraph import (
     HOST_NOT_ALLOWED_ERROR,
+    RESPONSE_TIMEOUT_ERROR,
+    RESPONSE_TOO_LARGE_ERROR,
     SourcegraphResumeConfig,
     get_endpoint_permissions as get_sourcegraph_endpoint_permissions,
     sourcegraph_source,
@@ -94,6 +96,8 @@ The `users` and `organizations` tables require a token created by a **site admin
             "Sourcegraph GraphQL error: not authenticated": "Your Sourcegraph access token is not authenticated for this data. Please generate a new token and reconnect.",
             "Sourcegraph GraphQL error: must be site admin": "This table requires a site-admin access token. Please reconnect with a token created by a Sourcegraph site admin.",
             HOST_NOT_ALLOWED_ERROR: "The Sourcegraph URL is not allowed. Please use your organization's Sourcegraph instance URL.",
+            RESPONSE_TOO_LARGE_ERROR: "The Sourcegraph API response was too large to sync.",
+            RESPONSE_TIMEOUT_ERROR: "The Sourcegraph API response took too long to download.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
