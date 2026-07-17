@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
@@ -1294,16 +1293,8 @@ export function Quickstart(): JSX.Element {
     const installationComplete = useInstallationComplete('ingested_event')
 
     const quickstartVariant = featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE]
-    useEffect(() => {
-        // The route can outlive enrollment (it's persisted as some users' homepage),
-        // so a non-test variant gets sent home instead of stranded on a dead page
-        if (quickstartVariant !== undefined && quickstartVariant !== 'test') {
-            router.actions.replace(urls.projectHomepage())
-        }
-    }, [quickstartVariant])
-
     if (quickstartVariant !== 'test') {
-        // Flags still loading, or the redirect above is about to land
+        // Flags are still loading, or quickstartLogic is redirecting home
         return <SpinnerOverlay sceneLevel />
     }
 
