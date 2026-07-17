@@ -30,6 +30,18 @@ const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 // Mirrors the backend runs-list cap (`workflow_run_list.py` `_LIMIT`).
 const RUN_LIST_LIMIT = 200
 
+// A transient network drop makes `fetch` reject with a `TypeError` that `handleFetch` rewraps as an
+// `ApiError` with no HTTP status; unmounting mid-request aborts the fetch. Neither is a real failure,
+// so swallowing both keeps a blip (or a navigate-away) on this internal page from opening an error
+// tracking issue. Genuine API errors keep an HTTP status and still surface.
+function isTransientLoadError(error: unknown): boolean {
+    if (error && (error as { name?: string }).name === 'AbortError') {
+        return true
+    }
+    const message = error instanceof Error ? error.message : ''
+    return /failed to fetch|networkerror|load failed/i.test(message)
+}
+
 /** RunRowBase fields plus this page's lead-column data (run id, branch, attributed PR). */
 export interface WorkflowRunRow {
     runId: number | null
@@ -232,19 +244,31 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
         }),
     }),
 
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, cache }) => ({
         runs: [
             [] as WorkflowRunDetailApi[],
             {
-                loadRuns: async (): Promise<WorkflowRunDetailApi[]> =>
-                    await engineeringAnalyticsWorkflowRuns(projectId(), {
-                        workflow_name: props.workflowName,
-                        repo: `${props.repoOwner}/${props.repoName}`,
-                        date_from: values.dateFrom ?? undefined,
-                        date_to: values.dateTo ?? undefined,
-                        branch: values.appliedBranch || undefined,
-                        source_id: props.sourceId ?? undefined,
-                    }),
+                loadRuns: async (): Promise<WorkflowRunDetailApi[]> => {
+                    try {
+                        return await engineeringAnalyticsWorkflowRuns(
+                            projectId(),
+                            {
+                                workflow_name: props.workflowName,
+                                repo: `${props.repoOwner}/${props.repoName}`,
+                                date_from: values.dateFrom ?? undefined,
+                                date_to: values.dateTo ?? undefined,
+                                branch: values.appliedBranch || undefined,
+                                source_id: props.sourceId ?? undefined,
+                            },
+                            { signal: cache.abortController?.signal }
+                        )
+                    } catch (error) {
+                        if (isTransientLoadError(error)) {
+                            return values.runs
+                        }
+                        throw error
+                    }
+                },
             },
         ],
         // Activity-chart points at a higher cap than the runs table, so the chart spans the full window
@@ -252,44 +276,80 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
         runActivity: [
             { points: [], truncated: false, limit: 0 } as WorkflowRunActivityApi,
             {
-                loadRunActivity: async (): Promise<WorkflowRunActivityApi> =>
-                    await engineeringAnalyticsWorkflowRunActivity(projectId(), {
-                        workflow_name: props.workflowName,
-                        repo: `${props.repoOwner}/${props.repoName}`,
-                        date_from: values.dateFrom ?? undefined,
-                        date_to: values.dateTo ?? undefined,
-                        branch: values.appliedBranch || undefined,
-                        source_id: props.sourceId ?? undefined,
-                    }),
+                loadRunActivity: async (): Promise<WorkflowRunActivityApi> => {
+                    try {
+                        return await engineeringAnalyticsWorkflowRunActivity(
+                            projectId(),
+                            {
+                                workflow_name: props.workflowName,
+                                repo: `${props.repoOwner}/${props.repoName}`,
+                                date_from: values.dateFrom ?? undefined,
+                                date_to: values.dateTo ?? undefined,
+                                branch: values.appliedBranch || undefined,
+                                source_id: props.sourceId ?? undefined,
+                            },
+                            { signal: cache.abortController?.signal }
+                        )
+                    } catch (error) {
+                        if (isTransientLoadError(error)) {
+                            return values.runActivity
+                        }
+                        throw error
+                    }
+                },
             },
         ],
         // Cost split by runner tier; [] when the job-level source isn't synced.
         runnerCosts: [
             [] as WorkflowRunnerCostApi[],
             {
-                loadRunnerCosts: async (): Promise<WorkflowRunnerCostApi[]> =>
-                    await engineeringAnalyticsWorkflowRunnerCosts(projectId(), {
-                        workflow_name: props.workflowName,
-                        repo: `${props.repoOwner}/${props.repoName}`,
-                        date_from: values.dateFrom ?? undefined,
-                        date_to: values.dateTo ?? undefined,
-                        branch: values.appliedBranch || undefined,
-                        source_id: props.sourceId ?? undefined,
-                    }),
+                loadRunnerCosts: async (): Promise<WorkflowRunnerCostApi[]> => {
+                    try {
+                        return await engineeringAnalyticsWorkflowRunnerCosts(
+                            projectId(),
+                            {
+                                workflow_name: props.workflowName,
+                                repo: `${props.repoOwner}/${props.repoName}`,
+                                date_from: values.dateFrom ?? undefined,
+                                date_to: values.dateTo ?? undefined,
+                                branch: values.appliedBranch || undefined,
+                                source_id: props.sourceId ?? undefined,
+                            },
+                            { signal: cache.abortController?.signal }
+                        )
+                    } catch (error) {
+                        if (isTransientLoadError(error)) {
+                            return values.runnerCosts
+                        }
+                        throw error
+                    }
+                },
             },
         ],
         // Per-job rollups; [] when the job-level source isn't synced.
         jobAggregates: [
             [] as WorkflowJobAggregateApi[],
             {
-                loadJobAggregates: async (): Promise<WorkflowJobAggregateApi[]> =>
-                    await engineeringAnalyticsJobAggregates(projectId(), {
-                        workflow_name: props.workflowName,
-                        date_from: values.dateFrom ?? undefined,
-                        date_to: values.dateTo ?? undefined,
-                        branch: values.appliedBranch || undefined,
-                        source_id: props.sourceId ?? undefined,
-                    }),
+                loadJobAggregates: async (): Promise<WorkflowJobAggregateApi[]> => {
+                    try {
+                        return await engineeringAnalyticsJobAggregates(
+                            projectId(),
+                            {
+                                workflow_name: props.workflowName,
+                                date_from: values.dateFrom ?? undefined,
+                                date_to: values.dateTo ?? undefined,
+                                branch: values.appliedBranch || undefined,
+                                source_id: props.sourceId ?? undefined,
+                            },
+                            { signal: cache.abortController?.signal }
+                        )
+                    } catch (error) {
+                        if (isTransientLoadError(error)) {
+                            return values.jobAggregates
+                        }
+                        throw error
+                    }
+                },
             },
         ],
         runJobs: [
@@ -303,12 +363,23 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                     runId: number
                     runAttempt: number | null
                 }): Promise<Record<string, WorkflowJobApi[]>> => {
-                    const jobs = await engineeringAnalyticsWorkflowJobs(projectId(), {
-                        run_id: runId,
-                        run_attempt: runAttempt ?? undefined,
-                        source_id: props.sourceId ?? undefined,
-                    })
-                    return { ...values.runJobs, [jobCacheKey(runId, runAttempt)]: jobs }
+                    try {
+                        const jobs = await engineeringAnalyticsWorkflowJobs(
+                            projectId(),
+                            {
+                                run_id: runId,
+                                run_attempt: runAttempt ?? undefined,
+                                source_id: props.sourceId ?? undefined,
+                            },
+                            { signal: cache.abortController?.signal }
+                        )
+                        return { ...values.runJobs, [jobCacheKey(runId, runAttempt)]: jobs }
+                    } catch (error) {
+                        if (isTransientLoadError(error)) {
+                            return values.runJobs
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -483,7 +554,19 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
+        // One controller for the page's lifetime, aborted on unmount so in-flight loaders cancel when
+        // the user navigates away mid-request. `pauseOnPageHidden: false` keeps a backgrounded tab from
+        // aborting (and never restarting) its loads.
+        cache.disposables.add(
+            () => {
+                const controller = new AbortController()
+                cache.abortController = controller
+                return () => controller.abort()
+            },
+            'abortController',
+            { pauseOnPageHidden: false }
+        )
         actions.loadRuns()
         actions.loadRunActivity()
         actions.loadRunnerCosts()

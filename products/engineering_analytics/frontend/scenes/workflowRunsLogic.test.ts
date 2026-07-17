@@ -65,9 +65,11 @@ describe('workflowRunsLogic', () => {
 
         // No branch applied → the endpoints see every branch (the pre-fix behavior for the whole page).
         const runsArgs = { workflow_name: 'CI', repo: 'PostHog/posthog', date_from: '-7d', branch: undefined }
-        expect(mockRuns).toHaveBeenLastCalledWith('1', expect.objectContaining(runsArgs))
-        expect(mockRunActivity).toHaveBeenLastCalledWith('1', expect.objectContaining(runsArgs))
-        expect(mockRunnerCosts).toHaveBeenLastCalledWith('1', expect.objectContaining(runsArgs))
+        // Third arg carries the unmount abort signal so in-flight loaders cancel on navigate-away.
+        const withSignal = expect.objectContaining({ signal: expect.anything() })
+        expect(mockRuns).toHaveBeenLastCalledWith('1', expect.objectContaining(runsArgs), withSignal)
+        expect(mockRunActivity).toHaveBeenLastCalledWith('1', expect.objectContaining(runsArgs), withSignal)
+        expect(mockRunnerCosts).toHaveBeenLastCalledWith('1', expect.objectContaining(runsArgs), withSignal)
 
         // Applying a branch on the shared filters logic reloads all three reads scoped to it — so the detail
         // page's numbers (and the chart's runs) match the branch-scoped Workflows tab instead of widening
@@ -82,8 +84,24 @@ describe('workflowRunsLogic', () => {
             'loadRunActivitySuccess',
             'loadRunnerCostsSuccess',
         ])
-        expect(mockRuns).toHaveBeenLastCalledWith('1', expect.objectContaining({ branch: 'master' }))
-        expect(mockRunActivity).toHaveBeenLastCalledWith('1', expect.objectContaining({ branch: 'master' }))
-        expect(mockRunnerCosts).toHaveBeenLastCalledWith('1', expect.objectContaining({ branch: 'master' }))
+        expect(mockRuns).toHaveBeenLastCalledWith('1', expect.objectContaining({ branch: 'master' }), withSignal)
+        expect(mockRunActivity).toHaveBeenLastCalledWith('1', expect.objectContaining({ branch: 'master' }), withSignal)
+        expect(mockRunnerCosts).toHaveBeenLastCalledWith('1', expect.objectContaining({ branch: 'master' }), withSignal)
+    })
+
+    it('swallows a transient network failure instead of surfacing it as a load failure', async () => {
+        // A network blip rejects `fetch` with a `TypeError` that `handleFetch` rewraps as an error whose
+        // message still reads "Failed to fetch" and which carries no HTTP status. Without the guard this
+        // flips to a `*Failure` action and lands in error tracking; the loader must treat it as non-fatal.
+        mockJobAggregates.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+        logic = workflowRunsLogic({ repoOwner: 'PostHog', repoName: 'posthog', workflowName: 'CI', sourceId: null })
+        logic.mount()
+        engineeringAnalyticsFiltersLogic().mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadJobAggregates', 'loadJobAggregatesSuccess'])
+            .toNotHaveDispatchedActions(['loadJobAggregatesFailure'])
+        expect(logic.values.jobAggregates).toEqual([])
     })
 })
