@@ -1785,3 +1785,86 @@ async fn recovery_reuses_the_partition_consumer_across_fetches() {
 
     cancel.cancel();
 }
+
+/// A client disconnect mid-recovery drops the request future at an await
+/// point. Checkout is an RAII guard, so the cancelled fetch's consumer
+/// must come home: without Drop-based return, every cancellation leaked
+/// the consumer while freeing its permit, and pool_size cancellations
+/// left permits pointing at an empty pool — a panic under the pool mutex
+/// that poisoned it and disabled recovery until restart.
+#[tokio::test]
+async fn cancelled_recovery_returns_its_consumer_to_the_pool() {
+    use common::test_kafka_config;
+    use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
+    use rdkafka::producer::FutureRecord;
+
+    let (mock_cluster, producer) = create_test_kafka().await;
+    let mut kafka = test_kafka_config();
+    kafka.kafka_hosts = mock_cluster.bootstrap_servers();
+    // pool_size 1: a single leaked consumer exhausts the pool.
+    let recovery = ChangelogRecovery::new(RecoveryConfig {
+        kafka,
+        topic: CHANGELOG_TOPIC.to_string(),
+        pod_name: "cancel-pod".to_string(),
+        recv_timeout: Duration::from_secs(2),
+        pool_size: 1,
+    })
+    .unwrap();
+
+    let key = PersonCacheKey {
+        team_id: 1,
+        person_id: 7,
+    };
+    let mark = DirtyMark {
+        version: 1,
+        offset: 0,
+        partition: 0,
+    };
+
+    // Nothing is produced yet, so each fetch parks awaiting the record;
+    // cancel it mid-park, more times than the pool holds consumers.
+    for _ in 0..3 {
+        let cancelled = tokio::time::timeout(
+            Duration::from_millis(50),
+            recovery.fetch_person_at(&mark, &key),
+        )
+        .await;
+        assert!(
+            cancelled.is_err(),
+            "the fetch must still be parked when cancelled"
+        );
+    }
+
+    // The pool must still function end to end: produce the sought record
+    // and the next fetch — checkout included — succeeds.
+    let person = Person {
+        id: 7,
+        uuid: "00000000-0000-0000-0000-000000000007".to_string(),
+        team_id: 1,
+        properties: serde_json::to_vec(&serde_json::json!({"k": "v"})).unwrap(),
+        properties_last_updated_at: Vec::new(),
+        properties_last_operation: Vec::new(),
+        created_at: 1_700_000_000,
+        version: 1,
+        is_identified: false,
+        is_user_id: None,
+        last_seen_at: None,
+    };
+    let payload = person.encode_to_vec();
+    producer
+        .send(
+            FutureRecord::to(CHANGELOG_TOPIC)
+                .key("1:7")
+                .partition(0)
+                .payload(&payload),
+            Duration::from_secs(5),
+        )
+        .await
+        .expect("produce");
+
+    let recovered = recovery
+        .fetch_person_at(&mark, &key)
+        .await
+        .expect("the pool must survive cancellations");
+    assert_eq!(recovered.id, 7);
+}

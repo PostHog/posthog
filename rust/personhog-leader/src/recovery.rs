@@ -65,8 +65,13 @@ enum FetchError {
 /// histogram is the tuning signal for the pool size. Errors never manage
 /// the pool — librdkafka clients self-heal their connections — so
 /// transient fetch failures retry on the same consumer within the
-/// recovery deadline, and the consumer returns to the pool regardless of
-/// outcome.
+/// recovery deadline. Checkout is an RAII guard (`PooledConsumer`) that
+/// returns the consumer and only then releases its permit on Drop, so
+/// the consumer comes home on every path including future cancellation —
+/// a client disconnecting mid-recovery drops the request future at an
+/// await point, and anything less than Drop-based return would leak the
+/// consumer while freeing its permit, eventually leaving permits with an
+/// empty pool.
 pub struct ChangelogRecovery {
     topic: String,
     recv_timeout: Duration,
@@ -95,6 +100,34 @@ impl ChangelogRecovery {
         })
     }
 
+    /// Check a consumer out of the pool. The returned guard owns both the
+    /// consumer and its semaphore permit; its Drop parks the consumer
+    /// (best-effort unassign so it does not keep fetching a partition
+    /// tail), returns it to the idle deque, and only then releases the
+    /// permit — so a slot never opens before its consumer is home, on
+    /// every path including cancellation of the awaiting future.
+    async fn checkout(&self) -> Result<PooledConsumer<'_>, String> {
+        let wait_start = Instant::now();
+        let permit = self
+            .permits
+            .acquire()
+            .await
+            .map_err(|_| "recovery pool closed".to_string())?;
+        histogram!("personhog_leader_recovery_pool_wait_ms")
+            .record(wait_start.elapsed().as_secs_f64() * 1000.0);
+        let consumer = self
+            .idle
+            .lock()
+            .expect("recovery pool lock poisoned")
+            .pop_front()
+            .expect("a permit guarantees an idle consumer");
+        Ok(PooledConsumer {
+            pool: self,
+            consumer: Some(consumer),
+            _permit: permit,
+        })
+    }
+
     /// Fetch a person's latest state from the changelog record the dirty
     /// index marked for its most recent acked produce. The decoded record
     /// must carry the mark's key and version exactly: the mark was written
@@ -111,20 +144,7 @@ impl ChangelogRecovery {
         let partition_i32 = i32::try_from(partition)
             .map_err(|_| format!("partition {partition} exceeds i32::MAX"))?;
 
-        let wait_start = Instant::now();
-        let _permit = self
-            .permits
-            .acquire()
-            .await
-            .map_err(|_| "recovery pool closed".to_string())?;
-        histogram!("personhog_leader_recovery_pool_wait_ms")
-            .record(wait_start.elapsed().as_secs_f64() * 1000.0);
-        let consumer = self
-            .idle
-            .lock()
-            .expect("recovery pool lock poisoned")
-            .pop_front()
-            .expect("a permit guarantees an idle consumer");
+        let consumer = self.checkout().await?;
 
         // Each attempt repositions with a fresh assign: it starts fetching
         // at the target immediately (repositioning a live stream via seek
@@ -132,16 +152,16 @@ impl ChangelogRecovery {
         // outstanding long-poll) and purges records buffered by a previous
         // attempt.
         let deadline = Instant::now() + self.recv_timeout;
-        let result = loop {
+        loop {
             let attempt = self
                 .attempt_fetch(&consumer, partition_i32, mark, expected, deadline)
                 .await;
             match attempt {
-                Ok(person) => break Ok(person),
-                Err(FetchError::Permanent(message)) => break Err(message),
+                Ok(person) => return Ok(person),
+                Err(FetchError::Permanent(message)) => return Err(message),
                 Err(FetchError::Transient(message)) => {
                     if Instant::now() + RETRY_BACKOFF >= deadline {
-                        break Err(message);
+                        return Err(message);
                     }
                     counter!("personhog_leader_recovery_retries_total").increment(1);
                     tracing::debug!(
@@ -153,18 +173,7 @@ impl ChangelogRecovery {
                     tokio::time::sleep(RETRY_BACKOFF).await;
                 }
             }
-        };
-
-        // Park the consumer so it does not keep fetching the partition
-        // tail between recoveries.
-        if let Err(e) = consumer.unassign() {
-            tracing::warn!(partition, error = %e, "recovery consumer unassign failed");
         }
-        self.idle
-            .lock()
-            .expect("recovery pool lock poisoned")
-            .push_back(consumer);
-        result
     }
 
     /// One positioning-and-receive attempt against a locked consumer.
@@ -215,6 +224,38 @@ impl ChangelogRecovery {
 
             return decode_person(msg.payload(), mark, expected).map_err(FetchError::Permanent);
         }
+    }
+}
+
+/// A consumer checked out of the recovery pool, together with the permit
+/// that reserved it. Drop parks the consumer, returns it to the idle
+/// deque, and then releases the permit (declaration order: the permit
+/// field drops last).
+struct PooledConsumer<'a> {
+    pool: &'a ChangelogRecovery,
+    consumer: Option<StreamConsumer>,
+    _permit: tokio::sync::SemaphorePermit<'a>,
+}
+
+impl std::ops::Deref for PooledConsumer<'_> {
+    type Target = StreamConsumer;
+
+    fn deref(&self) -> &StreamConsumer {
+        self.consumer.as_ref().expect("consumer present until drop")
+    }
+}
+
+impl Drop for PooledConsumer<'_> {
+    fn drop(&mut self) {
+        let consumer = self.consumer.take().expect("consumer present until drop");
+        if let Err(e) = consumer.unassign() {
+            tracing::warn!(error = %e, "recovery consumer unassign failed");
+        }
+        self.pool
+            .idle
+            .lock()
+            .expect("recovery pool lock poisoned")
+            .push_back(consumer);
     }
 }
 
