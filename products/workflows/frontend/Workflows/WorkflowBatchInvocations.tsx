@@ -3,13 +3,13 @@ import { type ReactNode, useMemo } from 'react'
 
 import * as greekPng from '@posthog/brand/hoggies/png/greek'
 import { IconClock } from '@posthog/icons'
-import { LemonCollapse, LemonDivider, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonDivider, LemonTag, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
+import { HogInvocations } from 'scenes/hog-functions/invocations/HogInvocations'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { OccurrencesList } from './hogflows/steps/components/OccurrencesList'
@@ -22,35 +22,33 @@ import {
 } from './hogflows/steps/components/rrule-helpers'
 import { HogFlowBatchJob } from './hogflows/types'
 import { renderWorkflowLogMessage } from './logs/log-utils'
-import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
+import { workflowLogic } from './workflowLogic'
 
 const HedgehogGreek = pngHoggie(greekPng)
 
-export type WorkflowLogsProps = {
-    id: string
+const STATUS_TAG_TYPE: Record<HogFlowBatchJob['status'], 'success' | 'danger' | 'warning' | 'default'> = {
+    completed: 'success',
+    failed: 'danger',
+    cancelled: 'default',
+    waiting: 'warning',
+    queued: 'warning',
+    active: 'warning',
 }
 
-function WorkflowRunLogs(props: WorkflowLogsProps): JSX.Element {
-    const { workflow } = useValues(workflowLogic)
-
-    return (
-        <LogsViewer
-            sourceType="hog_flow"
-            sourceId={props.id!}
-            instanceLabel="workflow run"
-            renderMessage={(m) => renderWorkflowLogMessage(workflow, m)}
-        />
-    )
+function SectionHeading({ children }: { children: ReactNode }): JSX.Element {
+    return <h3 className="text-xs font-semibold uppercase tracking-wide text-muted mb-1">{children}</h3>
 }
 
 function BatchRunHeader({ job }: { job: HogFlowBatchJob }): JSX.Element {
     return (
         <div className="flex gap-2 w-full justify-between">
-            <strong>{job.id}</strong>
+            <div className="flex items-center gap-2 min-w-0">
+                <strong className="truncate">{job.id}</strong>
+                <LemonTag type={STATUS_TAG_TYPE[job.status] ?? 'default'}>{job.status}</LemonTag>
+            </div>
             <div className="flex items-center gap-2">
                 <TZLabel title="Created at" time={job.created_at} />
                 <LemonDivider vertical className="h-full" />
-
                 {job.created_by ? (
                     <Tooltip title={`Triggered by ${job.created_by.email}`}>
                         <div>
@@ -65,25 +63,31 @@ function BatchRunHeader({ job }: { job: HogFlowBatchJob }): JSX.Element {
     )
 }
 
-function BatchRunInfo({ job }: { job: HogFlowBatchJob }): JSX.Element {
+function BatchRunInvocations({ job, hogFlowId }: { job: HogFlowBatchJob; hogFlowId: string }): JSX.Element {
     const { workflow } = useValues(workflowLogic)
 
+    // Broadcasts can be older than the flat list's 24h default, so anchor the window
+    // just before the job was created to keep this run's invocations in range.
+    const defaultDateFrom = dayjs(job.created_at).subtract(1, 'day').format('YYYY-MM-DD')
+
     return (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-2 items-start w-full">
                 <span className="text-muted">Job filters</span>
                 <PropertyFiltersDisplay
                     filters={Array.isArray(job.filters?.properties) ? job.filters.properties : []}
                 />
             </div>
-            <span className="text-muted">Logs</span>
-            <LogsViewer
-                sourceType="hog_flow"
-                sourceId={job.id}
-                groupByInstanceId
-                instanceLabel="workflow job"
-                renderMessage={(m) => renderWorkflowLogMessage(workflow, m)}
-            />
+            <div className="flex flex-col gap-2">
+                <HogInvocations
+                    id={hogFlowId}
+                    functionKind="hog_flow"
+                    parentRunId={job.id}
+                    defaultDateFrom={defaultDateFrom}
+                    compact
+                    renderLogMessage={workflow ? (m) => renderWorkflowLogMessage(workflow, m) : undefined}
+                />
+            </div>
         </div>
     )
 }
@@ -140,12 +144,14 @@ function UpcomingOccurrences(): JSX.Element | null {
     )
 }
 
-function SectionHeading({ children }: { children: ReactNode }): JSX.Element {
-    return <h3 className="text-xs font-semibold uppercase tracking-wide text-muted mb-1">{children}</h3>
-}
-
-function WorkflowBatchRunLogs(props: WorkflowLogicProps): JSX.Element {
-    const { jobs, batchWorkflowJobsLoading } = useValues(batchWorkflowJobsLogic(props))
+/**
+ * Batch-triggered workflows fan out one child invocation per person. The flat invocations
+ * table can't tell which broadcast a run belongs to, so here we group runs by batch job —
+ * each job expands to its own scoped invocations table — and preview the schedule's upcoming
+ * occurrences. Mirrors the batch grouping the standalone Logs tab used to show.
+ */
+export function WorkflowBatchInvocations({ id }: { id: string }): JSX.Element {
+    const { jobs, batchWorkflowJobsLoading } = useValues(batchWorkflowJobsLogic({ id }))
     const { currentSchedule } = useValues(workflowLogic)
     const hasSchedule = !!currentSchedule?.rrule && !isOneTimeSchedule(currentSchedule.rrule)
 
@@ -165,7 +171,7 @@ function WorkflowBatchRunLogs(props: WorkflowLogicProps): JSX.Element {
                     <HedgehogGreek width="100" height="100" className="mb-4" />
                     <h2 className="text-xl leading-tight">No batch workflow jobs have been run yet</h2>
                     <p className="text-sm text-balance text-tertiary">
-                        Once a batch workflow job is triggered, execution logs will appear here.
+                        Once a batch workflow job is triggered, its invocations will appear here.
                     </p>
                 </div>
             </div>
@@ -173,7 +179,7 @@ function WorkflowBatchRunLogs(props: WorkflowLogicProps): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4" data-attr="workflow-batch-invocations">
             <UpcomingOccurrences />
             <div>
                 {hasSchedule && <SectionHeading>Past invocations</SectionHeading>}
@@ -181,20 +187,10 @@ function WorkflowBatchRunLogs(props: WorkflowLogicProps): JSX.Element {
                     panels={jobs.map((job) => ({
                         key: job.id,
                         header: <BatchRunHeader job={job} />,
-                        content: <BatchRunInfo job={job} />,
+                        content: <BatchRunInvocations job={job} hogFlowId={id} />,
                     }))}
                 />
             </div>
-        </div>
-    )
-}
-
-export function WorkflowLogs({ id }: WorkflowLogsProps): JSX.Element {
-    const { workflow } = useValues(workflowLogic)
-
-    return (
-        <div data-attr="workflow-logs">
-            {workflow?.trigger?.type === 'batch' ? <WorkflowBatchRunLogs id={id} /> : <WorkflowRunLogs id={id} />}
         </div>
     )
 }
