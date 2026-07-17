@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("conversations", "0050_plain_import"),
+        ("conversations", "0051_plain_import"),
     ]
 
     operations = [

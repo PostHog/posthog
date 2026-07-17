@@ -6,7 +6,7 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("conversations", "0049_email_channel_default_constraint"),
+        ("conversations", "0050_alter_ticket_priority"),
     ]
 
     operations = [
