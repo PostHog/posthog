@@ -99,6 +99,23 @@ def _retry_wait_seconds(state: RetryCallState) -> float:
 Hooks = dict[str, list[Any]]
 
 
+def _body_shape_is_list(body: Any, data_selector: Optional[TJsonPath]) -> bool:
+    """Whether ``body`` carries the expected list of rows once ``data_selector`` is applied.
+
+    Mirrors ``_extract_response``'s shape rules: with a selector the key must be present and
+    resolve to a list; without one the whole body must be a list. Used by the retryable-body
+    check so a 200 whose payload is the wrong shape (a truncating proxy, a transient error
+    envelope) is retried rather than failing loud or being silently ingested as a single row.
+    """
+    if data_selector:
+        matches: Any = find_values(data_selector, body)
+        if not matches:
+            return False
+        value = matches[0] if isinstance(matches, list) and len(matches) == 1 else matches
+        return isinstance(value, list)
+    return isinstance(body, list)
+
+
 class RESTClient:
     def __init__(
         self,
@@ -176,9 +193,21 @@ class RESTClient:
         resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None,
         initial_paginator_state: Optional[dict[str, Any]] = None,
         data_selector_required: bool = False,
+        data_selector_malformed_retryable: bool = False,
     ) -> Iterator[list[Any]]:
         paginator = copy.deepcopy(paginator) if paginator else copy.deepcopy(self.paginator)
         hooks = hooks or {}
+
+        # When set, a 200 whose parsed body isn't the expected list shape is RETRIED (not failed
+        # loud): the check runs inside the retry-wrapped ``_send_request`` so a transient malformed
+        # payload is reissued. This reproduces sources that defensively classify an unexpected
+        # 200-body shape as retryable. Distinct from ``data_selector_required`` (permanent fail-loud).
+        malformed_check: Optional[Callable[[Any], None]] = None
+        if data_selector_malformed_retryable:
+
+            def malformed_check(body: Any) -> None:
+                if not _body_shape_is_list(body, data_selector):
+                    raise RESTClientRetryableError("Unexpected 200 response body shape (expected a list of rows)")
 
         # `requests` serializes None values as the literal string "None" in the
         # query string — drop them so optional/incremental params that are not
@@ -200,7 +229,7 @@ class RESTClient:
 
         while True:
             try:
-                response, body = self._send_request(request, hooks)
+                response, body = self._send_request(request, hooks, body_check=malformed_check)
             except IgnoreResponseException:
                 break
 
@@ -224,7 +253,9 @@ class RESTClient:
         wait=_retry_wait_seconds,
         reraise=True,
     )
-    def _send_request(self, request: Request, hooks: Hooks) -> tuple[Response, Any]:
+    def _send_request(
+        self, request: Request, hooks: Hooks, body_check: Optional[Callable[[Any], None]] = None
+    ) -> tuple[Response, Any]:
         prepared = self.session.prepare_request(request)
         # Fail loud on a pagination/resume URL that points off the expected host before the
         # request (and its Authorization header) ever leaves the process. Raised outside the
@@ -279,6 +310,11 @@ class RESTClient:
             if not response.content or not response.content.strip():
                 return response, None
             raise RESTClientRetryableError(self._redact(f"Malformed JSON response from {response.url}: {e}")) from e
+
+        # Runs inside the retry loop so an unexpected-but-parseable 200 body (wrong shape) can be
+        # reissued as retryable rather than surfacing as a permanent error or a garbage row.
+        if body_check is not None and body is not None:
+            body_check(body)
 
         return response, body
 

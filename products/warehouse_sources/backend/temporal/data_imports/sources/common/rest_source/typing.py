@@ -249,6 +249,12 @@ class Endpoint(TypedDict, total=False):
     # instead of yielding an empty page — fail-loud on an unexpected/changed API response shape,
     # rather than silently syncing 0 rows. A present-but-empty list is still a valid 0-row page.
     data_selector_required: Optional[bool]
+    # When True, a 200 whose parsed body isn't the expected list shape (selector matches nothing, or
+    # the matched value / selector-less body isn't a list) raises a RETRYABLE error and the request is
+    # reissued — for sources that defensively treat an unexpected 200-body shape as transient. This is
+    # the retryable counterpart of ``data_selector_required`` (which fails loud permanently); set at
+    # most one of the two.
+    data_selector_malformed_retryable: Optional[bool]
     response_actions: Optional[list[ResponseAction]]
     incremental: Optional[IncrementalConfig]
 

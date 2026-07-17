@@ -24,6 +24,7 @@ def _paginate_stub(pages_by_path: dict[str, list[dict[str, Any]]]):
         resume_hook=None,
         initial_paginator_state=None,
         data_selector_required=False,
+        **kwargs,
     ):
         yield pages_by_path[path]
 

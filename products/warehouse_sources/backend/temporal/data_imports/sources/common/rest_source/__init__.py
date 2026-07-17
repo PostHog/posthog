@@ -314,6 +314,9 @@ def create_resources(
                     None if has_dependent_resource else initial_paginator_state
                 ),
                 data_selector_required: bool = bool(endpoint_config.get("data_selector_required")),
+                data_selector_malformed_retryable: bool = bool(
+                    endpoint_config.get("data_selector_malformed_retryable")
+                ),
             ) -> Iterator[list[Any]]:
                 if incremental_object:
                     params = _set_incremental_params(
@@ -335,6 +338,7 @@ def create_resources(
                     resume_hook=resume_hook,
                     initial_paginator_state=initial_paginator_state,
                     data_selector_required=data_selector_required,
+                    data_selector_malformed_retryable=data_selector_malformed_retryable,
                 ):
                     yield list(convert_types(page, columns_config))
 
