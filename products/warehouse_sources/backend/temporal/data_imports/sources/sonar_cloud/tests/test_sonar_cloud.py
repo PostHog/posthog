@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud import sonar_cloud
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.settings import MAX_PAGE_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.sonar_cloud import (
@@ -16,8 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_clou
 )
 
 
-class FakeResumeManager:
-    """Minimal ResumableSourceManager stand-in that records saved state."""
+class FakeResumeManager(ResumableSourceManager[SonarCloudResumeConfig]):
+    """Minimal ResumableSourceManager stand-in that records saved state without touching Redis."""
 
     def __init__(self, state: SonarCloudResumeConfig | None = None) -> None:
         self._state = state
@@ -155,3 +156,9 @@ class TestSourceResponse:
         response = sonar_cloud_source("t", "org", "eu", "metrics", MagicMock(), FakeResumeManager())
         assert response.partition_mode is None
         assert response.partition_keys is None
+
+    def test_quality_gates_merge_on_id(self) -> None:
+        # Quality gate rows carry `id`/`name` but no `key`; merging on the default `key` primary key
+        # would never dedupe and duplicate rows on every sync.
+        response = sonar_cloud_source("t", "org", "eu", "quality_gates", MagicMock(), FakeResumeManager())
+        assert response.primary_keys == ["id"]

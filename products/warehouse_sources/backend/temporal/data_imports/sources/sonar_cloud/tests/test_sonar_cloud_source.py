@@ -3,6 +3,8 @@ from unittest.mock import patch
 import structlog
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig, SourceFieldSelectConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SonarCloudSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud import source as source_module
@@ -29,8 +31,17 @@ class TestSonarCloudSourceConfig:
     def test_config_fields(self) -> None:
         fields = {f.name: f for f in SonarCloudSource().get_source_config.fields}
         assert set(fields) == {"token", "organization", "region"}
-        assert fields["token"].secret is True
-        assert fields["region"].defaultValue == "eu"
+        token_field = fields["token"]
+        assert isinstance(token_field, SourceFieldInputConfig)
+        assert token_field.secret is True
+        region_field = fields["region"]
+        assert isinstance(region_field, SourceFieldSelectConfig)
+        assert region_field.defaultValue == "eu"
+
+    def test_region_is_a_connection_host_field(self) -> None:
+        # `region` retargets where the stored token is sent; the update serializer must force
+        # re-entering the token when it changes.
+        assert SonarCloudSource().connection_host_fields == ["region"]
 
 
 class TestGetSchemas:

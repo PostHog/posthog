@@ -62,6 +62,7 @@ SONAR_CLOUD_ENDPOINTS: dict[str, SonarCloudEndpointConfig] = {
         name="quality_gates",
         path="qualitygates/list",
         data_key="qualitygates",
+        primary_keys=["id"],
         paginated=False,
     ),
 }

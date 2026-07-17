@@ -46,6 +46,12 @@ class SonarCloudSource(ResumableSource[SonarCloudSourceConfig, SonarCloudResumeC
         return ExternalDataSourceType.SONARCLOUD
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # `region` decides which regional host the stored token is sent to; retargeting it must
+        # re-require the token so an editor can't redirect the preserved credential.
+        return ["region"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SONAR_CLOUD,
