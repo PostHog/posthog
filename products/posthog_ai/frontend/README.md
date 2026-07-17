@@ -268,6 +268,11 @@ while the tab is hidden and missed live events are not redelivered).
 Note: for exec-wrapped PostHog tools the resolved name can be unknown at `phase: 'started'` (the command
 streams in later) — match on `completed` when you need certainty.
 
+Editor mutations use `useMcpToolApplyBack` with a stable `targetKey` for the resource being edited. The
+send paths snapshot the active targets for that stream before making a request. A response is applied only
+when exactly one snapshotted target matches the tool, and changing editors creates a new activation that
+cannot inherit the old response. The default `turn_end` mode applies only the final matching completion.
+
 ## 4. Coupling boundary
 
 This surface **couples to the tasks run API by design** (`products/tasks/frontend/generated/api`) and

@@ -41,7 +41,7 @@ describe('useMcpToolApplyBack', () => {
     // Regressions here caused completed execute-sql calls to stay buffered forever on persistent runs.
     it('applies the last matching completion at foreground turn or run completion', () => {
         const onApply = jest.fn()
-        renderHook(() => useMcpToolApplyBack({ tools: ['create_insight'], onApply }))
+        renderHook(() => useMcpToolApplyBack({ tools: ['create_insight'], targetKey: 'insight-1', onApply }))
 
         // Not the foreground stream yet → completions are withheld and turn completion flushes nothing.
         act(() => {
@@ -53,6 +53,7 @@ describe('useMcpToolApplyBack', () => {
         // Register run-1 as the foreground stream (its own act so the reset effect flushes first).
         act(() => {
             foregroundStreamLogic.actions.setForegroundStream('run-1', 'p1')
+            toolStreamEventsLogic.actions.claimApplyBackTargets('run-1')
         })
 
         // Two matching completions arrive; the later one supersedes the earlier.
@@ -73,6 +74,7 @@ describe('useMcpToolApplyBack', () => {
         // A later turn is a fresh buffer. Run termination still flushes it if the adapter omits
         // turn-complete while shutting down.
         act(() => {
+            toolStreamEventsLogic.actions.claimApplyBackTargets('run-1')
             toolStreamEventsLogic.actions.emitToolEvent(toolEvent('call create_insight {"name":"third"}', 'c'))
             toolStreamEventsLogic.actions.emitRunLifecycleEvent({ streamKey: 'run-1', status: 'completed' })
         })
@@ -83,9 +85,17 @@ describe('useMcpToolApplyBack', () => {
 
     it('applies tool-call-completed mode before turn end', () => {
         const onApply = jest.fn()
-        renderHook(() => useMcpToolApplyBack({ tools: ['create_insight'], onApply, applyOn: 'tool_call_completed' }))
+        renderHook(() =>
+            useMcpToolApplyBack({
+                tools: ['create_insight'],
+                targetKey: 'insight-1',
+                onApply,
+                applyOn: 'tool_call_completed',
+            })
+        )
         act(() => {
             foregroundStreamLogic.actions.setForegroundStream('run-1', 'p1')
+            toolStreamEventsLogic.actions.claimApplyBackTargets('run-1')
         })
 
         act(() => {
@@ -111,7 +121,7 @@ describe('useMcpToolApplyBack', () => {
     it('does not apply while inactive and drops a buffered completion when deactivated', () => {
         const onApply = jest.fn()
         const { rerender } = renderHook(
-            ({ active }) => useMcpToolApplyBack({ tools: ['create_insight'], onApply, active }),
+            ({ active }) => useMcpToolApplyBack({ tools: ['create_insight'], targetKey: 'insight-1', onApply, active }),
             { initialProps: { active: false } }
         )
 
@@ -124,6 +134,7 @@ describe('useMcpToolApplyBack', () => {
 
         rerender({ active: true })
         act(() => {
+            toolStreamEventsLogic.actions.claimApplyBackTargets('run-1')
             toolStreamEventsLogic.actions.emitToolEvent(toolEvent('call create_insight {"name":"visible"}', 'visible'))
         })
         rerender({ active: false })

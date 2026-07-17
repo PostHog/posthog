@@ -6,6 +6,7 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import MaxTool from 'scenes/max/MaxTool'
 import { castAssistantQuery } from 'scenes/max/utils'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
@@ -101,10 +102,10 @@ export function EditorFiltersShell({ query, showing, embedded, children }: Edito
 
     useMcpToolApplyBack({
         tools: QUERY_TOOL_NAMES,
-        active: showing && !embedded,
-        applyOn: 'tool_call_completed',
+        targetKey: keyForInsightLogicProps('new')(insightProps),
+        active: maxToolActive,
         onApply: (event, { innerInput }) => {
-            if (!innerInput) {
+            if (!maxToolActive || !innerInput) {
                 return
             }
             const node = buildInsightNodeFromQueryTool(event.toolName, innerInput)

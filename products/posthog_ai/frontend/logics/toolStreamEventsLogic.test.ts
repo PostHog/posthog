@@ -110,4 +110,77 @@ describe('toolStreamEventsLogic', () => {
         logic.actions.emitToolEvent(event())
         expect(cb).not.toHaveBeenCalled()
     })
+
+    it('does not transfer a claimed stream to an editor registered after navigation', () => {
+        const originalEditor = jest.fn()
+        const nextEditor = jest.fn()
+        foregroundStreamLogic.actions.setForegroundStream('run-1')
+        logic.actions.registerToolListener('original', {
+            tools: ['create_dashboard'],
+            applyBackTargetId: 'dashboard-1:activation-1',
+            foregroundOnly: true,
+            onEvent: originalEditor,
+        })
+        logic.actions.claimApplyBackTargets('run-1')
+
+        logic.actions.deregisterToolListener('original')
+        logic.actions.registerToolListener('next', {
+            tools: ['create_dashboard'],
+            applyBackTargetId: 'dashboard-2:activation-2',
+            foregroundOnly: true,
+            onEvent: nextEditor,
+        })
+        logic.actions.emitToolEvent(event())
+
+        expect(originalEditor).not.toHaveBeenCalled()
+        expect(nextEditor).not.toHaveBeenCalled()
+    })
+
+    it('fails closed when multiple claimed apply-back targets match the same tool', () => {
+        const firstEditor = jest.fn()
+        const secondEditor = jest.fn()
+        const genericListener = jest.fn()
+        foregroundStreamLogic.actions.setForegroundStream('run-1')
+        logic.actions.registerToolListener('first', {
+            tools: ['create_dashboard'],
+            applyBackTargetId: 'dashboard-1:activation-1',
+            foregroundOnly: true,
+            onEvent: firstEditor,
+        })
+        logic.actions.registerToolListener('second', {
+            tools: ['create_dashboard'],
+            applyBackTargetId: 'dashboard-2:activation-1',
+            foregroundOnly: true,
+            onEvent: secondEditor,
+        })
+        logic.actions.registerToolListener('generic', {
+            tools: ['create_dashboard'],
+            foregroundOnly: true,
+            onEvent: genericListener,
+        })
+        logic.actions.claimApplyBackTargets('run-1')
+        logic.actions.emitToolEvent(event())
+
+        expect(firstEditor).not.toHaveBeenCalled()
+        expect(secondEditor).not.toHaveBeenCalled()
+        expect(genericListener).toHaveBeenCalledTimes(1)
+    })
+
+    it('transfers and releases the claimed targets with the run lifecycle', () => {
+        logic.actions.registerToolListener('target', {
+            tools: ['create_dashboard'],
+            applyBackTargetId: 'dashboard-1:activation-1',
+            onEvent: jest.fn(),
+        })
+        logic.actions.claimApplyBackTargets('draft-1')
+        logic.actions.transferApplyBackTargets('draft-1', 'run-1')
+
+        expect(logic.values.applyBackTargetClaims['draft-1']).toBeUndefined()
+        expect(logic.values.applyBackTargetClaims['run-1']).toEqual([
+            { targetId: 'dashboard-1:activation-1', tools: ['create_dashboard'] },
+        ])
+
+        logic.actions.emitTurnCompleteEvent({ streamKey: 'run-1' })
+        expect(logic.values.applyBackTargetClaims['run-1']).toBeUndefined()
+    })
 })

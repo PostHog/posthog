@@ -8,6 +8,7 @@ import { initKeaTests } from '~/test/init'
 
 import { attachedContextLogic } from '../../api/logics'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
+import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
 
@@ -34,6 +35,7 @@ describe('taskTrackerSceneLogic', () => {
     let logic: ReturnType<typeof taskTrackerSceneLogic.build>
     let createBody: Record<string, any> | null
     let runBody: Record<string, any> | null
+    let toolEvents: ReturnType<typeof toolStreamEventsLogic.build>
 
     beforeEach(() => {
         createBody = null
@@ -51,16 +53,24 @@ describe('taskTrackerSceneLogic', () => {
                 },
                 '/api/projects/:team/tasks/:id/run/': async ({ request }) => {
                     runBody = (await request.json()) as Record<string, any>
-                    return [200, { id: 'new-task' }]
+                    return [200, { id: 'new-task', latest_run: 'run-1' }]
                 },
             },
         })
         initKeaTests()
+        toolEvents = toolStreamEventsLogic()
+        toolEvents.mount()
+        toolEvents.actions.registerToolListener('editor', {
+            tools: ['create_insight'],
+            applyBackTargetId: 'insight-1:activation-1',
+            onEvent: jest.fn(),
+        })
         logic = taskTrackerSceneLogic()
     })
 
     afterEach(() => {
         logic?.unmount()
+        toolEvents?.unmount()
     })
 
     // PostHog AI can run without a repo: a description-only submit must still create and run the task with a
@@ -85,6 +95,11 @@ describe('taskTrackerSceneLogic', () => {
             mode: 'interactive',
             pending_user_message: 'do the thing',
         })
+        const streamKey = logic.values.activeCreation?.streamKey
+        expect(streamKey).not.toBeUndefined()
+        expect(toolEvents.values.applyBackTargetClaims[streamKey!]).toEqual([
+            { targetId: 'insight-1:activation-1', tools: ['create_insight'] },
+        ])
         expect(router.values.location.pathname).toContain('/tasks/new-task')
     })
 

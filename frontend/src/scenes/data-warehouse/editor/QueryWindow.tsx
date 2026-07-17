@@ -114,6 +114,7 @@ export function QueryWindow({
     const canSendRawQuery = !!selectedConnectionId && selectedConnectionSupportsHogQL
     const debouncedMaxToolQueryInput = useDebouncedValue(queryInput, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const debouncedMaxToolSourceQuery = useDebouncedValue(sourceQuery, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
+    const applyBackActive = mode === SQLEditorMode.Embedded && showQueryPanel
     const executeSqlToolStateRef = useRef({ queryInput, sourceQuery })
     executeSqlToolStateRef.current = { queryInput, sourceQuery }
     const executeSqlToolContext = useMemo(
@@ -123,7 +124,7 @@ export function QueryWindow({
 
     useAttachedContext(
         [{ type: 'sql_editor_state', value: JSON.stringify(executeSqlToolContext), label: 'Current query' }],
-        { active: mode === SQLEditorMode.Embedded && showQueryPanel }
+        { active: applyBackActive }
     )
 
     const executeSqlToolContextDescription = useMemo(
@@ -177,9 +178,10 @@ export function QueryWindow({
     // that callback verbatim so the diff-mode gate and filters handling stay shared with legacy.
     useMcpToolApplyBack({
         tools: ['execute-sql'],
-        applyOn: 'tool_call_completed',
+        targetKey: `sql:${tabId}`,
+        active: applyBackActive,
         onApply: (_event, { innerInput }) => {
-            if (!innerInput) {
+            if (!applyBackActive || !innerInput) {
                 return
             }
             handleExecuteSqlToolOutput(innerInput)
