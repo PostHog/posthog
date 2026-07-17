@@ -8,6 +8,7 @@ import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { formatPrompt } from '@/lib/utils'
 import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
+import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
 import { ExecHelpCatalog } from '@/tools/exec-help'
@@ -137,11 +138,11 @@ export class InstructionsBuilder {
     }
 
     formatExecuteSqlDescription(toolFeatureFlags?: EvaluatedFlags): string {
-        // Metric discovery is spliced into the same section so a flag-off render stays
+        // Data-catalog discovery is spliced into the same section so a flag-off render stays
         // byte-identical to the un-gated prompt (no stray placeholder gaps).
-        const metricDiscoveryEnabled = toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true
-        const schemaDiscovery = metricDiscoveryEnabled
-            ? `${SCHEMA_DISCOVERY.trim()}\n\n${METRIC_DISCOVERY.trim()}`
+        const dataCatalogEnabled = toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true
+        const schemaDiscovery = dataCatalogEnabled
+            ? `${SCHEMA_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}\n\n${METRIC_DISCOVERY.trim()}`
             : SCHEMA_DISCOVERY.trim()
         return formatPrompt(EXECUTE_SQL_PROMPT, {
             guidelines: this.guidelines.trim(),
