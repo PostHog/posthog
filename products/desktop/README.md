@@ -69,4 +69,14 @@ On master pushes and manual dispatches, the macOS build is signed with the PostH
 If the secrets are absent the non-PR build degrades to unsigned rather than failing.
 The Windows installer is always unsigned for now (no Windows code-signing cert), so SmartScreen warns on first run: "More info" › "Run anyway".
 
+## Fork: daily sync and releases
+
+Actual desktop releases are published from the fork `mariusandra/posthog`, where the `desktop` branch (the fork's default branch) is upstream master plus the desktop work.
+The upstream PostHog/posthog repo intentionally carries no desktop release secrets and publishes nothing; the two workflows below are gated to the fork (`if: github.repository == 'mariusandra/posthog'`) and are inert upstream.
+
+- `desktop-sync.yml` merges upstream master into `desktop` daily; Claude resolves conflicts and merge fallout following the `syncing-desktop-fork` skill (`.agents/skills/syncing-desktop-fork/SKILL.md`). Only desktop tests (and frontend typecheck when relevant) gate the sync — backend and e2e suites are deliberately not run on the fork.
+- `desktop-release.yml` runs after each sync (and on pushes to `desktop`): if `version` in `products/desktop/package.json` has no `desktop-v<version>` release yet, it builds the signed + notarized macOS DMG and the Windows installer on GitHub-hosted runners and publishes them as a GitHub release on the fork. Bumping the version field is the release trigger.
+
+Fork setup (one-time): enable Actions on the fork, enable the two workflows (scheduled workflows in forks start disabled), and add the repository secrets `ANTHROPIC_API_KEY` (sync), `APPLE_CODESIGN_CERT_BASE64`, `APPLE_CODESIGN_CERT_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` (release signing + notarization).
+
 See [TODO.md](./TODO.md) for what's done and what's next.

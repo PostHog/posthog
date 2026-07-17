@@ -1,0 +1,114 @@
+name: Desktop Fork Sync
+
+# Fork-only (mariusandra/posthog): merges PostHog/posthog master into the
+# `desktop` branch daily, with Claude resolving conflicts and merge fallout
+# per .agents/skills/syncing-desktop-fork/SKILL.md. Inert in PostHog/posthog.
+#
+# Fork setup: enable Actions on the fork, enable this (scheduled workflows in
+# forks start disabled), and add the ANTHROPIC_API_KEY secret.
+
+on:
+    schedule:
+        - cron: '23 5 * * *'
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}
+    cancel-in-progress: false
+
+jobs:
+    sync:
+        name: Merge upstream master into desktop
+        if: github.repository == 'mariusandra/posthog'
+        runs-on: ubuntu-latest
+        timeout-minutes: 120
+        permissions:
+            contents: write
+            # to dispatch desktop-release.yml (a GITHUB_TOKEN push can't trigger it)
+            actions: write
+        steps:
+            # Merging needs history; blobs fetch lazily as the merge touches them
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: desktop
+                  fetch-depth: 0
+                  filter: blob:none
+
+            - name: Merge upstream master
+              id: merge
+              run: |
+                  git config user.name "github-actions[bot]"
+                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                  git remote add upstream https://github.com/PostHog/posthog.git
+                  git fetch --filter=blob:none upstream master
+                  if git merge-base --is-ancestor upstream/master HEAD; then
+                      echo "Already up to date with upstream master"
+                      echo "state=up-to-date" >> "$GITHUB_OUTPUT"
+                  elif git merge --no-edit upstream/master; then
+                      echo "state=merged" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "state=conflicts" >> "$GITHUB_OUTPUT"
+                  fi
+
+            # Node comes from setup-node inside the composite; skip the pnpm
+            # install here when conflicted — manifests may hold conflict markers,
+            # Claude installs after resolving instead.
+            - name: Install desktop dependencies
+              if: steps.merge.outputs.state == 'merged'
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --filter=@posthog/desktop
+
+            - name: Set up Node.js (conflicted merge)
+              if: steps.merge.outputs.state == 'conflicts'
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ github.token }}
+
+            - name: Desktop tests
+              id: tests
+              if: steps.merge.outputs.state == 'merged'
+              continue-on-error: true
+              run: pnpm --filter=@posthog/desktop test
+
+            - name: Resolve with Claude
+              if: steps.merge.outputs.state == 'conflicts' || steps.tests.outcome == 'failure'
+              env:
+                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  MERGE_STATE: ${{ steps.merge.outputs.state }}
+              run: |
+                  npm install -g @anthropic-ai/claude-code pnpm
+                  claude -p "You are running inside the desktop-sync workflow on the mariusandra/posthog fork. Merge state: $MERGE_STATE (either an in-progress conflicted merge of upstream/master, or a completed merge whose desktop tests fail). Read .agents/skills/syncing-desktop-fork/SKILL.md and follow it: finish the merge, fix what the merge broke, and leave the working tree committed and clean. Do not push." \
+                      --dangerously-skip-permissions
+
+            - name: Verify merge concluded
+              run: |
+                  if [ -f .git/MERGE_HEAD ]; then
+                      echo "::error::Merge is still in progress"
+                      exit 1
+                  fi
+                  git diff --check
+                  if [ -n "$(git status --porcelain)" ]; then
+                      echo "::error::Working tree is not clean"
+                      git status --porcelain
+                      exit 1
+                  fi
+
+            - name: Desktop tests (final gate)
+              if: steps.merge.outputs.state != 'up-to-date'
+              run: |
+                  pnpm install --frozen-lockfile --filter=@posthog/desktop
+                  pnpm --filter=@posthog/desktop test
+
+            - name: Push
+              if: steps.merge.outputs.state != 'up-to-date'
+              run: git push origin HEAD:desktop
+
+            # A GITHUB_TOKEN push doesn't fire push-triggered workflows, so kick
+            # the release check explicitly; it no-ops unless the version changed
+            - name: Dispatch release check
+              if: steps.merge.outputs.state != 'up-to-date'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: gh workflow run desktop-release.yml --ref desktop --repo "$GITHUB_REPOSITORY"
