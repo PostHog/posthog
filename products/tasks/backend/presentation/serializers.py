@@ -347,6 +347,11 @@ class TaskSerializer(DataclassSerializer):
 
     latest_run = TaskRunDetailSerializer(allow_null=True, required=False, help_text="Latest run details for this task")
     created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+    runtime = serializers.ChoiceField(
+        choices=tasks_facade.TaskRuntime.choices,
+        read_only=True,
+        help_text="Agent protocol and harness used for this task's runs.",
+    )
 
     class Meta:
         dataclass = TaskDetailDTO
@@ -358,6 +363,7 @@ class TaskSerializer(DataclassSerializer):
             "title_manually_set",
             "description",
             "origin_product",
+            "runtime",
             "repository",
             "github_integration",
             "github_user_integration",
@@ -617,6 +623,9 @@ class TaskWriteSerializer(serializers.Serializer):
         return normalized
 
     def validate(self, attrs: dict) -> dict:
+        if "runtime" in self.initial_data and "runtime" not in self.fields:
+            raise serializers.ValidationError({"runtime": "Runtime cannot be changed after task creation."})
+
         rel = attrs.get("signal_report_task_relationship")
         if rel is not None:
             if not attrs.get("signal_report"):
@@ -635,6 +644,14 @@ class TaskWriteSerializer(serializers.Serializer):
                 {"github_user_integration": "Signal report tasks use the team GitHub integration."}
             )
         return attrs
+
+
+class TaskCreateSerializer(TaskWriteSerializer):
+    runtime = serializers.ChoiceField(
+        choices=tasks_facade.TaskRuntime.choices,
+        required=False,
+        help_text="Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.",
+    )
 
 
 class TaskRunSetOutputRequestSerializer(serializers.Serializer):

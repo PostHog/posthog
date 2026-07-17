@@ -746,6 +746,9 @@ importers:
       '@posthog/products-product-analytics':
         specifier: workspace:*
         version: link:../products/product_analytics
+      '@posthog/products-pulse':
+        specifier: workspace:*
+        version: link:../products/pulse
       '@posthog/products-replay':
         specifier: workspace:*
         version: link:../products/replay
@@ -4036,7 +4039,33 @@ importers:
 
   products/product_tours: {}
 
-  products/pulse: {}
+  products/pulse:
+    dependencies:
+      '@posthog/icons':
+        specifier: 'catalog:'
+        version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.6(react@18.3.1)
+      kea-forms:
+        specifier: 'catalog:'
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
+      kea-loaders:
+        specifier: 'catalog:'
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
+      posthog-js:
+        specifier: 'catalog:'
+        version: 1.404.0
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+    devDependencies:
+      kea-test-utils:
+        specifier: 'catalog:'
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/reminders: {}
 

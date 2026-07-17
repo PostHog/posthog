@@ -29,12 +29,14 @@ def _testcase(
     duration: float = 1.0,
     start: datetime | None = None,
     name: str = "t",
+    file: str = "m.py",
 ) -> report_test_timings.TestCase:  # type: ignore[name-defined]
     test_start = start if start is not None else datetime(2026, 5, 4, 10, 0, 0, tzinfo=UTC)
     return report_test_timings.TestCase(
         nodeid=f"m::{name}",
         classname="m",
         name=name,
+        file=file,
         selector=f"m.py::{name}",
         duration_seconds=duration,
         start=test_start,
@@ -343,6 +345,10 @@ def _noop_use_span(span: _FakeSpan, end_on_exit: bool = False) -> Iterator[None]
     yield
 
 
+def _no_owner(file: str) -> str:
+    return ""
+
+
 def test_emit_shard_span_uses_stored_test_windows(monkeypatch: pytest.MonkeyPatch) -> None:
     start = datetime(2026, 5, 4, 10, 0, 0, tzinfo=UTC)
     shard = report_test_timings.Shard(
@@ -371,7 +377,7 @@ def test_emit_shard_span_uses_stored_test_windows(monkeypatch: pytest.MonkeyPatc
     tracer = _FakeTracer()
     monkeypatch.setattr(report_test_timings.trace, "use_span", _noop_use_span)
 
-    has_error = report_test_timings._emit_shard_span(tracer, shard, "Backend CI / core (1)")
+    has_error = report_test_timings._emit_shard_span(tracer, shard, "Backend CI / core (1)", _no_owner)
 
     assert has_error is True
     assert [span.name for span in tracer.spans] == ["Backend CI / core (1)", "m::slow", "m::fail"]
@@ -408,7 +414,7 @@ def test_emit_shard_span_emits_setup_span_when_setup_seconds_positive(monkeypatc
     tracer = _FakeTracer()
     monkeypatch.setattr(report_test_timings.trace, "use_span", _noop_use_span)
 
-    report_test_timings._emit_shard_span(tracer, shard, "Backend CI / core (1)")
+    report_test_timings._emit_shard_span(tracer, shard, "Backend CI / core (1)", _no_owner)
 
     assert [span.name for span in tracer.spans] == ["Backend CI / core (1)", "setup", "m::slow"]
     setup_span = tracer.spans[1]
@@ -416,6 +422,38 @@ def test_emit_shard_span_emits_setup_span_when_setup_seconds_positive(monkeypatc
     assert setup_span.end_time == report_test_timings._to_ns(start + timedelta(seconds=3.5))
     assert setup_span.attributes["shard.setup_seconds"] == pytest.approx(3.5)
     assert tracer.spans[0].attributes["shard.setup_seconds"] == pytest.approx(3.5)
+
+
+# `test.owner_team` is the contract the team CI health rollup reads: an unstamped span
+# aggregates as `unowned`, so an unowned file must stay unstamped rather than carry an empty one.
+def test_emit_shard_span_stamps_owner_team_only_for_owned_files(monkeypatch: pytest.MonkeyPatch) -> None:
+    start = datetime(2026, 5, 4, 10, 0, 0, tzinfo=UTC)
+    shard = report_test_timings.Shard(
+        info=report_test_timings.ArtifactInfo(
+            path=Path("junit-results-backend-core-1"),
+            suite="backend",
+            segment="core",
+            group=1,
+            total=1,
+        ),
+        junit_filename="junit-core.xml",
+        start=start,
+        end=start + timedelta(seconds=10),
+        testcase_seconds=2.0,
+        overhead_seconds=8.0,
+        tests=[
+            _testcase(name="owned", file="products/x/test_a.py"),
+            _testcase(name="unowned", file="stray/test_b.py", start=start + timedelta(seconds=1)),
+        ],
+    )
+    tracer = _FakeTracer()
+    monkeypatch.setattr(report_test_timings.trace, "use_span", _noop_use_span)
+
+    owners = {"products/x/test_a.py": "team-devex"}
+    report_test_timings._emit_shard_span(tracer, shard, "Backend CI / core (1)", lambda f: owners.get(f, ""))
+
+    assert tracer.spans[1].attributes["test.owner_team"] == "team-devex"
+    assert "test.owner_team" not in tracer.spans[2].attributes
 
 
 # ---------- workflow context ----------

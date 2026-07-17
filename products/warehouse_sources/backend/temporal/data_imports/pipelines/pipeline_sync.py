@@ -22,7 +22,10 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    mark_initial_sync_complete,
+)
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
@@ -120,21 +123,7 @@ async def update_last_synced_at(job_id: str, schema_id: str, team_id: int) -> No
 
 
 async def set_initial_sync_complete(schema_id: str, team_id: int) -> None:
-    @database_sync_to_async_pool
-    def _update():
-        schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
-        if not schema.initial_sync_complete:
-            schema.initial_sync_complete = True
-            update_fields = ["initial_sync_complete"]
-
-            # CDC snapshot → streaming transition
-            if schema.is_cdc and schema.cdc_mode == "snapshot":
-                schema.sync_type_config["cdc_mode"] = "streaming"
-                update_fields.append("sync_type_config")
-
-            schema.save(update_fields=update_fields)
-
-    await _update()
+    await database_sync_to_async_pool(mark_initial_sync_complete)(schema_id=schema_id, team_id=team_id)
 
 
 async def validate_schema_and_update_table(
