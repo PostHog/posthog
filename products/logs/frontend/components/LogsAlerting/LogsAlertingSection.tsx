@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
+import { AlertEditorModalFooter, AlertEditorModalHeader } from 'products/alerts/frontend/components/AlertEditorModal'
 import {
     LogsAlertConfigurationApi,
     LogsAlertConfigurationStateEnumApi,
@@ -89,10 +90,10 @@ function LogsAlertModalContent({ editingAlert }: { editingAlert: LogsAlertConfig
                     enableFormOnSubmit
                     className="LemonModal__layout"
                 >
-                    <LemonModal.Header>
-                        <h3>{editingAlert ? 'Edit alert' : 'New alert'}</h3>
-                        <p className="text-muted text-sm m-0">Alerts are checked every 5 minutes.</p>
-                    </LemonModal.Header>
+                    <AlertEditorModalHeader
+                        title={editingAlert ? 'Edit alert' : 'New alert'}
+                        description="Alerts are checked every 5 minutes."
+                    />
                     <LemonModal.Content>
                         {isBroken && editingAlert && (
                             <LemonBanner
@@ -117,28 +118,22 @@ function LogsAlertModalContent({ editingAlert }: { editingAlert: LogsAlertConfig
                         )}
                         <LogsAlertForm />
                     </LemonModal.Content>
-                    <LemonModal.Footer>
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconTestTube />}
-                            onClick={openSimulationPanel}
-                            tooltip="Run this alert against historical data to see when it would have fired"
-                        >
-                            Simulate
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            htmlType="submit"
-                            loading={isAlertFormSubmitting}
-                            disabledReason={
-                                editingAlert && !alertFormChanged && !hasPendingNotifications
-                                    ? 'No changes to save'
-                                    : undefined
-                            }
-                        >
-                            {editingAlert ? 'Save' : 'Create alert'}
-                        </LemonButton>
-                    </LemonModal.Footer>
+                    <AlertEditorModalFooter
+                        isEditing={editingAlert !== null}
+                        isSubmitting={isAlertFormSubmitting}
+                        hasChanges={alertFormChanged}
+                        hasPendingChanges={hasPendingNotifications}
+                        leadingActions={
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconTestTube />}
+                                onClick={openSimulationPanel}
+                                tooltip="Run this alert against historical data to see when it would have fired"
+                            >
+                                Simulate
+                            </LemonButton>
+                        }
+                    />
                 </Form>
 
                 <LemonModal

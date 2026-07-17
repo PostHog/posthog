@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useCallback, useMemo } from 'react'
 
-import { IconCalendar, IconChevronLeft } from '@posthog/icons'
+import { IconCalendar } from '@posthog/icons'
 import { LemonCheckbox, LemonInput, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
@@ -22,6 +22,7 @@ import { AlertCalculationInterval, AlertState } from '~/queries/schema/schema-ge
 import { isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
 import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
+import { AlertEditorModalFooter, AlertEditorModalHeader } from 'products/alerts/frontend/components/AlertEditorModal'
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/editAlertModal/AlertAdvancedOptionsSection'
 import { AlertDefinitionSection } from 'products/alerts/frontend/components/editAlertModal/AlertDefinitionSection'
 import { AlertIntervalRow } from 'products/alerts/frontend/components/editAlertModal/AlertIntervalRow'
@@ -228,13 +229,10 @@ export function EditAlertModal({
                     enableFormOnSubmit
                     className="LemonModal__layout"
                 >
-                    <LemonModal.Header>
-                        <div className="flex items-center gap-2">
-                            <LemonButton icon={<IconChevronLeft />} onClick={handleClose} size="xsmall" />
-
-                            <h3>{creatingNewAlert ? 'New' : 'Edit '} Alert</h3>
-                        </div>
-                    </LemonModal.Header>
+                    <AlertEditorModalHeader
+                        title={creatingNewAlert ? 'New alert' : 'Edit alert'}
+                        onBack={handleClose}
+                    />
 
                     <LemonModal.Content>
                         <div className="deprecated-space-y-6">
@@ -346,8 +344,13 @@ export function EditAlertModal({
                         ) : null}
                     </LemonModal.Content>
 
-                    <LemonModal.Footer>
-                        <div className="flex-1">
+                    <AlertEditorModalFooter
+                        isEditing={!creatingNewAlert}
+                        isSubmitting={isAlertFormSubmitting}
+                        hasChanges={alertFormChanged}
+                        hasPendingChanges={hasPendingNotifications}
+                        onSubmitAttempted={setAlertFormSubmitAttempted}
+                        leadingActions={
                             <div className="flex gap-2">
                                 {!creatingNewAlert ? (
                                     <LemonButton type="secondary" status="danger" onClick={deleteAlert}>
@@ -371,22 +374,8 @@ export function EditAlertModal({
                                     </LemonButton>
                                 ) : null}
                             </div>
-                        </div>
-                        <LemonButton
-                            type="primary"
-                            htmlType="submit"
-                            loading={isAlertFormSubmitting}
-                            disabledReason={
-                                !creatingNewAlert &&
-                                !alertFormChanged &&
-                                !hasPendingNotifications &&
-                                'No changes to save'
-                            }
-                            onClick={() => setAlertFormSubmitAttempted()}
-                        >
-                            {creatingNewAlert ? 'Create alert' : 'Save'}
-                        </LemonButton>
-                    </LemonModal.Footer>
+                        }
+                    />
                 </Form>
             )}
         </LemonModal>
