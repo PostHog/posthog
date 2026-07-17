@@ -136,15 +136,16 @@ are common LLM mistakes that HogQL rejects:
   The pattern `WHERE event = (SELECT … FROM (WITH cte AS (…) SELECT …))` fails to parse. If you
   reach for a CTE, rewrite the whole query as one flat SELECT with conditional aggregation
   (`countIf`/`sumIf`/`uniqIf`) — see the reference patterns below.
-- Do NOT use window functions (`ROW_NUMBER() OVER`, `LAG`, `LEAD`, `RANK`). Use `argMax`/`argMin`
-  or `ORDER BY … LIMIT N` instead.
+- Window functions are supported — use HogQL's names: `lagInFrame`/`leadInFrame` (NOT `LAG`/`LEAD`)
+  and `row_number() OVER (…)` / `rank() OVER (…)`. For a single winner per group `argMax`/`argMin` or
+  `ORDER BY … LIMIT N` are simpler and cheaper, so prefer them unless you genuinely need per-row ranking.
 - Do NOT use LATERAL joins, recursive CTEs, `UNNEST`, or `ARRAY JOIN` on a subquery.
-- Do NOT use JOINs of any kind, including self-joins on `event`. The `events` table is
-  self-sufficient: express set-differences ("events with no data") and cross-segment comparisons
-  with conditional aggregation over a wider time window, never a JOIN. ClickHouse rejects HogQL's
-  null-safe join keys with "Cannot determine join keys", so a JOIN will fail at execution time.
-  (Person, session, and group/account data IS still available without a JOIN — see "Joined data
-  available" below.)
+- Prefer NO join: person, session, and group/account data is reachable via dotted virtual-table access
+  (see "Joined data available" below), and cross-segment comparisons are usually cleaner as conditional
+  aggregation over a wider window. JOINs are supported when you truly need one, but NEVER join on
+  `person_id` (e.g. `events e JOIN persons p ON e.person_id = p.id`) — that fails at execution with a
+  join-key resolution error. To relate rows across events, use `WHERE … IN (SELECT … FROM events …)`
+  or the `person.` virtual table instead of a `person_id` equality join.
 - `properties` (and `person.properties`) is a JSON string column, NOT a Map. Map functions
   (`mapKeys`, `mapValues`, `mapContains`) fail at execution. To enumerate an event's property KEYS
   use `JSONExtractKeys(properties)` — see the property-keys audit pattern below.
@@ -159,7 +160,8 @@ are common LLM mistakes that HogQL rejects:
 - Conditional aggregation: `countIf(cond)`, `uniqIf(field, cond)`, `sumIf(field, cond)`,
   `avgIf(field, cond)`. Combine these for comparisons across windows in one query.
 - Top-N within a group: `argMax(field, metric)` for one winner, or `groupArray(field)` +
-  `arraySlice(arraySort(…), 1, N)` for many. Never `ROW_NUMBER() OVER (PARTITION BY …)`.
+  `arraySlice(arraySort(…), 1, N)` for many — both cheaper than a window. `row_number() OVER (PARTITION
+  BY …)` also works if you specifically need per-row ranking.
 - String literals use single quotes; identifiers are unquoted.
 
 Reference patterns (use as templates). Write the placeholder tokens verbatim; the system substitutes
@@ -274,7 +276,7 @@ Count distinct groups/accounts (the account itself, via the raw `$`-prefixed key
 First-EVER occurrence of an event per user, landing in the window (e.g. "users whose first ever
 'Dashboard created' falls in the window", broken down by a property of that first event). "First ever" needs each
 user's earliest event across ALL history, so compute it in a FROM-subquery, then filter to the
-window — never approximate it with a flat `countIf`, and never use a JOIN or window function:
+window — never approximate it with a flat `countIf`. A FROM-subquery is the simplest tool here:
   SELECT
     first_template AS template,
     count() AS first_time_users
@@ -366,10 +368,12 @@ rewrite MUST follow the same HogQL syntax constraints used by the planner:
   `argMin(...)`, then filters to the window). Do NOT nest `WITH … AS (…)` CTEs inside subqueries,
   FROM clauses, or scalar/IN comparisons. If the original used a CTE for cross-window comparison,
   rewrite it with conditional aggregation (`countIf(cond)`, `uniqIf(field, cond)`, `sumIf(...)`).
-- No window functions (`ROW_NUMBER`, `LAG`, `LEAD`, `RANK`). No LATERAL joins, recursive CTEs,
-  UNNEST, or ARRAY JOIN on subqueries.
-- No JOINs of any kind, including self-joins on `event`. Use conditional aggregation instead
-  (ClickHouse rejects HogQL's null-safe join keys).
+- Window functions are supported, but use HogQL's names — `lagInFrame`/`leadInFrame` (NOT `LAG`/`LEAD`)
+  and `row_number()`/`rank() OVER (…)`; if the error is a wrong-name window function, fix the name.
+  No LATERAL joins, recursive CTEs, UNNEST, or ARRAY JOIN on subqueries.
+- Prefer conditional aggregation or the `person.`/`group_<index>.`/`session.` virtual tables over a
+  JOIN. JOINs are allowed, but NEVER join on `person_id` — it fails with a join-key resolution error;
+  use `WHERE … IN (SELECT … FROM events …)` instead.
 - `properties` (and `person.properties`) is a JSON string column, NOT a Map, so Map functions
   (`mapKeys`, `mapValues`, `mapContains`) fail at execution. To enumerate property keys, replace
   `mapKeys(properties)` with `JSONExtractKeys(properties)` (expand rows with
