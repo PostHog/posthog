@@ -1209,7 +1209,7 @@ impl CohortStreamEventsConsumer {
             *prev_paused_target = target;
         }
         gauge!(PARTITIONS_PAUSED).set(backpressure.held_partition_count() as f64);
-        gauge!(PENDING_HELD_EVENTS).set(backpressure.held_event_count() as f64);
+        gauge!(PENDING_HELD_EVENTS).set(backpressure.held_message_count() as f64);
 
         if outcome.transport_error {
             tokio::time::sleep(RECV_ERROR_BACKOFF).await;

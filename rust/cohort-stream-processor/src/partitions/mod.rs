@@ -17,7 +17,7 @@ pub mod watermarks;
 
 pub use cohort_core::partitioner;
 
-pub use backpressure::Backpressure;
+pub use backpressure::{Backpressure, PartitionHoldover};
 pub use follower::{Follower, FollowerSet, PartitionMirror};
 pub use intake::{Admission, MeteredReceiver, PartitionIntake};
 pub use offset_tracker::{MarkOutcome, OffsetTracker};

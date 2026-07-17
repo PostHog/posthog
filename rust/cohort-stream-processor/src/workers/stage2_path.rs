@@ -20,7 +20,6 @@ use crate::producer::{CohortMembershipChange, MembershipStatus};
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::person_record::PersonRecord;
 use crate::stage1::state::{Stage1State, StateVariant, StatefulRecord};
-use crate::stage1::transition::LeafTransition;
 use crate::stage2::evaluator::{evaluate_tree, leaf_membership};
 use crate::stage2::state::Stage2State;
 use crate::stage2::CohortEligibility;
@@ -28,26 +27,25 @@ use crate::store::{
     BehavioralKey, PersonRecordKey, ReadLane, Stage2Key, StagedBatch, StoreError, StoreHandle,
 };
 
-/// `lane` is the read lane every recompute read runs on: `Event` for the fold/sweep/merge/cascade
-/// callers, `Maintenance` for the seed path so backfill recomposition never contends with live
-/// ingestion reads.
+/// `affected_leaves` is the touched `(leaf, person)` set — callers with real transitions map them
+/// down; the seed path passes every leaf a tile touched (flipped or not) so a replay recomposes
+/// against a possibly-stale bit. `lane` is the read lane every recompute read runs on: `Event` for
+/// the fold/sweep/merge/cascade callers, `Maintenance` for the seed path so backfill recomposition
+/// never contends with live ingestion reads.
 pub async fn compose_stage2(
     partition_id: u16,
     handle: &StoreHandle,
     filters: &TeamFilters,
-    transitions: &[LeafTransition],
+    affected_leaves: &[(LeafStateKey, Uuid)],
     event_ms: i64,
     last_updated: &str,
     lane: ReadLane,
 ) -> Result<Vec<CohortMembershipChange>, StoreError> {
     let mut affected: BTreeSet<(CohortId, Uuid)> = BTreeSet::new();
-    for transition in transitions {
-        if let Some(cohorts) = filters
-            .by_lsk_to_composable_cohorts
-            .get(&transition.leaf_state_key)
-        {
+    for &(leaf_state_key, person_id) in affected_leaves {
+        if let Some(cohorts) = filters.by_lsk_to_composable_cohorts.get(&leaf_state_key) {
             for &cohort_id in cohorts {
-                affected.insert((cohort_id, transition.person_id));
+                affected.insert((cohort_id, person_id));
             }
         }
     }
@@ -457,7 +455,6 @@ mod tests {
     use crate::filters::{CohortId, TeamFiltersBuilder, TeamId};
     use crate::stage1::person_record::{MatchedSet, PersonRecord};
     use crate::stage1::state::AppliedOffsets;
-    use crate::stage1::transition::TransitionKind;
     use crate::store::{
         Behavioral, CohortStore, OffloadConfig, OffloadMode, PersonRecordKey, PersonRecords,
         StoreConfig,
@@ -577,21 +574,6 @@ mod tests {
             .unwrap();
     }
 
-    fn transition(
-        lsk: LeafStateKey,
-        who: Uuid,
-        hash: [u8; 16],
-        kind: TransitionKind,
-    ) -> LeafTransition {
-        LeafTransition {
-            team_id: TeamId(TEAM as i32),
-            leaf_state_key: lsk,
-            person_id: who,
-            condition_hash: hash,
-            kind,
-        }
-    }
-
     fn stage2_bit(store: &CohortStore, cohort: u64, who: Uuid) -> Option<bool> {
         let key = Stage2Key {
             partition_id: PARTITION,
@@ -626,7 +608,7 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            &[(beh_lsk, alice)],
             EVENT_MS,
             TS,
             ReadLane::Event,
@@ -661,7 +643,7 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            &[(beh_lsk, alice)],
             EVENT_MS,
             TS,
             ReadLane::Event,
@@ -692,7 +674,7 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            &[(beh_lsk, alice)],
             EVENT_MS,
             TS,
             ReadLane::Event,
@@ -711,12 +693,7 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(
-                per_lsk,
-                alice,
-                PERSON_HASH,
-                TransitionKind::Entered,
-            )],
+            &[(per_lsk, alice)],
             EVENT_MS,
             TS,
             ReadLane::Event,
@@ -741,7 +718,7 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            &[(beh_lsk, alice)],
             EVENT_MS,
             TS,
             ReadLane::Event,
@@ -756,12 +733,7 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(
-                per_lsk,
-                alice,
-                PERSON_HASH,
-                TransitionKind::Left,
-            )],
+            &[(per_lsk, alice)],
             EVENT_MS,
             TS,
             ReadLane::Event,
@@ -790,7 +762,7 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            &[(beh_lsk, alice)],
             EVENT_MS,
             TS,
             ReadLane::Event,
@@ -803,7 +775,7 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            &[(beh_lsk, alice)],
             EVENT_MS,
             TS,
             ReadLane::Event,
@@ -830,10 +802,7 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[
-                transition(lsks[0], alice, HASH, TransitionKind::Entered),
-                transition(lsks[1], alice, HASH, TransitionKind::Entered),
-            ],
+            &[(lsks[0], alice), (lsks[1], alice)],
             EVENT_MS,
             TS,
             ReadLane::Event,
@@ -862,7 +831,7 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            &[(beh_lsk, alice)],
             EVENT_MS,
             TS,
             ReadLane::Event,
@@ -884,7 +853,7 @@ mod tests {
             PARTITION,
             &handle(&store2),
             &filters,
-            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            &[(beh_lsk, alice)],
             EVENT_MS,
             TS,
             ReadLane::Event,
@@ -909,7 +878,7 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            &[(beh_lsk, alice)],
             EVENT_MS,
             TS,
             ReadLane::Event,
@@ -944,7 +913,7 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            &[(beh_lsk, alice)],
             EVENT_MS,
             TS,
             ReadLane::Event,
@@ -967,7 +936,7 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            &[(beh_lsk, alice)],
             EVENT_MS,
             TS,
             ReadLane::Event,
@@ -982,12 +951,7 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(
-                per_lsk,
-                alice,
-                PERSON_HASH,
-                TransitionKind::Entered,
-            )],
+            &[(per_lsk, alice)],
             EVENT_MS,
             TS,
             ReadLane::Event,
@@ -1054,12 +1018,7 @@ mod tests {
             PARTITION,
             handle,
             filters,
-            &[transition(
-                per_lsk,
-                who,
-                PERSON_HASH,
-                TransitionKind::Entered,
-            )],
+            &[(per_lsk, who)],
             EVENT_MS,
             TS,
             ReadLane::Event,

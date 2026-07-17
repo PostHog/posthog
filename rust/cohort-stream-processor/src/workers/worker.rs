@@ -35,6 +35,7 @@ use crate::producer::{
     map_transition, now_last_updated, CohortMembershipChange, MembershipSink, MembershipStatus,
     OutputBuffer,
 };
+use crate::stage1::key::LeafStateKey;
 use crate::stage1::state::{StateVariant, StatefulRecord};
 use crate::stage1::transition::{LeafTransition, TransitionKind};
 use crate::store::{Behavioral, BehavioralKey, ReadLane, StagedBatch, StoreHandle};
@@ -599,7 +600,7 @@ async fn handle_event(
                 partition_id,
                 handle,
                 filters,
-                &outcome.transitions,
+                &affected_leaves(&outcome.transitions),
                 outcome.event_ms,
                 last_updated,
                 ReadLane::Event,
@@ -653,6 +654,7 @@ async fn redirect_for_tombstone<'a>(
         TeamId(event.team_id),
         person_id,
         partition_count,
+        ReadLane::Event,
     )
     .await
     {
@@ -849,7 +851,7 @@ async fn handle_sweep(
             partition_id,
             handle,
             filters,
-            transitions,
+            &affected_leaves(transitions),
             due_before_ms,
             last_updated,
             ReadLane::Event,
@@ -964,6 +966,14 @@ fn reschedule_team(
             queue.schedule(key, deadline);
         }
     }
+}
+
+/// The `(leaf, person)` pairs [`compose_stage2`] recomputes for, from real transitions.
+pub fn affected_leaves(transitions: &[LeafTransition]) -> Vec<(LeafStateKey, Uuid)> {
+    transitions
+        .iter()
+        .map(|transition| (transition.leaf_state_key, transition.person_id))
+        .collect()
 }
 
 pub(crate) fn transition_metric_label(

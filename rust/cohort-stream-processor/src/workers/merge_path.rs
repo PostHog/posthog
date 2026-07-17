@@ -37,7 +37,7 @@ use crate::store::{BehavioralKey, PendingTransferKey, ReadLane, StoreHandle};
 use crate::sweep::EvictionQueue;
 use crate::workers::stage2_path::compose_stage2;
 use crate::workers::worker::{
-    first_cascades, produce_cascades, produce_membership, transition_metric_label,
+    affected_leaves, first_cascades, produce_cascades, produce_membership, transition_metric_label,
 };
 
 /// Inline bounded backoff for the transfer produce.
@@ -649,7 +649,7 @@ async fn produce_merge_transitions(
         partition_id,
         handle,
         filters,
-        transitions,
+        &affected_leaves(transitions),
         merged_at_ms,
         last_updated,
         ReadLane::Event,

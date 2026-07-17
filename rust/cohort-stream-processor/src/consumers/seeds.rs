@@ -30,6 +30,7 @@ use crate::observability::metrics::{
     COHORT_STREAM_SEEDS_CONSUME_BATCH_SIZE, COHORT_STREAM_SEED_DESERIALIZE_ERRORS,
     LIVE_WATERMARK_AGE_MS, SEED_FENCED_PARTITIONS, SEED_FENCE_DEFICIT_MS,
 };
+use crate::partitions::backpressure::PartitionHoldover;
 use crate::partitions::pause::PartitionPauser;
 use crate::partitions::rebalance::CohortConsumerContext;
 use crate::partitions::shuffle_message::ShuffleMessage;
@@ -47,7 +48,8 @@ const PROBE_FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 pub enum SeedSkipReason {
     /// A kind this consumer does not handle (e.g. a `reconcile` control tile).
     UnknownKind,
-    /// A known kind at a newer schema version — data for a newer consumer.
+    /// A known kind at a newer schema version. The skip commits and never replays, so a rollout
+    /// must upgrade this consumer before any seeder emits a new schema version.
     UnsupportedSchema,
     /// Empty or undecodable payload: deterministic bytes that would fail identically on every
     /// redelivery, so halting would wedge the partition forever.
@@ -183,48 +185,17 @@ pub(crate) fn split_at_fence(
     split
 }
 
-/// Per-partition holdover of fence-closed or backpressured seeds. Mirrors
-/// [`Backpressure`](crate::partitions::backpressure::Backpressure): a present entry is always
-/// non-empty, so `held_partitions()` is exactly the paused target.
-#[derive(Debug, Default)]
-struct SeedHoldover {
-    pending: HashMap<i32, Vec<ConsumedSeed>>,
-}
+/// Per-partition holdover of fence-closed or backpressured seeds — the seed consumer's
+/// instantiation of the shared holdover.
+type SeedHoldover = PartitionHoldover<ConsumedSeed>;
 
-impl SeedHoldover {
-    fn prune_revoked(&mut self, owned: &HashSet<i32>) {
-        self.pending
-            .retain(|partition, _| owned.contains(partition));
-    }
-
-    /// The whole holdover in per-partition FIFO order, emptied; the caller re-absorbs what stays
-    /// held or full.
-    fn take_held(&mut self) -> Vec<ConsumedSeed> {
-        std::mem::take(&mut self.pending)
-            .into_values()
-            .flatten()
-            .collect()
-    }
-
-    fn held_partitions(&self) -> HashSet<i32> {
-        self.pending.keys().copied().collect()
-    }
-
-    fn absorb(&mut self, held: HashMap<i32, Vec<ConsumedSeed>>) {
-        for (partition, mut seeds) in held {
-            if seeds.is_empty() {
-                continue;
-            }
-            self.pending
-                .entry(partition)
-                .or_default()
-                .append(&mut seeds);
-        }
-    }
-
-    fn held_partition_count(&self) -> usize {
-        self.pending.len()
-    }
+/// The whole holdover flattened in per-partition FIFO order, ready for a fence re-check.
+fn drain_held(holdover: &mut SeedHoldover) -> Vec<ConsumedSeed> {
+    holdover
+        .take_held()
+        .into_iter()
+        .flat_map(|(_, seeds)| seeds)
+        .collect()
 }
 
 /// The seed-topic follower consume loop. Assignment arrives via the events group's rebalance
@@ -373,7 +344,7 @@ impl SeedFollowerConsumer {
         // part's channel-full remainder re-absorbs *before* the still-fenced suffix so per-partition
         // FIFO holds.
         let refence = split_at_fence(
-            holdover.take_held(),
+            drain_held(holdover),
             &HashSet::new(),
             self.fence_margin_ms,
             watermark_of,
@@ -641,15 +612,22 @@ fn probe_idle_partitions<C: rdkafka::consumer::ConsumerContext + 'static>(
             .get(&partition)
             .copied()
             .or_else(|| committed.get(&partition).copied());
-        let is_idle = match frontier {
-            Some(next) => next >= high,
-            None => high == low,
-        };
-        if is_idle {
+        if frontier_is_caught_up(frontier, low, high) {
             idle.push(partition);
         }
     }
     idle
+}
+
+/// Whether every retained live message is behind the folded frontier (`frontier` is a
+/// next-to-consume offset, `high` the partition's high watermark). No frontier at all is idle only
+/// for a partition with nothing retained (`high == low`) — anything else stays fenced. This sits on
+/// the fence's fail-open direction: a wrong `true` opens the fence over unfolded live events.
+fn frontier_is_caught_up(frontier: Option<i64>, low: i64, high: i64) -> bool {
+    match frontier {
+        Some(next) => next >= high,
+        None => high == low,
+    }
 }
 
 #[cfg(test)]
@@ -816,7 +794,7 @@ mod tests {
         holdover.prune_revoked(&HashSet::from([1]));
         assert_eq!(holdover.held_partitions(), HashSet::from([1]));
 
-        let taken = holdover.take_held();
+        let taken = drain_held(&mut holdover);
         assert_eq!(
             offsets(&taken),
             vec![10, 11, 12],
@@ -872,6 +850,52 @@ mod tests {
 
         let not_seed = ShuffleMessage::RedrivePendingTransfers;
         assert!(ConsumedSeed::from_message(9, not_seed).is_none());
+    }
+
+    /// The idle classification sits on the fence's fail-open direction: a wrong `true` declares a
+    /// partition with unfolded live events idle and jumps its watermark to "now".
+    #[test]
+    fn frontier_is_caught_up_table() {
+        let cases = [
+            (
+                Some(10),
+                0,
+                10,
+                true,
+                "folded frontier at the high watermark",
+            ),
+            (Some(9), 0, 10, false, "one retained message unfolded"),
+            (
+                Some(11),
+                0,
+                10,
+                true,
+                "frontier past the watermark (post-truncation)",
+            ),
+            (Some(0), 0, 0, true, "empty partition with a zero frontier"),
+            (
+                None,
+                5,
+                5,
+                true,
+                "boot edge: nothing retained, nothing committed",
+            ),
+            (None, 0, 0, true, "boot edge: never-produced partition"),
+            (
+                None,
+                4,
+                10,
+                false,
+                "no frontier with retained messages stays fenced",
+            ),
+        ];
+        for (frontier, low, high, expected, why) in cases {
+            assert_eq!(
+                frontier_is_caught_up(frontier, low, high),
+                expected,
+                "{why}"
+            );
+        }
     }
 
     /// The probe-vs-revoke interleaving: the probe's ownership snapshot went stale during its

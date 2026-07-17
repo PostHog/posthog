@@ -342,10 +342,15 @@ impl StoreHandle {
         .await
     }
 
-    /// Point-read one redirect tombstone (the tombstone-redirect hop is an event-path read).
-    pub async fn get_tombstone(&self, key: &TombstoneKey) -> Result<Option<Vec<u8>>, StoreError> {
+    /// Point-read one redirect tombstone. Lane-parameterized: the event path's redirect hop reads
+    /// on `Event`, the seed path's preflight on `Maintenance`.
+    pub async fn get_tombstone(
+        &self,
+        key: &TombstoneKey,
+        lane: ReadLane,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
         let key = *key;
-        self.read("get_tombstone", ReadLane::Event, move |store| {
+        self.read("get_tombstone", lane, move |store| {
             store.get_tombstone(&key)
         })
         .await
