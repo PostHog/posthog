@@ -496,6 +496,7 @@ the row lists both.
 | unleash                          | HTTP                        | requests                                                        | ✅                          |
 | unstructured                     | HTTP                        | requests                                                        | ✅                          |
 | upstash                          | HTTP                        | requests                                                        | ✅                          |
+| uptimerobot                      | HTTP                        | requests                                                        | ✅                          |
 | vantage                          | HTTP                        | requests                                                        | ✅                          |
 | vapi                             | HTTP                        | requests                                                        | ✅                          |
 | vellum                           | HTTP                        | requests                                                        | ✅                          |
@@ -961,7 +962,6 @@ doesn't conflict with concurrent PRs.
 - tyntec_sms
 - uppromote
 - uptick
-- uptimerobot
 - us_census
 - usersnap
 - uservoice
