@@ -15805,7 +15805,7 @@ export namespace Schemas {
          * @nullable
          */
       after: string | null;
-      /** kept (up, unchanged), regressed (up, changed), fixed (down, changed), still_wrong (down, unchanged), or error. */
+      /** kept (up, unchanged), regressed (up, changed), fixed (down, changed), still_wrong (down, unchanged), error, or preview (scorer/summarizer: raw before/after, no classification). */
       outcome: string;
       /**
          * Why this session's re-run failed, when it did.

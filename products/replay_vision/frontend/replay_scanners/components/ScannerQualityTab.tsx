@@ -122,19 +122,26 @@ const EVALUATION_OUTCOME_TAGS: Record<string, { type: LemonTagType; label: strin
     regressed: { type: 'danger', label: 'Regressed' },
     still_wrong: { type: 'danger', label: 'Still wrong' },
     error: { type: 'muted', label: 'Error' },
+    // Scorer/summarizer: no discrete verdict, just the raw before/after for the reviewer to compare.
+    preview: { type: 'muted', label: 'Preview' },
 }
 
 /** Test-before-apply results: the suggested prompt re-run against rated sessions. */
 function SuggestionEvaluationPanel({
     suggestion,
+    preview,
 }: {
     suggestion: ReplayScannerPromptSuggestionApi
+    preview: boolean
 }): JSX.Element | null {
     const [detailsOpen, setDetailsOpen] = useState(false)
     const evaluation = suggestion.evaluation
     if (!evaluation) {
         return null
     }
+    // Scorer/summarizer runs have no kept/fixed/regressed verdict, so skip the discrete tallies and let the
+    // per-session before/after columns do the talking.
+    const isPreview = preview || evaluation.results.some((result) => result.outcome === 'preview')
 
     if (evaluation.status === 'running') {
         return (
@@ -164,22 +171,31 @@ function SuggestionEvaluationPanel({
     return (
         <div className="border rounded p-3 space-y-2">
             <div className="flex flex-wrap items-center gap-2 text-sm">
-                <span className="font-medium">Tested against {evaluation.results.length} rated sessions:</span>
-                {downTotal > 0 && (
-                    <Tooltip title="Rated-wrong sessions whose result changed under the suggested prompt">
-                        <LemonTag type={summary.fixed > 0 ? 'success' : 'muted'}>
-                            {summary.fixed}/{downTotal} wrong now different
-                        </LemonTag>
-                    </Tooltip>
+                {isPreview ? (
+                    <span className="font-medium">
+                        Tested {evaluation.results.length} rated session
+                        {evaluation.results.length === 1 ? '' : 's'}. Compare before and after below.
+                    </span>
+                ) : (
+                    <>
+                        <span className="font-medium">Tested against {evaluation.results.length} rated sessions:</span>
+                        {downTotal > 0 && (
+                            <Tooltip title="Rated-wrong sessions whose result changed under the suggested prompt">
+                                <LemonTag type={summary.fixed > 0 ? 'success' : 'muted'}>
+                                    {summary.fixed}/{downTotal} wrong now different
+                                </LemonTag>
+                            </Tooltip>
+                        )}
+                        {upTotal > 0 && (
+                            <Tooltip title="Rated-right sessions whose result is unchanged under the suggested prompt">
+                                <LemonTag type={summary.regressed > 0 ? 'danger' : 'success'}>
+                                    {summary.kept}/{upTotal} right unchanged
+                                </LemonTag>
+                            </Tooltip>
+                        )}
+                        {summary.errors > 0 && <LemonTag type="muted">{summary.errors} failed to run</LemonTag>}
+                    </>
                 )}
-                {upTotal > 0 && (
-                    <Tooltip title="Rated-right sessions whose result is unchanged under the suggested prompt">
-                        <LemonTag type={summary.regressed > 0 ? 'danger' : 'success'}>
-                            {summary.kept}/{upTotal} right unchanged
-                        </LemonTag>
-                    </Tooltip>
-                )}
-                {summary.errors > 0 && <LemonTag type="muted">{summary.errors} failed to run</LemonTag>}
                 <Tooltip title="Only sessions that ran successfully count against the monthly Replay Vision quota">
                     <span className="text-muted text-xs">
                         Used {chargedCount} observation{chargedCount === 1 ? '' : 's'} of quota
@@ -277,8 +293,11 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const { quota } = useValues(visionQuotaLogic)
     const { isDarkModeOn } = useValues(themeLogic)
-    // Only scanner types with a discrete outcome (verdict, tags) can be diffed against ratings.
-    const evaluationSupported = scanner?.scanner_type === 'monitor' || scanner?.scanner_type === 'classifier'
+    // Every scanner type can be tested. Preview types (scorer, summarizer) have no discrete outcome, so their
+    // results show the raw before/after rather than a kept/fixed/regressed classification.
+    const previewEvaluation = scanner?.scanner_type === 'scorer' || scanner?.scanner_type === 'summarizer'
+    const evaluationSupported =
+        scanner?.scanner_type === 'monitor' || scanner?.scanner_type === 'classifier' || previewEvaluation
     // Each re-run is charged like a normal observation of the scanner's model.
     const creditsPerTestSession = scanner ? (OBSERVATION_CREDITS_BY_MODEL[scanner.model] ?? 0) : 0
     const plannedTestCredits = plannedTestSessions * creditsPerTestSession
@@ -341,7 +360,9 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         body = (
             <div className="space-y-3">
                 <SuggestionDetails suggestion={currentSuggestion} isDarkModeOn={isDarkModeOn} />
-                {currentSuggestion.status === 'pending' && <SuggestionEvaluationPanel suggestion={currentSuggestion} />}
+                {currentSuggestion.status === 'pending' && (
+                    <SuggestionEvaluationPanel suggestion={currentSuggestion} preview={previewEvaluation} />
+                )}
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <SuggestionMeta suggestion={currentSuggestion} />
                     <div className="flex items-center gap-2">

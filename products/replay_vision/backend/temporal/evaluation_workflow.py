@@ -17,6 +17,7 @@ from posthog.temporal.session_replay.rasterize_recording.types import RasterizeR
 with wf.unsafe.imports_passed_through():
     from django.conf import settings
 
+from products.replay_vision.backend.prompt_evaluation import EVALUATION_PREVIEW_TYPES
 from products.replay_vision.backend.temporal.activities import (
     cleanup_gemini_file_activity,
     ensure_session_asset_activity,
@@ -182,6 +183,9 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
         after_output: dict | None = None,
         error: str | None = None,
     ) -> None:
+        # Derived from the recorded snapshot output, so it is deterministic on replay. This is a new field on
+        # an existing activity's input, not a new command, so it is safe for in-flight executions.
+        preview = bool(selection.snapshot and selection.snapshot.scanner_type in EVALUATION_PREVIEW_TYPES)
         await wf.execute_activity(
             record_evaluation_result_activity,
             RecordEvaluationResultInputs(
@@ -191,6 +195,7 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
                 model=selection.snapshot.model if selection.snapshot else None,
                 after_output=after_output,
                 error=error,
+                preview=preview,
             ),
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=_STATE_RETRY,

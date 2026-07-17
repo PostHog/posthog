@@ -102,7 +102,12 @@ def record_evaluation_result_activity(inputs: RecordEvaluationResultInputs) -> N
         outcome: EvaluationOutcome = "error"
     else:
         after = primary_outcome(inputs.after_output)
-        outcome = classify_outcome(inputs.session.rated_correct, inputs.session.before_outcome, after)
+        # Preview types have no discrete verdict to classify: record before/after and let the reviewer judge.
+        outcome = (
+            "preview"
+            if inputs.preview
+            else classify_outcome(inputs.session.rated_correct, inputs.session.before_outcome, after)
+        )
     result = {
         "session_id": inputs.session.session_id,
         "observation_id": str(inputs.session.observation_id),

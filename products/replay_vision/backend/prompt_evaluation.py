@@ -30,14 +30,22 @@ def evaluation_usage_id(suggestion_id: uuid.UUID, session_id: str, started_at: s
     return uuid.uuid5(_EVALUATION_USAGE_NAMESPACE, f"{suggestion_id}:{session_id}:{started_at}")
 
 
+# Types with a discrete primary outcome, classified kept/fixed/regressed/still_wrong against ratings.
 EVALUATION_SUPPORTED_TYPES = (ScannerType.MONITOR, ScannerType.CLASSIFIER)
+# Types with no discrete verdict, tested in "preview" mode: before/after outputs shown, no classification.
+EVALUATION_PREVIEW_TYPES = (ScannerType.SCORER, ScannerType.SUMMARIZER)
 
-EvaluationOutcome = Literal["kept", "regressed", "fixed", "still_wrong", "error"]
+EvaluationOutcome = Literal["kept", "regressed", "fixed", "still_wrong", "error", "preview"]
 
 
 def evaluation_supported(scanner: ReplayScanner) -> bool:
-    """Only scanner types with a discrete primary outcome can be diffed against ratings."""
-    return scanner.scanner_type in EVALUATION_SUPPORTED_TYPES
+    """Every scanner type can be tested: discrete types get a classified outcome, preview types show before/after."""
+    return scanner.scanner_type in EVALUATION_SUPPORTED_TYPES + EVALUATION_PREVIEW_TYPES
+
+
+def is_preview_evaluation(scanner: ReplayScanner) -> bool:
+    """Preview types (scorer, summarizer) have no discrete verdict, so they are shown as raw before/after output."""
+    return scanner.scanner_type in EVALUATION_PREVIEW_TYPES
 
 
 def select_evaluation_observations(scanner: ReplayScanner, session_limit: int | None = None) -> list[ReplayObservation]:
@@ -61,8 +69,13 @@ def select_evaluation_observations(scanner: ReplayScanner, session_limit: int | 
     return down + up
 
 
+# A summary can run long, so before/after previews cap it rather than showing the whole body.
+_SUMMARY_PREVIEW_CAP = 200
+
+
 def primary_outcome(model_output: dict[str, Any] | None) -> str | None:
-    """The discrete outcome string used for before/after comparison."""
+    """The display string for before/after comparison: a discrete verdict/tags for supported types, or the
+    raw score/summary for preview types."""
     output = model_output or {}
     verdict = output.get("verdict")
     if isinstance(verdict, str) and verdict:
@@ -70,6 +83,17 @@ def primary_outcome(model_output: dict[str, Any] | None) -> str | None:
     tags = sorted(t.strip().lower() for t in (output.get("tags") or []) if isinstance(t, str) and t.strip())
     if tags:
         return f"Tags: {', '.join(tags)}"
+    # Preview types have no discrete outcome, so show the raw output the reviewer compares by eye.
+    score = output.get("score")
+    if isinstance(score, int | float) and not isinstance(score, bool):
+        return f"Score: {score}"
+    title = output.get("title")
+    if isinstance(title, str) and title.strip():
+        return title.strip()
+    summary = output.get("summary")
+    if isinstance(summary, str) and summary.strip():
+        trimmed = summary.strip()
+        return trimmed if len(trimmed) <= _SUMMARY_PREVIEW_CAP else trimmed[:_SUMMARY_PREVIEW_CAP].rstrip() + "…"
     return None
 
 

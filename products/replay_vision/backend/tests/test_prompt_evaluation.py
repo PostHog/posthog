@@ -24,6 +24,8 @@ from products.replay_vision.backend.prompt_evaluation import (
     EVALUATION_SESSION_CAP,
     EVALUATION_SESSION_DEFAULT,
     classify_outcome,
+    evaluation_supported,
+    is_preview_evaluation,
     primary_outcome,
     select_evaluation_observations,
     summarize_results,
@@ -87,7 +89,12 @@ class TestPromptEvaluation(_VisionAPITestCase):
             ({"verdict": "Yes "}, "Verdict: yes"),
             ({"verdict": "no", "tags": ["a"]}, "Verdict: no"),
             ({"tags": ["Churn ", "bug", "churn"]}, "Tags: bug, churn, churn"),
-            ({"score": 7}, None),
+            # Preview types: scorer shows the raw score, summarizer prefers the title then falls back to the summary.
+            ({"score": 7}, "Score: 7"),
+            ({"score": 3.5}, "Score: 3.5"),
+            ({"title": "Checkout abandoned", "summary": "long body"}, "Checkout abandoned"),
+            ({"title": "  ", "summary": "Just the body then"}, "Just the body then"),
+            ({"summary": "a" * 250}, "a" * 200 + "…"),
             ({}, None),
             (None, None),
         ]
@@ -108,6 +115,19 @@ class TestPromptEvaluation(_VisionAPITestCase):
     )
     def test_classify_outcome(self, rated_correct, before, after, expected) -> None:
         self.assertEqual(classify_outcome(rated_correct, before, after), expected)
+
+    @parameterized.expand(
+        [
+            (ScannerType.MONITOR, False),
+            (ScannerType.CLASSIFIER, False),
+            (ScannerType.SCORER, True),
+            (ScannerType.SUMMARIZER, True),
+        ]
+    )
+    def test_all_scanner_types_supported_preview_flag_matches_type(self, scanner_type, expected_preview) -> None:
+        self.scanner.scanner_type = scanner_type
+        self.assertTrue(evaluation_supported(self.scanner))
+        self.assertEqual(is_preview_evaluation(self.scanner), expected_preview)
 
     def test_selection_prioritizes_thumbs_down_then_newest_within_cap(self) -> None:
         for i in range(EVALUATION_SESSION_CAP):
@@ -301,6 +321,36 @@ class TestPromptEvaluation(_VisionAPITestCase):
         record_evaluation_result_activity(inputs)
 
         self.assertEqual(ReplayObservationUsage.objects.count(), 2)
+
+    def test_preview_records_raw_before_after_without_classifying(self) -> None:
+        # Preview types have no verdict to classify: the outcome is "preview" and before/after carry the raw
+        # display strings, but a successful re-run still charges quota like any other observation.
+        observation = self._create_rated("sess-1", False)
+        suggestion = self._create_suggestion(evaluation={"status": "running", "results": []})
+
+        record_evaluation_result_activity(
+            RecordEvaluationResultInputs(
+                suggestion_id=suggestion.id,
+                team_id=self.team.id,
+                session=EvaluationSession(
+                    observation_id=observation.id,
+                    session_id="sess-1",
+                    rated_correct=True,
+                    before_outcome="Score: 3",
+                ),
+                model=self.scanner.model,
+                after_output={"score": 8.0},
+                preview=True,
+            )
+        )
+
+        suggestion.refresh_from_db()
+        assert suggestion.evaluation is not None
+        result = suggestion.evaluation["results"][0]
+        self.assertEqual(result["outcome"], "preview")
+        self.assertEqual(result["before"], "Score: 3")
+        self.assertEqual(result["after"], "Score: 8.0")
+        self.assertEqual(ReplayObservationUsage.objects.count(), 1)
 
     def test_summarize_counts_errors(self) -> None:
         results = [{"outcome": "kept"}, {"outcome": "error"}, {"outcome": "fixed"}, {"outcome": "fixed"}]
@@ -500,7 +550,6 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
     @parameterized.expand(
         [
             ("not_pending", {"status": SuggestionStatus.DISMISSED}, ScannerType.MONITOR, True),
-            ("unsupported_type", {}, ScannerType.SUMMARIZER, True),
             ("no_ratings", {}, ScannerType.MONITOR, False),
         ]
     )
@@ -518,3 +567,18 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         client.start_workflow.assert_not_awaited()
         suggestion.refresh_from_db()
         self.assertIsNone(suggestion.evaluation)
+
+    @parameterized.expand([("scorer", ScannerType.SCORER), ("summarizer", ScannerType.SUMMARIZER)])
+    def test_evaluate_supports_preview_scanner_types(self, _name, scanner_type) -> None:
+        # Preview types (scorer, summarizer) can now be tested, so the evaluate gate must start the workflow.
+        self.scanner.scanner_type = scanner_type
+        self.scanner.save()
+        self._create_rated()
+        suggestion = self._create_pending_suggestion()
+        connect_patch, client = self._mock_temporal()
+        with connect_patch:
+            resp = self.client.post(self._url(suggestion.id))
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["evaluation"]["status"], "running")
+        client.start_workflow.assert_awaited_once()
