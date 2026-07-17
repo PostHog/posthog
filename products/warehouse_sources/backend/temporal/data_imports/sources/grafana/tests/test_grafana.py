@@ -1,3 +1,4 @@
+import json
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -11,12 +12,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.gr
     ANNOTATIONS_LIMIT,
     BASIC_AUTH,
     DEFAULT_PAGE_SIZE,
+    MAX_RESPONSE_BYTES,
     TOKEN_AUTH,
     GrafanaAuth,
     GrafanaAuthError,
+    GrafanaResponseTooLargeError,
     GrafanaResumeConfig,
     _extract_items,
     _permission_error_from_response,
+    _read_body_bounded,
     _resolve_auth_headers,
     get_endpoint_permissions,
     get_rows,
@@ -26,7 +30,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.gr
 )
 
 
-def _response(*, status_code: int = 200, json_data: Any = None, text: str = "") -> mock.MagicMock:
+def _response(
+    *,
+    status_code: int = 200,
+    json_data: Any = None,
+    text: str = "",
+    headers: dict[str, str] | None = None,
+    body_chunks: list[bytes] | None = None,
+) -> mock.MagicMock:
     response = mock.MagicMock()
     response.status_code = status_code
     response.ok = 200 <= status_code < 400
@@ -34,7 +45,20 @@ def _response(*, status_code: int = 200, json_data: Any = None, text: str = "") 
     response.is_permanent_redirect = status_code in (301, 308)
     response.text = text
     response.json.return_value = json_data
-    response.headers = {}
+    # The source reads bodies via response.iter_content (stream=True), not response.json().
+    if body_chunks is not None:
+        chunks = body_chunks
+    elif json_data is not None:
+        chunks = [json.dumps(json_data).encode()]
+    elif text:
+        chunks = [text.encode()]
+    else:
+        chunks = []
+    response.iter_content.return_value = chunks
+    response.headers = headers or {}
+    # Responses are consumed inside a `with` block, so the mock must behave as a context manager.
+    response.__enter__.return_value = response
+    response.__exit__.return_value = False
     return response
 
 
@@ -140,6 +164,26 @@ class TestExtractItems:
     )
     def test_extract_items(self, data, data_key, expected):
         assert _extract_items(data, data_key) == expected
+
+
+class TestBoundedResponseReading:
+    def test_streamed_body_over_limit_raises(self):
+        # A host with no (or a lying) Content-Length can still stream an unbounded body; the running
+        # byte total must abort the read rather than buffer it all into the worker.
+        oversized = [b"x" * (1024 * 1024)] * (MAX_RESPONSE_BYTES // (1024 * 1024) + 1)
+        response = _response(body_chunks=oversized)
+        with pytest.raises(GrafanaResponseTooLargeError):
+            _read_body_bounded(response)
+
+    def test_oversized_content_length_rejected_before_reading_body(self):
+        response = _response(headers={"Content-Length": str(MAX_RESPONSE_BYTES + 1)}, body_chunks=[b"ignored"])
+        with pytest.raises(GrafanaResponseTooLargeError):
+            _read_body_bounded(response)
+        response.iter_content.assert_not_called()
+
+    def test_reads_body_within_limit(self):
+        response = _response(body_chunks=[b'{"a"', b": 1}"])
+        assert _read_body_bounded(response) == b'{"a": 1}'
 
 
 class TestPermissionErrorParsing:

@@ -1,4 +1,6 @@
 import re
+import json
+import time
 import base64
 import dataclasses
 from collections.abc import Iterator
@@ -23,6 +25,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.se
 
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRIES = 5
+
+# Every Grafana list endpoint here is paginated (DEFAULT_PAGE_SIZE / ANNOTATIONS_LIMIT rows), so a
+# well-behaved response body is small. This ceiling exists only to stop a malicious or misconfigured
+# host from exhausting an import worker's memory with an unbounded (or Content-Length-less, chunked)
+# body — requests buffers the whole body otherwise.
+MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+
+# Total wall-clock budget for downloading one response body. The socket timeout only caps inactivity
+# between chunks, so a host that trickles bytes just under that timeout could occupy a worker
+# indefinitely; this bounds the whole read regardless of how the bytes are paced.
+MAX_RESPONSE_READ_SECONDS = 120
 
 HOST_NOT_ALLOWED_ERROR = "Grafana host is not allowed"
 
@@ -51,6 +64,13 @@ class GrafanaHostNotAllowedError(Exception):
 class GrafanaAuthError(Exception):
     """Raised when credentials are missing or malformed. Deterministic — retrying never fixes
     it — so it surfaces via get_non_retryable_errors."""
+
+    pass
+
+
+class GrafanaResponseTooLargeError(Exception):
+    """A response body exceeded the size or time budget for a single request. Deterministic for a
+    given host config — not retried — so it fails the request fast instead of buffering forever."""
 
     pass
 
@@ -180,6 +200,48 @@ def _connection_error_message(error: Exception) -> str:
     )
 
 
+def _read_body_bounded(response: requests.Response) -> bytes:
+    """Download a streamed response body under a hard size and time budget.
+
+    Must be called on a response fetched with ``stream=True`` so nothing is buffered before these
+    caps apply. Rejects an oversized declared ``Content-Length`` up front, then reads chunk by
+    chunk, aborting if the running total exceeds MAX_RESPONSE_BYTES or the read outlasts
+    MAX_RESPONSE_READ_SECONDS. A customer-controlled host can otherwise return an arbitrarily large
+    body or trickle one forever, exhausting or indefinitely occupying an import worker.
+    """
+    declared = response.headers.get("Content-Length")
+    if declared is not None:
+        try:
+            if int(declared) > MAX_RESPONSE_BYTES:
+                raise GrafanaResponseTooLargeError(
+                    f"Grafana response Content-Length {declared} exceeds the {MAX_RESPONSE_BYTES}-byte limit"
+                )
+        except ValueError:
+            pass  # unparseable header — fall through to the streamed cap below
+
+    deadline = time.monotonic() + MAX_RESPONSE_READ_SECONDS
+    chunks: list[bytes] = []
+    total = 0
+    for chunk in response.iter_content(chunk_size=64 * 1024):
+        total += len(chunk)
+        if total > MAX_RESPONSE_BYTES:
+            raise GrafanaResponseTooLargeError(f"Grafana response exceeded the {MAX_RESPONSE_BYTES}-byte limit")
+        if time.monotonic() > deadline:
+            raise GrafanaResponseTooLargeError(
+                f"Reading the Grafana response exceeded the {MAX_RESPONSE_READ_SECONDS}s limit"
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _read_json_bounded(response: requests.Response) -> Any:
+    """Read a streamed response body under the size/time budget, then parse it as JSON."""
+    body = _read_body_bounded(response)
+    if not body:
+        return None
+    return json.loads(body)
+
+
 def _extract_items(data: Any, data_key: str | None) -> list[dict[str, Any]]:
     """Normalize Grafana's two list shapes into a flat list of records.
 
@@ -203,7 +265,8 @@ def _permission_error_from_response(response: requests.Response) -> str:
     perform this action. Permissions needed: teams:read"}`` — surface that instead of the raw body.
     """
     try:
-        message = response.json().get("message", "")
+        data = _read_json_bounded(response)
+        message = data.get("message", "") if isinstance(data, dict) else ""
     except Exception:
         message = ""
     match = re.search(r"Permissions needed:\s*([\w:.*-]+)", message)
@@ -248,20 +311,23 @@ def _make_fetch(session: requests.Session, headers: dict[str, str], logger: Filt
     )
     def fetch(url: str) -> Any:
         # Don't follow redirects: a customer-controlled host could 3xx to an internal address,
-        # bypassing the host check (SSRF).
-        response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False)
+        # bypassing the host check (SSRF). stream=True keeps the body off the wire until the bounded
+        # readers apply the size/time budget; the `with` releases the connection on every path.
+        with session.get(
+            url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False, stream=True
+        ) as response:
+            if response.status_code == 429 or response.status_code >= 500:
+                raise GrafanaRetryableError(f"Grafana API error (retryable): status={response.status_code}, url={url}")
+            if response.is_redirect or response.is_permanent_redirect:
+                raise GrafanaHostNotAllowedError(
+                    f"Grafana API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
+                )
+            if not response.ok:
+                body = _read_body_bounded(response).decode("utf-8", "replace")
+                logger.error(f"Grafana API error: status={response.status_code}, body={body}, url={url}")
+                response.raise_for_status()
 
-        if response.status_code == 429 or response.status_code >= 500:
-            raise GrafanaRetryableError(f"Grafana API error (retryable): status={response.status_code}, url={url}")
-        if response.is_redirect or response.is_permanent_redirect:
-            raise GrafanaHostNotAllowedError(
-                f"Grafana API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
-            )
-        if not response.ok:
-            logger.error(f"Grafana API error: status={response.status_code}, body={response.text}, url={url}")
-            response.raise_for_status()
-
-        return response.json()
+            return _read_json_bounded(response)
 
     return fetch
 
@@ -305,30 +371,33 @@ def validate_credentials(
         return False, str(e)
 
     session = make_tracked_session(redact_values=_redact_values(auth))
+    # stream=True so a hostile host can't buffer an unbounded probe body into the worker; the body
+    # is only read (bounded) when a 403 needs its scope message.
     try:
-        response = session.get(f"{base_url}/api/org", headers=headers, timeout=10, allow_redirects=False)
+        with session.get(
+            f"{base_url}/api/org", headers=headers, timeout=10, allow_redirects=False, stream=True
+        ) as response:
+            if response.is_redirect or response.is_permanent_redirect:
+                return False, HOST_NOT_ALLOWED_ERROR
+            if response.status_code == 200:
+                return True, None
+            if response.status_code == 401:
+                return False, "Invalid Grafana credentials"
+            if response.status_code == 403:
+                if schema_name is None:
+                    return True, None
+                return False, _permission_error_from_response(response)
+
+            # The host responded but not in a way we recognise — often it isn't a Grafana instance
+            # at all (e.g. a proxy or hosting-provider error page). Surface the status only; never
+            # echo the raw response body, which can carry arbitrary upstream content.
+            return (
+                False,
+                f"Grafana returned an unexpected response (HTTP {response.status_code}). "
+                "Check that the instance URL points to your Grafana instance.",
+            )
     except requests.exceptions.RequestException as e:
         return False, _connection_error_message(e)
-
-    if response.is_redirect or response.is_permanent_redirect:
-        return False, HOST_NOT_ALLOWED_ERROR
-    if response.status_code == 200:
-        return True, None
-    if response.status_code == 401:
-        return False, "Invalid Grafana credentials"
-    if response.status_code == 403:
-        if schema_name is None:
-            return True, None
-        return False, _permission_error_from_response(response)
-
-    # The host responded but not in a way we recognise — often it isn't a Grafana instance at all
-    # (e.g. a proxy or hosting-provider error page). Surface the status only; never echo the raw
-    # response body, which can carry arbitrary upstream content.
-    return (
-        False,
-        f"Grafana returned an unexpected response (HTTP {response.status_code}). "
-        "Check that the instance URL points to your Grafana instance.",
-    )
 
 
 def _probe_params(config: GrafanaEndpointConfig) -> dict[str, Any]:
@@ -363,16 +432,18 @@ def get_endpoint_permissions(
             continue
         url = f"{base_url}{config.path}?{urlencode(_probe_params(config))}"
         try:
-            response = session.get(url, headers=headers, timeout=10, allow_redirects=False)
+            # stream=True so a hostile host can't buffer an unbounded probe body; only a 403's scope
+            # message is read (bounded) below.
+            with session.get(url, headers=headers, timeout=10, allow_redirects=False, stream=True) as response:
+                if response.status_code == 401:
+                    results[endpoint] = "Your Grafana credentials are invalid or expired."
+                elif response.status_code == 403:
+                    results[endpoint] = _permission_error_from_response(response)
+                else:
+                    results[endpoint] = None
         except requests.exceptions.RequestException:
             results[endpoint] = None
             continue
-        if response.status_code == 401:
-            results[endpoint] = "Your Grafana credentials are invalid or expired."
-        elif response.status_code == 403:
-            results[endpoint] = _permission_error_from_response(response)
-        else:
-            results[endpoint] = None
     return results
 
 
