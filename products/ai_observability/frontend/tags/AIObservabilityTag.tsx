@@ -17,6 +17,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -30,6 +31,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
@@ -585,21 +587,36 @@ function AIObservabilityTaggerForm({ id }: { id: string }): JSX.Element {
                     </div>
 
                     <div className="flex gap-2 pt-4 border-t">
-                        <LemonButton
-                            type="primary"
-                            onClick={submitTaggerForm}
-                            loading={isTaggerFormSubmitting}
-                            disabledReason={!taggerFormChanged && id !== 'new' ? 'No changes to save' : undefined}
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
                         >
-                            {id === 'new' ? 'Create tagger' : 'Save changes'}
-                        </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                onClick={submitTaggerForm}
+                                loading={isTaggerFormSubmitting}
+                                disabledReason={!taggerFormChanged && id !== 'new' ? 'No changes to save' : undefined}
+                            >
+                                {id === 'new' ? 'Create tagger' : 'Save changes'}
+                            </LemonButton>
+                        </AccessControlAction>
                         <LemonButton type="secondary" to={urls.aiObservabilityTags()}>
                             Cancel
                         </LemonButton>
                         {id !== 'new' && (
-                            <LemonButton type="secondary" status="danger" className="ml-auto" onClick={deleteTagger}>
-                                Delete
-                            </LemonButton>
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    type="secondary"
+                                    status="danger"
+                                    className="ml-auto"
+                                    onClick={deleteTagger}
+                                >
+                                    Delete
+                                </LemonButton>
+                            </AccessControlAction>
                         )}
                     </div>
                 </div>
