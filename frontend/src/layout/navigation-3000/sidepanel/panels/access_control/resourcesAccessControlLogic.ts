@@ -180,6 +180,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.FeatureFlag,
                     AccessControlResourceType.Insight,
                     AccessControlResourceType.LlmAnalytics,
+                    AccessControlResourceType.LlmSkill,
                     AccessControlResourceType.Metrics,
                     AccessControlResourceType.Notebook,
                     AccessControlResourceType.RevenueAnalytics,

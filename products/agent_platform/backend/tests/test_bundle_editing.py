@@ -556,8 +556,7 @@ class TestBundleEditing(APIBaseTest):
 
     def _lock_down_skills(self) -> None:
         # Grant-based skill access: demote the user to member and restrict the
-        # skills resource (llm_skill inherits its access-control resource from
-        # llm_analytics) to viewer team-wide, so only explicit grants can edit.
+        # llm_skill resource to viewer team-wide, so only explicit grants can edit.
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -565,7 +564,7 @@ class TestBundleEditing(APIBaseTest):
         self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        AccessControl.objects.create(team=self.team, resource="llm_analytics", resource_id=None, access_level="viewer")
+        AccessControl.objects.create(team=self.team, resource="llm_skill", resource_id=None, access_level="viewer")
 
     def test_import_of_new_skill_denied_without_resource_level_editor_access(self) -> None:
         # A brand-new id means the import CREATES a shared store skill, so it
@@ -606,7 +605,7 @@ class TestBundleEditing(APIBaseTest):
         self._lock_down_skills()
         AccessControl.objects.create(
             team=self.team,
-            resource="llm_analytics",
+            resource="llm_skill",
             resource_id=None,
             access_level="editor",
             organization_member=self.organization_membership,

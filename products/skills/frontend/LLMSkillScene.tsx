@@ -96,7 +96,7 @@ export function LLMSkillScene(): JSX.Element {
 
     // A direct link with `?edit=true` shouldn't grant edit access the Edit/Use-as-latest buttons
     // wouldn't otherwise give — fall back to the read-only view when the user can't actually publish.
-    const canEditSkill = userHasAccess(AccessControlResourceType.LlmAnalytics, AccessControlLevel.Editor)
+    const canEditSkill = userHasAccess(AccessControlResourceType.LlmSkill, AccessControlLevel.Editor)
     const content = isViewMode || !canEditSkill ? (
         <SceneContent>
             <SceneTitleSection
@@ -107,7 +107,7 @@ export function LLMSkillScene(): JSX.Element {
                     <>
                         {isSkill(skill) && skill.is_latest ? (
                             <AccessControlAction
-                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                resourceType={AccessControlResourceType.LlmSkill}
                                 minAccessLevel={AccessControlLevel.Editor}
                             >
                                 <LemonButton
@@ -122,7 +122,7 @@ export function LLMSkillScene(): JSX.Element {
                             </AccessControlAction>
                         ) : (
                             <AccessControlAction
-                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                resourceType={AccessControlResourceType.LlmSkill}
                                 minAccessLevel={AccessControlLevel.Editor}
                             >
                                 <LemonButton
@@ -162,7 +162,7 @@ export function LLMSkillScene(): JSX.Element {
                         )}
 
                         <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            resourceType={AccessControlResourceType.LlmSkill}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
                             <LemonButton
@@ -224,7 +224,7 @@ export function LLMSkillScene(): JSX.Element {
                             </LemonButton>
 
                             <AccessControlAction
-                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                resourceType={AccessControlResourceType.LlmSkill}
                                 minAccessLevel={AccessControlLevel.Editor}
                             >
                                 <LemonButton
@@ -240,7 +240,7 @@ export function LLMSkillScene(): JSX.Element {
 
                             {!isNewSkill && (
                                 <AccessControlAction
-                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    resourceType={AccessControlResourceType.LlmSkill}
                                     minAccessLevel={AccessControlLevel.Editor}
                                 >
                                     <LemonButton

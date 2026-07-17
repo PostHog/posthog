@@ -1186,9 +1186,9 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["versions"][1]["version"] == 1
 
 
-# Skills inherit their access-control resource from llm_analytics (RESOURCE_INHERITANCE_MAP:
-# llm_skill -> llm_analytics), same as TestSkillMarketplaceRBAC in test_marketplace_endpoints.py
-# covers for the git clone endpoint — this covers the JSON skill API the same way.
+# llm_skill is its own access-control resource (see ACCESS_CONTROL_RESOURCES in
+# posthog/rbac/user_access_control.py) - same as TestSkillMarketplaceRBAC in
+# test_marketplace_endpoints.py covers for the git clone endpoint, this covers the JSON skill API.
 class TestSkillAccessControlRBAC(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -1202,7 +1202,7 @@ class TestSkillAccessControlRBAC(APIBaseTest):
             team=self.team, resource="project", resource_id=str(self.team.id), access_level="member"
         )
         # Default is "none" - a member only gets skill access via an explicit grant below.
-        AccessControl.objects.create(team=self.team, resource="llm_analytics", resource_id=None, access_level="none")
+        AccessControl.objects.create(team=self.team, resource="llm_skill", resource_id=None, access_level="none")
         self.skill = LLMSkill.objects.create(
             team=self.team,
             name="make-fractals",
@@ -1218,11 +1218,11 @@ class TestSkillAccessControlRBAC(APIBaseTest):
     def _url(self, path: str = "") -> str:
         return f"/api/environments/{self.team.id}/llm_skills/{path}"
 
-    def _grant_llm_analytics_access(self, access_level: str) -> None:
+    def _grant_llm_skill_access(self, access_level: str) -> None:
         membership = OrganizationMembership.objects.get(user=self.member, organization=self.organization)
         AccessControl.objects.create(
             team=self.team,
-            resource="llm_analytics",
+            resource="llm_skill",
             resource_id=None,
             access_level=access_level,
             organization_member=membership,
@@ -1259,7 +1259,7 @@ class TestSkillAccessControlRBAC(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_viewer_can_read_but_not_write(self):
-        self._grant_llm_analytics_access("viewer")
+        self._grant_llm_skill_access("viewer")
 
         assert self.client.get(self._url()).status_code == status.HTTP_200_OK
         assert self.client.get(self._url(f"name/{self.skill.name}")).status_code == status.HTTP_200_OK
@@ -1277,7 +1277,7 @@ class TestSkillAccessControlRBAC(APIBaseTest):
         assert update_response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_editor_can_create_and_update(self):
-        self._grant_llm_analytics_access("editor")
+        self._grant_llm_skill_access("editor")
 
         create_response = self.client.post(
             self._url(), data={"name": "new-skill", "description": "d", "body": "x"}, format="json"

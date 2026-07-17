@@ -391,9 +391,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.AIObservabilityTrace]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityUsers]: AccessControlResourceType.LlmAnalytics,
 
-    // Skills inherit access control from AI observability (RESOURCE_INHERITANCE_MAP: llm_skill -> llm_analytics)
-    [Scene.Skill]: AccessControlResourceType.LlmAnalytics,
-    [Scene.Skills]: AccessControlResourceType.LlmAnalytics,
+    // Skills
+    [Scene.Skill]: AccessControlResourceType.LlmSkill,
+    [Scene.Skills]: AccessControlResourceType.LlmSkill,
 
     // Data warehouse sources - not included here because self-managed sources don't have access control.
     // Managed sources handle access control at the logic level via SIDE_PANEL_CONTEXT_KEY.
