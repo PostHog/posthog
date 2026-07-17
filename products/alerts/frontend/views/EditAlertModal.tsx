@@ -3,14 +3,12 @@ import { Form } from 'kea-forms'
 import { useCallback, useMemo } from 'react'
 
 import { IconCalendar } from '@posthog/icons'
-import { LemonCheckbox, LemonInput, Link, SpinnerOverlay } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { formatDate } from 'lib/utils/datetime'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { getDisplayNameFromEntityNode } from 'scenes/insights/utils'
@@ -22,7 +20,12 @@ import { AlertCalculationInterval, AlertState } from '~/queries/schema/schema-ge
 import { isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
 import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
-import { AlertEditorModalFooter, AlertEditorModalHeader } from 'products/alerts/frontend/components/AlertEditorModal'
+import {
+    AlertEditorFormDetails,
+    AlertEditorModal,
+    AlertEditorModalLayout,
+    AlertEditorSection,
+} from 'products/alerts/frontend/components/AlertEditorModal'
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/editAlertModal/AlertAdvancedOptionsSection'
 import { AlertDefinitionSection } from 'products/alerts/frontend/components/editAlertModal/AlertDefinitionSection'
 import { AlertIntervalRow } from 'products/alerts/frontend/components/editAlertModal/AlertIntervalRow'
@@ -217,167 +220,147 @@ export function EditAlertModal({
         can_check_ongoing_interval,
     ])
 
-    return (
-        <LemonModal onClose={handleClose} isOpen={isOpen} width={900} simple title="">
-            {alertLoading && !alert ? (
-                <SpinnerOverlay />
-            ) : (
-                <Form
-                    logic={alertFormLogic}
-                    props={formLogicProps}
-                    formKey="alertForm"
-                    enableFormOnSubmit
-                    className="LemonModal__layout"
+    const leadingActions = (
+        <div className="flex gap-2">
+            {!creatingNewAlert ? (
+                <LemonButton type="secondary" status="danger" onClick={deleteAlert}>
+                    Delete alert
+                </LemonButton>
+            ) : null}
+            {!creatingNewAlert && alert?.state === AlertState.FIRING ? (
+                <SnoozeButton onChange={snoozeAlert} value={alert?.snoozed_until} />
+            ) : null}
+            {!creatingNewAlert && alert?.state === AlertState.SNOOZED ? (
+                <LemonButton
+                    type="secondary"
+                    status="default"
+                    onClick={clearSnooze}
+                    tooltip={`Currently snoozed until ${formatDate(dayjs(alert?.snoozed_until), 'MMM D, HH:mm')}`}
                 >
-                    <AlertEditorModalHeader
-                        title={creatingNewAlert ? 'New alert' : 'Edit alert'}
-                        onBack={handleClose}
-                    />
+                    Clear snooze
+                </LemonButton>
+            ) : null}
+        </div>
+    )
 
-                    <LemonModal.Content>
-                        <div className="deprecated-space-y-6">
-                            <div className="deprecated-space-y-4">
-                                <div className="flex gap-4 items-center">
-                                    <LemonField className="flex-auto" name="name">
-                                        <LemonInput placeholder="Alert name" data-attr="alertForm-name" />
-                                    </LemonField>
-                                    <LemonField name="enabled">
-                                        <LemonCheckbox
-                                            checked={alertForm?.enabled}
-                                            data-attr="alertForm-enabled"
-                                            fullWidth
-                                            label="Enabled"
-                                        />
-                                    </LemonField>
-                                </div>
-                                {alert?.created_by ? (
+    let historySection: JSX.Element | null = null
+    if (alertId && alert) {
+        historySection = <AlertHistorySection alertId={alert.id} />
+    } else if (alertId && alertLoading) {
+        historySection = <AlertHistorySectionSkeleton />
+    }
+
+    return (
+        <AlertEditorModal onClose={handleClose} isOpen={isOpen} width={900} loading={alertLoading && !alert}>
+            <Form
+                logic={alertFormLogic}
+                props={formLogicProps}
+                formKey="alertForm"
+                enableFormOnSubmit
+                className="LemonModal__layout"
+            >
+                <AlertEditorModalLayout
+                    title={creatingNewAlert ? 'New alert' : 'Edit alert'}
+                    onBack={handleClose}
+                    isEditing={!creatingNewAlert}
+                    isSubmitting={isAlertFormSubmitting}
+                    hasChanges={alertFormChanged}
+                    hasPendingChanges={hasPendingNotifications}
+                    onSubmitAttempted={setAlertFormSubmitAttempted}
+                    leadingActions={leadingActions}
+                >
+                    <div className="deprecated-space-y-6">
+                        <AlertEditorFormDetails
+                            enabled={{ checked: alertForm.enabled, dataAttr: 'alertForm-enabled' }}
+                            activity={
+                                alert?.created_by ? (
                                     <UserActivityIndicator
                                         at={alert.created_at}
                                         by={alert.created_by}
                                         prefix="Created"
                                     />
-                                ) : null}
-                            </div>
+                                ) : undefined
+                            }
+                        />
 
+                        <AlertEditorSection title="Definition">
                             <div className="deprecated-space-y-3">
-                                <h3 className="mb-0">Definition</h3>
-                                <div className="deprecated-space-y-3">
-                                    <AlertDefinitionSection
-                                        alertForm={alertForm}
-                                        alertMode={alertMode}
-                                        thresholdBoundsFormError={thresholdBoundsFormError}
-                                        isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
-                                        trends={{ alertSeries, formulaNodes, isBreakdownValid }}
-                                        funnel={{
-                                            stepLabels: funnelStepLabels,
-                                            preview: funnelAlertPreview,
-                                            isTrendsFunnel,
-                                        }}
-                                        hogql={{
-                                            preview: hogqlAlertPreview,
-                                            columns: hogqlResultColumns,
-                                            valueColumnOptions: hogqlValueColumnOptions,
-                                            labelColumnOptions: hogqlLabelColumnOptions,
-                                        }}
-                                        supportsAnomalyDetection={
-                                            !isNonTimeSeriesDisplay && supportsAnomalyDetection(alertForm.config)
-                                        }
-                                        investigationAgentEnabled={investigationAgentEnabled}
-                                        simulationResult={simulationResult}
-                                        simulationResultLoading={simulationResultLoading}
-                                        simulationDateFrom={simulationDateFrom}
-                                        onSetAlertFormValue={setAlertFormValue}
-                                        onSimulateAlert={simulateAlert}
-                                        onSetSimulationDateFrom={setSimulationDateFrom}
-                                        onClearSimulation={clearSimulation}
-                                        onClearSimulationOverlay={clearSimulationOverlay}
-                                    />
-                                    <AlertIntervalRow
-                                        alertForm={alertForm}
-                                        creatingNewAlert={creatingNewAlert}
-                                        alert={alert}
-                                        trendInterval={trendInterval}
-                                        nextPlannedEvaluationStale={nextPlannedEvaluationStale}
-                                        canCheckOngoingInterval={can_check_ongoing_interval}
-                                        onSetAlertFormValue={setAlertFormValue}
-                                    />
-                                </div>
+                                <AlertDefinitionSection
+                                    alertForm={alertForm}
+                                    alertMode={alertMode}
+                                    thresholdBoundsFormError={thresholdBoundsFormError}
+                                    isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
+                                    trends={{ alertSeries, formulaNodes, isBreakdownValid }}
+                                    funnel={{
+                                        stepLabels: funnelStepLabels,
+                                        preview: funnelAlertPreview,
+                                        isTrendsFunnel,
+                                    }}
+                                    hogql={{
+                                        preview: hogqlAlertPreview,
+                                        columns: hogqlResultColumns,
+                                        valueColumnOptions: hogqlValueColumnOptions,
+                                        labelColumnOptions: hogqlLabelColumnOptions,
+                                    }}
+                                    supportsAnomalyDetection={
+                                        !isNonTimeSeriesDisplay && supportsAnomalyDetection(alertForm.config)
+                                    }
+                                    investigationAgentEnabled={investigationAgentEnabled}
+                                    simulationResult={simulationResult}
+                                    simulationResultLoading={simulationResultLoading}
+                                    simulationDateFrom={simulationDateFrom}
+                                    onSetAlertFormValue={setAlertFormValue}
+                                    onSimulateAlert={simulateAlert}
+                                    onSetSimulationDateFrom={setSimulationDateFrom}
+                                    onClearSimulation={clearSimulation}
+                                    onClearSimulationOverlay={clearSimulationOverlay}
+                                />
+                                <AlertIntervalRow
+                                    alertForm={alertForm}
+                                    creatingNewAlert={creatingNewAlert}
+                                    alert={alert}
+                                    trendInterval={trendInterval}
+                                    nextPlannedEvaluationStale={nextPlannedEvaluationStale}
+                                    canCheckOngoingInterval={can_check_ongoing_interval}
+                                    onSetAlertFormValue={setAlertFormValue}
+                                />
                             </div>
+                        </AlertEditorSection>
 
-                            <div className="text-muted text-sm flex flex-wrap items-start gap-2">
-                                <IconCalendar className="size-4 shrink-0 text-muted mt-0.5" aria-hidden />
-                                <span className="min-w-0">
-                                    Times use your project timezone ({projectTimezone}).{' '}
-                                    <Link
-                                        to={urls.settings('environment-customization', 'date-and-time')}
-                                        target="_blank"
-                                        targetBlankIcon={false}
-                                    >
-                                        Change in settings
-                                    </Link>
-                                </span>
-                            </div>
-
-                            <AlertNotificationSection
-                                alertForm={alertForm}
-                                alertId={alertId}
-                                insightShortId={insightShortId}
-                                inlineNotificationsEnabled={inlineNotificationsEnabled}
-                                onSetAlertFormValue={setAlertFormValue}
-                            />
-
-                            <AlertAdvancedOptionsSection
-                                alertForm={alertForm}
-                                canCheckOngoingInterval={can_check_ongoing_interval}
-                                projectTimezone={projectTimezone}
-                                enabledAdvancedOptionsCount={enabledAdvancedOptionsCount}
-                                onSetAlertFormValue={setAlertFormValue}
-                            />
+                        <div className="text-muted text-sm flex flex-wrap items-start gap-2">
+                            <IconCalendar className="size-4 shrink-0 text-muted mt-0.5" aria-hidden />
+                            <span className="min-w-0">
+                                Times use your project timezone ({projectTimezone}).{' '}
+                                <Link
+                                    to={urls.settings('environment-customization', 'date-and-time')}
+                                    target="_blank"
+                                    targetBlankIcon={false}
+                                >
+                                    Change in settings
+                                </Link>
+                            </span>
                         </div>
 
-                        {alertId ? (
-                            alert ? (
-                                <AlertHistorySection alertId={alert.id} />
-                            ) : alertLoading ? (
-                                <AlertHistorySectionSkeleton />
-                            ) : null
-                        ) : null}
-                    </LemonModal.Content>
+                        <AlertNotificationSection
+                            alertForm={alertForm}
+                            alertId={alertId}
+                            insightShortId={insightShortId}
+                            inlineNotificationsEnabled={inlineNotificationsEnabled}
+                            onSetAlertFormValue={setAlertFormValue}
+                        />
 
-                    <AlertEditorModalFooter
-                        isEditing={!creatingNewAlert}
-                        isSubmitting={isAlertFormSubmitting}
-                        hasChanges={alertFormChanged}
-                        hasPendingChanges={hasPendingNotifications}
-                        onSubmitAttempted={setAlertFormSubmitAttempted}
-                        leadingActions={
-                            <div className="flex gap-2">
-                                {!creatingNewAlert ? (
-                                    <LemonButton type="secondary" status="danger" onClick={deleteAlert}>
-                                        Delete alert
-                                    </LemonButton>
-                                ) : null}
-                                {!creatingNewAlert && alert?.state === AlertState.FIRING ? (
-                                    <SnoozeButton onChange={snoozeAlert} value={alert?.snoozed_until} />
-                                ) : null}
-                                {!creatingNewAlert && alert?.state === AlertState.SNOOZED ? (
-                                    <LemonButton
-                                        type="secondary"
-                                        status="default"
-                                        onClick={clearSnooze}
-                                        tooltip={`Currently snoozed until ${formatDate(
-                                            dayjs(alert?.snoozed_until),
-                                            'MMM D, HH:mm'
-                                        )}`}
-                                    >
-                                        Clear snooze
-                                    </LemonButton>
-                                ) : null}
-                            </div>
-                        }
-                    />
-                </Form>
-            )}
-        </LemonModal>
+                        <AlertAdvancedOptionsSection
+                            alertForm={alertForm}
+                            canCheckOngoingInterval={can_check_ongoing_interval}
+                            projectTimezone={projectTimezone}
+                            enabledAdvancedOptionsCount={enabledAdvancedOptionsCount}
+                            onSetAlertFormValue={setAlertFormValue}
+                        />
+                    </div>
+
+                    {historySection}
+                </AlertEditorModalLayout>
+            </Form>
+        </AlertEditorModal>
     )
 }

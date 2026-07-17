@@ -16,6 +16,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
+import { AlertEditorFormDetails, AlertEditorSection } from 'products/alerts/frontend/components/AlertEditorModal'
 import { ServiceFilter } from 'products/logs/frontend/components/LogsViewer/Filters/ServiceFilter'
 import { SeverityLevelsFilter } from 'products/logs/frontend/components/LogsViewer/Filters/SeverityLevelsFilter'
 import { LogsAlertThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
@@ -109,9 +110,9 @@ export function LogsAlertForm(): JSX.Element {
 
     return (
         <div className="space-y-6 max-w-2xl">
-            <div className="space-y-3">
-                <h3 className="text-base font-semibold m-0">Filters</h3>
-                <p className="text-xs text-secondary m-0">Every 5 minutes, query for logs matching these filters.</p>
+            <AlertEditorFormDetails />
+
+            <AlertEditorSection title="Filters" description="Every 5 minutes, query for logs matching these filters.">
                 <LemonField name="severityLevels" label="Severity">
                     <SeverityLevelsFilter
                         value={alertForm.severityLevels}
@@ -127,12 +128,11 @@ export function LogsAlertForm(): JSX.Element {
                 <LemonField name="filterGroup" label="Attributes">
                     <AlertFilterGroup filterGroup={alertForm.filterGroup} onChange={handleFilterGroupChange} />
                 </LemonField>
-            </div>
+            </AlertEditorSection>
 
             <LemonDivider />
 
-            <div className="space-y-3">
-                <h3 className="text-base font-semibold m-0">Rules</h3>
+            <AlertEditorSection title="Rules">
                 <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm">Alert if count goes</span>
                     <LemonSegmentedButton
@@ -161,12 +161,11 @@ export function LogsAlertForm(): JSX.Element {
                         size="small"
                     />
                 </div>
-            </div>
+            </AlertEditorSection>
 
             <LemonDivider />
 
-            <div className="space-y-4">
-                <h3 className="text-base font-semibold m-0">Advanced</h3>
+            <AlertEditorSection title="Advanced">
                 <LemonField.Pure
                     label={
                         <span className="inline-flex items-center gap-1">
@@ -231,7 +230,7 @@ export function LogsAlertForm(): JSX.Element {
                         <span className="text-sm">minutes</span>
                     </div>
                 </LemonField.Pure>
-            </div>
+            </AlertEditorSection>
         </div>
     )
 }

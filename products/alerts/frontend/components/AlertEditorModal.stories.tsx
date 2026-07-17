@@ -1,10 +1,29 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { kea, path, useValues } from 'kea'
+import { Form, forms } from 'kea-forms'
 import { useState } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
-import { AlertEditorModalFooter, AlertEditorModalHeader } from './AlertEditorModal'
+import {
+    AlertEditorFormDetails,
+    AlertEditorModal,
+    AlertEditorModalLayout,
+    AlertEditorSection,
+} from './AlertEditorModal'
+
+const alertEditorStoryLogic = kea([
+    path(['products', 'alerts', 'components', 'AlertEditorModal', 'story']),
+    forms({
+        alertForm: {
+            defaults: {
+                name: 'Error rate alert',
+                enabled: true,
+            },
+            submit: () => Promise.resolve(),
+        },
+    }),
+])
 
 interface AlertEditorModalStoryArgs {
     title: string
@@ -13,7 +32,9 @@ interface AlertEditorModalStoryArgs {
     isSubmitting: boolean
     hasChanges: boolean
     hasPendingChanges: boolean
+    loading: boolean
     showBackButton: boolean
+    showEnabledField: boolean
     showLeadingAction: boolean
 }
 
@@ -24,37 +45,32 @@ function AlertEditorModalStory({
     isSubmitting,
     hasChanges,
     hasPendingChanges,
+    loading,
     showBackButton,
+    showEnabledField,
     showLeadingAction,
 }: AlertEditorModalStoryArgs): JSX.Element {
+    const { alertForm } = useValues(alertEditorStoryLogic)
     const [lastAction, setLastAction] = useState('No action selected')
 
     return (
         <div className="bg-default p-4">
-            <LemonModal isOpen inline simple closable={false} width={640}>
-                <form
+            <AlertEditorModal isOpen inline closable={false} width={640} loading={loading}>
+                <Form
+                    logic={alertEditorStoryLogic}
+                    formKey="alertForm"
+                    enableFormOnSubmit
                     className="LemonModal__layout"
-                    onSubmit={(event) => {
-                        event.preventDefault()
-                        setLastAction(isEditing ? 'Saved alert' : 'Created alert')
-                    }}
                 >
-                    <AlertEditorModalHeader
+                    <AlertEditorModalLayout
                         title={title}
                         description={description}
                         onBack={showBackButton ? () => setLastAction('Selected back') : undefined}
-                    />
-                    <LemonModal.Content>
-                        <div className="deprecated-space-y-2">
-                            <p className="m-0">Product-specific alert fields render here.</p>
-                            <p className="text-muted m-0">{lastAction}</p>
-                        </div>
-                    </LemonModal.Content>
-                    <AlertEditorModalFooter
                         isEditing={isEditing}
                         isSubmitting={isSubmitting}
                         hasChanges={hasChanges}
                         hasPendingChanges={hasPendingChanges}
+                        onSubmitAttempted={() => setLastAction(isEditing ? 'Saved alert' : 'Created alert')}
                         leadingActions={
                             showLeadingAction ? (
                                 <LemonButton type="secondary" onClick={() => setLastAction('Selected delete')}>
@@ -62,9 +78,26 @@ function AlertEditorModalStory({
                                 </LemonButton>
                             ) : undefined
                         }
-                    />
-                </form>
-            </LemonModal>
+                    >
+                        <div className="space-y-6">
+                            <AlertEditorFormDetails
+                                enabled={showEnabledField ? { checked: alertForm.enabled } : undefined}
+                                activity={<p className="text-muted text-sm m-0">Created by Story User</p>}
+                            />
+                            <AlertEditorSection
+                                title="Definition"
+                                description="Product-specific alert conditions render inside shared sections."
+                            >
+                                <div className="border rounded p-3 text-sm">Alert when the error rate exceeds 5%.</div>
+                            </AlertEditorSection>
+                            <AlertEditorSection title="Notification">
+                                <div className="border rounded p-3 text-sm">Send a notification to #alerts.</div>
+                            </AlertEditorSection>
+                            <p className="text-muted m-0">{lastAction}</p>
+                        </div>
+                    </AlertEditorModalLayout>
+                </Form>
+            </AlertEditorModal>
         </div>
     )
 }
@@ -78,7 +111,9 @@ const meta: Meta<AlertEditorModalStoryArgs> = {
         isSubmitting: false,
         hasChanges: false,
         hasPendingChanges: false,
+        loading: false,
         showBackButton: true,
+        showEnabledField: true,
         showLeadingAction: false,
     },
     render: (args) => <AlertEditorModalStory key={JSON.stringify(args)} {...args} />,
@@ -119,5 +154,11 @@ export const EditWithPendingChanges: Story = {
 export const Submitting: Story = {
     args: {
         isSubmitting: true,
+    },
+}
+
+export const Loading: Story = {
+    args: {
+        loading: true,
     },
 }
