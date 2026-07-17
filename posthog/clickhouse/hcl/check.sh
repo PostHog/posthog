@@ -81,16 +81,31 @@ for env in $envs; do
       continue
     fi
 
-    echo "== $env/$role: diff vs golden =="
-    stack="$(manifest_stack "$env" "$role")"
-    err="$(mktemp)"
-    out="$("$HCLEXP" diff -left "$stack" -right "$golden" 2>"$err")"
-    if [ "$out" != "no differences" ]; then
-      echo "FAIL: drift in $env/$role"; echo "$out"; cat "$err"; rc=1
+    echo "== $env/$role: golden freshness =="
+    # Compose exactly the way gen-golden.sh does -- same command, same -out-name --
+    # and require the committed file to be byte-identical to it. `hclexp diff` is
+    # still run, but only to explain a failure, never to decide it: a semantic
+    # compare passes a golden whose formatting has rotted away from what the
+    # generator emits, which is how golden/local-multi/data.hcl kept "(is_deleted)"
+    # index exprs that any regen rewrites. sql/ below has always been byte-compared;
+    # golden/ now holds to the same standard.
+    tmp_g="$(mktemp -d)"
+    "$HCLEXP" load -manifest "$MANIFEST" -env "$env" -layer-root "$HCL" -role "$role" \
+      -out-name '{env}/{role}' -out "$tmp_g" >/dev/null
+    composed="$tmp_g/$env/$role.hcl"
+    if ! cmp -s "$golden" "$composed"; then
+      echo "FAIL: golden stale for $env/$role — run gen-golden.sh and commit"
+      out="$("$HCLEXP" diff -left "$composed" -right "$golden" 2>&1 || true)"
+      if [ "$out" = "no differences" ]; then
+        echo "  formatting only: semantically identical, but not what gen-golden.sh emits"
+      else
+        echo "$out"
+      fi
+      rc=1
     else
-      echo "no differences"
+      echo "golden fresh"
     fi
-    rm -f "$err"
+    rm -rf "$tmp_g"
   done
 done
 
