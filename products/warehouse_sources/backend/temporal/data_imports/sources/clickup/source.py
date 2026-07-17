@@ -19,8 +19,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.cl
     validate_credentials as validate_clickup_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.settings import (
-    CLICKUP_ENDPOINTS,
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -28,7 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ClickUpSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -111,19 +114,8 @@ The **Workspace ID** is the numeric ID in your ClickUp URL: `https://app.clickup
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=CLICKUP_ENDPOINTS[endpoint].supports_incremental,
-                supports_append=False,
-                incremental_fields=CLICKUP_ENDPOINTS[endpoint].incremental_fields,
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # Only tasks exposes an incremental field; ClickUp endpoints are all full-refresh, never append.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=ENDPOINTS)
 
     def validate_credentials(
         self, config: ClickUpSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -143,7 +135,8 @@ The **Workspace ID** is the numeric ID in your ClickUp URL: `https://app.clickup
             api_key=config.api_key,
             workspace_id=config.workspace_id,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
