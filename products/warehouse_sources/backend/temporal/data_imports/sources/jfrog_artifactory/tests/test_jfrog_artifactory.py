@@ -412,31 +412,25 @@ class TestRequestBodyCap:
         # stream=True keeps a hostile host's body off the wire until we read it under the cap.
         assert session.request.call_args.kwargs["stream"] is True
 
-    @parameterized.expand(
-        [
-            ("MAX_RESPONSE_BYTES", 4, [b"aaaa", b"aaaa"]),  # decoded body past the byte cap
-            ("MAX_TRANSFER_SECONDS", -1, [b"a"]),  # transfer past the wall-clock deadline
-        ]
-    )
-    def test_over_limit_raises_non_retryable(self, attr: str, value: int, chunks: list[bytes]) -> None:
-        # A hostile/self-hosted host could stream an unbounded or slow-drip body and OOM a shared
-        # worker. The read must abort past either cap before parsing JSON, with a non-retryable error
-        # (retrying can't shrink or speed up the body) — so session.request is called exactly once.
+    def test_over_byte_cap_raises_non_retryable(self) -> None:
+        # A hostile/self-hosted host could stream an unbounded (or highly compressed) body and OOM a
+        # shared worker. The read must abort past the byte cap before parsing JSON, with a
+        # non-retryable error (retrying can't shrink the body) — so session.request runs exactly once.
         session = MagicMock()
-        session.request.return_value = _streamed_response(chunks=chunks)
+        session.request.return_value = _streamed_response(chunks=[b"aaaa", b"aaaa"])
 
         with pytest.raises(JfrogArtifactoryResponseTooLargeError) as exc:
             with pytest.MonkeyPatch.context() as mp:
-                mp.setattr(jfrog_artifactory, attr, value)
+                mp.setattr(jfrog_artifactory, "MAX_RESPONSE_BYTES", 4)
                 _request(session, "GET", "https://acme.jfrog.io/api/x", {}, MagicMock())
 
         assert RESPONSE_LIMIT_ERROR in str(exc.value)
         assert session.request.call_count == 1
 
-    def test_blocking_read_past_deadline_is_aborted(self) -> None:
-        # A hostile host can block mid-read (never filling a chunk) so the in-loop deadline check
-        # never runs. The off-thread watchdog must close the response to unblock the read and abort
-        # with a non-retryable error, rather than leaving the worker hung.
+    def test_body_drip_past_deadline_is_aborted(self) -> None:
+        # A host that blocks mid-body (never filling a chunk) keeps requests' per-read timeout from
+        # firing. The out-of-band deadline must close the response to unblock the read and abort with
+        # a non-retryable error rather than leaving the worker hung.
         released = threading.Event()
 
         def _blocking_iter(chunk_size: int | None = None) -> Any:
@@ -460,4 +454,27 @@ class TestRequestBodyCap:
 
         assert RESPONSE_LIMIT_ERROR in str(exc.value)
         response.close.assert_called()
+        assert session.request.call_count == 1
+
+    def test_header_drip_past_deadline_is_aborted(self) -> None:
+        # A host that dribbles response *header* bytes keeps session.request blocked before a response
+        # object even exists, so a body-only guard would never fire. The request-level deadline must
+        # abort this too, freeing the worker.
+        started = threading.Event()
+
+        def _blocking_request(*args: Any, **kwargs: Any) -> Any:
+            started.set()
+            threading.Event().wait(timeout=5)  # server never finishes sending headers
+            raise requests.ConnectionError("connection closed")
+
+        session = MagicMock()
+        session.request.side_effect = _blocking_request
+
+        with pytest.raises(JfrogArtifactoryResponseTooLargeError) as exc:
+            with pytest.MonkeyPatch.context() as mp:
+                mp.setattr(jfrog_artifactory, "MAX_TRANSFER_SECONDS", 0.05)
+                _request(session, "GET", "https://acme.jfrog.io/api/x", {}, MagicMock())
+
+        assert RESPONSE_LIMIT_ERROR in str(exc.value)
+        assert started.is_set()
         assert session.request.call_count == 1

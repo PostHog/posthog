@@ -2,7 +2,7 @@ import json
 import time
 import threading
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlparse
@@ -27,13 +27,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_arti
 ARTIFACTORY_API_PATH = "/artifactory/api"
 
 REQUEST_TIMEOUT_SECONDS = 120
+PROBE_TIMEOUT_SECONDS = 30
 MAX_RETRY_ATTEMPTS = 5
 
 # The platform URL is user-supplied, so a hostile host could stream an arbitrarily large (or
 # highly compressed) body and OOM the import worker. Cap how much we buffer before decoding JSON,
-# and how long a single transfer may run, on both the sync path and the reachability probe.
+# and how long a single exchange may run, on both the sync path and the reachability probe.
 MAX_RESPONSE_BYTES = 512 * 1024 * 1024
 MAX_TRANSFER_SECONDS = 600
+PROBE_DEADLINE_SECONDS = 60
 RESPONSE_CHUNK_BYTES = 1024 * 1024
 RESPONSE_LIMIT_ERROR = "JFrog response exceeded a transfer limit"
 
@@ -47,6 +49,48 @@ class JfrogArtifactoryResponseTooLargeError(Exception):
     pass
 
 
+def _call_with_deadline(
+    work: Callable[[], Any],
+    response_holder: dict[str, requests.Response],
+    url: str,
+    deadline_seconds: float,
+) -> Any:
+    """Run a blocking ``requests`` call under a total wall-clock deadline and return its result.
+
+    ``requests``' ``timeout`` is a per-read socket timeout that resets on every byte, so a host that
+    dribbles bytes — even response *header* bytes, before ``session.request`` has returned — can pin
+    the call indefinitely. Running ``work`` on a daemon worker thread lets us abandon the wait after
+    ``deadline_seconds`` and free the import worker no matter which phase (connect, header, or body)
+    is stuck. ``work`` records its response in ``response_holder`` as soon as one exists so we can
+    close the socket on timeout and release a body- or post-header read promptly; a pure header-phase
+    drip has no socket to close yet, so that abandoned thread unwinds once its per-read timeout trips.
+    Any exception ``work`` raises is re-raised on the calling thread so retry handling is unchanged.
+    """
+    result: dict[str, Any] = {}
+    error: dict[str, BaseException] = {}
+    done = threading.Event()
+
+    def _runner() -> None:
+        try:
+            result["value"] = work()
+        except BaseException as exc:  # noqa: BLE001 — re-raised on the calling thread below
+            error["exc"] = exc
+        finally:
+            done.set()
+
+    threading.Thread(target=_runner, name="jfrog-request", daemon=True).start()
+    if not done.wait(timeout=deadline_seconds):
+        response = response_holder.get("response")
+        if response is not None:
+            response.close()
+        raise JfrogArtifactoryResponseTooLargeError(
+            f"{RESPONSE_LIMIT_ERROR}: {url} exchange exceeded {deadline_seconds}s"
+        )
+    if "exc" in error:
+        raise error["exc"]
+    return result["value"]
+
+
 def _read_capped_body(response: requests.Response, url: str) -> bytes:
     """Stream the response body under a byte cap and a wall-clock deadline, then return the raw bytes.
 
@@ -54,53 +98,25 @@ def _read_capped_body(response: requests.Response, url: str) -> bytes:
     until here. ``iter_content`` decodes any content-encoding, so ``total`` and the cap track the
     decoded size that actually lands in memory — a compression bomb trips the cap as it inflates.
     Raises :class:`JfrogArtifactoryResponseTooLargeError` before the JSON is decoded rather than
-    letting a hostile host OOM or occupy the worker.
+    letting a hostile host OOM the worker. The overall wall-clock deadline (including a host that
+    blocks mid-read between chunks) is enforced by :func:`_call_with_deadline` around the whole call.
     """
     started = time.monotonic()
     total = 0
     chunks: list[bytes] = []
-    timed_out = threading.Event()
-
-    def _abort_on_deadline() -> None:
-        # A hostile host can trickle bytes just often enough to keep the socket-read timeout at bay
-        # while never filling a chunk, so `iter_content` blocks and the in-loop deadline check below
-        # never runs. This watchdog fires off-thread and closes the response, which unblocks the
-        # pending read (it raises), enforcing the deadline independently of the blocking read.
-        timed_out.set()
-        response.close()
-
-    watchdog = threading.Timer(MAX_TRANSFER_SECONDS, _abort_on_deadline)
-    watchdog.start()
-    try:
-        for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_BYTES):
-            if timed_out.is_set():
-                raise JfrogArtifactoryResponseTooLargeError(
-                    f"{RESPONSE_LIMIT_ERROR}: {url} transfer exceeded {MAX_TRANSFER_SECONDS}s"
-                )
-            if not chunk:
-                continue
-            total += len(chunk)
-            if total > MAX_RESPONSE_BYTES:
-                raise JfrogArtifactoryResponseTooLargeError(
-                    f"{RESPONSE_LIMIT_ERROR}: {url} returned more than {MAX_RESPONSE_BYTES} bytes"
-                )
-            if time.monotonic() - started > MAX_TRANSFER_SECONDS:
-                raise JfrogArtifactoryResponseTooLargeError(
-                    f"{RESPONSE_LIMIT_ERROR}: {url} transfer exceeded {MAX_TRANSFER_SECONDS}s"
-                )
-            chunks.append(chunk)
-    except JfrogArtifactoryResponseTooLargeError:
-        raise
-    except Exception:
-        # The watchdog closing the socket surfaces here as a transport error; translate it into the
-        # deadline error rather than a retryable one, since retrying won't speed the host up.
-        if timed_out.is_set():
+    for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_BYTES):
+        if not chunk:
+            continue
+        total += len(chunk)
+        if total > MAX_RESPONSE_BYTES:
+            raise JfrogArtifactoryResponseTooLargeError(
+                f"{RESPONSE_LIMIT_ERROR}: {url} returned more than {MAX_RESPONSE_BYTES} bytes"
+            )
+        if time.monotonic() - started > MAX_TRANSFER_SECONDS:
             raise JfrogArtifactoryResponseTooLargeError(
                 f"{RESPONSE_LIMIT_ERROR}: {url} transfer exceeded {MAX_TRANSFER_SECONDS}s"
-            ) from None
-        raise
-    finally:
-        watchdog.cancel()
+            )
+        chunks.append(chunk)
     return b"".join(chunks)
 
 
@@ -223,20 +239,32 @@ def _request(
     logger: FilteringBoundLogger,
     data: str | None = None,
 ) -> Any:
-    # stream=True so the (user-supplied) host's body isn't buffered until we read it under a cap.
-    response = session.request(method, url, headers=headers, data=data, timeout=REQUEST_TIMEOUT_SECONDS, stream=True)
+    # Bound the whole exchange (connect + headers + body) on a worker thread: requests' per-read
+    # timeout resets on every byte, so a host dribbling even header bytes could otherwise pin us.
+    holder: dict[str, requests.Response] = {}
 
-    # JFrog Cloud tiers rate limit; transient 5xx are retryable too.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise JfrogArtifactoryRetryableError(f"JFrog API error (retryable): status={response.status_code}, url={url}")
+    def _do_request() -> Any:
+        # stream=True so the (user-supplied) host's body isn't buffered until we read it under a cap.
+        response = session.request(
+            method, url, headers=headers, data=data, timeout=REQUEST_TIMEOUT_SECONDS, stream=True
+        )
+        holder["response"] = response
 
-    body = _read_capped_body(response, url)
+        # JFrog Cloud tiers rate limit; transient 5xx are retryable too.
+        if response.status_code == 429 or response.status_code >= 500:
+            raise JfrogArtifactoryRetryableError(
+                f"JFrog API error (retryable): status={response.status_code}, url={url}"
+            )
 
-    if not response.ok:
-        logger.error(f"JFrog API error: status={response.status_code}, body={body[:500]!r}, url={url}")
-        response.raise_for_status()
+        body = _read_capped_body(response, url)
 
-    return json.loads(body)
+        if not response.ok:
+            logger.error(f"JFrog API error: status={response.status_code}, body={body[:500]!r}, url={url}")
+            response.raise_for_status()
+
+        return json.loads(body)
+
+    return _call_with_deadline(_do_request, holder, url, MAX_TRANSFER_SECONDS)
 
 
 def _get_json(
@@ -355,29 +383,43 @@ def probe_endpoint(base_url: str, access_token: str, endpoint: str | None = None
     """
     config = JFROG_ARTIFACTORY_ENDPOINTS[endpoint] if endpoint is not None else None
     session = _get_session(access_token)
+    holder: dict[str, requests.Response] = {}
+
     # stream=True keeps the (user-supplied) host's body off the wire until we ask for it — the probe
     # only inspects the status code, so we never read it, and closing the response frees the socket.
+    def _do_probe() -> tuple[bool, int | None]:
+        try:
+            if config is not None and config.kind == "aql":
+                # AQL requires authentication and (for builds) admin/scoped-token access, so a
+                # single-row query is the accurate scope probe for these endpoints.
+                query = build_aql_query(config, limit=1)
+                url = _api_url(base_url, "/search/aql")
+                response = session.post(
+                    url,
+                    headers={**_headers(access_token), "Content-Type": "text/plain"},
+                    data=query,
+                    timeout=PROBE_TIMEOUT_SECONDS,
+                    stream=True,
+                )
+            else:
+                path = config.path if config is not None else "/repositories"
+                response = session.get(
+                    _api_url(base_url, path), headers=_headers(access_token), timeout=PROBE_TIMEOUT_SECONDS, stream=True
+                )
+        except ValueError:
+            raise
+        except Exception:
+            return False, None
+        holder["response"] = response
+        try:
+            return response.status_code == 200, response.status_code
+        finally:
+            response.close()
+
+    # Bound the probe the same way as a sync request: a host dribbling header bytes must not pin
+    # setup either. A blown deadline means the host is unreachable in any useful sense, so map it to
+    # the same "not ok, no status" result as a transport error rather than surfacing as an error.
     try:
-        if config is not None and config.kind == "aql":
-            # AQL requires authentication and (for builds) admin/scoped-token access, so a
-            # single-row query is the accurate scope probe for these endpoints.
-            query = build_aql_query(config, limit=1)
-            url = _api_url(base_url, "/search/aql")
-            response = session.post(
-                url,
-                headers={**_headers(access_token), "Content-Type": "text/plain"},
-                data=query,
-                timeout=30,
-                stream=True,
-            )
-        else:
-            path = config.path if config is not None else "/repositories"
-            response = session.get(_api_url(base_url, path), headers=_headers(access_token), timeout=30, stream=True)
-    except ValueError:
-        raise
-    except Exception:
+        return _call_with_deadline(_do_probe, holder, base_url, PROBE_DEADLINE_SECONDS)
+    except JfrogArtifactoryResponseTooLargeError:
         return False, None
-    try:
-        return response.status_code == 200, response.status_code
-    finally:
-        response.close()
