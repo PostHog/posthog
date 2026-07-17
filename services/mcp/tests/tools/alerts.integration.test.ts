@@ -95,7 +95,7 @@ describe('Alerts', { concurrent: false }, () => {
             expect(typeof data.count).toBe('number')
             expect(Array.isArray(data.results)).toBe(true)
             expect(typeof data._posthogUrl).toBe('string')
-            expect(data._posthogUrl).toContain('/insights')
+            expect(data._posthogUrl).toContain('/alerts')
         })
 
         it('should respect the limit parameter', async () => {
