@@ -1,0 +1,27 @@
+[package]
+name = "common-ingestion-warnings"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[build-dependencies]
+# Parses capture_warning_types.generated.json (mirrored from the Node.js registry)
+# to codegen the WarningType enum. See build.rs.
+serde_json = { workspace = true }
+
+[dependencies]
+chrono = { workspace = true }
+common-kafka = { path = "../kafka" }
+common-types = { path = "../types" }
+governor = { workspace = true }
+metrics = { workspace = true }
+rdkafka = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+common-liveness = { path = "../liveness" }
+rstest = "0.26"
