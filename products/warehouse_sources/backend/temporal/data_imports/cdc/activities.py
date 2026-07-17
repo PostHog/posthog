@@ -105,6 +105,15 @@ CDC_ORPHAN_JOB_MIN_AGE = dt.timedelta(minutes=30)
 # tell an abandoned run from one whose batches simply aged out.
 CDC_ORPHAN_JOB_MAX_AGE = dt.timedelta(days=14)
 
+# Backpressure valve: skip the extraction tick only once the oldest non-terminal batch is older
+# than this. Cross-run apply ordering is enforced by the loader's claim gate, so coexisting runs
+# are safe — this valve only bounds how much queue backlog (and therefore WAL, which accumulates
+# while ticks are skipped) a slow loader can build up. 30 min is well past the loader's
+# recovery-sweep grace (300s) and retry backoffs, so a healthy-but-busy loader never trips it,
+# while WAL growth stays bounded far below the 2048 MB slot-drop safety net for any source whose
+# steady-state WAL rate the slot could survive anyway.
+CDC_BACKPRESSURE_MAX_PENDING_AGE = dt.timedelta(minutes=30)
+
 # Backpressure guard: past this age a skipped tick is a stuck load, not a slow one — well beyond
 # the loader's recovery-sweep grace (300s) and retry backoffs, so it only trips when a run needs
 # operator attention. Skips past it log at error level; the tick is still skipped (see
@@ -715,6 +724,7 @@ class CDCExtractActivity:
             self.reader.connect()
 
             self._load_pk_columns()
+            self._flush_pending_deferred_runs()
             self._read_wal_loop()
 
             self.log.info("wal_changes_read", event_count=self.event_count, tables=list(self.all_table_names))
@@ -726,7 +736,6 @@ class CDCExtractActivity:
                 self._handle_no_changes(truncated_tables)
                 return
 
-            self._flush_pending_deferred_runs()
             final_flushed = self._final_flush()
             self._finalize_trackers(final_flushed)
             self._advance_slot_after_run()
@@ -790,18 +799,21 @@ class CDCExtractActivity:
             self.log.exception("failed_to_delete_own_schedule")
 
     def _previous_load_still_pending(self) -> bool:
-        """Backpressure guard: skip this tick while a previous run's batches are still loading.
+        """Backpressure valve: skip this tick only when the load backlog is older than
+        CDC_BACKPRESSURE_MAX_PENDING_AGE.
 
-        CDC ticks don't hold the per-schema pipeline lock the way external-data-job runs do,
-        so without this check every tick enqueues a fresh run regardless of whether the
-        previous one landed. Coexisting runs of one schema can then be claimed out of order
-        by the loader (its head-of-line gate is run-scoped), and an incremental merge applied
-        out of order silently overwrites newer rows with older ones. Skipping keeps at most
-        one active run per schema; nothing has been peeked and the slot is untouched, so WAL
-        accumulates and the next tick catches up.
+        Correctness no longer lives here: the loader's claim-side cross-run ordering gate
+        (see jobs_db._state_claim_candidates_sql) guarantees a schema's runs apply in
+        enqueue order, so coexisting runs of one schema can no longer be merged out of
+        order. That decouples slot advance from load completion — the S3/queue backlog is
+        the elastic buffer — and leaves this guard as a queue-depth valve: while the oldest
+        non-terminal batch is younger than the valve, keep extracting; past it, skip the
+        tick so a persistently slow loader converts into bounded queue backlog instead of
+        unbounded WAL buildup (nothing is peeked on a skipped tick, so the slot is
+        untouched and WAL accumulates until the backlog drains).
 
         Per-source, not per-schema: the slot is read once for all tables, so one table's
-        pending load must hold back the whole source's tick.
+        aged backlog must hold back the whole source's tick.
 
         Deliberately no auto-remediation past CDC_BACKPRESSURE_STUCK_AGE: the slot already
         advanced past the pending runs' events, so failing their batches would leave a
@@ -826,7 +838,7 @@ class CDCExtractActivity:
         finally:
             conn.close()
 
-        if age is None:
+        if age is None or age < CDC_BACKPRESSURE_MAX_PENDING_AGE.total_seconds():
             return False
 
         stuck = age >= CDC_BACKPRESSURE_STUCK_AGE.total_seconds()
@@ -1229,7 +1241,13 @@ class CDCExtractActivity:
     # Flush + finalization
     # ------------------------------------------------------------------
     def _flush_pending_deferred_runs(self) -> None:
-        """Flush deferred runs for schemas that transitioned to streaming."""
+        """Flush deferred runs for schemas that transitioned to streaming.
+
+        Must run before the read loop can enqueue any of this tick's
+        micro-batches: deferred runs carry strictly older WAL windows, and the
+        loader applies a schema's runs in enqueue (created_at) order — flushing
+        them after this run's batches would apply the older data last.
+        """
         assert self.source is not None
         for schema in self.cdc_schemas:
             if schema.cdc_mode == "streaming" and schema.sync_type_config.get("cdc_deferred_runs"):

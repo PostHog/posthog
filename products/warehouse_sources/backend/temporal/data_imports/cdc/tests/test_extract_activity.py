@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import (
+    CDC_BACKPRESSURE_MAX_PENDING_AGE,
     CDC_BACKPRESSURE_STUCK_AGE,
     CDC_MAX_CHANGES_PER_READ,
     CDC_ORPHAN_JOB_MIN_AGE,
@@ -24,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.activities imp
     cdc_extract_activity,
     cleanup_orphan_slots_activity,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import ChangeEventBatcher
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
@@ -327,13 +329,17 @@ class TestBackpressureGuard:
         "age_seconds,expect_skip,expect_stuck",
         [
             (None, False, None),
-            (30.0, True, False),
+            # Below the valve the tick proceeds even with a pending backlog — the
+            # loader's claim-side ordering gate owns cross-run correctness now.
+            (30.0, False, None),
+            (CDC_BACKPRESSURE_MAX_PENDING_AGE.total_seconds() - 1, False, None),
+            (CDC_BACKPRESSURE_MAX_PENDING_AGE.total_seconds() + 1, True, False),
             (CDC_BACKPRESSURE_STUCK_AGE.total_seconds() + 1, True, True),
         ],
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.metrics.get_tick_skipped_metric")
     @patch("psycopg.Connection.connect")
-    def test_skips_only_while_previous_batches_pend(
+    def test_skips_only_when_backlog_age_exceeds_valve(
         self, mock_connect, mock_metric, age_seconds, expect_skip, expect_stuck
     ):
         act = self._activity()
@@ -359,7 +365,11 @@ class TestBackpressureGuard:
         with (
             patch.object(act, "_setup", return_value=True),
             patch.object(act, "_mark_schemas_running") as mark_running,
-            patch.object(BatchQueue, "get_oldest_non_terminal_batch_age_seconds", return_value=42.0),
+            patch.object(
+                BatchQueue,
+                "get_oldest_non_terminal_batch_age_seconds",
+                return_value=CDC_BACKPRESSURE_MAX_PENDING_AGE.total_seconds() + 1,
+            ),
         ):
             act.run()
 
@@ -576,6 +586,80 @@ class TestCDCExtractActivity:
         mock_producer.flush.assert_called_once()
         mock_reader.confirm_position.assert_called_once_with("0/200")
         mock_reader.close.assert_called_once()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_deferred_runs_enqueue_before_current_run_batches(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+    ):
+        # The loader applies a schema's runs in enqueue (created_at) order, so the
+        # deferred (older-WAL) snapshot-era runs must hit the queue before any of
+        # this tick's micro-batches — a mid-loop flush enqueued first would make
+        # the older data apply last and overwrite newer rows.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        schema.sync_type_config["cdc_deferred_runs"] = [
+            {
+                "job_id": "job-deferred",
+                "run_uuid": "deferred-run-1",
+                "data_folder": "s3://bucket/deferred/",
+                "schema_path": "s3://bucket/deferred-schema.json",
+                "total_batches": 1,
+                "total_rows": 10,
+                "batch_results": [
+                    {
+                        "s3_path": "s3://bucket/deferred/part-0000.parquet",
+                        "row_count": 10,
+                        "byte_size": 1024,
+                        "batch_index": 0,
+                        "timestamp_ns": 1,
+                    }
+                ],
+            }
+        ]
+        events = [
+            _make_event(op="I", position="0/100", columns={"id": 1, "name": "Alice"}),
+            _make_event(op="U", position="0/200", columns={"id": 1, "name": "Bob"}),
+        ]
+        _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [schema],
+            events,
+        )
+
+        # Force a mid-loop micro-batch flush so this run's first batch is enqueued
+        # while the read loop is still draining.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ChangeEventBatcher",
+            lambda: ChangeEventBatcher(max_events=1),
+        ):
+            cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
+
+        producer_run_uuids = [c.kwargs["run_uuid"] for c in MockProducer.call_args_list]
+        assert len(producer_run_uuids) >= 2, "expected both the deferred run and a mid-loop batch to enqueue"
+        assert producer_run_uuids[0] == "deferred-run-1"
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
@@ -2099,13 +2183,22 @@ class TestSlotInvalidationRecovery:
     """When the replication slot is invalidated/dropped on the source DB, the activity
     must recreate it and reset all CDC schemas to snapshot mode instead of failing forever."""
 
+    @pytest.fixture(autouse=True)
+    def _stub_producer(self):
+        # Deferred runs flush before the read loop (enqueue order = apply order), so
+        # these run()-level tests reach the producer before the slot error fires.
+        with patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer"):
+            yield
+
     def _setup(self, mock_get_schemas, mock_get_adapter, MockSourceModel, mock_activity):
         source = _make_source()
         MockSourceModel.objects.get.return_value = source
 
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         schema.sync_type_config["cdc_last_log_position"] = "0/OLD"
-        schema.sync_type_config["cdc_deferred_runs"] = [{"run_uuid": "stale"}]
+        schema.sync_type_config["cdc_deferred_runs"] = [
+            {"job_id": "job-stale", "run_uuid": "stale", "batch_results": []}
+        ]
         mock_get_schemas.return_value = [schema]
 
         invalidation_error = psycopg.errors.ObjectNotInPrerequisiteState(

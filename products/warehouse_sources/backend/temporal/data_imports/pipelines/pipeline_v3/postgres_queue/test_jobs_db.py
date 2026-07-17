@@ -84,6 +84,10 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
             WHERE latest_state = 'executing'
     """)
     conn.execute(f"""
+        CREATE INDEX IF NOT EXISTS sb_schema_order_idx ON {BATCH_TABLE} (team_id, schema_id, created_at)
+            WHERE latest_state IN ('pending', 'waiting', 'waiting_retry', 'executing')
+    """)
+    conn.execute(f"""
         CREATE TABLE IF NOT EXISTS {STATUS_TABLE} (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             batch_id UUID NOT NULL REFERENCES {BATCH_TABLE}(id) ON DELETE CASCADE,
@@ -144,6 +148,15 @@ _BATCH_DEFAULTS: dict[str, Any] = {
 async def _insert_batch(conn: psycopg.AsyncConnection[Any], **overrides: Any) -> str:
     params = {**_BATCH_DEFAULTS, **overrides}
     return await BatchQueue.insert(conn, **params)
+
+
+async def _backdate_batch(conn: psycopg.AsyncConnection[Any], batch_id: str, seconds: int) -> None:
+    # BatchQueue.insert stamps created_at server-side; backdate after the fact to
+    # build deterministic cross-run enqueue orderings.
+    await conn.execute(
+        f"UPDATE {BATCH_TABLE} SET created_at = created_at - make_interval(secs => %s) WHERE id = %s",
+        (seconds, batch_id),
+    )
 
 
 @pytest.fixture(scope="session")
@@ -313,6 +326,118 @@ class TestBatchQueueGetUnprocessed:
 
         assert [b.run_uuid for b in batches] == ["run-2"]
         await _release(conn, batches=batches)
+
+
+@pytest.mark.django_db(transaction=True)
+class TestBatchQueueCrossRunOrdering:
+    @pytest.mark.parametrize("sync_type", ["cdc", "full_refresh"])
+    @pytest.mark.asyncio
+    async def test_older_run_blocks_newer_run_same_schema(self, conn, sync_type):
+        # Regression guard for the ordering gate itself: without it both runs'
+        # batches are claimable together and a newer run's merge can apply before
+        # the older run's (silent overwrite of newer rows). Applies to every v3
+        # sync type, not just CDC.
+        old = await _insert_batch(conn, run_uuid="run-old", batch_index=0, sync_type=sync_type)
+        await _backdate_batch(conn, old, 60)
+        await _insert_batch(conn, run_uuid="run-new", batch_index=0, sync_type=sync_type)
+
+        batches = await _claim(conn)
+
+        assert [str(b.id) for b in batches] == [old]
+        await _release(conn, batches=batches)
+
+    @pytest.mark.asyncio
+    async def test_older_run_does_not_block_other_schema(self, conn):
+        # The gate is schema-scoped; one schema's backlog must not stall another's.
+        old = await _insert_batch(conn, schema_id="A", run_uuid="run-old", batch_index=0)
+        await _backdate_batch(conn, old, 60)
+        other = await _insert_batch(conn, schema_id="B", run_uuid="run-other", batch_index=0)
+
+        batches = await _claim(conn)
+
+        assert {str(b.id) for b in batches} == {old, other}
+        await _release(conn, batches=batches)
+
+    @pytest.mark.asyncio
+    async def test_failed_older_run_does_not_block_newer_run(self, conn):
+        # A failed old run's leftover pending batches can never be claimed; if they
+        # still counted as blockers the schema would deadlock forever.
+        old_pending = await _insert_batch(conn, run_uuid="run-old", batch_index=0)
+        old_failed = await _insert_batch(conn, run_uuid="run-old", batch_index=1)
+        await BatchQueue.update_status(conn, batch_id=old_failed, job_state="failed", attempt=1)
+        for bid in (old_pending, old_failed):
+            await _backdate_batch(conn, bid, 60)
+        new = await _insert_batch(conn, run_uuid="run-new", batch_index=0)
+
+        batches = await _claim(conn)
+
+        assert [str(b.id) for b in batches] == [new]
+        await _release(conn, batches=batches)
+
+    @pytest.mark.asyncio
+    async def test_elapsed_retry_in_oldest_run_claims_before_newer_runs(self, conn):
+        # Starvation regression: a waiting_retry batch whose backoff elapsed used to
+        # race newer runs' batches for the claim window; the oldest run claims alone.
+        retry = await _insert_batch(conn, run_uuid="run-old", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=retry, job_state="waiting_retry", attempt=1)
+        await _backdate_batch(conn, retry, 60)
+        await _insert_batch(conn, run_uuid="run-new", batch_index=0)
+
+        batches = await _claim(conn, retry_backoff_base_seconds=0)
+
+        assert [str(b.id) for b in batches] == [retry]
+        await _release(conn, batches=batches)
+
+    @pytest.mark.asyncio
+    async def test_equal_created_at_ties_break_by_run_uuid(self, conn):
+        # created_at can theoretically tie across producer connections; the run_uuid
+        # tiebreak keeps the ordering total, so tied runs still apply one at a time
+        # instead of both claiming into the same window in arbitrary order.
+        first = await _insert_batch(conn, run_uuid="run-a", batch_index=0)
+        tied = await _insert_batch(conn, run_uuid="run-b", batch_index=0)
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET created_at = (SELECT created_at FROM {BATCH_TABLE} WHERE id = %s) WHERE id = %s",
+            (first, tied),
+        )
+
+        batches = await _claim(conn)
+
+        assert [str(b.id) for b in batches] == [first]
+        await _release(conn, batches=batches)
+
+    @pytest.mark.asyncio
+    async def test_backoff_pending_retry_still_blocks_newer_runs(self, conn):
+        # The gate must hold even while the older run's retry sits inside its backoff
+        # window: claiming the newer run there is exactly the out-of-order apply the
+        # gate exists to prevent.
+        retry = await _insert_batch(conn, run_uuid="run-old", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=retry, job_state="waiting_retry", attempt=1)
+        await _backdate_batch(conn, retry, 60)
+        await _insert_batch(conn, run_uuid="run-new", batch_index=0)
+
+        assert await _claim(conn, retry_backoff_base_seconds=3600) == []
+
+    @pytest.mark.asyncio
+    async def test_interleaved_runs_drain_in_created_at_order(self, conn):
+        # cdc_table_mode='both' enqueues two runs per schema with interleaved
+        # created_at. The gate must serialize them globally by enqueue time and
+        # keep draining — a unique oldest always exists, so no deadlock.
+        a0 = await _insert_batch(conn, run_uuid="run-a", batch_index=0)
+        b0 = await _insert_batch(conn, run_uuid="run-b", batch_index=0)
+        a1 = await _insert_batch(conn, run_uuid="run-a", batch_index=1)
+        b1 = await _insert_batch(conn, run_uuid="run-b", batch_index=1)
+        for bid, age in ((a0, 40), (b0, 30), (a1, 20), (b1, 10)):
+            await _backdate_batch(conn, bid, age)
+
+        drained = []
+        for _ in range(4):
+            batches = await _claim(conn)
+            assert len(batches) == 1, "only the globally oldest non-terminal batch may be claimable"
+            drained.append(str(batches[0].id))
+            await BatchQueue.update_status(conn, batch_id=str(batches[0].id), job_state="succeeded", attempt=1)
+
+        assert drained == [a0, b0, a1, b1]
+        assert await _claim(conn) == []
 
 
 @pytest.mark.django_db(transaction=True)

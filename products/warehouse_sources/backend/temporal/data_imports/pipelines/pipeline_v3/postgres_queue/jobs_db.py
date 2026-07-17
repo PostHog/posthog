@@ -96,6 +96,25 @@ def pending_batch_predicate(status_alias: str) -> str:
     return f"({status_alias}.batch_id IS NULL OR {status_alias}.job_state IN ('waiting', 'waiting_retry', 'executing'))"
 
 
+def _no_failed_batch_in_run_sql(outer_alias: str, failed_alias: str) -> str:
+    """NOT EXISTS guard: ``outer_alias``'s run contains no 'failed' batch.
+
+    Scoped by run_uuid + team_id + schema_id (guards against cross-group
+    run_uuid collisions and keeps the probe on the run-gate partial index).
+    Shared by the claim gate's cross-run blocker and the CDC producer's
+    backpressure probe, which must agree on which runs count as dead.
+    """
+    return f"""NOT EXISTS (
+        SELECT 1
+        FROM {BATCH_TABLE} {failed_alias}
+        WHERE {failed_alias}.run_uuid = {outer_alias}.run_uuid
+            AND {failed_alias}.team_id = {outer_alias}.team_id
+            AND {failed_alias}.schema_id = {outer_alias}.schema_id
+            AND {failed_alias}.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+            AND {failed_alias}.latest_state = 'failed'
+    )"""
+
+
 def build_status_dual_write_sql(*, with_batch_created_at: bool) -> str:
     """Single-statement status INSERT + denormalized-state UPDATE (atomic under autocommit).
 
@@ -178,9 +197,25 @@ def _state_claim_candidates_sql() -> str:
     """Claimable-batch candidates read from the denormalized state columns.
 
     The claimable scan and every NOT EXISTS gate are answered by the partial
-    indexes (sb_claimable_idx, sb_run_gate_idx, sb_schema_busy_idx), so the
-    work tracks the claimable set instead of everything retained. 'pending'
-    means no status row yet; 'waiting' is deliberately not claimable.
+    indexes (sb_claimable_idx, sb_run_gate_idx, sb_schema_busy_idx,
+    sb_schema_order_idx), so the work tracks the claimable set instead of
+    everything retained. 'pending' means no status row yet; 'waiting' is
+    deliberately not claimable.
+
+    Cross-run schema ordering (the last gate): a batch is claimable only when
+    no batch of a *different* run of the same (team_id, schema_id) with an
+    earlier ``(created_at, run_uuid)`` is still non-terminal. ``created_at``
+    is a valid cross-run apply order because it is assigned server-side by
+    the single queue DB clock at enqueue, source ticks are serialized by the
+    Temporal schedule's SKIP overlap policy, and retry attempts re-read the
+    same WAL window (older-attempt batches are a prefix). Blockers whose run
+    contains a 'failed' batch are ignored — their remaining batches can never
+    be claimed (failed-run gate above), so counting them would deadlock the
+    schema forever. Equal timestamps (theoretically possible across producer
+    connections — ``created_at`` is per-statement ``now()`` at microsecond
+    resolution) break by ``run_uuid`` so the ordering stays total; batch ids
+    are ``gen_random_uuid()`` and useless as a tiebreak. Mirrors the duckgres
+    sink's ``(started_at, run_uuid)`` cross-run ordering.
     """
     return f"""
         SELECT
@@ -233,6 +268,20 @@ def _state_claim_candidates_sql() -> str:
                     AND b_busy.schema_id = b.schema_id
                     AND b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                     AND b_busy.latest_state = 'executing'
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM {BATCH_TABLE} b_older
+                WHERE b_older.team_id = b.team_id
+                    AND b_older.schema_id = b.schema_id
+                    AND b_older.run_uuid != b.run_uuid
+                    AND (
+                        b_older.created_at < b.created_at
+                        OR (b_older.created_at = b.created_at AND b_older.run_uuid < b.run_uuid)
+                    )
+                    AND b_older.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND b_older.latest_state IN ('pending', 'waiting', 'waiting_retry', 'executing')
+                    AND {_no_failed_batch_in_run_sql("b_older", "b_older_failed")}
             )
     """
 
@@ -513,6 +562,17 @@ class BatchQueue:
         group is being processed by its lease holder). This keeps a schema's
         other queued runs from consuming the ``LIMIT`` window ahead of the lease
         claim and starving other schemas' claimable work.
+
+        Cross-run schema ordering: only the schema's oldest non-failed run has
+        claimable batches — a batch is excluded while any *different* run of
+        the same ``(team_id, schema_id)`` still has a non-terminal batch with
+        a strictly earlier ``created_at``. Runs therefore apply in enqueue
+        order even when several coexist in the queue (a ``waiting_retry``
+        batch whose backoff elapsed can no longer be raced by a newer run's
+        batches), which is what makes it safe for the CDC producer to keep
+        extracting while a backlog drains. Applies to every v3 sync type; the
+        blocked batches are exactly the out-of-order ones, and the oldest
+        run's batches stay claimable, so the queue self-drains.
 
         Per-team fairness: candidates are interleaved round-robin across teams so one
         team's deep backlog cannot monopolize the ``LIMIT`` window; within a team,
@@ -895,15 +955,7 @@ class BatchQueue:
                   AND b.team_id = %(team_id)s
                   AND b.schema_id = ANY(%(schema_ids)s)
                   AND b.latest_state IN ('pending', 'waiting', 'waiting_retry', 'executing')
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM {BATCH_TABLE} b_failed
-                      WHERE b_failed.run_uuid = b.run_uuid
-                          AND b_failed.team_id = b.team_id
-                          AND b_failed.schema_id = b.schema_id
-                          AND b_failed.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                          AND b_failed.latest_state = 'failed'
-                  )
+                  AND {_no_failed_batch_in_run_sql("b", "b_failed")}
                 """,
                 {"team_id": team_id, "schema_ids": schema_ids},
             )
