@@ -17,14 +17,4 @@ class Migration(migrations.Migration):
             name="respondent_key",
             field=models.CharField(blank=True, db_default="", default="", max_length=64),
         ),
-        migrations.AddField(
-            model_name="userinterview",
-            name="distinct_id",
-            field=models.CharField(blank=True, db_default="", default="", max_length=400),
-        ),
-        migrations.AddField(
-            model_name="userinterview",
-            name="session_id",
-            field=models.CharField(blank=True, db_default="", default="", max_length=400),
-        ),
     ]

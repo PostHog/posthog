@@ -387,7 +387,11 @@ def start_call(request: Request, access_token: str) -> Response:
         respondent_key = _clean_field(body.get("respondent_key"), _RESPONDENT_KEY_MAX_CHARS)
         user_name = respondent_name or "there"
         agent_context = topic.agent_context or ""
-        interviewee_identifier = _shared_interviewee_identifier(respondent_name, respondent_key)
+        # A provided, valid distinct_id becomes the interviewee_identifier — same semantics as a
+        # personalised distinct-id interview — so there's no separate distinct_id column. Fall back
+        # to the self-reported name, then a shared marker.
+        distinct_id = valid_distinct_id(body.get("distinct_id"))
+        interviewee_identifier = distinct_id or _shared_interviewee_identifier(respondent_name, respondent_key)
         metadata = {
             "topic_id": str(topic.id),
             "interviewee_identifier": interviewee_identifier,
@@ -395,9 +399,9 @@ def start_call(request: Request, access_token: str) -> Response:
             "shared": "true",
             "respondent_name": respondent_name,
             "respondent_key": respondent_key,
-            # Validated at this trust boundary so only clean linkage reaches Vapi metadata and the
-            # webhook. Invalid values are dropped, not rejected.
-            "distinct_id": valid_distinct_id(body.get("distinct_id")),
+            # session_id isn't persisted in the DB — it rides on the lifecycle PostHog event (as
+            # $session_id, which associates the interview with the session recording). Validated
+            # here at the trust boundary; invalid values are dropped, not rejected.
             "session_id": valid_session_id(body.get("session_id")),
         }
 
@@ -527,6 +531,7 @@ def vapi_webhook(request: Request) -> Response:
                     "user_interview_conversation_started",
                     sharing_config=sharing_config,
                     call_id=call_id,
+                    session_id=valid_session_id(merged_metadata.get("session_id")),
                 )
         logger.info(
             "user_interviews_vapi_webhook_status_update",
@@ -595,20 +600,21 @@ def vapi_webhook(request: Request) -> Response:
         topic = interviewee_context.topic
         interviewee_identifier = interviewee_context.interviewee_identifier
         interviewee_emails = [interviewee_identifier] if "@" in interviewee_identifier else []
-        respondent_name = respondent_key = distinct_id = session_id = ""
+        respondent_name = respondent_key = ""
+        session_id = ""
     else:
         topic = cast(UserInterviewTopic, topic_share)
         respondent_name = _clean_field(merged_metadata.get("respondent_name"), _RESPONDENT_NAME_MAX_CHARS)
         respondent_key = _clean_field(merged_metadata.get("respondent_key"), _RESPONDENT_KEY_MAX_CHARS)
-        # Re-validate at this second trust boundary too (defense in depth) — start_call already
-        # cleans these, but re-running the validators keeps the stored linkage well-formed
-        # regardless of what round-trips through Vapi.
-        distinct_id = valid_distinct_id(merged_metadata.get("distinct_id"))
-        session_id = valid_session_id(merged_metadata.get("session_id"))
+        # interviewee_identifier already carries a folded distinct_id when one was provided (set in
+        # start_call); fall back defensively if the metadata was stripped in transit.
         interviewee_identifier = _clean_field(
             merged_metadata.get("interviewee_identifier"), _LINKAGE_ID_MAX_CHARS
         ) or _shared_interviewee_identifier(respondent_name, respondent_key)
         interviewee_emails = []
+        # session_id isn't persisted — it rides on the lifecycle event below. Re-validated here
+        # (defense in depth) so only a well-formed UUIDv7 reaches the event.
+        session_id = valid_session_id(merged_metadata.get("session_id"))
 
     with transaction.atomic():
         interview = UserInterview.objects.create(
@@ -618,8 +624,6 @@ def vapi_webhook(request: Request) -> Response:
             interviewee_emails=interviewee_emails,
             respondent_name=respondent_name,
             respondent_key=respondent_key,
-            distinct_id=distinct_id,
-            session_id=session_id,
             transcript=transcript,
             summary=message.get("summary", "") or "",
             recording_url=recording_url,
@@ -643,6 +647,7 @@ def vapi_webhook(request: Request) -> Response:
         "user_interview_conversation_ended",
         sharing_config=sharing_config,
         call_id=call_id,
+        session_id=session_id,
         extra_properties={
             "interview_id": str(interview.id),
             "had_transcript": bool(interview.transcript),
@@ -664,6 +669,7 @@ def _capture_user_interview_event(
     *,
     sharing_config: SharingConfiguration,
     call_id: str | None,
+    session_id: str = "",
     extra_properties: dict[str, Any] | None = None,
 ) -> None:
     """Fire a PostHog event for a user-interview lifecycle moment (conversation started/ended).
@@ -673,6 +679,10 @@ def _capture_user_interview_event(
     transient drops or warm-transfer flows, and end-of-call-report can be retried by Vapi
     until we ack. Set `$insert_id` to `<event>:<call_id>` so PostHog dedupes the second
     delivery at ingest — funnels see one start and one end per call.
+
+    When a shared-link respondent supplied a valid session_id, it's attached as `$session_id` so
+    the event (and thus the interview) associates with that session recording — this is how the
+    session is linked without a dedicated DB column.
 
     The `distinct_id` is intentionally an opaque per-share UUID — *not* the interviewee's
     email/distinct_id — so these feature-usage events never create person profiles for the
@@ -693,6 +703,8 @@ def _capture_user_interview_event(
         "team_id": sharing_config.team_id,
         "call_id": call_id,
     }
+    if session_id:
+        properties["$session_id"] = session_id
     if call_id:
         properties["$insert_id"] = f"{event}:{call_id}"
     if extra_properties:

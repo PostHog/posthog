@@ -126,7 +126,8 @@ class TestSharedStartCall(APIBaseTest):
         metadata = response.json()["assistant_overrides"]["metadata"]
         assert metadata["shared"] == "true"
         assert metadata["respondent_name"] == "Robin"
-        assert metadata["distinct_id"] == "person-abc"
+        # A valid distinct_id folds into the identifier (no separate distinct_id field).
+        assert metadata["interviewee_identifier"] == "person-abc"
         assert metadata["session_id"] == self._SESSION_ID_V7
         assert metadata["sharing_access_token"] == config.access_token
         # The self-reported name greets the respondent.
@@ -145,8 +146,9 @@ class TestSharedStartCall(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         metadata = response.json()["assistant_overrides"]["metadata"]
-        assert metadata["distinct_id"] == ""
         assert metadata["session_id"] == ""
+        # Illegal distinct_id dropped, so the identifier falls back to the self-reported name.
+        assert metadata["interviewee_identifier"] == "Robin"
 
     @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
     def test_honeypot_filled_is_rejected(self) -> None:
@@ -183,7 +185,8 @@ class TestSharedVapiWebhook(APIBaseTest):
                         "shared": "true",
                         "respondent_name": name,
                         "respondent_key": respondent_key,
-                        "distinct_id": "person-abc",
+                        # start_call folds a valid distinct_id into interviewee_identifier.
+                        "interviewee_identifier": "person-abc",
                         "session_id": "018f0b7a-0000-7000-8000-000000000000",
                     },
                 },
@@ -214,9 +217,25 @@ class TestSharedVapiWebhook(APIBaseTest):
         interview = UserInterview.objects.get(team=self.team)
         assert interview.topic_id == config.user_interview_topic_id
         assert interview.respondent_name == "Robin"
-        assert interview.distinct_id == "person-abc"
-        assert interview.session_id == "018f0b7a-0000-7000-8000-000000000000"
+        # Provided distinct_id is stored in interviewee_identifier, not a dedicated column.
+        assert interview.interviewee_identifier == "person-abc"
         assert interview.interviewee_emails == []
+
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    @patch("products.user_interviews.backend.presentation.webhooks.posthoganalytics.capture")
+    def test_session_id_rides_on_the_lifecycle_event(self, mock_capture) -> None:
+        # session_id isn't persisted on the model — it's attached to the conversation event as
+        # $session_id so the interview associates with the session recording.
+        config = self._shared_config()
+        self.client.logout()
+        response = self._signed_post(
+            "topsecret",
+            self._payload(config.access_token, call_id="call_s", respondent_key="resp-s", transcript="hi"),
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        ended = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "user_interview_conversation_ended"]
+        assert ended, "expected a conversation_ended event"
+        assert ended[0].kwargs["properties"]["$session_id"] == "018f0b7a-0000-7000-8000-000000000000"
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
     def test_completed_response_supersedes_abandoned_partial_from_a_refresh(self) -> None:
