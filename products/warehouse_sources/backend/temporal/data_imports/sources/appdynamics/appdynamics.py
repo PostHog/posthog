@@ -1,7 +1,7 @@
 import json
 import threading
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlparse
@@ -120,21 +120,57 @@ def _resolve_base_url(host: str, team_id: int) -> str:
     return base_url
 
 
+def _request_within_deadline(session: requests.Session, send: Callable[[], requests.Response]) -> requests.Response:
+    """Issue a request under a hard wall-clock deadline covering connect and response-header parsing.
+
+    `requests`' read timeout only limits idle gaps between socket reads, so a controller that
+    trickles the status line or headers just often enough to beat that timeout keeps
+    ``session.get``/``session.post`` blocked before it ever returns a ``Response`` — so
+    ``_read_body_capped``'s body-level watchdog never engages. `requests` offers no total timeout
+    and the in-flight connection can't be reached to close it before headers arrive, so run the
+    blocking call in a daemon thread and abandon it if it overruns the budget: the import worker is
+    freed and the sync fails fast (non-retryably — a host that behaves this way won't recover on a
+    retry) instead of hanging. The body download stays bounded separately by ``_read_body_capped``.
+    """
+    result: dict[str, Any] = {}
+
+    def _run() -> None:
+        try:
+            result["response"] = send()
+        except Exception as exc:
+            result["error"] = exc
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+    worker.join(timeout=MAX_DOWNLOAD_SECONDS)
+    if worker.is_alive():
+        # Best-effort teardown of idle pooled connections; the abandoned daemon thread unblocks
+        # when its socket read finally errors or the process recycles.
+        session.close()
+        raise AppdynamicsError(f"AppDynamics did not send response headers within the {MAX_DOWNLOAD_SECONDS}s deadline")
+    if "error" in result:
+        raise result["error"]
+    return result["response"]
+
+
 def _fetch_oauth_token(session: requests.Session, base_url: str, auth: AppdynamicsAuth) -> tuple[str, int]:
     """Exchange the API client credentials for a short-lived bearer token.
 
     Returns ``(access_token, expires_in_seconds)``.
     """
-    response = session.post(
-        f"{base_url}/controller/api/oauth/access_token",
-        data={
-            "grant_type": "client_credentials",
-            "client_id": f"{auth.api_client_name}@{auth.account_name}",
-            "client_secret": auth.api_client_secret,
-        },
-        timeout=REQUEST_TIMEOUT,
-        allow_redirects=False,
-        stream=True,
+    response = _request_within_deadline(
+        session,
+        lambda: session.post(
+            f"{base_url}/controller/api/oauth/access_token",
+            data={
+                "grant_type": "client_credentials",
+                "client_id": f"{auth.api_client_name}@{auth.account_name}",
+                "client_secret": auth.api_client_secret,
+            },
+            timeout=REQUEST_TIMEOUT,
+            allow_redirects=False,
+            stream=True,
+        ),
     )
 
     if response.status_code == 429 or response.status_code >= 500:
@@ -277,14 +313,18 @@ class AppdynamicsClient:
         # bounce us to an internal one (SSRF guard).
         # `stream=True` keeps the body off the wire until we read it in bounded chunks below,
         # so a hostile controller can't make `requests` buffer an arbitrarily large response.
-        response = self._session.get(
-            f"{self._base_url}{path}",
-            params={**params, "output": "JSON"},
-            headers=self._headers(),
-            auth=self._basic_auth(),
-            timeout=REQUEST_TIMEOUT,
-            allow_redirects=False,
-            stream=True,
+        # The request runs under a wall-clock deadline that also bounds the connect/header phase.
+        response = _request_within_deadline(
+            self._session,
+            lambda: self._session.get(
+                f"{self._base_url}{path}",
+                params={**params, "output": "JSON"},
+                headers=self._headers(),
+                auth=self._basic_auth(),
+                timeout=REQUEST_TIMEOUT,
+                allow_redirects=False,
+                stream=True,
+            ),
         )
 
         if response.status_code == 429 or response.status_code >= 500:
@@ -339,18 +379,22 @@ def validate_credentials(
         # Cheap probe; every Controller stream shares the same account-level read roles,
         # so one probe covers all endpoints. Refuse redirects (SSRF guard). Only the status
         # code matters, so stream and close without downloading a body a hostile host could
-        # bloat.
-        response = session.get(
-            f"{base_url}{APPLICATIONS_PATH}",
-            params={"output": "JSON"},
-            headers=headers,
-            auth=basic_auth,
-            timeout=10,
-            allow_redirects=False,
-            stream=True,
+        # bloat. The deadline also bounds the connect/header phase so a trickled-header host
+        # can't hang credential validation.
+        response = _request_within_deadline(
+            session,
+            lambda: session.get(
+                f"{base_url}{APPLICATIONS_PATH}",
+                params={"output": "JSON"},
+                headers=headers,
+                auth=basic_auth,
+                timeout=10,
+                allow_redirects=False,
+                stream=True,
+            ),
         )
         response.close()
-    except requests.RequestException as exc:
+    except (requests.RequestException, AppdynamicsError) as exc:
         return False, str(exc)
 
     if response.status_code == 200:

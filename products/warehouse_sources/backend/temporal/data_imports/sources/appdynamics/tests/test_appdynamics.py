@@ -1,5 +1,6 @@
 import json
 import time
+import threading
 from typing import Any
 from urllib.parse import urlparse
 
@@ -92,6 +93,25 @@ class _TrickleResponse:
 
     def json(self) -> Any:
         return {}
+
+
+class _HeaderTrickleSession:
+    """A session whose GET never returns response headers, to exercise the pre-response deadline.
+
+    Models a controller trickling the status line/headers slower than any read-idle timeout: the
+    call blocks until the deadline tears the session down, so only the pre-response wall-clock
+    deadline can free the worker.
+    """
+
+    def __init__(self) -> None:
+        self._closed = threading.Event()
+
+    def get(self, url: str, params: dict[str, Any], **kwargs: Any) -> Any:
+        self._closed.wait()
+        raise OSError("connection closed")
+
+    def close(self) -> None:
+        self._closed.set()
 
 
 class FakeResumeManager:
@@ -307,6 +327,18 @@ class TestAppdynamicsClient:
         with mock.patch.object(appdynamics_module, "MAX_DOWNLOAD_SECONDS", 0.2):
             started = time.monotonic()
             with pytest.raises(AppdynamicsError):
+                client.get_json("/controller/rest/applications", {})
+            assert time.monotonic() - started < 5
+
+    def test_header_deadline_interrupts_trickled_headers(self) -> None:
+        # Headers that never arrive keep `session.get` blocked before the body watchdog can run,
+        # so only the pre-response deadline can free the worker.
+        session = _HeaderTrickleSession()
+        with _patch_session(session):
+            client = AppdynamicsClient(BASE_URL, BASIC_AUTH, mock.MagicMock())
+        with mock.patch.object(appdynamics_module, "MAX_DOWNLOAD_SECONDS", 0.2):
+            started = time.monotonic()
+            with pytest.raises(AppdynamicsError, match="response headers"):
                 client.get_json("/controller/rest/applications", {})
             assert time.monotonic() - started < 5
 
