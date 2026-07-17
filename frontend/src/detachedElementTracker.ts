@@ -55,14 +55,7 @@ export function getDetachedElementTrackingContext(
     }
 }
 
-export function shouldCaptureDetachedElements(
-    currentCount: number,
-    previousCount: number | null,
-    pathChanged: boolean = false
-): boolean {
-    if (pathChanged) {
-        return true
-    }
+export function shouldCaptureDetachedElements(currentCount: number, previousCount: number | null): boolean {
     if (currentCount === 0) {
         return false
     }
@@ -125,13 +118,7 @@ export function startDetachedElementTracking(posthog: Capturable): void {
                     currentPath
                 )
 
-                if (
-                    !shouldCaptureDetachedElements(
-                        result.totalDetachedElements,
-                        trackingState.previousDetachedCount,
-                        trackingContext.pathChanged
-                    )
-                ) {
+                if (!shouldCaptureDetachedElements(result.totalDetachedElements, trackingState.previousDetachedCount)) {
                     trackingState = trackingContext.nextState
                     return
                 }
@@ -145,9 +132,9 @@ export function startDetachedElementTracking(posthog: Capturable): void {
                     all_components: mapToTopN(result.componentToFiberNodeCount, TOP_N),
                     scan_duration_ms: Math.round(result.end - result.start),
                     current_path: currentPath,
-                    path_changed_since_last_scan: trackingContext.pathChanged,
-                    route_baseline_detached_elements: trackingContext.routeBaselineDetachedElements,
-                    route_detached_elements_delta: trackingContext.routeDetachedElementsDelta,
+                    path_changed_at_scan: trackingContext.pathChanged,
+                    path_change_baseline_detached_elements: trackingContext.routeBaselineDetachedElements,
+                    detached_elements_delta_since_path_change: trackingContext.routeDetachedElementsDelta,
                 })
             })
 

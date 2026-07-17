@@ -116,13 +116,6 @@ describe('shouldCaptureDetachedElements', () => {
     ])('$label', ({ currentCount, previousCount, expected }) => {
         expect(shouldCaptureDetachedElements(currentCount, previousCount)).toBe(expected)
     })
-
-    it.each([
-        { count: 3, label: 'same count' },
-        { count: 0, label: 'zero count' },
-    ])('captures a route change with $label', ({ count }) => {
-        expect(shouldCaptureDetachedElements(count, 3, true)).toBe(true)
-    })
 })
 
 describe('getDetachedElementTrackingContext', () => {
