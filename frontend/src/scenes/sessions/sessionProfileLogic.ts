@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, events, kea, key, listeners, path, pro
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { isNetworkError } from 'lib/api-error'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
@@ -458,7 +459,16 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                               })()
 
                     const tags = { scene: 'SessionProfile', productKey: 'persons' }
-                    const response = await api.queryHogQL(sessionQuery, tags)
+                    let response
+                    try {
+                        response = await api.queryHogQL(sessionQuery, tags)
+                    } catch (e) {
+                        // Transient network blips shouldn't surface as exceptions; genuine API errors still do.
+                        if (isNetworkError(e)) {
+                            return null
+                        }
+                        throw e
+                    }
                     const row = response.results?.[0]
 
                     if (!row) {
