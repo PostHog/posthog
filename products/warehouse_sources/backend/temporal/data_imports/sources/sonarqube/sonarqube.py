@@ -127,57 +127,54 @@ def _extract_paging(data: dict[str, Any]) -> tuple[int, int, int]:
 
 
 def _read_bounded(response: requests.Response) -> bytes:
-    """Read a streamed response body into memory under a byte cap and a wall-clock deadline.
+    """Read a streamed response body into memory under a byte cap and a hard wall-clock deadline.
 
     `iter_content` yields content-decoded chunks, so the running total also caps decompressed
-    size — a small gzip bomb can't blow past the limit. A watchdog closes the response at the
-    deadline so a server that drips bytes just under the per-read idle timeout can't block a
-    single chunk read indefinitely and hold a shared worker — closing the socket unblocks the
-    read rather than waiting the deadline check out between chunks. Raises a non-retryable
-    ``ValueError`` when either bound is exceeded.
+    size — a small gzip bomb can't blow past the limit. The read runs in a helper thread that the
+    caller only waits on for ``MAX_TRANSFER_SECONDS``: closing a socket from another thread does
+    not reliably interrupt a urllib3 read blocked mid-chunk, so rather than depend on that we bound
+    the *wait*. A peer that drips bytes under the per-read idle timeout therefore can't hold the
+    import iterator past the deadline — we stop waiting and best-effort close the response so the
+    orphaned read can unwind. Raises a non-retryable ``ValueError`` when either bound is exceeded;
+    genuine transport errors surface unchanged so the caller's retry still applies.
     """
-    chunks: list[bytes] = []
-    total = 0
-    deadline_reached = threading.Event()
+    outcome: dict[str, Any] = {}
 
-    def _abort_on_deadline() -> None:
-        # Tear the socket down so a read blocked mid-chunk fails instead of waiting out the
-        # per-read idle timeout, which resets on every byte the peer drips.
-        deadline_reached.set()
+    def _read() -> None:
+        chunks: list[bytes] = []
+        total = 0
+        try:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if not chunk:
+                    continue
+                total += len(chunk)
+                if total > MAX_RESPONSE_BYTES:
+                    outcome["error"] = ValueError(
+                        f"SonarQube response exceeded the {MAX_RESPONSE_BYTES // (1024 * 1024)} MiB limit; "
+                        "check the configured server URL."
+                    )
+                    return
+                chunks.append(chunk)
+            outcome["body"] = b"".join(chunks)
+        except Exception as exc:
+            outcome["error"] = exc
+
+    reader = threading.Thread(target=_read, name="sonarqube-read", daemon=True)
+    reader.start()
+    reader.join(MAX_TRANSFER_SECONDS)
+
+    if reader.is_alive():
+        # The read is still blocked at the deadline (e.g. a peer dripping bytes under the idle
+        # timeout). Stop waiting so the import iterator isn't held; close best-effort so the
+        # orphaned reader can unwind once the connection tears down.
         response.close()
-
-    watchdog = threading.Timer(MAX_TRANSFER_SECONDS, _abort_on_deadline)
-    watchdog.start()
-    try:
-        for chunk in response.iter_content(chunk_size=1024 * 1024):
-            if deadline_reached.is_set():
-                break
-            if not chunk:
-                continue
-            total += len(chunk)
-            if total > MAX_RESPONSE_BYTES:
-                raise ValueError(
-                    f"SonarQube response exceeded the {MAX_RESPONSE_BYTES // (1024 * 1024)} MiB limit; "
-                    "check the configured server URL."
-                )
-            chunks.append(chunk)
-    except Exception:
-        # A read aborted by the watchdog surfaces as a transport error; convert it to the
-        # non-retryable deadline error. Any other error is a genuine transport failure — re-raise.
-        if deadline_reached.is_set():
-            raise ValueError(
-                f"SonarQube response exceeded the {MAX_TRANSFER_SECONDS}s transfer limit; "
-                "check the configured server URL."
-            )
-        raise
-    finally:
-        watchdog.cancel()
-
-    if deadline_reached.is_set():
         raise ValueError(
             f"SonarQube response exceeded the {MAX_TRANSFER_SECONDS}s transfer limit; check the configured server URL."
         )
-    return b"".join(chunks)
+
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome.get("body", b"")
 
 
 @retry(

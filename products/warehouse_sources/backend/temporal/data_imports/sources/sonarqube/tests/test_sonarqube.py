@@ -333,22 +333,24 @@ class _FakeStream:
         pass
 
 
-class _BlockingStream:
-    """A chunk read that blocks (like a peer dripping bytes under the idle timeout) until the
-    watchdog tears the socket down, then fails as a real aborted read would."""
+class _NeverEndingStream:
+    """A read that blocks and never yields on its own — models a peer dripping bytes under the idle
+    read timeout, which closing the socket does not reliably interrupt. The deadline must be
+    enforced by bounding the wait, not by this stream cooperating."""
 
     def __init__(self) -> None:
-        self.closed = threading.Event()
+        self._gate = threading.Event()
+        self.close_called = threading.Event()
 
     def iter_content(self, chunk_size: int = 1) -> Any:
-        # Block as if reading a chunk from a peer dripping bytes under the idle timeout, until the
-        # watchdog closes us, then fail as a real socket read aborted mid-transfer would.
-        if not self.closed.wait(timeout=5):
-            raise AssertionError("watchdog did not close the response")
-        raise ConnectionError("socket closed")
+        self._gate.wait()
+        return iter(())
 
     def close(self) -> None:
-        self.closed.set()
+        self.close_called.set()
+
+    def release(self) -> None:
+        self._gate.set()
 
 
 class TestReadBounded:
@@ -369,14 +371,18 @@ class TestReadBounded:
         with pytest.raises(ValueError):
             sonarqube._read_bounded(_FakeStream([b"aaaa", b"b"]))  # type: ignore[arg-type]
 
-    def test_watchdog_aborts_a_read_blocked_past_the_deadline(self, monkeypatch) -> None:
-        # A read that blocks mid-chunk (a server dripping bytes under the idle timeout) is cut off
-        # by the watchdog closing the socket, rather than only being noticed between chunks.
+    def test_deadline_fires_even_when_a_read_stays_blocked(self, monkeypatch) -> None:
+        # A read blocked mid-chunk (a server dripping bytes under the idle timeout) that never
+        # unblocks on its own must still fail by MAX_TRANSFER_SECONDS — the wait is bounded rather
+        # than relying on close() to interrupt the socket read.
         monkeypatch.setattr(sonarqube, "MAX_TRANSFER_SECONDS", 0.05)
-        stream = _BlockingStream()
-        with pytest.raises(ValueError):
-            sonarqube._read_bounded(stream)  # type: ignore[arg-type]
-        assert stream.closed.is_set()
+        stream = _NeverEndingStream()
+        try:
+            with pytest.raises(ValueError):
+                sonarqube._read_bounded(stream)  # type: ignore[arg-type]
+            assert stream.close_called.is_set()  # best-effort close attempted at the deadline
+        finally:
+            stream.release()  # let the orphaned reader thread unwind
 
 
 class TestValidateCredentials:
