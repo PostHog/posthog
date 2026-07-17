@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, TestCase
@@ -20,6 +22,7 @@ from products.tasks.backend.logic.services.loop_runs import (
     render_trigger_context,
 )
 from products.tasks.backend.models import Channel, Loop, LoopFire, LoopTrigger, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.temporal.constants import LOOP_RUN_STALE_SECONDS
 
 LOOP_RUNS_MODULE = "products.tasks.backend.logic.services.loop_runs"
 
@@ -287,6 +290,35 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
             self.assertEqual(self.active_run_count(loop), 1)
             # The displaced run's workflow is signalled so its sandbox actually stops.
             self.mock_signal_cancel.assert_called_once_with(active_run.workflow_id)
+
+    def test_a_stale_in_progress_run_is_reaped_so_the_loop_can_fire_again(self):
+        # A run whose workflow died (sandbox killed) stays in_progress forever; under SKIP that
+        # would brick the loop. It must be reaped to failed and a new run must fire.
+        loop = self.create_loop(overlap_policy=Loop.OverlapPolicy.SKIP)
+        zombie_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Zombie run",
+            description="d",
+            origin_product=Task.OriginProduct.LOOP,
+            internal=True,
+        )
+        zombie_run = zombie_task.create_run(mode="background", extra_state={"loop_id": str(loop.id)})
+        zombie_run.status = TaskRun.Status.IN_PROGRESS
+        zombie_run.save(update_fields=["status", "updated_at"])
+        # auto_now pins updated_at to now on save, so age it past the cutoff with a bare update().
+        stale_ts = django_timezone.now() - timedelta(seconds=LOOP_RUN_STALE_SECONDS + 60)
+        TaskRun.objects.filter(id=zombie_run.id).update(updated_at=stale_ts)
+
+        result = fire_loop(loop, None, "k1", "ctx")
+
+        zombie_run.refresh_from_db()
+        self.assertTrue(result.created)
+        self.assertEqual(result.reason, "created")
+        self.assertEqual(zombie_run.status, TaskRun.Status.FAILED)
+        self.assertIsNotNone(zombie_run.completed_at)
+        # Only the freshly created run is active; the zombie was reaped, not counted.
+        self.assertEqual(self.active_run_count(loop), 1)
 
 
 class TestFireLoopCreatesRun(LoopRunsTestCase):

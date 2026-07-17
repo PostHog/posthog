@@ -25,7 +25,7 @@ from products.tasks.backend.loop_notifications import dispatch_loop_event
 from products.tasks.backend.loop_service import pause_loop_schedules, signal_loop_run_cancelled
 from products.tasks.backend.metrics import observe_loop_auto_paused, observe_loop_fire
 from products.tasks.backend.models import Channel, Loop, LoopFire, LoopTrigger, Task, TaskRun
-from products.tasks.backend.temporal.constants import LOOP_RUN_IDLE_TIMEOUT_SECONDS
+from products.tasks.backend.temporal.constants import LOOP_RUN_IDLE_TIMEOUT_SECONDS, LOOP_RUN_STALE_SECONDS
 from products.tasks.backend.temporal.process_task.utils import get_default_model_for_runtime_adapter
 
 logger = logging.getLogger(__name__)
@@ -39,6 +39,10 @@ TRIGGER_CONTEXT_MAX_BYTES = 64 * 1024
 
 _NON_TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
 _TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
+
+_STALE_RUN_REAP_MESSAGE = (
+    "Run ended without a final status (sandbox no longer active), marked failed so the loop can run again"
+)
 
 # No dedicated "raise attention" tool exists: failed/cancelled runs already route to
 # needs_attention via handle_loop_run_terminal, so the framing only needs the agent to
@@ -314,13 +318,31 @@ def _fire_loop_committed(loop: Loop, trigger: LoopTrigger | None, fire_key: str,
         if _team_rate_capped(loop):
             return _record_fire_outcome(fire, "team_rate_capped")
 
-        active_runs = list(
+        now = django_timezone.now()
+        non_terminal_runs = list(
             TaskRun.objects.select_for_update().filter(
                 team_id=loop.team_id,
                 state__loop_id=str(loop.id),
                 status__in=_NON_TERMINAL_TASK_RUN_STATUSES,
             )
         )
+        # Reap zombie runs first: a run whose workflow died (sandbox killed, worker crash) never
+        # leaves a non-terminal status on its own, so without this a single one would block every
+        # future fire under SKIP forever. `updated_at` (auto_now) keeps advancing while a run makes
+        # progress, so a non-terminal run untouched past the staleness cutoff is provably dead —
+        # mark it failed and drop it from the overlap set. Its sandbox is already gone, so there's
+        # nothing to signal.
+        stale_cutoff = now - timedelta(seconds=LOOP_RUN_STALE_SECONDS)
+        active_runs = [run for run in non_terminal_runs if run.updated_at > stale_cutoff]
+        stale_run_ids = [run.id for run in non_terminal_runs if run.updated_at <= stale_cutoff]
+        if stale_run_ids:
+            TaskRun.objects.filter(id__in=stale_run_ids).update(
+                status=TaskRun.Status.FAILED,
+                error_message=_STALE_RUN_REAP_MESSAGE,
+                completed_at=now,
+                updated_at=now,
+            )
+
         cancelled_workflow_ids: list[str] = []
         if active_runs:
             if loop.overlap_policy == Loop.OverlapPolicy.SKIP:
@@ -330,7 +352,6 @@ def _fire_loop_committed(loop: Loop, trigger: LoopTrigger | None, fire_key: str,
                 # actually winds down. The terminal-status guard in update_task_run_status keeps
                 # a late natural completion from resurrecting the cancelled status.
                 cancelled_workflow_ids = [run.workflow_id for run in active_runs]
-                now = django_timezone.now()
                 TaskRun.objects.filter(id__in=[run.id for run in active_runs]).update(
                     status=TaskRun.Status.CANCELLED, completed_at=now, updated_at=now
                 )
