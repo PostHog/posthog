@@ -36714,6 +36714,11 @@ export namespace Schemas {
       readonly is_2fa_enabled: boolean;
       readonly has_social_auth: boolean;
       readonly last_login: string;
+      /**
+         * The member's profile picture URL, when they have set one.
+         * @nullable
+         */
+      readonly avatar_url: string | null;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
     }
@@ -41883,6 +41888,12 @@ export namespace Schemas {
       readonly scene_personalisation: readonly ScenePersonalisationBasic[];
       theme_mode?: ThemeModeEnum | BlankEnum | null;
       hedgehog_config?: unknown;
+      /**
+         * Profile picture URL, shown across PostHog apps in place of the Gravatar/initials fallback.
+         * @maxLength 800
+         * @nullable
+         */
+      avatar_url?: string | null;
       /** @nullable */
       allow_sidebar_suggestions?: boolean | null;
       shortcut_position?: ShortcutPositionEnum | BlankEnum | null;
@@ -46046,6 +46057,11 @@ export namespace Schemas {
       readonly is_2fa_enabled?: boolean;
       readonly has_social_auth?: boolean;
       readonly last_login?: string;
+      /**
+         * The member's profile picture URL, when they have set one.
+         * @nullable
+         */
+      readonly avatar_url?: string | null;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type?: SearchMatchTypeEnum | null;
     }
@@ -49417,6 +49433,12 @@ export namespace Schemas {
       readonly scene_personalisation?: readonly ScenePersonalisationBasic[];
       theme_mode?: ThemeModeEnum | BlankEnum | null;
       hedgehog_config?: unknown;
+      /**
+         * Profile picture URL, shown across PostHog apps in place of the Gravatar/initials fallback.
+         * @maxLength 800
+         * @nullable
+         */
+      avatar_url?: string | null;
       /** @nullable */
       allow_sidebar_suggestions?: boolean | null;
       shortcut_position?: ShortcutPositionEnum | BlankEnum | null;

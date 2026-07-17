@@ -789,6 +789,8 @@ export const usersPartialUpdateBodyEmailMax = 254
 
 export const usersPartialUpdateBodyPasswordMax = 128
 
+export const usersPartialUpdateBodyAvatarUrlMax = 800
+
 export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
     first_name: zod.string().max(usersPartialUpdateBodyFirstNameMax).optional(),
     last_name: zod.string().max(usersPartialUpdateBodyLastNameMax).optional(),
@@ -830,6 +832,11 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     hedgehog_config: zod.unknown().optional(),
+    avatar_url: zod
+        .url()
+        .max(usersPartialUpdateBodyAvatarUrlMax)
+        .nullish()
+        .describe('Profile picture URL, shown across PostHog apps in place of the Gravatar/initials fallback.'),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([

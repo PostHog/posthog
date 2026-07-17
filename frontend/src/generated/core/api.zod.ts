@@ -9688,6 +9688,8 @@ export const usersUpdateBodyEmailMax = 254
 
 export const usersUpdateBodyPasswordMax = 128
 
+export const usersUpdateBodyAvatarUrlMax = 800
+
 export const UsersUpdateBody = /* @__PURE__ */ zod.object({
     first_name: zod.string().max(usersUpdateBodyFirstNameMax).optional(),
     last_name: zod.string().max(usersUpdateBodyLastNameMax).optional(),
@@ -9732,6 +9734,11 @@ export const UsersUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     hedgehog_config: zod.unknown().optional(),
+    avatar_url: zod
+        .url()
+        .max(usersUpdateBodyAvatarUrlMax)
+        .nullish()
+        .describe('Profile picture URL, shown across PostHog apps in place of the Gravatar\/initials fallback.'),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([
@@ -9772,6 +9779,8 @@ export const usersPartialUpdateBodyLastNameMax = 150
 export const usersPartialUpdateBodyEmailMax = 254
 
 export const usersPartialUpdateBodyPasswordMax = 128
+
+export const usersPartialUpdateBodyAvatarUrlMax = 800
 
 export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
     first_name: zod.string().max(usersPartialUpdateBodyFirstNameMax).optional(),
@@ -9817,6 +9826,11 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     hedgehog_config: zod.unknown().optional(),
+    avatar_url: zod
+        .url()
+        .max(usersPartialUpdateBodyAvatarUrlMax)
+        .nullish()
+        .describe('Profile picture URL, shown across PostHog apps in place of the Gravatar\/initials fallback.'),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([
@@ -9854,6 +9868,8 @@ export const usersHedgehogConfigPartialUpdateBodyLastNameMax = 150
 export const usersHedgehogConfigPartialUpdateBodyEmailMax = 254
 
 export const usersHedgehogConfigPartialUpdateBodyPasswordMax = 128
+
+export const usersHedgehogConfigPartialUpdateBodyAvatarUrlMax = 800
 
 export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
     first_name: zod.string().max(usersHedgehogConfigPartialUpdateBodyFirstNameMax).optional(),
@@ -9899,6 +9915,11 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     hedgehog_config: zod.unknown().optional(),
+    avatar_url: zod
+        .url()
+        .max(usersHedgehogConfigPartialUpdateBodyAvatarUrlMax)
+        .nullish()
+        .describe('Profile picture URL, shown across PostHog apps in place of the Gravatar\/initials fallback.'),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([
@@ -10071,6 +10092,8 @@ export const usersScenePersonalisationCreateBodyEmailMax = 254
 
 export const usersScenePersonalisationCreateBodyPasswordMax = 128
 
+export const usersScenePersonalisationCreateBodyAvatarUrlMax = 800
+
 export const UsersScenePersonalisationCreateBody = /* @__PURE__ */ zod.object({
     first_name: zod.string().max(usersScenePersonalisationCreateBodyFirstNameMax).optional(),
     last_name: zod.string().max(usersScenePersonalisationCreateBodyLastNameMax).optional(),
@@ -10115,6 +10138,11 @@ export const UsersScenePersonalisationCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     hedgehog_config: zod.unknown().optional(),
+    avatar_url: zod
+        .url()
+        .max(usersScenePersonalisationCreateBodyAvatarUrlMax)
+        .nullish()
+        .describe('Profile picture URL, shown across PostHog apps in place of the Gravatar\/initials fallback.'),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([
@@ -10155,6 +10183,8 @@ export const usersTwoFactorBackupCodesCreateBodyLastNameMax = 150
 export const usersTwoFactorBackupCodesCreateBodyEmailMax = 254
 
 export const usersTwoFactorBackupCodesCreateBodyPasswordMax = 128
+
+export const usersTwoFactorBackupCodesCreateBodyAvatarUrlMax = 800
 
 export const UsersTwoFactorBackupCodesCreateBody = /* @__PURE__ */ zod.object({
     first_name: zod.string().max(usersTwoFactorBackupCodesCreateBodyFirstNameMax).optional(),
@@ -10200,6 +10230,11 @@ export const UsersTwoFactorBackupCodesCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     hedgehog_config: zod.unknown().optional(),
+    avatar_url: zod
+        .url()
+        .max(usersTwoFactorBackupCodesCreateBodyAvatarUrlMax)
+        .nullish()
+        .describe('Profile picture URL, shown across PostHog apps in place of the Gravatar\/initials fallback.'),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([
@@ -10240,6 +10275,8 @@ export const usersTwoFactorDisableCreateBodyLastNameMax = 150
 export const usersTwoFactorDisableCreateBodyEmailMax = 254
 
 export const usersTwoFactorDisableCreateBodyPasswordMax = 128
+
+export const usersTwoFactorDisableCreateBodyAvatarUrlMax = 800
 
 export const UsersTwoFactorDisableCreateBody = /* @__PURE__ */ zod.object({
     first_name: zod.string().max(usersTwoFactorDisableCreateBodyFirstNameMax).optional(),
@@ -10285,6 +10322,11 @@ export const UsersTwoFactorDisableCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     hedgehog_config: zod.unknown().optional(),
+    avatar_url: zod
+        .url()
+        .max(usersTwoFactorDisableCreateBodyAvatarUrlMax)
+        .nullish()
+        .describe('Profile picture URL, shown across PostHog apps in place of the Gravatar\/initials fallback.'),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([
@@ -10322,6 +10364,8 @@ export const usersTwoFactorValidateCreateBodyLastNameMax = 150
 export const usersTwoFactorValidateCreateBodyEmailMax = 254
 
 export const usersTwoFactorValidateCreateBodyPasswordMax = 128
+
+export const usersTwoFactorValidateCreateBodyAvatarUrlMax = 800
 
 export const UsersTwoFactorValidateCreateBody = /* @__PURE__ */ zod.object({
     first_name: zod.string().max(usersTwoFactorValidateCreateBodyFirstNameMax).optional(),
@@ -10367,6 +10411,11 @@ export const UsersTwoFactorValidateCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     hedgehog_config: zod.unknown().optional(),
+    avatar_url: zod
+        .url()
+        .max(usersTwoFactorValidateCreateBodyAvatarUrlMax)
+        .nullish()
+        .describe('Profile picture URL, shown across PostHog apps in place of the Gravatar\/initials fallback.'),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([
@@ -10404,6 +10453,8 @@ export const usersValidate2faCreateBodyLastNameMax = 150
 export const usersValidate2faCreateBodyEmailMax = 254
 
 export const usersValidate2faCreateBodyPasswordMax = 128
+
+export const usersValidate2faCreateBodyAvatarUrlMax = 800
 
 export const UsersValidate2faCreateBody = /* @__PURE__ */ zod.object({
     first_name: zod.string().max(usersValidate2faCreateBodyFirstNameMax).optional(),
@@ -10449,6 +10500,11 @@ export const UsersValidate2faCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     hedgehog_config: zod.unknown().optional(),
+    avatar_url: zod
+        .url()
+        .max(usersValidate2faCreateBodyAvatarUrlMax)
+        .nullish()
+        .describe('Profile picture URL, shown across PostHog apps in place of the Gravatar\/initials fallback.'),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([
@@ -10486,6 +10542,8 @@ export const usersCancelEmailChangeRequestPartialUpdateBodyLastNameMax = 150
 export const usersCancelEmailChangeRequestPartialUpdateBodyEmailMax = 254
 
 export const usersCancelEmailChangeRequestPartialUpdateBodyPasswordMax = 128
+
+export const usersCancelEmailChangeRequestPartialUpdateBodyAvatarUrlMax = 800
 
 export const UsersCancelEmailChangeRequestPartialUpdateBody = /* @__PURE__ */ zod.object({
     first_name: zod.string().max(usersCancelEmailChangeRequestPartialUpdateBodyFirstNameMax).optional(),
@@ -10531,6 +10589,11 @@ export const UsersCancelEmailChangeRequestPartialUpdateBody = /* @__PURE__ */ zo
         ])
         .optional(),
     hedgehog_config: zod.unknown().optional(),
+    avatar_url: zod
+        .url()
+        .max(usersCancelEmailChangeRequestPartialUpdateBodyAvatarUrlMax)
+        .nullish()
+        .describe('Profile picture URL, shown across PostHog apps in place of the Gravatar\/initials fallback.'),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([
@@ -10568,6 +10631,8 @@ export const usersRequestEmailVerificationCreateBodyLastNameMax = 150
 export const usersRequestEmailVerificationCreateBodyEmailMax = 254
 
 export const usersRequestEmailVerificationCreateBodyPasswordMax = 128
+
+export const usersRequestEmailVerificationCreateBodyAvatarUrlMax = 800
 
 export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.object({
     first_name: zod.string().max(usersRequestEmailVerificationCreateBodyFirstNameMax).optional(),
@@ -10613,6 +10678,11 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
         ])
         .optional(),
     hedgehog_config: zod.unknown().optional(),
+    avatar_url: zod
+        .url()
+        .max(usersRequestEmailVerificationCreateBodyAvatarUrlMax)
+        .nullish()
+        .describe('Profile picture URL, shown across PostHog apps in place of the Gravatar\/initials fallback.'),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([
@@ -10650,6 +10720,8 @@ export const usersVerifyEmailCreateBodyLastNameMax = 150
 export const usersVerifyEmailCreateBodyEmailMax = 254
 
 export const usersVerifyEmailCreateBodyPasswordMax = 128
+
+export const usersVerifyEmailCreateBodyAvatarUrlMax = 800
 
 export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod.object({
     first_name: zod.string().max(usersVerifyEmailCreateBodyFirstNameMax).optional(),
@@ -10695,6 +10767,11 @@ export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     hedgehog_config: zod.unknown().optional(),
+    avatar_url: zod
+        .url()
+        .max(usersVerifyEmailCreateBodyAvatarUrlMax)
+        .nullish()
+        .describe('Profile picture URL, shown across PostHog apps in place of the Gravatar\/initials fallback.'),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([

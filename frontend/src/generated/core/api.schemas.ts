@@ -3512,6 +3512,12 @@ export interface UserApi {
     readonly scene_personalisation: readonly ScenePersonalisationBasicApi[]
     theme_mode?: ThemeModeEnumApi | BlankEnumApi | null
     hedgehog_config?: unknown
+    /**
+     * Profile picture URL, shown across PostHog apps in place of the Gravatar/initials fallback.
+     * @maxLength 800
+     * @nullable
+     */
+    avatar_url?: string | null
     /** @nullable */
     allow_sidebar_suggestions?: boolean | null
     shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | null
@@ -3619,6 +3625,12 @@ export interface PatchedUserApi {
     readonly scene_personalisation?: readonly ScenePersonalisationBasicApi[]
     theme_mode?: ThemeModeEnumApi | BlankEnumApi | null
     hedgehog_config?: unknown
+    /**
+     * Profile picture URL, shown across PostHog apps in place of the Gravatar/initials fallback.
+     * @maxLength 800
+     * @nullable
+     */
+    avatar_url?: string | null
     /** @nullable */
     allow_sidebar_suggestions?: boolean | null
     shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | null
