@@ -16,6 +16,10 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { AnyDataNode } from '~/queries/schema/schema-general'
 import { APIErrorType, CohortType, ExportContext, ExportedAssetType, ExporterFormat, LocalExportContext } from '~/types'
 
+// Sentinel for a synchronous export whose content download failed after creation succeeded —
+// downloadExportedAsset has already shown the specific error toast by the time this is thrown.
+const EXPORT_DOWNLOAD_FAILED = 'Export download failed'
+
 const POLL_DELAY_MS = 10000
 // Long-running formats (e.g. MP4 session-replay renders) can take 30+ minutes,
 // so polling every 10s produces unhelpful timeout noise. Back off when the
@@ -348,7 +352,11 @@ export const exportsLogic = kea<exportsLogicType>([
 
                         if (response.has_content) {
                             // Blocking export already finished in the request — download and confirm.
-                            downloadExportedAsset(response)
+                            // Only celebrate once the content actually downloads; downloadExportedAsset
+                            // surfaces its own error toast if retrieval fails (e.g. an access-control 404).
+                            if (!(await downloadExportedAsset(response))) {
+                                throw new Error(EXPORT_DOWNLOAD_FAILED)
+                            }
                             return 'Export complete!'
                         }
                         if (response.exception) {
@@ -374,6 +382,12 @@ export const exportsLogic = kea<exportsLogicType>([
                             )
                         } catch (error) {
                             const apiError = error as { data?: APIErrorType }
+                            if (error instanceof Error && error.message === EXPORT_DOWNLOAD_FAILED) {
+                                // downloadExportedAsset already surfaced a specific error toast —
+                                // drop the generic failure toast so the user isn't told twice.
+                                lemonToast.dismiss(exportToastId)
+                                return
+                            }
                             // Show a survey when the user reaches the export limit, replacing the
                             // generic failure toast with the upsell.
                             if (apiError?.data?.attr === 'export_limit_exceeded') {

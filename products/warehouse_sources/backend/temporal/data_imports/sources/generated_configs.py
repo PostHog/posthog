@@ -9,6 +9,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @config.config
+class AppdynamicsAuthMethodConfig(config.Config):
+    selection: Literal["api_client", "basic"] = "api_client"
+    api_client_name: str | None = None
+    api_client_secret: str | None = None
+    username: str | None = None
+    password: str | None = None
+
+
+@config.config
 class BigQueryDatasetProjectConfig(config.Config):
     dataset_project_id: str
     enabled: bool = config.value(converter=config.str_to_bool, default=False)
@@ -33,6 +42,14 @@ class BigQueryTemporaryDatasetConfig(config.Config):
 class BigQueryUseCustomRegionConfig(config.Config):
     region: str
     enabled: bool = config.value(converter=config.str_to_bool, default=False)
+
+
+@config.config
+class BitbucketAuthMethodConfig(config.Config):
+    selection: Literal["api_token", "access_token"] = "api_token"
+    email: str | None = None
+    api_token: str | None = None
+    access_token: str | None = None
 
 
 @config.config
@@ -98,6 +115,14 @@ class StripeAuthMethodConfig(config.Config):
     stripe_integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
     selection: Literal["api_key", "oauth"] = "api_key"
     stripe_secret_key: str | None = None
+
+
+@config.config
+class TailscaleAuthMethodConfig(config.Config):
+    selection: Literal["oauth_client", "api_key"] = "oauth_client"
+    client_id: str | None = None
+    client_secret: str | None = None
+    api_key: str | None = None
 
 
 @config.config
@@ -191,7 +216,7 @@ class AirOpsSourceConfig(config.Config):
 
 @config.config
 class AirbrakeSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -321,7 +346,10 @@ class AppcuesSourceConfig(config.Config):
 
 @config.config
 class AppdynamicsSourceConfig(config.Config):
-    pass
+    host: str
+    account_name: str
+    auth_method: AppdynamicsAuthMethodConfig
+    metric_paths: str | None = None
 
 
 @config.config
@@ -347,7 +375,8 @@ class AppsFlyerSourceConfig(config.Config):
 
 @config.config
 class AppsignalSourceConfig(config.Config):
-    pass
+    api_token: str
+    app_id: str
 
 
 @config.config
@@ -382,7 +411,8 @@ class AshbySourceConfig(config.Config):
 
 @config.config
 class AsknicelySourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -527,7 +557,8 @@ class BingAdsSourceConfig(config.Config):
 
 @config.config
 class BitbucketSourceConfig(config.Config):
-    pass
+    workspace: str
+    auth_method: BitbucketAuthMethodConfig
 
 
 @config.config
@@ -763,7 +794,9 @@ class ChatwootSourceConfig(config.Config):
 
 @config.config
 class CheckmarxSourceConfig(config.Config):
-    pass
+    tenant_name: str
+    api_key: str
+    region: Literal["us", "us2", "eu", "eu2", "deu", "anz", "ind", "sng", "mea"] = config.value(default="us")
 
 
 @config.config
@@ -814,7 +847,9 @@ class CircleciInsightsSourceConfig(config.Config):
 
 @config.config
 class CiscoDuoSourceConfig(config.Config):
-    pass
+    api_hostname: str
+    integration_key: str
+    secret_key: str
 
 
 @config.config
@@ -912,12 +947,19 @@ class CodaSourceConfig(config.Config):
 
 @config.config
 class CodacySourceConfig(config.Config):
-    pass
+    api_token: str
+    organization: str
+    provider: Literal["gh", "gl", "bb"] = config.value(default="gh")
 
 
 @config.config
 class CodecovSourceConfig(config.Config):
-    pass
+    owner_username: str
+    api_token: str
+    service: Literal["github", "gitlab", "bitbucket", "github_enterprise", "gitlab_enterprise", "bitbucket_server"] = (
+        config.value(default="github")
+    )
+    repositories: str | None = None
 
 
 @config.config
@@ -1054,7 +1096,7 @@ class CriteoSourceConfig(config.Config):
 
 @config.config
 class CronitorSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1122,7 +1164,8 @@ class DatadogSourceConfig(config.Config):
 
 @config.config
 class DatahubSourceConfig(config.Config):
-    pass
+    instance_url: str
+    api_token: str
 
 
 @config.config
@@ -1248,12 +1291,13 @@ class DolibarrSourceConfig(config.Config):
 
 @config.config
 class DopplerSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
 class DrataSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["US", "EU", "APAC"] = config.value(default="US")
 
 
 @config.config
@@ -1641,7 +1685,9 @@ class GainsightPxSourceConfig(config.Config):
 
 @config.config
 class GerritSourceConfig(config.Config):
-    pass
+    host: str
+    username: str | None = None
+    http_password: str | None = None
 
 
 @config.config
@@ -1966,7 +2012,7 @@ class HightouchSourceConfig(config.Config):
 
 @config.config
 class HoneybadgerSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2048,7 +2094,10 @@ class IncidentIoSourceConfig(config.Config):
 
 @config.config
 class InfisicalSourceConfig(config.Config):
-    pass
+    base_url: str
+    organization_id: str
+    client_id: str
+    client_secret: str
 
 
 @config.config
@@ -2086,7 +2135,8 @@ class InstagramSourceConfig(config.Config):
 
 @config.config
 class InstanaSourceConfig(config.Config):
-    pass
+    base_url: str
+    api_token: str
 
 
 @config.config
@@ -2138,7 +2188,7 @@ class JamfProSourceConfig(config.Config):
 
 @config.config
 class JellyfishSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -2444,7 +2494,8 @@ class LobSourceConfig(config.Config):
 
 @config.config
 class LogzIOSourceConfig(config.Config):
-    pass
+    api_token: str
+    region: Literal["us", "eu", "uk", "ca", "au", "wa"] = config.value(default="us")
 
 
 @config.config
@@ -2702,7 +2753,8 @@ class MonoSourceConfig(config.Config):
 
 @config.config
 class MonteCarloSourceConfig(config.Config):
-    pass
+    api_key_id: str
+    api_key_secret: str
 
 
 @config.config
@@ -3026,7 +3078,8 @@ class OveitSourceConfig(config.Config):
 
 @config.config
 class PabblySubscriptionsBillingSourceConfig(config.Config):
-    pass
+    api_key: str
+    secret_key: str
 
 
 @config.config
@@ -3334,7 +3387,8 @@ class PromptingCompanySourceConfig(config.Config):
 
 @config.config
 class PulumiCloudSourceConfig(config.Config):
-    pass
+    access_token: str
+    organization: str
 
 
 @config.config
@@ -3397,7 +3451,7 @@ class RKICovidSourceConfig(config.Config):
 
 @config.config
 class RailwaySourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -3704,7 +3758,9 @@ class SecodaSourceConfig(config.Config):
 
 @config.config
 class SecureframeSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
+    region: Literal["us", "uk"] = config.value(default="us")
 
 
 @config.config
@@ -3931,7 +3987,9 @@ class SnowflakeSourceConfig(config.Config):
 
 @config.config
 class SnowplowSourceConfig(config.Config):
-    pass
+    organization_id: str
+    api_key_id: str
+    api_key: str
 
 
 @config.config
@@ -3952,7 +4010,8 @@ class SonarCloudSourceConfig(config.Config):
 
 @config.config
 class SonarqubeSourceConfig(config.Config):
-    pass
+    host: str
+    token: str
 
 
 @config.config
@@ -3983,7 +4042,9 @@ class SplitIoSourceConfig(config.Config):
 
 @config.config
 class SplunkObservabilityCloudSourceConfig(config.Config):
-    pass
+    realm: str
+    access_token: str
+    signalflow_program: str | None = None
 
 
 @config.config
@@ -4117,7 +4178,7 @@ class SvixSourceConfig(config.Config):
 
 @config.config
 class SwarmiaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -4154,7 +4215,8 @@ class TaboolaSourceConfig(config.Config):
 
 @config.config
 class TailscaleSourceConfig(config.Config):
-    pass
+    auth_method: TailscaleAuthMethodConfig
+    tailnet: str | None = None
 
 
 @config.config
@@ -4179,7 +4241,8 @@ class TeachableSourceConfig(config.Config):
 
 @config.config
 class TeamcitySourceConfig(config.Config):
-    pass
+    host: str
+    access_token: str
 
 
 @config.config
@@ -4314,7 +4377,7 @@ class TrackPMSSourceConfig(config.Config):
 
 @config.config
 class TravisCISourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -4473,7 +4536,9 @@ class VellumSourceConfig(config.Config):
 
 @config.config
 class VeracodeSourceConfig(config.Config):
-    pass
+    api_id: str
+    api_secret: str
+    region: Literal["com", "eu", "us"] = config.value(default="com")
 
 
 @config.config
@@ -4526,7 +4591,9 @@ class WebflowSourceConfig(config.Config):
 
 @config.config
 class WeightsAndBiasesSourceConfig(config.Config):
-    pass
+    api_key: str
+    entity: str
+    host: str | None = None
 
 
 @config.config
