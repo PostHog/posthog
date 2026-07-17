@@ -52,9 +52,10 @@ export class StateManager {
     private async _fetchApiKey(): Promise<NonNullable<State['apiKey']>> {
         const token = this._api.config.apiToken
         if (isIdJagAccessToken(token)) {
-            // `/oauth/introspect` only supports database-backed OAuth tokens.
-            // Authenticate the ID-JAG JWT through PostHog first, then read the
-            // already-validated scope and organization claims locally.
+            // ID-JAG access tokens are valid PostHog API bearers, but they are stateless JWTs:
+            // neither the personal-key endpoint nor OAuth introspection can describe them.
+            // Authenticate the token through PostHog first, then read the already-validated
+            // scope and organization claims locally.
             await this.getUser()
             const metadata = readIdJagAuthorizationMetadata(token)
             if (!metadata) {

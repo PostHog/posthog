@@ -62,18 +62,19 @@ describe('StateManager', () => {
     })
 
     describe('getApiKey', () => {
-        it('uses validated ID-JAG claims instead of OAuth introspection', async () => {
+        it('bootstraps ID-JAG metadata without personal-key lookup or OAuth introspection', async () => {
             const header = Buffer.from(JSON.stringify({ typ: 'at+jwt', alg: 'RS256' })).toString('base64url')
             const payload = Buffer.from(
                 JSON.stringify({ scope: 'user:read agents:read agents:write', org_id: 'org-1' })
             ).toString('base64url')
             const token = `${header}.${payload}.signature`
             const getUser = vi.fn().mockResolvedValue({ success: true, data: mockUser })
+            const getCurrentApiKey = vi.fn().mockRejectedValue(new Error('ID-JAG tokens are not personal API keys'))
             const introspect = vi.fn().mockRejectedValue(new Error('ID-JAG tokens must not be introspected'))
             const api = {
                 config: { apiToken: token },
                 users: () => ({ me: getUser }),
-                apiKeys: () => ({ current: async () => ({ success: false }) }),
+                apiKeys: () => ({ current: getCurrentApiKey }),
                 oauth: () => ({ introspect }),
             } as unknown as ApiClient
             stateManager = new StateManager(cache, api)
@@ -84,6 +85,7 @@ describe('StateManager', () => {
                 scoped_organizations: ['org-1'],
             })
             expect(getUser).toHaveBeenCalledOnce()
+            expect(getCurrentApiKey).not.toHaveBeenCalled()
             expect(introspect).not.toHaveBeenCalled()
         })
 
