@@ -47,15 +47,31 @@ def compute_action_redirects(
         if edge.get("type") == "continue" and source and target and source not in continue_targets:
             continue_targets[source] = target
 
+    # Each old node's surviving successor is resolved at most once and shared across walks —
+    # deleting a long chain would otherwise re-walk the same tail once per deleted node (O(n²)).
+    resolved: dict[str, str | None] = {}
     fresh: dict[str, str] = {}
     for deleted_id in old_ids - new_ids:
+        path = [deleted_id]
+        on_path = {deleted_id}
+        survivor: str | None = None
         cursor = continue_targets.get(deleted_id)
-        visited = {deleted_id}
-        while cursor is not None and cursor not in new_ids and cursor not in visited:
-            visited.add(cursor)
+        while cursor is not None:
+            if cursor in new_ids:
+                survivor = cursor
+                break
+            if cursor in resolved:
+                survivor = resolved[cursor]
+                break
+            if cursor in on_path:  # cycle of deleted nodes: dead end
+                break
+            path.append(cursor)
+            on_path.add(cursor)
             cursor = continue_targets.get(cursor)
-        if cursor is not None and cursor in new_ids:
-            fresh[deleted_id] = cursor
+        for node in path:
+            resolved[node] = survivor
+        if survivor is not None:
+            fresh[deleted_id] = survivor
 
     merged: dict[str, str] = {}
     for key, target in (existing or {}).items():
