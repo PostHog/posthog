@@ -39,6 +39,10 @@ RESPONSE_CHUNK_BYTES = 1024 * 1024
 # import-worker thread for the activity's (week-long) lifetime. This bounds the whole
 # transfer regardless of chunk cadence; it's far above any legitimate Infisical response.
 MAX_RESPONSE_SECONDS = 300
+# Ask for an uncompressed body so we can drain it with single, non-blocking reads (read1)
+# that keep the deadline enforceable — see _read_capped_body. A host that ignores this and
+# compresses anyway only breaks its own JSON parse; the size/time caps still hold.
+IDENTITY_ENCODING_HEADERS = {"Accept-Encoding": "identity"}
 MAX_PAGES = 100_000
 # Cap how much of an error response body reaches the logs — the host is untrusted.
 ERROR_BODY_LOG_LIMIT = 500
@@ -129,6 +133,25 @@ def _retry_wait(retry_state: RetryCallState) -> float:
     return wait_exponential_jitter(initial=1, max=30)(retry_state)
 
 
+def _read_body_chunk(response: requests.Response, size: int) -> bytes:
+    """Read up to ``size`` bytes with a *single* underlying socket read.
+
+    ``read(size)`` / ``iter_content(size)`` loop until ``size`` bytes accumulate, so a host
+    that drips a byte at a time — never idling long enough to trip the read timeout — stalls
+    inside one read and the wall-clock deadline (only checked between reads) never fires.
+    ``read1`` returns whatever a single read yields instead, so the deadline is re-checked
+    after every read. urllib3 1.x exposes it only on the wrapped stdlib response (``_fp``);
+    urllib3 2.x and any test double may expose it directly on ``raw``.
+    """
+    raw = response.raw
+    read1 = getattr(raw, "read1", None) or getattr(getattr(raw, "_fp", None), "read1", None)
+    if read1 is not None:
+        return read1(size)
+    # Defensive fallback for a raw object without read1: a filling read, still bounded by the
+    # byte cap the caller enforces. Loses the deadline granularity but never buffers unbounded.
+    return raw.read(size)
+
+
 @retry(
     retry=retry_if_exception_type(
         (
@@ -145,23 +168,26 @@ def _retry_wait(retry_state: RetryCallState) -> float:
 def _read_capped_body(response: requests.Response) -> None:
     """Buffer a streamed response body into memory under ``MAX_RESPONSE_BYTES``.
 
-    Aborts (closing the connection) once the cap is crossed rather than letting a hostile or
-    misbehaving host stream an unbounded chunked body and exhaust the worker. Pins the bytes
-    onto the response so downstream ``.json()`` / ``.text`` keep working.
+    Aborts (closing the connection) once the byte cap or the total-transfer deadline is
+    crossed rather than letting a hostile or misbehaving host stream an unbounded chunked
+    body — or drip one byte at a time forever — and exhaust the worker. Reads a single socket
+    read at a time (see ``_read_body_chunk``) so the deadline is enforceable between reads.
+    Pins the bytes onto the response so downstream ``.json()`` / ``.text`` keep working.
     """
     total = 0
     chunks: list[bytes] = []
     deadline = time.monotonic() + MAX_RESPONSE_SECONDS
-    for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_BYTES):
+    while True:
         # A slow-drip host can stay under the byte cap and never trip the idle read timeout,
-        # so bound the total transfer time as well.
+        # so bound the total transfer time as well. Checked before every single read.
         if time.monotonic() > deadline:
             response.close()
             raise InfisicalResponseTooLargeError(
                 f"Infisical response did not finish within {MAX_RESPONSE_SECONDS}s; aborting"
             )
+        chunk = _read_body_chunk(response, RESPONSE_CHUNK_BYTES)
         if not chunk:
-            continue
+            break
         total += len(chunk)
         if total > MAX_RESPONSE_BYTES:
             response.close()
@@ -169,6 +195,12 @@ def _read_capped_body(response: requests.Response) -> None:
                 f"Infisical response exceeded {MAX_RESPONSE_BYTES} bytes; refusing to buffer it"
             )
         chunks.append(chunk)
+    # Reading raw bypasses urllib3's own connection release, so return the drained connection
+    # to the pool ourselves to keep the reused session's keep-alive working.
+    try:
+        response.raw.release_conn()
+    except Exception:
+        pass
     # Setting _content to real bytes short-circuits Response.content, so downstream
     # .json()/.text return this buffer instead of re-reading the consumed stream.
     response._content = b"".join(chunks)
@@ -184,11 +216,12 @@ def _send(
 ) -> requests.Response:
     # Don't follow redirects: the base URL is customer-controlled, so a 3xx could point at an
     # internal address and defeat the host validation done before the request (SSRF).
-    # stream=True keeps the body unread until _read_capped_body enforces the size cap below.
+    # stream=True keeps the body unread until _read_capped_body enforces the size cap below;
+    # Accept-Encoding: identity lets that reader drain the body with single non-blocking reads.
     response = session.request(
         method,
         url,
-        headers=headers,
+        headers={**IDENTITY_ENCODING_HEADERS, **(headers or {})},
         json=json_body,
         timeout=REQUEST_TIMEOUT_SECONDS,
         allow_redirects=False,

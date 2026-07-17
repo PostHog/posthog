@@ -38,8 +38,11 @@ def _response(
     response.text = text
     response.headers = {}
     response.json.return_value = json_data
-    # _send streams the body, so the tracked session's response must yield chunks.
-    response.iter_content.return_value = iter(body_chunks if body_chunks is not None else [text.encode("utf-8")])
+    # _send streams the body and drains it with single reads (read1), so the response's raw
+    # stream must hand back the chunks then an empty read to signal EOF.
+    chunks = body_chunks if body_chunks is not None else [text.encode("utf-8")]
+    response.raw = mock.MagicMock()
+    response.raw.read1.side_effect = [*chunks, b""]
     if status_code >= 400:
         response.raise_for_status.side_effect = requests.HTTPError(f"{status_code} Client Error", response=response)
     return response
@@ -374,11 +377,14 @@ class TestResponseLimits:
     def test_slow_drip_body_aborts_on_total_deadline(self):
         # requests' timeout is an idle read timeout: a host that trickles bytes under the size
         # cap without ever idling long enough to trip it would otherwise hold the worker until
-        # the activity's week-long timeout. The total-transfer deadline must abort it. A
-        # monotonic clock that advances one second per read crosses the (patched) 1s deadline
-        # within the loop regardless of any monotonic() calls tenacity makes around it.
+        # the activity's week-long timeout. The total-transfer deadline must abort it. Draining
+        # via single reads (read1) means the deadline is checked before every read, so a host
+        # dripping one byte per read can't stall inside a single read to dodge it. A monotonic
+        # clock that advances one second per read crosses the (patched) 1s deadline within the
+        # loop regardless of any monotonic() calls tenacity makes around it.
         response = mock.MagicMock(spec=requests.Response)
-        response.iter_content.return_value = iter([b"x", b"y", b"z"])
+        response.raw = mock.MagicMock()
+        response.raw.read1.side_effect = [b"x", b"y", b"z", b""]
         clock = itertools.count()
         with (
             mock.patch.object(infisical_module, "MAX_RESPONSE_SECONDS", 1),
