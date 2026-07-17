@@ -2,7 +2,7 @@ import clsx from 'clsx'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
-import type { HogFunctionFieldDiff, HogFunctionFieldStatus } from './hogFunctionConfigDiff'
+import type { HogFunctionFieldDiff, HogFunctionFieldStatus } from './hogFunctionConfigDiffUtils'
 
 const STATUS_META: Record<HogFunctionFieldStatus, { label: string; type: 'success' | 'danger' | 'warning' }> = {
     added: { label: 'Added', type: 'success' },
