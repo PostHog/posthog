@@ -3154,6 +3154,11 @@ export interface ExternalDataSourceCreateApi {
     direct_query_enabled?: boolean
 }
 
+export interface ExternalDataSourceCreateResponseApi {
+    /** ID of the created external data source. */
+    id: string
+}
+
 export type PatchedExternalDataSourceSerializersApiSchemasItem = { [key: string]: unknown }
 
 /**

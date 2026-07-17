@@ -27,6 +27,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.typeform.s
     DEFAULT_TYPEFORM_API_BASE_URL,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    RESPONSE_TYPE_ALL,
+    RESPONSE_TYPE_COMPLETED_ONLY,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.typeform.typeform import (
     typeform_source,
@@ -92,6 +94,27 @@ You can generate a personal access token in your [Typeform account settings](htt
                             ),
                         ],
                     ),
+                    SourceFieldSelectConfig(
+                        name="response_types",
+                        label="Responses to sync",
+                        required=False,
+                        defaultValue=RESPONSE_TYPE_COMPLETED_ONLY,
+                        options=[
+                            SourceFieldSelectConfigOption(
+                                label="Completed responses only", value=RESPONSE_TYPE_COMPLETED_ONLY
+                            ),
+                            SourceFieldSelectConfigOption(
+                                label="All responses (including partial & started)", value=RESPONSE_TYPE_ALL
+                            ),
+                        ],
+                        caption=(
+                            "Completed responses sync incrementally. Including partial and started responses "
+                            "syncs the whole responses table on every run, since Typeform has no cursor for "
+                            "partial responses. **To apply this change to an existing source, use 'Delete table "
+                            "and resync' on the responses table. 'Sync now' alone won't backfill the responses "
+                            "you're adding.**"
+                        ),
+                    ),
                 ],
             ),
             releaseStatus=ReleaseStatus.GA,
@@ -118,12 +141,18 @@ You can generate a personal access token in your [Typeform account settings](htt
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
+        include_partials = (config.response_types or RESPONSE_TYPE_COMPLETED_ONLY) != RESPONSE_TYPE_COMPLETED_ONLY
+
         schemas: list[SourceSchema] = []
         for endpoint in ENDPOINTS:
             if names and endpoint not in names:
                 continue
 
             incremental_fields = INCREMENTAL_FIELDS.get(endpoint, [])
+            # Partial/started responses have no `submitted_at` and share no cursor with completed
+            # ones, so the all-responses mode syncs as a full refresh only.
+            if endpoint == "responses" and include_partials:
+                incremental_fields = []
             supports_incremental = bool(incremental_fields)
             schemas.append(
                 SourceSchema(
@@ -163,4 +192,5 @@ You can generate a personal access token in your [Typeform account settings](htt
             if inputs.should_use_incremental_field
             else None,
             incremental_field=inputs.incremental_field,
+            response_types=config.response_types or RESPONSE_TYPE_COMPLETED_ONLY,
         )
