@@ -35,6 +35,8 @@ describe('experimentReplayTabLogic', () => {
     let seenTogetherSpy: jest.SpyInstance
 
     beforeEach(() => {
+        // The facet reducer is persisted; clear so no test inherits another's selection.
+        localStorage.clear()
         initKeaTests()
         seenTogetherSpy = jest.spyOn(api.propertyDefinitions, 'seenTogether')
         seenTogetherSpy.mockResolvedValue({ $feature_flag_called: true })
@@ -69,6 +71,18 @@ describe('experimentReplayTabLogic', () => {
                 },
             ],
         })
+    })
+
+    it('keeps the selected variant across remounts, in step with the playlist persisting its filters', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setSelectedVariantKey('test')
+        }).toMatchValues({ selectedVariantKey: 'test' })
+        logic.unmount()
+
+        const remounted = experimentReplayTabLogic({ experiment: EXPERIMENT })
+        remounted.mount()
+        expect(remounted.values.selectedVariantKey).toBe('test')
+        remounted.unmount()
     })
 
     it('narrows the filter to the selected variant, keeping the run window', async () => {

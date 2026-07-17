@@ -10,8 +10,10 @@ import { isLaunched } from '../experimentStatus'
 import { EXPOSURE_UNLINKABLE_REASON } from '../viewRecordingsLinkabilityLogic'
 import { experimentReplayTabLogic } from './experimentReplayTabLogic'
 
-// LemonSegmentedButton values must be strings; the logic stores null for "All".
-const ALL_VARIANTS = 'all'
+// LemonSegmentedButton values must be strings; the logic stores null for "All". Variant keys are
+// restricted to [a-zA-Z0-9_-], so the '$' prefix guarantees no collision with a real variant — a
+// variant literally named "all" just renders as its own option after the built-in "All".
+const ALL_VARIANTS = '$all'
 
 export function ExperimentReplayTab({ experiment }: { experiment: Experiment }): JSX.Element {
     const logic = experimentReplayTabLogic({ experiment })

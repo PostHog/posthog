@@ -36,7 +36,7 @@ export interface experimentReplayTabLogicMeta {
     key: ExperimentIdType
     __keaTypeGenInternalSelectorTypes: {
         variantKeys: (arg: any) => string[]
-        exposureUnlinkable: (linkabilityLoaded: any, unlinkableEventNames: any, arg: any) => boolean
+        exposureUnlinkable: (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, arg: any) => boolean
         recordingsFilters: (selectedVariantKey: string | null, arg: any) => RecordingUniversalFilters
     }
 }
@@ -67,9 +67,12 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         setSelectedVariantKey: (variantKey: string | null) => ({ variantKey }),
     }),
     reducers({
-        // null = "All" (every exposed session, regardless of variant).
+        // null = "All" (every exposed session, regardless of variant). Persisted (keyed per
+        // experiment via the logic path) so the facet stays in step with the playlist across tab
+        // switches — the playlist persists its own filters and rehydrates them on remount.
         selectedVariantKey: [
             null as string | null,
+            { persist: true },
             {
                 setSelectedVariantKey: (_, { variantKey }) => variantKey,
             },
