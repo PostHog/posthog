@@ -89,7 +89,6 @@ struct TrialRun {
     store: Arc<dyn ObjectStore>,
     prefix: String,
     job_id: Uuid,
-    lease_id: String,
     model: JobModel,
 }
 
@@ -194,7 +193,6 @@ impl TrialRun {
             store,
             prefix,
             job_id,
-            lease_id,
             model,
         })
     }
