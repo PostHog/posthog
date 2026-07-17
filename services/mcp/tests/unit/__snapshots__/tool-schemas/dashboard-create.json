@@ -24,6 +24,11 @@
         "description": {
             "type": "string"
         },
+        "layout_compact_type": {
+            "description": "How dashboard tiles close gaps in the grid layout.\n\n* `vertical` - Vertical\n* `horizontal` - Horizontal\n* `wrap` - Wrap\n* `none` - None",
+            "enum": ["vertical", "horizontal", "wrap", "none"],
+            "type": "string"
+        },
         "name": {
             "anyOf": [
                 {

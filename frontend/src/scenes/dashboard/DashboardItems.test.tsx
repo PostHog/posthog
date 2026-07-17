@@ -4,6 +4,7 @@ import { render } from '@testing-library/react'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
@@ -50,7 +51,7 @@ jest.mock('lib/hooks/useResizeObserver', () => ({
 }))
 
 jest.mock('lib/hooks/useFeatureFlag', () => ({
-    useFeatureFlag: () => true,
+    useFeatureFlag: jest.fn(),
 }))
 
 jest.mock('scenes/surveys/hooks/useSurveyLinkedInsights', () => ({
@@ -95,6 +96,9 @@ jest.mock('./items/DashboardTextItem', () => ({
 
 jest.mock('react-grid-layout', () => {
     return {
+        horizontalCompactor: 'horizontal-compactor',
+        noCompactor: 'no-compactor',
+        verticalCompactor: 'vertical-compactor',
         useContainerWidth: () => ({
             width: 1200,
             containerRef: { current: null },
@@ -106,6 +110,7 @@ jest.mock('react-grid-layout', () => {
             margin,
             resizeConfig,
             dragConfig,
+            compactor,
             children,
         }: {
             className: string
@@ -113,6 +118,7 @@ jest.mock('react-grid-layout', () => {
             margin: [number, number]
             resizeConfig: { enabled: boolean }
             dragConfig: { enabled: boolean }
+            compactor: string
             children: any
         }) => (
             <div
@@ -122,6 +128,7 @@ jest.mock('react-grid-layout', () => {
                 data-margin={margin.join(',')}
                 data-resize-enabled={String(resizeConfig.enabled)}
                 data-drag-enabled={String(dragConfig.enabled)}
+                data-compactor={compactor}
             >
                 {children}
             </div>
@@ -130,6 +137,7 @@ jest.mock('react-grid-layout', () => {
 })
 
 jest.mock('react-grid-layout/extras', () => ({
+    wrapCompactor: 'wrap-compactor',
     GridBackground: ({ rowHeight, margin }: { rowHeight: number; margin: [number, number] }) => (
         <div data-attr="grid-background" data-row-height={String(rowHeight)} data-margin={margin.join(',')} />
     ),
@@ -142,10 +150,12 @@ jest.mock('@posthog/products-dashboards/frontend/components/DashboardWidgetItem/
 const mockedUseValues = useValues as jest.Mock
 const mockedUseActions = useActions as jest.Mock
 const mockedUseAsyncActions = useAsyncActions as jest.Mock
+const mockedUseFeatureFlag = useFeatureFlag as jest.Mock
 
 describe('DashboardItems', () => {
     beforeEach(() => {
         jest.clearAllMocks()
+        mockedUseFeatureFlag.mockReturnValue(true)
 
         mockedUseValues.mockImplementation((logic) => {
             if (logic === dashboardLogic) {
@@ -175,6 +185,7 @@ describe('DashboardItems', () => {
                     dataColorThemeId: null,
                     canEditDashboard: true,
                     layoutZoom: 0.75,
+                    layoutCompactType: 'horizontal',
                 }
             }
 
@@ -240,6 +251,21 @@ describe('DashboardItems', () => {
     it('matches snapshot in edit mode with layout zoom enabled', () => {
         const { container } = render(<DashboardItems />)
         expect(container.firstChild).toMatchSnapshot()
+        expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute(
+            'data-compactor',
+            'horizontal-compactor'
+        )
+    })
+
+    it('uses vertical compaction when layout compaction modes are disabled', () => {
+        mockedUseFeatureFlag.mockReturnValue(false)
+
+        const { container } = render(<DashboardItems />)
+
+        expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute(
+            'data-compactor',
+            'vertical-compactor'
+        )
     })
 
     it('shows widget tiles on public dashboards', () => {

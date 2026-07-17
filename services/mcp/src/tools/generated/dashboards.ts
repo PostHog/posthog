@@ -67,6 +67,9 @@ const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, WithPostHogUr
         if (params.quick_filter_ids !== undefined) {
             body['quick_filter_ids'] = params.quick_filter_ids
         }
+        if (params.layout_compact_type !== undefined) {
+            body['layout_compact_type'] = params.layout_compact_type
+        }
         if (params.use_template !== undefined) {
             body['use_template'] = params.use_template
         }

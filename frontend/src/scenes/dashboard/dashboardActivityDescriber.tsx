@@ -157,6 +157,7 @@ const dashboardActionsMapping: Record<
     tiles: () => null,
     last_viewed_at: () => null,
     quick_filter_ids: () => null,
+    layout_compact_type: () => null,
 }
 
 export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {

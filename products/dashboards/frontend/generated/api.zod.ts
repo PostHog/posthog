@@ -154,6 +154,13 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe('List of quick filter IDs associated with this dashboard'),
+        layout_compact_type: zod
+            .enum(['vertical', 'horizontal', 'wrap', 'none'])
+            .describe('\* `vertical` - Vertical\n\* `horizontal` - Horizontal\n\* `wrap` - Wrap\n\* `none` - None')
+            .optional()
+            .describe(
+                'How dashboard tiles close gaps in the grid layout.\n\n\* `vertical` - Vertical\n\* `horizontal` - Horizontal\n\* `wrap` - Wrap\n\* `none` - None'
+            ),
         use_template: zod
             .string()
             .optional()
@@ -201,6 +208,13 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe('List of quick filter IDs associated with this dashboard'),
+        layout_compact_type: zod
+            .enum(['vertical', 'horizontal', 'wrap', 'none'])
+            .describe('\* `vertical` - Vertical\n\* `horizontal` - Horizontal\n\* `wrap` - Wrap\n\* `none` - None')
+            .optional()
+            .describe(
+                'How dashboard tiles close gaps in the grid layout.\n\n\* `vertical` - Vertical\n\* `horizontal` - Horizontal\n\* `wrap` - Wrap\n\* `none` - None'
+            ),
         use_template: zod
             .string()
             .optional()
@@ -2941,6 +2955,13 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe('List of quick filter IDs associated with this dashboard'),
+        layout_compact_type: zod
+            .enum(['vertical', 'horizontal', 'wrap', 'none'])
+            .describe('\* `vertical` - Vertical\n\* `horizontal` - Horizontal\n\* `wrap` - Wrap\n\* `none` - None')
+            .optional()
+            .describe(
+                'How dashboard tiles close gaps in the grid layout.\n\n\* `vertical` - Vertical\n\* `horizontal` - Horizontal\n\* `wrap` - Wrap\n\* `none` - None'
+            ),
         use_template: zod
             .string()
             .optional()
@@ -2984,6 +3005,13 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe('List of quick filter IDs associated with this dashboard'),
+        layout_compact_type: zod
+            .enum(['vertical', 'horizontal', 'wrap', 'none'])
+            .describe('\* `vertical` - Vertical\n\* `horizontal` - Horizontal\n\* `wrap` - Wrap\n\* `none` - None')
+            .optional()
+            .describe(
+                'How dashboard tiles close gaps in the grid layout.\n\n\* `vertical` - Vertical\n\* `horizontal` - Horizontal\n\* `wrap` - Wrap\n\* `none` - None'
+            ),
         use_template: zod
             .string()
             .optional()

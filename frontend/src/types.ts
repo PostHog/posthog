@@ -2626,6 +2626,7 @@ export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag' | 'organ
 
 export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     tiles: DashboardTile<T>[]
+    layout_compact_type?: DashboardLayoutCompactType
     filters: DashboardFilter
     variables?: Record<string, HogQLVariable>
     persisted_filters?: DashboardFilter | null
@@ -2740,6 +2741,7 @@ export interface DashboardTemplateVariableType {
 }
 
 export type DashboardLayoutSize = 'sm' | 'xs'
+export type DashboardLayoutCompactType = 'vertical' | 'horizontal' | 'wrap' | 'none'
 
 export interface OrganizationInviteType {
     id: string

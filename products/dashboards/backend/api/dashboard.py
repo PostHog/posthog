@@ -181,6 +181,7 @@ DASHBOARD_SHARED_FIELDS = [
     "persisted_variables",
     "team_id",
     "quick_filter_ids",
+    "layout_compact_type",
 ]
 
 
@@ -268,12 +269,10 @@ def _tile_rects_overlap(rect_a: dict[str, int], rect_b: dict[str, int]) -> bool:
     )
 
 
-def _compact_tile_layouts(tiles: list[DashboardTile]) -> set[int]:
-    """Vertically compact tile layouts in place, mirroring the dashboard grid's default
-    react-grid-layout vertical compaction (gravity up). Each breakpoint is compacted
-    independently: tiles keep their x/w/h and are pulled up to the lowest free row.
-    Returns the ids of tiles whose layouts changed.
-    """
+def _compact_tile_layouts(tiles: list[DashboardTile], compact_type: Dashboard.LayoutCompactType) -> set[int]:
+    if compact_type in {Dashboard.LayoutCompactType.NONE, Dashboard.LayoutCompactType.WRAP}:
+        return set()
+
     for tile in tiles:
         if isinstance(tile.layouts, str):
             tile.layouts = json.loads(tile.layouts)
@@ -289,20 +288,30 @@ def _compact_tile_layouts(tiles: list[DashboardTile]) -> set[int]:
             tile for tile in tiles if isinstance(tile.layouts, dict) and isinstance(tile.layouts.get(breakpoint), dict)
         ]
         placed: list[dict[str, int]] = []
-        for tile in DashboardTile.sort_tiles_by_layout(entries, breakpoint):
+        sorted_entries = DashboardTile.sort_tiles_by_layout(entries, breakpoint)
+        if compact_type == Dashboard.LayoutCompactType.HORIZONTAL:
+            sorted_entries = sorted(
+                entries,
+                key=lambda tile: (
+                    tile.layouts[breakpoint].get("x", 0),
+                    tile.layouts[breakpoint].get("y", 0),
+                ),
+            )
+
+        for tile in sorted_entries:
             layout = tile.layouts[breakpoint]
             rect = {"x": layout.get("x", 0), "y": layout.get("y", 0), "w": layout.get("w", 1), "h": layout.get("h", 1)}
-            # Drop the tile to the lowest free row. Jump past colliding tiles rather than
-            # scanning row-by-row, so an editor-supplied giant height can't blow up the loop.
-            new_y = 0
+            compact_axis = "x" if compact_type == Dashboard.LayoutCompactType.HORIZONTAL else "y"
+            size_axis = "w" if compact_axis == "x" else "h"
+            new_position = 0
             while True:
-                collisions = [pr for pr in placed if _tile_rects_overlap({**rect, "y": new_y}, pr)]
+                collisions = [pr for pr in placed if _tile_rects_overlap({**rect, compact_axis: new_position}, pr)]
                 if not collisions:
                     break
-                new_y = max(pr["y"] + pr["h"] for pr in collisions)
-            placed.append({**rect, "y": new_y})
-            if new_y != layout.get("y", 0):
-                layout["y"] = new_y
+                new_position = max(pr[compact_axis] + pr[size_axis] for pr in collisions)
+            placed.append({**rect, compact_axis: new_position})
+            if new_position != layout.get(compact_axis, 0):
+                layout[compact_axis] = new_position
                 changed.add(tile.id)
 
     return changed
@@ -1330,6 +1339,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
             validated_data["quick_filter_ids"] = self._filter_out_non_existing_quick_filter_ids(
                 existing_dashboard.quick_filter_ids, team_id
             )
+
+        if existing_dashboard and "layout_compact_type" not in validated_data:
+            validated_data["layout_compact_type"] = existing_dashboard.layout_compact_type
 
         dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
 
@@ -2752,7 +2764,7 @@ class DashboardsViewSet(
             tile.save(update_fields=["deleted"])
 
             remaining = list(DashboardTile.objects.filter(dashboard=dashboard))
-            changed_ids = _compact_tile_layouts(remaining)
+            changed_ids = _compact_tile_layouts(remaining, Dashboard.LayoutCompactType(dashboard.layout_compact_type))
             if changed_ids:
                 DashboardTile.objects.bulk_update(
                     [remaining_tile for remaining_tile in remaining if remaining_tile.id in changed_ids],

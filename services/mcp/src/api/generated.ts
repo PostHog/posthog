@@ -15936,6 +15936,22 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `vertical` - Vertical
+     * * `horizontal` - Horizontal
+     * * `wrap` - Wrap
+     * * `none` - None
+     */
+    export type LayoutCompactTypeEnum = typeof LayoutCompactTypeEnum[keyof typeof LayoutCompactTypeEnum];
+
+
+    export const LayoutCompactTypeEnum = {
+      Vertical: 'vertical',
+      Horizontal: 'horizontal',
+      Wrap: 'wrap',
+      None: 'none',
+    } as const;
+
+    /**
      * Serializer mixin that handles tags for objects.
      */
     export interface Dashboard {
@@ -15993,6 +16009,13 @@ export namespace Schemas {
          * @nullable
          */
       quick_filter_ids?: string[] | null;
+      /** How dashboard tiles close gaps in the grid layout.
+       *
+       * * `vertical` - Vertical
+       * * `horizontal` - Horizontal
+       * * `wrap` - Wrap
+       * * `none` - None */
+      layout_compact_type?: LayoutCompactTypeEnum;
       /** @nullable */
       readonly tiles: readonly DashboardTilesItem[] | null;
       /** Template key to create the dashboard from a predefined template. */

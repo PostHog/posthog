@@ -552,6 +552,34 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.name, "dashboard new name")
 
+    @parameterized.expand(
+        [
+            ("vertical",),
+            ("horizontal",),
+            ("wrap",),
+            ("none",),
+        ]
+    )
+    def test_update_dashboard_layout_compact_type(self, layout_compact_type: str) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard", created_by=self.user)
+
+        _, response_data = self.dashboard_api.update_dashboard(
+            dashboard.pk, {"layout_compact_type": layout_compact_type}
+        )
+
+        assert response_data["layout_compact_type"] == layout_compact_type
+        dashboard.refresh_from_db()
+        assert dashboard.layout_compact_type == layout_compact_type
+
+    def test_cannot_update_dashboard_with_invalid_layout_compact_type(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard", created_by=self.user)
+
+        self.dashboard_api.update_dashboard(
+            dashboard.pk,
+            {"layout_compact_type": "diagonal"},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
     def test_cannot_update_dashboard_with_invalid_filters(self):
         dashboard = Dashboard.objects.create(
             team=self.team,
@@ -1746,6 +1774,20 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         original_text_tile = next(t for t in dashboard_with_tiles["tiles"] if t.get("text"))
         assert text_tile["text"]["id"] == original_text_tile["text"]["id"]
+
+    def test_dashboard_duplication_copies_layout_compact_type(self) -> None:
+        existing_dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="existing dashboard",
+            created_by=self.user,
+            layout_compact_type=Dashboard.LayoutCompactType.HORIZONTAL,
+        )
+
+        _, duplicate_response = self.dashboard_api.create_dashboard(
+            {"name": "duplicate", "use_dashboard": existing_dashboard.id}
+        )
+
+        assert duplicate_response["layout_compact_type"] == Dashboard.LayoutCompactType.HORIZONTAL
 
     def test_dashboard_duplication_without_tile_duplicate_excludes_soft_deleted_tiles(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
