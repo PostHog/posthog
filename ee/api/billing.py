@@ -21,6 +21,7 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team
 from posthog.models.organization import OrganizationMembership
+from posthog.ph_client import feature_enabled_or_false
 from posthog.utils import get_trusted_client_ip, relative_date_parse
 
 from ee.billing.billing_manager import BillingManager
@@ -30,6 +31,9 @@ from ee.settings import BILLING_SERVICE_URL
 logger = structlog.get_logger(__name__)
 
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
+
+MEMBER_BILLING_USAGE_ACCESS_FLAG = "member-billing-usage-access"
+OWNER_ONLY_BILLING_FLAG = "owner-only-billing"
 
 
 class IsOrganizationAdmin(permissions.BasePermission):
@@ -45,6 +49,41 @@ class IsOrganizationAdmin(permissions.BasePermission):
         return OrganizationMembership.objects.filter(
             user=request.user, organization=org, level__gte=OrganizationMembership.Level.ADMIN
         ).exists()
+
+
+def _org_flag_enabled(flag_key: str, organization: Organization) -> bool:
+    org_id = str(organization.id)
+    return feature_enabled_or_false(
+        flag_key,
+        org_id,
+        groups={"organization": org_id},
+        group_properties={"organization": {"id": org_id}},
+        send_feature_flag_events=False,
+    )
+
+
+class CanViewBillingUsage(permissions.BasePermission):
+    """
+    Permission for the read-only billing usage/spend endpoints. Org admins (level >= ADMIN) are
+    always allowed. Plain members are allowed only when the `member-billing-usage-access` flag is
+    enabled for the organization and `owner-only-billing` is not (evaluation fails closed).
+    """
+
+    message = "You need to be an organization administrator to view billing usage data."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        try:
+            org = view._get_org_required()
+        except Exception:
+            return False
+        membership = OrganizationMembership.objects.filter(user=request.user, organization=org).first()
+        if membership is None:
+            return False
+        if membership.level >= OrganizationMembership.Level.ADMIN:
+            return True
+        return _org_flag_enabled(MEMBER_BILLING_USAGE_ACCESS_FLAG, org) and not _org_flag_enabled(
+            OWNER_ONLY_BILLING_FLAG, org
+        )
 
 
 class BillingSerializer(serializers.Serializer):
@@ -536,7 +575,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["GET"],
         detail=False,
         url_path="usage",
-        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+        permission_classes=[permissions.IsAuthenticated, CanViewBillingUsage],
     )
     def usage(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
@@ -572,7 +611,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["GET"],
         detail=False,
         url_path="spend",
-        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+        permission_classes=[permissions.IsAuthenticated, CanViewBillingUsage],
     )
     def spend(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         """Endpoint to fetch spend data (proxy to billing service)."""

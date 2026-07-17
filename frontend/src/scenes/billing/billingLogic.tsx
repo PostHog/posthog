@@ -18,6 +18,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -37,7 +38,9 @@ import {
     buildUsageLimitApproachingMessage,
     buildUsageLimitExceededMessage,
     canAccessBilling as canAccessBillingUtil,
+    canViewBillingUsage as canViewBillingUsageUtil,
     getMinimumBillingAccessLevel,
+    getMinimumBillingUsageAccessLevel,
 } from './billing-utils'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
 
@@ -1040,6 +1043,44 @@ export const billingLogic = kea<billingLogicType>([
                     currentOrganization?.membership_level,
                     !!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
                 ),
+        ],
+        minimumBillingUsageAccessLevel: [
+            (s) => [s.featureFlags],
+            (featureFlags): OrganizationMembershipLevel =>
+                getMinimumBillingUsageAccessLevel(
+                    !!featureFlags[FEATURE_FLAGS.MEMBER_BILLING_USAGE_ACCESS],
+                    !!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
+                ),
+        ],
+        canViewBillingUsage: [
+            (s) => [s.currentOrganization, s.featureFlags],
+            (currentOrganization, featureFlags): boolean =>
+                canViewBillingUsageUtil(
+                    currentOrganization?.membership_level,
+                    !!featureFlags[FEATURE_FLAGS.MEMBER_BILLING_USAGE_ACCESS],
+                    !!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
+                ),
+        ],
+        canOnlyViewBillingUsage: [
+            (s) => [s.canViewBillingUsage, s.canAccessBilling],
+            (canViewBillingUsage, canAccessBilling): boolean => canViewBillingUsage && !canAccessBilling,
+        ],
+        billingEntryUrl: [
+            (s) => [s.canAccessBilling, s.canOnlyViewBillingUsage, s.featureFlags],
+            (canAccessBilling, canOnlyViewBillingUsage, featureFlags): string | null => {
+                const usageSpendDashboards = !!featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
+                if (canAccessBilling) {
+                    return usageSpendDashboards
+                        ? urls.organizationBillingSection('overview')
+                        : urls.organizationBilling()
+                }
+                // Without the tabbed dashboards, the only billing surface is the admin-only Overview,
+                // so view-only members get no entry point
+                if (canOnlyViewBillingUsage && usageSpendDashboards) {
+                    return urls.organizationBillingSection('usage')
+                }
+                return null
+            },
         ],
         upgradeLink: [(s) => [s.preflight], (): string => '/organization/billing'],
         isUnlicensedDebug: [
