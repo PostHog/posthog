@@ -44,6 +44,15 @@ def _get_headers(api_key: str) -> dict[str, str]:
     }
 
 
+def _make_session(api_key: str) -> requests.Session:
+    """Session for all Metaplane traffic. Response capture is disabled because the bodies carry
+    free-form tenant data — user-supplied monitor descriptions, `config` (custom SQL and where
+    clauses), and evaluation/sync error messages — that the name-based sample scrubbers can't
+    reliably recognise, so they must never land in the shared HTTP sample store. The API key is
+    redacted as defense in depth."""
+    return make_tracked_session(capture=False, redact_values=(api_key,))
+
+
 def _format_datetime(value: Any) -> str:
     """Format an incremental value as the ISO 8601 / RFC 3339 timestamp Metaplane returns."""
     if isinstance(value, datetime):
@@ -61,7 +70,7 @@ def validate_credentials(api_key: str) -> bool:
     covers every endpoint.
     """
     try:
-        response = make_tracked_session().get(
+        response = _make_session(api_key).get(
             f"{METAPLANE_BASE_URL}/connections",
             headers=_get_headers(api_key),
             timeout=REQUEST_TIMEOUT_SECONDS,
@@ -278,7 +287,7 @@ def get_rows(
     headers = _get_headers(api_key)
     # One session reused across every request so urllib3 keeps the connection alive
     # instead of re-handshaking per request.
-    session = make_tracked_session()
+    session = _make_session(api_key)
 
     if endpoint == "connections":
         connections = _get_connections(session, headers, logger)

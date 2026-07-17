@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metaplane.
     METAPLANE_BASE_URL,
     MetaplaneResumeConfig,
     _format_datetime,
+    _make_session,
     get_rows,
     metaplane_source,
     validate_credentials,
@@ -132,6 +133,17 @@ class TestFormatDatetime:
     )
     def test_format_datetime(self, _name: str, value: Any, expected: str) -> None:
         assert _format_datetime(value) == expected
+
+
+class TestMakeSession:
+    def test_disables_sample_capture_and_redacts_key(self) -> None:
+        # Metaplane response bodies carry free-form tenant data (monitor descriptions, custom SQL
+        # config, error messages) the name-based scrubbers can't recognise, so sample capture must
+        # stay off and the API key is redacted as defense in depth.
+        with patch(f"{METAPLANE_MODULE}.make_tracked_session") as mock_make:
+            _make_session("mp-secret")
+        assert mock_make.call_args.kwargs["capture"] is False
+        assert mock_make.call_args.kwargs["redact_values"] == ("mp-secret",)
 
 
 class TestValidateCredentials:
