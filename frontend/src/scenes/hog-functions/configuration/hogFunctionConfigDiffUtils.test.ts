@@ -1,4 +1,4 @@
-import { buildHogFunctionConfigDiff } from './hogFunctionConfigDiff'
+import { buildHogFunctionConfigDiff } from './hogFunctionConfigDiffUtils'
 
 describe('buildHogFunctionConfigDiff', () => {
     it('classifies each proposed field as added / removed / changed and drops unchanged ones', () => {

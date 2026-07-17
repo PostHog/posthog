@@ -6,7 +6,7 @@ import { getPermissionRequestToolInput, registerToolRenderers } from 'products/p
 import type { PermissionRequestRecord } from 'products/posthog_ai/frontend/api/types'
 
 import { HogFunctionConfigDiff } from './HogFunctionConfigDiff'
-import { buildHogFunctionConfigDiff } from './hogFunctionConfigDiff'
+import { buildHogFunctionConfigDiff } from './hogFunctionConfigDiffUtils'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 
 /**
