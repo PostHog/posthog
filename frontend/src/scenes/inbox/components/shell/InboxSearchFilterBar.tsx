@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconRefresh, IconSearch } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
-
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { IconCheck, IconChevronDown, IconFlag, IconRefresh, IconSearch, IconSort, IconTarget } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
 import {
     INBOX_PRIORITY_OPTIONS,
@@ -11,10 +10,62 @@ import {
     INBOX_SOURCE_OPTIONS,
     PRIORITY_ACCENT,
     PRIORITY_MEANING,
+    inboxPriorityFilterLabel,
     inboxSortOptionKey,
+    inboxSourceFilterLabel,
 } from '../../filterOptions'
-import { InboxSortDirection, InboxSortField, inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
+import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { SignalReportPriority } from '../../types'
+
+/**
+ * A single filter trigger + dropdown overlay. The trigger stays a quiet, muted chip
+ * (matching master's inbox) until its filter is in use, then gains a solid border and
+ * shows its value — so the bar only draws attention to filters actually in use. The
+ * overlay contents are standard Lemon components. Single-select popovers close on pick;
+ * multi-select ones stay open so several values can be toggled in one go.
+ */
+function FilterPopover({
+    label,
+    value,
+    icon,
+    active,
+    closeOnClickInside = false,
+    children,
+}: {
+    label: string
+    value: string
+    icon: JSX.Element
+    active: boolean
+    closeOnClickInside?: boolean
+    children: React.ReactNode
+}): JSX.Element {
+    const [visible, setVisible] = useState(false)
+    return (
+        <LemonDropdown
+            closeOnClickInside={closeOnClickInside}
+            visible={visible}
+            onVisibilityChange={setVisible}
+            matchWidth={false}
+            actionable
+            placement="bottom-start"
+            overlay={<div className="min-w-[200px] max-w-[260px] deprecated-space-y-px">{children}</div>}
+        >
+            <button
+                type="button"
+                aria-label={`${label}: ${value}`}
+                className={`flex h-8 shrink-0 items-center gap-1.5 rounded border px-2.5 text-sm transition-colors ${
+                    active
+                        ? 'border-primary bg-surface-primary text-default hover:border-secondary hover:bg-surface-secondary'
+                        : 'border-transparent text-muted hover:border-primary hover:bg-surface-secondary hover:text-default'
+                }`}
+            >
+                <span className="flex shrink-0 items-center text-tertiary [&>svg]:size-3.5">{icon}</span>
+                <span className="max-w-[150px] truncate">{active ? value : label}</span>
+                <IconChevronDown className="shrink-0 text-sm text-tertiary" />
+            </button>
+        </LemonDropdown>
+    )
+}
 
 interface InboxSearchFilterBarProps {
     searchPlaceholder?: string
@@ -24,12 +75,11 @@ interface InboxSearchFilterBarProps {
 }
 
 /**
- * Search input + Sort / Source / Priority filters + refresh. There is no status
- * filter (desktop dropped it; status is a fixed request constant). Sort is a
- * single-select; Source and Priority are standard multi-select menus — a value
- * shows as a removable chip, an empty filter reads "All …", and the dropdown
- * offers "Clear all" to reset. Filter state is persisted via `inboxFiltersLogic`;
- * the central scene reloads on change.
+ * Search input + Sort / Source / Priority filter popovers + refresh. There is no
+ * status filter (desktop dropped it; status is a fixed request constant). Each
+ * popover stays a quiet, muted chip until its filter is in use. Sort is single-select;
+ * Source and Priority are multi-select with a "Clear all" to reset to "no filter".
+ * Filter state is persisted via `inboxFiltersLogic`; the central scene reloads on change.
  */
 export function InboxSearchFilterBar({
     searchPlaceholder = 'Search by title or description…',
@@ -38,6 +88,22 @@ export function InboxSearchFilterBar({
 }: InboxSearchFilterBarProps): JSX.Element {
     const { searchQuery, sortField, sortDirection, sourceProductFilter, priorityFilter } = useValues(inboxFiltersLogic)
     const { setSearchQuery, setSort, setSourceProductFilter, setPriorityFilter } = useActions(inboxFiltersLogic)
+
+    const activeSort = INBOX_SORT_OPTIONS.find((o) => o.field === sortField && o.direction === sortDirection)
+    const activeSortKey = inboxSortOptionKey(sortField, sortDirection)
+
+    const toggleSource = (source: string): void =>
+        setSourceProductFilter(
+            sourceProductFilter.includes(source)
+                ? sourceProductFilter.filter((s) => s !== source)
+                : [...sourceProductFilter, source]
+        )
+    const togglePriority = (priority: SignalReportPriority): void =>
+        setPriorityFilter(
+            priorityFilter.includes(priority)
+                ? priorityFilter.filter((p) => p !== priority)
+                : [...priorityFilter, priority]
+        )
 
     return (
         <div className="flex items-center gap-2 flex-wrap w-full">
@@ -51,70 +117,103 @@ export function InboxSearchFilterBar({
                 size="small"
             />
 
-            <LemonSelect
-                size="small"
-                value={inboxSortOptionKey(sortField, sortDirection)}
-                onChange={(key) => {
-                    const [field, direction] = key.split(':')
-                    setSort(field as InboxSortField, direction as InboxSortDirection)
-                }}
-                options={INBOX_SORT_OPTIONS.map((option) => ({
-                    value: inboxSortOptionKey(option.field, option.direction),
-                    label: option.label,
-                    icon: option.icon,
-                }))}
-            />
-
-            <LemonInputSelect
-                mode="multiple"
-                value={sourceProductFilter}
-                onChange={setSourceProductFilter}
-                options={INBOX_SOURCE_OPTIONS.map((option) => ({
-                    key: option.value,
-                    label: option.label,
-                    labelComponent: (
-                        <span className="flex items-center gap-1.5">
-                            <span className="flex shrink-0 items-center text-tertiary [&>svg]:size-3.5">
-                                {option.icon}
-                            </span>
+            <FilterPopover
+                label="Sort"
+                value={activeSort?.label ?? 'Priority first'}
+                icon={<IconSort />}
+                active={activeSortKey !== 'priority:asc'}
+                closeOnClickInside
+            >
+                {INBOX_SORT_OPTIONS.map((option) => {
+                    const isActive = sortField === option.field && sortDirection === option.direction
+                    return (
+                        <LemonButton
+                            key={inboxSortOptionKey(option.field, option.direction)}
+                            fullWidth
+                            size="small"
+                            icon={option.icon}
+                            active={isActive}
+                            sideIcon={isActive ? <IconCheck /> : null}
+                            onClick={() => setSort(option.field, option.direction)}
+                        >
                             {option.label}
-                        </span>
-                    ),
-                }))}
-                placeholder="All sources"
-                bulkActions="clear-all"
-                allowCustomValues={false}
-                size="small"
-                className="min-w-[150px]"
-            />
+                        </LemonButton>
+                    )
+                })}
+            </FilterPopover>
 
-            <LemonInputSelect
-                mode="multiple"
-                value={priorityFilter}
-                onChange={(priorities) => setPriorityFilter(priorities as SignalReportPriority[])}
-                options={INBOX_PRIORITY_OPTIONS.map((priority) => ({
-                    key: priority,
-                    label: `${priority} · ${PRIORITY_MEANING[priority].label}`,
-                    labelComponent: (
-                        <span className="flex items-center gap-1.5">
-                            <span
-                                className="size-2 rounded-full"
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{ backgroundColor: PRIORITY_ACCENT[priority] }}
-                            />
+            <FilterPopover
+                label="Source"
+                value={inboxSourceFilterLabel(sourceProductFilter)}
+                icon={<IconTarget />}
+                active={sourceProductFilter.length > 0}
+            >
+                {INBOX_SOURCE_OPTIONS.map((option) => {
+                    const isActive = sourceProductFilter.includes(option.value)
+                    return (
+                        <LemonButton
+                            key={option.value}
+                            fullWidth
+                            size="small"
+                            icon={option.icon}
+                            active={isActive}
+                            sideIcon={isActive ? <IconCheck /> : null}
+                            onClick={() => toggleSource(option.value)}
+                        >
+                            {option.label}
+                        </LemonButton>
+                    )
+                })}
+                {sourceProductFilter.length > 0 && (
+                    <>
+                        <LemonDivider className="my-1" />
+                        <LemonButton fullWidth size="small" onClick={() => setSourceProductFilter([])}>
+                            Clear all
+                        </LemonButton>
+                    </>
+                )}
+            </FilterPopover>
+
+            <FilterPopover
+                label="Priority"
+                value={inboxPriorityFilterLabel(priorityFilter)}
+                icon={<IconFlag />}
+                active={priorityFilter.length > 0}
+            >
+                {INBOX_PRIORITY_OPTIONS.map((priority) => {
+                    const isActive = priorityFilter.includes(priority)
+                    return (
+                        <LemonButton
+                            key={priority}
+                            fullWidth
+                            size="small"
+                            icon={
+                                <span
+                                    className="size-2 rounded-full"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{ backgroundColor: PRIORITY_ACCENT[priority] }}
+                                />
+                            }
+                            active={isActive}
+                            sideIcon={isActive ? <IconCheck /> : null}
+                            onClick={() => togglePriority(priority)}
+                        >
                             <span>
                                 {priority}
                                 <span className="text-muted"> · {PRIORITY_MEANING[priority].label}</span>
                             </span>
-                        </span>
-                    ),
-                }))}
-                placeholder="All priorities"
-                bulkActions="clear-all"
-                allowCustomValues={false}
-                size="small"
-                className="min-w-[150px]"
-            />
+                        </LemonButton>
+                    )
+                })}
+                {priorityFilter.length > 0 && (
+                    <>
+                        <LemonDivider className="my-1" />
+                        <LemonButton fullWidth size="small" onClick={() => setPriorityFilter([])}>
+                            Clear all
+                        </LemonButton>
+                    </>
+                )}
+            </FilterPopover>
 
             {onRefresh && (
                 <LemonButton
