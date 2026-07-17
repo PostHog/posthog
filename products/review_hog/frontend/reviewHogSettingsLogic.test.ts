@@ -197,7 +197,8 @@ describe('reviewHogSettingsLogic', () => {
         expect(statsScopes[statsScopes.length - 1]).toBe(ReviewHogReviewsListScope.Everyone)
 
         logic.actions.setReviewsScope(ReviewHogReviewsListScope.Mine)
-        // Old numbers drop synchronously so the cards never show the other scope's stats.
+        // Old rows and numbers drop synchronously so the page never shows the other scope's data.
+        expect(logic.values.recentReviews).toBeNull()
         expect(logic.values.perspectiveStats).toBeNull()
         await expectLogic(logic).toDispatchActions(['loadPerspectiveStatsSuccess'])
         expect(statsScopes[statsScopes.length - 1]).toBe(ReviewHogReviewsListScope.Mine)
