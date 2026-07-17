@@ -29,7 +29,8 @@ class GlobalRateLimitThresholdConfig(UUIDModel):
     no customer-facing API or UI.
     """
 
-    token = models.CharField(max_length=100)
+    # Matches Team.api_token's max_length so any valid capture token can get an override.
+    token = models.CharField(max_length=200)
     distinct_id = models.CharField(
         max_length=450,
         blank=True,

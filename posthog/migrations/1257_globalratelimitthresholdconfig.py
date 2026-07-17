@@ -20,7 +20,7 @@ class Migration(migrations.Migration):
                         default=posthog.models.utils.uuid7, editable=False, primary_key=True, serialize=False
                     ),
                 ),
-                ("token", models.CharField(max_length=100)),
+                ("token", models.CharField(max_length=200)),
                 (
                     "distinct_id",
                     models.CharField(
