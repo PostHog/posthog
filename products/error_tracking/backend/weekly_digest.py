@@ -323,7 +323,7 @@ def _build_issues_list(results: list, issues_by_id: dict, team: Team) -> list[di
     from products.error_tracking.backend.logic import build_issue_permalink_path, list_first_fingerprints
 
     issue_ids = [issue_id for issue_id, _, _ in results if issue_id]
-    fingerprints_by_issue_id = {
+    first_fingerprint_by_issue_id = {
         str(fingerprint.issue_id): fingerprint.fingerprint
         for fingerprint in list_first_fingerprints(team_id=team.pk, issue_ids=issue_ids)
     }
@@ -335,7 +335,7 @@ def _build_issues_list(results: list, issues_by_id: dict, team: Team) -> list[di
         issue = issues_by_id.get(str(issue_id))
         sparkline = _daily_counts_to_sparkline(daily_counts)
         permalink_path = build_issue_permalink_path(
-            project_id=team.pk, issue_id=issue_id, fingerprint=fingerprints_by_issue_id.get(str(issue_id))
+            project_id=team.pk, issue_id=issue_id, fingerprint=first_fingerprint_by_issue_id.get(str(issue_id))
         )
         issues.append(
             {

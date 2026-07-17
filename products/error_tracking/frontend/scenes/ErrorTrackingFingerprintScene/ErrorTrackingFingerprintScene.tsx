@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { NotFound } from 'lib/components/NotFound'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
+import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import {
@@ -26,11 +26,32 @@ export const scene: SceneExport<ErrorTrackingFingerprintSceneLogicProps> = {
 }
 
 export function ErrorTrackingFingerprintScene(): JSX.Element {
-    const { resolvedFingerprint, resolvedFingerprintLoading } = useValues(errorTrackingFingerprintSceneLogic)
+    const { notFound, retries } = useValues(errorTrackingFingerprintSceneLogic)
 
-    if (!resolvedFingerprint && !resolvedFingerprintLoading) {
-        return <NotFound object="issue" />
+    if (notFound) {
+        return (
+            <NotFound
+                object="issue"
+                caption="We couldn't find this issue. If the error was captured very recently, it may still be processing, so try refreshing in a moment."
+            />
+        )
     }
 
-    return <SpinnerOverlay sceneLevel />
+    // First lookup in flight: just a spinner. Only once a lookup has missed do we explain the wait,
+    // since a recently captured error can still be working through ingestion. The scene redirects to
+    // the issue as soon as it resolves.
+    if (retries === 0) {
+        return <SpinnerOverlay sceneLevel />
+    }
+
+    return (
+        <div className="flex flex-col items-center justify-center gap-3 text-center h-full py-16">
+            <Spinner className="text-3xl" />
+            <h2 className="mb-0">Still looking for this issue</h2>
+            <p className="text-secondary max-w-md mb-0">
+                We couldn't find it yet, so we're still looking. If the error was captured recently, it can take a few
+                moments to finish processing, and this page opens automatically once it's ready.
+            </p>
+        </div>
+    )
 }
