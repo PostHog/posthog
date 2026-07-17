@@ -30,6 +30,13 @@ packages:
 
 blockExoticSubdeps: true
 trustPolicy: no-downgrade
+trustPolicyExclude:
+    # False positives: 5.7.2 and 6.3.1 are the 2023 ReDoS-CVE backports,
+    # published without provenance after 7.x releases already had it, which
+    # the date-based policy reads as a trust downgrade. Pinned exact versions
+    # in one rule — pnpm stops at the first name match, so separate
+    # `semver@…` entries would shadow each other.
+    - semver@5.7.2||6.3.1
 
 catalog:
     # Kea ecosystem - state management
