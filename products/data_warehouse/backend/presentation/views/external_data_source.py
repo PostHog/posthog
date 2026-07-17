@@ -4091,7 +4091,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         try:
             live_status = adapter.get_status(instance)
         except Exception as e:
-            capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
+            # An unreachable source DB is the degraded state this endpoint exists to report, so
+            # don't capture expected connection failures as error-tracking noise. Capture only
+            # unexpected errors, which point at a bug in our status read.
+            if not adapter.is_connection_error(e):
+                capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Could not connect to source to read CDC status: {e}"},
