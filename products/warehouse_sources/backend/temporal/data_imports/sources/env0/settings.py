@@ -31,8 +31,9 @@ class Env0EndpointConfig:
     # field, which would rewrite partitions on every sync.
     partition_key: Optional[str] = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
-    # Response fields dropped client-side before yielding (huge free-text blobs like raw
-    # Terraform output that would bloat rows without being queryable).
+    # Response fields dropped client-side before yielding: huge free-text blobs (raw
+    # Terraform output) and secret-bearing fields (deployment variable values, injected
+    # OIDC/VCS tokens) that must not be persisted to the warehouse.
     strip_fields: tuple[str, ...] = ()
     # Endpoint supports env0's server-side fromDate/toDate window (must be passed together).
     supports_date_window: bool = False
@@ -77,8 +78,12 @@ ENV0_ENDPOINTS: dict[str, Env0EndpointConfig] = {
         org_id_param="organizationId",
         paginated=True,
         partition_key="createdAt",
-        # The nested latest deployment's raw Terraform output/plan can be megabytes per row.
-        params={"excludeFields": "latestDeploymentLog.output,latestDeploymentLog.plan"},
+        # The nested latest deployment carries megabytes of raw Terraform output/plan AND
+        # secret-bearing fields (deployment variables, injected OIDC/VCS tokens). Excluded
+        # server-side and stripped client-side too in case the API ignores the param; the
+        # deployments table covers per-deployment analytics.
+        params={"excludeFields": "latestDeploymentLog"},
+        strip_fields=("latestDeploymentLog",),
     ),
     "deployments": Env0EndpointConfig(
         name="deployments",
@@ -86,7 +91,10 @@ ENV0_ENDPOINTS: dict[str, Env0EndpointConfig] = {
         scope="environment",
         paginated=True,
         partition_key="createdAt",
-        strip_fields=("output", "plan"),
+        # output/plan are huge free-text blobs; variables carries raw variable values and
+        # customEnv0EnvironmentVariables carries injected credentials (oidcToken,
+        # vcsAccessToken) — none of these may land in the warehouse.
+        strip_fields=("output", "plan", "variables", "customEnv0EnvironmentVariables"),
         supports_date_window=True,
         incremental_lookback=timedelta(hours=24),
         incremental_fields=[

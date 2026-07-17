@@ -126,13 +126,20 @@ class TestGetRows:
         mock_session.return_value.get.side_effect = [
             _response([{"id": "org-1"}]),
             _response(full_page),
-            _response([{"id": "env-last"}]),
+            # latestDeploymentLog embeds deployment variables and injected tokens; it must be
+            # dropped even when the server ignores the excludeFields param.
+            _response(
+                [{"id": "env-last", "latestDeploymentLog": {"customEnv0EnvironmentVariables": {"oidcToken": "x"}}}]
+            ),
         ]
 
         manager = _make_manager()
         batches = list(get_rows("key-id", "key-secret", "environments", mock.MagicMock(), manager))
 
         assert sum(len(batch) for batch in batches) == PAGE_SIZE + 1
+        assert batches[-1][-1] == {"id": "env-last"}
+        environments_query = _query(_requested_urls(mock_session)[1])
+        assert environments_query["excludeFields"] == ["latestDeploymentLog"]
         urls = _requested_urls(mock_session)
         assert "offset" not in _query(urls[1])
         assert _query(urls[2])["offset"] == [str(PAGE_SIZE)]
@@ -155,11 +162,22 @@ class TestGetRows:
         assert _query(urls[2])["offset"] == ["key-abc"]
 
     @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_deployments_fan_out_strips_heavy_fields_and_windows_requests(self, mock_session):
+    def test_deployments_fan_out_strips_heavy_and_secret_fields_and_windows_requests(self, mock_session):
         mock_session.return_value.get.side_effect = [
             _response([{"id": "org-1"}]),
             _response([{"id": "env-1"}]),
-            _response([{"id": "dep-1", "status": "SUCCESS", "output": "x" * 100, "plan": {"big": True}}]),
+            _response(
+                [
+                    {
+                        "id": "dep-1",
+                        "status": "SUCCESS",
+                        "output": "x" * 100,
+                        "plan": {"big": True},
+                        "variables": [{"name": "DB_PASSWORD", "value": "hunter2", "isSensitive": False}],
+                        "customEnv0EnvironmentVariables": {"oidcToken": "eyJ...", "vcsAccessToken": "ghs_..."},
+                    }
+                ]
+            ),
         ]
 
         manager = _make_manager()
