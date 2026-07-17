@@ -850,11 +850,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     @tracer.start_as_current_span("team_serializer.has_group_types")
     def get_has_group_types(self, team: Team) -> bool:
-        return bool(cached_group_types_for_team(team))
+        return bool(self._get_group_types(team))
 
     @tracer.start_as_current_span("team_serializer.group_types")
     def get_group_types(self, team: Team) -> list[dict[str, Any]]:
-        return cached_group_types_for_team(team)
+        return self._get_group_types(team)
+
+    def _get_group_types(self, team: Team) -> list[dict[str, Any]]:
+        group_types = getattr(self, "_group_types_cache", None)
+        if group_types is None:
+            group_types = cached_group_types_for_team(team)
+            self._group_types_cache = group_types
+        return group_types
 
     @extend_schema_field(serializers.BooleanField())
     @tracer.start_as_current_span("team_serializer.events_retention_enforced")
