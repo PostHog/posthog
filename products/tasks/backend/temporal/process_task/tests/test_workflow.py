@@ -305,18 +305,20 @@ class TestProcessTaskWorkflow:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "state, used_snapshot, snapshot_external_id, expected_checkout",
+    "state, used_snapshot, snapshot_external_id, patch_enabled, expected_checkout",
     [
-        ({"resume_from_run_id": "previous-run-id"}, True, "im-resume", False),
-        ({"resume_from_run_id": "previous-run-id"}, False, None, True),
-        ({}, True, None, True),
+        ({"resume_from_run_id": "previous-run-id"}, True, "im-resume", True, False),
+        ({"resume_from_run_id": "previous-run-id"}, False, None, True, True),
+        ({"resume_from_run_id": "previous-run-id"}, False, None, False, False),
+        ({}, True, None, False, True),
     ],
 )
-async def test_get_sandbox_for_repository_checks_out_branch_after_fresh_resume_fallback(
+async def test_get_sandbox_for_repository_patches_branch_checkout_after_fresh_resume_fallback(
     monkeypatch,
     state,
     used_snapshot,
     snapshot_external_id,
+    patch_enabled,
     expected_checkout,
 ):
     workflow = ProcessTaskWorkflow()
@@ -359,11 +361,17 @@ async def test_get_sandbox_for_repository_checks_out_branch_after_fresh_resume_f
             return None
         raise AssertionError(f"Unexpected activity call: {activity_fn}")
 
+    patch_mock = Mock(return_value=patch_enabled)
     monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+    monkeypatch.setattr(process_task_workflow_module.workflow, "patched", patch_mock)
 
     await workflow._get_sandbox_for_repository()
 
     assert (checkout_branch_in_sandbox in activity_calls) is expected_checkout
+    if state.get("resume_from_run_id") and not used_snapshot:
+        patch_mock.assert_called_once_with(process_task_workflow_module._PATCH_ID_CHECKOUT_BRANCH_AFTER_FRESH_RESUME)
+    else:
+        patch_mock.assert_not_called()
 
 
 @pytest.mark.django_db

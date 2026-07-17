@@ -220,6 +220,10 @@ _PATCH_ID_SLACK_AGENT_DESIGN_STATUS = "tasks-slack-agent-design-status"
 # deterministic. Same two-step cleanup lifecycle as above.
 _PATCH_ID_SKIP_LOCAL_ENVIRONMENT_RUNS = "tasks-skip-local-environment-runs"
 
+# Gates branch checkout when a resumed run falls back to a fresh sandbox.
+# Pre-patch histories skipped checkout at this point and must keep doing so on replay.
+_PATCH_ID_CHECKOUT_BRANCH_AFTER_FRESH_RESUME = "tasks-checkout-branch-after-fresh-resume"
+
 # Defers stream completion to cleanup without breaking existing histories.
 _PATCH_ID_DEFER_RUN_STREAM_COMPLETION = "tasks-defer-run-stream-completion"
 _PATCH_ID_COMPLETE_STREAM_AFTER_CLEANUP_FAILURE = "tasks-complete-stream-after-cleanup-failure"
@@ -1113,7 +1117,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         state = self.context.state or {}
         is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
         checkout_ms: int | None = None
-        if will_checkout and not (is_resume and used_snapshot):
+        should_checkout_branch = will_checkout and not is_resume
+        if will_checkout and is_resume and not used_snapshot:
+            should_checkout_branch = workflow.patched(_PATCH_ID_CHECKOUT_BRANCH_AFTER_FRESH_RESUME)
+        if should_checkout_branch:
             branch_label_active = f"Checking out branch {prepared.branch}"
             branch_label_done = f"Checked out branch {prepared.branch}"
             await self._emit_progress("checkout", "in_progress", branch_label_active, "setup")
