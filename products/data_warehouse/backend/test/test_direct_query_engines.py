@@ -82,6 +82,15 @@ class TestDirectQueryEngineRegistry:
         )
         assert location == ("WAREHOUSE", "analytics", "events")
 
+    @parameterized.expand(["mysql", "snowflake", "redshift"])
+    def test_non_postgres_engines_return_no_name_substitutions(self, engine: str):
+        # Returning None (not {}) is the sentinel that makes the view fall through to the generic
+        # multi-schema migration path; only Postgres has bespoke legacy-row remapping.
+        assert (
+            get_direct_query_engine(engine).refresh_name_substitutions(source=None, source_schemas=[], team_id=1)
+            is None
+        )
+
     def test_snowflake_default_schema_takes_precedence_over_dot_split(self):
         adapter = get_direct_query_engine("snowflake")
         assert adapter is not None

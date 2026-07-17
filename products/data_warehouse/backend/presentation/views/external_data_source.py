@@ -65,6 +65,7 @@ from products.cdp.backend.facade.api import HogFunctionSerializer
 from products.cdp.backend.facade.models import HogFunction
 from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.data_warehouse.backend.facade.api import (
+    DirectQueryEngine,
     apply_on_refresh as apply_sql_warehouse_refresh_migration,
     apply_on_schema_clear as apply_sql_warehouse_schema_clear_migration,
     bulk_create_external_data_job_schedules,
@@ -87,11 +88,6 @@ from products.data_warehouse.backend.facade.api import (
     is_custom_source_ai_builder_enabled_for_team,
     is_multi_schema_capable_sql_source,
     reconcile_github_repositories,
-    reconcile_mysql_schemas,
-    reconcile_postgres_schemas,
-    reconcile_redshift_schemas,
-    reconcile_refresh_name_substitutions as reconcile_postgres_refresh_name_substitutions,
-    reconcile_snowflake_schemas,
     source_namespace_is_blank,
     sync_cdc_extraction_schedule,
     sync_discover_schemas_schedule,
@@ -475,6 +471,22 @@ DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake", 
 
 def count_active_sources(team_id: int, source_type: str) -> int:
     return ExternalDataSource.objects.filter(team_id=team_id, source_type=source_type).exclude(deleted=True).count()
+
+
+def _refresh_name_substitutions(
+    engine: DirectQueryEngine | None, *, source: ExternalDataSource, source_schemas: list[Any], team_id: int
+) -> dict[str, str]:
+    """Legacy-row name remapping applied before schema sync on refresh. The engine adapter's
+    remapping wins when it has one (Postgres's bespoke dedup — an empty dict still counts as
+    "handled" and suppresses the fallback); otherwise a multi-schema-capable SQL source with a
+    blank namespace gets the generic migration. Neither applies to any other source."""
+    if engine is not None:
+        engine_subs = engine.refresh_name_substitutions(source=source, source_schemas=source_schemas, team_id=team_id)
+        if engine_subs is not None:
+            return engine_subs
+    if source_namespace_is_blank(source) and is_multi_schema_capable_sql_source(source.source_type):
+        return apply_sql_warehouse_refresh_migration(source=source, team_id=team_id)
+    return {}
 
 
 class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
@@ -1172,20 +1184,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
             with transaction.atomic():
                 ExternalDataSource._base_manager.filter(pk=updated_source.pk).select_for_update().get()
-                name_substitutions: dict[str, str] = {}
-                if updated_source.source_type == ExternalDataSourceType.POSTGRES:
-                    name_substitutions = reconcile_postgres_refresh_name_substitutions(
-                        source=updated_source,
-                        source_schemas=discovered_schemas,
-                        team_id=instance.team_id,
-                    )
-                elif source_namespace_is_blank(updated_source) and is_multi_schema_capable_sql_source(
-                    updated_source.source_type
-                ):
-                    name_substitutions = apply_sql_warehouse_refresh_migration(
-                        source=updated_source,
-                        team_id=instance.team_id,
-                    )
+                engine = get_direct_query_engine(updated_source.direct_engine)
+                name_substitutions = _refresh_name_substitutions(
+                    engine, source=updated_source, source_schemas=discovered_schemas, team_id=instance.team_id
+                )
                 if name_substitutions:
                     schema_names = {name_substitutions.get(name, name): label for name, label in schema_names.items()}
                     descriptions = {
@@ -1197,31 +1199,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     team_id=instance.team_id,
                     descriptions=descriptions,
                 )
-                # Direct call (not via hook) so tests mocking `SourceRegistry.get_source` still
-                # exercise the real direct-query DataWarehouseTable rebuild.
-                if updated_source.source_type == ExternalDataSourceType.POSTGRES:
-                    reconcile_postgres_schemas(
-                        source=updated_source,
-                        source_schemas=discovered_schemas,
-                        team_id=instance.team_id,
-                    )
-                elif updated_source.source_type == ExternalDataSourceType.SNOWFLAKE:
-                    reconcile_snowflake_schemas(
-                        source=updated_source,
-                        source_schemas=discovered_schemas,
-                        team_id=instance.team_id,
-                    )
-                elif updated_source.source_type == ExternalDataSourceType.REDSHIFT:
-                    reconcile_redshift_schemas(
-                        source=updated_source,
-                        source_schemas=discovered_schemas,
-                        team_id=instance.team_id,
-                    )
-                else:
-                    reconcile_mysql_schemas(
-                        source=updated_source,
-                        source_schemas=discovered_schemas,
-                        team_id=instance.team_id,
+                # Direct call on the engine adapter (not the source hook) so tests mocking
+                # `SourceRegistry.get_source` still exercise the real DataWarehouseTable rebuild.
+                if engine is not None:
+                    engine.reconcile_schemas(
+                        source=updated_source, source_schemas=discovered_schemas, team_id=instance.team_id
                     )
 
             schemas = list(
@@ -2814,15 +2796,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 instance.connection_metadata = connection_metadata
                 instance.save(update_fields=["connection_metadata", "updated_at"])
             # Migrate/dedupe legacy rows before sync_old_schemas; non-Postgres only once namespace cleared.
-            name_substitutions: dict[str, str] = {}
-            if instance.source_type == ExternalDataSourceType.POSTGRES:
-                name_substitutions = reconcile_postgres_refresh_name_substitutions(
-                    source=instance,
-                    source_schemas=schemas,
-                    team_id=self.team_id,
-                )
-            elif source_namespace_is_blank(instance) and is_multi_schema_capable_sql_source(instance.source_type):
-                name_substitutions = apply_sql_warehouse_refresh_migration(source=instance, team_id=self.team_id)
+            engine = get_direct_query_engine(instance.direct_engine)
+            name_substitutions = _refresh_name_substitutions(
+                engine, source=instance, source_schemas=schemas, team_id=self.team_id
+            )
 
             if name_substitutions:
                 schema_names = {name_substitutions.get(name, name): label for name, label in schema_names.items()}
@@ -2844,35 +2821,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 else None,
             )
 
-            if instance.source_type == ExternalDataSourceType.POSTGRES:
-                reconciled_deleted_schemas = reconcile_postgres_schemas(
-                    source=instance,
-                    source_schemas=schemas,
-                    team_id=self.team_id,
-                )
-                if reconciled_deleted_schemas:
-                    schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
-            elif instance.source_type == ExternalDataSourceType.MYSQL:
-                reconciled_deleted_schemas = reconcile_mysql_schemas(
-                    source=instance,
-                    source_schemas=schemas,
-                    team_id=self.team_id,
-                )
-                if reconciled_deleted_schemas:
-                    schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
-            elif instance.source_type == ExternalDataSourceType.SNOWFLAKE:
-                reconciled_deleted_schemas = reconcile_snowflake_schemas(
-                    source=instance,
-                    source_schemas=schemas,
-                    team_id=self.team_id,
-                )
-                if reconciled_deleted_schemas:
-                    schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
-            elif instance.source_type == ExternalDataSourceType.REDSHIFT:
-                reconciled_deleted_schemas = reconcile_redshift_schemas(
-                    source=instance,
-                    source_schemas=schemas,
-                    team_id=self.team_id,
+            if engine is not None:
+                reconciled_deleted_schemas = engine.reconcile_schemas(
+                    source=instance, source_schemas=schemas, team_id=self.team_id
                 )
                 if reconciled_deleted_schemas:
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})

@@ -79,6 +79,7 @@ _LAZY = {
     "upsert_direct_snowflake_table": "direct_snowflake",
     "hide_direct_redshift_table": "direct_redshift",
     "upsert_direct_redshift_table": "direct_redshift",
+    "DirectQueryEngine": "direct_query_engines",
     "get_direct_query_engine": "direct_query_engines",
     "get_namespaced_resource_adapter": "namespaced_resources",
     "reconcile_refresh_name_substitutions": "postgres_warehouse_migration",
