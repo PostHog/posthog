@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 from django.test import TestCase
 from django.utils import timezone as django_timezone
 
@@ -10,6 +12,10 @@ from products.tasks.backend.models import CodeWorkstream, Task
 
 
 class GetCodeHomeFilteringTest(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
     @classmethod
     def setUpTestData(cls):
         cls.organization = Organization.objects.create(name="Test Org")
