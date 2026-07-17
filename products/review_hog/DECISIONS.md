@@ -712,9 +712,11 @@ skills follow later, deliberately not in this iteration.
 - **BE:** `GET reviews/perspective_stats/?scope=mine|everyone` (`PerspectiveStatsParamsSerializer`,
   default `mine`) — `everyone` reuses the list's `_reports` scope plumbing; aggregation unchanged.
 - **Logic:** `loadPerspectiveStats` threads `values.reviewsScope` + takes a `breakpoint()`;
-  the scope listeners reload stats alongside the list, and a `perspectiveStats → null` reducer on
-  scope change drops the old numbers synchronously so cards skeleton instead of showing the wrong
-  scope's stats. Persisted `reviewsScope` / URL `?reviews_scope=` / auto-default semantics untouched.
+  the scope listeners reload stats alongside the list, and `perspectiveStats → null` /
+  `recentReviewsPage → null` reducers on scope change drop the old data synchronously so the page
+  skeletons consistently instead of showing the wrong scope's stats or rows (the list half was a
+  PR-review finding: a failed reload would have stranded the other scope's rows on screen).
+  Persisted `reviewsScope` / URL `?reviews_scope=` / auto-default semantics untouched.
 - **UI:** `PageScopeSwitch` in the hero overline row; scope-aware copy — "findings worth the
   team's time" / "This project's last N reviews" / validator card reads "Validation · dismissed by
   validation" on project scope (the aggregate spans every author's active validator, so "your

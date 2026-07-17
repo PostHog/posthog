@@ -1343,7 +1343,9 @@ function ValidatorEffectivenessCard(): JSX.Element | null {
                         : `Of the ${judged} findings your reviewers raised across your last ${perspectiveStats.report_count} review${perspectiveStats.report_count === 1 ? '' : 's'}, this is how much noise your quality bar kept off your pull requests.`}
                 </p>
             </div>
-            <Tooltip title={`${judged} judged · ${kept} kept · ${dismissed} dismissed by validation`}>
+            <Tooltip
+                title={`${judged} judged · ${kept} kept · ${dismissed} dismissed by ${everyone ? 'validation' : 'your quality bar'}`}
+            >
                 {/* Unlike the reviewer cards, green here is the DISMISSED share — this card celebrates noise removed. */}
                 <div className="flex items-center gap-3">
                     <span className="w-44 shrink-0 truncate text-xs">

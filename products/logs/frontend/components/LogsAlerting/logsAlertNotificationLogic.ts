@@ -8,6 +8,7 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { HogFunctionType, IntegrationType } from '~/types'
 
+import { AlertNotificationUrlInput } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
 import { logsAlertsDestinationsCreate, logsAlertsDestinationsDeleteCreate } from 'products/logs/frontend/generated/api'
 
 import type { UserBasicType } from '../../../../../frontend/src/types'
@@ -36,6 +37,7 @@ export interface LogsAlertNotificationLogicProps {
 export interface logsAlertNotificationLogicValues {
     slackIntegrations: IntegrationType[] | undefined // integrationsLogic
     currentProjectId: number | null // projectLogic
+    addDisabledReason: string | undefined
     destinationGroups: LogsAlertDestinationGroup[]
     existingHogFunctions: HogFunctionType[]
     existingHogFunctionsLoading: boolean
@@ -43,6 +45,7 @@ export interface logsAlertNotificationLogicValues {
     pendingNotifications: PendingLogsAlertNotification[]
     selectedType: LogsAlertNotificationType
     slackChannelValue: string | null
+    urlInput: AlertNotificationUrlInput | undefined
     webhookUrl: string
 }
 
@@ -152,6 +155,9 @@ export interface logsAlertNotificationLogicActions {
     addPendingNotification: (notification: PendingLogsAlertNotification) => {
         notification: PendingLogsAlertNotification
     }
+    addSelectedNotification: () => {
+        value: true
+    }
     clearPendingNotifications: () => {
         value: true
     }
@@ -201,6 +207,13 @@ export interface logsAlertNotificationLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         firstSlackIntegration: (slackIntegrations: IntegrationType[] | undefined) => IntegrationType | undefined
+        urlInput: (selectedType: LogsAlertNotificationType) => AlertNotificationUrlInput | undefined
+        addDisabledReason: (
+            selectedType: LogsAlertNotificationType,
+            firstSlackIntegration: IntegrationType | undefined,
+            slackChannelValue: string | null,
+            webhookUrl: string
+        ) => string | undefined
         destinationGroups: (existingHogFunctions: HogFunctionType[]) => LogsAlertDestinationGroup[]
     }
 }
@@ -224,6 +237,7 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
 
     actions({
         addPendingNotification: (notification: PendingLogsAlertNotification) => ({ notification }),
+        addSelectedNotification: true,
         removePendingNotification: (index: number) => ({ index }),
         clearPendingNotifications: true,
         setPendingNotifications: (notifications: PendingLogsAlertNotification[]) => ({ notifications }),
@@ -290,6 +304,39 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
             (s) => [s.slackIntegrations],
             (slackIntegrations: IntegrationType[] | undefined): IntegrationType | undefined => slackIntegrations?.[0],
         ],
+        urlInput: [
+            (s) => [s.selectedType],
+            (selectedType: LogsAlertNotificationType): AlertNotificationUrlInput | undefined => {
+                if (selectedType === LOGS_ALERT_NOTIFICATION_TYPE_TEAMS) {
+                    return {
+                        placeholder: 'https://prod-00.westus.logic.azure.com:443/workflows/...',
+                        helpText:
+                            'Paste the URL from a Teams "Workflows" (Power Automate) or incoming webhook connector. We send a formatted Adaptive Card to it.',
+                    }
+                }
+                if (selectedType === LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK) {
+                    return { placeholder: 'https://example.com/webhook' }
+                }
+                return undefined
+            },
+        ],
+        addDisabledReason: [
+            (s) => [s.selectedType, s.firstSlackIntegration, s.slackChannelValue, s.webhookUrl],
+            (
+                selectedType: LogsAlertNotificationType,
+                firstSlackIntegration: IntegrationType | undefined,
+                slackChannelValue: string | null,
+                webhookUrl: string
+            ): string | undefined => {
+                if (selectedType !== LOGS_ALERT_NOTIFICATION_TYPE_SLACK) {
+                    return webhookUrl ? undefined : 'Enter a webhook URL'
+                }
+                if (!firstSlackIntegration) {
+                    return 'Connect Slack first'
+                }
+                return slackChannelValue ? undefined : 'Select a Slack channel'
+            },
+        ],
         // Channel-name resolution happens in the view — slackChannels lives in a dynamically-keyed logic.
         destinationGroups: [
             (s) => [s.existingHogFunctions],
@@ -299,6 +346,27 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
+        addSelectedNotification: () => {
+            if (values.selectedType === LOGS_ALERT_NOTIFICATION_TYPE_SLACK) {
+                if (!values.slackChannelValue || !values.firstSlackIntegration) {
+                    return
+                }
+                const [channelId, channelLabel] = values.slackChannelValue.split('|')
+                actions.addPendingNotification({
+                    type: LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
+                    slackWorkspaceId: values.firstSlackIntegration.id,
+                    slackChannelId: channelId,
+                    slackChannelName: channelLabel?.replace('#', '') ?? channelId,
+                })
+                actions.setSlackChannelValue(null)
+                return
+            }
+            if (!values.webhookUrl) {
+                return
+            }
+            actions.addPendingNotification({ type: values.selectedType, webhookUrl: values.webhookUrl })
+            actions.setWebhookUrl('')
+        },
         addPendingNotification: () => {
             if (props.alertId) {
                 actions.createPendingHogFunctions(props.alertId)

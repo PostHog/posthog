@@ -585,8 +585,9 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             applyDefaultReviewsScope: () => null,
         },
         recentReviewsPage: {
-            // A scope flip changes what the rows mean — clear them until the matching list lands.
-            // Regular refreshes keep their rows, so polling still avoids skeleton flashes.
+            // A different scope is a different list — drop it together with perspectiveStats so
+            // the section shows skeletons instead of the other scope's rows (and never strands
+            // them if the reload fails). Poll refreshes still keep prior rows.
             setReviewsScope: () => null,
             applyDefaultReviewsScope: () => null,
             // "Show fewer" collapses instantly from data already loaded; the listener's refetch
