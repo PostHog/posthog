@@ -28,7 +28,7 @@
             "description": "Numeric primary key or 8-character `short_id` (for example `AaVQ8Ijw`) identifying the insight."
         },
         "include_dashboards": {
-            "description": "Opt in to receiving the deprecated `dashboards` field in insight payloads. API-token callers no longer receive it by default; use `dashboard_tiles` instead.",
+            "description": "Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.",
             "type": "boolean"
         },
         "variables_override": {
