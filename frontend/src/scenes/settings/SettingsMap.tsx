@@ -1179,7 +1179,9 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: (
                     <>
                         <ZendeskImportSection />
-                        <PlainImportSection />
+                        <FlaggedFeature flag={FEATURE_FLAGS.PRODUCT_SUPPORT_PLAIN_IMPORT}>
+                            <PlainImportSection />
+                        </FlaggedFeature>
                     </>
                 ),
                 flag: 'PRODUCT_SUPPORT_IMPORT_TICKETS',
