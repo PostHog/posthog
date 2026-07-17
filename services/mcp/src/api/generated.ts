@@ -22370,9 +22370,13 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingFingerprint {
+      /** Unique ID of the fingerprint record. */
       readonly id: string;
+      /** The fingerprint value. */
       readonly fingerprint: string;
+      /** ID of the issue this fingerprint currently belongs to. */
       readonly issue_id: string;
+      /** When the fingerprint record was created. */
       readonly created_at: string;
     }
 
@@ -66354,6 +66358,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsErrorTrackingFingerprintsResolveRetrieveParams = {
+    /**
+     * Fingerprint value to resolve to the issue it currently belongs to.
+     */
+    fingerprint: string;
+    };
+
     export type EnvironmentsErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams = {
     /**
      * Code snippet to search for in repository files.
@@ -73546,6 +73557,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ErrorTrackingFingerprintsResolveRetrieveParams = {
+    /**
+     * Fingerprint value to resolve to the issue it currently belongs to.
+     */
+    fingerprint: string;
     };
 
     export type ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams = {

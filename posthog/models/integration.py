@@ -2505,7 +2505,7 @@ class LinearIntegration:
         teams = dot_get(body, "data.teams.nodes")
         return teams
 
-    def create_issue(self, team_id: str, posthog_issue_id: str, config: dict[str, str]) -> dict[str, str]:
+    def create_issue(self, attachment_url: str, config: dict[str, str]) -> dict[str, str]:
         title: str = config.pop("title")
         description: str = config.pop("description")
         linear_team_id = config.pop("team_id")
@@ -2524,7 +2524,6 @@ class LinearIntegration:
         )
         linear_issue_id = dot_get(body, "data.issueCreate.issue.identifier")
 
-        attachment_url = f"{settings.SITE_URL}/project/{team_id}/error_tracking/{posthog_issue_id}"
         link_attachment_query = """
         mutation AttachmentCreate($issueId: String!, $title: String!, $url: String!) {
             attachmentCreate(input: { issueId: $issueId, title: $title, url: $url }) {
