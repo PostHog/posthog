@@ -1899,6 +1899,20 @@
             "readOnlyHint": false
         }
     },
+    "conversations-views-list": {
+        "description": "List the saved ticket views in the project. Each view is a named, saved set of ticket filters — for example the per-team views named \"Team <name>\". Returns each view's short_id and name; a view opens in the app at /support/tickets?view=<short_id>.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "List saved ticket views",
+        "title": "List saved ticket views",
+        "required_scopes": ["ticket:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "create-feature-flag": {
         "description": "Create a feature flag in the current project.",
         "category": "Feature flags",
@@ -9072,6 +9086,21 @@
         },
         "feature_flag": "replay-vision"
     },
+    "vision-scanners-affected-cohort-create": {
+        "description": "Create a static cohort of the users a scanner matched within the trailing window (default 30 days). Monitors count verdict-yes observations and take no qualifiers; classifiers require `tag`; scorers require `min_score` and/or `max_score`. The cohort is a dated snapshot and does not live-update; calling again creates a new cohort. Use it anywhere cohorts work: funnel breakdowns, retention, survey targeting, experiment exclusion. Fails when the window has no users or none resolve to a person profile.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Save a scanner's affected users as a cohort",
+        "title": "Save a scanner's affected users as a cohort",
+        "required_scopes": ["replay_scanner:read", "cohort:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "replay-vision"
+    },
     "vision-scanners-create": {
         "description": "Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier` (assign a tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary with optional facet embeddings via `emits_embeddings`) — and fill `scanner_config` to match: all types need a `prompt`; classifiers also need `tags`; scorers also need `scale`; summarizers optionally set `length` and `emits_embeddings`. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches — `date_from` and `date_to` are ignored (the schedule controls time). `sampling_rate` is a 0..1 random downsample applied after the query matches (default 1.0). `model` chooses the LLM. Names must be unique within the team. Before creating a broad scanner (a permissive `query` and/or high `sampling_rate`), first call `vision-scanners-estimate-create` to project its monthly observation volume and `vision-quota-retrieve` to check the org's remaining budget — an enabled scanner sweeps matching recordings every 5 minutes, and creation itself does not check quota, so a too-broad scanner can exhaust the monthly budget on its first sweeps.",
         "category": "Replay vision",
@@ -9124,6 +9153,21 @@
         "feature": "replay_vision",
         "summary": "Get replay vision scanner",
         "title": "Get replay vision scanner",
+        "required_scopes": ["replay_scanner:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-impact-retrieve": {
+        "description": "Affected sessions and users for a scanner over a trailing window, counted from its observations. Monitors count verdict-yes observations and take no qualifiers; classifiers require `tag`; scorers require `min_score` and/or `max_score`. `sessions_without_user` reports affected sessions that carried no distinct ID, so the user count reads honestly against the session count.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get a scanner's impact counts",
+        "title": "Get a scanner's impact counts",
         "required_scopes": ["replay_scanner:read"],
         "annotations": {
             "destructiveHint": false,
