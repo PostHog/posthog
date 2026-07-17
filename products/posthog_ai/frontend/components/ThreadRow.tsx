@@ -168,7 +168,13 @@ export const ThreadRow = memo(function ThreadRow({
         return <ProgressItem item={item} />
     }
     if (item.type === 'debug') {
-        return <DebugMessage text={item.text ?? ''} level={item.debugLevel ?? 'info'} />
+        return (
+            <DebugMessage
+                text={item.text ?? ''}
+                level={item.debugLevel ?? 'info'}
+                copyable={item.debugLevel === 'context'}
+            />
+        )
     }
     return null
 })

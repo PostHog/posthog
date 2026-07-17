@@ -11,6 +11,7 @@ import { tasksRunCreate, tasksRunsCommandCreate } from 'products/tasks/frontend/
 import { attachedContextLogic } from './attachedContextLogic'
 import { runInteractionLogic } from './runInteractionLogic'
 import { runStreamLogic } from './runStreamLogic'
+import { toolStreamEventsLogic } from './toolStreamEventsLogic'
 
 // Minimal kea stub for the shared sandbox stream logic — gives the test full control over the busy gate
 // (`isThinking`) and `currentRunStatus`, and lets us fire `markTurnComplete` and observe `pushHumanMessage`
@@ -83,6 +84,7 @@ describe('runInteractionLogic', () => {
     let logic: ReturnType<typeof runInteractionLogic.build>
     let stream: ReturnType<typeof runStreamLogic.build>
     let project: ReturnType<typeof projectLogic.build>
+    let toolEvents: ReturnType<typeof toolStreamEventsLogic.build>
 
     const TASK_ID = 'task-1'
     const RUN_ID = 'run-1'
@@ -115,6 +117,13 @@ describe('runInteractionLogic', () => {
         initKeaTests()
         project = projectLogic()
         project.mount()
+        toolEvents = toolStreamEventsLogic()
+        toolEvents.mount()
+        toolEvents.actions.registerToolListener('editor', {
+            tools: ['create_insight'],
+            applyBackTargetId: 'insight-1:activation-1',
+            onEvent: jest.fn(),
+        })
         stream = runStreamLogic({ streamKey: RUN_ID })
         stream.mount()
         logic = runInteractionLogic({ taskId: TASK_ID, runId: RUN_ID, onRunStarted })
@@ -125,6 +134,7 @@ describe('runInteractionLogic', () => {
         logic?.unmount()
         stream?.unmount()
         project?.unmount()
+        toolEvents?.unmount()
     })
 
     it('sends immediately and echoes the message when the agent is idle', async () => {
@@ -139,6 +149,9 @@ describe('runInteractionLogic', () => {
         await expectLogic(stream).toDispatchActions(['pushHumanMessage'])
         expect(logic.values.composerForm.draft).toBe('')
         expect(logic.values.queuedMessages).toEqual([])
+        expect(toolEvents.values.applyBackTargetClaims[RUN_ID]).toEqual([
+            { targetId: 'insight-1:activation-1', tools: ['create_insight'] },
+        ])
     })
 
     it('does not send any command when the model or effort is picked', async () => {
@@ -238,6 +251,7 @@ describe('runInteractionLogic', () => {
         expect(lemonToast.error).toHaveBeenCalled()
         expect(logic.values.composerForm.draft).toBe('ship it')
         expect(logic.values.sending).toBe(false)
+        expect(toolEvents.values.applyBackTargetClaims[RUN_ID]).toBeUndefined()
     })
 
     it('starts a fresh run seeded with the message when the run is terminal', async () => {
@@ -258,6 +272,10 @@ describe('runInteractionLogic', () => {
             pending_user_message: 'continue from here',
         })
         expect(onRunStarted).toHaveBeenCalledWith('run-2')
+        expect(toolEvents.values.applyBackTargetClaims[RUN_ID]).toBeUndefined()
+        expect(toolEvents.values.applyBackTargetClaims['run-2']).toEqual([
+            { targetId: 'insight-1:activation-1', tools: ['create_insight'] },
+        ])
         expect(logic.values.queuedMessages).toEqual([])
         expect(logic.values.composerForm.draft).toBe('')
     })
@@ -274,6 +292,7 @@ describe('runInteractionLogic', () => {
         expect(lemonToast.error).toHaveBeenCalled()
         expect(onRunStarted).not.toHaveBeenCalled()
         expect(logic.values.composerForm.draft).toBe('continue from here')
+        expect(toolEvents.values.applyBackTargetClaims[RUN_ID]).toBeUndefined()
     })
 
     it('wraps outgoing content with the attached-context block while echoing the raw text, and dedupes per task', async () => {
@@ -292,7 +311,7 @@ describe('runInteractionLogic', () => {
             params: { content: string }
         }
         // The wire content carries the invisible context block; the echoed human message stays raw.
-        expect(firstSend.params.content).toContain('<posthog_context>')
+        expect(firstSend.params.content).toContain('<posthog_untrusted_context>')
         expect(firstSend.params.content).toContain('- insight sig ("Signups")')
         expect(firstSend.params.content.endsWith('why the drop?')).toBe(true)
         await expectLogic(stream).toDispatchActions([

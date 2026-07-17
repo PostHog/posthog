@@ -163,7 +163,10 @@ export interface ThreadItem {
     progressGroup?: string
     /** For `progress` items — ordered setup/runtime progress rows. */
     progressSteps?: ProgressStep[]
-    /** For `debug` items — the `_posthog/console` level (debug/info/warn/error). */
+    /**
+     * For `debug` items — the `_posthog/console` level (debug/info/warn/error), or `context` for the
+     * copyable rows carrying a send's attached trusted/untrusted context blocks.
+     */
     debugLevel?: string
 }
 

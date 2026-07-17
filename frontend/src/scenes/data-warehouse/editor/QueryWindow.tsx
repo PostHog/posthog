@@ -26,7 +26,7 @@ import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSect
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
 import { FixErrorButton } from './components/FixErrorButton'
 import { ConnectionSelector } from './ConnectionSelector'
@@ -114,6 +114,7 @@ export function QueryWindow({
     const canSendRawQuery = !!selectedConnectionId && selectedConnectionSupportsHogQL
     const debouncedMaxToolQueryInput = useDebouncedValue(queryInput, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const debouncedMaxToolSourceQuery = useDebouncedValue(sourceQuery, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
+    const applyBackActive = mode === SQLEditorMode.Embedded && showQueryPanel
     const executeSqlToolStateRef = useRef({ queryInput, sourceQuery })
     executeSqlToolStateRef.current = { queryInput, sourceQuery }
     const executeSqlToolContext = useMemo(
@@ -123,7 +124,7 @@ export function QueryWindow({
 
     useAttachedContext(
         [{ type: 'sql_editor_state', value: JSON.stringify(executeSqlToolContext), label: 'Current query' }],
-        { active: mode === SQLEditorMode.Embedded && showQueryPanel }
+        { active: applyBackActive }
     )
 
     const executeSqlToolContextDescription = useMemo(
@@ -173,6 +174,19 @@ export function QueryWindow({
             reportAIQueryPromptOpen,
         ]
     )
+    // Sandbox-runtime apply-back for the same tool the legacy MaxTool callback above handles. Reuses
+    // that callback verbatim so the diff-mode gate and filters handling stay shared with legacy.
+    useMcpToolApplyBack({
+        tools: ['execute-sql'],
+        targetKey: `sql:${tabId}`,
+        active: applyBackActive,
+        onApply: (_event, { innerInput }) => {
+            if (!applyBackActive || !innerInput) {
+                return
+            }
+            handleExecuteSqlToolOutput(innerInput)
+        },
+    })
     const sendRawQueryLabel = (
         <span className="inline-flex items-center gap-1">
             <span>Send raw query</span>
