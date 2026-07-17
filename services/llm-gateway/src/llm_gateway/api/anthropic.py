@@ -109,12 +109,19 @@ BEDROCK_SUPPORTED_PARAMS: frozenset[str] = frozenset(
         "tool_choice",
         "thinking",
         "metadata",
-        # Structured outputs — litellm's bedrock transform converts these to a Bedrock-compatible
-        # form, so dropping them would silently disable structured outputs on fallback.
+        # Structured outputs. Kept at the top level, but note Bedrock-hosted Claude rejects the
+        # nested output_config.format schema with a 400 ("output_config.format: Extra inputs are
+        # not permitted"), so that sub-key is stripped separately (strip_structured_output_format);
+        # the rest of output_config (e.g. {"effort": ...}) is accepted and forwarded.
         "output_format",
         "output_config",
     }
 )
+
+# Sub-keys of output_config that Bedrock-hosted Claude rejects even though it accepts output_config
+# itself. Bedrock's error names the nested path (output_config.format), so the whole object can't be
+# dropped without losing supported sub-keys like effort — these are stripped individually instead.
+BEDROCK_UNSUPPORTED_OUTPUT_CONFIG_KEYS: frozenset[str] = frozenset({"format"})
 
 
 # Cap how much of a provider error message we copy into structured logs — provider 5xx bodies can be
@@ -170,8 +177,9 @@ def sanitize_for_bedrock(data: dict[str, Any], *, model: str, product: str) -> d
     """Adapt an Anthropic Messages request for the Bedrock path.
 
     Returns a new dict containing only Bedrock-supported top-level params; unsupported params are
-    dropped (with a warning + metric) so they can't 400 the request. Nested server-side tools that
-    Bedrock doesn't support are stripped too.
+    dropped (with a warning + metric) so they can't 400 the request. Unsupported output_config
+    sub-keys, server-side tool definitions, and any references to them left in the message history
+    or tool_choice are stripped too — Bedrock 400s on all of these.
     """
     sanitized: dict[str, Any] = {}
     for key, value in data.items():
@@ -181,8 +189,35 @@ def sanitize_for_bedrock(data: dict[str, Any], *, model: str, product: str) -> d
         logger.warning("Stripping unsupported param for Bedrock", param=key, model=model, product=product)
         BEDROCK_PARAM_STRIPPED.labels(param=key, product=product).inc()
 
+    strip_structured_output_format(sanitized, model=model, product=product)
     strip_server_side_tools(sanitized, model=model, product=product)
+    strip_server_side_tool_uses_from_messages(sanitized, model=model, product=product)
+    reconcile_tool_choice(sanitized, model=model, product=product)
     return sanitized
+
+
+def strip_structured_output_format(data: dict[str, Any], *, model: str, product: str) -> None:
+    """Drop output_config sub-keys Bedrock rejects (e.g. format), keeping the rest of output_config.
+
+    Bedrock-hosted Claude 400s on output_config.format ("Extra inputs are not permitted") but
+    accepts output_config itself, so we prune just the unsupported sub-keys rather than dropping the
+    whole object — that keeps supported sub-keys like effort working on the fallback.
+    """
+    output_config = data.get("output_config")
+    if not isinstance(output_config, dict):
+        return
+    unsupported = [key for key in output_config if key in BEDROCK_UNSUPPORTED_OUTPUT_CONFIG_KEYS]
+    if not unsupported:
+        return
+
+    cleaned = {key: value for key, value in output_config.items() if key not in BEDROCK_UNSUPPORTED_OUTPUT_CONFIG_KEYS}
+    if cleaned:
+        data["output_config"] = cleaned
+    else:
+        del data["output_config"]
+    for key in unsupported:
+        logger.warning("Stripping unsupported output_config key for Bedrock", key=key, model=model, product=product)
+        BEDROCK_PARAM_STRIPPED.labels(param=f"output_config.{key}", product=product).inc()
 
 
 def strip_server_side_tools(data: dict[str, Any], *, model: str, product: str) -> None:
@@ -210,6 +245,115 @@ def strip_server_side_tools(data: dict[str, Any], *, model: str, product: str) -
         data["tools"] = supported
     else:
         del data["tools"]
+
+
+def strip_server_side_tool_uses_from_messages(data: dict[str, Any], *, model: str, product: str) -> None:
+    """Remove server-side tool_use / tool_result blocks left in the message history.
+
+    Stripping the server-side tool *definitions* isn't enough: a prior turn's server_tool_use block
+    (or its matching *_tool_result block, e.g. web_search_tool_result) still references a tool no
+    longer in the request, and Bedrock 400s with "Tool '<name>' not found in provided tools". Client
+    tool_use / tool_result blocks (type == "tool_result") are kept — only server-side ones are dropped.
+    A message whose content becomes empty as a result is dropped, then any turns left adjacent by the
+    drop are coalesced so the sequence keeps alternating roles (Bedrock 400s on non-alternating roles).
+    """
+    messages = data.get("messages")
+    if not isinstance(messages, list):
+        return
+
+    new_messages: list[Any] = []
+    stripped = False
+    for message in messages:
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, list):
+            new_messages.append(message)
+            continue
+
+        kept_blocks = [block for block in content if not _is_server_side_tool_block(block)]
+        if len(kept_blocks) == len(content):
+            new_messages.append(message)
+            continue
+
+        stripped = True
+        if kept_blocks:
+            new_messages.append({**message, "content": kept_blocks})
+        # else: content emptied by the strip — drop the message; _coalesce_adjacent_roles below merges
+        # any same-role turns the drop left back-to-back so we don't emit an invalid message sequence.
+
+    if stripped:
+        data["messages"] = _coalesce_adjacent_roles(new_messages)
+        logger.warning("Stripping server-side tool blocks from messages for Bedrock", model=model, product=product)
+        BEDROCK_PARAM_STRIPPED.labels(param="messages.server_tool_blocks", product=product).inc()
+
+
+def _coalesce_adjacent_roles(messages: list[Any]) -> list[Any]:
+    """Merge consecutive same-role messages into one, concatenating their content.
+
+    Dropping an emptied tool-only turn can leave two same-role messages back to back, which Bedrock
+    rejects. A valid input already alternates roles, so this only merges turns made adjacent by a drop.
+    """
+    merged: list[Any] = []
+    for message in messages:
+        prev = merged[-1] if merged else None
+        if isinstance(message, dict) and isinstance(prev, dict) and message.get("role") == prev.get("role"):
+            merged[-1] = {
+                **prev,
+                "content": _content_as_blocks(prev.get("content")) + _content_as_blocks(message.get("content")),
+            }
+        else:
+            merged.append(message)
+    return merged
+
+
+def _content_as_blocks(content: Any) -> list[Any]:
+    """Normalize message content to a block list so two turns can be concatenated."""
+    if isinstance(content, list):
+        return content
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}]
+    return [content]
+
+
+def _is_server_side_tool_block(block: Any) -> bool:
+    """A block Anthropic produces for a server-side tool run, which Bedrock can't validate."""
+    if not isinstance(block, dict):
+        return False
+    block_type = block.get("type")
+    if not isinstance(block_type, str):
+        return False
+    # server_tool_use / mcp_tool_use are the calls; "<tool>_tool_result" are their results. A plain
+    # client "tool_result" (exact match) is kept — only the server-side, type-prefixed ones go.
+    return block_type in ("server_tool_use", "mcp_tool_use") or (
+        block_type.endswith("_tool_result") and block_type != "tool_result"
+    )
+
+
+def reconcile_tool_choice(data: dict[str, Any], *, model: str, product: str) -> None:
+    """Drop a tool_choice that can no longer be satisfied after server-side tools were stripped.
+
+    Bedrock 400s on a tool_choice that names a tool absent from the tools list. When stripping left
+    no tools at all, tool_choice is dropped regardless of type: "any"/"tool" force tool use that
+    can't happen, and even "auto"/"none" are no-ops without tools yet still risk rejection as a
+    tool_choice with nothing to choose from.
+    """
+    tool_choice = data.get("tool_choice")
+    if not isinstance(tool_choice, dict):
+        return
+
+    tools = data.get("tools")
+    tool_names = {tool.get("name") for tool in tools if isinstance(tool, dict)} if isinstance(tools, list) else set()
+
+    if tool_names:
+        drop = tool_choice.get("type") == "tool" and tool_choice.get("name") not in tool_names
+    else:
+        drop = True
+
+    if drop:
+        del data["tool_choice"]
+        logger.warning(
+            "Dropping unsatisfiable tool_choice for Bedrock", tool_choice=tool_choice, model=model, product=product
+        )
+        BEDROCK_PARAM_STRIPPED.labels(param="tool_choice", product=product).inc()
 
 
 async def _send_cloudflare_messages(
