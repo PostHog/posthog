@@ -182,8 +182,7 @@ class TestAutoEnableNewSchemas(BaseTest):
             source_type="Postgres",
             created_by=self.user,
             job_inputs={"host": "localhost", "port": 5432, "schema": "public"},
-            auto_sync_new_schemas=True,
-            **kwargs,
+            **{"auto_sync_new_schemas": True, **kwargs},
         )
 
     def _make_discovered_row(self, source: ExternalDataSource, name: str, **kwargs) -> ExternalDataSchema:
