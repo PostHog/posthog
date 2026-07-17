@@ -1,6 +1,7 @@
 import re
 import json
 import time
+import threading
 import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
@@ -41,7 +42,9 @@ _READ_CHUNK_BYTES = 1024 * 1024
 # The per-read timeout only bounds the gap between chunks, so a server can trickle one byte
 # just before each read timeout and keep a worker occupied indefinitely. A monotonic
 # total-transfer deadline caps how long a single body read may take end to end, independent
-# of how the bytes are paced, so this slow-drip path fails the sync instead.
+# of how the bytes are paced. A single streamed read blocks until a whole chunk (or EOF)
+# arrives, so the in-loop deadline check can't interrupt it; a watchdog force-closes the
+# response once the deadline passes, unblocking that read so this slow-drip path fails the sync.
 MAX_RESPONSE_SECONDS = 600
 # Bytes read from an error body for a diagnostic message. Error bodies are never needed in
 # full, so only a short bounded snippet is ever pulled into memory.
@@ -71,19 +74,48 @@ class SourcegraphResponseTimeoutError(Exception):
 def _read_bounded(response: requests.Response, max_bytes: int, max_seconds: float = MAX_RESPONSE_SECONDS) -> bytes:
     """Read a streamed response body under both a byte cap and a total-transfer deadline.
 
-    The deadline covers time spent waiting for each chunk, so a slow-drip body that stays
-    under the per-read timeout but never finishes is aborted instead of holding the worker.
+    A single ``iter_content`` read blocks until a whole chunk (or EOF) arrives, so the in-loop
+    deadline check alone can't stop a slow-drip body that trickles bytes under the per-read socket
+    timeout — the loop never regains control to check the clock. A watchdog thread force-closes the
+    response once the deadline passes, which unblocks that read so the sync fails instead of holding
+    the worker indefinitely. The in-loop check still covers bodies that arrive as many quick chunks.
     """
     total = 0
     chunks: list[bytes] = []
     deadline = time.monotonic() + max_seconds
-    for chunk in response.iter_content(chunk_size=_READ_CHUNK_BYTES):
-        total += len(chunk)
-        if total > max_bytes:
-            raise SourcegraphResponseTooLargeError(f"{RESPONSE_TOO_LARGE_ERROR} ({max_bytes} bytes)")
-        if time.monotonic() > deadline:
-            raise SourcegraphResponseTimeoutError(f"{RESPONSE_TIMEOUT_ERROR} ({max_seconds:g}s)")
-        chunks.append(chunk)
+    finished = threading.Event()
+    timed_out = threading.Event()
+
+    def _abort_on_deadline() -> None:
+        if not finished.wait(max_seconds):
+            timed_out.set()
+            response.close()
+
+    watchdog = threading.Thread(target=_abort_on_deadline, daemon=True)
+    watchdog.start()
+
+    read_complete = False
+    try:
+        for chunk in response.iter_content(chunk_size=_READ_CHUNK_BYTES):
+            if timed_out.is_set():
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise SourcegraphResponseTooLargeError(f"{RESPONSE_TOO_LARGE_ERROR} ({max_bytes} bytes)")
+            if time.monotonic() > deadline:
+                raise SourcegraphResponseTimeoutError(f"{RESPONSE_TIMEOUT_ERROR} ({max_seconds:g}s)")
+            chunks.append(chunk)
+        read_complete = True
+    except Exception:
+        # Force-closing the response mid-read surfaces here as a transport error; when the watchdog
+        # fired, report the deadline rather than the incidental socket failure.
+        if not timed_out.is_set():
+            raise
+    finally:
+        finished.set()
+
+    if timed_out.is_set() and not read_complete:
+        raise SourcegraphResponseTimeoutError(f"{RESPONSE_TIMEOUT_ERROR} ({max_seconds:g}s)")
     return b"".join(chunks)
 
 

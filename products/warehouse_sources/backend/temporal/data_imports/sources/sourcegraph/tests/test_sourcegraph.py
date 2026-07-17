@@ -1,4 +1,5 @@
 import json
+import threading
 from typing import Any
 
 import pytest
@@ -306,11 +307,30 @@ class TestReadBounded:
         response = mock.MagicMock()
         response.iter_content.return_value = iter([b"a", b"b", b"c"])
 
-        # First call sets the deadline; the next read is past it, so a body that never exceeds the
-        # per-read timeout but drips forever is still aborted.
+        # First call sets the deadline; the next read is past it, so a body that arrives as many
+        # quick chunks but overruns the deadline is aborted by the in-loop check.
         with mock.patch(f"{MODULE}.time.monotonic", side_effect=[0.0, 100.0]):
             with pytest.raises(SourcegraphResponseTimeoutError):
                 _read_bounded(response, max_bytes=1000, max_seconds=1.0)
+
+    def test_watchdog_aborts_a_read_blocked_past_the_deadline(self):
+        # A real slow-drip body blocks inside a single iter_content read, so the in-loop deadline
+        # check never regains control — only the watchdog closing the response can interrupt it.
+        closed = threading.Event()
+
+        def blocking_read(*args: Any, **kwargs: Any):
+            # Block like a socket read would until the watchdog force-closes the response.
+            if not closed.wait(5.0):
+                raise AssertionError("watchdog did not close the response")
+            raise requests.exceptions.ChunkedEncodingError("connection closed")
+            yield  # unreachable; makes this a generator so iter_content returns an iterator
+
+        response = mock.MagicMock()
+        response.iter_content.side_effect = blocking_read
+        response.close.side_effect = lambda: closed.set()
+
+        with pytest.raises(SourcegraphResponseTimeoutError):
+            _read_bounded(response, max_bytes=1000, max_seconds=0.1)
 
     def test_bounded_body_is_returned(self):
         response = mock.MagicMock()
