@@ -8,7 +8,8 @@ The cost expression is inlined in each query so they run standalone after one fi
 sum(read_bytes)/1e9*{read_usd_per_gb} + sum(ProfileEvents_OSCPUVirtualTimeMicroseconds)/1e6*{cpu_usd_per_sec}
 ```
 
-`{read_usd_per_gb}` ($ per GB read) and `{cpu_usd_per_sec}` ($ per CPU-second) are the internal cost-model unit rates — they are not committed to this public repo, so get the current values from the requester and substitute them everywhere before running (see SKILL.md → Cost model).
+`{read_usd_per_gb}` ($ per GB read) and `{cpu_usd_per_sec}` ($ per CPU-second) are the internal cost-model unit rates — they are not committed to this public repo, so get the current values from the requester and substitute them everywhere before running.
+Read bytes and CPU are the only priced terms — `memory_usage` and the S3 transfer counters exist in these tables but aren't priced, and inter-node network counters aren't exported (details in SKILL.md → Cost model).
 
 ## 0. Coverage check (run first, per region)
 
@@ -42,9 +43,9 @@ FROM (
 GROUP BY region
 ```
 
-Everything below reuses this UNION shape; only the projected columns change.
+Everything below reuses this two-region FROM block; only the projected columns change.
+The `/* §1 FROM block, each branch projecting: ... */` comments are assembly instructions, not executable SQL: replace each one with the two-branch UNION from §1, project the listed columns in the SELECT of **both** branches, and apply the same date (and any dimension) filters to each branch.
 The inner SELECTs must include **every column referenced outside the subquery** — an outer `WHERE user = ...` fails with "Unable to resolve field" unless `user` is projected in both branches.
-The `/* union with: ... */` comments are assembly instructions, not executable SQL. Replace each one with the two-branch UNION from §1, projecting the listed columns in both branches and applying the same date and dimension filters to each branch.
 
 ## 2. By ClickHouse user (app / api / dagster / cache_warmup / cohorts / ...)
 
@@ -52,7 +53,7 @@ The `/* union with: ... */` comments are assembly instructions, not executable S
 SELECT region, user, count() AS queries,
        round(sum(read_bytes)/1e9, 0) AS read_gb,
        round(sum(read_bytes)/1e9*{read_usd_per_gb} + sum(ProfileEvents_OSCPUVirtualTimeMicroseconds)/1e6*{cpu_usd_per_sec}, 0) AS cost_usd
-FROM ( /* union with: region, user, read_bytes, ProfileEvents_OSCPUVirtualTimeMicroseconds */ )
+FROM ( /* §1 FROM block, each branch projecting: region, user, read_bytes, ProfileEvents_OSCPUVirtualTimeMicroseconds */ )
 GROUP BY region, user
 ORDER BY cost_usd DESC
 LIMIT 30
@@ -64,7 +65,7 @@ LIMIT 30
 SELECT lc_kind, lc_workload, count() AS queries,
        round(sum(read_bytes)/1e9, 0) AS read_gb,
        round(sum(read_bytes)/1e9*{read_usd_per_gb} + sum(ProfileEvents_OSCPUVirtualTimeMicroseconds)/1e6*{cpu_usd_per_sec}, 0) AS cost_usd
-FROM ( /* union with: lc_kind, lc_workload, read_bytes, ProfileEvents_... */ )
+FROM ( /* §1 FROM block, each branch projecting: lc_kind, lc_workload, read_bytes, ProfileEvents_... */ )
 GROUP BY lc_kind, lc_workload
 ORDER BY cost_usd DESC
 LIMIT 30
@@ -79,19 +80,19 @@ Flag `temporal`+`ONLINE` if large (background work on the online tier).
 SELECT lc_product, lc_feature, count() AS queries,
        round(sum(read_bytes)/1e9, 0) AS read_gb,
        round(sum(read_bytes)/1e9*{read_usd_per_gb} + sum(ProfileEvents_OSCPUVirtualTimeMicroseconds)/1e6*{cpu_usd_per_sec}, 0) AS cost_usd
-FROM ( /* union with: lc_product, lc_feature, read_bytes, ProfileEvents_... */ )
+FROM ( /* §1 FROM block, each branch projecting: lc_product, lc_feature, read_bytes, ProfileEvents_... */ )
 GROUP BY lc_product, lc_feature
 ORDER BY cost_usd DESC
 LIMIT 35
 ```
 
-## 5. Temporal workflows (drill-down lens — overlaps §4, don't sum across)
+## 5. Temporal workflows (drill-down — rows here are already inside §4's buckets; don't add the two together)
 
 ```sql
 SELECT lc_temporal__workflow_type AS workflow, count() AS queries,
        round(sum(read_bytes)/1e9, 0) AS read_gb,
        round(sum(read_bytes)/1e9*{read_usd_per_gb} + sum(ProfileEvents_OSCPUVirtualTimeMicroseconds)/1e6*{cpu_usd_per_sec}, 0) AS cost_usd
-FROM ( /* union with: lc_kind, lc_temporal__workflow_type, read_bytes, ProfileEvents_... */ )
+FROM ( /* §1 FROM block, each branch projecting: lc_kind, lc_temporal__workflow_type, read_bytes, ProfileEvents_... */ )
 WHERE lc_kind = 'temporal'
 GROUP BY workflow
 ORDER BY cost_usd DESC
@@ -104,7 +105,7 @@ LIMIT 25
 SELECT job, count() AS queries,
        round(sum(read_bytes)/1e9, 0) AS read_gb,
        round(sum(read_bytes)/1e9*{read_usd_per_gb} + sum(ProfileEvents_OSCPUVirtualTimeMicroseconds)/1e6*{cpu_usd_per_sec}, 0) AS cost_usd
-FROM ( /* union with: lc_dagster__job_name AS job, lc_kind, user, read_bytes, ProfileEvents_... */ )
+FROM ( /* §1 FROM block, each branch projecting: lc_dagster__job_name AS job, lc_kind, user, read_bytes, ProfileEvents_... */ )
 WHERE lc_kind = 'dagster' OR user = 'dagster'
 GROUP BY job
 ORDER BY cost_usd DESC
@@ -125,19 +126,19 @@ SELECT event_date,
            lc_feature = 'cache_warmup', 'cache_warmup',
            'other') AS bucket,
        round(sum(read_bytes)/1e9*{read_usd_per_gb} + sum(ProfileEvents_OSCPUVirtualTimeMicroseconds)/1e6*{cpu_usd_per_sec}, 0) AS cost_usd
-FROM ( /* union with: event_date, lc_product, lc_feature, read_bytes, ProfileEvents_... */ )
+FROM ( /* §1 FROM block, each branch projecting: event_date, lc_product, lc_feature, read_bytes, ProfileEvents_... */ )
 GROUP BY event_date, bucket
 ORDER BY event_date, bucket
 LIMIT 250
 ```
 
-## 8. Per-team concentration
+## 8. Cost per team (which teams spend the most)
 
 ```sql
 SELECT region, team_id, any(lc_org_id) AS org_id, count() AS queries,
        round(sum(read_bytes)/1e9, 0) AS read_gb,
        round(sum(read_bytes)/1e9*{read_usd_per_gb} + sum(ProfileEvents_OSCPUVirtualTimeMicroseconds)/1e6*{cpu_usd_per_sec}, 0) AS cost_usd
-FROM ( /* union with: region, team_id, lc_org_id, read_bytes, ProfileEvents_... */ )
+FROM ( /* §1 FROM block, each branch projecting: region, team_id, lc_org_id, read_bytes, ProfileEvents_... */ )
 GROUP BY region, team_id
 ORDER BY cost_usd DESC
 LIMIT 30
@@ -161,7 +162,7 @@ SELECT multiIf(
 FROM (
     SELECT region, team_id, count() AS queries, sum(read_bytes)/1e9 AS read_gb,
            sum(ProfileEvents_OSCPUVirtualTimeMicroseconds)/1e6 AS cpu_sec
-    FROM ( /* union with: 'us'/'eu' AS region, team_id, read_bytes, ProfileEvents_... */ )
+    FROM ( /* §1 FROM block, each branch projecting: 'us'/'eu' AS region, team_id, read_bytes, ProfileEvents_... */ )
     GROUP BY region, team_id
 ) AS c
 LEFT JOIN (SELECT id, app_region, organization_id FROM all_posthog_team) AS t
@@ -176,7 +177,7 @@ Region labels in the union must be lowercase to match `app_region`.
 
 ## 10. Top orgs by cost, with MRR (cost ÷ MRR is the pricing-conversation signal)
 
-Same join as §9, but grouped by org and with team 0 excluded inside the per-team subquery (`WHERE team_id != 0 AND team_id IS NOT NULL`):
+Same join as §9, but grouped by org, with team 0 excluded inside the per-team subquery, and with **PostHog's own org excluded from the ranking** (report it separately as internal dogfooding). The `coalesce` keeps deleted-team rows visible as a blank org instead of silently dropping them:
 
 ```sql
 SELECT t.organization_id AS org_id, any(a.name) AS org_name, max(a.mrr) AS mrr,
@@ -186,7 +187,7 @@ SELECT t.organization_id AS org_id, any(a.name) AS org_name, max(a.mrr) AS mrr,
 FROM (
     SELECT region, team_id, count() AS queries, sum(read_bytes)/1e9 AS read_gb,
            sum(ProfileEvents_OSCPUVirtualTimeMicroseconds)/1e6 AS cpu_sec
-    FROM ( /* union with: 'us'/'eu' AS region, team_id, read_bytes, ProfileEvents_... */ )
+    FROM ( /* §1 FROM block, each branch projecting: 'us'/'eu' AS region, team_id, read_bytes, ProfileEvents_... */ )
     WHERE team_id != 0 AND team_id IS NOT NULL
     GROUP BY region, team_id
 ) AS c
@@ -195,6 +196,7 @@ LEFT JOIN (SELECT id, app_region, organization_id FROM all_posthog_team) AS t
 LEFT JOIN (SELECT organization_id, any(name) AS name, max(mrr) AS mrr, any(customer_stage) AS customer_stage
            FROM accounts_replacement_v2 GROUP BY organization_id) AS a
     ON a.organization_id = t.organization_id
+WHERE coalesce(t.organization_id, '') != '4dc8564d-bd82-1065-2f40-97f7c50f67cf'
 GROUP BY org_id
 ORDER BY cost_usd DESC
 LIMIT 20
@@ -202,7 +204,7 @@ LIMIT 20
 
 ## 11. Top free orgs (query-limit candidates)
 
-§10 with:
+§10, with the outer `WHERE` extended to:
 
 ```sql
 WHERE t.id IS NOT NULL
@@ -216,7 +218,7 @@ WHERE t.id IS NOT NULL
 SELECT exception_name, count() AS queries,
        round(sum(read_bytes)/1e9, 0) AS read_gb,
        round(sum(read_bytes)/1e9*{read_usd_per_gb} + sum(ProfileEvents_OSCPUVirtualTimeMicroseconds)/1e6*{cpu_usd_per_sec}, 0) AS cost_usd
-FROM ( /* union with: type, exception_name, read_bytes, ProfileEvents_... */ )
+FROM ( /* §1 FROM block, each branch projecting: type, exception_name, read_bytes, ProfileEvents_... */ )
 WHERE type != 'QueryFinish'
 GROUP BY exception_name
 ORDER BY cost_usd DESC
@@ -226,10 +228,10 @@ LIMIT 15
 ## 13. TOO_MANY_BYTES attribution — find the retry loops
 
 ```sql
-SELECT lc_product, lc_feature, lc_kind, uniq(team_id) AS teams, count() AS queries,
+SELECT lc_product, lc_feature, lc_kind, uniq(tuple(region, team_id)) AS teams, count() AS queries,
        round(sum(read_bytes)/1e9, 0) AS read_gb,
        round(sum(read_bytes)/1e9*{read_usd_per_gb} + sum(ProfileEvents_OSCPUVirtualTimeMicroseconds)/1e6*{cpu_usd_per_sec}, 0) AS cost_usd
-FROM ( /* union with: lc_product, lc_feature, lc_kind, team_id, exception_name, read_bytes, ProfileEvents_... */ )
+FROM ( /* §1 FROM block, each branch projecting: lc_product, lc_feature, lc_kind, region, team_id, exception_name, read_bytes, ProfileEvents_... */ )
 WHERE exception_name = 'TOO_MANY_BYTES'
 GROUP BY lc_product, lc_feature, lc_kind
 ORDER BY cost_usd DESC
@@ -237,6 +239,7 @@ LIMIT 15
 ```
 
 Many kills + few teams in one bucket = a scheduled job re-running a query that will never fit the byte limit.
+Count teams as `uniq(tuple(region, team_id))` (as §9/§10 do) — numeric team ids collide across regions, so plain `uniq(team_id)` merges unrelated US/EU teams into one.
 
 ## 14. Access method × chargeable
 
@@ -244,7 +247,7 @@ Many kills + few teams in one bucket = a scheduled job re-running a query that w
 SELECT lc_access_method, lc_chargeable, count() AS queries,
        round(sum(read_bytes)/1e9, 0) AS read_gb,
        round(sum(read_bytes)/1e9*{read_usd_per_gb} + sum(ProfileEvents_OSCPUVirtualTimeMicroseconds)/1e6*{cpu_usd_per_sec}, 0) AS cost_usd
-FROM ( /* union with: lc_access_method, lc_chargeable, read_bytes, ProfileEvents_... */ )
+FROM ( /* §1 FROM block, each branch projecting: lc_access_method, lc_chargeable, read_bytes, ProfileEvents_... */ )
 GROUP BY lc_access_method, lc_chargeable
 ORDER BY cost_usd DESC
 LIMIT 15
