@@ -116,5 +116,6 @@ You can create an API key on the **Settings → API** page in [Height](https://h
         return height_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )
