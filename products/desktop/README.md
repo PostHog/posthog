@@ -79,4 +79,10 @@ The upstream PostHog/posthog repo intentionally carries no desktop release secre
 
 Fork setup (one-time): enable Actions on the fork, enable the two workflows (scheduled workflows in forks start disabled), and add the repository secrets `OPENAI_API_KEY` (sync), `APPLE_CODESIGN_CERT_BASE64`, `APPLE_CODESIGN_CERT_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` (release signing + notarization).
 
+Each release publishes its assets under stable, version-less names (`PostHog-Desktop-macos-arm64.dmg`, `PostHog-Desktop-windows-x64-setup.exe`) so `https://github.com/mariusandra/posthog/releases/latest/download/<name>` always points at the newest build.
+
+## Landing page
+
+[`website/`](./website) is the static landing page for `posthogondesktop.com` — a single `index.html` plus a screenshot and icon, no build step. Its download buttons use the stable latest-release links above. See [website/README.md](./website/README.md) for the Cloudflare Pages setup (output directory `products/desktop/website`).
+
 See [TODO.md](./TODO.md) for what's done and what's next.

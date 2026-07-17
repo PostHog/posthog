@@ -197,11 +197,13 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
                   VERSION: ${{ needs.check-version.outputs.version }}
               run: |
-                  mv dist/*.dmg "dist/PostHog-Desktop-$VERSION-macos-arm64.dmg"
-                  mv dist/*.exe "dist/PostHog-Desktop-$VERSION-windows-x64-setup.exe"
+                  # Version-less asset names keep the landing page's
+                  # /releases/latest/download/<name> links stable across releases
+                  mv dist/*.dmg dist/PostHog-Desktop-macos-arm64.dmg
+                  mv dist/*.exe dist/PostHog-Desktop-windows-x64-setup.exe
                   gh release create "desktop-v$VERSION" \
                       --repo "$GITHUB_REPOSITORY" \
                       --target "$GITHUB_SHA" \
                       --title "PostHog Desktop $VERSION" \
                       --notes "PostHog Desktop $VERSION. macOS build is signed and notarized; the Windows installer is unsigned (SmartScreen: \"More info\" > \"Run anyway\")." \
-                      dist/*.dmg dist/*.exe
+                      dist/PostHog-Desktop-macos-arm64.dmg dist/PostHog-Desktop-windows-x64-setup.exe

@@ -58,6 +58,7 @@ The long-term goal is to merge PostHog Code (github.com/posthog/code) into this 
 - [ ] Per-platform targets beyond macOS/Windows (AppImage/deb), `electronLanguages` trimming
 - [x] macOS signing + notarization on master/dispatch builds (PostHog Inc. Developer ID cert + Apple ID notarization, reusing PostHog Code's org secrets in `build-desktop-app.yml`)
 - [x] Fork-based release pipeline: `desktop` branch on `mariusandra/posthog` (fork default branch), daily agent-driven upstream sync (`desktop-sync.yml` runs the OpenAI Codex CLI + `syncing-desktop-fork` skill), version-bump-triggered GitHub releases with signed macOS DMG + Windows installer (`desktop-release.yml`)
+- [x] Landing page (`website/`) for `posthogondesktop.com`: static `index.html` + screenshot, download buttons wired to the stable latest-release links, deploys on Cloudflare Pages
 - [ ] Tab-awareness conversion playbook for the sync skill: how to convert an incoming/new scene to the scene-aware pattern, then convert all remaining scenes
 - [ ] Windows signing; release hardening (packaged-app smoke test, checksums — PostHog Code's `code-release.yml` is the model)
 - [ ] Auto-update via `electron-updater` with GitHub Releases
