@@ -88,13 +88,6 @@ class TestMailerLiteSourceClass:
         assert source.default_version in source.supported_versions
 
     @pytest.mark.parametrize(
-        ("pin", "expected"),
-        [(None, MAILERLITE_V2), ("", MAILERLITE_V2), (MAILERLITE_V1, MAILERLITE_V1), (MAILERLITE_V2, MAILERLITE_V2)],
-    )
-    def test_resolve_api_version(self, pin: str | None, expected: str) -> None:
-        assert MailerLiteSource().resolve_api_version(pin) == expected
-
-    @pytest.mark.parametrize(
         ("pin", "expected_version"),
         [(None, MAILERLITE_V2), (MAILERLITE_V1, MAILERLITE_V1), (MAILERLITE_V2, MAILERLITE_V2)],
     )

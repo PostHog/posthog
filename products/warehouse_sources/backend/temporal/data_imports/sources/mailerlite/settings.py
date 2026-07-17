@@ -90,3 +90,9 @@ API_VERSION_HEADERS: dict[str, str | None] = {
     MAILERLITE_V1: None,
     MAILERLITE_V2: "2038-01-19",
 }
+
+# A supported version missing from the map would fall through to `None` (no header) and
+# silently track "latest" — the drift this framework exists to prevent. Fail loudly instead.
+assert set(API_VERSION_HEADERS) == set(SUPPORTED_VERSIONS), (
+    "API_VERSION_HEADERS must map every supported MailerLite version"
+)
