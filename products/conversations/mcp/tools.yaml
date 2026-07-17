@@ -157,7 +157,23 @@ tools:
         enabled: false
     conversations-views-list:
         operation: conversations_views_list
-        enabled: false
+        enabled: true
+        scopes:
+            - ticket:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List saved ticket views
+        description: >
+            List the saved ticket views in the project. Each view is a named, saved set of ticket filters — for example
+            the per-team views named "Team <name>". Returns each view's short_id and name; a view opens in the app at
+            /support/tickets?view=<short_id>.
+        response:
+            include:
+                - short_id
+                - name
     conversations-views-partial-update:
         operation: conversations_views_partial_update
         enabled: false

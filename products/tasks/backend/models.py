@@ -2006,6 +2006,18 @@ class SandboxCustomImage(TeamScopedRootMixin):
         default="",
         help_text="Published Modal named-image reference (name:tag) for the latest successful build.",
     )
+    base_image_reference = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Immutable VM base image reference used for the latest successful build.",
+    )
+    base_image_refresh_reference = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="VM base image reference most recently queued for an automatic refresh.",
+    )
     scan_result = models.JSONField(default=dict, blank=True, help_text="Latest security scan verdict and findings.")
     error = models.TextField(blank=True, default="", help_text="Failure detail for scan_failed/build_failed states.")
     build_log = models.TextField(blank=True, default="", help_text="Sanitized tail of the latest Modal build output.")

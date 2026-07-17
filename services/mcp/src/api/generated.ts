@@ -12561,16 +12561,27 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    export interface BriefSectionCitation {
+      /** Cited resource type, e.g. insight or dashboard. */
+      type: string;
+      /** Stable id of the cited resource within its type. */
+      ref: string;
+      /** Human-readable name of the cited resource, for display. */
+      label: string;
+      /** Deep link into the app, or empty when the resource has no navigable target. */
+      url: string;
+    }
+
     export interface BriefSection {
-      /** Section kind, e.g. 'what_happened' or 'what_to_build_next'. */
+      /** Section kind, e.g. what_happened or what_to_build_next. */
       kind: string;
-      /** Short, specific section heading. */
+      /** Short section heading. */
       title: string;
-      /** Section body in markdown. */
+      /** Section body rendered as markdown. */
       markdown: string;
-      /** Citation ids (e.g. 'c1') backing the section, copied verbatim. */
-      citations: string[];
-      /** Confidence in this section, 0.0-1.0. */
+      /** PostHog resources this section cites as evidence. */
+      citations: BriefSectionCitation[];
+      /** Model confidence in this section, 0.0-1.0. */
       confidence: number;
     }
 
@@ -18156,6 +18167,7 @@ export namespace Schemas {
      * * `Shopware` - Shopware
      * * `Dubsado` - Dubsado
      * * `Campfire` - Campfire
+     * * `PromptWatch` - PromptWatch
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -19018,6 +19030,7 @@ export namespace Schemas {
       Shopware: 'Shopware',
       Dubsado: 'Dubsado',
       Campfire: 'Campfire',
+      PromptWatch: 'PromptWatch',
     } as const;
 
     /**
@@ -19893,7 +19906,8 @@ export namespace Schemas {
        * * `Kajabi` - Kajabi
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire */
+       * * `Campfire` - Campfire
+       * * `PromptWatch` - PromptWatch */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -20294,7 +20308,7 @@ export namespace Schemas {
     export interface DigestChannel {
       readonly id: string;
       /**
-         * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'.
+         * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone.
          * @maxLength 255
          */
       audience_key: string;
@@ -25863,6 +25877,8 @@ export namespace Schemas {
          * @nullable
          */
       row_filters?: ExternalDataSourceBulkUpdateSchemaRowFiltersItem[] | null;
+      /** When true and the schema has no sync method configured yet (and this update does not set one), discover the table on the source and fill in default sync settings: incremental sync with an auto-selected tracking column where supported, otherwise append, otherwise full refresh. Ignored for schemas that already have a sync method. */
+      apply_sync_defaults?: boolean;
     }
 
     export interface ExternalDataSourceConnectionOption {
@@ -26735,7 +26751,8 @@ export namespace Schemas {
        * * `Kajabi` - Kajabi
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire */
+       * * `Campfire` - Campfire
+       * * `PromptWatch` - PromptWatch */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -27624,7 +27641,8 @@ export namespace Schemas {
        * * `Kajabi` - Kajabi
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire */
+       * * `Campfire` - Campfire
+       * * `PromptWatch` - PromptWatch */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -27747,6 +27765,15 @@ export namespace Schemas {
       readonly access_method: AccessMethodEnum;
       /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
       direct_query_enabled?: boolean;
+      /** Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources. */
+      auto_sync_new_schemas?: boolean;
+      /**
+         * Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.
+         * @maxItems 100
+         * @nullable
+         * @items.maxLength 250
+         */
+      auto_sync_schema_patterns?: string[] | null;
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
@@ -28536,16 +28563,21 @@ export namespace Schemas {
     }
 
     /**
-     * Fleet-wide tally of recently emitted findings — backs the "Scout findings" callout so it
-     * renders from one cheap query instead of the client walking the whole paginated runs window.
+     * Fleet-wide tally of recent scout output — legacy `emit_signal` findings plus reports
+     * authored/edited via the report channel. Backs the "Scout findings" callout so it renders
+     * from one cheap query instead of the client walking the whole paginated runs window.
      */
     export interface FleetFindingsSummary {
-      /** Total findings the fleet emitted in the window — the sum of each emitted run's `emitted_count`, over the most recent 120 emitted runs. */
+      /** Total findings the fleet emitted in the window — the sum of each run's `emitted_count`, over the most recent 120 runs that produced output. */
       count: number;
-      /** Number of distinct scouts (skills) that emitted at least one finding in the window. */
+      /** Number of distinct scouts (skills) that produced output in the window — emitted a finding, or authored/edited an inbox report that survives the 50-report cap (a report-only scout whose touched reports all fell outside the cap is not counted, matching the findings page's scout filter). */
       scout_count: number;
+      /** Number of distinct inbox reports scouts authored via `emit_report`, deduped across runs, over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently touched reports (the same slice the findings page lists). */
+      authored_report_count: number;
+      /** Number of distinct inbox reports scouts edited via `edit_report`, deduped across runs, over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently touched reports (the same slice the findings page lists) and excluding reports also authored within that set (authoring supersedes an edit; a report whose authoring run falls outside the cap counts as edited). */
+      edited_report_count: number;
       /**
-         * ISO-8601 timestamp of the most recently emitted finding's run (TaskRun completion, falling back to run creation), or null when nothing was emitted in the window.
+         * ISO-8601 timestamp of the most recent output run (TaskRun completion, falling back to run creation), or null when nothing was produced in the window.
          * @nullable
          */
       latest_at: string | null;
@@ -33158,6 +33190,8 @@ export namespace Schemas {
       /** Flat list of markdown headings parsed from the prompt. Useful as a lightweight table of contents. */
       outline: LLMPromptOutlineEntry[];
       version: number;
+      /** The label this prompt was fetched by. Only present when fetching with the label parameter. */
+      label?: string;
       created_at: string;
       updated_at: string;
       deleted: boolean;
@@ -43308,7 +43342,7 @@ export namespace Schemas {
     export interface PatchedDigestChannel {
       readonly id?: string;
       /**
-         * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'.
+         * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone.
          * @maxLength 255
          */
       audience_key?: string;
@@ -44306,6 +44340,15 @@ export namespace Schemas {
       readonly access_method?: AccessMethodEnum;
       /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
       direct_query_enabled?: boolean;
+      /** Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources. */
+      auto_sync_new_schemas?: boolean;
+      /**
+         * Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.
+         * @maxItems 100
+         * @nullable
+         * @items.maxLength 250
+         */
+      auto_sync_schema_patterns?: string[] | null;
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
@@ -57756,7 +57799,8 @@ export namespace Schemas {
        * * `Kajabi` - Kajabi
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire */
+       * * `Campfire` - Campfire
+       * * `PromptWatch` - PromptWatch */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -58658,7 +58702,8 @@ export namespace Schemas {
        * * `Kajabi` - Kajabi
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire */
+       * * `Campfire` - Campfire
+       * * `PromptWatch` - PromptWatch */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -59552,7 +59597,8 @@ export namespace Schemas {
        * * `Kajabi` - Kajabi
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire */
+       * * `Campfire` - Campfire
+       * * `PromptWatch` - PromptWatch */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -59805,25 +59851,39 @@ export namespace Schemas {
     }
 
     /**
+     * One installation of the App the authorizing user can reach, offered for an explicit pick.
+     */
+    export interface StamphogDiscoveredInstallation {
+      /** GitHub installation id, as a string. */
+      readonly id: string;
+      /** Login of the org or user account the installation lives on. */
+      readonly account_login: string;
+    }
+
+    /**
      * Static info the frontend needs to render the 'Connect a repository' button.
      */
     export interface StamphogInstallInfo {
       /** URL-friendly slug of the dedicated Stamphog GitHub App, or blank if unconfigured. */
       readonly app_slug: string;
-      /** GitHub install URL (github.com/apps/<slug>/installations/new) the user opens to install the App, or blank if the App slug is unconfigured. */
+      /** GitHub install URL (github.com/apps/<slug>/installations/new) the user opens to install the App, or blank if the App slug is unconfigured. Used for the genuinely-not-installed case; the primary 'Connect' button uses authorize_url instead. */
       readonly install_url: string;
+      /** GitHub authorize URL (github.com/login/oauth/authorize) the 'Connect' button opens. Authorize-first: an already-installed user is redirected straight back with an OAuth code (no installation_id), and sync_installation then discovers their installations server-side. Blank if the App client id is unconfigured. */
+      readonly authorize_url: string;
     }
 
     /**
-     * Request body for binding a completed GitHub App installation to the current team.
+     * Request body for binding a GitHub App installation to the current team.
      *
-     * Requires both the ``installation_id`` and the user-to-server OAuth ``code`` from the post-install
-     * redirect: the code proves the caller actually owns the installation, without which any caller could
-     * bind another org's installation to their own team.
+     * Always requires the user-to-server OAuth ``code`` (the ownership proof) and the ``state`` token.
+     * ``installation_id`` is optional: when present (the fresh-install redirect) exactly that installation
+     * is verified and synced; when absent or blank (the authorize-first redirect) the caller's accessible
+     * installations are discovered server-side from the code, so the client never has to supply a
+     * forgeable id.
      */
     export interface StamphogSyncInstallationRequest {
-      /** GitHub App installation ID returned on the post-install Setup URL redirect. */
-      installation_id: string;
+      /** GitHub App installation ID from the fresh-install Setup URL redirect. Optional: absent or blank means discover the caller's installations from the OAuth code instead (authorize-first flow). The id is not trusted on its own — ownership is always proven via the code. */
+      installation_id?: string;
       /** GitHub user-to-server OAuth code from the post-install redirect (present when the App has 'Request user authorization during installation' enabled). Exchanged server-side to prove the caller owns the installation before its repos are bound. */
       code: string;
       /** Signed state token minted by install_info and round-tripped through GitHub's install redirect. Binds the callback to the team and user that started the flow, so a stolen installation_id + code can't be replayed against another team's session. */
@@ -59838,6 +59898,10 @@ export namespace Schemas {
       readonly synced: readonly StamphogRepoConfig[];
       /** Repository full names skipped because another team already owns them under this installation. */
       readonly skipped: readonly string[];
+      /** True only on the discovery path (no installation_id) when the caller can reach no installation of this App — it isn't installed anywhere they can see. The frontend should route the user to the GitHub install page (install_url). Always false on the explicit installation_id path. */
+      readonly app_not_installed: boolean;
+      /** Populated only on the discovery path when the caller can reach MORE than one installation of this App: nothing was bound, and the user must pick which installation to connect. The frontend re-runs the authorize flow and calls back with the chosen installation_id, which the explicit path verifies. Empty whenever a bind happened (or nothing was found). */
+      readonly installations: readonly StamphogDiscoveredInstallation[];
     }
 
     /**
@@ -64860,6 +64924,25 @@ export namespace Schemas {
       query: _TracingDurationHistogramQueryBody;
     }
 
+    export interface _TracingLatencyHeatmapCell {
+      /** ISO 8601 UTC start of the time bucket. */
+      time: string;
+      /** Lower edge of the 1-2-5 series duration bucket in nanoseconds (1ms, 2ms, 5ms, 10ms, ...). 0 on the sentinel row that enumerates a time bucket with no matching spans. */
+      bucket_ns: number;
+      /** Spans (or traces when rootSpans is true) in this cell. 0 only on sentinel rows. */
+      count: number;
+    }
+
+    export interface _TracingLatencyHeatmapRequest {
+      /** The latency-heatmap query to execute. */
+      query: _TracingDurationHistogramQueryBody;
+    }
+
+    export interface _TracingLatencyHeatmapResponse {
+      /** Sparse heatmap cells ordered by time then duration bucket. Every time bucket in the window appears in at least one row, so the full x axis can be derived from the response. */
+      results: _TracingLatencyHeatmapCell[];
+    }
+
     /**
      * * `timestamp` - timestamp
      * * `duration` - duration
@@ -68154,6 +68237,12 @@ export namespace Schemas {
      * @minLength 1
      */
     content?: EnvironmentsLlmPromptsNameRetrieveContent;
+    /**
+     * Fetch the version this label currently points to, e.g. 'production'. Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version.
+     * @minLength 1
+     * @maxLength 128
+     */
+    label?: string;
     /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
@@ -75862,6 +75951,12 @@ export namespace Schemas {
      * @minLength 1
      */
     content?: LlmPromptsNameRetrieveContent;
+    /**
+     * Fetch the version this label currently points to, e.g. 'production'. Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version.
+     * @minLength 1
+     * @maxLength 128
+     */
+    label?: string;
     /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
