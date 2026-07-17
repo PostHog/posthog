@@ -624,10 +624,8 @@ SPECTACULAR_SETTINGS = {
             "not_configured",
             "waiting",
             "backfilling",
-            "catching_up",
             "up_to_date",
             "needs_attention",
-            "unknown",
             "sync_paused",
         ],
         # Full signal taxonomy on the report `signals` endpoint; the source-config serializer's
