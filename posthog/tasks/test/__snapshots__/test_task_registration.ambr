@@ -35,6 +35,7 @@
     'posthog.tasks.email.send_error_tracking_weekly_digest',
     'posthog.tasks.email.send_error_tracking_weekly_digest_for_org',
     'posthog.tasks.email.send_fatal_plugin_error',
+    'posthog.tasks.email.send_feature_flags_secure_api_key_exposed',
     'posthog.tasks.email.send_hog_function_disabled',
     'posthog.tasks.email.send_hog_functions_daily_digest',
     'posthog.tasks.email.send_hog_functions_digest_email',
