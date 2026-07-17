@@ -16,9 +16,16 @@ CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME = "CustomerPaymentMethod"
 COUPON_RESOURCE_NAME = "Coupon"
 DISCOUNT_RESOURCE_NAME = "Discount"
 
-# Vendor API version the sync pipeline pins by default. One constant so the source's version
-# declaration (`StripeSource.supported_versions`) and the request layer share a single label.
+# Vendor API version labels. One constant per version so the source's version declaration
+# (`StripeSource.supported_versions`) and the request layer share a single label — never parsed
+# or ordered.
 STRIPE_API_VERSION_ACACIA = "2024-09-30.acacia"
+STRIPE_API_VERSION_DAHLIA = "2026-06-24.dahlia"
+
+# Versions the canonical column hints (external_table_definitions) were built against. Newer
+# versions reshape some response fields, so they auto-infer their schema from the data instead of
+# applying these hints.
+HINT_COMPATIBLE_VERSIONS: frozenset[str] = frozenset({STRIPE_API_VERSION_ACACIA})
 
 # Maps PostHog resource name -> Stripe API object type (as it appears in webhook data.object.object)
 RESOURCE_TO_STRIPE_OBJECT_TYPE: dict[str, str] = {

@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     DISCOUNT_RESOURCE_NAME,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
     STRIPE_API_VERSION_ACACIA,
+    STRIPE_API_VERSION_DAHLIA,
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
@@ -597,3 +598,66 @@ class TestSchemaWebhookCapability:
         for name, schema in self.by_name.items():
             expected = name in RESOURCE_TO_STRIPE_WEBHOOK_EVENT or schema.webhook_only
             assert schema.supports_webhooks is expected, name
+
+
+class TestStripeApiVersioning:
+    def test_dahlia_is_default_and_acacia_still_supported(self):
+        # New sources must be stamped with dahlia while acacia stays syncable for pinned sources —
+        # dropping either half repins customers or breaks the "keep old versions" guarantee.
+        source = StripeSource()
+        assert source.default_version == STRIPE_API_VERSION_DAHLIA
+        assert set(source.supported_versions) == {STRIPE_API_VERSION_ACACIA, STRIPE_API_VERSION_DAHLIA}
+
+    @pytest.mark.parametrize("api_version", [STRIPE_API_VERSION_ACACIA, STRIPE_API_VERSION_DAHLIA])
+    def test_pinned_version_reaches_stripe_client(self, api_version):
+        # The resolved pin must reach the Stripe client's stripe_version, or a source pinned to one
+        # version would silently sync against whatever the request layer hardcodes.
+        resource = StripeResource(method=lambda params: cast(ListObject[Any], _FakeStripeList([])))
+        resumable_source_manager = MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+
+        with (
+            patch.object(stripe_module, "StripeClient") as mock_client,
+            patch.object(stripe_module, "_build_resources", return_value={"charge": resource}),
+        ):
+            list(
+                get_rows(
+                    api_key="sk_test_123",
+                    endpoint="charge",
+                    account_id=None,
+                    db_incremental_field_last_value=None,
+                    db_incremental_field_earliest_value=None,
+                    logger=MagicMock(),
+                    resumable_source_manager=resumable_source_manager,
+                    api_version=api_version,
+                )
+            )
+
+        assert mock_client.call_args.kwargs["stripe_version"] == api_version
+
+    @pytest.mark.parametrize(
+        "api_version,expect_hints",
+        [(STRIPE_API_VERSION_ACACIA, True), (STRIPE_API_VERSION_DAHLIA, False)],
+    )
+    def test_column_hints_gated_by_version(self, api_version, expect_hints):
+        # Canonical hints were built against acacia's response shapes; dahlia must auto-infer instead
+        # (column_hints=None) so a reshaped field isn't forced into the old type.
+        manager = MagicMock(spec=WebhookSourceManager)
+        manager.webhook_enabled = mock.AsyncMock(return_value=False)
+
+        response = stripe_module.stripe_source(
+            api_key="sk_test_123",
+            account_id=None,
+            endpoint=CUSTOMER_RESOURCE_NAME,
+            db_incremental_field_last_value=None,
+            db_incremental_field_earliest_value=None,
+            logger=MagicMock(adebug=mock.AsyncMock()),
+            resumable_source_manager=MagicMock(can_resume=MagicMock(return_value=False)),
+            webhook_source_manager=manager,
+            api_version=api_version,
+        )
+
+        if expect_hints:
+            assert response.column_hints
+        else:
+            assert response.column_hints is None

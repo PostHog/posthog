@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     DISPUTE_RESOURCE_NAME,
+    HINT_COMPATIBLE_VERSIONS,
     INVOICE_ITEM_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
     PAYOUT_RESOURCE_NAME,
@@ -46,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     PRODUCT_RESOURCE_NAME,
     REFUND_RESOURCE_NAME,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
+    STRIPE_API_VERSION_ACACIA,
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
@@ -623,8 +625,12 @@ def stripe_source(
     api_version: str,
     should_use_incremental_field: bool = False,
 ):
-    column_mapping = get_dlt_mapping_for_external_table(f"stripe_{endpoint.lower()}")
-    column_hints = {key: value.get("data_type") for key, value in column_mapping.items()}
+    # Canonical column hints were built against specific API versions; newer versions reshape some
+    # fields, so only apply hints for hint-compatible versions and let others auto-infer the schema.
+    column_hints: dict[str, Any] | None = None
+    if api_version in HINT_COMPATIBLE_VERSIONS:
+        column_mapping = get_dlt_mapping_for_external_table(f"stripe_{endpoint.lower()}")
+        column_hints = {key: value.get("data_type") for key, value in column_mapping.items()}
 
     # Get the incremental field name for partition keys
     incremental_field_config = APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, [])
@@ -861,10 +867,13 @@ def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str
         )
 
     try:
+        # Webhook management stays pinned to acacia regardless of the source's sync pin: the version
+        # here isn't threaded from the per-instance row (these calls run at source-setup time), and
+        # the endpoint create/list/update responses this path reads are stable across versions.
         client = StripeClient(
             api_key,
             stripe_account=stripe_account_id,
-            stripe_version="2024-09-30.acacia",
+            stripe_version=STRIPE_API_VERSION_ACACIA,
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
             http_client=_tracked_stripe_http_client(),
@@ -919,7 +928,7 @@ def delete_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str
         client = StripeClient(
             api_key,
             stripe_account=stripe_account_id,
-            stripe_version="2024-09-30.acacia",
+            stripe_version=STRIPE_API_VERSION_ACACIA,
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
             http_client=_tracked_stripe_http_client(),
@@ -964,7 +973,7 @@ def update_webhook_events(
         client = StripeClient(
             api_key,
             stripe_account=stripe_account_id,
-            stripe_version="2024-09-30.acacia",
+            stripe_version=STRIPE_API_VERSION_ACACIA,
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
             http_client=_tracked_stripe_http_client(),
@@ -1012,7 +1021,7 @@ def get_external_webhook_info(api_key: str, stripe_account_id: str | None, webho
         client = StripeClient(
             api_key,
             stripe_account=stripe_account_id,
-            stripe_version="2024-09-30.acacia",
+            stripe_version=STRIPE_API_VERSION_ACACIA,
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
             http_client=_tracked_stripe_http_client(),

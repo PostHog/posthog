@@ -49,6 +49,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     RESOURCE_TO_STRIPE_OBJECT_TYPE,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
     STRIPE_API_VERSION_ACACIA,
+    STRIPE_API_VERSION_DAHLIA,
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
@@ -105,8 +106,8 @@ class StripeSource(
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     has_managed_hogql_schema = True  # canonical Stripe schema in external_table_definitions
 
-    supported_versions = (STRIPE_API_VERSION_ACACIA,)
-    default_version = STRIPE_API_VERSION_ACACIA
+    supported_versions = (STRIPE_API_VERSION_ACACIA, STRIPE_API_VERSION_DAHLIA)
+    default_version = STRIPE_API_VERSION_DAHLIA
     api_docs_url = "https://docs.stripe.com/changelog"
 
     @property
