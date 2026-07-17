@@ -94,27 +94,27 @@
 {% endif %}
 
 {% if can_submit %}
-    {% if will_auto_approve %}
+    {% if auto_approve_candidate %}
     <div style="margin: 16px 0; padding: 12px 16px; border: 1px solid #f0ad4e; border-radius: 4px; background: #fcf8e3; color: #8a6d3b;">
-        <strong>This request will be approved automatically.</strong>
-        It's an event removal matching {{ matching_event_count }} events, under the {{ auto_approve_max_events }} limit,
-        so it's small enough to skip ClickHouse Team review. Submitting approves it and queues it for the scheduled
-        deletes job, which drains it in the background rather than running a delete mutation of its own.
+        <strong>This request may be approved automatically.</strong>
+        A job checks pending event removals every {{ auto_approve_interval_minutes }} minutes. It refreshes the
+        ClickHouse stats, and if the request
+        matches fewer than {{ auto_approve_max_events }} events and its time range has already ended, it approves the
+        request and queues it for the scheduled deletes job. Anything larger, or still collecting events, waits for the
+        ClickHouse Team.
     </div>
     {% else %}
     <p style="margin: 16px 0; color: #666;">
-        {{ auto_approval_blocker }}
-        Submitting sends it to the ClickHouse Team for manual approval.
+        Only event removal requests can be approved automatically. This is a
+        {{ obj.get_request_type_display|lower }} request, so submitting sends it to the ClickHouse Team for manual
+        approval.
     </p>
     {% endif %}
 {% endif %}
 
 <form method="post">
     {% csrf_token %}
-    {% if can_submit and will_auto_approve %}
-    {# Marks that this page offered the opt-out. Without it a page rendered before the request became #}
-    {# eligible would auto-approve on submit, having never shown the operator a checkbox to decline. #}
-    <input type="hidden" name="auto_approve_offered" value="1" />
+    {% if can_submit and auto_approve_candidate %}
     <div style="margin-top: 16px;">
         <label>
             <input type="checkbox" name="requires_approval" />

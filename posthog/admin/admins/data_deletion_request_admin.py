@@ -1,5 +1,4 @@
 import ast
-from datetime import timedelta
 
 from django import forms
 from django.conf import settings
@@ -10,20 +9,18 @@ from django.urls import path, reverse
 from django.utils import timezone
 from django.utils.html import format_html
 
-from posthog.clickhouse.client.connection import ClickHouseUser
-from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.clickhouse.workload import Workload
 from posthog.models.data_deletion_request import (
+    AUTO_APPROVE_INTERVAL_MINUTES,
+    AUTO_APPROVE_MAX_EVENTS,
     DataDeletionRequest,
     ExecutionMode,
     RequestStatus,
     RequestType,
-    cached_compile_hogql_predicate,
+    build_deletion_count_query,
     count_remaining_for_request,
-    event_match_params,
-    event_match_sql_fragment,
+    fetch_deletion_stats,
     invalidate_compiled_predicate_cache,
-    jsonhas_expr,
+    refresh_deletion_stats,
 )
 
 CRITERIA_FIELDS = {
@@ -42,14 +39,6 @@ CRITERIA_FIELDS = {
     "person_drop_recordings",
 }
 CLICKHOUSE_TEAM_GROUP = "ClickHouse Team"
-
-# An event removal below this many events is cheap enough that a dedicated ClickHouse Team review buys
-# nothing — the submit page approves it itself, always deferred so the scheduled deletes_job drains it
-# alongside everything else rather than running a mutation of its own.
-AUTO_APPROVE_MAX_EVENTS = 100_000
-# Stats are cleared whenever criteria change, but nothing ages them out, and an open-ended time range
-# keeps matching new events. Past this age the count is no longer evidence of anything.
-AUTO_APPROVE_MAX_STATS_AGE = timedelta(hours=24)
 
 PERSON_REMOVAL_FIELDS = (
     "person_uuids",
@@ -235,239 +224,6 @@ class DataDeletionRequestForm(forms.ModelForm):
             ]
 
 
-def _append_hogql_predicate(fragment: str, params: dict, obj) -> tuple[str, dict]:
-    """Append the compiled HogQL predicate (if any) to ``fragment`` and merge params."""
-    hogql_sql, hogql_values = cached_compile_hogql_predicate(obj)
-    if not hogql_sql:
-        return fragment, params
-    combined = f"{fragment} AND ({hogql_sql})".strip() if fragment else f"AND ({hogql_sql})"
-    params.update(hogql_values)
-    return combined, params
-
-
-def _build_event_filter(obj) -> tuple[str, dict]:
-    """Build the WHERE clause and params for matching events."""
-    return _append_hogql_predicate(event_match_sql_fragment(obj), event_match_params(obj), obj)
-
-
-def _build_property_filter(obj) -> tuple[str, dict]:
-    """Build the WHERE clause addition and params for matching properties.
-
-    Covers both ``events.properties`` (using ``fp_`` param prefix) and
-    ``events.person_properties`` (using ``pp_`` param prefix).  The two
-    presence checks are ORed so the stats count includes every event that
-    carries at least one target key in either column.
-    """
-    event_clause = event_match_sql_fragment(obj)
-    params: dict = event_match_params(obj)
-
-    presence_clauses: list[str] = []
-
-    properties = obj.properties or []
-    if properties:
-        if len(properties) == 1:
-            presence_clauses.append(jsonhas_expr(properties[0], "fp_0"))
-        else:
-            exprs = [jsonhas_expr(prop, f"fp_{i}") for i, prop in enumerate(properties)]
-            presence_clauses.append(f"({' OR '.join(exprs)})")
-        for i, prop in enumerate(properties):
-            for j, part in enumerate(prop.split(".")):
-                params[f"fp_{i}_{j}"] = part
-
-    person_properties = obj.person_properties or []
-    if person_properties:
-        if len(person_properties) == 1:
-            presence_clauses.append(jsonhas_expr(person_properties[0], "pp_0", column="person_properties"))
-        else:
-            exprs = [
-                jsonhas_expr(prop, f"pp_{i}", column="person_properties") for i, prop in enumerate(person_properties)
-            ]
-            presence_clauses.append(f"({' OR '.join(exprs)})")
-        for i, prop in enumerate(person_properties):
-            for j, part in enumerate(prop.split(".")):
-                params[f"pp_{i}_{j}"] = part
-
-    if not presence_clauses:
-        raise ValueError("Cannot build property filter: both properties and person_properties are empty.")
-
-    property_clause = (
-        f"AND ({' OR '.join(presence_clauses)})" if len(presence_clauses) > 1 else f"AND {presence_clauses[0]}"
-    )
-    filter_clause = f"{event_clause} {property_clause}".strip()
-    return _append_hogql_predicate(filter_clause, params, obj)
-
-
-def _event_count_query_template(extra_filter: str) -> str:
-    # Counts run against the distributed ``events`` table so operators get a
-    # cluster-wide number; the actual deletions still target ``sharded_events``.
-    # nosemgrep: clickhouse-fstring-param-audit (extra_filter is built from internal helpers, not user input)
-    return f"""
-            SELECT
-                count() AS events,
-                count(DISTINCT _part) AS parts,
-                min(timestamp) AS min_ts,
-                max(timestamp) AS max_ts
-            FROM events
-            WHERE team_id = %(team_id)s
-              AND timestamp >= %(start_time)s
-              AND timestamp < %(end_time)s
-              {extra_filter}
-            """
-
-
-def build_deletion_count_query(obj: DataDeletionRequest) -> tuple[str, dict]:
-    """Return the (SQL template, params) used to count rows matching this request.
-
-    Mirrors ``_fetch_stats`` so admin users can copy the query and run it
-    independently — ``substitute_params_for_display`` is the companion renderer.
-    """
-    if obj.request_type == RequestType.PROPERTY_REMOVAL:
-        extra_filter, params = _build_property_filter(obj)
-    else:
-        extra_filter, params = _build_event_filter(obj)
-    return _event_count_query_template(extra_filter), params
-
-
-_STATS_MAX_EXECUTION_TIME = 300
-
-
-def _fetch_stats(team_id: int, extra_filter: str, params: dict, *, user_id: int | None = None) -> dict:
-    """Run event count + parts size queries against ClickHouse.
-
-    The same predicate is spliced into both queries: the row count against the
-    Distributed ``events`` proxy, and the parts inspection against the local
-    ``sharded_events``. The HogQL predicate emits unqualified column references,
-    so it works in both contexts.
-
-    ``user_id`` is threaded into the query tag so the acting staff user is
-    visible in ``system.query_log`` (the kill-switch + tag annotator pick it up
-    automatically via :class:`QueryTags`).
-    """
-    from posthog.clickhouse.client import sync_execute
-
-    with tags_context(
-        product=Product.INTERNAL,
-        feature=Feature.DATA_DELETION,
-        team_id=team_id,
-        user_id=user_id,
-        workload=Workload.OFFLINE,
-        query_type="delete_event_count",
-    ):
-        event_result = sync_execute(
-            _event_count_query_template(extra_filter),
-            params,
-            team_id=team_id,
-            readonly=True,
-            workload=Workload.OFFLINE,
-            ch_user=ClickHouseUser.META,
-            settings={"max_execution_time": _STATS_MAX_EXECUTION_TIME},
-        )
-
-    with tags_context(
-        product=Product.INTERNAL,
-        feature=Feature.DATA_DELETION,
-        team_id=team_id,
-        user_id=user_id,
-        workload=Workload.OFFLINE,
-        query_type="delete_part_count",
-    ):
-        from django.conf import settings as django_settings
-
-        cluster = django_settings.CLICKHOUSE_CLUSTER
-
-        # nosemgrep: clickhouse-fstring-param-audit (filter built from internal helpers; cluster from Django settings)
-        parts_result = sync_execute(
-            f"""
-            SELECT
-                count() AS part_count,
-                sum(p.bytes_on_disk) AS total_size_on_disk,
-                sum(p.rows) AS total_rows_in_those_parts
-            FROM cluster('{cluster}', system, parts) AS p
-            INNER JOIN (
-                SELECT DISTINCT _part AS name
-                FROM sharded_events
-                WHERE team_id = %(team_id)s
-                  AND timestamp >= %(start_time)s
-                  AND timestamp < %(end_time)s
-                  {extra_filter}
-            ) AS matched ON p.name = matched.name
-            WHERE p.table = 'sharded_events'
-              AND p.active
-            """,
-            params,
-            team_id=team_id,
-            readonly=True,
-            workload=Workload.OFFLINE,
-            ch_user=ClickHouseUser.META,
-            settings={"max_execution_time": _STATS_MAX_EXECUTION_TIME},
-        )
-
-    return {
-        "count": event_result[0][0] if event_result else 0,
-        "min_timestamp": event_result[0][2] if event_result and event_result[0][0] else None,
-        "max_timestamp": event_result[0][3] if event_result and event_result[0][0] else None,
-        "part_count": parts_result[0][0] if parts_result else 0,
-        "parts_size": parts_result[0][1] if parts_result else 0,
-        "parts_row_count": parts_result[0][2] if parts_result else 0,
-    }
-
-
-def fetch_event_deletion_stats(obj: DataDeletionRequest, *, user_id: int | None = None):
-    """Count events and affected parts for an event removal request."""
-    extra_filter, params = _build_event_filter(obj)
-    return _fetch_stats(obj.team_id, extra_filter, params, user_id=user_id)
-
-
-def fetch_property_deletion_stats(obj: DataDeletionRequest, *, user_id: int | None = None):
-    """Count events with matching properties and affected parts for a property removal request."""
-    if not obj.properties and not obj.person_properties:
-        raise ValueError(
-            "Cannot fetch stats for a property removal request with no properties or person_properties specified."
-        )
-    extra_filter, params = _build_property_filter(obj)
-    return _fetch_stats(obj.team_id, extra_filter, params, user_id=user_id)
-
-
-def fetch_deletion_stats(obj: DataDeletionRequest, *, user_id: int | None = None):
-    """Dispatch to the appropriate stats function based on request type."""
-    if obj.request_type == RequestType.PROPERTY_REMOVAL:
-        return fetch_property_deletion_stats(obj, user_id=user_id)
-    return fetch_event_deletion_stats(obj, user_id=user_id)
-
-
-def auto_approval_blocker(obj: DataDeletionRequest) -> str | None:
-    """Why this request can't be auto-approved on submit, or None when it can.
-
-    The returned sentence is rendered to the operator on the submit page, so each one names the
-    condition that failed and what to do about it. The ``requires_approval`` opt-out is deliberately
-    not checked here: it's the submitter's choice rather than a property of the request, so the page
-    can still explain that the request *would* qualify.
-    """
-    if obj.request_type != RequestType.EVENT_REMOVAL:
-        return f"Only event removal requests can be auto-approved. This is a {obj.get_request_type_display()} request."
-    now = timezone.now()
-    # A range that hasn't closed yet keeps matching newly ingested events, so the count that cleared the
-    # threshold says nothing about how much the deferred job will actually delete when it drains later.
-    if obj.end_time is not None and obj.end_time > now:
-        return (
-            f"The time range ends {obj.end_time:%Y-%m-%d %H:%M} UTC, in the future. Matching events are still "
-            "arriving, so the count can grow after approval. Set an end time in the past to qualify."
-        )
-    if obj.stats_calculated_at is None:
-        return "No ClickHouse stats have been fetched yet. Fetch stats on the request page to qualify."
-    max_age_hours = int(AUTO_APPROVE_MAX_STATS_AGE.total_seconds() // 3600)
-    if now - obj.stats_calculated_at > AUTO_APPROVE_MAX_STATS_AGE:
-        return (
-            f"Stats were calculated {obj.stats_calculated_at:%Y-%m-%d %H:%M} UTC, more than {max_age_hours} hours "
-            "ago. Refresh them on the request page to qualify."
-        )
-    if obj.count is None:
-        return "Stats don't include a matching event count. Refresh them on the request page to qualify."
-    if obj.count >= AUTO_APPROVE_MAX_EVENTS:
-        return f"{obj.count:,} matching events is at or above the {AUTO_APPROVE_MAX_EVENTS:,} auto-approval limit."
-    return None
-
-
 @admin.register(DataDeletionRequest)
 class DataDeletionRequestAdmin(admin.ModelAdmin):
     form = DataDeletionRequestForm
@@ -486,7 +242,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         "last_executed_at",
         "created_at",
     )
-    list_filter = ("request_type", "status", "requires_approval", "approved")
+    list_filter = ("request_type", "status", "requires_approval", "approved", "approved_automatically")
     search_fields = ("team_id", "events", "properties", "person_properties", "notes")
     readonly_fields = (
         "status",
@@ -503,6 +259,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         "criteria_updated_by",
         "criteria_updated_at",
         "approved",
+        "approved_automatically",
         "approved_by",
         "approved_at",
         "execution_mode",
@@ -560,6 +317,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "criteria_updated_at",
                     "updated_at",
                     "approved",
+                    "approved_automatically",
                     "approved_by",
                     "approved_at",
                     "execution_mode",
@@ -804,7 +562,10 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             obj.person_drop_profiles or obj.person_drop_events or obj.person_drop_recordings
         )
         can_submit = not (missing_properties or missing_person_selectors or missing_person_drop_flag)
-        blocker = auto_approval_blocker(obj)
+        # Only event removals are ever auto-approved, so they're the only ones offered the opt-out.
+        # Everything else about eligibility (the time range, the size) is time-dependent and left to
+        # the sweep job, which re-evaluates it against stats it fetches itself.
+        auto_approve_candidate = obj.request_type == RequestType.EVENT_REMOVAL
 
         if request.method == "POST":
             if missing_properties:
@@ -825,17 +586,12 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "Cannot submit: person removal request requires at least one drop flag (profiles/events/recordings).",
                 )
                 return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
-            # Three things must line up to auto-approve, and each can only veto:
-            #   - the page actually offered the choice (a stale page whose request has since become
-            #     eligible must not approve behind an operator who was shown "goes to review"),
-            #   - the submitter didn't tick the opt-out (the checkbox only posts when ticked),
-            #   - the request is *still* eligible, recomputed here so a hand-crafted POST can't
-            #     talk its way past the threshold.
-            offered = bool(request.POST.get("auto_approve_offered"))
-            opted_out = bool(request.POST.get("requires_approval"))
-            if offered and not opted_out and blocker is None:
-                return self._submit_auto_approved(request, obj)
-            return self._submit_for_approval(request, obj)
+            # The checkbox only posts when ticked. A request that can't be auto-approved at all still
+            # gets True: the field means "a human must approve this", and leaving it False would hide
+            # the request from the changelist's "requires approval" filter — on precisely the requests
+            # a reviewer needs to find.
+            requires_approval = not auto_approve_candidate or bool(request.POST.get("requires_approval"))
+            return self._submit_for_approval(request, obj, requires_approval=requires_approval)
 
         context = {
             **self.admin_site.each_context(request),
@@ -845,29 +601,25 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             "missing_person_drop_flag": missing_person_drop_flag,
             "is_person_removal": obj.request_type == RequestType.PERSON_REMOVAL,
             "can_submit": can_submit,
-            "auto_approval_blocker": blocker,
-            "will_auto_approve": blocker is None,
+            "auto_approve_candidate": auto_approve_candidate,
             # Thousands separators are applied here — django.contrib.humanize isn't installed.
             "auto_approve_max_events": f"{AUTO_APPROVE_MAX_EVENTS:,}",
-            "matching_event_count": f"{obj.count:,}" if obj.count is not None else "0",
+            "auto_approve_interval_minutes": AUTO_APPROVE_INTERVAL_MINUTES,
             "opts": self.model._meta,
             "title": f"Submit deletion request {obj.pk}",
         }
         return TemplateResponse(request, "admin/posthog/datadeletionrequest/submit.html", context)
 
-    def _submit_for_approval(self, request: HttpRequest, obj: DataDeletionRequest) -> HttpResponse:
-        """Submit for manual ClickHouse Team review — the request didn't qualify, or the submitter opted out.
-
-        ``requires_approval`` is True either way: it means "a human must approve this", which is exactly
-        what reaching PENDING means. Leaving it False here would hide the request from the changelist's
-        "requires approval" filter — on precisely the requests a reviewer needs to find.
-        """
+    def _submit_for_approval(
+        self, request: HttpRequest, obj: DataDeletionRequest, *, requires_approval: bool
+    ) -> HttpResponse:
+        """Move the request draft → pending. Approval is somebody else's job, human or scheduled."""
         updated = DataDeletionRequest.objects.filter(
             pk=obj.pk,
             status=RequestStatus.DRAFT,
         ).update(
             status=RequestStatus.PENDING,
-            requires_approval=True,
+            requires_approval=requires_approval,
             updated_at=timezone.now(),
         )
         if not updated:
@@ -875,52 +627,15 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
         obj.refresh_from_db()
         self.log_change(request, obj, "Submitted: status changed from draft to pending.")
-        messages.success(request, "Request submitted and is now pending.")
-        return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
-
-    def _submit_auto_approved(self, request: HttpRequest, obj: DataDeletionRequest) -> HttpResponse:
-        """Submit and approve in one step, deferred, for a small event removal.
-
-        Skips PENDING entirely: the same status-guarded update that leaves DRAFT also records the
-        approval, so there's no window where the request sits unapproved.
-
-        The update is guarded on the stats the approval was granted on, not just on DRAFT. A concurrent
-        criteria edit resets the request to DRAFT *and* clears its stats, which would otherwise satisfy a
-        status-only guard and approve criteria nobody has ever counted.
-        """
-        updated = DataDeletionRequest.objects.filter(
-            pk=obj.pk,
-            status=RequestStatus.DRAFT,
-            count=obj.count,
-            stats_calculated_at=obj.stats_calculated_at,
-        ).update(
-            status=RequestStatus.APPROVED,
-            requires_approval=False,
-            approved=True,
-            approved_by=request.user,
-            approved_at=timezone.now(),
-            execution_mode=ExecutionMode.DEFERRED,
-            updated_at=timezone.now(),
-        )
-        if not updated:
-            messages.error(
+        if requires_approval:
+            messages.success(request, "Request submitted and is now pending ClickHouse Team approval.")
+        else:
+            messages.success(
                 request,
-                "Request changed while you were submitting it — it's no longer a draft, or its criteria "
-                "and stats have moved. Review it and submit again.",
+                f"Request submitted and is now pending. The auto-approval job will check it within the next "
+                f"{AUTO_APPROVE_INTERVAL_MINUTES} minutes and approve it if it matches fewer than "
+                f"{AUTO_APPROVE_MAX_EVENTS:,} events.",
             )
-            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
-        obj.refresh_from_db()
-        self.log_change(
-            request,
-            obj,
-            f"Submitted and auto-approved (deferred): {obj.count:,} matching events, "
-            f"under the {AUTO_APPROVE_MAX_EVENTS:,} limit.",
-        )
-        messages.success(
-            request,
-            f"Request auto-approved: {obj.count:,} matching events is under the "
-            f"{AUTO_APPROVE_MAX_EVENTS:,} limit. It will be queued for the scheduled deletes job.",
-        )
         return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
     def fetch_stats_view(self, request, object_id):
@@ -941,26 +656,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
         try:
-            stats = fetch_deletion_stats(obj, user_id=request.user.id)
-            obj.count = stats["count"]
-            obj.part_count = stats["part_count"]
-            obj.parts_size = stats["parts_size"]
-            obj.parts_row_count = stats["parts_row_count"]
-            obj.min_timestamp = stats["min_timestamp"]
-            obj.max_timestamp = stats["max_timestamp"]
-            obj.stats_calculated_at = timezone.now()
-            obj.save(
-                update_fields=[
-                    "count",
-                    "part_count",
-                    "parts_size",
-                    "parts_row_count",
-                    "min_timestamp",
-                    "max_timestamp",
-                    "stats_calculated_at",
-                    "updated_at",
-                ]
-            )
+            stats = refresh_deletion_stats(obj, user_id=request.user.id)
             self.log_change(request, obj, "Fetched ClickHouse stats.")
             messages.success(request, f"Stats fetched: {stats['count']:,} matching events found.")
         except Exception as e:
@@ -1093,6 +789,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         ).update(
             status=RequestStatus.DRAFT,
             approved=False,
+            approved_automatically=False,
             approved_by=None,
             approved_at=None,
             updated_at=timezone.now(),
