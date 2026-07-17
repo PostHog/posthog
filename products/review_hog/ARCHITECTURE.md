@@ -265,6 +265,17 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-07-16 — inline finding comments: colored severity badges replace the text meta
+
+The inline comment `_format_issue_comment` builds (`publish_review.py`) had its meta line recolored after comparing it against Greptile's PR comments — a deliberately minimal change that leaves the four collapsed sections (`Issue description`, `Suggested fix`, `Why we think it's a valid issue`, `Prompt to fix with AI`) exactly as they were.
+Before: a plain `### title` followed by a text meta line (`**Priority:** should_fix | **Category:** performance | **Lines:** …`).
+Now the comment keeps the **title**, then a line of colored [shields.io](https://shields.io) badges just beneath — a lowercase severity chip (`must fix` red `D1242F`, `should fix` orange `E36209`, `consider` blue `0969DA`) plus a neutral-grey lowercase category chip — and the four `<details>` follow unchanged.
+No line reference is shown up top: the comment is anchored inline (GitHub renders the code above it) and the lines already appear in the AI-fix prompt, so the `**Lines:**` part of the meta was dropped.
+Badge alt text is the raw enum value (`![should_fix](…)`) so the priority still reads in email digests, when images are blocked, and to screen readers — and the existing publish-gate test's `should_fix`-in-body assertion still holds.
+Helpers `_shields_badge` / `_finding_badge_line` + `_PRIORITY_BADGE` carry the label/color map.
+Color mechanism was a user decision (badge images, Greptile-style, accepting the external-image dependency) over the GitHub-native emoji/alert alternative.
+An earlier iteration also surfaced the problem/fix inline and un-collapsed two sections; that was reverted — the collapsed structure is intentional and stays.
+
 ### ✅ BUILT 2026-07-15 — reviewing-stage progress copy: "Reviewing chunks" → "Running review passes"
 
 Live misread on [posthog#71025](https://github.com/PostHog/posthog/pull/71025) (63 additions): the
