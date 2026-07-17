@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import pytest
@@ -10,10 +11,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_n
     SONATYPE_NEXUS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.sonatype_nexus import (
+    SonatypeNexusPaginationError,
+    SonatypeNexusResponseTimeoutError,
+    SonatypeNexusResponseTooLargeError,
     SonatypeNexusResumeConfig,
     SonatypeNexusRetryableError,
     _build_url,
     _fetch_page,
+    _read_bounded,
     get_rows,
     hostname_of,
     normalize_host,
@@ -43,9 +48,24 @@ def _make_manager(resume_state: SonatypeNexusResumeConfig | None = None) -> mock
 
 def _response(body: Any, status_code: int = 200) -> mock.MagicMock:
     resp = mock.MagicMock()
-    resp.json.return_value = body
     resp.status_code = status_code
     resp.ok = status_code < 400
+    # Bodies are streamed and read through iter_content + json.loads, never .json(), and
+    # `_fetch_page` reads the response inside a `with` block.
+    payload = json.dumps(body).encode()
+    resp.iter_content = mock.Mock(side_effect=lambda chunk_size: iter([payload]))
+    resp.__enter__ = mock.Mock(return_value=resp)
+    resp.__exit__ = mock.Mock(return_value=False)
+    return resp
+
+
+def _streaming_response(chunks: list[bytes], status_code: int = 200) -> mock.MagicMock:
+    resp = mock.MagicMock()
+    resp.status_code = status_code
+    resp.ok = status_code < 400
+    resp.iter_content = mock.Mock(side_effect=lambda chunk_size: iter(chunks))
+    resp.__enter__ = mock.Mock(return_value=resp)
+    resp.__exit__ = mock.Mock(return_value=False)
     return resp
 
 
@@ -138,6 +158,21 @@ class TestFetchPage:
         assert body == {"items": [{"name": "maven-releases"}]}
 
 
+class TestReadBounded:
+    def test_oversized_body_aborts_instead_of_buffering(self):
+        resp = _streaming_response([b"x" * 10, b"x" * 10])
+        with pytest.raises(SonatypeNexusResponseTooLargeError):
+            _read_bounded(resp, max_bytes=15)
+
+    def test_slow_drip_body_aborts_on_total_deadline(self):
+        # A body that stays under the per-read timeout but never finishes is aborted once the
+        # total-transfer deadline passes, rather than holding the worker indefinitely.
+        resp = _streaming_response([b"x", b"x"])
+        with mock.patch(f"{_MODULE}.time.monotonic", side_effect=[0.0, 601.0]):
+            with pytest.raises(SonatypeNexusResponseTimeoutError):
+                _read_bounded(resp, max_bytes=1_000_000, max_seconds=600)
+
+
 class TestValidateCredentials:
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_valid_credentials(self, mock_session):
@@ -211,6 +246,29 @@ class TestGetRowsTopLevel:
 
         assert batches == []
         manager.save_state.assert_not_called()
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_non_advancing_token_raises(self, mock_session):
+        # A server that keeps returning the same token would loop forever; it must fail instead.
+        mock_session.return_value.get.return_value = _response({"items": [{"id": "1"}], "continuationToken": "STUCK"})
+
+        manager = _make_manager()
+        with pytest.raises(SonatypeNexusPaginationError):
+            list(get_rows("https://n.example.com", "u", "p", "tasks", mock.MagicMock(), manager))
+
+    @mock.patch(f"{_MODULE}.MAX_PAGES_PER_ENDPOINT", 2)
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_page_ceiling_raises(self, mock_session):
+        # A server that hands out fresh tokens forever is bounded by the page ceiling.
+        mock_session.return_value.get.side_effect = [
+            _response({"items": [{"id": "1"}], "continuationToken": "A"}),
+            _response({"items": [{"id": "2"}], "continuationToken": "B"}),
+            _response({"items": [{"id": "3"}], "continuationToken": "C"}),
+        ]
+
+        manager = _make_manager()
+        with pytest.raises(SonatypeNexusPaginationError):
+            list(get_rows("https://n.example.com", "u", "p", "tasks", mock.MagicMock(), manager))
 
 
 class TestGetRowsRepositoryFanout:
@@ -303,6 +361,19 @@ class TestGetRowsRepositoryFanout:
         # docker-proxy 404s (deleted between enumeration and fetch) and is skipped;
         # maven-releases still syncs.
         assert [row["id"] for batch in batches for row in batch] == ["m1"]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_non_advancing_token_raises(self, mock_session):
+        # A repository whose pages never advance the token must fail rather than loop forever.
+        mock_session.return_value.get.side_effect = [
+            _response(_REPOSITORIES),
+            _response({"items": [{"id": "d1"}], "continuationToken": "STUCK"}),
+            _response({"items": [{"id": "d2"}], "continuationToken": "STUCK"}),
+        ]
+
+        manager = _make_manager()
+        with pytest.raises(SonatypeNexusPaginationError):
+            list(get_rows("https://n.example.com", "u", "p", "components", mock.MagicMock(), manager))
 
 
 class TestSonatypeNexusSource:

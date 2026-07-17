@@ -1,3 +1,5 @@
+import json
+import time
 import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
@@ -20,9 +22,67 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_n
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRY_ATTEMPTS = 5
 
+# The host is customer-controlled, so response bodies are streamed and read under a byte cap —
+# an arbitrarily large (or endless) 200 body must fail the sync instead of exhausting worker
+# memory. The cap applies to decoded bytes, so a gzip bomb can't slip past it.
+MAX_RESPONSE_BYTES = 512 * 1024 * 1024
+_READ_CHUNK_BYTES = 1024 * 1024
+# The per-read timeout only bounds the gap between chunks, so a server can trickle one byte just
+# before each read timeout and keep a worker occupied indefinitely. A monotonic total-transfer
+# deadline caps how long a single body read may take end to end, independent of byte pacing.
+MAX_RESPONSE_SECONDS = 600
+# Bytes read from an error body for a diagnostic message — never needed in full.
+_ERROR_SNIPPET_BYTES = 2048
+# A misbehaving (or malicious) instance can hand out continuation tokens forever, keeping the
+# worker paginating until the activity timeout on every retry. Cap the pages fetched per endpoint
+# (per repository for the fan-out endpoints) so runaway pagination fails the sync loudly instead.
+MAX_PAGES_PER_ENDPOINT = 1_000_000
+
+RESPONSE_TOO_LARGE_ERROR = "Nexus API response exceeded the size limit"
+RESPONSE_TIMEOUT_ERROR = "Nexus API response exceeded the download time limit"
+
 
 class SonatypeNexusRetryableError(Exception):
     pass
+
+
+class SonatypeNexusResponseTooLargeError(Exception):
+    pass
+
+
+class SonatypeNexusResponseTimeoutError(Exception):
+    pass
+
+
+class SonatypeNexusPaginationError(Exception):
+    pass
+
+
+def _read_bounded(response: requests.Response, max_bytes: int, max_seconds: float = MAX_RESPONSE_SECONDS) -> bytes:
+    """Read a streamed response body under both a byte cap and a total-transfer deadline.
+
+    The deadline covers time spent waiting for each chunk, so a slow-drip body that stays under
+    the per-read timeout but never finishes is aborted instead of holding the worker.
+    """
+    total = 0
+    chunks: list[bytes] = []
+    deadline = time.monotonic() + max_seconds
+    for chunk in response.iter_content(chunk_size=_READ_CHUNK_BYTES):
+        total += len(chunk)
+        if total > max_bytes:
+            raise SonatypeNexusResponseTooLargeError(f"{RESPONSE_TOO_LARGE_ERROR} ({max_bytes} bytes)")
+        if time.monotonic() > deadline:
+            raise SonatypeNexusResponseTimeoutError(f"{RESPONSE_TIMEOUT_ERROR} ({max_seconds:g}s)")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _error_snippet(response: requests.Response) -> str:
+    try:
+        chunk = next(response.iter_content(chunk_size=_ERROR_SNIPPET_BYTES), b"")
+        return chunk[:_ERROR_SNIPPET_BYTES].decode("utf-8", errors="replace")
+    except Exception:
+        return ""
 
 
 @dataclasses.dataclass
@@ -113,16 +173,18 @@ def _build_url(base_url: str, params: dict[str, Any]) -> str:
     reraise=True,
 )
 def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogger) -> dict[str, Any]:
-    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+    # `stream=True` so the body is only pulled into memory through `_read_bounded` /
+    # `_error_snippet` under a byte cap — a huge or endless 200 body from a customer-controlled
+    # host fails the sync instead of exhausting the worker.
+    with session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, stream=True) as response:
+        if response.status_code == 429 or response.status_code >= 500:
+            raise SonatypeNexusRetryableError(f"Nexus API error (retryable): status={response.status_code}, url={url}")
 
-    if response.status_code == 429 or response.status_code >= 500:
-        raise SonatypeNexusRetryableError(f"Nexus API error (retryable): status={response.status_code}, url={url}")
+        if not response.ok:
+            logger.error(f"Nexus API error: status={response.status_code}, body={_error_snippet(response)}, url={url}")
+            response.raise_for_status()
 
-    if not response.ok:
-        logger.error(f"Nexus API error: status={response.status_code}, body={response.text[:500]}, url={url}")
-        response.raise_for_status()
-
-    body = response.json()
+        body = json.loads(_read_bounded(response, MAX_RESPONSE_BYTES))
     # /repositories returns a plain JSON array; wrap it into the paginated
     # endpoints' {items, continuationToken} envelope for uniform handling.
     return body if isinstance(body, dict) else {"items": body}
@@ -136,8 +198,11 @@ def validate_credentials(host: str, username: str, password: str) -> bool:
     """
     try:
         url = f"{_base_url(host)}/repositories"
-        response = _get_session(username, password).get(url, timeout=15)
-        return response.status_code == 200
+        # `stream=True` and a `with` block so only the status code is read and the connection is
+        # closed immediately — the probe never needs the body, so a huge response from a
+        # misbehaving host can't buffer into memory on the inline API worker.
+        with _get_session(username, password).get(url, timeout=15, stream=True) as response:
+            return response.status_code == 200
     except Exception:
         return False
 
@@ -179,6 +244,7 @@ def _get_repository_fanout_rows(
         resume_token = None  # only the resumed-into repository uses the saved token
 
         try:
+            page_count = 0
             while True:
                 params: dict[str, Any] = {"repository": repository}
                 if token:
@@ -187,6 +253,7 @@ def _get_repository_fanout_rows(
                 data = _fetch_page(session, _build_url(endpoint_url, params), logger)
                 items = data["items"]
                 next_token = data.get("continuationToken")
+                page_count += 1
 
                 if items:
                     yield items
@@ -199,6 +266,16 @@ def _get_repository_fanout_rows(
 
                 if not next_token:
                     break
+                # A token that doesn't advance (or a runaway stream of fresh ones) would loop until
+                # the activity timeout on every retry — reject both so it fails the sync instead.
+                if next_token == token:
+                    raise SonatypeNexusPaginationError(
+                        f"Nexus returned a non-advancing continuation token for repository={repository}"
+                    )
+                if page_count >= MAX_PAGES_PER_ENDPOINT:
+                    raise SonatypeNexusPaginationError(
+                        f"Nexus pagination exceeded {MAX_PAGES_PER_ENDPOINT} pages for repository={repository}"
+                    )
                 token = next_token
         except requests.HTTPError as exc:
             # A repository deleted between enumeration and this fetch 404s. Skip it
@@ -245,6 +322,7 @@ def get_rows(
     if token:
         logger.debug(f"Sonatype Nexus: resuming {endpoint} from continuation token")
 
+    page_count = 0
     while True:
         params: dict[str, Any] = {"continuationToken": token} if token else {}
         data = _fetch_page(session, _build_url(endpoint_url, params), logger)
@@ -252,12 +330,22 @@ def get_rows(
         # `items` is the required envelope field; fail fast if a 200 response ever omits it.
         items = data["items"]
         next_token = data.get("continuationToken")
+        page_count += 1
 
         if items:
             yield items
 
         if not next_token:
             break
+
+        # A token that doesn't advance (or a runaway stream of fresh ones) would loop until the
+        # activity timeout on every retry — reject both so it fails the sync instead.
+        if next_token == token:
+            raise SonatypeNexusPaginationError(f"Nexus returned a non-advancing continuation token for {endpoint}")
+        if page_count >= MAX_PAGES_PER_ENDPOINT:
+            raise SonatypeNexusPaginationError(
+                f"Nexus pagination exceeded {MAX_PAGES_PER_ENDPOINT} pages for {endpoint}"
+            )
 
         token = next_token
         # Save state AFTER yielding so a crash re-yields the in-flight page rather
