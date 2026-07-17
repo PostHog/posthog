@@ -105,7 +105,7 @@ function parseRateLimitFromConfig(
  * Earlier shapes may have stored the bare inner group. Accept either; reject
  * anything that doesn't look like a group.
  */
-function parseFilterGroup(raw: unknown): FilterGroupNode | null {
+export function parseFilterGroup(raw: unknown): FilterGroupNode | null {
     if (!raw || typeof raw !== 'object') {
         return null
     }
