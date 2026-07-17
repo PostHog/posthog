@@ -871,9 +871,19 @@ export const productUrls = {
             msg?: string
         }
     ): string => {
+        const encodePathSegment = (value: string): string => {
+            const encodedValue = encodeURIComponent(value).replace(
+                /[!'()*]/g,
+                (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+            )
+            return encodeURIComponent(encodedValue).replace(
+                /[!'()*]/g,
+                (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+            )
+        }
         const queryParams = new URLSearchParams(params)
         const stringifiedParams = queryParams.toString()
-        return `/ai-observability/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
+        return `/ai-observability/traces/${encodePathSegment(id)}${stringifiedParams ? `?${stringifiedParams}` : ''}`
     },
     aiObservabilityUsers: (): string => '/ai-observability/users',
     aiObservabilityErrors: (): string => '/ai-observability/errors',
@@ -1788,6 +1798,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.engineeringAnalytics(),
         flag: FEATURE_FLAGS.ENGINEERING_ANALYTICS,
         tags: ['alpha'],
+        pinnedByDefault: true,
         sceneKey: 'EngineeringAnalytics',
         sceneKeys: [
             'EngineeringAnalytics',
@@ -2191,6 +2202,19 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityClusters',
             'AIObservabilityCluster',
         ],
+    },
+    {
+        path: 'Tasks',
+        intents: [ProductKey.TASKS],
+        category: ProductItemCategory.TOOLS,
+        type: 'task',
+        iconType: 'task',
+        iconColor: ['var(--product-tasks-light)', 'var(--product-tasks-dark)'] as FileSystemIconColor,
+        href: urls.taskTracker(),
+        sceneKey: 'TaskTracker',
+        flag: FEATURE_FLAGS.TASKS,
+        pinnedByDefault: true,
+        sceneKeys: ['TaskTracker'],
     },
     {
         path: 'Toolbar',

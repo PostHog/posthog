@@ -218,6 +218,7 @@ class TestEvalReportContent(SimpleTestCase):
 
     def test_roundtrip(self):
         original = EvalReportContent(
+            evaluation_target="trace",
             title="T",
             sections=[ReportSection(title="S", content="C")],
             citations=[Citation(generation_id="g", trace_id="t", reason="r")],
@@ -229,6 +230,7 @@ class TestEvalReportContent(SimpleTestCase):
         self.assertEqual(roundtripped.sections[0], original.sections[0])
         self.assertEqual(roundtripped.citations[0], original.citations[0])
         self.assertEqual(roundtripped.metrics, original.metrics)
+        self.assertEqual(roundtripped.evaluation_target, "trace")
 
 
 class TestSectionBounds(SimpleTestCase):
