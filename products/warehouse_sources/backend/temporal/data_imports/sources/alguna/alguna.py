@@ -54,6 +54,8 @@ def alguna_source(
             # Alguna has no top-level `total`; termination is short/empty page (OffsetPaginator default).
             "paginator": OffsetPaginator(limit=PAGE_LIMIT, total_path=None),
         },
+        # Per-resource settings are fully specified below, so no shared defaults are needed.
+        "resource_defaults": {},
         "resources": [
             {
                 "name": endpoint,
