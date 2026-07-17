@@ -1,3 +1,4 @@
+import time
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -31,6 +32,13 @@ MAX_TOTAL_JOBS = 100_000
 # exhaust the import worker. The `tree=` selectors keep real responses tiny; this only trips on abuse.
 MAX_RESPONSE_BYTES = 50 * 1024 * 1024
 RESPONSE_CHUNK_BYTES = 1024 * 1024
+# Hard wall-clock deadline for reading a single response body. REQUEST_TIMEOUT_SECONDS is a per-read
+# socket timeout that resets whenever a byte arrives, so a server dripping data slowly could otherwise
+# hold the read loop open indefinitely; this bounds the total download regardless of drip rate.
+MAX_DOWNLOAD_SECONDS = 300
+# Bound windowed build pagination per job. A server returning a full page for every window would
+# otherwise loop forever; 1000 pages (~100k builds at BUILDS_PAGE_SIZE) is far above any real job.
+MAX_BUILD_PAGES_PER_JOB = 1000
 
 # Field selectors passed to Jenkins' `tree` param. Keeping them explicit (rather than `depth=`) means
 # we only pull the columns we store and never accidentally fetch large nested build/console payloads.
@@ -155,6 +163,7 @@ def _read_body_capped(response: requests.Response, url: str) -> None:
     A response over the cap raises (non-retryable — it won't shrink on retry) instead of being read
     into memory in full.
     """
+    deadline = time.monotonic() + MAX_DOWNLOAD_SECONDS
     buffer = bytearray()
     for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_BYTES):
         if not chunk:
@@ -163,6 +172,9 @@ def _read_body_capped(response: requests.Response, url: str) -> None:
         if len(buffer) > MAX_RESPONSE_BYTES:
             response.close()
             raise ValueError(f"Jenkins response exceeded the {MAX_RESPONSE_BYTES}-byte limit: url={url}")
+        if time.monotonic() > deadline:
+            response.close()
+            raise ValueError(f"Jenkins response exceeded the {MAX_DOWNLOAD_SECONDS}s download deadline: url={url}")
     # Cache the decoded body so downstream `.json()` reads from memory rather than re-reading the
     # (now consumed) stream.
     response._content = bytes(buffer)
@@ -335,7 +347,7 @@ def _iter_job_builds(
     timestamp) is re-emitted and deduped by merge on the primary key.
     """
     start = 0
-    while True:
+    for _page in range(MAX_BUILD_PAGES_PER_JOB):
         tree = f"builds[{BUILD_TREE_FIELDS}]{{{start},{start + BUILDS_PAGE_SIZE}}}"
         response = _fetch(session, _api_json_url(job_url, tree), auth, logger)
         body = response.json()
@@ -356,6 +368,10 @@ def _iter_job_builds(
         if len(builds) < BUILDS_PAGE_SIZE:
             return
         start += BUILDS_PAGE_SIZE
+
+    # Ran the page cap without reaching a short page — a real job never has this many builds, so a
+    # server returning full pages forever is hostile/misconfigured. Stop rather than loop unbounded.
+    logger.warning(f"Jenkins: reached the {MAX_BUILD_PAGES_PER_JOB}-page build cap for {job_url}; stopping pagination")
 
 
 def _get_jobs_rows(

@@ -152,6 +152,16 @@ class TestIterJobBuilds:
         assert rows == []
         assert fetch.call_count == 1
 
+    def test_stops_at_page_cap(self) -> None:
+        # A server returning a full page for every window would loop forever; the page cap bounds it.
+        full_page = _resp({"builds": self._builds(2, 1)})
+        with mock.patch.object(jenkins, "BUILDS_PAGE_SIZE", 2):
+            with mock.patch.object(jenkins, "MAX_BUILD_PAGES_PER_JOB", 3):
+                with mock.patch.object(jenkins, "_fetch", return_value=full_page) as fetch:
+                    rows = list(_iter_job_builds(MagicMock(), "https://j/", ("u", "t"), MagicMock(), watermark_ms=None))
+        assert fetch.call_count == 3
+        assert len(rows) == 6
+
 
 class TestDiscoverJobs:
     def test_recurses_into_containers_and_dedupes(self) -> None:
@@ -255,6 +265,17 @@ class TestReadBodyCapped:
         response.iter_content.return_value = iter([b'{"ok":', b" true}"])
         jenkins._read_body_capped(response, "https://j/")
         assert response._content == b'{"ok": true}'
+
+    def test_aborts_on_download_deadline(self) -> None:
+        # A slow drip that stays under the per-read socket timeout must still be cut off by the hard
+        # wall-clock deadline instead of holding the worker open indefinitely.
+        response = MagicMock()
+        response.iter_content.return_value = iter([b"x", b"y", b"z"])
+        with mock.patch.object(jenkins, "MAX_DOWNLOAD_SECONDS", 10):
+            with mock.patch.object(jenkins.time, "monotonic", side_effect=[0, 100, 200]):
+                with pytest.raises(ValueError):
+                    jenkins._read_body_capped(response, "https://j/")
+        response.close.assert_called_once()
 
 
 def _fake_manager(state: JenkinsResumeConfig | None) -> MagicMock:
