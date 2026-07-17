@@ -71,6 +71,7 @@ export function AlertEditorActions({
 export interface AlertEditorProps extends AlertEditorHeaderProps, AlertEditorActionsProps {
     children: ReactNode
     className?: string
+    contentClassName?: string
 }
 
 export function AlertEditor({
@@ -79,14 +80,15 @@ export function AlertEditor({
     onBack,
     children,
     className,
+    contentClassName,
     ...actionsProps
 }: AlertEditorProps): JSX.Element {
     return (
-        <div className={cn('flex h-full min-h-0 flex-col overflow-hidden', className)}>
+        <div className={cn('flex flex-col', className)}>
             <header className="border-b p-4">
                 <AlertEditorHeader title={title} description={description} onBack={onBack} />
             </header>
-            <section className="min-h-0 flex-1 overflow-y-auto p-4">{children}</section>
+            <section className={cn('p-4', contentClassName)}>{children}</section>
             <footer className="flex flex-wrap items-center justify-end gap-2 border-t p-4">
                 <AlertEditorActions {...actionsProps} />
             </footer>

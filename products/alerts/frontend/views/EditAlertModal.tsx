@@ -257,6 +257,8 @@ export function EditAlertModal({
                 >
                     <AlertEditor
                         title={creatingNewAlert ? 'New alert' : 'Edit alert'}
+                        className="min-h-0 flex-1 overflow-hidden"
+                        contentClassName="min-h-0 flex-1 overflow-y-auto"
                         onBack={handleClose}
                         isEditing={!creatingNewAlert}
                         isSubmitting={isAlertFormSubmitting}

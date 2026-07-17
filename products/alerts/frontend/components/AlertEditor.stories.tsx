@@ -48,12 +48,7 @@ function AlertEditorStory({
 
     return (
         <div className="bg-default p-4">
-            <Form
-                logic={alertEditorStoryLogic}
-                formKey="alertForm"
-                enableFormOnSubmit
-                className="h-[600px] max-w-[640px] overflow-hidden rounded border bg-surface-primary"
-            >
+            <Form logic={alertEditorStoryLogic} formKey="alertForm" enableFormOnSubmit>
                 <AlertEditor
                     title={title}
                     description={description}

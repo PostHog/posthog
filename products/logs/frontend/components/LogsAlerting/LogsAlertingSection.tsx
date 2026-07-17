@@ -92,6 +92,8 @@ function LogsAlertModalContent({ editingAlert }: { editingAlert: LogsAlertConfig
                 >
                     <AlertEditor
                         title={editingAlert ? 'Edit alert' : 'New alert'}
+                        className="min-h-0 flex-1 overflow-hidden"
+                        contentClassName="min-h-0 flex-1 overflow-y-auto"
                         description="Alerts are checked every 5 minutes."
                         isEditing={editingAlert !== null}
                         isSubmitting={isAlertFormSubmitting}
