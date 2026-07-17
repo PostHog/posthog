@@ -10,7 +10,7 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Literal, cast
+from typing import Any, Literal, TypedDict, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -46,6 +46,27 @@ GITHUB_BRANCH_CACHE_TTL_SECONDS = 60 * 10
 GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
 
 INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY = "installation_unavailable_since"
+
+
+class NormalizedPRComment(TypedDict):
+    """Wire shape for a PR comment shared by the read path and the review-comment write endpoints."""
+
+    id: str
+    author: str | None
+    author_avatar_url: str | None
+    body: str
+    created_at: str | None
+    url: str | None
+    comment_type: str
+    # Diff-anchor fields are only populated for review comments (None for conversation comments).
+    path: str | None
+    line: int | None
+    start_line: int | None
+    side: str | None
+    diff_hunk: str | None
+    in_reply_to_id: str | None
+    commit_id: str | None
+    reactions: list[dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -974,8 +995,8 @@ class GitHubIntegrationBase:
         return self.comment_on_pull_request(f"{owner}/{repo}", pr_number, body)
 
     def get_pull_request_checks(self, repository: str, pr_number: int) -> dict[str, Any]:
-        """Fetch the CI status for a PR — GitHub Actions check runs plus legacy commit statuses,
-        merged into one normalized list (mirrors the checks GitHub shows on the PR page).
+        """Fetch the CI status for a PR — GitHub Actions check runs plus commit statuses from external
+        CI and GitHub Apps, merged into one normalized list (mirrors the checks GitHub shows on the PR page).
 
         Returns ``{"success": True, "checks": [...]}`` on success, or ``{"success": False, "error": ...}``
         on a handled failure. Rate limits raise :class:`GitHubRateLimitError`.
@@ -1002,6 +1023,7 @@ class GitHubIntegrationBase:
             try:
                 runs_body = runs_response.json()
             except Exception:
+                logger.warning("GitHubIntegration: check-runs non-JSON response", repository=repo_path)
                 runs_body = {}
             for run in (runs_body.get("check_runs") if isinstance(runs_body, dict) else None) or []:
                 if not isinstance(run, dict):
@@ -1015,7 +1037,8 @@ class GitHubIntegrationBase:
                     }
                 )
 
-        # Legacy commit statuses (external CI posting via the Statuses API) — combined per context.
+        # Commit statuses remain the mechanism used by external CI and GitHub Apps, including our Visual
+        # Review integration. The Statuses API returns them separately from Checks-API check runs.
         status_responses, statuses_complete = self._installation_authenticated_get_pages(
             f"https://api.github.com/repos/{repo_path}/commits/{head_sha}/status",
             endpoint="/repos/{owner}/{repo}/commits/{ref}/status",
@@ -1027,6 +1050,7 @@ class GitHubIntegrationBase:
             try:
                 status_body = status_response.json()
             except Exception:
+                logger.warning("GitHubIntegration: commit-status non-JSON response", repository=repo_path)
                 status_body = {}
             for st in (status_body.get("statuses") if isinstance(status_body, dict) else None) or []:
                 if not isinstance(st, dict):
@@ -1045,7 +1069,7 @@ class GitHubIntegrationBase:
 
     @staticmethod
     def _map_commit_status_state(state: str | None) -> tuple[str, str | None]:
-        """Map a legacy commit-status ``state`` onto the check-run ``(status, conclusion)`` shape."""
+        """Map a commit-status ``state`` onto the check-run ``(status, conclusion)`` shape."""
         if state == "success":
             return "completed", "success"
         if state in ("failure", "error"):
@@ -1053,7 +1077,7 @@ class GitHubIntegrationBase:
         return "in_progress", None
 
     @staticmethod
-    def normalize_pr_comment(raw: object, comment_type: str) -> dict[str, Any] | None:
+    def normalize_pr_comment(raw: object, comment_type: str) -> NormalizedPRComment | None:
         """Shape a raw GitHub comment into the wire contract shared by the read path and the write
         endpoints. ``reactions`` is left empty; the read path fills it for review comments that have any."""
         if not isinstance(raw, dict):
@@ -1090,7 +1114,7 @@ class GitHubIntegrationBase:
         """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
 
-        comments: list[dict[str, Any]] = []
+        comments: list[NormalizedPRComment] = []
         for path, comment_type, endpoint in (
             (f"issues/{pr_number}/comments", "conversation", "/repos/{owner}/{repo}/issues/{issue_number}/comments"),
             (f"pulls/{pr_number}/comments", "review", "/repos/{owner}/{repo}/pulls/{pull_number}/comments"),

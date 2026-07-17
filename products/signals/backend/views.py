@@ -56,7 +56,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
-from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.github_integration_base import GitHubIntegrationBase, NormalizedPRComment
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
@@ -2182,7 +2182,7 @@ class SignalReportViewSet(
         serializer.is_valid(raise_exception=True)
         params = serializer.validated_data
 
-        resolved = self._resolve_user_github_and_pr(report, request)
+        resolved = self._resolve_user_github_and_pr(report, cast(User, request.user))
         if isinstance(resolved, Response):
             return resolved
         user_github, repository, pr_number = resolved
@@ -2263,7 +2263,7 @@ class SignalReportViewSet(
     def pr_review_comment(self, request: Request, *args, **kwargs) -> Response:
         report = cast(SignalReport, self.get_object())
         comment_id = str(kwargs["comment_id"])
-        resolved = self._resolve_user_github_and_pr(report, request)
+        resolved = self._resolve_user_github_and_pr(report, cast(User, request.user))
         if isinstance(resolved, Response):
             return resolved
         user_github, repository, pr_number = resolved
@@ -2312,7 +2312,7 @@ class SignalReportViewSet(
         comment_id = str(kwargs["comment_id"])
         serializer = PullRequestReviewCommentReactionCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        resolved = self._resolve_user_github_and_pr(report, request)
+        resolved = self._resolve_user_github_and_pr(report, cast(User, request.user))
         if isinstance(resolved, Response):
             return resolved
         user_github, repository, pr_number = resolved
@@ -2361,7 +2361,7 @@ class SignalReportViewSet(
         report = cast(SignalReport, self.get_object())
         comment_id = str(kwargs["comment_id"])
         reaction_id = str(kwargs["reaction_id"])
-        resolved = self._resolve_user_github_and_pr(report, request)
+        resolved = self._resolve_user_github_and_pr(report, cast(User, request.user))
         if isinstance(resolved, Response):
             return resolved
         user_github, repository, pr_number = resolved
@@ -2382,7 +2382,7 @@ class SignalReportViewSet(
         cache.delete(f"signals:pr-github:{self.team.id}:{repository}:{pr_number}:get_pull_request_comments")
 
     @staticmethod
-    def _normalize_pr_review_comment(raw: dict[str, Any]) -> dict[str, Any]:
+    def _normalize_pr_review_comment(raw: dict[str, Any]) -> NormalizedPRComment:
         """Shape a raw GitHub review comment via the shared read-path normalizer (a fresh write never
         carries reactions)."""
         normalized = GitHubIntegrationBase.normalize_pr_comment(raw, "review")
@@ -2390,7 +2390,7 @@ class SignalReportViewSet(
         return normalized
 
     def _resolve_user_github_and_pr(
-        self, report: SignalReport, request: Request
+        self, report: SignalReport, user: User
     ) -> tuple[UserGitHubIntegration, str, int] | Response:
         """Resolve the requesting user's personal GitHub integration and the report's PR, or a Response
         error (404 no PR, 403 no personal GitHub connection) to return as-is."""
@@ -2400,8 +2400,7 @@ class SignalReportViewSet(
                 {"error": "This report has no implementation pull request."}, status=status.HTTP_404_NOT_FOUND
             )
         user_integration = (
-            # request.user is authenticated here (the action requires a scope), so it's a real User.
-            UserIntegration.objects.filter(user=cast(User, request.user), kind=UserIntegration.IntegrationKind.GITHUB)
+            UserIntegration.objects.filter(user=user, kind=UserIntegration.IntegrationKind.GITHUB)
             .order_by("created_at")
             .first()
         )
