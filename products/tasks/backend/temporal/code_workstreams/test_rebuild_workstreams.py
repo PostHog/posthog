@@ -1,6 +1,7 @@
 import random
 from collections import Counter
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 from freezegun import freeze_time
@@ -18,6 +19,7 @@ from products.tasks.backend.temporal.code_workstreams.activities.rebuild_workstr
     _build_pr_input,
     _repo_from_pr_url,
     _select_recent_task_ids,
+    _task_to_input,
     rebuild_team_workstreams,
 )
 from products.tasks.backend.temporal.code_workstreams.constants import ACTIVITY_WINDOW
@@ -68,6 +70,43 @@ def test_parse_run_state_reads_pr_base_branch(state, expected):
 )
 def test_repo_from_pr_url(pr_url, expected):
     assert _repo_from_pr_url(pr_url) == expected
+
+
+def test_task_to_input_preserves_merge_signal_from_older_run():
+    pr_url = "https://github.com/org/repo/pull/1"
+    merged_run = SimpleNamespace(
+        id="merged-run",
+        team_id=1,
+        created_at=datetime(2026, 5, 30, tzinfo=UTC),
+        updated_at=datetime(2026, 5, 30, tzinfo=UTC),
+        status=TaskRun.Status.COMPLETED,
+        branch=None,
+        state={},
+        output={"pr_url": pr_url, "pr_merged": True},
+    )
+    latest_run = SimpleNamespace(
+        id="latest-run",
+        team_id=1,
+        created_at=datetime(2026, 5, 31, tzinfo=UTC),
+        updated_at=datetime(2026, 5, 31, tzinfo=UTC),
+        status=TaskRun.Status.COMPLETED,
+        branch=None,
+        state={},
+        output={"pr_url": pr_url},
+    )
+    task = SimpleNamespace(
+        id="task-id",
+        team_id=1,
+        title="Task",
+        updated_at=datetime(2026, 5, 31, tzinfo=UTC),
+        repository=None,
+        latest_run=latest_run,
+        runs=SimpleNamespace(all=lambda: [merged_run, latest_run]),
+    )
+
+    task_input, _ = _task_to_input(task)
+
+    assert task_input.cloud_pr_merged is True
 
 
 def test_build_pr_input_carries_head_branch():
