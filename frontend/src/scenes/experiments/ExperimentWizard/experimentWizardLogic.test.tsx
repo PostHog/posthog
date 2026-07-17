@@ -636,6 +636,22 @@ describe('experimentWizardLogic', () => {
                 }),
             })
         })
+
+        it('attemptSaveExperiment jumps to the first incomplete step instead of dead-ending', async () => {
+            logic.actions.setStep('analytics')
+            await expectLogic(logic).toMatchValues({ currentStep: 'analytics' })
+
+            // Empty name/key on the About step block the save, so the click should surface those
+            // errors and take the user back to About rather than silently doing nothing.
+            logic.actions.attemptSaveExperiment()
+
+            await expectLogic(logic).toMatchValues({
+                currentStep: 'about',
+                stepValidationErrors: partial({
+                    about: ['Name is required', 'Feature flag key is required'],
+                }),
+            })
+        })
     })
 
     describe('form submission', () => {

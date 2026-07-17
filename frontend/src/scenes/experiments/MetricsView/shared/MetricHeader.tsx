@@ -8,6 +8,7 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { experimentMetricsLogic } from 'scenes/experiments/experimentMetricsLogic'
 import { isMetricThresholdCueVisible } from 'scenes/experiments/ExperimentMetricThreshold'
 import { EXPOSURE_DEFAULT_EVENT, getExposureEventAndProperty } from 'scenes/experiments/exposureContract'
@@ -106,6 +107,10 @@ export const MetricHeader = ({
 
     const { openExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { openSharedMetricDetailModal } = useActions(sharedMetricDetailsModalLogic)
+
+    // A duplicate saves to the backend and refreshes results, which takes a few seconds. Reflect that
+    // in-flight state on the Duplicate control so the save isn't invisible and can't be triggered twice.
+    const { experimentUpdateLoading } = useValues(experimentLogic)
 
     const [menuVisible, setMenuVisible] = useState(false)
     const closeMenu = (): void => setMenuVisible(false)
@@ -246,7 +251,10 @@ export const MetricHeader = ({
                                                 },
                                                 {
                                                     label: 'Duplicate',
-                                                    icon: <IconCopy />,
+                                                    icon: experimentUpdateLoading ? <Spinner /> : <IconCopy />,
+                                                    disabledReason: experimentUpdateLoading
+                                                        ? 'Saving changes…'
+                                                        : undefined,
                                                     onClick: () => {
                                                         closeMenu()
                                                         handleDuplicate()

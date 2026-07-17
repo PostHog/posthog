@@ -148,6 +148,9 @@ export interface experimentWizardLogicActions {
     _applyStep: (step: ExperimentWizardStep) => {
         step: ExperimentWizardStep
     }
+    attemptSaveExperiment: () => {
+        value: true
+    }
     markStepDeparted: (step: ExperimentWizardStep) => {
         step: ExperimentWizardStep
     }
@@ -245,6 +248,9 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         setStep: (step: ExperimentWizardStep) => ({ step }),
         nextStep: true,
         prevStep: true,
+        // Save attempt that first surfaces any blocking errors and jumps to the incomplete step,
+        // rather than dead-ending on a disabled button when the problem is on an earlier step.
+        attemptSaveExperiment: true,
         // Internal: applies the step change after departure logic runs.
         _applyStep: (step: ExperimentWizardStep) => ({ step }),
         markStepDeparted: (step: ExperimentWizardStep) => ({ step }),
@@ -465,6 +471,22 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             for (const step of WIZARD_STEPS) {
                 actions.markStepDeparted(step)
             }
+        },
+        attemptSaveExperiment: () => {
+            // Reveal every step's errors so nothing stays hidden behind a step the user never departed.
+            for (const step of WIZARD_STEPS) {
+                actions.markStepDeparted(step)
+            }
+            // If a step is incomplete, take the user straight to the first one that needs attention.
+            // Its inline errors are now visible, so the click leads somewhere instead of no-oping.
+            const firstInvalidStep = WIZARD_STEPS.find((step) => values.stepValidationErrors[step]?.length > 0)
+            if (firstInvalidStep) {
+                if (firstInvalidStep !== values.currentStep) {
+                    actions._applyStep(firstInvalidStep)
+                }
+                return
+            }
+            actions.saveExperiment()
         },
     })),
 
