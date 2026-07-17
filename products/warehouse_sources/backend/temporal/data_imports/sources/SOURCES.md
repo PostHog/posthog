@@ -116,6 +116,7 @@ the row lists both.
 | coassemble                       | HTTP                        | requests                                                        | ✅                          |
 | coda                             | HTTP                        | requests                                                        | ✅                          |
 | codacy                           | HTTP                        | requests                                                        | ✅                          |
+| codecov                          | HTTP                        | requests                                                        | ✅                          |
 | codefresh                        | HTTP                        | requests                                                        | ✅                          |
 | cody                             | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | cohere                           | HTTP                        | requests                                                        | ✅                          |
@@ -615,6 +616,7 @@ doesn't conflict with concurrent PRs.
 - cloudbeds
 - coassemble
 - cockroachdb
+- codacy
 - codecov
 - confluent_cloud
 - constant_contact
