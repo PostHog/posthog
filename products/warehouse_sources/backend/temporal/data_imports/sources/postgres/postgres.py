@@ -128,6 +128,14 @@ _MAX_SETUP_CONNECTION_DROPPED_RETRIES = 5
 # as sustained and re-raised for Temporal to retry the whole activity.
 _MAX_INITIAL_READ_DROP_RETRIES = 5
 
+# Bounded in-process retries for a source-side lock_timeout hit while opening the main server-cursor
+# read *before* the first row is yielded — the DECLARE waited past the source's lock_timeout for a
+# lock another transaction held (a concurrent DDL / VACUUM FULL taking ACCESS EXCLUSIVE conflicts
+# with our ACCESS SHARE). It's transient: the lock frees once that transaction ends. At offset 0
+# nothing has been emitted, so re-running the read from scratch is safe for any sync type. Past this
+# the conflict is treated as sustained and re-raised for Temporal to retry the whole activity.
+_MAX_INITIAL_READ_LOCK_TIMEOUT_RETRIES = 5
+
 
 def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -> bool:
     """Return whether this source must connect over SSL/TLS.
@@ -3512,6 +3520,7 @@ def postgres_source(
                 return
 
             initial_read_drop_retries = 0
+            initial_read_lock_timeout_retries = 0
             while True:
                 offset = 0
                 try:
@@ -3586,6 +3595,26 @@ def postgres_source(
                     )
                     if timeout_error is not None:
                         raise timeout_error from e
+                    raise
+                except psycopg.errors.LockNotAvailable as e:
+                    # The server-cursor DECLARE waited past the source's lock_timeout for a lock
+                    # another transaction holds (a concurrent DDL / VACUUM FULL takes ACCESS
+                    # EXCLUSIVE, which conflicts with our ACCESS SHARE). It's transient — the lock
+                    # frees once that transaction ends — so it must stay retryable and is never a
+                    # NonRetryableError. LockNotAvailable subclasses OperationalError, so this clause
+                    # must precede the connection-dropped handler below. At offset 0 nothing has been
+                    # emitted, so re-running the read from scratch is safe for any sync type; retry in
+                    # process with bounded backoff instead of failing the activity and flooding error
+                    # tracking. Once a row is out, or the conflict is sustained, propagate so Temporal
+                    # retries the whole activity.
+                    if offset == 0 and initial_read_lock_timeout_retries < _MAX_INITIAL_READ_LOCK_TIMEOUT_RETRIES:
+                        initial_read_lock_timeout_retries += 1
+                        logger.debug(
+                            f"Lock timeout before first row ({e}). Retrying read "
+                            f"(attempt {initial_read_lock_timeout_retries}/{_MAX_INITIAL_READ_LOCK_TIMEOUT_RETRIES})."
+                        )
+                        time.sleep(min(2 * initial_read_lock_timeout_retries, 30))
+                        continue
                     raise
                 except _CONNECTION_DROPPED_ERROR_TYPES as e:
                     # The server cursor holds a transaction open across the slow

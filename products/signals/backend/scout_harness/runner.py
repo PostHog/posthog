@@ -145,7 +145,7 @@ async def arun_signals_scout(
             extra={"team_id": team_id},
         )
     skill = await database_sync_to_async(load_skill_for_run, thread_sensitive=False)(
-        team, skill_name, version=skill_version
+        team, skill_name, version=skill_version, include_authors=True
     )
     config = await database_sync_to_async(_resolve_config, thread_sensitive=False)(team, skill.name)
 

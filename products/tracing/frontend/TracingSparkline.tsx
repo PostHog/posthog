@@ -21,6 +21,25 @@ import type { TracingSparklineData, VisibleSpanTimeRange } from './tracingDataLo
 import type { TracingChartType } from './tracingFiltersLogic'
 import { TracingLatencyHeatmap } from './TracingLatencyHeatmap'
 
+// Duration buckets are categorical (1ms, 2ms, 5ms, ...) — the 1-2-5 series is already
+// log-spaced, so a plain category axis renders it evenly. Shared with OperationHistogram
+// so the two duration histograms render identically.
+export function categoryDurationXScale(scale: AnyScaleOptions): AnyScaleOptions {
+    return {
+        ...scale,
+        type: 'category',
+        ticks: {
+            display: true,
+            maxRotation: 0,
+            maxTicksLimit: 8,
+            font: {
+                size: 10,
+                lineHeight: 1,
+            },
+        },
+    } as AnyScaleOptions
+}
+
 interface CompareConfig {
     fullStartMs: number
     fullEndMs: number
@@ -91,21 +110,7 @@ export function TracingSparkline({
     const withXScale = useCallback(
         (scale: AnyScaleOptions): AnyScaleOptions => {
             if (durationMode) {
-                // Duration buckets are categorical (1ms, 2ms, 5ms, ...) — the 1-2-5 series is
-                // already log-spaced, so a plain category axis renders it evenly.
-                return {
-                    ...scale,
-                    type: 'category',
-                    ticks: {
-                        display: true,
-                        maxRotation: 0,
-                        maxTicksLimit: 8,
-                        font: {
-                            size: 10,
-                            lineHeight: 1,
-                        },
-                    },
-                } as AnyScaleOptions
+                return categoryDurationXScale(scale)
             }
             return {
                 ...scale,

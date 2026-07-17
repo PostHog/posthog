@@ -174,8 +174,8 @@ class ReviewMeta:
     # early-exit gate skips a dead re-trigger turn. Distinct from `snapshotted` (head moved) because a
     # head can be unchanged yet not-yet-published (a prior no-publish turn) and must still publish.
     already_published: bool
-    # New inline comments since the last turn's watermark — logged only for now (they don't force a
-    # turn yet; see ARCHITECTURE.md). Will gate the early-exit once ReviewHog reacts to comments.
+    # New inline comments since the last turn's watermark — logged only for now; they don't force a
+    # turn yet (see DECISIONS.md, Stage 5b). Will gate the early-exit once ReviewHog reacts to comments.
     new_comment_count: int
     # The PR author's GitHub login (`pr_metadata.author`), so the parent can resolve the acting user
     # whose enabled perspectives this review applies.
@@ -216,7 +216,7 @@ class ResolveActingUserResult:
     # `review_labeled_prs` is the AUTHOR's opt-out: when the acting user is the default-user
     # fallback, it is forced True — a borrowed user's personal switch never governs someone else's PR.
     review_labeled_prs: bool = True
-    urgency_threshold: str = IssuePriority.SHOULD_FIX.value
+    urgency_threshold: str = IssuePriority.CONSIDER.value
     review_inbox_prs: bool = False
     # Which chain link resolved: "author" | "default" | "override" (observability + tests).
     resolved_from: str = "author"
@@ -336,9 +336,9 @@ class BuildBodyInput:
     run_index: int
     # This turn's survivor ids (`DedupResult.issue_ids`); content reloads from the finding rows.
     issue_ids: list[str]
-    # The acting user's threshold, snapshotted at resolve time. Defaulted so payloads serialized
-    # before the field existed still deserialize (they keep today's should_fix behavior).
-    urgency_threshold: str = IssuePriority.SHOULD_FIX.value
+    # The acting user's threshold, snapshotted at resolve time. Defaulted so pre-field payloads
+    # still deserialize — a missing field takes the current default, not the run's original gate.
+    urgency_threshold: str = IssuePriority.CONSIDER.value
 
 
 @dataclass
@@ -351,7 +351,7 @@ class PublishInput:
     repo: str
     pr_number: int
     # Same snapshot as `BuildBodyInput.urgency_threshold`, so body counts and comments agree.
-    urgency_threshold: str = IssuePriority.SHOULD_FIX.value
+    urgency_threshold: str = IssuePriority.CONSIDER.value
 
 
 @dataclass
