@@ -277,7 +277,7 @@ class SignalReport(UUIDModel):
             # - POTENTIAL -> CANDIDATE when the report is selected for summary generation
             # - READY -> CANDIDATE when new matching signals reopen the report for summary / agentic
             #   research. RESOLVED is terminal and never reopens: a recurring issue starts a fresh
-            #   report, linked to the resolved one via related_report artefacts (see
+            #   report, linked to the resolved one via related_to artefacts (see
             #   assign_and_emit_signal_activity).
             case (S.POTENTIAL | S.READY, S.CANDIDATE):
                 self.promoted_at = timezone.now()
@@ -706,7 +706,7 @@ class SignalReportArtefact(UUIDModel):
         TITLE_CHANGE = "title_change"
         SUMMARY_CHANGE = "summary_change"
         CODE_REVIEW = "code_review"
-        RELATED_REPORT = "related_report"
+        RELATED_TO = "related_to"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
@@ -737,7 +737,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.TITLE_CHANGE,
             ArtefactType.SUMMARY_CHANGE,
             ArtefactType.CODE_REVIEW,
-            ArtefactType.RELATED_REPORT,
+            ArtefactType.RELATED_TO,
         }
     )
 

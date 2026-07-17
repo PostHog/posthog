@@ -55,10 +55,10 @@ the safety judge first, then calls into this flow via a Temporal activity if the
 
 When a report was spawned because a signal would have grouped into an already-**resolved**
 report (resolved reports are terminal and never reopen), the grouping pipeline links the two with
-symmetric `related_report` artefacts (tagged `recurrence_of` / `recurred_as`). The caller activity
-resolves the `recurrence_of` link and passes `resolved_report_title` / `resolved_report_summary`.
-The initial research prompt then includes a `## Previously resolved report` block so the agent can
-judge whether the recurrence is a regression, a new dimension of the same issue, or distinct.
+symmetric `related_to` artefacts (one on each, pointing at the other). The caller activity finds the
+linked report that is resolved and passes `resolved_report_title` / `resolved_report_summary`. The
+initial research prompt then includes a `## Previously resolved report` block so the agent can judge
+whether the recurrence is a regression, a new dimension of the same issue, or distinct.
 
 In production, the `update` path is triggered automatically when a `ready` report is
 re-promoted after accumulating enough new signals. The caller activity (`temporal/agentic/report.py`)

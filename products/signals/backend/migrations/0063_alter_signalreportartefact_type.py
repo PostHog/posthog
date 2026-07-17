@@ -27,7 +27,7 @@ class Migration(migrations.Migration):
                     ("title_change", "Title Change"),
                     ("summary_change", "Summary Change"),
                     ("code_review", "Code Review"),
-                    ("related_report", "Related Report"),
+                    ("related_to", "Related To"),
                 ],
                 max_length=100,
             ),

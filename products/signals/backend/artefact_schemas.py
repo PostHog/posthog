@@ -447,28 +447,16 @@ class SummaryChange(BaseModel):
         return v
 
 
-# ── Related-report relationships ───────────────────────────────────────────────────
-#
-# A `related_report` artefact links one report to another. Links are written symmetrically — both
-# reports get an entry pointing at the other — so the relationship is discoverable from either side.
-# The recurrence pair below is written by the grouping pipeline when a signal that would have grouped
-# into an already-resolved report spawns a fresh report instead (resolved reports never reopen).
-RELATED_REPORT_RECURRENCE_OF = "recurrence_of"  # on the new report → the resolved report it recurred from
-RELATED_REPORT_RECURRED_AS = "recurred_as"  # on the resolved report → the new report it recurred as
-
-
-class RelatedReport(BaseModel):
-    """Content schema for a `related_report` artefact: a typed link from this report to another
+class RelatedTo(BaseModel):
+    """Content schema for a `related_to` artefact: an untyped link from this report to another
     `SignalReport`. Written symmetrically (both reports get an entry pointing at the other), so the
-    relationship survives without a model change and the grouping dataset can be reconstructed later.
+    link is discoverable from either side without a model change and the grouping dataset can be
+    reconstructed later. Direction isn't tracked — the two rows' `created_at` order captures it. The
+    grouping pipeline writes this pair when a signal that would have grouped into an already-resolved
+    report spawns a fresh report instead (resolved reports never reopen).
     """
 
     report_id: str = Field(description="UUID of the related SignalReport.")
-    relationship: str | None = Field(
-        default=None,
-        description="Short label for how the reports relate, e.g. 'recurrence_of' / 'recurred_as'.",
-    )
-    note: str | None = Field(default=None, description="Optional free-form context on the link.")
 
     @field_validator("report_id")
     @classmethod
@@ -525,7 +513,7 @@ StatusArtefactContent = (
     SafetyJudgment | ActionabilityAssessment | PriorityAssessment | RepoSelectionResult | SuggestedReviewers
 )
 LogArtefactContent = (
-    CodeReference | Commit | TaskRunArtefact | NoteArtefact | TitleChange | SummaryChange | CodeReview | RelatedReport
+    CodeReference | Commit | TaskRunArtefact | NoteArtefact | TitleChange | SummaryChange | CodeReview | RelatedTo
 )
 ArtefactContent = StatusArtefactContent | LogArtefactContent | SignalFinding | Dismissal | VideoSegment
 
@@ -547,7 +535,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "title_change": TitleChange,
     "summary_change": SummaryChange,
     "code_review": CodeReview,
-    "related_report": RelatedReport,
+    "related_to": RelatedTo,
 }
 
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}

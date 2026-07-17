@@ -30,11 +30,7 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import (
-    RELATED_REPORT_RECURRED_AS,
-    RELATED_REPORT_RECURRENCE_OF,
-    RelatedReport,
-)
+from products.signals.backend.artefact_schemas import RelatedTo
 from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
@@ -681,20 +677,20 @@ class AssignAndEmitSignalOutput:
     run_count: int
 
 
-def _link_recurrence_to_resolved(*, new_report: SignalReport, resolved_report: SignalReport) -> None:
-    """Symmetrically link a freshly-spawned recurrence report and the resolved report it recurred
-    from, via `related_report` artefacts on both. Discoverable from either side (and lets the
-    grouping dataset be reconstructed later) without a model change — see RelatedReport."""
+def _link_related_reports(*, report_a: SignalReport, report_b: SignalReport) -> None:
+    """Symmetrically link two reports via `related_to` artefacts — one on each pointing at the other,
+    so the link is discoverable from either side (and the grouping dataset can be reconstructed
+    later) without a model change. See RelatedTo."""
     SignalReportArtefact.add_log(
-        team_id=new_report.team_id,
-        report_id=str(new_report.id),
-        content=RelatedReport(report_id=str(resolved_report.id), relationship=RELATED_REPORT_RECURRENCE_OF),
+        team_id=report_a.team_id,
+        report_id=str(report_a.id),
+        content=RelatedTo(report_id=str(report_b.id)),
         attribution=ArtefactAttribution.system(),
     )
     SignalReportArtefact.add_log(
-        team_id=resolved_report.team_id,
-        report_id=str(resolved_report.id),
-        content=RelatedReport(report_id=str(new_report.id), relationship=RELATED_REPORT_RECURRED_AS),
+        team_id=report_b.team_id,
+        report_id=str(report_b.id),
+        content=RelatedTo(report_id=str(report_a.id)),
         attribution=ArtefactAttribution.system(),
     )
 
@@ -752,7 +748,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 # Resolved reports are terminal — never reopen them. When a signal would have grouped
                 # into an already-resolved report, the issue it fixed has recurred (or a related one
                 # has), so we start a fresh report and symmetrically link it to the resolved report via
-                # `related_report` artefacts. The research agent is later handed that resolved report as
+                # `related_to` artefacts. The research agent is later handed that resolved report as
                 # context (see report.py).
                 if report.status == SignalReport.Status.RESOLVED:
                     resolved_report = report
@@ -765,7 +761,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         summary=resolved_report.summary,
                         billing_exempt_reason=BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
                     )
-                    _link_recurrence_to_resolved(new_report=report, resolved_report=resolved_report)
+                    _link_related_reports(report_a=report, report_b=resolved_report)
                 else:
                     report.total_weight += input.weight
                     report.signal_count += 1

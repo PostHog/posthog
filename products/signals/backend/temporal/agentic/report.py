@@ -16,12 +16,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.business_knowledge.backend.logic import is_available_for_team
 from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_runtime
-from products.signals.backend.artefact_schemas import (
-    RELATED_REPORT_RECURRENCE_OF,
-    ArtefactContent,
-    RelatedReport,
-    SuggestedReviewers,
-)
+from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, SuggestedReviewers
 from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.research import (
@@ -146,24 +141,26 @@ async def _load_resolved_report_context(team_id: int, report_id: str) -> tuple[s
     """Title/summary of the resolved report this one recurred from, if any.
 
     When a signal that would have grouped into an already-resolved report spawns a fresh report
-    instead (resolved reports never reopen), the grouping pipeline links the two with a
-    `related_report` artefact tagged `recurrence_of`. Handing that prior report to the research
-    agent lets it judge regression vs. new dimension vs. distinct.
+    instead (resolved reports never reopen), the grouping pipeline links the two with symmetric
+    `related_to` artefacts. The recurrence source is whichever linked report is resolved — handing it
+    to the research agent lets it judge regression vs. new dimension vs. distinct.
     """
-    recurred_from_id: str | None = None
+    related_ids: list[str] = []
     async for artefact in SignalReportArtefact.objects.filter(
-        team_id=team_id, report_id=report_id, type=SignalReportArtefact.ArtefactType.RELATED_REPORT
+        team_id=team_id, report_id=report_id, type=SignalReportArtefact.ArtefactType.RELATED_TO
     ).order_by("created_at"):
         try:
-            content = RelatedReport.model_validate_json(artefact.content)
+            related_ids.append(RelatedTo.model_validate_json(artefact.content).report_id)
         except ValidationError:
             continue
-        if content.relationship == RELATED_REPORT_RECURRENCE_OF:
-            recurred_from_id = content.report_id
-            break
-    if recurred_from_id is None:
+    if not related_ids:
         return None, None
-    resolved = await SignalReport.objects.filter(id=recurred_from_id, team_id=team_id).only("title", "summary").afirst()
+    resolved = (
+        await SignalReport.objects.filter(id__in=related_ids, team_id=team_id, status=SignalReport.Status.RESOLVED)
+        .only("title", "summary")
+        .order_by("-created_at")
+        .afirst()
+    )
     if resolved is None:
         return None, None
     return resolved.title, resolved.summary
