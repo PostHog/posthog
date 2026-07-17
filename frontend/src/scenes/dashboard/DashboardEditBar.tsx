@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconCalendar, IconCollapse, IconExpand } from '@posthog/icons'
+import { IconCalendar, IconCollapse, IconExpand, IconGear } from '@posthog/icons'
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -9,13 +9,14 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
@@ -59,26 +60,40 @@ export function DashboardIntervalFilter(): JSX.Element {
 export function DashboardTestAccountFilter(): JSX.Element {
     const { dashboardMode, effectiveEditBarFilters } = useValues(dashboardLogic)
     const { setFilterTestAccounts, setDashboardMode } = useActions(dashboardLogic)
-
-    const ensureEditMode = (): void => {
-        if (dashboardMode !== DashboardMode.Edit) {
-            setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
-        }
-    }
+    const { currentTeam } = useValues(teamLogic)
+    const hasFilters = (currentTeam?.test_account_filters || []).length > 0
 
     return (
-        <TestAccountFilterSwitch
-            size="small"
-            checked={effectiveEditBarFilters.filterTestAccounts ?? 'indeterminate'}
-            onChange={(checked) => {
-                ensureEditMode()
-                setFilterTestAccounts(checked)
-            }}
-            onReset={() => {
-                ensureEditMode()
-                setFilterTestAccounts(null)
-            }}
-        />
+        <span className="flex items-center gap-2">
+            <span>internal and test users</span>
+            <LemonSelect<boolean | null>
+                size="small"
+                value={effectiveEditBarFilters.filterTestAccounts ?? null}
+                dropdownMatchSelectWidth={false}
+                disabledReason={
+                    !hasFilters
+                        ? "You haven't set any internal test filters. Click the gear icon to configure."
+                        : undefined
+                }
+                onChange={(filterTestAccounts) => {
+                    if (dashboardMode !== DashboardMode.Edit) {
+                        setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                    }
+                    setFilterTestAccounts(filterTestAccounts)
+                }}
+                options={[
+                    { value: null, label: "each insight's setting" },
+                    { value: true, label: 'excluded' },
+                    { value: false, label: 'included' },
+                ]}
+            />
+            <LemonButton
+                icon={<IconGear />}
+                size="small"
+                noPadding
+                to={urls.settings('project-product-analytics', 'internal-user-filtering')}
+            />
+        </span>
     )
 }
 
