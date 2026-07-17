@@ -227,9 +227,11 @@ def _read_capped_body(response: requests.Response) -> None:
                     f"Infisical response exceeded {MAX_RESPONSE_BYTES} bytes; refusing to buffer it"
                 )
             chunks.append(chunk)
-    except (requests.RequestException, OSError, ValueError) as exc:
-        # The watchdog shutting the socket down surfaces as a read/connection error (or a read
-        # on a closed file); translate it so it isn't mistaken for a retryable blip.
+    except Exception as exc:
+        # The watchdog shutting the socket down (and closing the response) unblocks the in-flight
+        # read, which surfaces as whatever that read was mid-way through — a socket/connection
+        # error, an incomplete chunked read, or an attribute error from the concurrent close.
+        # Whatever it is, if the watchdog tripped it's a deadline abort, not a retryable blip.
         if tripped.is_set():
             raise InfisicalResponseTooLargeError(deadline_msg) from exc
         raise

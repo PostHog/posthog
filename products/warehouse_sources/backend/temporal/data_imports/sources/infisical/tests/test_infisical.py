@@ -1,4 +1,7 @@
+import time
+import socket
 import itertools
+import threading
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
@@ -419,6 +422,50 @@ class TestResponseLimits:
                 infisical_module._read_capped_body(response)
         response.raw._connection.sock.shutdown.assert_called_once()
         response.close.assert_called()
+
+    def test_chunked_size_line_drip_aborts_as_deadline_error(self):
+        # End-to-end over a real socket: a chunked host drips an unterminated chunk-size line,
+        # so read1 blocks inside the stdlib readline() past the deadline. The watchdog shutting
+        # the socket down unblocks that read, and whatever error the interrupted/closed read
+        # raises must surface as InfisicalResponseTooLargeError — not a raw socket/attribute
+        # error. The synchronous-timer test above can't reach this: it fires before any read,
+        # so it never exercises the interrupted-read translation path. Aborting near the
+        # (patched) deadline rather than when the drip ends proves the watchdog fired.
+        server = socket.socket()
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        port = server.getsockname()[1]
+        stop = threading.Event()
+
+        def drip() -> None:
+            conn, _ = server.accept()
+            conn.recv(65536)
+            conn.sendall(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n")
+            # Digits with no CRLF, so readline never completes the chunk-size line. Bounded so a
+            # broken watchdog fails the timing assertion instead of hanging the suite.
+            for _ in range(250):
+                if stop.is_set():
+                    break
+                try:
+                    conn.sendall(b"1")
+                except OSError:
+                    break
+                stop.wait(0.02)
+            conn.close()
+
+        thread = threading.Thread(target=drip, daemon=True)
+        thread.start()
+        try:
+            response = requests.get(f"http://127.0.0.1:{port}/", stream=True, timeout=30)
+            started = time.monotonic()
+            with mock.patch.object(infisical_module, "MAX_RESPONSE_SECONDS", 1.0):
+                with pytest.raises(InfisicalResponseTooLargeError):
+                    infisical_module._read_capped_body(response)
+            assert time.monotonic() - started < 3.0
+        finally:
+            stop.set()
+            server.close()
+            thread.join(timeout=5)
 
     def test_pagination_stops_at_max_pages(self):
         # A host that always returns a full page would loop forever without the page cap.
