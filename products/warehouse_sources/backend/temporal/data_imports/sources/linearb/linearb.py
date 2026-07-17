@@ -93,7 +93,11 @@ def validate_credentials(api_key: str) -> bool:
     # bad or missing key returns 403 from LinearB's API gateway; a valid key returns 200.
     url = f"{LINEARB_BASE_URL}/api/v2/teams"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), params={"page_size": 1}, timeout=10)
+        # allow_redirects=False: a redirect would otherwise forward the x-api-key header to the
+        # redirect target; LinearB's API never legitimately redirects.
+        response = make_tracked_session(allow_redirects=False).get(
+            url, headers=_get_headers(api_key), params={"page_size": 1}, timeout=10
+        )
         return response.status_code == 200
     except Exception:
         return False
@@ -208,7 +212,9 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = LINEARB_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
-    session = make_tracked_session()
+    # allow_redirects=False: a redirect would otherwise forward the x-api-key header to the
+    # redirect target; LinearB's API never legitimately redirects.
+    session = make_tracked_session(allow_redirects=False)
 
     if config.method == "POST":
         yield from _iter_measurements_rows(session, headers, logger)
