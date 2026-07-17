@@ -64,7 +64,7 @@ _NOT_RUNNING = {"error": "phrocs is not running. Start the dev environment with:
 # Log lines come from a VT emulator render: they can carry ANSI escapes and
 # screen-width padding (the emulator hard-wraps at terminal width, so length
 # is already bounded). Clean them so MCP clients don't pay tokens for noise.
-_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+_ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 
 
 def _clean_log_lines(lines: list[str]) -> list[str]:
