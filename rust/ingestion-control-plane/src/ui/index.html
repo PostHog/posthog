@@ -76,6 +76,20 @@
       }
       button:hover { border-color: var(--accent); }
       button:disabled { opacity: 0.5; cursor: default; }
+      button:disabled:hover { border-color: var(--border); }
+      input.search {
+        background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+        border-radius: 6px; padding: 5px 10px; font-size: 12px; font-family: inherit; width: 240px;
+      }
+      input.search:focus { outline: none; border-color: var(--accent); }
+      .toolbar { border-bottom: 1px solid var(--border); }
+      .toolbar .count { margin-left: auto; }
+      .pager { border-top: 1px solid var(--border); justify-content: flex-end; }
+      .ns-head {
+        font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);
+        margin: 0; padding: 12px 14px 6px; display: flex; align-items: baseline; gap: 8px;
+      }
+      .ns-head .ns { color: var(--text); font-family: var(--mono); text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 600; }
       button.small { padding: 2px 8px; font-size: 11px; }
       .muted { color: var(--muted); }
       .mono { font-family: var(--mono); }
@@ -107,7 +121,9 @@
       .hist-row .hbar { height: 10px; border-radius: 2px; background: var(--accent); }
       .hist-row .hcnt { color: var(--muted); font-family: var(--mono); }
 
-      iframe.debug { width: 100%; height: calc(100vh - 300px); border: 0; background: var(--bg); display: block; }
+      /* Height is driven by the embedded document (same-origin), so the panel
+         expands to fit the debug UI instead of squeezing it into a viewport box. */
+      iframe.debug { width: 100%; min-height: 480px; border: 0; background: var(--bg); display: block; }
     </style>
   </head>
   <body>
@@ -128,6 +144,8 @@
         for (const [k, v] of Object.entries(attrs)) {
           if (k === "class") node.className = v;
           else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+          else if (v === false || v === null || v === undefined) continue;
+          else if (v === true) node.setAttribute(k, "");
           else node.setAttribute(k, v);
         }
         for (const child of children.flat()) {
@@ -153,6 +171,48 @@
       const copy = (text) => navigator.clipboard && navigator.clipboard.writeText(text);
       const copyable = (text, cls) =>
         el("span", { class: cls, title: `${text} (click to copy)`, onclick: () => copy(text) }, text);
+
+      // Client-side search + pagination over an in-memory row list. The search
+      // input is kept stable across re-renders so typing survives refreshes.
+      function listView({ placeholder, pageSize, matches, renderTable, emptyText }) {
+        let rows = [];
+        const state = { query: "", page: 0 };
+        const body = el("div", {});
+        const count = el("span", { class: "muted mono count" });
+        const search = el("input", {
+          type: "search", class: "search", placeholder,
+          oninput: () => { state.query = search.value.trim().toLowerCase(); state.page = 0; render(); },
+        });
+        const toolbar = el("div", { class: "row toolbar" }, search, count);
+
+        function render() {
+          const filtered = state.query ? rows.filter((row) => matches(row, state.query)) : rows;
+          const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
+          state.page = Math.min(state.page, pages - 1);
+          const pageRows = filtered.slice(state.page * pageSize, (state.page + 1) * pageSize);
+          count.textContent = state.query ? `${fmtInt(filtered.length)} of ${fmtInt(rows.length)}` : fmtInt(rows.length);
+          const children = [toolbar];
+          if (!pageRows.length) {
+            children.push(el("div", { class: "empty" }, state.query ? "No matches." : emptyText));
+          } else {
+            children.push(renderTable(pageRows));
+          }
+          if (pages > 1) {
+            children.push(el("div", { class: "row pager" },
+              el("button", { class: "small", disabled: state.page === 0, onclick: () => { state.page--; render(); } }, "‹ prev"),
+              el("span", { class: "muted mono" }, `page ${state.page + 1} / ${pages}`),
+              el("button", { class: "small", disabled: state.page >= pages - 1, onclick: () => { state.page++; render(); } }, "next ›")));
+          }
+          body.replaceChildren(...children);
+        }
+
+        return {
+          body,
+          setRows(next) { rows = next; render(); },
+          rerender: render,
+          reset() { search.value = ""; state.query = ""; state.page = 0; },
+        };
+      }
 
       // Section registry: extending the tool = appending an entry here.
       const SECTIONS = [];
@@ -181,7 +241,7 @@
         description:
           "All ingestion consumer groups sorted by outstanding messages. Drill into a group, then analyze what a lagging partition contains.",
         timers: [],
-        selectedGroup: null,
+        selectedTarget: null,
         currentJobId: null,
         unmount() {
           this.timers.forEach(clearInterval);
@@ -189,16 +249,32 @@
         },
         mount(root) {
           const overviewBody = el("div", {}, el("div", { class: "empty" }, "Scanning consumer groups…"));
+          const overviewFetchedAt = el("span", { class: "muted mono", style: "text-transform: none; letter-spacing: 0" });
           const partitionsTitle = el("span", {}, "Partitions");
           const partitionsBody = el("div", {}, el("div", { class: "empty" }, "Select a consumer group above."));
           const analysisTitle = el("span", {}, "Analysis");
           const analysisBody = el("div", {}, el("div", { class: "empty" }, "Start an analysis from a partition row: head reads from the group's committed offset, tail samples the newest messages."));
 
-          this.ui = { overviewBody, partitionsTitle, partitionsBody, analysisTitle, analysisBody };
+          this.overviewView = listView({
+            placeholder: "Filter by group or topic…",
+            pageSize: 25,
+            matches: (row, q) => row.group.toLowerCase().includes(q) || row.topic.toLowerCase().includes(q),
+            renderTable: (rows) => this.renderOverviewTable(rows),
+            emptyText: "No consumer targets configured.",
+          });
+          this.partitionsView = listView({
+            placeholder: "Filter by partition…",
+            pageSize: 100,
+            matches: (p, q) => String(p.partition).includes(q),
+            renderTable: (rows) => this.renderPartitionsTable(rows),
+            emptyText: "No partitions.",
+          });
+
+          this.ui = { overviewBody, overviewFetchedAt, partitionsTitle, partitionsBody, analysisTitle, analysisBody };
 
           root.append(
             el("div", { class: "panel" },
-              el("h2", {}, "Consumer groups", el("button", { class: "small", onclick: () => this.refreshOverview() }, "Refresh")),
+              el("h2", {}, "Consumer groups", el("span", { class: "row", style: "padding:0" }, overviewFetchedAt, el("button", { class: "small", onclick: () => this.refreshOverview() }, "Refresh"))),
               overviewBody),
             el("div", { class: "panel" },
               el("h2", {}, partitionsTitle, el("button", { class: "small", onclick: () => this.refreshPartitions() }, "Refresh")),
@@ -211,84 +287,92 @@
         },
 
         async refreshOverview() {
-          const { overviewBody } = this.ui;
+          const { overviewBody, overviewFetchedAt } = this.ui;
           try {
-            const rows = await fetchJSON("api/lag/overview");
-            if (!rows.length) {
-              overviewBody.replaceChildren(el("div", { class: "empty" }, "No consumer targets configured."));
-              return;
-            }
-            const maxLag = Math.max(1, ...rows.map((r) => r.total_lag));
-            overviewBody.replaceChildren(
-              el("table", {},
-                el("thead", {}, el("tr", {},
-                  el("th", {}, "group"), el("th", {}, "topic"), el("th", {}, "partitions"),
-                  el("th", {}, "lagging"), el("th", {}, "total lag"), el("th", {}, ""))),
-                el("tbody", {}, rows.map((row) =>
-                  row.error
-                    ? el("tr", {},
-                        el("td", { class: "mono" }, row.group),
-                        el("td", { class: "mono" }, row.topic),
-                        el("td", { colspan: "4" }, el("span", { class: "pill bad", title: row.error }, "scan failed")))
-                    : el("tr", { class: `clickable ${row.group === this.selectedGroup ? "selected" : ""}`, onclick: () => this.selectGroup(row.group) },
-                        el("td", { class: "mono" }, row.group),
-                        el("td", { class: "mono" }, row.topic),
-                        el("td", { class: "mono" }, fmtInt(row.partitions)),
-                        el("td", {}, row.lagging_partitions > 0
-                          ? el("span", { class: "pill warn" }, fmtInt(row.lagging_partitions))
-                          : el("span", { class: "pill good" }, "0")),
-                        el("td", { class: "mono" }, fmtInt(row.total_lag)),
-                        el("td", {}, row.total_lag > 0
-                          ? el("span", { class: `bar ${row.total_lag > maxLag * 0.66 ? "hot" : row.total_lag > maxLag * 0.33 ? "warm" : ""}`, style: `width:${Math.max(2, (row.total_lag / maxLag) * 140)}px` })
-                          : null))
-                ))
-              )
-            );
+            const data = await fetchJSON("api/lag/overview");
+            overviewFetchedAt.textContent = `as of ${new Date(data.fetched_at).toLocaleTimeString()}`;
+            this.overviewMaxLag = Math.max(1, ...data.groups.map((r) => r.total_lag ?? 0));
+            this.overviewView.setRows(data.groups);
+            overviewBody.replaceChildren(this.overviewView.body);
           } catch (e) {
             overviewBody.replaceChildren(el("div", { class: "error-box" }, String(e)));
           }
         },
 
-        selectGroup(group) {
-          this.selectedGroup = group;
-          this.refreshOverview();
+        // Heat bars are scaled against the full result set, not the visible page,
+        // so paging/filtering does not recalibrate the colors.
+        renderOverviewTable(rows) {
+          const maxLag = this.overviewMaxLag;
+          return el("table", {},
+            el("thead", {}, el("tr", {},
+              el("th", {}, "group"), el("th", {}, "topic"), el("th", {}, "partitions"),
+              el("th", {}, "lagging"), el("th", {}, "total lag"), el("th", {}, ""))),
+            el("tbody", {}, rows.map((row) =>
+              row.error
+                ? el("tr", {},
+                    el("td", { class: "mono" }, row.group),
+                    el("td", { class: "mono" }, row.topic),
+                    el("td", { colspan: "4" }, el("span", { class: "pill bad", title: row.error }, "scan failed")))
+                : el("tr", { class: `clickable ${this.selectedTarget && row.group === this.selectedTarget.group && row.topic === this.selectedTarget.topic ? "selected" : ""}`, onclick: () => this.selectTarget(row) },
+                    el("td", { class: "mono" }, row.group),
+                    el("td", { class: "mono" }, row.topic),
+                    el("td", { class: "mono" }, fmtInt(row.partitions)),
+                    el("td", {}, row.lagging_partitions > 0
+                      ? el("span", { class: "pill warn" }, fmtInt(row.lagging_partitions))
+                      : el("span", { class: "pill good" }, "0")),
+                    el("td", { class: "mono" }, fmtInt(row.total_lag)),
+                    el("td", {}, row.total_lag > 0
+                      ? el("span", { class: `bar ${row.total_lag > maxLag * 0.66 ? "hot" : row.total_lag > maxLag * 0.33 ? "warm" : ""}`, style: `width:${Math.max(2, (row.total_lag / maxLag) * 140)}px` })
+                      : null))
+            ))
+          );
+        },
+
+        selectTarget(target) {
+          this.selectedTarget = { group: target.group, topic: target.topic };
+          this.overviewView.rerender();
+          this.partitionsView.reset();
           this.refreshPartitions();
         },
 
         async refreshPartitions() {
           const { partitionsTitle, partitionsBody } = this.ui;
-          if (!this.selectedGroup) return;
-          partitionsTitle.textContent = `Partitions — ${this.selectedGroup}`;
+          if (!this.selectedTarget) return;
+          partitionsTitle.textContent = `Partitions — ${this.selectedTarget.group} (${this.selectedTarget.topic})`;
           partitionsBody.replaceChildren(el("div", { class: "empty" }, "Scanning…"));
           try {
-            const data = await fetchJSON(`api/lag?group=${encodeURIComponent(this.selectedGroup)}`);
-            const maxLag = Math.max(1, ...data.partitions.map((p) => p.lag));
-            partitionsBody.replaceChildren(
-              el("table", {},
-                el("thead", {}, el("tr", {},
-                  el("th", {}, "partition"), el("th", {}, "low"), el("th", {}, "high"),
-                  el("th", {}, "committed"), el("th", {}, "lag"), el("th", {}, ""), el("th", {}, "analyze"))),
-                el("tbody", {}, data.partitions.map((p) => {
-                  const width = Math.max(2, Math.round((p.lag / maxLag) * 140));
-                  const heat = p.lag === 0 ? "" : p.lag > maxLag * 0.66 ? "hot" : p.lag > maxLag * 0.33 ? "warm" : "";
-                  return el("tr", {},
-                    el("td", { class: "mono" }, String(p.partition)),
-                    el("td", { class: "mono" }, fmtInt(p.low_watermark)),
-                    el("td", { class: "mono" }, fmtInt(p.high_watermark)),
-                    el("td", { class: "mono" }, p.committed_offset === null ? "–" : fmtInt(p.committed_offset)),
-                    el("td", { class: "mono" }, fmtInt(p.lag)),
-                    el("td", {}, p.lag > 0 ? el("span", { class: `bar ${heat}`, style: `width:${width}px` }) : null),
-                    el("td", {},
-                      el("button", { class: "small", onclick: () => this.startAnalysis(p.partition, "committed") }, "head"),
-                      " ",
-                      el("button", { class: "small", onclick: () => this.startAnalysis(p.partition, "tail") }, "tail"))
-                  );
-                }))
-              )
-            );
+            const data = await fetchJSON(`api/lag?group=${encodeURIComponent(this.selectedTarget.group)}&topic=${encodeURIComponent(this.selectedTarget.topic)}`);
+            this.partitionsMaxLag = Math.max(1, ...data.partitions.map((p) => p.lag));
+            this.partitionsView.setRows(data.partitions);
+            partitionsBody.replaceChildren(this.partitionsView.body);
           } catch (e) {
             partitionsBody.replaceChildren(el("div", { class: "error-box" }, String(e)));
           }
+        },
+
+        renderPartitionsTable(partitions) {
+          const maxLag = this.partitionsMaxLag;
+          return el("table", {},
+            el("thead", {}, el("tr", {},
+              el("th", {}, "partition"), el("th", {}, "low"), el("th", {}, "high"),
+              el("th", {}, "committed"), el("th", {}, "lag"), el("th", {}, ""), el("th", {}, "analyze"))),
+            el("tbody", {}, partitions.map((p) => {
+              const width = Math.max(2, Math.round((p.lag / maxLag) * 140));
+              const heat = p.lag === 0 ? "" : p.lag > maxLag * 0.66 ? "hot" : p.lag > maxLag * 0.33 ? "warm" : "";
+              return el("tr", {},
+                el("td", { class: "mono" }, String(p.partition)),
+                el("td", { class: "mono" }, fmtInt(p.low_watermark)),
+                el("td", { class: "mono" }, fmtInt(p.high_watermark)),
+                el("td", { class: "mono" }, p.committed_offset === null ? "–" : fmtInt(p.committed_offset)),
+                el("td", { class: "mono" }, fmtInt(p.lag)),
+                el("td", {}, p.lag > 0 ? el("span", { class: `bar ${heat}`, style: `width:${width}px` }) : null),
+                el("td", {},
+                  el("button", { class: "small", onclick: () => this.startAnalysis(p.partition, "committed") }, "head"),
+                  " ",
+                  el("button", { class: "small", onclick: () => this.startAnalysis(p.partition, "tail") }, "tail"))
+              );
+            }))
+          );
         },
 
         // One analysis at a time: starting a new one cancels and replaces the current.
@@ -300,7 +384,7 @@
             const resp = await fetchJSON("api/analyses", {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({ group: this.selectedGroup, partition, mode }),
+              body: JSON.stringify({ ...this.selectedTarget, partition, mode }),
             });
             this.currentJobId = resp.job_id;
             this.pollJob();
@@ -441,18 +525,31 @@
               podsBody.replaceChildren(el("div", { class: "empty" }, "No matching pods found."));
               return;
             }
+            // One group per namespace: each ingestion lane deploys into its own.
+            const byNamespace = new Map();
+            for (const pod of data.pods) {
+              const ns = pod.namespace || "–";
+              if (!byNamespace.has(ns)) byNamespace.set(ns, []);
+              byNamespace.get(ns).push(pod);
+            }
             podsBody.replaceChildren(
-              el("table", {},
-                el("thead", {}, el("tr", {}, el("th", {}, "pod"), el("th", {}, "app"), el("th", {}, "ip"), el("th", {}, "phase"), el("th", {}, "restarts"), el("th", {}, "started"))),
-                el("tbody", {}, data.pods.map((pod) =>
-                  el("tr", { class: `clickable ${pod.name === this.selectedPod ? "selected" : ""}`, onclick: () => this.selectPod(pod.name) },
-                    el("td", { class: "mono" }, pod.name),
-                    el("td", {}, pod.labels.app || "–"),
-                    el("td", { class: "mono" }, pod.ip || "–"),
-                    el("td", {}, el("span", { class: `pill ${pod.ready ? "good" : "warn"}` }, pod.phase || "?")),
-                    el("td", { class: "mono" }, String(pod.restarts)),
-                    el("td", { class: "muted mono" }, pod.started_at ? new Date(pod.started_at).toLocaleString() : "–"))
-                ))
+              ...[...byNamespace.entries()].map(([ns, pods]) =>
+                el("div", {},
+                  el("h3", { class: "ns-head" },
+                    el("span", { class: "ns" }, ns),
+                    el("span", {}, `${pods.length} pod${pods.length === 1 ? "" : "s"}`)),
+                  el("table", {},
+                    el("thead", {}, el("tr", {}, el("th", {}, "pod"), el("th", {}, "ip"), el("th", {}, "phase"), el("th", {}, "restarts"), el("th", {}, "started"))),
+                    el("tbody", {}, pods.map((pod) =>
+                      el("tr", { class: `clickable ${pod.name === this.selectedPod ? "selected" : ""}`, onclick: () => this.selectPod(pod) },
+                        el("td", { class: "mono" }, pod.name),
+                        el("td", { class: "mono" }, pod.ip || "–"),
+                        el("td", {}, el("span", { class: `pill ${pod.ready ? "good" : "warn"}` }, pod.phase || "?")),
+                        el("td", { class: "mono" }, String(pod.restarts)),
+                        el("td", { class: "muted mono" }, pod.started_at ? new Date(pod.started_at).toLocaleString() : "–"))
+                    ))
+                  )
+                )
               )
             );
           } catch (e) {
@@ -460,16 +557,39 @@
           }
         },
 
-        selectPod(name) {
-          this.selectedPod = name;
+        selectPod(pod) {
+          this.selectedPod = pod.name;
           this.refreshPods();
-          const url = `pods/${encodeURIComponent(name)}/`;
+          const url = `pods/${encodeURIComponent(pod.namespace)}/${encodeURIComponent(pod.name)}/`;
           this.ui.viewer.replaceChildren(
             el("div", { class: "panel" },
-              el("h2", {}, `Debug — ${name}`,
+              el("h2", {}, `Debug — ${pod.name}`,
                 el("a", { href: url, target: "_blank", style: "color: var(--accent); font-size: 11px; text-transform: none; letter-spacing: 0" }, "open in new tab ↗")),
-              el("iframe", { class: "debug", src: url }))
+              el("iframe", { class: "debug", src: url, onload: (e) => this.autosize(e.target) }))
           );
+        },
+
+        // Grow the iframe to fit the embedded debug page (same-origin via our
+        // proxy) so the outer page scrolls instead of nesting a scrollbar.
+        autosize(frame) {
+          const doc = frame.contentDocument;
+          if (!doc || !doc.body) return;
+          // Measure the body, not documentElement: the latter is floored at the
+          // iframe's own height, which would let the frame grow but never shrink.
+          const resize = () => {
+            frame.style.height = `${Math.max(480, doc.body.scrollHeight)}px`;
+          };
+          // Disconnect once the frame is replaced so switching pods doesn't
+          // accumulate observers retaining detached iframe documents.
+          const observer = new ResizeObserver(() => {
+            if (!frame.isConnected) {
+              observer.disconnect();
+              return;
+            }
+            resize();
+          });
+          resize();
+          observer.observe(doc.body);
         },
       };
 

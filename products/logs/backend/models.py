@@ -79,6 +79,8 @@ class LogsView(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     name = models.CharField(max_length=400)
     filters = models.JSONField(default=dict)
+    # Display config (LogsColumnConfig[]), separate from filter state. Null = default column set.
+    columns = models.JSONField(null=True, default=None)
     pinned = models.BooleanField(default=False)
 
     class Meta:

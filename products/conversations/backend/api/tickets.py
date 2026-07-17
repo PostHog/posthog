@@ -317,7 +317,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
                 )
             },
             "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved"},
-            "priority": {"help_text": "Ticket priority: low, medium, or high. Null if unset."},
+            "priority": {"help_text": "Ticket priority: low, medium, high, or critical. Null if unset."},
             "sla_due_at": {"help_text": "SLA deadline set via workflows. Null means no SLA."},
             "anonymous_traits": {"help_text": "Customer-provided traits such as name and email"},
             "organization_id": {
@@ -627,7 +627,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 location=OpenApiParameter.QUERY,
                 description=(
                     "Filter by priority. Accepts a single value or a comma-separated list "
-                    "(e.g. `medium,high`). Valid values: `low`, `medium`, `high`."
+                    "(e.g. `medium,high`). Valid values: `low`, `medium`, `high`, `critical`."
                 ),
             ),
             OpenApiParameter(
@@ -1079,13 +1079,27 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         item_context = comment.item_context or {}
         author_type = item_context.get("author_type", "customer")
 
+        # Per-message author identity (Slack/Teams/Zendesk store each comment's own
+        # author) takes precedence over the ticket-level requester, so a thread reply
+        # from a second participant doesn't show as the ticket owner.
+        context_author_name = (
+            item_context.get("author_name")
+            or item_context.get("author_email")
+            or item_context.get("slack_author_name")
+            or item_context.get("teams_author_name")
+            or item_context.get("teams_author_email")
+            or item_context.get("email_from_name")
+        )
+
         if comment.created_by:
             author_name = comment.created_by.first_name or comment.created_by.email
+        elif author_type == "AI":
+            author_name = "PostHog Assistant"
+        elif context_author_name:
+            author_name = context_author_name
         elif author_type == "customer":
             traits = ticket.anonymous_traits or {}
             author_name = traits.get("name") or traits.get("email") or "Customer"
-        elif author_type == "AI":
-            author_name = "PostHog Assistant"
         else:
             author_name = "Support"
 

@@ -198,8 +198,7 @@ def get_group_types_for_project(project_id: int, *, caller_tag: str | None = Non
     def _fetch() -> list[dict[str, Any]]:
         # require_personhog_client() must run inside personhog_call so a missing client
         # (RuntimeError) is wrapped as DatabaseError and recovered like any fetch failure.
-        client = require_personhog_client()
-        return _fetch_group_types_via_personhog(client, project_id)
+        return _fetch_group_types_via_personhog(require_personhog_client(), project_id)
 
     try:
         result = personhog_call(
@@ -243,8 +242,7 @@ def get_group_types_for_team(team_id: int, *, caller_tag: str | None = None) -> 
     def _fetch() -> list[dict[str, Any]]:
         # require_personhog_client() must run inside personhog_call so a missing client
         # (RuntimeError) is wrapped as DatabaseError and recovered like any fetch failure.
-        client = require_personhog_client()
-        return _fetch_group_types_for_team_via_personhog(client, team_id)
+        return _fetch_group_types_for_team_via_personhog(require_personhog_client(), team_id)
 
     try:
         return personhog_call(
@@ -480,10 +478,9 @@ def count_group_type_mappings_per_team(*, caller_tag: str | None = None) -> list
     def _fetch() -> list[dict[str, int]]:
         # require_personhog_client() must run inside personhog_call so a missing client
         # (RuntimeError) is wrapped as DatabaseError and recovered like any fetch failure.
-        client = require_personhog_client()
         return [
             {"team_id": c.team_id, "total": c.count}
-            for c in client.count_group_type_mappings(CountGroupTypeMappingsRequest()).counts
+            for c in require_personhog_client().count_group_type_mappings(CountGroupTypeMappingsRequest()).counts
         ]
 
     try:

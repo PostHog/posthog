@@ -22,6 +22,7 @@ from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, is_email_available
 from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_message_body
+from posthog.helpers.two_factor_session import CODE_TTL_SECONDS
 from posthog.models import Organization, OrganizationInvite, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
@@ -484,7 +485,7 @@ def send_code_based_verification(user_id: int, code: str) -> None:
         template_context={
             "preheader": "Enter this code to verify your login.",
             "code": code,
-            "expiration_minutes": 10,
+            "expiration_minutes": CODE_TTL_SECONDS // 60,
             "site_url": settings.SITE_URL,
         },
     )
@@ -1304,6 +1305,7 @@ def send_error_tracking_issue_assigned(assignment_id: str | uuid.UUID, assigner_
             "assignment": assignment,
             "team": team,
             "site_url": settings.SITE_URL,
+            "issue_url": error_tracking_api.get_issue_permalink(team_id=team.id, issue_id=assignment.issue.id),
         },
     )
     for membership in memberships_to_email:

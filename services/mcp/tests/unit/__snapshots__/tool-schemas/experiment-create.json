@@ -2071,7 +2071,7 @@
             "description": "Exposure configuration including filter test accounts and custom exposure events."
         },
         "feature_flag": {
-            "description": "Variant split, rollout scope, payloads, and experience continuity for the auto-created feature flag, in the flag's own filters shape. This is the canonical input for flag config. If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100) to customize the variant split. Set filters.groups to a single group [{\"properties\": [], \"rollout_percentage\": N}] (0-100) to control the overall fraction of users entering the experiment. Default: 50/50 control/test, 100% rollout. Omit this parameter entirely when feature_flag_key refers to a pre-existing flag: the experiment links to that flag as-is and explicit config is rejected. HARD REQUIREMENT — when you provide variants, exactly one variant's `key` must be the literal string `control` (lowercase, no variations). It is the baseline used for analysis and the experiment runtime treats it specially. If the user describes variants as \"A/B\", \"old/new\", \"original/redesign\", or any other natural-language pair, map the baseline to `key: \"control\"` — not \"A\", \"Control\", \"old\", \"original\", or \"baseline\". Other variants can use any key (`test`, `variant_a`, etc.).",
+            "description": "Variant split, rollout scope, payloads, and experience continuity for the auto-created feature flag, in the flag's own filters shape. This is the canonical input for flag config. If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100) to customize the variant split. Set filters.groups to a single group [{\"properties\": [], \"rollout_percentage\": N}] (0-100) to control the overall fraction of users entering the experiment. Default: 50/50 control/test, 100% rollout. Omit this parameter entirely when feature_flag_key refers to a pre-existing flag: the experiment links to that flag as-is and explicit config is rejected. No specific variant key is required. The analysis baseline defaults to the variant keyed `control` (lowercase) when present, else the first variant; override with stats_config.baseline_variant_key. Convention: when the user describes variants as \"A/B\", \"old/new\", \"original/redesign\", or any other natural-language pair without naming explicit keys, key the baseline `control` and keep their wording in the variant `name`. When the user asks for specific keys, use them as-is and put the baseline first.",
             "properties": {
                 "ensure_experience_continuity": {
                     "anyOf": [
@@ -2085,7 +2085,7 @@
                     "description": "Whether the flag persists variant assignment across authentication steps."
                 },
                 "filters": {
-                    "description": "Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal string 'control'), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state.",
+                    "description": "Flag config to apply: `multivariate.variants` (2 to 20 variants; the baseline defaults to the variant keyed 'control' when present, else the first variant), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state.",
                     "properties": {
                         "aggregation_group_type_index": {
                             "anyOf": [
@@ -2133,12 +2133,12 @@
                                     "description": "Multivariate config for the experiment's feature flag.",
                                     "properties": {
                                         "variants": {
-                                            "description": "Variant definitions. Exactly one variant key must be the literal string 'control'.",
+                                            "description": "Variant definitions (2 to 20). The baseline defaults to the variant keyed 'control' when present, else the first variant.",
                                             "items": {
                                                 "description": "A single multivariate variant. Extra per-variant keys are dropped.",
                                                 "properties": {
                                                     "key": {
-                                                        "description": "Unique variant key. Exactly one variant must use the key 'control' (the baseline).",
+                                                        "description": "Unique variant key. The baseline defaults to the variant keyed 'control' when present, else the first variant.",
                                                         "type": "string"
                                                     },
                                                     "name": {

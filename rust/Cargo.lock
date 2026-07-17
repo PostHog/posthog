@@ -1801,6 +1801,8 @@ dependencies = [
  "common-alloc",
  "common-compression",
  "common-continuous-profiling",
+ "common-ingestion-warnings",
+ "common-kafka",
  "common-redis",
  "common-types",
  "envconfig",
@@ -2179,6 +2181,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7ee2cfacbd29706479902b06d75ad8f1362900836aa32799eabc7e004bfd854"
 
 [[package]]
+name = "cohort-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "dashmap 6.1.0",
+ "hogvm",
+ "metrics",
+ "petgraph 0.8.3",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "cohort-event-shuffler"
 version = "0.1.0"
 dependencies = [
@@ -2210,6 +2231,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "cohort-seeder"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "chrono",
+ "chrono-tz",
+ "clickhouse",
+ "cohort-core",
+ "common-alloc",
+ "common-database",
+ "common-kafka",
+ "common-liveness",
+ "common-types",
+ "envconfig",
+ "governor",
+ "lifecycle",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "proptest",
+ "rdkafka",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "cohort-stream-processor"
 version = "0.1.0"
 dependencies = [
@@ -2219,6 +2273,7 @@ dependencies = [
  "axum 0.7.9",
  "chrono",
  "chrono-tz",
+ "cohort-core",
  "common-alloc",
  "common-database",
  "common-kafka",
@@ -2227,12 +2282,10 @@ dependencies = [
  "dashmap 6.1.0",
  "envconfig",
  "futures",
- "hogvm",
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",
  "object_store",
- "petgraph 0.8.3",
  "rand 0.8.5",
  "rdkafka",
  "rocksdb",
@@ -2400,6 +2453,23 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "common-ingestion-warnings"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "common-kafka",
+ "common-liveness",
+ "common-types",
+ "governor",
+ "metrics",
+ "rdkafka",
+ "rstest",
+ "serde_json",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -2866,7 +2936,9 @@ dependencies = [
  "bytes",
  "chrono",
  "common-alloc",
+ "common-compression",
  "common-continuous-profiling",
+ "common-database",
  "common-dns",
  "common-kafka",
  "common-metrics",
@@ -7593,6 +7665,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "personhog-test-harness"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assignment-coordination",
+ "chrono",
+ "clap",
+ "futures",
+ "hdrhistogram",
+ "humantime",
+ "personhog-coordination",
+ "personhog-proto",
+ "rand 0.8.5",
+ "rdkafka",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tonic 0.12.3",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "personhog-writer"
 version = "0.1.0"
 dependencies = [
@@ -7917,10 +8013,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "posthog-replay-anonymizer"
+version = "0.1.0"
+dependencies = [
+ "ahash 0.8.12",
+ "anyhow",
+ "base64 0.22.1",
+ "flate2",
+ "image",
+ "libdeflater",
+ "lz4",
+ "memchr",
+ "serde",
+ "serde_json",
+ "simd-json",
+ "zstd",
+]
+
+[[package]]
 name = "posthog-rs"
-version = "0.19.2"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00dc758929b9fac69336c971480a409cb55eed413a4a4cbaf06aa25776442d72"
+checksum = "d78dcf8d0a4bb8a0b59f626d30db0449c4e523c553dd945041802e9bc0ea5fc2"
 dependencies = [
  "backtrace",
  "brotli 7.0.0",
@@ -9002,19 +9116,10 @@ checksum = "51743d3e274e2b18df81c4dc6caf8a5b8e15dbe799e0dca05c7617380094e884"
 name = "replay-anonymizer-node"
 version = "0.0.1"
 dependencies = [
- "ahash 0.8.12",
- "anyhow",
- "base64 0.22.1",
- "flate2",
- "image",
- "libdeflater",
- "lz4",
- "memchr",
  "neon",
+ "posthog-replay-anonymizer",
  "serde",
  "serde_json",
- "simd-json",
- "zstd",
 ]
 
 [[package]]

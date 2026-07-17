@@ -12,6 +12,31 @@ tools:
     engineering-analytics-author-workflow-costs:
         operation: engineering_analytics_author_workflow_costs
         enabled: false
+    engineering-analytics-broken-tests:
+        operation: engineering_analytics_broken_tests
+        enabled: true
+        scopes:
+            - engineering_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Broken tests triage
+        description: >
+            Live CI failures over the last 2 days, grouped into distinct failures (by failing test id + a normalized
+            error signature) and classified by how each is behaving right now, most urgent first. Reach for this to
+            answer "what CI failures should I care about right now" — it is the triage counterpart to the flaky-test
+            leaderboard (which ranks week-long unreliability). Each row's state is the verdict: breaking_master (failing
+            on the default branch and that job's latest run is still red — trunk is broken now), novel_burst (first seen
+            within a day and already spreading across branches, not on trunk yet), potentially_resolved (hit trunk but
+            that job is green again), flaky (sporadic across two or more branches over more than a day), or pr_only
+            (confined to one branch — one PR's own problem). Also returns breaking_master_jobs, the default-branch jobs
+            whose latest run is red. Pass a row's latest_run_id to run-failure-logs to read the actual failing lines.
+            Caveats: fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the
+            breaking/resolved distinction needs the job-level source synced — without it those failures fall through to
+            flaky/pr_only rather than being misreported. Counts are absolute, never rates (passing runs aren't in this
+            data).
+        feature_flag: engineering-analytics
     engineering-analytics-ci-cards:
         operation: engineering_analytics_ci_cards
         enabled: false
@@ -100,9 +125,28 @@ tools:
     engineering-analytics-repo-run-activity:
         operation: engineering_analytics_repo_run_activity
         enabled: false
+    engineering-analytics-resolve-branch:
+        operation: engineering_analytics_resolve_branch
+        enabled: false
     engineering-analytics-run-failure-logs:
         operation: engineering_analytics_run_failure_logs
-        enabled: false
+        enabled: true
+        scopes:
+            - engineering_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: CI failure logs for a run
+        description: >
+            The thinned CI failure logs of one workflow run, grouped by failed job — the run-scoped twin of
+            ci-failure-logs, for when you have a run id rather than a PR (default-branch failures, the broken-tests
+            panel's latest_run_id, the run page). Each failed job returns its failure region (error lines plus
+            surrounding context, with "... N lines omitted ..." markers) as ordered lines, every line carrying its
+            original 1-based line number in the full pre-thinning log. logs_available is false when the run didn't fail
+            or its logs aged out of the short Logs retention. Use ci-failure-logs instead when you have a PR number and
+            want all its runs' failures.
+        feature_flag: engineering-analytics
     engineering-analytics-sources:
         operation: engineering_analytics_sources
         enabled: true
@@ -115,14 +159,49 @@ tools:
         list: true
         title: List connected GitHub sources
         description: >
-            The team's connected GitHub data warehouse sources, oldest first, each with its id, repo (owner/name), and
-            table prefix. Call this first when a team may have more than one GitHub source, then pass a chosen id as
-            source_id to the pull-requests, workflow-health, ci-cards, or pr-lifecycle tools to read that specific
-            source. With a single source you can skip it — the other tools default to the oldest connected source. The
-            prefix also names the underlying warehouse tables (prefix + github_pull_requests / github_workflow_runs /
-            github_workflow_jobs), which you can query directly with SQL or save as SQL insights and subscriptions when
-            the named tools don't fit (timestamps land as strings; parse with parseDateTimeBestEffort).
+            The team's selectable GitHub repositories, oldest source first — one entry per repository a source syncs,
+            each with its source id, repo (owner/name), table prefix, and a synced flag. A source can sync several
+            repositories, so entries can share an id and differ only by repo. Call this first when a team may have more
+            than one source or repo, then pass a chosen entry's id as source_id AND its repo as repo to the
+            pull-requests, workflow-health, ci-cards, or pr-lifecycle tools to read that specific repo — omitting repo
+            on a multi-repo source reads the source's default repo, not the one you picked. With a single source/repo
+            you can skip it — the other tools default to the oldest connected source. The prefix also names the
+            underlying warehouse tables, which you can query directly with SQL or save as SQL insights and subscriptions
+            when the named tools don't fit. The source's original repo uses bare names (prefix + github_pull_requests /
+            github_workflow_runs / github_workflow_jobs); every other repo of a multi-repo source is repo-qualified —
+            the name `owner/repo.endpoint` is flattened for the table (each '/' becomes '_' and each '.' becomes '__',
+            lower-cased), e.g. posthog/posthog.com's pull_requests is prefix +
+            github_posthog_posthog__com__pull_requests — so pick the table for the repo you mean (timestamps land as
+            strings; parse with parseDateTimeBestEffort).
         feature_flag: engineering-analytics
+    engineering-analytics-team-ci-activity:
+        operation: engineering_analytics_team_ci_activity
+        enabled: false
+    engineering-analytics-team-ci-health:
+        operation: engineering_analytics_team_ci_health
+        enabled: true
+        scopes:
+            - engineering_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: Team CI health roster
+        description: >
+            Per-owning-team rollup of the CI test surfaces each team owns, over a window (date_from default -14d,
+            maximum 30 days): flaky-test count (same qualification bar as the flaky-test leaderboard), failed/error span
+            count, and pass-on-retry count, each with an equal-length previous-window twin (*_prior) for honest deltas.
+            Use this for "which team owns the flakiest surfaces right now" and to route a flaky-test or CI Signal to its
+            owning team. Ownership is stamped on the spans at CI emission time from the repo's ownership map
+            (products/*/product.yaml + CODEOWNERS); spans without a stamp aggregate under the literal team 'unowned' (a
+            nonempty 'unowned' row means ownership gaps, not a real team). Teams are organizational owners of code
+            surfaces, never authors. Read all counts as absolute signal, never rates: fast passing runs are not emitted,
+            so there is no honest denominator.
+        feature_flag: engineering-analytics
+    engineering-analytics-team-merge-trend:
+        operation: engineering_analytics_team_merge_trend
+        enabled: false
     engineering-analytics-workflow-jobs:
         operation: engineering_analytics_workflow_jobs
         enabled: true

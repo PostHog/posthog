@@ -29,9 +29,7 @@ from posthog.hogql.property import (
 
 from posthog.clickhouse.query_tagging import clear_tag, get_query_tag_value
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.settings.data_stores import is_web_analytics_events_prefilter_team
 
-from products.web_analytics.backend.hogql_queries.events_prefilter import PrefilterHogQLHasMorePaginator
 from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from products.web_analytics.backend.hogql_queries.stats_table_strategies import (
     ChannelTypeStrategy,
@@ -93,22 +91,11 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
         limit = self.query.limit if self.query.limit else None
         offset = self.query.offset if self.query.offset else None
-        if is_web_analytics_events_prefilter_team(self.team.pk):
-            date_from, date_to = self._events_prefilter_date_bounds()
-            self.paginator = PrefilterHogQLHasMorePaginator.create(
-                limit_context=LimitContext.QUERY,
-                team_id=self.team.pk,
-                date_from=date_from,
-                date_to=date_to,
-                limit=limit,
-                offset=offset,
-            )
-        else:
-            self.paginator = HogQLHasMorePaginator.from_limit_context(
-                limit_context=LimitContext.QUERY,
-                limit=limit,
-                offset=offset,
-            )
+        self.paginator = HogQLHasMorePaginator.from_limit_context(
+            limit_context=LimitContext.QUERY,
+            limit=limit,
+            offset=offset,
+        )
 
         self.preaggregated_query_builder = StatsTablePreAggregatedQueryBuilder(self)
 
@@ -646,14 +633,6 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             results,
             {
                 0: self._join_with_aggregation_value,  # breakdown_value
-                1: lambda tuple, row: (  # Views (tuple)
-                    self._unsample(tuple[0], row),
-                    self._unsample(tuple[1], row),
-                ),
-                2: lambda tuple, row: (  # Visitors (tuple)
-                    self._unsample(tuple[0], row),
-                    self._unsample(tuple[1], row),
-                ),
             },
         )
 
