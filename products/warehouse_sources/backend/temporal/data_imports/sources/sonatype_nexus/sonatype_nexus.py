@@ -37,6 +37,12 @@ _ERROR_SNIPPET_BYTES = 2048
 # worker paginating until the activity timeout on every retry. Cap the pages fetched per endpoint
 # (per repository for the fan-out endpoints) so runaway pagination fails the sync loudly instead.
 MAX_PAGES_PER_ENDPOINT = 1_000_000
+# The per-page transfer deadline resets each page, so a host that returns a valid tiny page with a
+# fresh token just before each deadline can still occupy a worker for pages * MAX_RESPONSE_SECONDS
+# — up to the one-week activity timeout. A cumulative wall-clock deadline set once per pagination
+# walk (covering every repository in the fan-out case) bounds total worker occupancy independent of
+# how many small pages the host drips out.
+MAX_PAGINATION_SECONDS = 6 * 60 * 60
 
 RESPONSE_TOO_LARGE_ERROR = "Nexus API response exceeded the size limit"
 RESPONSE_TIMEOUT_ERROR = "Nexus API response exceeded the download time limit"
@@ -228,6 +234,10 @@ def _get_repository_fanout_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     repositories = _list_content_repositories(session, base_url, logger)
 
+    # Cumulative deadline across every repository in this fan-out, so a host with many
+    # repositories can't multiply the budget by returning small pages forever in each.
+    pagination_deadline = time.monotonic() + MAX_PAGINATION_SECONDS
+
     # Resolve the saved repository bookmark to the slice still to process. If the
     # bookmarked repository no longer exists (deleted between runs), start over
     # from the first one — re-yielded rows are harmless on a full refresh.
@@ -276,6 +286,10 @@ def _get_repository_fanout_rows(
                     raise SonatypeNexusPaginationError(
                         f"Nexus pagination exceeded {MAX_PAGES_PER_ENDPOINT} pages for repository={repository}"
                     )
+                if time.monotonic() > pagination_deadline:
+                    raise SonatypeNexusPaginationError(
+                        f"Nexus pagination exceeded the {MAX_PAGINATION_SECONDS:g}s time budget for repository={repository}"
+                    )
                 token = next_token
         except requests.HTTPError as exc:
             # A repository deleted between enumeration and this fetch 404s. Skip it
@@ -323,6 +337,7 @@ def get_rows(
         logger.debug(f"Sonatype Nexus: resuming {endpoint} from continuation token")
 
     page_count = 0
+    pagination_deadline = time.monotonic() + MAX_PAGINATION_SECONDS
     while True:
         params: dict[str, Any] = {"continuationToken": token} if token else {}
         data = _fetch_page(session, _build_url(endpoint_url, params), logger)
@@ -345,6 +360,10 @@ def get_rows(
         if page_count >= MAX_PAGES_PER_ENDPOINT:
             raise SonatypeNexusPaginationError(
                 f"Nexus pagination exceeded {MAX_PAGES_PER_ENDPOINT} pages for {endpoint}"
+            )
+        if time.monotonic() > pagination_deadline:
+            raise SonatypeNexusPaginationError(
+                f"Nexus pagination exceeded the {MAX_PAGINATION_SECONDS:g}s time budget for {endpoint}"
             )
 
         token = next_token

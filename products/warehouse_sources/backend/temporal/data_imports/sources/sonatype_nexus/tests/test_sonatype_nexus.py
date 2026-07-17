@@ -270,6 +270,20 @@ class TestGetRowsTopLevel:
         with pytest.raises(SonatypeNexusPaginationError):
             list(get_rows("https://n.example.com", "u", "p", "tasks", mock.MagicMock(), manager))
 
+    @mock.patch(f"{_MODULE}.MAX_PAGINATION_SECONDS", -1)
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_pagination_time_budget_raises(self, mock_session):
+        # Individually valid pages with fresh tokens must still fail once the cumulative
+        # wall-clock budget is exhausted, so a slow-drip host can't run until the activity timeout.
+        mock_session.return_value.get.side_effect = [
+            _response({"items": [{"id": "1"}], "continuationToken": "A"}),
+            _response({"items": [{"id": "2"}], "continuationToken": "B"}),
+        ]
+
+        manager = _make_manager()
+        with pytest.raises(SonatypeNexusPaginationError):
+            list(get_rows("https://n.example.com", "u", "p", "tasks", mock.MagicMock(), manager))
+
 
 class TestGetRowsRepositoryFanout:
     @mock.patch(f"{_MODULE}.make_tracked_session")
@@ -369,6 +383,21 @@ class TestGetRowsRepositoryFanout:
             _response(_REPOSITORIES),
             _response({"items": [{"id": "d1"}], "continuationToken": "STUCK"}),
             _response({"items": [{"id": "d2"}], "continuationToken": "STUCK"}),
+        ]
+
+        manager = _make_manager()
+        with pytest.raises(SonatypeNexusPaginationError):
+            list(get_rows("https://n.example.com", "u", "p", "components", mock.MagicMock(), manager))
+
+    @mock.patch(f"{_MODULE}.MAX_PAGINATION_SECONDS", -1)
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_pagination_time_budget_raises(self, mock_session):
+        # A per-repository walk of individually valid small pages must fail once the cumulative
+        # wall-clock budget is exhausted, independent of the per-response transfer deadline.
+        mock_session.return_value.get.side_effect = [
+            _response(_REPOSITORIES),
+            _response({"items": [{"id": "d1"}], "continuationToken": "A"}),
+            _response({"items": [{"id": "d2"}], "continuationToken": "B"}),
         ]
 
         manager = _make_manager()
