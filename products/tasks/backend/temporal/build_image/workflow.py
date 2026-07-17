@@ -21,6 +21,7 @@ from .activities import (
 class BuildSandboxImageInput:
     image_id: str
     team_id: int
+    refresh: bool = False
 
 
 @dataclass
@@ -35,21 +36,24 @@ class BuildSandboxImageWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> BuildSandboxImageInput:
         loaded = json.loads(inputs[0])
-        return BuildSandboxImageInput(image_id=loaded["image_id"], team_id=loaded["team_id"])
+        return BuildSandboxImageInput(
+            image_id=loaded["image_id"], team_id=loaded["team_id"], refresh=loaded.get("refresh", False)
+        )
 
     @workflow.run
     async def run(self, input: BuildSandboxImageInput) -> BuildSandboxImageOutput:
-        activity_input = ImageBuildActivityInput(image_id=input.image_id, team_id=input.team_id)
+        activity_input = ImageBuildActivityInput(image_id=input.image_id, team_id=input.team_id, refresh=input.refresh)
 
         try:
-            scan = await workflow.execute_activity(
-                scan_image_spec,
-                activity_input,
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-            if not scan.passed:
-                return BuildSandboxImageOutput(success=False, error="Security scan failed")
+            if not input.refresh:
+                scan = await workflow.execute_activity(
+                    scan_image_spec,
+                    activity_input,
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                if not scan.passed:
+                    return BuildSandboxImageOutput(success=False, error="Security scan failed")
 
             modal_image_name = await workflow.execute_activity(
                 build_and_publish_image,
@@ -62,7 +66,9 @@ class BuildSandboxImageWorkflow(PostHogWorkflow):
         except Exception as e:
             await workflow.execute_activity(
                 mark_image_build_failed,
-                MarkImageBuildFailedInput(image_id=input.image_id, team_id=input.team_id, error=str(e)),
+                MarkImageBuildFailedInput(
+                    image_id=input.image_id, team_id=input.team_id, error=str(e), refresh=input.refresh
+                ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
