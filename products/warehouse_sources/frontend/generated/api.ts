@@ -17,6 +17,7 @@ import type {
     ExternalDataSchemasLogsRetrieveParams,
     ExternalDataSourceConnectionOptionApi,
     ExternalDataSourceCreateApi,
+    ExternalDataSourceCreateResponseApi,
     ExternalDataSourceSerializersApi,
     ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams,
     ExternalDataSourcesCheckCdcPrerequisitesCreate200,
@@ -308,8 +309,8 @@ export const externalDataSourcesCreate = async (
     projectId: string,
     externalDataSourceCreateApi: ExternalDataSourceCreateApi,
     options?: RequestInit
-): Promise<ExternalDataSourceCreateApi> => {
-    return apiMutator<ExternalDataSourceCreateApi>(getExternalDataSourcesCreateUrl(projectId), {
+): Promise<ExternalDataSourceCreateResponseApi> => {
+    return apiMutator<ExternalDataSourceCreateResponseApi>(getExternalDataSourcesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1047,12 +1048,13 @@ export const getExternalDataSourcesStoredCredentialsListUrl = (
 }
 
 /**
- * List credentials stored via the source connect page that haven't been consumed yet.
+ * List credentials the requesting user stored via the source connect page that haven't been consumed yet.
  *
  * Returns metadata only (id, source type, timestamps) — never the secrets themselves. Stored
- * credentials are temporary: they disappear once consumed by `setup` or when they expire.
- * Newest first, so after a user confirms they've finished the connect page, the first entry
- * for the source type is the one to pass to `setup`.
+ * credentials are scoped to their creator: only the user who filled the connect page can list
+ * or consume them. They are temporary too: they disappear once consumed by `setup` or when
+ * they expire. Newest first, so after a user confirms they've finished the connect page, the
+ * first entry for the source type is the one to pass to `setup`.
  */
 export const externalDataSourcesStoredCredentialsList = async (
     projectId: string,

@@ -4,8 +4,6 @@ import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { ExportType } from '~/exporter/types'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildStickinessQuery, chart, personsModal, renderInsight } from '~/test/insight-testing'
@@ -100,8 +98,7 @@ describe('StickinessLineChart', () => {
         })
     })
 
-    describe('quill in-chart legend (PRODUCT_ANALYTICS_QUILL_LEGEND on)', () => {
-        const quillLegendFlag = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]: true }
+    describe('quill in-chart legend', () => {
         const twoSeriesLine = buildStickinessQuery({
             series: [
                 { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
@@ -114,7 +111,7 @@ describe('StickinessLineChart', () => {
             container.querySelector<HTMLElement>('[data-attr="hog-chart-timeseries-line-legend"]')!
 
         it('humanizes core event names in the legend, leaving custom events as-is', async () => {
-            const { container } = renderInsight({ query: twoSeriesLine, featureFlags: quillLegendFlag })
+            const { container } = renderInsight({ query: twoSeriesLine })
 
             await waitFor(() => {
                 expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()

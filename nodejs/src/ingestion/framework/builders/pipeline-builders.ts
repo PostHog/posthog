@@ -1,6 +1,11 @@
 import { BranchDecisionFn, BranchingPipeline } from '~/ingestion/framework/branching-pipeline'
 import { Pipeline } from '~/ingestion/framework/pipeline.interface'
 import { RetryOptions, withStepRetry } from '~/ingestion/framework/retry'
+import {
+    PromiseSchedulerInterface,
+    SideEffectHandlingConfig,
+    SideEffectHandlingProcessor,
+} from '~/ingestion/framework/side-effect-handling-pipeline'
 import { StartPipeline } from '~/ingestion/framework/start-pipeline'
 import { StepPipeline } from '~/ingestion/framework/step-pipeline'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -52,6 +57,18 @@ export class PipelineBuilder<TInput, TOutput, C, R extends string = never> {
         )
         const finalBuilder = callback(branchingBuilder)
         return new PipelineBuilder(finalBuilder.build())
+    }
+
+    /**
+     * Schedule (or await) the side effects carried by this pipeline's results
+     * and clear them, so downstream consumers never have to drain them.
+     * Mirrors `ChunkPipelineBuilder.handleSideEffects`.
+     */
+    handleSideEffects(
+        promiseScheduler: PromiseSchedulerInterface,
+        options: SideEffectHandlingConfig
+    ): PipelineBuilder<TInput, TOutput, C, R> {
+        return new PipelineBuilder(new SideEffectHandlingProcessor(this.pipeline, promiseScheduler, options))
     }
 
     build(): Pipeline<TInput, TOutput, C, R> {

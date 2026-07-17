@@ -63,7 +63,6 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     } = useValues(trendsDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
     const hideWeekendsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS]
-    const quillLegendEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]
     const styleRefreshEnabled = !!featureFlags[FEATURE_FLAGS.QUILL_CHART_STYLE_REFRESH]
 
     // The slope graph shows the first vs last interval, so it drops the options that need the points
@@ -95,7 +94,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     // of the legacy show/hide checkbox. usesInChartLegend is the single source of truth (same
     // selector used by InsightVizDisplay to suppress the side legend). Funnel trends with breakdown
     // also get the position selector since they render the quill legend via config.legend.
-    const useQuillLegendOptions = usesInChartLegend || (quillLegendEnabled && showFunnelLegendConfig)
+    const useQuillLegendOptions = usesInChartLegend || showFunnelLegendConfig
 
     const showDisplaySection =
         (isTrends && !isCalendarHeatmap) || isRetention || isTrendsFunnel || isStickiness || isLifecycle

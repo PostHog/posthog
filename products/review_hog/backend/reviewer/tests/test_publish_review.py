@@ -24,9 +24,9 @@ _REPORT = "products.review_hog.backend.reviewer.tools.publish_review.ReviewRepor
 _LOAD_FINDINGS = "products.review_hog.backend.reviewer.tools.publish_review.load_valid_findings"
 _POST = "products.review_hog.backend.reviewer.tools.publish_review._post_github_review"
 
-# The default (should_fix) threshold — matches the pre-threshold PUBLISHED_PRIORITIES behavior these
-# tests were written against.
-_DEFAULT_PUBLISHED = published_priorities_for(IssuePriority.SHOULD_FIX)
+# The should_fix threshold: publishes should_fix and must_fix, drops consider. These tests use it to
+# exercise the publish gate, not the default (consider), which publishes everything.
+_SHOULD_FIX_PUBLISHED = published_priorities_for(IssuePriority.SHOULD_FIX)
 
 
 def _wire_readbacks(
@@ -261,7 +261,7 @@ class TestPublishReviewGate:
             token="t",
             head_sha="sha",
             post_promo=False,
-            published_priorities=_DEFAULT_PUBLISHED,
+            published_priorities=_SHOULD_FIX_PUBLISHED,
         )
 
         assert outcome.posted is True
@@ -274,7 +274,7 @@ class TestPublishReviewGate:
     def test_skips_when_only_consider_findings(
         self, mock_report_cls: MagicMock, mock_load: MagicMock, mock_post: MagicMock
     ) -> None:
-        # Below the default should_fix threshold: a run whose only valid finding is `consider` has
+        # Below the should_fix threshold: a run whose only valid finding is `consider` has
         # nothing publishable, so it posts nothing (guards the off-diff fix against over-surfacing).
         self._wire_report(mock_report_cls)
         mock_load.return_value = [(_finding(priority=IssuePriority.CONSIDER), _verdict())]
@@ -290,7 +290,7 @@ class TestPublishReviewGate:
             token="t",
             head_sha="sha",
             post_promo=False,
-            published_priorities=_DEFAULT_PUBLISHED,
+            published_priorities=_SHOULD_FIX_PUBLISHED,
         )
 
         assert outcome.posted is False
@@ -331,7 +331,7 @@ class TestPublishReviewGate:
             token="t",
             head_sha="sha",
             post_promo=False,
-            published_priorities=_DEFAULT_PUBLISHED,
+            published_priorities=_SHOULD_FIX_PUBLISHED,
         )
 
         assert outcome.posted is expected_posted
@@ -351,7 +351,7 @@ class TestPublishReviewGate:
     ) -> None:
         diff_lines = {"src/auth.py": {240}}
         comments = _build_inline_comments(
-            [(_finding(priority=base), _verdict(adjusted_priority=adjusted))], diff_lines, _DEFAULT_PUBLISHED
+            [(_finding(priority=base), _verdict(adjusted_priority=adjusted))], diff_lines, _SHOULD_FIX_PUBLISHED
         )
 
         assert len(comments) == expected_count
