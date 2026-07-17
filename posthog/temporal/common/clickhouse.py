@@ -27,6 +27,11 @@ from posthog.security.outbound_proxy import internal_requests_session
 
 LOGGER = get_logger(__name__)
 
+# Must stay under ClickHouse's `keep_alive_timeout` (3s in docker/clickhouse/config.xml): aiohttp
+# ignores the server's Keep-Alive header and pools idle connections for 15s by default, so it hands
+# out connections the server has already closed.
+KEEPALIVE_TIMEOUT_SECONDS = 2.0
+
 
 def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
     """Encode data for ClickHouse.
@@ -949,7 +954,9 @@ class ClickHouseClient:
 
             return sock
 
-        self.connector = aiohttp.TCPConnector(ssl=self.ssl, socket_factory=socket_factory)
+        self.connector = aiohttp.TCPConnector(
+            ssl=self.ssl, socket_factory=socket_factory, keepalive_timeout=KEEPALIVE_TIMEOUT_SECONDS
+        )
         # nosemgrep: aiohttp-missing-trust-env (internal ClickHouse connection, must bypass HTTP proxy)
         self.session = aiohttp.ClientSession(connector=self.connector, timeout=self.timeout, trust_env=False)
         return self
