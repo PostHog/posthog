@@ -87,7 +87,6 @@ from products.data_warehouse.backend.facade.api import (
     is_cdc_enabled_for_team,
     is_custom_source_ai_builder_enabled_for_team,
     is_multi_schema_capable_sql_source,
-    is_xmin_enabled_for_team,
     reconcile_github_repositories,
     reconcile_mysql_schemas,
     reconcile_postgres_schemas,
@@ -721,6 +720,15 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
             "(cdc-only history table). `null` for non-CDC syncs. Read from `schema_snapshot`."
         ),
     )
+    billable = serializers.BooleanField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Whether the rows synced by this job count toward billing. `false` for system-initiated "
+            "runs the customer isn't charged for (e.g. rebuilding a table after an internal issue). "
+            "`null` on legacy rows and means billable."
+        ),
+    )
 
     class Meta:
         model = ExternalDataJob
@@ -735,6 +743,7 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
             "latest_error",
             "workflow_run_id",
             "cdc_write_mode",
+            "billable",
         ]
         read_only_fields = [
             "id",
@@ -747,6 +756,7 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
             "latest_error",
             "workflow_run_id",
             "cdc_write_mode",
+            "billable",
         ]
 
     def get_cdc_write_mode(self, instance: ExternalDataJob) -> str | None:
@@ -1463,6 +1473,10 @@ class SourceSetupResponseSerializer(serializers.Serializer):
     )
 
 
+class ExternalDataSourceCreateResponseSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the created external data source.")
+
+
 class SourceConnectLinkSerializer(serializers.Serializer):
     source_type = serializers.CharField(help_text="The source type the link is for.")
     auth_method = serializers.ChoiceField(
@@ -1856,23 +1870,25 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             .order_by(self.ordering)
         )
 
-    @extend_schema(request=ExternalDataSourceCreateSerializer, responses=ExternalDataSourceSerializers)
     def _resolve_stored_credential(
         self, source_type: str, payload: dict
     ) -> tuple[dict, PendingSourceCredential | None, Response | None]:
         """Merge a connect-link stored credential into `payload` when it carries a `credential_id`.
 
         Lets the create and setup flows reference credentials the user entered on the connect page
-        instead of passing secrets inline. Returns the (possibly merged) payload, the resolved
-        credential (which the caller deletes once consumed — stored credentials are single-use), and
-        a 400 Response to return as-is on a lookup miss or source-type mismatch.
+        instead of passing secrets inline. Only credentials the requesting user stored resolve —
+        ids are listable within a team, so without the owner check any member could consume a
+        teammate's stashed secrets into a source they control. Returns the (possibly merged)
+        payload, the resolved credential (which the caller deletes once consumed — stored
+        credentials are single-use), and a 400 Response to return as-is on a lookup miss or
+        source-type mismatch.
         """
         credential_id = payload.pop("credential_id", None)
         if credential_id is None:
             return payload, None, None
         try:
             credential = PendingSourceCredential.objects.for_team(self.team_id).get(
-                id=credential_id, expires_at__gt=timezone.now()
+                id=credential_id, created_by=cast(User, self.request.user), expires_at__gt=timezone.now()
             )
         except (PendingSourceCredential.DoesNotExist, ValueError, TypeError, DjangoValidationError):
             return (
@@ -1898,6 +1914,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # Stored credentials win over inline keys so an agent can't override what the user entered.
         return {**payload, **credential.payload}, credential, None
 
+    @extend_schema(
+        request=ExternalDataSourceCreateSerializer, responses={201: ExternalDataSourceCreateResponseSerializer}
+    )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -3152,7 +3171,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # which makes a network round-trip per call. With large schema lists (e.g. Slack workspaces with
         # thousands of channels) the per-iteration call inflated the response loop past the 120s gateway.
         cdc_enabled = is_cdc_enabled_for_team(self.team)
-        xmin_enabled = is_xmin_enabled_for_team(self.team)
         # xmin is Postgres-only — gate on the source type so the capability never leaks to another SQL source.
         is_postgres = source_type_model == ExternalDataSourceType.POSTGRES
         data = [
@@ -3164,7 +3182,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "incremental_available": schema.supports_incremental,
                 "append_available": schema.supports_append,
                 "cdc_available": schema.supports_cdc if cdc_enabled else None,
-                "xmin_available": schema.supports_xmin if (is_postgres and xmin_enabled) else None,
+                "xmin_available": schema.supports_xmin if is_postgres else None,
                 "incremental_field": schema.incremental_fields[0]["field"]
                 if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
                 else None,
@@ -3614,16 +3632,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     )
     @action(methods=["GET"], detail=False, pagination_class=None)
     def stored_credentials(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """List credentials stored via the source connect page that haven't been consumed yet.
+        """List credentials the requesting user stored via the source connect page that haven't been consumed yet.
 
         Returns metadata only (id, source type, timestamps) — never the secrets themselves. Stored
-        credentials are temporary: they disappear once consumed by `setup` or when they expire.
-        Newest first, so after a user confirms they've finished the connect page, the first entry
-        for the source type is the one to pass to `setup`.
+        credentials are scoped to their creator: only the user who filled the connect page can list
+        or consume them. They are temporary too: they disappear once consumed by `setup` or when
+        they expire. Newest first, so after a user confirms they've finished the connect page, the
+        first entry for the source type is the one to pass to `setup`.
         """
         queryset = (
             PendingSourceCredential.objects.for_team(self.team_id)
-            .filter(expires_at__gt=timezone.now())
+            .filter(created_by=cast(User, request.user), expires_at__gt=timezone.now())
             .order_by("-created_at")
         )
         source_type = request.query_params.get("source_type")
@@ -4252,9 +4271,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # select_related joins the full ExternalDataSchema row; defer its large JSON/text
         # columns so the serializer only pulls the fields SimpleExternalDataSchemaSerializer
         # actually reads (sync_type_config + latest_error can each be sizeable).
+        # Non-billable jobs are included on purpose: the UI shows them tagged so a sync the
+        # customer wasn't charged for is still visible in the history.
         jobs = (
-            instance.jobs.filter(billable=True)
-            .select_related("schema")
+            instance.jobs.select_related("schema")
             .defer("schema__sync_type_config", "schema__latest_error")
             .order_by("-created_at")
         )
@@ -4367,7 +4387,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "not create the source. Once the user confirms they're done, find the stored credential id via "
                 f"data-warehouse-stored-credentials-list (source_type='{source_type}', newest first) and call "
                 'data-warehouse-source-setup with {"credential_id": <id>} in the payload. Stored credentials are '
-                "single-use and expire after 24 hours."
+                "single-use, expire after 24 hours, and are only visible to and consumable by the PostHog user "
+                "who entered them — so the page must be filled by the same user this session authenticates as."
             ),
         }
         return Response(status=status.HTTP_200_OK, data=SourceConnectLinkSerializer(data).data)

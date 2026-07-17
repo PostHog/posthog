@@ -8530,6 +8530,47 @@ export namespace Schemas {
       results: AgentFleetLiveSessionSummary[];
     }
 
+    /**
+     * Body for `agent-applications-invoke` — start a new session on the agent's live (promoted) revision.
+     */
+    export interface AgentInvokeRequest {
+      /** The user message that starts the session. Required, non-empty. */
+      message: string;
+      /** Optional idempotency / threading key. A repeat invoke with the same external_key resumes the existing session instead of starting a new one. */
+      external_key?: string;
+    }
+
+    export interface AgentInvokeResponse {
+      /** The newly-created (or resumed, if external_key matched) session id. Feed to agent-applications-send / agent-applications-listen. */
+      session_id: string;
+      /** Session state right after enqueue — `queued`. Poll agent-applications-listen for progress.
+       *
+       * * `queued` - queued
+       * * `running` - running
+       * * `completed` - completed
+       * * `closed` - closed
+       * * `cancelled` - cancelled
+       * * `failed` - failed */
+      state: AgentSessionStateEnum;
+      /** True if an existing session matched `external_key` and was resumed, rather than a new one being created. */
+      resumed: boolean;
+    }
+
+    export interface AgentListenResponse {
+      session_id: string;
+      state: AgentSessionStateEnum;
+      /** Total messages in the conversation so far. */
+      turns: number;
+      /** Pass back as `cursor` on the next call to page forward — high-water mark of messages seen. */
+      next_cursor: number;
+      /** Compact, payload-free progress summary: last assistant text, one-line tool activity, state/usage. */
+      digest: string;
+      /** True when the digest was clipped to `max_chars` — read the full transcript via `agent-applications-sessions-retrieve`. */
+      truncated: boolean;
+      /** True once the current turn has finished (`completed`) or the session ended (`closed`/`cancelled`/`failed`) — stop polling. A `completed` session is still open: `agent-applications-send` to continue it. */
+      done: boolean;
+    }
+
     export interface AgentMemoryFile {
       /** Full markdown body. */
       content: string;
@@ -8830,6 +8871,28 @@ export namespace Schemas {
       Langgraph: 'langgraph',
       Sandbox: 'sandbox',
     } as const;
+
+    /**
+     * Body for `agent-applications-send` — append a message to an existing live session.
+     */
+    export interface AgentSendRequest {
+      /** The session to append to (returned by agent-applications-invoke). Must belong to this agent. */
+      session_id: string;
+      /** The user message to append. Required, non-empty. */
+      message: string;
+    }
+
+    export interface AgentSendResponse {
+      /** Session state after the message was appended — `queued` (a new turn will run).
+       *
+       * * `queued` - queued
+       * * `running` - running
+       * * `completed` - completed
+       * * `closed` - closed
+       * * `cancelled` - cancelled
+       * * `failed` - failed */
+      state: AgentSessionStateEnum;
+    }
 
     export interface AgentTableHeader {
       /** Table name. */
@@ -12415,6 +12478,12 @@ export namespace Schemas {
          * @maximum 20
          */
       max_opportunities?: number;
+      /**
+         * Maximum annotations gathered as context per brief. Default 20.
+         * @minimum 1
+         * @maximum 100
+         */
+      max_annotations?: number;
     }
 
     export interface BriefConfig {
@@ -16077,6 +16146,11 @@ export namespace Schemas {
       id?: number;
       /** Nested widget row updates. */
       widget?: DashboardPatchWidgetOpenApi;
+    }
+
+    export interface DashboardSubscribeNudgeResponse {
+      /** Whether a nudge notification was created. False when one was already sent recently for this user and dashboard, or when in-app notifications are unavailable. */
+      created: boolean;
     }
 
     /**
@@ -23437,11 +23511,11 @@ export namespace Schemas {
     }
 
     export interface EvaluationReportCitation {
-      /** Generation UUID referenced by this citation. */
+      /** Optional generation UUID for generation-target report citations. */
       generation_id?: string;
-      /** Trace identifier containing the referenced generation. */
+      /** Identifier of the trace cited by this report. */
       trace_id?: string;
-      /** Short explanation of why the generation is cited. */
+      /** Short explanation of why this example is cited. */
       reason?: string;
     }
 
@@ -23515,11 +23589,16 @@ export namespace Schemas {
     }
 
     export interface EvaluationReportRunContent {
+      /** Evaluation target analyzed by this report run. Legacy runs without this field targeted generations.
+       *
+       * * `generation` - Generation
+       * * `trace` - Trace */
+      evaluation_target?: EvaluationTargetEnum;
       /** Agent-generated report headline. */
       title?: string;
       /** Ordered narrative sections in the report. */
       sections?: EvaluationReportSection[];
-      /** Trace references grounding findings in the report. */
+      /** References grounding findings in the report. */
       citations?: EvaluationReportCitation[];
       /** Structured metrics computed for the report period. */
       metrics?: EvaluationReportMetrics | null;
@@ -25182,17 +25261,17 @@ export namespace Schemas {
       experiment_name: string;
       /** Key of the experiment's feature flag. */
       flag_key: string;
-      /** Variant the session saw. Taken from the earliest $feature_flag_called event in the session when one exists, otherwise from the $feature/<key> property stamped on the session's events. */
+      /** Variant the session saw. Taken from the earliest event matching the experiment's exposure criteria when one exists, otherwise from the earliest flag evaluation in the session, otherwise from the $feature/<key> property stamped on the session's events. */
       variant: string;
       /** All distinct variant values observed for this flag during the session, sorted alphabetically. Only the flag's defined variant keys count; non-enrollment responses (false) are ignored. More than one value means the session saw multiple variants — a signal of multi-exposure bias. */
       variants_seen: string[];
       /** True when the session saw more than one variant of this flag. */
       multiple_variants: boolean;
       /**
-         * Timestamp of the first $feature_flag_called event for this flag in the session — the moment the flag was evaluated to the variant. Null when the variant is only known from stamped $feature/<key> properties (e.g. the assignment carried over from an earlier session). For experiments with custom exposure criteria this is not the experiment's exposure moment.
+         * Timestamp of the first event in the session matching the experiment's exposure criteria — the default exposure event ($feature_flag_called), or the configured custom event/action. Null when no event in the session matched the criteria; the variant is then known from flag evaluations or stamped $feature/<key> properties. Session-scoped: the experiment analysis counts exposure per person across the whole run window, so the person's counted first exposure may lie in an earlier session.
          * @nullable
          */
-      first_flag_evaluation_timestamp: string | null;
+      first_exposure_timestamp: string | null;
       /**
          * When the experiment was launched.
          * @nullable
@@ -27511,6 +27590,11 @@ export namespace Schemas {
       direct_query_enabled?: boolean;
     }
 
+    export interface ExternalDataSourceCreateResponse {
+      /** ID of the created external data source. */
+      id: string;
+    }
+
     /**
      * One row in `inventory.external_data_sources`.
      */
@@ -27722,9 +27806,6 @@ export namespace Schemas {
       readonly experiment_set_metadata: readonly FeatureFlagExperimentSetMetadata[];
       readonly surveys: FeatureFlagSurveys;
       readonly features: FeatureFlagFeatures;
-      rollback_conditions?: unknown;
-      /** @nullable */
-      performed_rollback?: boolean | null;
       readonly can_edit: boolean;
       tags?: unknown[];
       evaluation_contexts?: unknown[];
@@ -27978,9 +28059,6 @@ export namespace Schemas {
          * @nullable
          */
       version?: number | null;
-      rollback_conditions?: unknown;
-      /** @nullable */
-      performed_rollback?: boolean | null;
       /** @nullable */
       ensure_experience_continuity?: boolean | null;
       /** @nullable */
@@ -31618,6 +31696,8 @@ export namespace Schemas {
 
     export interface MCPToolDailyStatsQuery {
       dateRange?: DateRange | null;
+      /** Bucket granularity for the series. The frontend passes getDefaultInterval so a sub-day window buckets by hour/minute instead of collapsing to a single day point. Defaults to day. */
+      interval?: IntervalType | null;
       kind?: 'MCPToolDailyStatsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -33083,6 +33163,13 @@ export namespace Schemas {
          * @maxLength 4096
          */
       description: string;
+      /** Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response. */
+      readonly body_total_length: number;
+      /**
+         * When body_length paging stops before the end of the body, the character offset to request next (pass as body_offset). Null when the returned body reaches the end.
+         * @nullable
+         */
+      readonly body_next_offset: number | null;
       /** The SKILL.md instruction content (markdown). */
       body: string;
       /**
@@ -33151,6 +33238,13 @@ export namespace Schemas {
          * @maxLength 4096
          */
       description: string;
+      /** Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response. */
+      readonly body_total_length: number;
+      /**
+         * When body_length paging stops before the end of the body, the character offset to request next (pass as body_offset). Null when the returned body reaches the end.
+         * @nullable
+         */
+      readonly body_next_offset: number | null;
       /** The SKILL.md instruction content (markdown). */
       body: string;
       /**
@@ -41692,6 +41786,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly error_reason: string | null;
+      /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
+      readonly is_recovery: boolean;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -46858,12 +46954,14 @@ export namespace Schemas {
       review_inbox_prs?: boolean;
       /** Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored. */
       review_labeled_prs?: boolean;
-      /** Minimum priority a validated finding needs to be published: 'consider' publishes everything, 'should_fix' (default) drops consider-level findings, 'must_fix' publishes only blocking issues.
+      /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
        *
        * * `consider` - Consider
        * * `should_fix` - Should Fix
        * * `must_fix` - Must Fix */
       urgency_threshold?: UrgencyThresholdEnum;
+      /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
+      readonly can_trigger_reviews?: boolean;
     }
 
     export interface PatchedReviewValidatorConfigSelect {
@@ -54979,17 +55077,36 @@ export namespace Schemas {
       stale: number;
     }
 
+    export interface ReviewTriggerError {
+      /** Human-readable explanation of why the trigger was rejected. */
+      error: string;
+    }
+
+    export interface ReviewTriggerRequest {
+      /** GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. The repository must be accessible to the project's GitHub App installation. */
+      pr_url: string;
+    }
+
+    export interface ReviewTriggerResponse {
+      /** Temporal workflow id for the started review run; empty when no run was started. */
+      workflow_id: string;
+      /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review (no new run starts). */
+      status: string;
+    }
+
     export interface ReviewUserSettings {
       /** Automatically review pull requests opened by PostHog agents from the user's Inbox. Stored but not consumed yet — the Inbox auto-review trigger is not built. */
       review_inbox_prs?: boolean;
       /** Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored. */
       review_labeled_prs?: boolean;
-      /** Minimum priority a validated finding needs to be published: 'consider' publishes everything, 'should_fix' (default) drops consider-level findings, 'must_fix' publishes only blocking issues.
+      /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
        *
        * * `consider` - Consider
        * * `should_fix` - Should Fix
        * * `must_fix` - Must Fix */
       urgency_threshold?: UrgencyThresholdEnum;
+      /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
+      readonly can_trigger_reviews: boolean;
     }
 
     export interface ReviewValidatorConfig {
@@ -61688,6 +61805,86 @@ export namespace Schemas {
       readonly events_retention_enforced: boolean;
     }
 
+    export interface TeamTestSignal {
+      /** Reconstructed pytest nodeid (the CI span name), a stable grouping key. */
+      nodeid: string;
+      /** Runnable pytest selector; exact when the CI reporter emitted it. */
+      selector: string;
+      /** Failed + error + pass-on-retry spans in the current window (xfail excluded). */
+      signal_count: number;
+      /** Same count over the equal-length window before date_from. */
+      signal_count_prior: number;
+      /** Most recent signal span for this test, either window. */
+      last_seen_at: string;
+    }
+
+    export interface TeamCIActivity {
+      /** The team's owned tests with signal in either window, ranked by the stronger window's count (the current-vs-prior pairs behind a before/after comparison). */
+      tests: TeamTestSignal[];
+      /** The team slug this activity is scoped to, or 'unowned'. */
+      owner_team: string;
+      /** True when more owned tests had signal than the test cap. */
+      truncated_tests: boolean;
+    }
+
+    export interface TeamCIHealthItem {
+      /** Owning team slug (the CODEOWNERS handle minus '@PostHog/', e.g. 'team-replay'), or the literal 'unowned' for tests whose spans carry no ownership stamp. */
+      owner_team: string;
+      /** Owned tests meeting the flaky-leaderboard bar in the window (passed on retry or failed on enough distinct PRs). Compare with flaky_test_count_prior for the delta. */
+      flaky_test_count: number;
+      /** Same count over the equal-length window immediately before date_from. */
+      flaky_test_count_prior: number;
+      /** Signal spans on owned tests with final outcome 'failed' or 'error' in the window. An absolute count, not a rate: fast passing runs are not emitted. */
+      failed_count: number;
+      /** Same count over the prior window. */
+      failed_count_prior: number;
+      /** Spans on owned tests that failed, then passed on an automatic retry, the strongest flaky signal. Only rerun-enabled CI lanes emit it. */
+      rerun_passed_count: number;
+      /** Same count over the prior window. */
+      rerun_passed_count_prior: number;
+      /** Spans on owned tests that failed while quarantined (xfail): masked in CI but still flaky. */
+      xfailed_count: number;
+      /** Same count over the prior window. */
+      xfailed_count_prior: number;
+      /** Most recent signal span across the team's owned tests, either window. */
+      last_seen_at: string;
+    }
+
+    export interface TeamCIHealthList {
+      /** Owning teams ranked by current flaky + failure signal, heaviest first, capped at `limit`. Teams are organizational owners of code surfaces; this never aggregates by author. */
+      items: TeamCIHealthItem[];
+      /** True when more teams had signal than the cap. */
+      truncated: boolean;
+      /** Maximum number of teams returned in `items`. */
+      limit: number;
+    }
+
+    export interface TeamMergeTrendPoint {
+      /** Start of the day bucket (team timezone), keyed on merged_at. */
+      day: string;
+      /**
+         * Median open→merge seconds of the PRs this team's members merged that day; null on a day the team merged nothing.
+         * @nullable
+         */
+      median_seconds: number | null;
+      /**
+         * Average open→merge seconds over the same merges; diverges above the median when a few long-running PRs drag the mean. Null on a day the team merged nothing.
+         * @nullable
+         */
+      average_seconds: number | null;
+      /** Merged PRs behind that day's median and average. */
+      merged_count: number;
+    }
+
+    export interface TeamMergeTrend {
+      /** Daily median and average open→merge over the PRs this team's members merged, ascending by day. Coarse timing (open→merge combines draft and review time); bots excluded. */
+      points: TeamMergeTrendPoint[];
+      /** The team slug this trend is scoped to. */
+      owner_team: string;
+      /** False when the GitHub source has no team_members snapshot synced: the trend then has no honest team attribution and `points` is empty. */
+      has_membership_data: boolean;
+    }
+
     export type TestHogRequestConditionsItem = { [key: string]: unknown };
 
     export interface TestHogRequest {
@@ -62358,6 +62555,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly error_reason: string | null;
+      /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
+      readonly is_recovery: boolean;
       readonly created_at: string;
       readonly updated_at: string;
       /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
@@ -65137,6 +65336,18 @@ export namespace Schemas {
       Xs: 'xs',
     } as const;
 
+    export type EnvironmentsDashboardsSubscribeNudgeCreateParams = {
+    format?: EnvironmentsDashboardsSubscribeNudgeCreateFormat;
+    };
+
+    export type EnvironmentsDashboardsSubscribeNudgeCreateFormat = typeof EnvironmentsDashboardsSubscribeNudgeCreateFormat[keyof typeof EnvironmentsDashboardsSubscribeNudgeCreateFormat];
+
+
+    export const EnvironmentsDashboardsSubscribeNudgeCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type EnvironmentsDashboardsUpdateTextTileCreateParams = {
     format?: EnvironmentsDashboardsUpdateTextTileCreateFormat;
     };
@@ -67754,6 +67965,16 @@ export namespace Schemas {
 
     export type EnvironmentsLlmSkillsNameRetrieveParams = {
     /**
+     * Maximum number of characters of the body to return starting at body_offset. Omit to return the whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.
+     * @minimum 1
+     */
+    body_length?: number;
+    /**
+     * Zero-based character offset to start the returned body from. Use with body_length to page through a large body that a client would otherwise truncate. Compare the returned body length against body_total_length to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of body).
+     * @minimum 0
+     */
+    body_offset?: number;
+    /**
      * Specific skill version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
@@ -69131,7 +69352,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -69209,7 +69430,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -69244,7 +69465,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -69279,7 +69500,7 @@ export namespace Schemas {
      */
     recent_days?: number;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -70573,6 +70794,21 @@ export namespace Schemas {
     state?: string;
     };
 
+    export type AgentApplicationsListenParams = {
+    /**
+     * `next_cursor` from the previous call. Omit on the first read; pass it back to summarize only what's new.
+     */
+    cursor?: number;
+    /**
+     * Digest character budget (default 4000, range 1–20000). The digest is clipped to fit and `truncated` is set.
+     */
+    max_chars?: number;
+    /**
+     * Session to read (must belong to this agent).
+     */
+    session_id: string;
+    };
+
     export type AgentApplicationsPreviewProxyGetParams = {
     format?: AgentApplicationsPreviewProxyGetFormat;
     /**
@@ -71582,6 +71818,18 @@ export namespace Schemas {
       Xs: 'xs',
     } as const;
 
+    export type DashboardsSubscribeNudgeCreateParams = {
+    format?: DashboardsSubscribeNudgeCreateFormat;
+    };
+
+    export type DashboardsSubscribeNudgeCreateFormat = typeof DashboardsSubscribeNudgeCreateFormat[keyof typeof DashboardsSubscribeNudgeCreateFormat];
+
+
+    export const DashboardsSubscribeNudgeCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type DashboardsUpdateTextTileCreateParams = {
     format?: DashboardsUpdateTextTileCreateFormat;
     };
@@ -72290,6 +72538,75 @@ export namespace Schemas {
      * Workflow run id whose failure logs to fetch.
      */
     run_id: number;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsTeamCiActivityParams = {
+    /**
+     * Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window may span at most 30 days. An equal-length prior window feeds the *_prior twins; near the 30-day ceiling that prior window can reach past Traces retention, deflating *_prior counts.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Owning team slug to scope to (as returned by team_ci_health), e.g. 'team-replay', or the literal 'unowned' for tests with no ownership stamp.
+     */
+    owner_team: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    /**
+     * Maximum number of per-test signal rows to return (1-100). Defaults to 25.
+     */
+    test_limit?: number;
+    };
+
+    export type EngineeringAnalyticsTeamCiHealthParams = {
+    /**
+     * Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window may span at most 30 days. An equal-length prior window is scanned for the *_prior twins; near the 30-day ceiling that prior window can reach past Traces retention, deflating *_prior counts and overstating deltas.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Maximum number of teams to return (1-200). Defaults to 100.
+     */
+    limit?: number;
+    /**
+     * A test counts as flaky once it failed on at least this many distinct pull requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.
+     */
+    min_failed_prs?: number;
+    /**
+     * A test counts as flaky once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.
+     */
+    min_rerun_passes?: number;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsTeamMergeTrendParams = {
+    /**
+     * Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window may span at most 30 days.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Team slug to scope to (as returned by team_ci_health), matched against the GitHub org team slug of the source's team_members snapshot. The literal 'unowned' names an ownership gap, not an org team, and has no merge trend.
+     */
+    owner_team: string;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -75291,6 +75608,16 @@ export namespace Schemas {
 
     export type LlmSkillsNameRetrieveParams = {
     /**
+     * Maximum number of characters of the body to return starting at body_offset. Omit to return the whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.
+     * @minimum 1
+     */
+    body_length?: number;
+    /**
+     * Zero-based character offset to start the returned body from. Use with body_length to page through a large body that a client would otherwise truncate. Compare the returned body length against body_total_length to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of body).
+     * @minimum 0
+     */
+    body_offset?: number;
+    /**
      * Specific skill version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
@@ -77777,7 +78104,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -77855,7 +78182,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -77890,7 +78217,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -77925,7 +78252,7 @@ export namespace Schemas {
      */
     recent_days?: number;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
