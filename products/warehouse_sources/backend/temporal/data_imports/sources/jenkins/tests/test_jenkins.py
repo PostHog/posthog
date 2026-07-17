@@ -297,7 +297,7 @@ class TestReadBodyCapped:
     def test_rejects_response_over_cap(self) -> None:
         # A hostile/misconfigured host returning a body past the cap must raise (and release the
         # connection) instead of buffering the whole thing into worker memory.
-        response = _FakeResponse(b"y" * 50)
+        response: Any = _FakeResponse(b"y" * 50)
         with mock.patch.object(jenkins, "MAX_RESPONSE_BYTES", 10):
             with pytest.raises(ValueError):
                 jenkins._read_body_capped(response, "https://j/")
@@ -305,14 +305,14 @@ class TestReadBodyCapped:
 
     def test_caches_body_under_cap(self) -> None:
         # Under the cap the decoded body is cached so downstream `.json()` reads from memory.
-        response = _FakeResponse(b'{"ok": true}')
+        response: Any = _FakeResponse(b'{"ok": true}')
         jenkins._read_body_capped(response, "https://j/")
         assert response._content == b'{"ok": true}'
 
     def test_aborts_on_download_deadline(self) -> None:
         # A read kept blocked below the socket idle timeout must be cut off by the watchdog closing
         # the response, surfaced as a non-retryable deadline error, rather than holding the worker.
-        response = _FakeResponse(raw=_BlockingRaw())
+        response: Any = _FakeResponse(raw=_BlockingRaw())
         with mock.patch.object(jenkins, "MAX_DOWNLOAD_SECONDS", 0.05):
             with pytest.raises(ValueError, match="download deadline"):
                 jenkins._read_body_capped(response, "https://j/")
