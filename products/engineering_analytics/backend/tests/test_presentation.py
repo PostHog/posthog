@@ -333,6 +333,29 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_resolve_branch_serializes(self) -> None:
+        matches = [
+            contracts.BranchPRMatch(repo="PostHog/posthog", number=42, title="Fix bug", state="merged"),
+            contracts.BranchPRMatch(repo="PostHog/posthog", number=7, title=None, state=None),
+        ]
+        with mock.patch(f"{_VIEWS}.resolve_branch", return_value=matches) as resolve:
+            response = self.client.get(self._url("resolve_branch"), {"branch": "feat/x", "repo": "PostHog/posthog"})
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert [(m["number"], m["repo"], m["title"], m["state"]) for m in body] == [
+            (42, "PostHog/posthog", "Fix bug", "merged"),
+            (7, "PostHog/posthog", None, None),
+        ]
+        assert resolve.call_args.kwargs["branch"] == "feat/x"
+        assert resolve.call_args.kwargs["repo"] == "PostHog/posthog"
+
+    def test_resolve_branch_400_when_branch_missing(self) -> None:
+        # Validation lives in the facade; a request with no branch surfaces as a 400 (source connected in setUp).
+        response = self.client.get(self._url("resolve_branch"))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_workflow_run_serializes(self) -> None:
         with mock.patch(f"{_VIEWS}.get_workflow_run", return_value=_workflow_run()) as get:
             response = self.client.get(self._url("workflow_run"), {"run_id": "7777"})
@@ -424,6 +447,7 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
             by_run=[
                 contracts.RunCost(run_id=9100, run_attempt=1, billable_minutes=2510.0, estimated_cost_usd=61.2),
             ],
+            llm_spend=contracts.PRLLMSpend(cost_usd=1.5, input_tokens=1200, output_tokens=340, generations=4),
         )
         with mock.patch(f"{_VIEWS}.get_pr_cost", return_value=summary) as getter:
             response = self.client.get(self._url("pr_cost"), {"pr_number": "10", "repo": "PostHog/posthog"})
@@ -432,6 +456,12 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         body = response.json()
         assert body["billable_minutes"] == 2510.0 and body["unsettled_jobs"] == 2
         assert body["by_run"][0]["run_id"] == 9100 and body["by_run"][0]["estimated_cost_usd"] == 61.2
+        assert body["llm_spend"] == {
+            "cost_usd": 1.5,
+            "input_tokens": 1200,
+            "output_tokens": 340,
+            "generations": 4,
+        }
         assert getter.call_args.kwargs["pr_number"] == 10
         assert getter.call_args.kwargs["repo"] == "PostHog/posthog"
 

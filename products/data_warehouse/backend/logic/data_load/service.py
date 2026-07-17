@@ -152,18 +152,30 @@ def to_temporal_schedule(
 
 
 def sync_external_data_job_workflow(
-    external_data_schema: ExternalDataSchema, create: bool = False, should_sync: bool = True
+    external_data_schema: ExternalDataSchema,
+    create: bool = False,
+    should_sync: bool = True,
+    trigger_immediately: bool = True,
 ) -> ExternalDataSchema:
+    """Create or update the schema's Temporal schedule.
+
+    Runs fired through the schedule use its stored action, whose `billable` is always True,
+    so callers that must not bill (e.g. admin recovery) pass trigger_immediately=False and
+    start their own ad-hoc run if one is needed.
+    """
     temporal = sync_connect()
 
     schedule = get_sync_schedule(external_data_schema, should_sync=should_sync)
 
     if create:
         try:
-            create_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True)
+            create_schedule(
+                temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=trigger_immediately
+            )
         except ScheduleAlreadyRunningError:
             update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
-            trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
+            if trigger_immediately:
+                trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
     else:
         update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
 
@@ -392,15 +404,6 @@ def is_any_external_data_schema_paused(team_id: int) -> bool:
 def is_cdc_enabled_for_team(team: Team) -> bool:
     return feature_enabled_or_false(
         "dwh-postgres-cdc",
-        str(team.organization_id),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-    )
-
-
-def is_xmin_enabled_for_team(team: Team) -> bool:
-    return feature_enabled_or_false(
-        "dwh-postgres-xmin",
         str(team.organization_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},

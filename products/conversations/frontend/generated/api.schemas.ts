@@ -116,6 +116,17 @@ export const ConversationTypeApi = {
 } as const
 
 /**
+ * * `acp` - ACP
+ * * `pi` - Pi
+ */
+export type RuntimeEnumApi = (typeof RuntimeEnumApi)[keyof typeof RuntimeEnumApi]
+
+export const RuntimeEnumApi = {
+    Acp: 'acp',
+    Pi: 'pi',
+} as const
+
+/**
  * @nullable
  */
 export type TaskUserBasicInfoApiHedgehogConfig = { [key: string]: unknown } | null
@@ -160,6 +171,11 @@ export interface TaskDetailDTOApi {
     title_manually_set: boolean
     description: string
     origin_product: string
+    /** Agent protocol and harness used for this task's runs.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    readonly runtime: RuntimeEnumApi
     /** @nullable */
     repository: string | null
     /** @nullable */
@@ -613,6 +629,7 @@ export const TicketStatusEnumApi = {
  * * `low` - Low
  * * `medium` - Medium
  * * `high` - High
+ * * `critical` - Critical
  */
 export type TicketPriorityEnumApi = (typeof TicketPriorityEnumApi)[keyof typeof TicketPriorityEnumApi]
 
@@ -620,6 +637,7 @@ export const TicketPriorityEnumApi = {
     Low: 'low',
     Medium: 'medium',
     High: 'high',
+    Critical: 'critical',
 } as const
 
 /**
@@ -676,11 +694,12 @@ export interface TicketApi {
      * * `on_hold` - On hold
      * * `resolved` - Resolved */
     status?: TicketStatusEnumApi
-    /** Ticket priority: low, medium, or high. Null if unset.
+    /** Ticket priority: low, medium, high, or critical. Null if unset.
      *
      * * `low` - Low
      * * `medium` - Medium
-     * * `high` - High */
+     * * `high` - High
+     * * `critical` - Critical */
     priority?: TicketPriorityEnumApi | BlankEnumApi | null
     readonly assignee: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
@@ -768,11 +787,12 @@ export interface PatchedTicketApi {
      * * `on_hold` - On hold
      * * `resolved` - Resolved */
     status?: TicketStatusEnumApi
-    /** Ticket priority: low, medium, or high. Null if unset.
+    /** Ticket priority: low, medium, high, or critical. Null if unset.
      *
      * * `low` - Low
      * * `medium` - Medium
-     * * `high` - High */
+     * * `high` - High
+     * * `critical` - Critical */
     priority?: TicketPriorityEnumApi | BlankEnumApi | null
     readonly assignee?: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
@@ -1037,6 +1057,22 @@ export interface PaginatedTicketViewListApi {
     results: TicketViewApi[]
 }
 
+/**
+ * Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.
+ */
+export type PatchedTicketViewApiFilters = { [key: string]: unknown }
+
+export interface PatchedTicketViewApi {
+    readonly id?: string
+    readonly short_id?: string
+    /** @maxLength 400 */
+    name?: string
+    /** Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys. */
+    filters?: PatchedTicketViewApiFilters
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+}
+
 export interface ZendeskImportStartApi {
     /**
      * Zendesk subdomain (e.g. 'acme' from acme.zendesk.com).
@@ -1175,7 +1211,7 @@ export type ConversationsTicketsListParams = {
      */
     order_by?: string
     /**
-     * Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`.
+     * Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`, `critical`.
      */
     priority?: string
     /**

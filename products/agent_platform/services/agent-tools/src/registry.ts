@@ -83,6 +83,7 @@ import { webSearchV1 } from './tools/web-search/web-search.v1'
  */
 export const nativeToolsCatalogV1 = defineNativeTool({
     id: '@posthog/agent-applications-native-tools-list',
+    approval: 'allow',
     description: [
         'List every native (@posthog/*) tool available to put in an agent spec —',
         'id, description, the credential provider + scopes it needs, and cost hint. Call this to',

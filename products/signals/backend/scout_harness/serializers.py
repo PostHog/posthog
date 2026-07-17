@@ -135,7 +135,7 @@ class SignalScoutRunDetailSerializer(SignalScoutRunSummarySerializer):
 
 class SignalScoutEmissionSerializer(serializers.ModelSerializer):
     """One finding a scout run emitted to the inbox — the persisted, queryable record of
-    *what* the run surfaced, returned by `signals-scout-runs-emissions-list`. The emitted text
+    *what* the run surfaced, returned by `scout-runs-emissions-list`. The emitted text
     lives in `description`; `source_id` is the join key (`run:<run_id>:finding:<finding_id>`)
     back into the underlying signal store."""
 
@@ -278,23 +278,45 @@ class RecentEmissionsQuerySerializer(serializers.Serializer):
 
 
 class FleetFindingsSummarySerializer(serializers.Serializer):
-    """Fleet-wide tally of recently emitted findings — backs the "Scout findings" callout so it
-    renders from one cheap query instead of the client walking the whole paginated runs window."""
+    """Fleet-wide tally of recent scout output — legacy `emit_signal` findings plus reports
+    authored/edited via the report channel. Backs the "Scout findings" callout so it renders
+    from one cheap query instead of the client walking the whole paginated runs window."""
 
     count = serializers.IntegerField(
         help_text=(
-            "Total findings the fleet emitted in the window — the sum of each emitted run's "
-            "`emitted_count`, over the most recent 120 emitted runs."
+            "Total findings the fleet emitted in the window — the sum of each run's "
+            "`emitted_count`, over the most recent 120 runs that produced output."
         )
     )
     scout_count = serializers.IntegerField(
-        help_text="Number of distinct scouts (skills) that emitted at least one finding in the window."
+        help_text=(
+            "Number of distinct scouts (skills) that produced output in the window — emitted a "
+            "finding, or authored/edited an inbox report that survives the 50-report cap (a "
+            "report-only scout whose touched reports all fell outside the cap is not counted, "
+            "matching the findings page's scout filter)."
+        )
+    )
+    authored_report_count = serializers.IntegerField(
+        help_text=(
+            "Number of distinct inbox reports scouts authored via `emit_report`, deduped across runs, "
+            "over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently "
+            "touched reports (the same slice the findings page lists)."
+        )
+    )
+    edited_report_count = serializers.IntegerField(
+        help_text=(
+            "Number of distinct inbox reports scouts edited via `edit_report`, deduped across runs, "
+            "over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently "
+            "touched reports (the same slice the findings page lists) and excluding reports also "
+            "authored within that set (authoring supersedes an edit; a report whose authoring run "
+            "falls outside the cap counts as edited)."
+        )
     )
     latest_at = serializers.DateTimeField(
         allow_null=True,
         help_text=(
-            "ISO-8601 timestamp of the most recently emitted finding's run (TaskRun completion, "
-            "falling back to run creation), or null when nothing was emitted in the window."
+            "ISO-8601 timestamp of the most recent output run (TaskRun completion, falling back "
+            "to run creation), or null when nothing was produced in the window."
         ),
     )
 
@@ -613,14 +635,14 @@ class SuggestedReviewerSerializer(serializers.Serializer):
         max_length=200,
         help_text=(
             "GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display "
-            "name. Resolve one via `signals-scout-members-list` (each member row carries a resolved "
+            "name. Resolve one via `scout-members-list` (each member row carries a resolved "
             "`github_login`) or git history when you only have a name."
         ),
     )
     user_uuid = serializers.UUIDField(
         required=False,
         help_text=(
-            "PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). "
+            "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). "
             "Resolved server-side to the member's linked GitHub login — use this when you know the PostHog "
             "user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
         ),
@@ -1563,7 +1585,7 @@ class SignalScoutManualRunSerializer(serializers.Serializer):
 
     The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
     row yet at response time — the bridge row is created once the run's first turn starts.
-    Poll the scout's runs (`signals-scout-runs-list`) to see the resulting run and its findings.
+    Poll the scout's runs (`scout-runs-list`) to see the resulting run and its findings.
     """
 
     skill_name = serializers.CharField(help_text="The `signals-scout-*` skill that was dispatched.")
@@ -1628,7 +1650,7 @@ class ScoutMetadataSerializer(serializers.Serializer):
 
 
 class ScoutMembersQuerySerializer(serializers.Serializer):
-    """Query params for `signals-scout-members-list`."""
+    """Query params for `scout-members-list`."""
 
     search = serializers.CharField(
         required=False,

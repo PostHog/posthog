@@ -159,7 +159,15 @@ export const SUPPORT_TICKETS_TABLE_COLUMNS: LemonTableColumns<Ticket> = [
         render: (_, ticket) =>
             ticket.priority ? (
                 <LemonTag
-                    type={ticket.priority === 'high' ? 'danger' : ticket.priority === 'medium' ? 'warning' : 'default'}
+                    type={
+                        ticket.priority === 'critical'
+                            ? 'danger'
+                            : ticket.priority === 'high'
+                              ? 'caution'
+                              : ticket.priority === 'medium'
+                                ? 'warning'
+                                : 'default'
+                    }
                 >
                     {ticket.priority}
                 </LemonTag>

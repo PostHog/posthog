@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useRef } from 'react'
 
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+
 import {
     Composer,
     DEFAULT_SUGGESTIONS_DATA,
@@ -11,15 +13,17 @@ import {
 } from 'products/posthog_ai/frontend/api/primitives'
 import { resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
 
+import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
 
 export function TaskComposer(): JSX.Element {
-    const { submitNewTask, setNewTaskData, setActiveSuggestionGroup, applySuggestion } =
+    const { submitNewTask, setNewTaskData, setActiveSuggestionGroup, applySuggestion, clearConsentBlock } =
         useActions(taskTrackerSceneLogic)
-    const { newTaskData, isSubmittingTask, activeSuggestionGroup, headline } = useValues(taskTrackerSceneLogic)
+    const { newTaskData, isSubmittingTask, activeSuggestionGroup, headline, consentBlocked } =
+        useValues(taskTrackerSceneLogic)
 
     // Buffer the description locally and debounce the write to kea so each keystroke is a cheap, isolated
     // re-render instead of a store dispatch. `Composer.Root` already blocks send on an empty `draft.value`
@@ -60,6 +64,9 @@ export function TaskComposer(): JSX.Element {
                             textAreaRef={textAreaRef}
                         >
                             <Composer.Frame>
+                                <Composer.Header>
+                                    <AttachedContextBar />
+                                </Composer.Header>
                                 <Composer.Field>
                                     <Composer.Placeholder>Describe the task in detail…</Composer.Placeholder>
                                     <Composer.Textarea autoFocus data-attr="task-composer-input" />
@@ -82,7 +89,16 @@ export function TaskComposer(): JSX.Element {
                                 </Composer.Footer>
                             </Composer.Frame>
                             <Suggestions.Dropdown />
-                            <Composer.Submit data-attr="task-composer-send" />
+                            <AIConsentPopoverWrapper
+                                placement="bottom-end"
+                                showArrow
+                                ignoreDismissal
+                                hidden={!consentBlocked}
+                                onApprove={() => submitNewTask()}
+                                onDismiss={() => clearConsentBlock()}
+                            >
+                                <Composer.Submit data-attr="task-composer-send" />
+                            </AIConsentPopoverWrapper>
                         </Composer.Root>
                     </div>
 

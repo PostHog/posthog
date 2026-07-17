@@ -26,6 +26,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     IntervalType,
     PropertyOperator,
+    SamplingRate,
     SessionPropertyFilter,
     SessionTableVersion,
     WebAnalyticsSampling,
@@ -1110,8 +1111,21 @@ class TestWebOverviewNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
                 False,
             ),
             ("conversion_goal", {"conversionGoal": CustomEventConversionGoal(customEventName="purchase")}, False),
-            ("sampling_enabled", {"sampling": WebAnalyticsSampling(enabled=True)}, False),
-            ("sampling_factor", {"samplingFactor": 0.1}, False),
+            # Sampling is not applied by web analytics runners, so a sampling
+            # object on the query — the frontend historically attached a dormant
+            # {enabled: false, forceSamplingRate: 1/10} to every tile — must not
+            # kick eligible queries off the fast path.
+            (
+                "dormant_sampling_object_ignored",
+                {
+                    "sampling": WebAnalyticsSampling(
+                        enabled=False, forceSamplingRate=SamplingRate(numerator=1, denominator=10)
+                    )
+                },
+                True,
+            ),
+            ("sampling_enabled_ignored", {"sampling": WebAnalyticsSampling(enabled=True)}, True),
+            ("sampling_factor_ignored", {"samplingFactor": 0.1}, True),
         ]
     )
     def test_no_join_eligibility(self, _name: str, query_kwargs: dict, expected: bool):
@@ -1152,3 +1166,22 @@ class TestWebOverviewNoJoinRolloutPercent(ClickhouseTestMixin, APIBaseTest):
     def test_allowlist_wins_regardless_of_percent(self):
         with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk], WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT=0):
             assert self._runner().should_skip_session_join
+
+    def test_no_join_executions_emit_their_own_query_type_tag(self):
+        from posthog.hogql import query as hogql_query_module
+
+        with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk], WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT=0):
+            with patch(
+                "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
+                wraps=hogql_query_module.execute_hogql_query,
+            ) as spy:
+                self._runner().calculate()
+        assert spy.call_args.kwargs["query_type"] == "web_overview_no_join_query"
+
+        with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[], WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT=0):
+            with patch(
+                "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
+                wraps=hogql_query_module.execute_hogql_query,
+            ) as spy:
+                self._runner().calculate()
+        assert spy.call_args.kwargs["query_type"] == "web_overview_query"

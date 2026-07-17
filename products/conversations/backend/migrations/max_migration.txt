@@ -1,1 +1,1 @@
-0049_email_channel_default_constraint
+0050_alter_ticket_priority
