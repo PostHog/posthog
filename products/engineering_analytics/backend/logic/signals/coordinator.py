@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
+from django.utils import timezone
+
 import structlog
 import posthoganalytics
 from temporalio import activity, workflow
@@ -24,12 +26,14 @@ from posthog.temporal.common.base import PostHogWorkflow
 
 from products.engineering_analytics.backend.facade.contracts import ENGINEERING_ANALYTICS_FEATURE_FLAG
 from products.engineering_analytics.backend.logic.ci_signals_config import (
+    is_dry_run,
     list_authorized_ci_signal_sources,
     resolve_authorizer,
 )
 from products.engineering_analytics.backend.logic.signals.contracts import SOURCE_PRODUCT, CISignalFinding
 from products.engineering_analytics.backend.logic.signals.detect import detect_for_source
 from products.signals.backend.facade.api import emit_signal, team_ids_with_source_product_enabled
+from products.signals.backend.models import SignalEmissionRecord
 
 logger = structlog.get_logger(__name__)
 
@@ -81,6 +85,41 @@ def _detect_for_target(target: CISignalTarget) -> tuple[list[CISignalFinding], T
     return detect_for_source(team, target.source_id, user_access_control=access_control), team
 
 
+def _claim_unemitted(team: Team, findings: list[CISignalFinding]) -> list[CISignalFinding]:
+    """Drop findings already emitted, and claim the rest.
+
+    The sweep re-detects standing conditions every hour, so without a durable claim they re-emit
+    forever. Claimed before emitting (as conversations does), which trades a dropped signal on a
+    mid-emit crash for never double-emitting.
+    """
+    if not findings:
+        return []
+    emitted_keys = set(
+        SignalEmissionRecord.objects.filter(
+            team=team,
+            source_product=SOURCE_PRODUCT,
+            source_id__in=[finding.source_id for finding in findings],
+        ).values_list("source_type", "source_id")
+    )
+    fresh = [finding for finding in findings if (finding.source_type, finding.source_id) not in emitted_keys]
+    if fresh:
+        now = timezone.now()
+        SignalEmissionRecord.objects.bulk_create(
+            [
+                SignalEmissionRecord(
+                    team=team,
+                    source_product=SOURCE_PRODUCT,
+                    source_type=finding.source_type,
+                    source_id=finding.source_id,
+                    emitted_at=now,
+                )
+                for finding in fresh
+            ],
+            ignore_conflicts=True,
+        )
+    return fresh
+
+
 async def _execute_target_activity(target: CISignalTarget) -> dict[str, Any] | None:
     try:
         return await workflow.execute_activity(
@@ -128,8 +167,27 @@ async def detect_and_emit_ci_signals_activity(target: CISignalTarget) -> dict[st
     findings, team = await database_sync_to_async(_detect_for_target, thread_sensitive=False)(target)
     if team is None or not findings:
         return {"team_id": target.team_id, "source_id": target.source_id, "findings": 0, "emitted": 0}
+    # Claims nothing, so clearing the flag re-emits these findings rather than skipping them.
+    if await database_sync_to_async(is_dry_run, thread_sensitive=False)(team=team):
+        logger.info(
+            "ci_signals_dry_run",
+            team_id=target.team_id,
+            github_source_id=target.source_id,
+            findings=len(findings),
+            source_ids=[finding.source_id for finding in findings],
+        )
+        return {
+            "team_id": target.team_id,
+            "source_id": target.source_id,
+            "findings": len(findings),
+            "emitted": 0,
+            "dry_run": True,
+        }
+    fresh = await database_sync_to_async(_claim_unemitted, thread_sensitive=False)(team, findings)
+    if not fresh:
+        return {"team_id": target.team_id, "source_id": target.source_id, "findings": len(findings), "emitted": 0}
     emitted = 0
-    for finding in findings:
+    for finding in fresh:
         try:
             await emit_signal(
                 team=team,
@@ -140,7 +198,6 @@ async def detect_and_emit_ci_signals_activity(target: CISignalTarget) -> dict[st
                 weight=finding.weight,
                 extra=finding.extra,
                 remediation=finding.remediation,
-                idempotency_key=finding.source_id,
             )
             emitted += 1
         except Exception:

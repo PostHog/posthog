@@ -12,6 +12,8 @@ import pandas as pd
 from products.engineering_analytics.backend.logic.ci_signals_config import (
     AUTHORIZED_SOURCES_CONFIG_KEY,
     CI_SIGNAL_SOURCE_TYPES,
+    DRY_RUN_CONFIG_KEY,
+    is_dry_run,
     list_authorized_ci_signal_sources,
     update_ci_signals_config,
 )
@@ -23,7 +25,11 @@ from products.engineering_analytics.backend.logic.signals.contracts import (
     SOURCE_TYPE_FLAKY_CHECK,
     CISignalFinding,
 )
-from products.engineering_analytics.backend.logic.signals.coordinator import CISignalTarget, _detect_for_target
+from products.engineering_analytics.backend.logic.signals.coordinator import (
+    CISignalTarget,
+    _claim_unemitted,
+    _detect_for_target,
+)
 from products.engineering_analytics.backend.logic.signals.detectors import (
     detect_broken_default_branch,
     detect_ci_duration_regressions,
@@ -35,7 +41,8 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_RUNS_COLUMNS,
 )
 from products.engineering_analytics.backend.tests.test_views import create_github_source
-from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP
+from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
+from products.signals.backend.enums import ReportPriority
 from products.signals.backend.facade.api import set_signal_source_types_enabled, validate_signal_input
 from products.signals.backend.models import SignalSourceConfig
 from products.warehouse_sources.backend.facade.models import (
@@ -197,6 +204,35 @@ class TestCISignalSourceAuthorization(BaseTest):
                 created_by=self.user,
             )
         assert list_authorized_ci_signal_sources(team=self.team) == []
+
+
+class TestCISignalEmissionLedger(BaseTest):
+    def _finding(self, source_id: str) -> CISignalFinding:
+        return CISignalFinding(
+            source_type=SOURCE_TYPE_FLAKY_CHECK,
+            source_id=source_id,
+            description="x",
+            weight=1.0,
+            remediation=SignalRemediation(human="h", agent="a", priority=ReportPriority.P2),
+        )
+
+    def test_claim_filters_already_emitted_and_records_the_rest(self) -> None:
+        findings = [self._finding("a"), self._finding("b")]
+        assert {f.source_id for f in _claim_unemitted(self.team, findings)} == {"a", "b"}
+        # Second sweep of the same standing conditions emits nothing.
+        assert _claim_unemitted(self.team, findings) == []
+        # A newly appeared condition still gets through.
+        assert {f.source_id for f in _claim_unemitted(self.team, [*findings, self._finding("c")])} == {"c"}
+
+    def test_dry_run_reads_the_config_flag(self) -> None:
+        update_ci_signals_config(team=self.team, enabled=True, created_by_id=self.user.id)
+        assert is_dry_run(team=self.team) is False
+        row = SignalSourceConfig.objects.get(
+            team=self.team, source_product=SOURCE_PRODUCT, source_type=SOURCE_TYPE_FLAKY_CHECK
+        )
+        row.config = {**row.config, DRY_RUN_CONFIG_KEY: True}
+        row.save(update_fields=["config"])
+        assert is_dry_run(team=self.team) is True
 
 
 class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):

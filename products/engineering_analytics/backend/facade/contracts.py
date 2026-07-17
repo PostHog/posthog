@@ -861,10 +861,9 @@ class WorkflowHealthItem:
     workflow_name: str
     run_count: int
     successful_run_count: int
-    # Completed runs that actually reached a verdict (success / failure / timed_out). Cancelled and
-    # skipped runs are completed but decided nothing, so they inflate `success_rate`'s denominator:
-    # a workflow whose concurrency group cancels most superseded runs reads as permanently failing.
-    # Pair this with `successful_run_count` when you need a rate that means "of the runs that ran".
+    # Completed runs that reached a verdict (success / failure / timed_out). Cancelled and skipped
+    # runs inflate `success_rate`'s denominator; pair this with `successful_run_count` for a rate
+    # meaning "of the runs that actually ran".
     conclusive_run_count: int
     success_rate: float | None
     p50_seconds: float | None

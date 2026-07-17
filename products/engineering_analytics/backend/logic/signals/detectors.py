@@ -33,13 +33,15 @@ from products.signals.backend.enums import ReportPriority
 
 logger = structlog.get_logger(__name__)
 
+# Meets WEIGHT_THRESHOLD alone, as github/linear/zendesk do per issue: one condition warrants a
+# report. A sub-1.0 weight waits for corroboration that never comes — each condition emits once.
+SIGNAL_WEIGHT = 1.0
+
 # Flaky: failed then passed on a later attempt of the same run, on >= min runs in the window.
 FLAKY_WINDOW_DAYS = 7
 FLAKY_MIN_RUNS = 3
 
-# Broken default branch: latest completed run failed, and the rate over runs that reached a verdict
-# is at or below the floor. Cancelled and skipped runs are excluded from that rate — see the
-# conclusive_run_count note on WorkflowHealthItem.
+# Broken default branch: latest completed run failed and the conclusive-run rate is at/below the floor.
 BROKEN_DEFAULT_BRANCH_WINDOW_HOURS = 24
 BROKEN_DEFAULT_BRANCH_MIN_RUNS = 3
 BROKEN_DEFAULT_BRANCH_MAX_SUCCESS_RATE = 0.5
@@ -57,10 +59,8 @@ def _job_key(row: FlakyJobRun) -> tuple[str, str, str, str]:
 def _observation_week(now: datetime) -> str:
     """The ISO date of the observation week's Monday.
 
-    A recurring condition is one signal per week, not one per sighting: the sweep re-reads a rolling
-    window every hour, so a per-sighting key would re-emit the same standing problem as a new signal
-    on every tick. Keying the week makes the key stable for as long as the condition persists, which
-    is what makes the emit dedupe do any work at all.
+    Keys a recurring condition per week rather than per sighting, so the hourly sweep re-detecting a
+    standing problem dedupes against one key instead of minting a new signal each tick.
     """
     return (now.date() - timedelta(days=now.weekday())).isoformat()
 
@@ -85,24 +85,20 @@ def detect_flaky_checks(
         if flaky_count < min_flaky_runs:
             continue
         repo = f"{repo_owner}/{repo_name}"
-        # The flaky thing is the job, not any one rerun of it. Carry the most recent sighting as the
-        # worked example and the rest as a count — a reader fixing this needs one reproduction plus
-        # how often it bites, not one card per occurrence.
+        # The flaky thing is the job, not any one rerun: one worked example plus a count.
         latest = max(rows, key=lambda row: row.run_id)
         findings.append(
             CISignalFinding(
                 source_type=SOURCE_TYPE_FLAKY_CHECK,
                 source_id=f"{repo}:{workflow_name}:{job_name}:{observation_week}:flaky",
                 description=(
-                    # First line is the report title when grouping splits this out (see
-                    # `signal.description.split("\\n")[0]` in signals' grouping), so it has to read
-                    # as a title on its own: no run ids, no counts.
+                    # Grouping titles a split report from the first line, so keep ids out of it.
                     f"CI job '{job_name}' in workflow '{workflow_name}' is flaky on {repo}\n"
                     f"It failed and then passed on a rerun of the same commit {flaky_count} time(s) in the "
                     f"last {window_days}d. Most recent: run {latest.run_id} for commit {latest.head_sha} "
                     f"failed on attempt {latest.failed_attempt} and passed on attempt {latest.passed_attempt}."
                 ),
-                weight=0.7,
+                weight=SIGNAL_WEIGHT,
                 extra=EngineeringAnalyticsCIFlakyCheckSignalExtra(
                     repo_owner=repo_owner,
                     repo_name=repo_name,
@@ -150,11 +146,8 @@ def detect_broken_default_branch(
                 continue
             if item.conclusive_run_count < min_runs or not item.latest_run_failed:
                 continue
-            # Rate over runs that reached a verdict, not over completed runs: `success_rate`'s
-            # denominator counts cancelled and skipped, and a workflow whose concurrency group
-            # cancels superseded trunk runs sits permanently under any floor — making this guard a
-            # no-op and firing P1 on every transient red. Measured on PostHog/posthog: E2E 0.20,
-            # Dagster 0.13, Storybook 0.17 by `success_rate`, all healthy by conclusive rate.
+            # `success_rate` counts cancelled/skipped in its denominator, which pins any
+            # heavy-cancel workflow under the floor and makes this guard a no-op.
             conclusive_success_rate = item.successful_run_count / item.conclusive_run_count
             if conclusive_success_rate > max_success_rate:
                 continue
@@ -173,7 +166,7 @@ def detect_broken_default_branch(
                         f"'{latest_conclusion}'. The default branch is red, so every PR branched from it "
                         f"inherits the failure."
                     ),
-                    weight=0.85,
+                    weight=SIGNAL_WEIGHT,
                     extra=EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra(
                         repo_owner=item.repo.owner,
                         repo_name=item.repo.name,
@@ -247,7 +240,7 @@ def detect_ci_duration_regressions(
                     f"({base.p95_seconds:.0f}s to {cur.p95_seconds:.0f}s) vs the prior {window_days}d. A slower "
                     f"check stretches every PR's time-to-green."
                 ),
-                weight=0.6,
+                weight=SIGNAL_WEIGHT,
                 extra=EngineeringAnalyticsCIDurationRegressionSignalExtra(
                     repo_owner=owner,
                     repo_name=repo_name,

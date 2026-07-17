@@ -30,6 +30,19 @@ CI_SIGNAL_SOURCE_TYPES = (
 CI_SIGNAL_REQUIRED_SCHEMAS = (PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA, WORKFLOW_JOBS_SCHEMA)
 # SignalSourceConfig.config key: the source ids the enabling user authorized the sweep to read.
 AUTHORIZED_SOURCES_CONFIG_KEY = "github_source_ids"
+# SignalSourceConfig.config key: detect and log, emit nothing. Mirrors the scout's `emit` flag.
+DRY_RUN_CONFIG_KEY = "dry_run"
+
+
+def is_dry_run(*, team: Team) -> bool:
+    row = (
+        SignalSourceConfig.objects.filter(team=team, source_product=SOURCE_PRODUCT, source_type=SOURCE_TYPE_FLAKY_CHECK)
+        .only("config")
+        .first()
+    )
+    if row is None or not isinstance(row.config, dict):
+        return False
+    return bool(row.config.get(DRY_RUN_CONFIG_KEY, False))
 
 
 def get_ci_signals_config(*, team: Team, user_access_control: UserAccessControl | None = None) -> CISignalsConfig:

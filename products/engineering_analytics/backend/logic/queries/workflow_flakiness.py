@@ -7,12 +7,9 @@ from posthog.hogql import ast
 
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
-# A job that "failed" in under this many seconds did no real CI work. The shape is a required-check
-# aggregator (`needs: [...]` with `if: always()`) reporting a dependency's conclusion, so its
-# fail-then-pass merely echoes the job it gates: counting it emits a second observation for every
-# real flake and buries the real one under gate noise. Measured against PostHog/posthog, every
-# `* Pass` aggregator settles in 3-5s (p90 <= 7s) while real jobs run 60s+, so the boundary is wide.
-# Mirrors NO_OP_RUN_MAX_SECONDS in `_workflow_filters` (which flags the same shape at run level).
+# A job that failed in under this many seconds did no real work: it's a required-check aggregator
+# echoing a dependency's failure, which double-counts every real flake. Measured on PostHog/posthog,
+# aggregators settle in 3-5s and real jobs run 60s+. Run-level twin: NO_OP_RUN_MAX_SECONDS.
 NO_OP_JOB_MAX_SECONDS = 10
 
 _SELECT = """

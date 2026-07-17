@@ -15,8 +15,8 @@ SOURCE_TYPE_DURATION_REGRESSION = SignalSourceType.CI_DURATION_REGRESSION.value
 
 @dataclass(frozen=True)
 class CISignalFinding:
-    """One detected CI condition, ready to emit. ``source_id`` names one immutable observation
-    and doubles as the emit idempotency key."""
+    """One detected CI condition, ready to emit. ``source_id`` is the dedupe key: the coordinator
+    skips findings already recorded in ``SignalEmissionRecord``."""
 
     source_type: str
     source_id: str
