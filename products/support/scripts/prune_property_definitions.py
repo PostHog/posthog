@@ -43,6 +43,7 @@ import sys
 import json
 import time
 import argparse
+from collections import Counter
 from collections.abc import Iterator
 from typing import Any, Optional
 from urllib.parse import urlencode
@@ -193,29 +194,50 @@ def find_matching_definitions(
     return matched, not_found
 
 
+def format_status_counts(counts: Counter[str]) -> str:
+    """Render a status-code histogram like 'HTTP 204: 39, HTTP 403: 11' (digit codes first)."""
+    parts = []
+    for code in sorted(counts, key=lambda c: (not c.isdigit(), c)):
+        label = f"HTTP {code}" if code.isdigit() else code
+        parts.append(f"{label}: {counts[code]}")
+    return ", ".join(parts)
+
+
 def prune_definitions(
-    session: requests.Session, host: str, project_id: str, matched: list[dict[str, Any]]
-) -> tuple[int, list[str]]:
-    """Delete each matched definition. Returns (deleted, failures)."""
+    session: requests.Session, host: str, project_id: str, matched: list[dict[str, Any]], batch_size: int
+) -> tuple[Counter[str], list[str]]:
+    """Delete each matched definition, one request per id (there is no bulk delete endpoint).
+
+    Returns (status_counts, failures). status_counts is keyed by HTTP status code (as a
+    string), plus an "error" bucket for requests that never got a response; only a 2xx is
+    counted as a successful delete. A read-only session/key returns 403, and field-level
+    access control can make some deletes 403 while others succeed, so outcomes are reported
+    as a per-batch status-code histogram rather than assumed uniform.
+    """
+    status_counts: Counter[str] = Counter()
     failures: list[str] = []
-    deleted = 0
     total = len(matched)
+    batch_counts: Counter[str] = Counter()
+    batch_start = 1
     for index, definition in enumerate(matched, start=1):
         url = f"{host}/api/projects/{project_id}/property_definitions/{definition['id']}/"
         try:
             response = request_with_retries(session, "DELETE", url)
         except PruneError as err:
+            status_counts["error"] += 1
+            batch_counts["error"] += 1
             failures.append(f"{definition['name']} ({definition['id']}): {err}")
         else:
-            if response.status_code == 204:
-                deleted += 1
-            else:
-                failures.append(
-                    f"{definition['name']} ({definition['id']}): HTTP {response.status_code} {response.text[:200]}"
-                )
-        if index % 50 == 0 or index == total:
-            log(f"  {index}/{total} delete requests done")
-    return deleted, failures
+            code = response.status_code
+            status_counts[str(code)] += 1
+            batch_counts[str(code)] += 1
+            if not 200 <= code < 300:
+                failures.append(f"{definition['name']} ({definition['id']}): HTTP {code} {response.text[:200]}")
+        if index % batch_size == 0 or index == total:
+            log(f"  deletes {batch_start}-{index} of {total}: {format_status_counts(batch_counts)}")
+            batch_counts = Counter()
+            batch_start = index + 1
+    return status_counts, failures
 
 
 def parse_args() -> argparse.Namespace:
@@ -261,6 +283,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--dry-run", action="store_true", help="Only report what would be pruned; change nothing")
     parser.add_argument("--page-size", type=int, default=500, help="Definitions fetched per page when scanning")
+    parser.add_argument(
+        "--batch-size", type=int, default=50, help="How many deletes to group per reported status-code batch"
+    )
     parser.add_argument("--output", help="Write the matched definitions report to this JSON file")
     parser.add_argument("--yes", "-y", action="store_true", help="Skip the confirmation prompt")
     args = parser.parse_args()
@@ -373,11 +398,20 @@ def main() -> int:
             log("Aborted.")
             return 1
 
-    deleted, failures = prune_definitions(session, args.host, args.project_id, matched)
+    status_counts, failures = prune_definitions(session, args.host, args.project_id, matched, args.batch_size)
+    deleted = sum(n for code, n in status_counts.items() if code.isdigit() and 200 <= int(code) < 300)
     log("")
-    log(f"Done: deleted {deleted}/{len(matched)} property definitions, {len(failures)} failures.")
+    log(f"Done: {deleted}/{len(matched)} deleted. Status breakdown: {format_status_counts(status_counts)}")
+    forbidden = status_counts.get("403", 0)
+    if forbidden:
+        log(
+            f"  {forbidden} forbidden (HTTP 403): the credential can't delete these - a read-only "
+            "session/key, or field-level access control on restricted properties."
+        )
     for failure in failures[:20]:
         log(f"  FAILED: {failure}")
+    if len(failures) > 20:
+        log(f"  ... and {len(failures) - 20} more failures")
     if failures:
         return 1
     return 0
