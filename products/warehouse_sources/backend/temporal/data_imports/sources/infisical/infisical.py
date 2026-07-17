@@ -492,6 +492,7 @@ def _check_pagination_budget(deadline: float, config_name: str) -> None:
 def _get_audit_log_rows(
     client: InfisicalClient,
     config: InfisicalEndpointConfig,
+    organization_id: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[InfisicalResumeConfig],
     should_use_incremental_field: bool,
@@ -503,6 +504,11 @@ def _get_audit_log_rows(
     pinned at sync start: logs arriving mid-sync land before the window and can't shift rows
     across page boundaries. Incremental runs set startDate to the createdAt watermark
     (inclusive — the boundary row is re-pulled and deduped on the primary key).
+
+    This endpoint is scoped by the org in the access token rather than by a path parameter, so
+    drop any row whose ``orgId`` isn't the configured org as defense in depth — a machine
+    identity with access to more than one org must not leak another org's audit events here.
+    Pagination still advances by the raw page size so the server-side offset stays correct.
     """
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.window_end:
@@ -531,7 +537,14 @@ def _get_audit_log_rows(
         if not rows:
             break
 
-        yield rows
+        scoped = [row for row in rows if row.get("orgId") == organization_id]
+        if len(scoped) != len(rows):
+            logger.warning(
+                f"Infisical: dropped {len(rows) - len(scoped)} audit_logs rows from another org "
+                f"(configured org={organization_id})"
+            )
+        if scoped:
+            yield scoped
 
         offset += len(rows)
         # Save AFTER yielding so a crash re-yields the last page rather than skipping it —
@@ -684,6 +697,7 @@ def get_rows(
         yield from _get_audit_log_rows(
             client,
             config,
+            organization_id,
             logger,
             resumable_source_manager,
             should_use_incremental_field,

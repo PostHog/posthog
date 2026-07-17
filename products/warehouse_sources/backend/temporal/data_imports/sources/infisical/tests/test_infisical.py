@@ -138,8 +138,8 @@ class TestFormatIncrementalValue:
 class TestAuditLogRows:
     def test_incremental_run_windows_and_paginates(self):
         audit_config = INFISICAL_ENDPOINTS["audit_logs"]
-        page1 = _response(json_data={"auditLogs": [{"id": "3"}, {"id": "2"}, {"id": "1"}]})
-        page2 = _response(json_data={"auditLogs": [{"id": "0"}]})
+        page1 = _response(json_data={"auditLogs": [{"id": i, "orgId": "org-123"} for i in ("3", "2", "1")]})
+        page2 = _response(json_data={"auditLogs": [{"id": "0", "orgId": "org-123"}]})
         with mock.patch.object(audit_config, "page_limit", 3):
             rows, session, manager = _run_get_rows(
                 [_login_response(), page1, page2],
@@ -163,7 +163,7 @@ class TestAuditLogRows:
         assert saved_offsets == [3, 4]
 
     def test_full_refresh_has_no_start_date(self):
-        page = _response(json_data={"auditLogs": [{"id": "1"}]})
+        page = _response(json_data={"auditLogs": [{"id": "1", "orgId": "org-123"}]})
         _rows, session, _manager = _run_get_rows([_login_response(), page], "audit_logs")
 
         params = _query(_get_urls(session)[0])
@@ -176,7 +176,7 @@ class TestAuditLogRows:
         manager.load_state.return_value = InfisicalResumeConfig(
             offset=7, window_start="2024-01-01T00:00:00.000Z", window_end="2024-06-01T00:00:00.000Z"
         )
-        page = _response(json_data={"auditLogs": [{"id": "1"}]})
+        page = _response(json_data={"auditLogs": [{"id": "1", "orgId": "org-123"}]})
         _rows, session, _manager = _run_get_rows([_login_response(), page], "audit_logs", manager=manager)
 
         params = _query(_get_urls(session)[0])
@@ -190,6 +190,30 @@ class TestAuditLogRows:
 
         assert rows == []
         manager.save_state.assert_not_called()
+
+    def test_drops_rows_from_other_orgs(self):
+        # The audit-log endpoint is scoped by the token's org, not a path param, so an identity
+        # with access to more than one org could receive another org's events. Defense in depth:
+        # rows whose orgId isn't the configured org are dropped, but pagination still advances by
+        # the raw page size so the server offset stays correct.
+        audit_config = INFISICAL_ENDPOINTS["audit_logs"]
+        page1 = _response(
+            json_data={
+                "auditLogs": [
+                    {"id": "a", "orgId": "org-123"},
+                    {"id": "b", "orgId": "other-org"},
+                    {"id": "c", "orgId": "org-123"},
+                ]
+            }
+        )
+        page2 = _response(json_data={"auditLogs": [{"id": "d", "orgId": "org-123"}]})
+        with mock.patch.object(audit_config, "page_limit", 3):
+            rows, session, manager = _run_get_rows([_login_response(), page1, page2], "audit_logs")
+
+        assert [r["id"] for r in rows] == ["a", "c", "d"]
+        # Offset advances by the raw (unfiltered) page size, so the second page is requested at 3.
+        assert _query(_get_urls(session)[1])["offset"] == ["3"]
+        assert [call.args[0].offset for call in manager.save_state.call_args_list] == [3, 4]
 
 
 class TestOffsetPaginatedRows:
@@ -537,7 +561,7 @@ class TestResponseLimits:
             (
                 "audit_logs",
                 lambda client, config, manager: _get_audit_log_rows(
-                    client, config, mock.MagicMock(), manager, False, None
+                    client, config, "org-123", mock.MagicMock(), manager, False, None
                 ),
             ),
         ],
