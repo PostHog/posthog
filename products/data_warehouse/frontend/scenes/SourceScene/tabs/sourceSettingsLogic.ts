@@ -1005,13 +1005,27 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             // `buildKeaFormDefaultFromSourceDetails` + `setJobInputs`/`setSourceConfigValue`.
             // The cast widens the inferred form value type so reads of `access_method`, payload
             // sub-fields, etc. type-check.
-            defaults: { prefix: '', description: '', payload: {} } as Record<string, any>,
+            defaults: {
+                prefix: '',
+                description: '',
+                payload: {},
+                auto_sync_new_schemas: false,
+                auto_sync_schema_patterns: [],
+            } as Record<string, any>,
             errors: (sourceValues) => {
                 return getErrorsForFields(values.sourceFieldConfig?.fields ?? [], sourceValues as any, {
                     allowBlankSensitiveFields: true,
                 })
             },
-            submit: async ({ payload = {}, description, prefix, access_method, direct_query_enabled }) => {
+            submit: async ({
+                payload = {},
+                description,
+                prefix,
+                access_method,
+                direct_query_enabled,
+                auto_sync_new_schemas,
+                auto_sync_schema_patterns,
+            }) => {
                 const sanitizedPayload = clonePayloadPreservingFiles(payload) as Record<string, any>
                 if (values.sourceFieldConfig?.fields) {
                     removeEmptySensitiveValues(values.sourceFieldConfig.fields, sanitizedPayload)
@@ -1057,6 +1071,14 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                             direct_query_enabled !== undefined
                                 ? direct_query_enabled
                                 : values.source?.direct_query_enabled,
+                        auto_sync_new_schemas:
+                            auto_sync_new_schemas !== undefined
+                                ? auto_sync_new_schemas
+                                : values.source?.auto_sync_new_schemas,
+                        auto_sync_schema_patterns:
+                            auto_sync_schema_patterns !== undefined
+                                ? auto_sync_schema_patterns
+                                : values.source?.auto_sync_schema_patterns,
                         description: description !== '' ? description : (values.source?.description ?? null),
                     })
                     actions.loadSource()
@@ -1255,6 +1277,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     const {
                         added = 0,
                         deleted = 0,
+                        auto_enabled = 0,
                         total_tables_seen = 0,
                     } = await api.externalDataSources.refreshSchemas(values.sourceId)
                     actions.loadSource()
@@ -1262,6 +1285,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         sourceType: values.source?.source_type,
                         added,
                         deleted,
+                        auto_enabled,
                         total_tables_seen,
                     })
                     // Connected and got an empty table list — almost always a permissions
@@ -1282,7 +1306,11 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         lemonToast.success(`No schema changes — all ${total_tables_seen} table(s) already tracked.`)
                         return
                     }
-                    const counts = [added > 0 ? `${added} added` : null, deleted > 0 ? `${deleted} deleted` : null]
+                    const counts = [
+                        added > 0 ? `${added} added` : null,
+                        deleted > 0 ? `${deleted} deleted` : null,
+                        auto_enabled > 0 ? `${auto_enabled} auto-enabled` : null,
+                    ]
                         .filter(Boolean)
                         .join(' / ')
                     lemonToast.success(`Schemas refreshed: ${counts}`)

@@ -5914,6 +5914,7 @@ const api = {
         async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{
             added: number
             deleted: number
+            auto_enabled: number
             total_tables_seen: number
         }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('refresh_schemas').create()
