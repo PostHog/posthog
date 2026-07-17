@@ -42,13 +42,20 @@ def split_schema_name(schema_name: str) -> tuple[str | None, str]:
     return None, schema_name
 
 
-def resolve_schema_repo_endpoint(
+def schema_repo_endpoint(
     schema_metadata: dict[str, Any] | None,
     schema_name: str,
-    config: "GithubSourceConfig",
-) -> tuple[str, str]:
-    """`(repository, endpoint)` for a schema row: metadata first, qualified-name parse second,
-    the config's legacy `repository` for bare rows last."""
+    legacy_repository: str | None,
+) -> tuple[str | None, str]:
+    """Config-free `(repository | None, endpoint)` for a schema row: metadata first,
+    qualified-name parse second, `legacy_repository` for bare rows last.
+
+    Repository is `None` only for a bare row with no legacy repo to attribute it to. Repo
+    names are normalized (stripped, lowercased) since GitHub full names are case-insensitive
+    and the repo half of schema names and webhook keys must compare stably. Shared by the
+    sync-side resolver here and cross-product readers (engineering_analytics) via the facade.
+    Argument order mirrors `resolve_schema_repo_endpoint` (metadata, name) so they don't diverge.
+    """
     metadata = schema_metadata if isinstance(schema_metadata, dict) else {}
     repository = metadata.get(SCHEMA_METADATA_REPOSITORY_KEY)
     endpoint = metadata.get(SCHEMA_METADATA_ENDPOINT_KEY)
@@ -59,11 +66,23 @@ def resolve_schema_repo_endpoint(
     if parsed_repository is not None:
         return parsed_repository.strip().lower(), parsed_endpoint
 
-    if not config.repository:
+    normalized_legacy = (legacy_repository or "").strip().lower()
+    return (normalized_legacy or None), parsed_endpoint
+
+
+def resolve_schema_repo_endpoint(
+    schema_metadata: dict[str, Any] | None,
+    schema_name: str,
+    config: "GithubSourceConfig",
+) -> tuple[str, str]:
+    """`(repository, endpoint)` for a schema row: metadata first, qualified-name parse second,
+    the config's legacy `repository` for bare rows last."""
+    repository, endpoint = schema_repo_endpoint(schema_metadata, schema_name, config.repository)
+    if repository is None:
         # Phrase matches get_non_retryable_errors so an unresolvable row fails permanently
         # with the curated message instead of retrying forever.
         raise ValueError(f"No repositories configured for schema '{schema_name}'")
-    return config.repository.strip().lower(), parsed_endpoint
+    return repository, endpoint
 
 
 def schema_metadata_for(repository: str, endpoint: str) -> dict[str, str]:

@@ -241,6 +241,7 @@ export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, strin
     signal_scout_internal: 'Internal: sandbox-only writes for the headless Signals agent.',
     signal_scout_report: 'Internal: sandbox-only writes for the scout report channel.',
     // OAUTH_HIDDEN_SCOPE_OBJECTS — pasteable into a PAT, but never advertised via OAuth/CLI/MCP.
+    batch_import_support: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
     query_performance: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
     wizard_session: 'OAuth-hidden: pasteable into a PAT but not advertised.',
     // Umbrella access-control resource that `warehouse_view`/`warehouse_table` inherit from —

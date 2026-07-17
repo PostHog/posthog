@@ -13497,3 +13497,47 @@ class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
         self.assertIn("wanted-active", data)
         self.assertIn("wanted-disabled", data)
         self.assertNotIn("other-disabled", data)
+
+    @parameterized.expand(
+        [
+            ("connection_error", requests.exceptions.ConnectionError("connection refused")),
+            ("timeout", requests.exceptions.Timeout("timed out")),
+            # Not in the retryable tuple, but still a requests failure rather than an
+            # actual HTTP response — must fall into the catch-all 503, not an unhandled 500.
+            ("ssl_error", requests.exceptions.SSLError("certificate verify failed")),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    def test_evaluation_reasons_returns_503_when_flags_service_unreachable(self, _name, exception, mock_get_flags):
+        # A flags-service connection failure must surface as a clean 503 the person-profile
+        # tab can react to, not an unhandled 500 that renders as an empty (looks like "no flags") table.
+        mock_get_flags.side_effect = exception
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/evaluation_reasons/",
+            {"distinct_id": "user-1"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertIn("error", response.json())
+
+    @parameterized.expand(
+        [
+            ("http_error", requests.exceptions.HTTPError("500 Server Error", response=MagicMock(status_code=500))),
+            ("malformed_json", requests.exceptions.JSONDecodeError("Expecting value", "", 0)),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    def test_evaluation_reasons_returns_502_for_non_retryable_failures(self, _name, exception, mock_get_flags):
+        # A real HTTP error or an unparseable body from the flags service is not a transient
+        # connection blip: it must not be folded into the same 503 used for those, and a
+        # malformed response must not fall through to an unhandled 500 either.
+        mock_get_flags.side_effect = exception
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/evaluation_reasons/",
+            {"distinct_id": "user-1"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertIn("error", response.json())

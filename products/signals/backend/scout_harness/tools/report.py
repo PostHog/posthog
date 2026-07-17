@@ -63,6 +63,7 @@ from products.signals.backend.scout_report import (
     create_scout_report,
     get_scout_report_title,
     record_report_edit,
+    record_scout_run_task_artefact,
     set_scout_report_reviewers,
     update_scout_report,
 )
@@ -973,6 +974,9 @@ def _do_edit_report(
     # title rewrite to its current value) must not claim the run touched the report.
     if updated_fields or note_appended or reviewers_set:
         record_report_edit(team_id=team.id, run_id=run.id, report_id=report_id)
+        # Also link the run itself on the report's work log (deduped), so the editing scout's
+        # transcript is reachable from the report — not just the run-side `edited_report_ids` tally.
+        record_scout_run_task_artefact(team_id=team.id, report_id=report_id, run=run, task_id=attribution.task_id)
     return result
 
 
