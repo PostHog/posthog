@@ -1006,13 +1006,17 @@ export interface engineeringAnalyticsLogicMeta {
         activeSource: (
             githubSources: GitHubSourceApi[],
             sourceId: string | null,
-            scopeRepo: any
+            scopeRepo: string | null
         ) => GitHubSourceApi | null
         sourceOptions: (githubSources: GitHubSourceApi[]) => {
             label: string
             value: string
         }[]
-        selectedScope: (githubSources: GitHubSourceApi[], sourceId: string | null, scopeRepo: any) => string | null
+        selectedScope: (
+            githubSources: GitHubSourceApi[],
+            sourceId: string | null,
+            scopeRepo: string | null
+        ) => string | null
     }
 }
 
@@ -1680,7 +1684,11 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             // first entry, else null (unpicked → placeholder + backend default).
             selectedScope: [
                 (s) => [s.githubSources, s.sourceId, s.scopeRepo],
-                (githubSources: GitHubSourceApi[], sourceId: string | null, scopeRepo): string | null => {
+                (
+                    githubSources: GitHubSourceApi[],
+                    sourceId: string | null,
+                    scopeRepo: string | null
+                ): string | null => {
                     if (!sourceId) {
                         // A repo-only scope (?repo, no ?source) highlights that repo across sources; an
                         // unscoped page highlights nothing (placeholder shows the default label).
