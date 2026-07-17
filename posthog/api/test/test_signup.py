@@ -19,7 +19,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.signup import _save_session_with_recovery, process_social_invite_signup
+from posthog.api.signup import _save_session_with_recovery, get_redirect_url, process_social_invite_signup
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
@@ -1383,6 +1383,38 @@ class TestSignupAPI(APIBaseTest):
                     # Clean up the created org and user to allow next signup
                     Organization.objects.filter(for_internal_metrics=False).delete()
                     User.objects.filter(email=f"user{ip_suffix}_{i}@example.com").delete()
+
+
+class TestGetRedirectUrl(APIBaseTest):
+    def test_next_url_without_project_prefix_is_preserved(self):
+        # No embedded project id — the frontend resolves it against the user's current team.
+        self.assertEqual(
+            get_redirect_url(str(self.user.uuid), is_email_verified=True, next_url="/next_path"), "/next_path"
+        )
+
+    def test_next_url_for_accessible_project_is_preserved(self):
+        next_url = f"/project/{self.team.id}/insights"
+        self.assertEqual(get_redirect_url(str(self.user.uuid), is_email_verified=True, next_url=next_url), next_url)
+
+    def test_next_url_for_accessible_project_by_token_is_preserved(self):
+        next_url = f"/project/{self.team.api_token}/insights"
+        self.assertEqual(get_redirect_url(str(self.user.uuid), is_email_verified=True, next_url=next_url), next_url)
+
+    def test_next_url_for_inaccessible_project_falls_back_to_home(self):
+        # A project in an org the user isn't a member of — replaying it would strand the user
+        # on a team-scoped 404, so we fall back to the project home instead.
+        other_org = Organization.objects.create(name="Someone else's org")
+        other_team = Team.objects.create(organization=other_org, name="Foreign project")
+        next_url = f"/project/{other_team.id}/replay-vision/observations/abc123"
+
+        self.assertEqual(get_redirect_url(str(self.user.uuid), is_email_verified=True, next_url=next_url), "/")
+
+    def test_next_url_for_inaccessible_project_by_token_falls_back_to_home(self):
+        other_org = Organization.objects.create(name="Someone else's org")
+        other_team = Team.objects.create(organization=other_org, name="Foreign project")
+        next_url = f"/project/{other_team.api_token}/replay-vision/observations/abc123"
+
+        self.assertEqual(get_redirect_url(str(self.user.uuid), is_email_verified=True, next_url=next_url), "/")
 
 
 class TestSignupChallengeAPI(APIBaseTest):

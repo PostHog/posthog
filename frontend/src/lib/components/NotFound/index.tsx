@@ -99,6 +99,13 @@ export function NotFound({ object, caption, meta, className }: NotFoundProps): J
                     )
                 )}
             </p>
+            {!nodeLogic && !appContext?.suggested_users_with_access && (
+                <div className="flex justify-center mt-4 w-fit">
+                    <LemonButton type="primary" to={urls.projectHomepage()}>
+                        Go to the homepage
+                    </LemonButton>
+                </div>
+            )}
             {nodeLogic && (
                 <div className="flex justify-center mt-4 w-fit">
                     <LemonButton type="secondary" status="danger" onClick={nodeLogic.actions.deleteNode}>
