@@ -22,11 +22,13 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_github_token,
     get_pr_authorship_mode,
     get_readonly_github_token,
+    get_sandbox_github_identity_user,
     get_sandbox_github_token,
     get_task_run_credential_user,
     is_caller_token_run,
     is_slack_interaction_state,
     resolve_user_github_integration_for_task,
+    sandbox_identity_scope,
 )
 
 if TYPE_CHECKING:
@@ -111,12 +113,27 @@ def replace_sandbox_credentials(
     return github_updated and oauth_updated
 
 
-def apply_github_credentials_to_sandbox(sandbox: "SandboxBase", repository: str | None, github_token: str) -> None:
-    """Re-inject a GitHub token into both places a running sandbox reads it from."""
-    if repository:
-        set_git_remote_token(sandbox, repository, github_token)
+def apply_github_credentials_to_sandbox(sandbox: "SandboxBase", repository: str | None, github_token: str) -> bool:
+    """Re-inject a GitHub token into both places a running sandbox reads it from.
+
+    Returns ``True`` only when every applicable write succeeded. A caller enforcing per-actor
+    identity must treat a partial write as an unconfirmed rebind: leaving one location on the
+    previous actor's token would let a follow-up actor act as them.
+    """
+    remote_applied = set_git_remote_token(sandbox, repository, github_token) if repository else True
     github_payload = b"".join(f"{key}={github_token}\x00".encode() for key in GITHUB_ENV_KEYS)
-    _write_sandbox_credential_file(sandbox, GITHUB_ENV_FILE, github_payload)
+    env_applied = _write_sandbox_credential_file(sandbox, GITHUB_ENV_FILE, github_payload)
+    return remote_applied and env_applied
+
+
+def clear_github_credentials_from_sandbox(sandbox: "SandboxBase", repository: str | None) -> bool:
+    """Log the sandbox out of GitHub: strip the token from the git remote and blank the GitHub
+    credential file, so a follow-up actor who lacks access can't reuse the previous actor's token.
+    Returns ``True`` only when both were cleared.
+    """
+    remote_cleared = set_git_remote_token(sandbox, repository, None) if repository else True
+    env_cleared = _write_sandbox_credential_file(sandbox, GITHUB_ENV_FILE, b"")
+    return remote_cleared and env_cleared
 
 
 def _loop_owner_credentials_revoked(task: Task, state: dict | None) -> bool:
@@ -165,6 +182,13 @@ def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[tuple
         if is_caller_token_run(str(run.id), run.state):
             continue
         if _loop_owner_credentials_revoked(run.task, run.state):
+            continue
+        # A per-message actor transition may have rebound (or logged out) this sandbox's GitHub
+        # identity to someone other than the run owner. This loop carries the owner's token, so
+        # re-applying it would undo that transition and resurrect the owner's identity for the
+        # current actor. Skip when the sandbox is bound to a different actor.
+        bound_actor = get_sandbox_github_identity_user(sandbox_identity_scope(str(run.id), run.state))
+        if bound_actor is not None and bound_actor != run.task.created_by_id:
             continue
         rows.append((str(run.id), sandbox_id, run.task.repository))
     return rows
@@ -277,6 +301,21 @@ class GitHubSandboxCredential:
                 else DEFAULT_REFRESH_INTERVAL_SECONDS,
             )
         if not ctx.has_github_credentials:
+            return CredentialRefreshOutcome(
+                self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
+            )
+
+        # A per-message actor transition may have rebound (or logged out) this sandbox's GitHub
+        # identity to someone other than the run owner. This scheduled refresh resolves the actor
+        # from the startup context (ctx.state), so it carries the owner's token; re-applying it
+        # would resurrect the owner's identity over the current actor's session. Skip and leave the
+        # transition's binding intact — the per-message gate keeps the current actor's token fresh.
+        bound_actor = get_sandbox_github_identity_user(sandbox_identity_scope(ctx.run_id, ctx.state))
+        if bound_actor is not None and bound_actor != task.created_by_id:
+            logger.info(
+                "github_refresh_skipped_actor_transition",
+                extra={"run_id": ctx.run_id, "bound_actor": bound_actor, "owner": task.created_by_id},
+            )
             return CredentialRefreshOutcome(
                 self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
             )
