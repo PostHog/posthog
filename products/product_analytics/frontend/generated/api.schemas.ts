@@ -7608,9 +7608,15 @@ export interface InsightApi {
     order?: number | null
     deleted?: boolean
     /**
+     *
      *         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
      *         A dashboard ID for each of the dashboards that this insight is displayed on.
-     *          */
+     *         This field may be omitted from responses: once opt-in enforcement is enabled, API-token
+     *         callers (personal API keys, OAuth) only receive it when passing the
+     *         `include_dashboards=true` query parameter. Do not rely on it being present.
+     *
+     * @deprecated
+     */
     dashboards?: number[]
     /**
      *     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
@@ -7730,9 +7736,15 @@ export interface PatchedInsightApi {
     order?: number | null
     deleted?: boolean
     /**
+     *
      *         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
      *         A dashboard ID for each of the dashboards that this insight is displayed on.
-     *          */
+     *         This field may be omitted from responses: once opt-in enforcement is enabled, API-token
+     *         callers (personal API keys, OAuth) only receive it when passing the
+     *         `include_dashboards=true` query parameter. Do not rely on it being present.
+     *
+     * @deprecated
+     */
     dashboards?: number[]
     /**
      *     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
@@ -7969,7 +7981,8 @@ export interface TrendingInsightApi {
      */
     derived_name?: string | null
     query?: unknown
-    readonly dashboards: readonly number[]
+    /** @deprecated */
+    readonly dashboards?: readonly number[]
     readonly dashboard_tiles: readonly DashboardTileBasicApi[]
     /**
      * @maxLength 400
@@ -8127,6 +8140,10 @@ export type InsightsListParams = {
     favorited?: boolean
     format?: InsightsListFormat
     /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean
+    /**
      * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.
      */
     insight?: InsightsListInsight
@@ -8211,6 +8228,10 @@ export const InsightsListRefresh = {
 
 export type InsightsCreateParams = {
     format?: InsightsCreateFormat
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean
 }
 
 export type InsightsCreateFormat = (typeof InsightsCreateFormat)[keyof typeof InsightsCreateFormat]
@@ -8232,6 +8253,10 @@ export type InsightsRetrieveParams = {
      * When set, the specified dashboard's filters and date range override will be applied.
      */
     from_dashboard?: number
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean
     /**
      *
      * Whether to refresh the insight, how aggresively, and if sync or async:
@@ -8271,6 +8296,10 @@ export const InsightsRetrieveRefresh = {
 
 export type InsightsUpdateParams = {
     format?: InsightsUpdateFormat
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean
 }
 
 export type InsightsUpdateFormat = (typeof InsightsUpdateFormat)[keyof typeof InsightsUpdateFormat]
@@ -8282,6 +8311,10 @@ export const InsightsUpdateFormat = {
 
 export type InsightsPartialUpdateParams = {
     format?: InsightsPartialUpdateFormat
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean
 }
 
 export type InsightsPartialUpdateFormat = (typeof InsightsPartialUpdateFormat)[keyof typeof InsightsPartialUpdateFormat]
@@ -8455,6 +8488,10 @@ export type InsightsTrendingRetrieveParams = {
      */
     days?: number
     format?: InsightsTrendingRetrieveFormat
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean
     /**
      * Maximum number of insights to return. Defaults to 10. Capped at 100.
      */

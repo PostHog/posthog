@@ -80,6 +80,7 @@ class HogQLContext:
     output_format: str | None = None
     # Globals that will be resolved in the context of the query
     globals: Optional[dict] = None
+    property_type_overrides: Optional[dict[str, str]] = None
     # Per-query data that query runners want to ingest into the HogQL resolution (e.g. pending updates
     # merged into a table via UNION ALL in error tracking).
     data_to_ingest: dict[str, Any] = field(default_factory=dict)
