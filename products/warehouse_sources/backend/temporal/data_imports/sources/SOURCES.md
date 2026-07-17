@@ -129,6 +129,7 @@ the row lists both.
 | concord                          | HTTP                        | requests                                                        | ✅                          |
 | configcat                        | HTTP                        | requests                                                        | ✅                          |
 | confluence                       | HTTP                        | requests                                                        | ✅                          |
+| confluent_cloud                  | HTTP                        | requests                                                        | ✅                          |
 | chartmogul                       | HTTP                        | requests                                                        | ✅                          |
 | circleci                         | HTTP                        | requests                                                        | ✅                          |
 | cimis                            | HTTP                        | requests                                                        | ✅                          |
@@ -629,7 +630,6 @@ doesn't conflict with concurrent PRs.
 - cockroachdb
 - codacy
 - codecov
-- confluent_cloud
 - constant_contact
 - copper
 - coralogix
