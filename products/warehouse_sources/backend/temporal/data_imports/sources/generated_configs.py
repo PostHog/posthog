@@ -4042,7 +4042,9 @@ class SplitIoSourceConfig(config.Config):
 
 @config.config
 class SplunkObservabilityCloudSourceConfig(config.Config):
-    pass
+    realm: str
+    access_token: str
+    signalflow_program: str | None = None
 
 
 @config.config

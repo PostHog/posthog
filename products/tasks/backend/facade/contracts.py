@@ -134,6 +134,7 @@ class TaskDetailDTO:
     title_manually_set: bool
     description: str
     origin_product: str
+    runtime: str
     repository: str | None
     github_integration: int | None
     github_user_integration: UUID | None
