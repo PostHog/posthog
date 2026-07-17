@@ -1,20 +1,19 @@
-from collections.abc import Mapping
+import json
+from types import SimpleNamespace
 from typing import Any, Optional
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
+from unittest.mock import MagicMock
 
-import requests
 from parameterized import parameterized
+from requests import Response
+from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.gitbook import gitbook
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitbook.gitbook import (
     GITBOOK_BASE_URL,
     PAGE_SIZE,
     GitBookResumeConfig,
-    GitBookRetryableError,
-    check_access,
-    get_rows,
     gitbook_source,
     validate_credentials,
 )
@@ -23,13 +22,36 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gitbook.se
     GITBOOK_ENDPOINTS,
 )
 
-# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
-_fetch_page_unwrapped = gitbook._fetch_page.__wrapped__  # type: ignore[attr-defined]
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the gitbook module.
+GITBOOK_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.gitbook.gitbook.make_tracked_session"
+)
 
 PageKey = tuple[str, Optional[str]]
 
 
-class _FakeResumableManager:
+def _u(path: str) -> str:
+    return f"{GITBOOK_BASE_URL}{path}"
+
+
+def _response(
+    items: Optional[list[dict]], *, next_page: Optional[str] = None, status: int = 200, raw_body: Any = None
+) -> Response:
+    if raw_body is not None:
+        body: Any = raw_body
+    else:
+        body = {"items": items or []}
+        if next_page is not None:
+            body["next"] = {"page": next_page}
+    resp = Response()
+    resp.status_code = status
+    resp._content = json.dumps(body).encode()
+    return resp
+
+
+class _FakeManager:
     def __init__(self, state: GitBookResumeConfig | None = None) -> None:
         self._state = state
         self.saved: list[GitBookResumeConfig] = []
@@ -44,180 +66,80 @@ class _FakeResumableManager:
         self.saved.append(data)
 
 
-def _collect(
-    manager: _FakeResumableManager,
-    monkeypatch: Any,
-    pages: Mapping[PageKey, tuple[list[dict], Optional[str]]],
-    endpoint: str,
-) -> list[dict]:
-    def fake_fetch(session: Any, url: str, page: Optional[str], logger: Any) -> tuple[list[dict], Optional[str]]:
-        return pages[(url, page)]
+def _wire(session: MagicMock, pages: dict[PageKey, Response]) -> list[tuple[str, dict[str, Any]]]:
+    """Wire a mock session that dispatches each request to a response keyed by (url, page token).
 
-    monkeypatch.setattr(gitbook, "_fetch_page", fake_fetch)
-    monkeypatch.setattr(gitbook, "make_tracked_session", lambda **kwargs: MagicMock())
+    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy at
+    prepare-request time to observe what each page actually sent.
+    """
+    session.headers = {}
+    snapshots: list[tuple[str, dict[str, Any]]] = []
 
-    rows: list[dict] = []
-    for batch in get_rows(
-        api_token="gb-token",
-        endpoint=endpoint,
-        logger=MagicMock(),
-        resumable_source_manager=manager,  # type: ignore[arg-type]
-    ):
-        rows.extend(batch)
-    return rows
+    def _prepare(request: Any) -> SimpleNamespace:
+        params = dict(request.params or {})
+        snapshots.append((request.url, params))
+        return SimpleNamespace(url=request.url, _page=params.get("page"), is_redirect=False)
+
+    def _send(prepared: Any, **kwargs: Any) -> Response:
+        key = (prepared.url, prepared._page)
+        if key not in pages:
+            raise AssertionError(f"unexpected request {key}; known keys: {sorted(pages)}")
+        return pages[key]
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = _send
+    return snapshots
 
 
-class TestGetRowsTopLevel:
-    ORGS_URL = f"{GITBOOK_BASE_URL}/orgs"
-
-    def test_single_page_yields_and_stops(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = _collect(
-            manager, monkeypatch, {(self.ORGS_URL, None): ([{"id": "org1"}, {"id": "org2"}], None)}, "organizations"
+def _drive(
+    endpoint: str, pages: dict[PageKey, Response], manager: _FakeManager
+) -> tuple[list[dict], list[tuple[str, dict[str, Any]]]]:
+    with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
+        session = MockSession.return_value
+        snapshots = _wire(session, pages)
+        response = gitbook_source(
+            api_token="gb-token",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="job-1",
+            resumable_source_manager=manager,  # type: ignore[arg-type]
         )
+        rows = [row for page in response.items() for row in page]
+    return rows, snapshots
+
+
+class TestTopLevel:
+    ORGS = _u("/orgs")
+
+    def test_single_page_yields_and_stops(self) -> None:
+        manager = _FakeManager()
+        rows, _ = _drive("organizations", {(self.ORGS, None): _response([{"id": "org1"}, {"id": "org2"}])}, manager)
         assert rows == [{"id": "org1"}, {"id": "org2"}]
         # No next page means the sync ends without persisting resume state.
         assert manager.saved == []
 
-    def test_follows_page_token_until_exhausted(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages: dict[PageKey, tuple[list[dict], Optional[str]]] = {
-            (self.ORGS_URL, None): ([{"id": "org1"}], "tok2"),
-            (self.ORGS_URL, "tok2"): ([{"id": "org2"}], None),
+    def test_follows_page_token_until_exhausted(self) -> None:
+        manager = _FakeManager()
+        pages = {
+            (self.ORGS, None): _response([{"id": "org1"}], next_page="tok2"),
+            (self.ORGS, "tok2"): _response([{"id": "org2"}]),
         }
-        rows = _collect(manager, monkeypatch, pages, "organizations")
+        rows, _ = _drive("organizations", pages, manager)
         assert rows == [{"id": "org1"}, {"id": "org2"}]
         # State is saved once — after the first page yields, pointing at the next token.
         assert [s.next_page for s in manager.saved] == ["tok2"]
 
-    def test_resumes_from_saved_page_token(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(GitBookResumeConfig(next_page="tok2"))
-        # The first page must never be fetched on resume.
-        rows = _collect(manager, monkeypatch, {(self.ORGS_URL, "tok2"): ([{"id": "org2"}], None)}, "organizations")
+    def test_resumes_from_saved_page_token(self) -> None:
+        manager = _FakeManager(GitBookResumeConfig(next_page="tok2"))
+        # Only the tok2 page is wired; fetching the first page would raise from the mock.
+        rows, _ = _drive("organizations", {(self.ORGS, "tok2"): _response([{"id": "org2"}])}, manager)
         assert rows == [{"id": "org2"}]
 
-    def test_empty_page_yields_nothing(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = _collect(manager, monkeypatch, {(self.ORGS_URL, None): ([], None)}, "organizations")
+    def test_empty_page_yields_nothing(self) -> None:
+        manager = _FakeManager()
+        rows, _ = _drive("organizations", {(self.ORGS, None): _response([])}, manager)
         assert rows == []
         assert manager.saved == []
-
-
-class TestGetRowsFanOut:
-    ORGS_URL = f"{GITBOOK_BASE_URL}/orgs"
-
-    def test_org_fanout_injects_parent_id_into_rows(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages: dict[PageKey, tuple[list[dict], Optional[str]]] = {
-            (self.ORGS_URL, None): ([{"id": "org1"}, {"id": "org2"}], None),
-            (f"{GITBOOK_BASE_URL}/orgs/org1/members", None): ([{"id": "user1"}], None),
-            (f"{GITBOOK_BASE_URL}/orgs/org2/members", None): ([{"id": "user1"}, {"id": "user2"}], None),
-        }
-        rows = _collect(manager, monkeypatch, pages, "members")
-        # The same user id in two orgs stays distinguishable via the injected organization_id.
-        assert rows == [
-            {"id": "user1", "organization_id": "org1"},
-            {"id": "user1", "organization_id": "org2"},
-            {"id": "user2", "organization_id": "org2"},
-        ]
-
-    def test_spaces_rows_keep_api_shape_without_injection(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages: dict[PageKey, tuple[list[dict], Optional[str]]] = {
-            (self.ORGS_URL, None): ([{"id": "org1"}], None),
-            (f"{GITBOOK_BASE_URL}/orgs/org1/spaces", None): ([{"id": "sp1", "organization": "org1"}], None),
-        }
-        rows = _collect(manager, monkeypatch, pages, "spaces")
-        assert rows == [{"id": "sp1", "organization": "org1"}]
-
-    def test_comments_fan_out_through_orgs_then_spaces(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages: dict[PageKey, tuple[list[dict], Optional[str]]] = {
-            (self.ORGS_URL, None): ([{"id": "org1"}], None),
-            (f"{GITBOOK_BASE_URL}/orgs/org1/spaces", None): ([{"id": "sp1"}, {"id": "sp2"}], None),
-            (f"{GITBOOK_BASE_URL}/spaces/sp1/comments", None): ([{"id": "c1"}], None),
-            (f"{GITBOOK_BASE_URL}/spaces/sp2/comments", None): ([{"id": "c2"}], None),
-        }
-        rows = _collect(manager, monkeypatch, pages, "comments")
-        assert rows == [{"id": "c1", "space_id": "sp1"}, {"id": "c2", "space_id": "sp2"}]
-
-    def test_saves_completed_parents_and_mid_parent_page_token(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages: dict[PageKey, tuple[list[dict], Optional[str]]] = {
-            (self.ORGS_URL, None): ([{"id": "org1"}, {"id": "org2"}], None),
-            (f"{GITBOOK_BASE_URL}/orgs/org1/teams", None): ([{"id": "t1"}], "tok2"),
-            (f"{GITBOOK_BASE_URL}/orgs/org1/teams", "tok2"): ([{"id": "t2"}], None),
-            (f"{GITBOOK_BASE_URL}/orgs/org2/teams", None): ([{"id": "t3"}], None),
-        }
-        _collect(manager, monkeypatch, pages, "teams")
-        assert [(s.completed_parent_ids, s.current_parent_id, s.next_page) for s in manager.saved] == [
-            ([], "org1", "tok2"),
-            (["org1"], None, None),
-            (["org1", "org2"], None, None),
-        ]
-
-    def test_resume_skips_completed_parents_and_resumes_current_at_token(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(
-            GitBookResumeConfig(completed_parent_ids=["org1"], current_parent_id="org2", next_page="tok2")
-        )
-        # org1's pages and org2's first page must never be fetched on resume.
-        pages: dict[PageKey, tuple[list[dict], Optional[str]]] = {
-            (self.ORGS_URL, None): ([{"id": "org1"}, {"id": "org2"}, {"id": "org3"}], None),
-            (f"{GITBOOK_BASE_URL}/orgs/org2/teams", "tok2"): ([{"id": "t2"}], None),
-            (f"{GITBOOK_BASE_URL}/orgs/org3/teams", None): ([{"id": "t3"}], None),
-        }
-        rows = _collect(manager, monkeypatch, pages, "teams")
-        assert rows == [
-            {"id": "t2", "organization_id": "org2"},
-            {"id": "t3", "organization_id": "org3"},
-        ]
-
-
-class TestFetchPage:
-    URL = f"{GITBOOK_BASE_URL}/orgs"
-
-    def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body if body is not None else {"items": []}
-        response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
-        )
-        session = MagicMock()
-        session.get.return_value = response
-        return session
-
-    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(GitBookRetryableError):
-            _fetch_page_unwrapped(session, self.URL, None, MagicMock())
-
-    @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(requests.HTTPError):
-            _fetch_page_unwrapped(session, self.URL, None, MagicMock())
-
-    def test_success_returns_items_and_next_page_token(self) -> None:
-        body = {"items": [{"id": "org1"}], "next": {"page": "tok2"}, "count": 5}
-        session = self._session_returning(200, body)
-        rows, next_page = _fetch_page_unwrapped(session, self.URL, None, MagicMock())
-        assert rows == [{"id": "org1"}]
-        assert next_page == "tok2"
-
-    def test_missing_next_returns_none(self) -> None:
-        session = self._session_returning(200, {"items": [{"id": "org1"}]})
-        _, next_page = _fetch_page_unwrapped(session, self.URL, None, MagicMock())
-        assert next_page is None
-
-    @parameterized.expand([("bare_list", [{"id": "a"}]), ("missing_items", {"count": 1})])
-    def test_unexpected_payload_is_retryable(self, _name: str, body: Any) -> None:
-        session = self._session_returning(200, body)
-        with pytest.raises(GitBookRetryableError):
-            _fetch_page_unwrapped(session, self.URL, None, MagicMock())
 
     @parameterized.expand(
         [
@@ -226,48 +148,108 @@ class TestFetchPage:
         ]
     )
     def test_request_params_carry_limit_and_page_token(
-        self, _name: str, page: Optional[str], expected_params: dict
+        self, _name: str, page: Optional[str], expected: dict[str, Any]
     ) -> None:
-        session = self._session_returning(200, {"items": []})
-        _fetch_page_unwrapped(session, self.URL, page, MagicMock())
-        args, kwargs = session.get.call_args
-        assert args[0] == self.URL
-        assert kwargs["params"] == expected_params
+        pages = {
+            (self.ORGS, None): _response([{"id": "org1"}], next_page="tok2"),
+            (self.ORGS, "tok2"): _response([{"id": "org2"}]),
+        }
+        _, snapshots = _drive("organizations", pages, _FakeManager())
+        index = 0 if page is None else 1
+        url, params = snapshots[index]
+        assert url == self.ORGS
+        assert params == expected
 
 
-class TestCheckAccess:
-    def _session(self, response: Any) -> MagicMock:
-        session = MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
-        else:
-            session.get.return_value = response
-        return session
+class TestFanOut:
+    ORGS = _u("/orgs")
 
-    @parameterized.expand(
-        [
-            ("ok", 200, True, 200, None),
-            ("unauthorized", 401, False, 401, None),
-            ("forbidden", 403, False, 403, None),
-            ("server_error", 500, False, 500, "GitBook returned HTTP 500"),
+    def test_org_fanout_injects_parent_id_into_rows(self) -> None:
+        pages = {
+            (self.ORGS, None): _response([{"id": "org1"}, {"id": "org2"}]),
+            (_u("/orgs/org1/members"), None): _response([{"id": "user1"}]),
+            (_u("/orgs/org2/members"), None): _response([{"id": "user1"}, {"id": "user2"}]),
+        }
+        rows, _ = _drive("members", pages, _FakeManager())
+        # The same user id in two orgs stays distinguishable via the injected organization_id.
+        assert rows == [
+            {"id": "user1", "organization_id": "org1"},
+            {"id": "user1", "organization_id": "org2"},
+            {"id": "user2", "organization_id": "org2"},
         ]
-    )
-    def test_status_mapping(
-        self, _name: str, status: int, ok: bool, expected_status: int, expected_message: str | None
-    ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = ok
-        with patch.object(gitbook, "make_tracked_session", return_value=self._session(response)):
-            assert check_access("gb-token") == (expected_status, expected_message)
 
-    def test_connection_error_maps_to_zero(self) -> None:
-        session = self._session(requests.ConnectionError("boom"))
-        with patch.object(gitbook, "make_tracked_session", return_value=session):
-            status, message = check_access("gb-token")
-        assert status == 0
-        assert message is not None and "boom" in message
+    def test_spaces_rows_keep_api_shape_without_injection(self) -> None:
+        pages = {
+            (self.ORGS, None): _response([{"id": "org1"}]),
+            (_u("/orgs/org1/spaces"), None): _response([{"id": "sp1", "organization": "org1"}]),
+        }
+        rows, _ = _drive("spaces", pages, _FakeManager())
+        assert rows == [{"id": "sp1", "organization": "org1"}]
 
+    def test_comments_fan_out_through_orgs_then_spaces(self) -> None:
+        pages = {
+            (self.ORGS, None): _response([{"id": "org1"}]),
+            (_u("/orgs/org1/spaces"), None): _response([{"id": "sp1"}, {"id": "sp2"}]),
+            (_u("/spaces/sp1/comments"), None): _response([{"id": "c1"}]),
+            (_u("/spaces/sp2/comments"), None): _response([{"id": "c2"}]),
+        }
+        rows, _ = _drive("comments", pages, _FakeManager())
+        assert rows == [{"id": "c1", "space_id": "sp1"}, {"id": "c2", "space_id": "sp2"}]
+
+    def test_saves_completed_parents_and_mid_parent_page_token(self) -> None:
+        manager = _FakeManager()
+        pages = {
+            (self.ORGS, None): _response([{"id": "org1"}, {"id": "org2"}]),
+            (_u("/orgs/org1/teams"), None): _response([{"id": "t1"}], next_page="tok2"),
+            (_u("/orgs/org1/teams"), "tok2"): _response([{"id": "t2"}]),
+            (_u("/orgs/org2/teams"), None): _response([{"id": "t3"}]),
+        }
+        _drive("teams", pages, manager)
+        states = [s.fanout_state for s in manager.saved]
+        # A mid-parent checkpoint pins org1's next child page before org1 is marked complete.
+        assert {"completed": [], "current": "/orgs/org1/teams", "child_state": {"cursor": "tok2"}} in states
+        # Once every parent is walked, all child paths are recorded complete.
+        assert states[-1]["completed"] == ["/orgs/org1/teams", "/orgs/org2/teams"]
+
+    def test_resume_skips_completed_parents_and_resumes_current_at_token(self) -> None:
+        manager = _FakeManager(
+            GitBookResumeConfig(
+                fanout_state={
+                    "completed": ["/orgs/org1/teams"],
+                    "current": "/orgs/org2/teams",
+                    "child_state": {"cursor": "tok2"},
+                }
+            )
+        )
+        # org1's pages and org2's first page are not wired: fetching either would raise from the mock.
+        pages = {
+            (self.ORGS, None): _response([{"id": "org1"}, {"id": "org2"}, {"id": "org3"}]),
+            (_u("/orgs/org2/teams"), "tok2"): _response([{"id": "t2"}]),
+            (_u("/orgs/org3/teams"), None): _response([{"id": "t3"}]),
+        }
+        rows, _ = _drive("teams", pages, manager)
+        assert rows == [
+            {"id": "t2", "organization_id": "org2"},
+            {"id": "t3", "organization_id": "org3"},
+        ]
+
+
+class TestFailLoud:
+    ORGS = _u("/orgs")
+
+    @parameterized.expand([("bare_list", [{"id": "a"}]), ("missing_items", {"count": 1})])
+    def test_unexpected_payload_fails_loud(self, _name: str, raw_body: Any) -> None:
+        # A 200 body that isn't {"items": [...]} means the response shape changed — fail loud.
+        with pytest.raises(ValueError, match="matched nothing"):
+            _drive("organizations", {(self.ORGS, None): _response(None, raw_body=raw_body)}, _FakeManager())
+
+    @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
+    def test_client_errors_raise(self, _name: str, status: int) -> None:
+        with pytest.raises(HTTPError):
+            _drive("organizations", {(self.ORGS, None): _response([], status=status)}, _FakeManager())
+
+
+class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
@@ -276,17 +258,25 @@ class TestCheckAccess:
             ("server_error", 500, False, "GitBook returned HTTP 500"),
         ]
     )
-    def test_validate_credentials(
-        self, _name: str, status: int, expected_valid: bool, expected_message: str | None
+    @mock.patch(GITBOOK_SESSION_PATCH)
+    def test_status_mapping(
+        self,
+        _name: str,
+        status: int,
+        expected_valid: bool,
+        expected_message: str | None,
+        mock_session: MagicMock,
     ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = status < 400
-        with patch.object(gitbook, "make_tracked_session", return_value=self._session(response)):
-            assert validate_credentials("gb-token") == (expected_valid, expected_message)
+        mock_session.return_value.get.return_value = MagicMock(status_code=status)
+        assert validate_credentials("gb-token") == (expected_valid, expected_message)
+
+    @mock.patch(GITBOOK_SESSION_PATCH)
+    def test_connection_error_is_not_validated(self, mock_session: MagicMock) -> None:
+        mock_session.return_value.get.side_effect = Exception("boom")
+        assert validate_credentials("gb-token") == (False, "Could not validate GitBook API token")
 
 
-class TestGitBookSourceResponse:
+class TestSourceResponse:
     @parameterized.expand(
         [
             ("organizations", ["id"]),
@@ -299,12 +289,16 @@ class TestGitBookSourceResponse:
             ("comments", ["space_id", "id"]),
         ]
     )
-    def test_source_response_shape(self, endpoint: str, expected_primary_keys: list[str]) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_shape(
+        self, endpoint: str, expected_primary_keys: list[str], _mock_session: MagicMock
+    ) -> None:
         response = gitbook_source(
             api_token="gb-token",
             endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
+            team_id=1,
+            job_id="job-1",
+            resumable_source_manager=_FakeManager(),  # type: ignore[arg-type]
         )
         assert response.name == endpoint
         assert response.primary_keys == expected_primary_keys
