@@ -46,6 +46,13 @@ class CircleciInsightsSource(ResumableSource[CircleciInsightsSourceConfig, Circl
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CIRCLECIINSIGHTS
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # project_slugs selects which projects the stored token reads from; changing it must
+        # require re-entering the secret so a preserved token can't be retargeted at other
+        # projects or orgs the token can access.
+        return ["project_slugs"]
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url: https://circleci.com": "CircleCI authentication failed. Please check that your personal API token is valid and not expired.",
