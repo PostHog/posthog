@@ -1,36 +1,38 @@
 import dataclasses
-from collections.abc import Iterator
-from typing import Any
+from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.settings import (
     AVIATIONSTACK_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    OffsetPaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 AVIATIONSTACK_BASE_URL = "https://api.aviationstack.com/v1"
 DEFAULT_PAGE_SIZE = 100
 
-# aviationstack returns HTTP 200 with an error envelope (`{"error": {"code": ...}}`). Transient
-# body-level codes are retried with backoff; every other code (bad/blocked key, plan gating,
-# exhausted monthly quota — e.g. invalid_access_key, missing_access_key, inactive_user,
-# function_access_restricted, https_access_restricted, usage_limit_reached) fails fast and is
-# surfaced as a permanent failure matched by AviationstackSource.get_non_retryable_errors.
-_RETRYABLE_ERROR_CODES = {"rate_limit_reached"}
-
-
-class AviationstackRetryableError(Exception):
-    pass
-
-
-class AviationstackAPIError(Exception):
-    pass
+# aviationstack returns HTTP 200 with an error envelope (`{"error": {"code": ...}}`). The single
+# transient body code is retried in-process; every listed permanent code (bad/blocked key, plan
+# gating, exhausted monthly quota) fails fast and is surfaced with a stable `[code]` token matched by
+# AviationstackSource.get_non_retryable_errors. An unrecognized error code has no `data` key, so the
+# framework fails loud on the missing selector (data_selector_required) rather than syncing 0 rows.
+_RETRYABLE_BODY_CODE = "rate_limit_reached"
+_PERMANENT_BODY_CODES = (
+    "invalid_access_key",
+    "missing_access_key",
+    "inactive_user",
+    "function_access_restricted",
+    "https_access_restricted",
+    "usage_limit_reached",
+)
 
 
 @dataclasses.dataclass
@@ -39,125 +41,111 @@ class AviationstackResumeConfig:
     next_offset: int
 
 
-@retry(
-    retry=retry_if_exception_type((AviationstackRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    url: str,
-    params: dict[str, Any],
-    logger: FilteringBoundLogger,
-) -> dict[str, Any]:
-    # `url` carries no secrets — the access_key lives in `params`, which requests keeps out of the
-    # log line emitted here — so it's safe to log on error.
-    response = session.get(url, params=params, timeout=60)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise AviationstackRetryableError(
-            f"aviationstack API error (retryable): status={response.status_code}, url={url}"
-        )
-
-    if not response.ok:
-        logger.error(f"aviationstack API error: status={response.status_code}, url={url}")
-        # Don't use `response.raise_for_status()` — it embeds `response.url` (which carries the
-        # access_key query param) in the error message, and that exception is later logged via
-        # `str(error)` outside the tracked session's redaction. Strip the query string instead.
-        kind = "Client Error" if response.status_code < 500 else "Server Error"
-        safe_url = response.url.split("?", 1)[0]
-        raise requests.HTTPError(
-            f"{response.status_code} {kind}: {response.reason} for url: {safe_url}", response=response
-        )
-
-    body = response.json()
-    error = body.get("error") if isinstance(body, dict) else None
-    if error:
-        code = error.get("code", "unknown")
-        message = error.get("message", "")
-        if code in _RETRYABLE_ERROR_CODES:
-            raise AviationstackRetryableError(f"aviationstack API error (retryable) [{code}]: {message}")
-        # Permanent codes (and anything unrecognized) fail fast — the keys in
-        # get_non_retryable_errors match on the `[code]` token.
-        raise AviationstackAPIError(f"aviationstack API error [{code}]: {message}")
-
-    return body
-
-
-def get_rows(
-    access_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[AviationstackResumeConfig],
-    page_size: int = DEFAULT_PAGE_SIZE,
-) -> Iterator[Any]:
-    config = AVIATIONSTACK_ENDPOINTS[endpoint]
-    url = f"{AVIATIONSTACK_BASE_URL}{config.path}"
-    # `access_key` is passed as a query param on every request, so mask its value from the
-    # tracked session's logged URLs and captured samples.
-    session = make_tracked_session(redact_values=(access_key,))
-    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    offset = resume.next_offset if resume is not None else 0
-    if resume is not None:
-        logger.debug(f"aviationstack: resuming {endpoint} from offset={offset}")
-
-    while True:
-        params = {"access_key": access_key, "offset": offset, "limit": page_size}
-        body = _fetch_page(session, url, params, logger)
-
-        items = body.get("data") if isinstance(body, dict) else None
-        if not isinstance(items, list):
-            items = []
-
-        pagination = body.get("pagination") if isinstance(body, dict) else None
-        total = pagination.get("total") if isinstance(pagination, dict) else None
-
-        next_offset = offset + page_size
-        has_more = len(items) >= page_size and (not isinstance(total, int) or next_offset < total)
-
-        for item in items:
-            batcher.batch(item)
-            if batcher.should_yield():
-                yield batcher.get_table()
-                # Save AFTER yielding (and only when more pages remain) so a crash re-yields the last
-                # page rather than skipping it — merge/replace dedupes the re-pulled rows.
-                if has_more:
-                    resumable_source_manager.save_state(AviationstackResumeConfig(next_offset=next_offset))
-
-        if not has_more or len(items) == 0:
-            break
-        offset = next_offset
-
-    if batcher.should_yield(include_incomplete_chunk=True):
-        yield batcher.get_table()
+def _response_actions() -> list[ResponseAction]:
+    # The `content` matches the quoted error code as it appears in the JSON body, independent of
+    # whitespace around the colon. Retryable code first; each permanent code raises a secret-free,
+    # non-retryable error whose message carries the `[code]` token get_non_retryable_errors matches.
+    actions: list[ResponseAction] = [
+        {
+            "content": f'"{_RETRYABLE_BODY_CODE}"',
+            "action": "retry",
+            "message": f"aviationstack API error (retryable) [{_RETRYABLE_BODY_CODE}]",
+        }
+    ]
+    actions.extend(
+        {
+            "content": f'"{code}"',
+            "action": "raise",
+            "message": f"aviationstack API error [{code}]",
+        }
+        for code in _PERMANENT_BODY_CODES
+    )
+    # aviationstack also returns hard 401/403 for a bad key / plan gating. Author a secret-free
+    # message (the access_key rides in the query string, so a bare raise_for_status would leak it)
+    # that still matches the stable host prefix in get_non_retryable_errors.
+    actions.append(
+        {
+            "status_code": 401,
+            "action": "raise",
+            "message": "401 Client Error: Unauthorized for url: https://api.aviationstack.com",
+        }
+    )
+    actions.append(
+        {
+            "status_code": 403,
+            "action": "raise",
+            "message": "403 Client Error: Forbidden for url: https://api.aviationstack.com",
+        }
+    )
+    return actions
 
 
 def aviationstack_source(
     access_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[AviationstackResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = AVIATIONSTACK_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": AVIATIONSTACK_BASE_URL,
+            # access_key rides in the query string; the framework auth redacts its value from every
+            # logged URL, captured sample, and raised error message.
+            "auth": {"type": "api_key", "api_key": access_key, "name": "access_key", "location": "query"},
+            "paginator": OffsetPaginator(limit=DEFAULT_PAGE_SIZE, total_path="pagination.total"),
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "data_selector": "data",
+                    # A 200 body without `data` means an error envelope (recognized codes are caught
+                    # by response_actions first) or a changed shape — fail loud, don't sync 0 rows.
+                    "data_selector_required": True,
+                    "response_actions": _response_actions(),
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"offset": resume.next_offset}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only while a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge/replace dedupes) rather than skipping it.
+        if state and state.get("offset") is not None:
+            resumable_source_manager.save_state(AviationstackResumeConfig(next_offset=int(state["offset"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            access_key=access_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
     )
 
 
 def validate_credentials(access_key: str) -> bool:
     # `/countries` is a static reference endpoint available on every plan (including free), so it's a
-    # cheap probe that the access key is genuine without depending on a paid-tier endpoint.
+    # cheap probe that the access key is genuine without depending on a paid-tier endpoint. A bad key
+    # can surface either as a non-200 status or as an HTTP 200 with a body-level error envelope, so
+    # both are checked here (validate_via_probe only inspects the status).
     url = f"{AVIATIONSTACK_BASE_URL}/countries"
     params: dict[str, Any] = {"access_key": access_key, "limit": 1}
     try:

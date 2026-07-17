@@ -109,8 +109,10 @@ class AviationstackSource(ResumableSource[AviationstackSourceConfig, Aviationsta
         return aviationstack_source(
             access_key=config.access_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # aviationstack has no server-side cursor; full refresh only
         )
 
     @property
