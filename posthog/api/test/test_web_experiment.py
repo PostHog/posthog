@@ -1,5 +1,6 @@
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
@@ -380,29 +381,29 @@ class TestWebExperiment(APIBaseTest):
         variant_changes = [c for c in changes if c["field"] == "variants"]
         assert len(variant_changes) == 1
 
-    @parameterized.expand(
-        [
-            ("as_created", None),
-            (
-                "release_conditions_and_payloads",
-                {
-                    "groups": [
-                        {
-                            "properties": [
-                                {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}
-                            ],
-                            "rollout_percentage": 50,
-                            "variant": "test",
-                            "aggregation_group_type_index": None,
-                        },
-                        {"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None},
-                    ],
-                    "payloads": {"test": '{"color": "blue"}'},
-                },
-            ),
-            ("empty_release_conditions", {"groups": []}),
-        ]
-    )
+    _ROUND_TRIP_FILTER_CASES: list[tuple[str, dict[str, Any] | None]] = [
+        ("as_created", None),
+        (
+            "release_conditions_and_payloads",
+            {
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}
+                        ],
+                        "rollout_percentage": 50,
+                        "variant": "test",
+                        "aggregation_group_type_index": None,
+                    },
+                    {"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None},
+                ],
+                "payloads": {"test": '{"color": "blue"}'},
+            },
+        ),
+        ("empty_release_conditions", {"groups": []}),
+    ]
+
+    @parameterized.expand(_ROUND_TRIP_FILTER_CASES)
     def test_variant_update_round_trips_existing_flag_filters(self, _name, filters_override):
         response = self._create_web_experiment("Round trip")
         experiment_id = response.json()["id"]

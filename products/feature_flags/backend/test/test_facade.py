@@ -1,4 +1,5 @@
 from copy import deepcopy
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -357,7 +358,7 @@ class TestReplaceVariantDistribution:
         }
 
     def test_does_not_alias_input(self):
-        current_filters = {
+        current_filters: dict[str, Any] = {
             "groups": [{"properties": [], "rollout_percentage": 100}],
             "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
         }
