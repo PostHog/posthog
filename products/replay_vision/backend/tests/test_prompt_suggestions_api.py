@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -233,6 +235,51 @@ class TestPromptSuggestions(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         scanner.refresh_from_db()
         self.assertEqual(scanner.scanner_config["prompt"], "new")
+
+    @parameterized.expand(
+        [
+            (
+                "row_with_configs",
+                {"prompt": "old", "tags": ["a"]},
+                {"prompt": "new", "tags": ["a", "b"]},
+                [{"field": "tags", "kind": "tags", "op": "add", "before": None, "after": "b", "rationale": ""}],
+            ),
+            (
+                "old_row_without_configs_derives_from_prompt_shim",
+                None,
+                None,
+                [],
+            ),
+        ]
+    )
+    def test_serializer_exposes_config_fields(
+        self,
+        _name: str,
+        base_config: dict[str, Any] | None,
+        suggested_config: dict[str, Any] | None,
+        changes: list[dict[str, Any]],
+    ) -> None:
+        # Rows written before config-generic suggestions existed have null base_config/suggested_config.
+        # The API must still serve a usable config by deriving it from the prompt shim.
+        scanner = self._create_scanner(name="config-fields", scanner_type="monitor", scanner_config={"prompt": "old"})
+        ReplayScannerPromptSuggestion.objects.create(
+            scanner=scanner,
+            team=self.team,
+            suggested_prompt="new",
+            base_prompt="old",
+            base_config=base_config,
+            suggested_config=suggested_config,
+            changes=changes,
+            status=SuggestionStatus.PENDING,
+            scanner_version=scanner.scanner_version,
+        )
+
+        url = f"{self.scanners_url}{scanner.id}/prompt_suggestions/current/"
+        data = self.client.get(url).json()["suggestion"]
+
+        self.assertEqual(data["base_config"], base_config or {"prompt": "old"})
+        self.assertEqual(data["suggested_config"], suggested_config or {"prompt": "new"})
+        self.assertEqual(data["changes"], changes)
 
     def test_dismiss_rejects_applied_suggestion(self) -> None:
         self._create_rated_observation("sess-1", False, "should be yes")

@@ -112,6 +112,11 @@ class ReplayScannerPromptSuggestionSerializer(serializers.ModelSerializer):
     evaluation = serializers.SerializerMethodField(
         help_text="Test-before-apply results: the suggested prompt re-run against rated sessions."
     )
+    base_config = serializers.SerializerMethodField(
+        help_text="The scanner config this suggestion was generated against."
+    )
+    suggested_config = serializers.SerializerMethodField(help_text="The full proposed scanner config, ready to apply.")
+    changes = serializers.SerializerMethodField(help_text="Typed per-field diff entries driving the change cards.")
 
     @extend_schema_field(PromptSuggestionEvaluationSerializer(allow_null=True))
     def get_evaluation(self, suggestion: ReplayScannerPromptSuggestion) -> dict[str, Any] | None:
@@ -126,6 +131,23 @@ class ReplayScannerPromptSuggestionSerializer(serializers.ModelSerializer):
             return {**evaluation, "status": "failed"}
         return evaluation
 
+    @extend_schema_field(serializers.JSONField(allow_null=True))
+    def get_base_config(self, suggestion: ReplayScannerPromptSuggestion) -> dict[str, Any] | None:
+        # Rows written before config-generic suggestions existed only have the prompt shim.
+        if suggestion.base_config is not None:
+            return suggestion.base_config
+        return {"prompt": suggestion.base_prompt} if suggestion.base_prompt else None
+
+    @extend_schema_field(serializers.JSONField(allow_null=True))
+    def get_suggested_config(self, suggestion: ReplayScannerPromptSuggestion) -> dict[str, Any] | None:
+        if suggestion.suggested_config is not None:
+            return suggestion.suggested_config
+        return {"prompt": suggestion.suggested_prompt}
+
+    @extend_schema_field(serializers.JSONField())
+    def get_changes(self, suggestion: ReplayScannerPromptSuggestion) -> list[dict[str, Any]]:
+        return suggestion.changes or []
+
     class Meta:
         model = ReplayScannerPromptSuggestion
         fields = [
@@ -133,6 +155,9 @@ class ReplayScannerPromptSuggestionSerializer(serializers.ModelSerializer):
             "status",
             "suggested_prompt",
             "base_prompt",
+            "base_config",
+            "suggested_config",
+            "changes",
             "rationale",
             "based_on_up",
             "based_on_down",

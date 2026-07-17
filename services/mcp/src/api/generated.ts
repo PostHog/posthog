@@ -15602,6 +15602,12 @@ export namespace Schemas {
       readonly suggested_prompt: string;
       /** The scanner prompt this suggestion was generated against, for diffing. */
       readonly base_prompt: string;
+      /** The scanner config this suggestion was generated against. */
+      readonly base_config: unknown;
+      /** The full proposed scanner config, ready to apply. */
+      readonly suggested_config: unknown;
+      /** Typed per-field diff entries driving the change cards. */
+      readonly changes: unknown;
       /** What the rewrite changed and why, grounded in the ratings. */
       readonly rationale: string;
       /** Thumbs-up ratings the suggestion was based on. */
