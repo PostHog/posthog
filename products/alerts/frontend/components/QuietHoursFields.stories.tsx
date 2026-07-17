@@ -38,7 +38,7 @@ function QuietHoursStoryHost({
 }
 
 const meta: Meta<QuietHoursStoryArgs> = {
-    title: 'Components/Alerts/Quiet hours fields',
+    title: 'Products/Alerts/Quiet hours fields',
     args: {
         quietHoursEnabled: true,
         windowStart: '22:00',

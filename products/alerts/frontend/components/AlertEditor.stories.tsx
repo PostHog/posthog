@@ -94,7 +94,7 @@ function AlertEditorStory({
 }
 
 const meta: Meta<AlertEditorStoryArgs> = {
-    title: 'Components/Alerts/Alert editor',
+    title: 'Products/Alerts/Alert editor',
     args: {
         title: 'New alert',
         description: 'Get notified when a condition is met.',
