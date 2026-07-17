@@ -65,6 +65,7 @@ the row lists both.
 | appfollow                        | HTTP                        | requests                                                        | ✅                          |
 | appsflyer                        | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | appsignal                        | HTTP (REST + GraphQL)       | requests                                                        | ✅                          |
+| argocd                           | HTTP                        | requests                                                        | ✅                          |
 | asana                            | HTTP                        | requests                                                        | ✅                          |
 | ashby                            | HTTP                        | requests                                                        | ✅                          |
 | asknicely                        | HTTP                        | requests                                                        | ✅                          |
@@ -589,7 +590,6 @@ doesn't conflict with concurrent PRs.
 - appstack
 - apptivo
 - appwrite
-- argocd
 - asknicely
 - auth0
 - automox
