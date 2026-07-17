@@ -11,6 +11,7 @@ import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import {
     createExecTool,
+    describeValidationError,
     type ExecInnerCallProperties,
     type ExecToolOptions,
     parseExecCallInnerToolName,
@@ -1218,6 +1219,35 @@ describe('exec tool', () => {
             const queryToolsBlock = buildQueryToolsBlock(queryToolInfos)
             expect(commandDescription).not.toContain(domainsBlock)
             expect(commandDescription).toContain(queryToolsBlock)
+        })
+    })
+
+    describe('describeValidationError', () => {
+        it('surfaces the unaccepted top-level key on a union rejection without leaking values', () => {
+            // The switch-organization regression shape: a union rejection carries an
+            // empty issue path, so `inputKeys` is what makes the wrong alias diagnosable.
+            const schema = z.union([z.object({ orgId: z.string() }), z.object({ id: z.string() })])
+            const input = { organizationId: 'super-secret-org-uuid' }
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            const detail = describeValidationError(result.error!, input)
+
+            expect(detail.inputKeys).toEqual(['organizationId'])
+            // Never record input values — the raw uuid must not appear anywhere.
+            expect(JSON.stringify(detail)).not.toContain('super-secret-org-uuid')
+        })
+
+        it('records field path + issue code for a wrong-typed field, still without values', () => {
+            const schema = z.object({ projectId: z.number() })
+            const input = { projectId: 'not-a-number' }
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            const detail = describeValidationError(result.error!, input)
+
+            expect(detail.fields).toContain('projectId:invalid_type')
+            expect(JSON.stringify(detail)).not.toContain('not-a-number')
         })
     })
 })
