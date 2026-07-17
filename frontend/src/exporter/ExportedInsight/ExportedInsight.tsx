@@ -35,6 +35,9 @@ export function ExportedInsight({
     useMountedLogic(dataThemeLogic({ themes }))
 
     const insight = getQueryBasedInsightModel(legacyInsight)
+    // getQueryBasedInsightModel returns the caller's query object by reference — clone it so the
+    // export-only tweaks below (legend settings, table editing controls) can't leak into a shared model.
+    insight.query = insight.query ? structuredClone(insight.query) : insight.query
 
     if (isDataTableNode(insight.query)) {
         // don't show editing controls when exporting/sharing
