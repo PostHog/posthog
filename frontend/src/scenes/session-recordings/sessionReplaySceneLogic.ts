@@ -10,6 +10,10 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb, ReplayTabs } from '~/types'
 
+export interface SessionReplaySceneLogicProps {
+    tabId?: string
+}
+
 export const humanFriendlyTabName = (tab: ReplayTabs): string => {
     switch (tab) {
         case ReplayTabs.Home:

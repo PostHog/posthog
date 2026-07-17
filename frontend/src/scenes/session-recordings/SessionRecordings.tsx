@@ -235,19 +235,21 @@ function Warnings(): JSX.Element {
 // it — which would otherwise fire a wasted loadSessionRecordings ClickHouse query on load.
 function AttachScenePlaylistLogic({
     playlistLogicProps,
+    tabId,
 }: {
     playlistLogicProps: SessionRecordingPlaylistLogicProps
+    tabId: string
 }): null {
-    useAttachedLogic(sessionRecordingsPlaylistLogic(playlistLogicProps), sessionReplaySceneLogic())
+    useAttachedLogic(sessionRecordingsPlaylistLogic(playlistLogicProps), sessionReplaySceneLogic({ tabId }))
     return null
 }
 
-function MainPanel(): JSX.Element {
+function MainPanel({ tabId }: { tabId: string }): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
     const isRedesignEnabled = useFeatureFlag('REPLAY_UI_REDESIGN_2026', 'test')
 
     const playlistLogicProps: SessionRecordingPlaylistLogicProps = {
-        logicKey: 'scene',
+        logicKey: `scene-${tabId}`,
         updateSearchParams: true,
     }
 
@@ -260,7 +262,7 @@ function MainPanel(): JSX.Element {
                 <Spinner />
             ) : tab === ReplayTabs.Home ? (
                 <div className="SessionRecordingPlaylistHeightWrapper grow">
-                    <AttachScenePlaylistLogic playlistLogicProps={playlistLogicProps} />
+                    <AttachScenePlaylistLogic playlistLogicProps={playlistLogicProps} tabId={tabId} />
                     {isRedesignEnabled ? (
                         <SessionRecordingsPlaylistRedesign {...playlistLogicProps} />
                     ) : (
@@ -326,9 +328,16 @@ export function SessionRecordingsPageTabs(): JSX.Element {
     )
 }
 
-export function SessionsRecordings(): JSX.Element {
+export interface SessionsRecordingsProps {
+    tabId?: string
+}
+
+export function SessionsRecordings({ tabId }: SessionsRecordingsProps = {}): JSX.Element {
+    if (!tabId) {
+        throw new Error('<SessionsRecordings /> must receive a tabId prop')
+    }
     return (
-        <BindLogic logic={sessionReplaySceneLogic} props={{}}>
+        <BindLogic logic={sessionReplaySceneLogic} props={{ tabId }}>
             <SceneContent className="h-full">
                 <SceneTitleSection
                     name={sceneConfigurations[Scene.Replay].name}
@@ -338,7 +347,7 @@ export function SessionsRecordings(): JSX.Element {
                     actions={<Header />}
                 />
                 <SessionRecordingsPageTabs />
-                <MainPanel />
+                <MainPanel tabId={tabId} />
             </SceneContent>
         </BindLogic>
     )
