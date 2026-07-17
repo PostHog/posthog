@@ -37,6 +37,7 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.integration import SlackIntegration
 from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token
 from posthog.models.personal_api_key import find_personal_api_key
+from posthog.models.project_secret_api_key import find_project_secret_api_key
 from posthog.plugins.plugin_server_api import validate_messaging_preferences_token
 from posthog.redis import get_client
 from posthog.utils import (
@@ -460,9 +461,12 @@ def api_key_search_view(request: HttpRequest):
         if result is not None:
             personal_api_key_object, personal_api_key_hash_mode = result
 
+    project_secret_api_key_object = None
     team_object = None
     team_object_key_type = None
     if query is not None and query.startswith("phs_"):
+        project_secret_api_key_object = find_project_secret_api_key(query)
+
         Team = apps.get_model(app_label="posthog", model_name="Team")
 
         try:
@@ -488,6 +492,7 @@ def api_key_search_view(request: HttpRequest):
             "title": "Specify key to search",
             "personal_api_key_object": personal_api_key_object,
             "personal_api_key_hash_mode": personal_api_key_hash_mode,
+            "project_secret_api_key_object": project_secret_api_key_object,
             "team_object": team_object,
             "team_object_key_type": team_object_key_type,
             "oauth_access_token_object": oauth_access_token_object,
