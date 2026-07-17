@@ -1,11 +1,5 @@
 import dataclasses
-from collections.abc import Iterator
 from typing import Any, Optional
-from urllib.parse import urlencode
-
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.asana.settings import (
@@ -14,214 +8,165 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.asana.sett
     AsanaEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponsePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 
 ASANA_BASE_URL = "https://app.asana.com/api/1.0"
 # Asana caps list pages at 100 items.
 PAGE_SIZE = 100
-REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRIES = 5
 
-
-class AsanaRetryableError(Exception):
-    pass
+# Asana list responses carry the next-page link in the body under `next_page.uri` (a self-contained
+# absolute URL). A null `next_page` ends pagination.
+NEXT_URL_PATH = "next_page.uri"
 
 
 @dataclasses.dataclass
 class AsanaResumeConfig:
-    # Initial request URLs (one per parent for fan-out endpoints) not yet started.
-    remaining_urls: list[str]
-    # The next page URL to fetch for the in-progress request, or None when finished.
-    current_url: Optional[str]
+    # Legacy fields from the hand-rolled fan-out. Kept (now with defaults) so state saved by the
+    # previous implementation still deserializes via `ResumableSourceManager._load_json`.
+    remaining_urls: list[str] = dataclasses.field(default_factory=list)
+    current_url: Optional[str] = None
+    # Framework paginator / fan-out resume snapshot for the current endpoint. When only the legacy
+    # fields are present (old saved state) this is None and that part of the sync starts fresh —
+    # a re-fetch, which the merge dedupes on `gid`.
+    paginator_state: Optional[dict[str, Any]] = None
 
 
-def _get_headers(access_token: str) -> dict[str, str]:
+def _paginator() -> JSONResponsePaginator:
+    return JSONResponsePaginator(next_url_path=NEXT_URL_PATH)
+
+
+def _resource(name: str, path: str, params: dict[str, Any]) -> dict[str, Any]:
     return {
-        "Authorization": f"Bearer {access_token}",
-        "Accept": "application/json",
+        "name": name,
+        "endpoint": {
+            "path": path,
+            "params": params,
+            "data_selector": "data",
+            "paginator": _paginator(),
+        },
     }
 
 
-def _with_query(path: str, params: dict[str, Any]) -> str:
-    """Append query params to a relative path that may already carry a `?workspace=` filter."""
-    clean = {key: value for key, value in params.items() if value is not None}
-    if not clean:
-        return f"{ASANA_BASE_URL}{path}"
-    separator = "&" if "?" in path else "?"
-    return f"{ASANA_BASE_URL}{path}{separator}{urlencode(clean)}"
+def _workspaces_parent(*, filter_organizations: bool) -> dict[str, Any]:
+    """Workspaces list used only to resolve child gids. `is_organization` is opted in so the
+    organization-only fan-out (teams) can drop non-organization workspaces."""
+    resource = _resource("workspaces", "/workspaces", {"limit": PAGE_SIZE, "opt_fields": "is_organization"})
+    if filter_organizations:
+        # `/organizations/{gid}/teams` is only valid for organization workspaces; returning [] drops
+        # the row so the child fan-out never requests it.
+        resource["data_map"] = lambda workspace: workspace if workspace.get("is_organization") else []
+    return resource
 
 
-def _list_params(config: AsanaEndpointConfig) -> dict[str, Any]:
-    params: dict[str, Any] = {"limit": PAGE_SIZE}
+def _projects_parent() -> dict[str, Any]:
+    """Projects list (one request per workspace) used only to resolve project gids for the
+    project-level fan-out (tasks, sections)."""
+    return _resource(
+        "projects",
+        "/projects?workspace={workspace_gid}",
+        {"limit": PAGE_SIZE, "workspace_gid": {"type": "resolve", "resource": "workspaces", "field": "gid"}},
+    )
+
+
+def _build_resources(config: AsanaEndpointConfig) -> list[dict[str, Any]]:
+    """Build the rest_source resource chain for an endpoint, fanning out over parents as needed.
+    Only the last (target) resource's rows are surfaced; parents exist solely to resolve gids."""
+    target_params: dict[str, Any] = {"limit": PAGE_SIZE}
     if config.opt_fields:
-        params["opt_fields"] = ",".join(config.opt_fields)
-    return params
-
-
-@retry(
-    retry=retry_if_exception_type((AsanaRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(MAX_RETRIES),
-    wait=wait_exponential_jitter(initial=1, max=60),
-    reraise=True,
-)
-def _fetch_page(
-    url: str, headers: dict[str, str], logger: FilteringBoundLogger, session: requests.Session
-) -> dict[str, Any]:
-    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-    # Asana rate-limits at 150 req/min (free) / 1500 (paid) and returns 429 with a Retry-After
-    # header; exponential backoff is sufficient and avoids parsing the header here.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise AsanaRetryableError(f"Asana API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"Asana API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
-
-
-def _iter_items(
-    start_url: str, headers: dict[str, str], logger: FilteringBoundLogger, session: requests.Session
-) -> Iterator[dict[str, Any]]:
-    """Fully paginate a single list request, yielding individual records (used for discovery)."""
-    url: Optional[str] = start_url
-    while url is not None:
-        data = _fetch_page(url, headers, logger, session)
-        yield from data.get("data") or []
-        next_page = data.get("next_page")
-        url = next_page.get("uri") if isinstance(next_page, dict) else None
-
-
-def _list_workspaces(
-    headers: dict[str, str], logger: FilteringBoundLogger, session: requests.Session
-) -> list[dict[str, Any]]:
-    url = _with_query("/workspaces", {"limit": PAGE_SIZE, "opt_fields": "is_organization"})
-    return list(_iter_items(url, headers, logger, session))
-
-
-def _list_projects(
-    headers: dict[str, str], logger: FilteringBoundLogger, session: requests.Session
-) -> Iterator[dict[str, Any]]:
-    for workspace in _list_workspaces(headers, logger, session):
-        gid = workspace["gid"]
-        yield from _iter_items(
-            _with_query(f"/projects?workspace={gid}", {"limit": PAGE_SIZE}), headers, logger, session
-        )
-
-
-def _build_initial_urls(
-    config: AsanaEndpointConfig, headers: dict[str, str], logger: FilteringBoundLogger, session: requests.Session
-) -> list[str]:
-    """Resolve the set of request URLs for an endpoint, fanning out over parents as needed."""
-    params = _list_params(config)
+        target_params["opt_fields"] = ",".join(config.opt_fields)
 
     if config.fan_out == "none":
-        return [_with_query(config.path_template, params)]
+        return [_resource(config.name, config.path, target_params)]
 
     if config.fan_out in ("workspace", "organization"):
-        urls = []
-        for workspace in _list_workspaces(headers, logger, session):
-            if config.fan_out == "organization" and not workspace.get("is_organization"):
-                # `/organizations/{gid}/teams` is only valid for organization workspaces.
-                continue
-            urls.append(_with_query(config.path_template.format(gid=workspace["gid"]), params))
-        return urls
+        target_params["workspace_gid"] = {"type": "resolve", "resource": "workspaces", "field": "gid"}
+        return [
+            _workspaces_parent(filter_organizations=config.fan_out == "organization"),
+            _resource(config.name, config.path, target_params),
+        ]
 
     if config.fan_out == "project":
+        target_params["project_gid"] = {"type": "resolve", "resource": "projects", "field": "gid"}
         return [
-            _with_query(config.path_template.format(gid=project["gid"]), params)
-            for project in _list_projects(headers, logger, session)
+            _workspaces_parent(filter_organizations=False),
+            _projects_parent(),
+            _resource(config.name, config.path, target_params),
         ]
 
     raise ValueError(f"Unknown fan_out mode: {config.fan_out}")
 
 
-def validate_credentials(access_token: str) -> bool:
-    """Confirm the personal access token is valid. /users/me needs no extra scopes."""
-    try:
-        response = make_tracked_session().get(
-            f"{ASANA_BASE_URL}/users/me",
-            headers=_get_headers(access_token),
-            timeout=10,
-        )
-        return response.status_code == 200
-    except Exception:
-        return False
-
-
-def get_rows(
-    access_token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[AsanaResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = ASANA_ENDPOINTS[endpoint]
-    headers = _get_headers(access_token)
-    # One session for the whole run so pagination and fan-out reuse pooled connections.
-    session = make_tracked_session()
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None:
-        remaining = list(resume_config.remaining_urls)
-        current = resume_config.current_url
-        logger.debug(f"Asana: resuming {endpoint} from URL: {current}")
-    else:
-        remaining = _build_initial_urls(config, headers, logger, session)
-        current = remaining.pop(0) if remaining else None
-
-    while current is not None:
-        data = _fetch_page(current, headers, logger, session)
-        items = data.get("data") or []
-
-        next_page = data.get("next_page")
-        next_url = next_page.get("uri") if isinstance(next_page, dict) else None
-
-        # Advance: continue the current request's page chain, else move to the next parent URL.
-        if next_url:
-            new_current: Optional[str] = next_url
-            new_remaining = remaining
-        elif remaining:
-            new_current = remaining[0]
-            new_remaining = remaining[1:]
-        else:
-            new_current = None
-            new_remaining = []
-
-        if items:
-            yield items
-
-        # Save AFTER yielding (and only while there's more to fetch) so a crash re-yields the
-        # last batch — merge dedupes on gid — rather than skipping it.
-        if new_current is not None:
-            resumable_source_manager.save_state(
-                AsanaResumeConfig(remaining_urls=new_remaining, current_url=new_current)
-            )
-
-        current = new_current
-        remaining = new_remaining
-
-
 def asana_source(
     access_token: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[AsanaResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = ASANA_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": ASANA_BASE_URL,
+            # Auth (Bearer) is supplied via the framework auth config so the token is redacted from
+            # logs; only the non-secret Accept header is set here.
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "bearer", "token": access_token},
+            "paginator": _paginator(),
+        },
+        "resources": _build_resources(config),
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.paginator_state is not None:
+            initial_paginator_state = resume.paginator_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only while there's more to fetch; the framework saves AFTER a page is yielded so a
+        # crash re-yields the last page (merge dedupes on gid) rather than skipping it. Multi-level
+        # (project) fan-out disables resume entirely, so this is never called for those endpoints.
+        if state:
+            resumable_source_manager.save_state(AsanaResumeConfig(paginator_state=state))
+
+    resources = rest_api_resources(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+    target = next(resource for resource in resources if resource.name == endpoint)
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            access_token=access_token,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: target,
         primary_keys=[PRIMARY_KEY],
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=target.column_hints,
     )
+
+
+def validate_credentials(access_token: str) -> bool:
+    """Confirm the personal access token is valid. /users/me needs no extra scopes."""
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(access_token,)),
+        f"{ASANA_BASE_URL}/users/me",
+        headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+    )
+    return ok
