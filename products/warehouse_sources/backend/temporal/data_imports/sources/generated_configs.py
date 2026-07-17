@@ -359,7 +359,8 @@ class AppsFlyerSourceConfig(config.Config):
 
 @config.config
 class AppsignalSourceConfig(config.Config):
-    pass
+    api_token: str
+    app_id: str
 
 
 @config.config

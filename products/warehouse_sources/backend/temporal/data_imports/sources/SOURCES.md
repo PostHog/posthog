@@ -64,6 +64,7 @@ the row lists both.
 | appfigures                       | HTTP                        | requests                                                        | ✅                          |
 | appfollow                        | HTTP                        | requests                                                        | ✅                          |
 | appsflyer                        | HTTP (CSV reports)          | requests                                                        | ✅                          |
+| appsignal                        | HTTP (REST + GraphQL)       | requests                                                        | ✅                          |
 | asana                            | HTTP                        | requests                                                        | ✅                          |
 | ashby                            | HTTP                        | requests                                                        | ✅                          |
 | asknicely                        | HTTP                        | requests                                                        | ✅                          |
@@ -574,7 +575,6 @@ doesn't conflict with concurrent PRs.
 - amazon_sqs
 - appcues
 - apple_search_ads
-- appsignal
 - appstack
 - apptivo
 - appwrite
