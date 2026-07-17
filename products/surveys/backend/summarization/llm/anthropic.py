@@ -99,7 +99,15 @@ def summarize_with_anthropic(
 
     # The gateway reads event dimensions from this JSON blob (not the x-posthog-property-<key>
     # per-header form), and stamps $ai_trace_id from X-PostHog-Trace-Id so feedback maps back.
-    properties = {"ai_product": "survey_summary", "ai_feature": "survey_summary", "response_count": len(responses)}
+    # team_id keys per-team spend: the usage report reads it as a property, and the gateway derives
+    # the owning project from the phs_ bearer, so without it every team's summaries collapse onto one.
+    properties: dict[str, str | int] = {
+        "ai_product": "survey_summary",
+        "ai_feature": "survey_summary",
+        "response_count": len(responses),
+    }
+    if team_id is not None:
+        properties["team_id"] = team_id
     if survey_id:
         properties["survey_id"] = survey_id
     if question_id:

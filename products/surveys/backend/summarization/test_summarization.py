@@ -138,8 +138,10 @@ class TestSummarizeWithAnthropic:
 
         summarize_with_anthropic("What do you want?", ["Make it faster"])
 
+        create_kwargs = mock_client.chat.completions.create.call_args.kwargs
         assert mock_build_client.call_args.args[0] == "survey_summary"
-        assert mock_client.chat.completions.create.call_args.kwargs["model"] == "claude-haiku-4-5"
+        assert create_kwargs["model"] == "claude-haiku-4-5"
+        assert create_kwargs["response_format"] == {"type": "json_object"}
 
     @patch("products.surveys.backend.summarization.llm.anthropic.build_openai_client")
     def test_stamps_gateway_properties_and_trace(self, mock_build_client):
@@ -147,14 +149,35 @@ class TestSummarizeWithAnthropic:
         mock_build_client.return_value = mock_client
 
         result = summarize_with_anthropic(
-            "What do you want?", ["Make it faster", "Add dark mode"], survey_id="s-1", question_id="q-1"
+            "What do you want?",
+            ["Make it faster", "Add dark mode"],
+            distinct_id="user-9",
+            survey_id="s-1",
+            question_id="q-1",
+            team_id=42,
         )
 
-        headers = mock_client.chat.completions.create.call_args.kwargs["extra_headers"]
+        create_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        # distinct_id rides `user=` for per-user analytics/rate-limiting.
+        assert create_kwargs["user"] == "user-9"
+        headers = create_kwargs["extra_headers"]
         assert headers["X-PostHog-Trace-Id"] == result.trace_id
         properties = json.loads(headers["X-PostHog-Properties"])
         assert properties["ai_product"] == "survey_summary"
         assert properties["ai_feature"] == "survey_summary"
+        # team_id keys per-team spend; dropping it collapses every team onto the bearer's team.
+        assert properties["team_id"] == 42
         assert properties["survey_id"] == "s-1"
         assert properties["question_id"] == "q-1"
         assert properties["response_count"] == 2
+
+    @patch("products.surveys.backend.summarization.llm.anthropic.build_openai_client")
+    def test_omits_user_and_team_when_absent(self, mock_build_client):
+        mock_client = _mock_gateway_client(VALID_RESPONSE)
+        mock_build_client.return_value = mock_client
+
+        summarize_with_anthropic("What do you want?", ["Make it faster"])
+
+        create_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert "user" not in create_kwargs
+        assert "team_id" not in json.loads(create_kwargs["extra_headers"]["X-PostHog-Properties"])

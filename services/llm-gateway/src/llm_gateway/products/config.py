@@ -243,9 +243,8 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
         credit_bucket=None,
     ),
-    # Summarizes free-text survey responses into themes. Cheap per-summary model. Previously ran on
-    # Gemini with $ai_billable=True; credit_bucket preserves that billing intent (pending billing +
-    # team-surveys sign-off on the bucket).
+    # Summarizes free-text survey responses into themes on a cheap per-summary model, billed to the
+    # customer's AI credits.
     "survey_summary": ProductConfig(
         allowed_application_ids=None,
         allowed_models=frozenset({"claude-haiku-4-5"}),
