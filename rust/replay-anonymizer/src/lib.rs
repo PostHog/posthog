@@ -8,9 +8,11 @@
 //! goes in, ready-to-write JSONL block lines plus envelope/per-event metadata come out — this crate
 //! owns the parse, the scrub, and the serialize.
 //!
-//! Scrubbing operates on untrusted input and may panic on pathological payloads; callers that must
-//! fail closed (drop the message rather than crash) should wrap calls in `catch_unwind` under
-//! `panic = "unwind"`, as `replay-anonymizer-node` does.
+//! Scrubbing operates on untrusted input. The public entry points contain panics on pathological
+//! payloads and convert them to errors (fail closed: the caller drops the message) — no
+//! `catch_unwind` obligation on consumers. Caveat: under `panic = "abort"` the backstop cannot run
+//! and a panic still kills the process; builds that must fail closed need `panic = "unwind"` (the
+//! Node addon enforces this at compile time).
 
 pub mod allow_lists;
 pub mod assets;
@@ -27,6 +29,7 @@ pub mod json;
 pub mod scan;
 pub mod snapshot;
 pub mod text;
+mod unwind;
 pub mod url;
 pub mod value;
 
