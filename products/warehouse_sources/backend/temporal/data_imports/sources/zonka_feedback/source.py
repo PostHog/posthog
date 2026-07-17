@@ -170,5 +170,4 @@ An Admin can generate an auth token under **Company Settings → Developers → 
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
-            api_version=self.resolve_api_version(inputs.api_version),
         )

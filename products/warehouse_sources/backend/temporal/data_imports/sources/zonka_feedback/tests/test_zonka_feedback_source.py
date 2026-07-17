@@ -157,14 +157,12 @@ class TestZonkaFeedbackSource:
         assert self.source.resolve_api_version(None) == ZONKA_API_VERSION_V2_1
         assert self.source.resolve_api_version(ZONKA_API_VERSION_V1) == ZONKA_API_VERSION_V1
 
-    @parameterized.expand([(ZONKA_API_VERSION_V1,), (ZONKA_API_VERSION_V2_1,)])
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.source.zonka_feedback_source"
     )
-    def test_source_for_pipeline_plumbs_arguments(self, api_version: str, mock_source: mock.MagicMock) -> None:
+    def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "responses"
-        inputs.api_version = api_version
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -175,8 +173,6 @@ class TestZonkaFeedbackSource:
         assert kwargs["data_center"] == "us1"
         assert kwargs["endpoint"] == "responses"
         assert kwargs["resumable_source_manager"] is manager
-        # The resolved pin must reach the request layer so each source syncs on its own version.
-        assert kwargs["api_version"] == api_version
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
         inputs = mock.MagicMock()
