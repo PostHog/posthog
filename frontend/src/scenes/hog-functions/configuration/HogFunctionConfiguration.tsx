@@ -24,6 +24,8 @@ import { HogFunctionMappings } from 'scenes/hog-functions/mapping/HogFunctionMap
 import { HogFunctionEventEstimates } from 'scenes/hog-functions/metrics/HogFunctionEventEstimates'
 import { SurveyResponseKeysReference } from 'scenes/surveys/components/SurveyResponseKeysReference'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
@@ -67,6 +69,20 @@ export function HogFunctionConfiguration({
         showTesting,
         survey,
     } = useValues(logic)
+
+    // The section components attach the config blobs (code, inputs, filters) as unkeyed values; only a
+    // keyed item renders its id into the context line, and the agent needs the id for cdp-functions-partial-update.
+    useAttachedContext(
+        hogFunction?.id
+            ? [
+                  {
+                      type: 'hog_function',
+                      key: hogFunction.id,
+                      label: `Current ${humanizeHogFunctionType(type)}: ${hogFunction.name}`,
+                  },
+              ]
+            : null
+    )
 
     if (loading && !loaded) {
         return <SpinnerOverlay />
