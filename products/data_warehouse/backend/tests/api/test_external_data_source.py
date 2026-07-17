@@ -3,7 +3,7 @@ import time
 import uuid
 import typing as t
 from datetime import date, timedelta
-from typing import cast
+from typing import Any, cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, FuzzyInt
@@ -10855,10 +10855,14 @@ class TestCDCStatus(APIBaseTest):
         assert response.json() == {"enabled": False}
 
     @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_extraction_schedule_paused",
+        return_value=False,
+    )
+    @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
         return_value={"slot_exists": True, "publication_exists": True, "lag_bytes": 2048},
     )
-    def test_returns_live_status_when_enabled(self, mock_get_status) -> None:
+    def test_returns_live_status_when_enabled(self, mock_get_status, _mock_paused) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
         assert response.status_code == 200, response.content
@@ -10870,14 +10874,48 @@ class TestCDCStatus(APIBaseTest):
         assert body["slot_exists"] is True
         assert body["publication_exists"] is True
         assert body["lag_bytes"] == 2048
+        assert body["schedule_paused"] is False
         # Read against the stored source model, not a client payload.
         assert mock_get_status.call_args.args[0].pk == source.pk
 
     @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_extraction_schedule_paused",
+        return_value=True,
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        return_value={"slot_exists": True, "publication_exists": True, "lag_bytes": 2048},
+    )
+    def test_surfaces_schedule_paused(self, _mock_get_status, _mock_paused) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
+        assert response.status_code == 200, response.content
+        assert response.json()["schedule_paused"] is True
+
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_extraction_schedule_paused",
+        side_effect=Exception("temporal unavailable"),
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        return_value={"slot_exists": True, "publication_exists": True, "lag_bytes": 2048},
+    )
+    def test_schedule_paused_lookup_failure_degrades_to_false(self, _mock_get_status, _mock_paused) -> None:
+        # A Temporal outage must not 500 this otherwise DB-only status read.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
+        assert response.status_code == 200, response.content
+        assert response.json()["schedule_paused"] is False
+
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_extraction_schedule_paused",
+        return_value=False,
+    )
+    @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
         return_value={"slot_exists": False, "publication_exists": True, "lag_bytes": None},
     )
-    def test_surfaces_missing_slot(self, _mock_get_status) -> None:
+    def test_surfaces_missing_slot(self, _mock_get_status, _mock_paused) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
         assert response.status_code == 200, response.content
@@ -10894,6 +10932,105 @@ class TestCDCStatus(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
         assert response.status_code == 400
         assert "Could not connect to source" in response.json()["message"]
+
+
+class TestResumeCDC(APIBaseTest):
+    def _resume(self, source: ExternalDataSource):
+        return self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/resume_cdc/",
+        )
+
+    def _cdc_schema(self, source: ExternalDataSource, *, broken: bool = False) -> ExternalDataSchema:
+        config: dict[str, t.Any] = {"cdc_mode": "streaming"}
+        if broken:
+            config["cdc_broken"] = BROKEN_MARKER
+        return ExternalDataSchema.objects.create(
+            name="orders",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+            status=ExternalDataSchema.Status.FAILED,
+            sync_type_config=config,
+        )
+
+    def test_resume_cdc_rejects_when_cdc_not_enabled(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self._resume(source)
+        assert response.status_code == 400
+        assert "CDC is not enabled" in response.json()["message"]
+
+    def test_resume_cdc_rejects_when_no_cdc_schemas(self) -> None:
+        # CDC enabled but nothing syncs via CDC — resuming would report success while nothing runs.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self._resume(source)
+        assert response.status_code == 400
+        assert "nothing to resume" in response.json()["message"]
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.sync_cdc_extraction_schedule")
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.unpause_cdc_extraction_schedule")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        return_value={"slot_exists": True, "publication_exists": True, "lag_bytes": 128},
+    )
+    def test_resume_cdc_unpauses_when_slot_intact(self, mock_get_status, mock_unpause, mock_sync) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        self._cdc_schema(source)
+
+        response = self._resume(source)
+        assert response.status_code == 200, response.content
+        assert response.json()["success"] is True
+        # Recreate-if-missing then unpause, so a schedule deleted out-of-band can't report false success.
+        mock_sync.assert_called_once()
+        assert mock_sync.call_args.args[0].pk == source.pk
+        mock_unpause.assert_called_once_with(str(source.pk))
+        assert mock_get_status.call_args.args[0].pk == source.pk
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.unpause_cdc_extraction_schedule")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status"
+    )
+    def test_resume_cdc_rejected_when_broken_marker(self, mock_get_status, mock_unpause) -> None:
+        # A lost slot/publication is marked cdc_broken — resume must route to Repair, not unpause
+        # (and must not even probe, since the source is known-broken).
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        self._cdc_schema(source, broken=True)
+
+        response = self._resume(source)
+        assert response.status_code == 400
+        assert "Repair CDC" in response.json()["message"]
+        mock_unpause.assert_not_called()
+        mock_get_status.assert_not_called()
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.unpause_cdc_extraction_schedule")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        side_effect=psycopg.OperationalError("password authentication failed"),
+    )
+    def test_resume_cdc_rejected_when_connection_still_fails(self, _mock_get_status, mock_unpause) -> None:
+        # The whole point: don't unpause straight back into the same deterministic auth failure.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        self._cdc_schema(source)
+
+        response = self._resume(source)
+        assert response.status_code == 400
+        assert "check the credentials" in response.json()["message"]
+        mock_unpause.assert_not_called()
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.unpause_cdc_extraction_schedule")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        return_value={"slot_exists": False, "publication_exists": True, "lag_bytes": None},
+    )
+    def test_resume_cdc_rejected_when_slot_missing_without_marker(self, _mock_get_status, mock_unpause) -> None:
+        # Slot dropped on the source DB before any run set cdc_broken: the live probe still catches it.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        self._cdc_schema(source)
+
+        response = self._resume(source)
+        assert response.status_code == 400
+        assert "Repair CDC" in response.json()["message"]
+        mock_unpause.assert_not_called()
 
 
 class TestExternalDataSourceConnectLink(APIBaseTest):
@@ -11519,6 +11656,7 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
     _BING_LIST_ACCOUNTS = (
         "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.BingAdsClient.list_accounts"
     )
+    _GOOGLE_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.source"
     _REDDIT_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source"
     _LINKEDIN_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source"
     _PINTEREST_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.source"
@@ -12139,6 +12277,92 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "reconnect your account" in str(response.json()).lower()
+
+    def _google_ads_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="google-ads",
+            config={},
+            sensitive_config={"access_token": "token"},
+            integration_id="google_ads_test",
+            created_by=self.user,
+        )
+
+    def _google_ads_accounts(self, listed: list[dict[str, Any]]):
+        with (
+            patch(f"{self._GOOGLE_ADS_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._GOOGLE_ADS_MODULE}.GoogleAdsIntegration") as mock_google_ads,
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            mock_google_ads.return_value.list_google_ads_accessible_accounts.return_value = listed
+            return self.client.get(self._url("GoogleAds", self._google_ads_integration().id))
+
+    def test_google_ads_maps_hierarchy_to_accounts(self):
+        listed: list[dict[str, Any]] = [
+            {"parent_id": "6501924158", "id": "6501924158", "level": None, "name": "Acme Corp", "manager": True},
+            {"parent_id": "6501924158", "id": "1234567890", "level": "1", "name": "Client One", "manager": False},
+        ]
+
+        response = self._google_ads_accounts(listed)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        # Stored dashed as the Google Ads UI shows it; clean_customer_id normalizes to bare at the API boundary.
+        assert response.json()["accounts"] == [
+            {
+                "value": "650-192-4158",
+                "display_name": "Acme Corp",
+                "is_primary": True,
+                "badges": ["Manager"],
+                "group": None,
+                "secondary_text": None,
+            },
+            {
+                "value": "123-456-7890",
+                "display_name": "Client One",
+                "is_primary": False,
+                "badges": [],
+                "group": "Acme Corp",
+                "secondary_text": None,
+            },
+        ]
+
+    def test_google_ads_does_not_group_accounts_below_the_first_level(self):
+        # `parent_id` is the accessible root the hierarchy walk started from, not the direct manager, so
+        # it names the true parent only one level down. A sub-manager's client must not claim to sit
+        # "under" the root.
+        listed: list[dict[str, Any]] = [
+            {"parent_id": "6501924158", "id": "6501924158", "level": None, "name": "Acme Corp", "manager": True},
+            {"parent_id": "6501924158", "id": "1234567890", "level": "1", "name": "Sub Manager", "manager": True},
+            {"parent_id": "6501924158", "id": "5555555555", "level": "2", "name": "Deep Client", "manager": False},
+        ]
+
+        response = self._google_ads_accounts(listed)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [(a["display_name"], a["group"]) for a in response.json()["accounts"]] == [
+            ("Acme Corp", None),
+            ("Sub Manager", "Acme Corp"),
+            ("Deep Client", None),
+        ]
+
+    def test_google_ads_search_matches_a_manager_name(self):
+        # The client folds `group` into its search text, but the endpoint filters server-side first, so a
+        # manager's name has to match there or the client never sees the row.
+        listed = [
+            {"parent_id": "6501924158", "id": "6501924158", "level": None, "name": "Acme Corp", "manager": True},
+            {"parent_id": "6501924158", "id": "1234567890", "level": "1", "name": "Client One", "manager": False},
+        ]
+
+        with (
+            patch(f"{self._GOOGLE_ADS_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._GOOGLE_ADS_MODULE}.GoogleAdsIntegration") as mock_google_ads,
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            mock_google_ads.return_value.list_google_ads_accessible_accounts.return_value = listed
+            response = self.client.get(self._url("GoogleAds", self._google_ads_integration().id) + "&search=acme")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [a["value"] for a in response.json()["accounts"]] == ["650-192-4158", "123-456-7890"]
 
     def test_linkedin_success_maps_ad_accounts_to_accounts(self):
         integration = self._linkedin_integration()
