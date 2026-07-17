@@ -28,6 +28,7 @@ import { QueryContext } from '~/queries/types'
 
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
+import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { buildTrendsPieSeries } from './trendsPieTransforms'
 
 interface TrendsPieChartProps {
@@ -43,10 +44,15 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
     })
 }
 
-export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieChartProps): JSX.Element | null {
+export function TrendsPieChart({
+    context,
+    inSharedMode,
+    showPersonsModal = true,
+}: TrendsPieChartProps): JSX.Element | null {
     const theme = useChartTheme()
 
     const { insightProps } = useValues(insightLogic)
+    const legendConfig = useInsightsLegendConfig({ insightProps, inSharedMode })
     const { baseCurrency } = useValues(teamLogic)
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
@@ -99,10 +105,12 @@ export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieCh
         () =>
             buildTrendsPieSeries(indexedResults ?? [], {
                 getColor: getTrendsColor,
-                getHidden: getTrendsHidden,
+                // Hidden series are listed (dimmed) and excluded via config.legend.hiddenKeys instead
+                // of being dropped here, so the legend can restore them.
+                getHidden: undefined,
                 getLabel,
             }),
-        [indexedResults, getTrendsColor, getTrendsHidden, getLabel]
+        [indexedResults, getTrendsColor, getLabel]
     )
 
     const visibleResults = useMemo(
@@ -126,8 +134,15 @@ export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieCh
             showLabelOnSlice: !!showLabelOnSeries,
             isPercent: isPercentStackView,
             disableHoverOffset: !!pieChartVizOptions?.disableHoverOffset,
+            legend: legendConfig,
         }),
-        [showValuesOnSeries, showLabelOnSeries, isPercentStackView, pieChartVizOptions?.disableHoverOffset]
+        [
+            showValuesOnSeries,
+            showLabelOnSeries,
+            isPercentStackView,
+            pieChartVizOptions?.disableHoverOffset,
+            legendConfig,
+        ]
     )
 
     // ActionsPie disables clicks entirely when the insight has data-warehouse series (see
@@ -226,7 +241,9 @@ export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieCh
         ]
     )
 
-    if (!visibleResults.length) {
+    // An all-hidden pie must keep rendering the legend (dimmed rows) so the hidden slices can be
+    // restored — only a truly empty result set gets the empty state.
+    if (!(indexedResults ?? []).length) {
         return (
             <InsightEmptyState
                 heading={context?.emptyStateHeading}

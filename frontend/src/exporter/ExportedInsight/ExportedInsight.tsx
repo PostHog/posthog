@@ -13,6 +13,7 @@ import {
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { DISPLAYS_WITH_IN_CHART_LEGEND } from 'scenes/insights/insightVizDataLogic'
 import { BoxPlotLegend } from 'scenes/insights/views/BoxPlot/BoxPlotLegend'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 
@@ -34,16 +35,6 @@ export function ExportedInsight({
     useMountedLogic(dataThemeLogic({ themes }))
 
     const insight = getQueryBasedInsightModel(legacyInsight)
-
-    if (
-        isInsightVizNode(insight.query) &&
-        isTrendsQuery(insight.query.source) &&
-        insight.query.source.trendsFilter &&
-        insight.query.source.trendsFilter.showLegend == true
-    ) {
-        // legend is always shown so don't show it alongside the insight
-        insight.query.source.trendsFilter.showLegend = false
-    }
 
     if (isDataTableNode(insight.query)) {
         // don't show editing controls when exporting/sharing
@@ -71,6 +62,25 @@ export function ExportedInsight({
         isTrendsQuery(query.source) &&
         !SINGLE_SERIES_DISPLAY_TYPES.includes(trendsDisplay as ChartDisplayType) &&
         !DISPLAY_TYPES_WITHOUT_LEGEND.includes(trendsDisplay as ChartDisplayType)
+
+    // Displays covered by the quill in-chart legend draw the legend inside the chart itself.
+    const usesQuillInChartLegend =
+        !trendsDisplay || DISPLAYS_WITH_IN_CHART_LEGEND.includes(trendsDisplay as ChartDisplayType)
+
+    if (isInsightVizNode(insight.query) && isTrendsQuery(insight.query.source)) {
+        if (usesQuillInChartLegend) {
+            // The export `legend` option decides whether the chart shows its in-chart quill legend,
+            // pinned to the bottom to match the legacy exported layout (legend below the chart).
+            insight.query.source.trendsFilter = {
+                ...insight.query.source.trendsFilter,
+                showLegend: !!showLegend,
+                legendPosition: 'bottom',
+            }
+        } else if (insight.query.source.trendsFilter?.showLegend) {
+            // legend is rendered separately below so don't show it alongside the insight too
+            insight.query.source.trendsFilter.showLegend = false
+        }
+    }
 
     const showDetailedResultsTable =
         detailedResults &&
@@ -115,7 +125,7 @@ export function ExportedInsight({
                         embedded
                         inSharedMode
                     />
-                    {showLegend && (
+                    {showLegend && !usesQuillInChartLegend && (
                         <div className="p-4">
                             {isBoxPlot ? <BoxPlotLegend horizontal /> : <InsightLegend horizontal readOnly />}
                         </div>
