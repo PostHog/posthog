@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest import mock
 
@@ -37,6 +38,7 @@ from products.engineering_analytics.backend.logic.signals.coordinator import (
 )
 from products.engineering_analytics.backend.logic.signals.detect import detect_for_source
 from products.engineering_analytics.backend.logic.signals.detectors import (
+    detect_all,
     detect_broken_default_branch,
     detect_ci_duration_regressions,
     detect_flaky_checks,
@@ -62,6 +64,7 @@ from products.warehouse_sources.backend.test.utils import create_data_warehouse_
 
 _COORDINATOR = "products.engineering_analytics.backend.logic.signals.coordinator"
 _DETECT = "products.engineering_analytics.backend.logic.signals.detect"
+_DETECTORS = "products.engineering_analytics.backend.logic.signals.detectors"
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.signals"
 GITHUB_SOURCE_PREFIX = "myprefix"
 
@@ -154,7 +157,53 @@ def test_source_type_constants_match_signals_taxonomy() -> None:
         assert (SOURCE_PRODUCT, source_type) in SIGNAL_VARIANT_LOOKUP
 
 
+def test_detect_all_raises_when_every_detector_fails() -> None:
+    # A ClickHouse outage failing all three detectors must fail the activity so it retries and
+    # alerts, not read as healthy CI with zero findings; one bad detector still must not
+    # suppress the others' findings.
+    curated = mock.Mock()
+    boom = RuntimeError("clickhouse down")
+
+    def failing(name: str) -> mock.Mock:
+        return mock.Mock(side_effect=boom, __name__=name)
+
+    with (
+        mock.patch(f"{_DETECTORS}.detect_flaky_checks", failing("detect_flaky_checks")),
+        mock.patch(f"{_DETECTORS}.detect_broken_default_branch", failing("detect_broken_default_branch")),
+        mock.patch(f"{_DETECTORS}.detect_ci_duration_regressions", failing("detect_ci_duration_regressions")),
+    ):
+        with pytest.raises(RuntimeError):
+            detect_all(curated)
+    with (
+        mock.patch(f"{_DETECTORS}.detect_flaky_checks", failing("detect_flaky_checks")),
+        mock.patch(f"{_DETECTORS}.detect_broken_default_branch", return_value=[]),
+        mock.patch(f"{_DETECTORS}.detect_ci_duration_regressions", return_value=[]),
+    ):
+        assert detect_all(curated) == []
+
+
 class TestDetectForSourceMultiRepo(BaseTest):
+    def test_multi_repo_source_snapshots_one_authorized_target(self) -> None:
+        # One roster entry per configured repo must not become duplicate sweep targets:
+        # duplicates would rescan every repo and race the emission ledger within one batch.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="gh-multi-snap",
+            connection_id="gh-multi-snap",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.GITHUB,
+            prefix="multisnap_",
+            job_inputs={"repositories": ["Acme/one", "Acme/two"]},
+        )
+        update_ci_signals_config(
+            team=self.team,
+            enabled=True,
+            created_by_id=self.user.id,
+            user_access_control=UserAccessControl(user=self.user, team=self.team),
+        )
+        authorized = list_authorized_ci_signal_sources(team=self.team)
+        assert [entry.source_id for entry in authorized] == [str(source.id)]
+
     def test_detects_across_every_synced_repo_of_a_multi_repo_source(self) -> None:
         # A multi-repo source must contribute findings for each synced repo, not just the one the
         # bare (repo-less) resolver picks; a repo still backfilling an endpoint is skipped.
@@ -393,6 +442,26 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         assert findings[0].source_id.endswith(":flaky")
         _assert_emittable(findings[0])
 
+    def test_flaky_source_ids_are_collision_free_and_bounded(self) -> None:
+        # (workflow='build', job='test:linux') and (workflow='build:test', job='linux') would share
+        # a ledger key with naive ':' joins, letting one condition suppress the other's emission;
+        # an oversized name would exceed the ledger column, fail to record after emit, and re-emit
+        # every sweep.
+        now = datetime.now(UTC).replace(tzinfo=None)
+        rows = [_run_row(1, "CI", "shaC", "success", now - timedelta(hours=19), 60, run_attempt=2)]
+        jobs = []
+        for offset, (workflow, job) in enumerate([("build", "test:linux"), ("build:test", "linux"), ("CI", "j" * 400)]):
+            failed = _job_row(200 + offset * 2, 1, job, "shaC", "failure", now - timedelta(hours=20), run_attempt=1)
+            passed = _job_row(201 + offset * 2, 1, job, "shaC", "success", now - timedelta(hours=19), run_attempt=2)
+            failed["workflow_name"] = workflow
+            passed["workflow_name"] = workflow
+            jobs.extend([failed, passed])
+        findings = detect_flaky_checks(self._curated_over_runs(rows, jobs), min_flaky_runs=1)
+        ids = [finding.source_id for finding in findings]
+        assert len(ids) == 3
+        assert len(set(ids)) == 3
+        assert max(len(source_id) for source_id in ids) <= 200
+
     def test_flaky_check_emits_one_signal_per_job_per_week_not_per_rerun(self) -> None:
         # The sweep re-reads a rolling window hourly. Keying a recurring flake per rerun turned 51
         # flaky jobs into 905 signals against real PostHog/posthog data — one card per occurrence.
@@ -487,8 +556,17 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         assert {f.extra["workflow_name"] for f in findings} == {"red-ci"}
         assert findings[0].source_type == SOURCE_TYPE_BROKEN_DEFAULT_BRANCH
         assert findings[0].extra["branch"] == "trunk"
-        assert findings[0].source_id.endswith(":3:1:broken")
         _assert_emittable(findings[0])
+
+        # A still-red branch must dedupe against one weekly key: a new completed run changing the
+        # source_id would re-emit the same standing condition on every hourly sweep.
+        rows.append(
+            _run_row(
+                6, "red-ci", "s6", "failure", now - timedelta(hours=1), 30, head_branch="trunk", default_branch="trunk"
+            )
+        )
+        refreshed = detect_broken_default_branch(self._curated_over_runs(rows), min_runs=2)
+        assert refreshed[0].source_id == findings[0].source_id
 
     def test_broken_default_branch_does_not_count_cancelled_runs_as_failures(self) -> None:
         # A concurrency group cancelling superseded trunk runs is normal, not a red branch. Counting

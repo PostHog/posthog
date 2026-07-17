@@ -4,8 +4,10 @@ They compose the ``logic/queries/`` read modules instead of authoring SQL, so de
 MCP read surface can never disagree (SPEC §7). Thresholds are overridable arguments.
 """
 
+import hashlib
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
+from urllib.parse import quote
 
 import structlog
 
@@ -65,6 +67,25 @@ def _observation_week(now: datetime) -> str:
     return (now.date() - timedelta(days=now.weekday())).isoformat()
 
 
+def _safe_name(value: str) -> str:
+    """GitHub workflow/job names can contain the ledger key delimiter, letting
+    (workflow="build", job="test:linux") collide with (workflow="build:test", job="linux");
+    percent-encoding makes each component unambiguous."""
+    return quote(value, safe="")
+
+
+# SignalEmissionRecord.source_id max_length: an oversized key would emit, fail to ledger,
+# and re-emit every sweep, so cap deterministically with a content hash.
+MAX_SOURCE_ID_LENGTH = 200
+
+
+def _capped(source_id: str) -> str:
+    if len(source_id) <= MAX_SOURCE_ID_LENGTH:
+        return source_id
+    digest = hashlib.sha256(source_id.encode()).hexdigest()[:16]
+    return f"{source_id[: MAX_SOURCE_ID_LENGTH - 17]}#{digest}"
+
+
 def detect_flaky_checks(
     curated: CuratedGitHubSource,
     *,
@@ -90,7 +111,9 @@ def detect_flaky_checks(
         findings.append(
             CISignalFinding(
                 source_type=SOURCE_TYPE_FLAKY_CHECK,
-                source_id=f"{repo}:{workflow_name}:{job_name}:{observation_week}:flaky",
+                source_id=_capped(
+                    f"{repo}:{_safe_name(workflow_name)}:{_safe_name(job_name)}:{observation_week}:flaky"
+                ),
                 description=(
                     # Grouping titles a split report from the first line, so keep ids out of it.
                     f"CI job '{job_name}' in workflow '{workflow_name}' is flaky on {repo}\n"
@@ -156,8 +179,10 @@ def detect_broken_default_branch(
             findings.append(
                 CISignalFinding(
                     source_type=SOURCE_TYPE_BROKEN_DEFAULT_BRANCH,
-                    source_id=(
-                        f"{repo}:{branch}:{item.workflow_name}:{item.latest_run_id}:{item.latest_run_attempt}:broken"
+                    # Week-keyed like the other detectors: a standing red branch dedupes against one
+                    # key per week instead of minting a signal (and a ledger row) per completed run.
+                    source_id=_capped(
+                        f"{repo}:{branch}:{_safe_name(item.workflow_name)}:{_observation_week(now)}:broken"
                     ),
                     description=(
                         f"CI workflow '{item.workflow_name}' is failing on {branch} for {repo}\n"
@@ -233,7 +258,7 @@ def detect_ci_duration_regressions(
         findings.append(
             CISignalFinding(
                 source_type=SOURCE_TYPE_DURATION_REGRESSION,
-                source_id=f"{repo}:{workflow_name}:{_observation_week(now)}:duration",
+                source_id=_capped(f"{repo}:{_safe_name(workflow_name)}:{_observation_week(now)}:duration"),
                 description=(
                     f"CI workflow '{workflow_name}' got slower on {repo}\n"
                     f"p95 run time rose {pct_increase:.0%} "
@@ -269,9 +294,16 @@ def detect_ci_duration_regressions(
 def detect_all(curated: CuratedGitHubSource) -> list[CISignalFinding]:
     """Run every detector, isolating failures so one bad detector doesn't suppress the rest."""
     findings: list[CISignalFinding] = []
-    for detector in (detect_flaky_checks, detect_broken_default_branch, detect_ci_duration_regressions):
+    detectors = (detect_flaky_checks, detect_broken_default_branch, detect_ci_duration_regressions)
+    errors: list[Exception] = []
+    for detector in detectors:
         try:
             findings.extend(detector(curated))
-        except Exception:
+        except Exception as err:
             logger.exception("ci_signal_detector_failed", detector=detector.__name__)
+            errors.append(err)
+    if len(errors) == len(detectors):
+        # Every detector failing (ClickHouse outage, schema drift) must fail the activity so it
+        # retries and logs, rather than reading as healthy CI with zero findings.
+        raise errors[-1]
     return findings

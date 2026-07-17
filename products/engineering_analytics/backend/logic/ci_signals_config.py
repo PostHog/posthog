@@ -70,7 +70,14 @@ def update_ci_signals_config(
     until a re-enable authorizes it."""
     config = None
     if enabled:
-        authorized = [source.id for source in list_github_sources(team=team, user_access_control=user_access_control)]
+        # list_github_sources yields one entry per (source, repo); dedupe so a multi-repo source
+        # snapshots once — duplicate ids would become duplicate sweep targets, each rescanning
+        # every repo and racing the emission ledger inside one batch.
+        authorized = list(
+            dict.fromkeys(
+                source.id for source in list_github_sources(team=team, user_access_control=user_access_control)
+            )
+        )
         config = {AUTHORIZED_SOURCES_CONFIG_KEY: authorized}
     set_signal_source_types_enabled(
         team_id=team.id,
@@ -124,7 +131,9 @@ def list_authorized_ci_signal_sources(*, team: Team) -> list[AuthorizedCISignalS
     accessible = {source.id for source in list_github_sources(team=team, user_access_control=access_control)}
     return [
         AuthorizedCISignalSource(source_id=source_id, authorized_by_user_id=user.id)
-        for source_id in snapshot
+        # dict.fromkeys: snapshots written before enable deduped per-repo entries may hold
+        # duplicate ids; a duplicate target would rescan every repo and race the ledger.
+        for source_id in dict.fromkeys(snapshot)
         if source_id in accessible
     ]
 
