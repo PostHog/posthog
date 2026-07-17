@@ -1,5 +1,5 @@
 import json
-import time
+import threading
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -37,6 +37,13 @@ MAX_TRANSFER_SECONDS = 300
 
 # Pages we can request per issues window before p*ps breaches SonarQube's 10,000-result ceiling.
 ISSUES_MAX_PAGES = ISSUES_MAX_RESULTS // PAGE_SIZE
+
+# Absolute backstop on how many pages a single sync will fetch. SonarQube's list endpoints cap at
+# p*ps<=10,000, and the issues sync re-windows past that, so a well-behaved server never comes near
+# this. A user-controlled server can instead keep claiming more results (or advancing the issues
+# window) indefinitely, looping forever and holding a shared import worker; cap the page count and
+# fail non-retryably if it's ever breached. 50M rows is far beyond any real instance.
+MAX_PAGES = 100_000
 
 
 class SonarqubeRetryableError(Exception):
@@ -123,28 +130,53 @@ def _read_bounded(response: requests.Response) -> bytes:
     """Read a streamed response body into memory under a byte cap and a wall-clock deadline.
 
     `iter_content` yields content-decoded chunks, so the running total also caps decompressed
-    size — a small gzip bomb can't blow past the limit. A monotonic deadline bounds the whole
-    transfer so a server that drips bytes under the per-read timeout can't hold the worker.
-    Raises a non-retryable ``ValueError`` when either bound is exceeded.
+    size — a small gzip bomb can't blow past the limit. A watchdog closes the response at the
+    deadline so a server that drips bytes just under the per-read idle timeout can't block a
+    single chunk read indefinitely and hold a shared worker — closing the socket unblocks the
+    read rather than waiting the deadline check out between chunks. Raises a non-retryable
+    ``ValueError`` when either bound is exceeded.
     """
     chunks: list[bytes] = []
     total = 0
-    deadline = time.monotonic() + MAX_TRANSFER_SECONDS
-    for chunk in response.iter_content(chunk_size=1024 * 1024):
-        if time.monotonic() > deadline:
+    deadline_reached = threading.Event()
+
+    def _abort_on_deadline() -> None:
+        # Tear the socket down so a read blocked mid-chunk fails instead of waiting out the
+        # per-read idle timeout, which resets on every byte the peer drips.
+        deadline_reached.set()
+        response.close()
+
+    watchdog = threading.Timer(MAX_TRANSFER_SECONDS, _abort_on_deadline)
+    watchdog.start()
+    try:
+        for chunk in response.iter_content(chunk_size=1024 * 1024):
+            if deadline_reached.is_set():
+                break
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > MAX_RESPONSE_BYTES:
+                raise ValueError(
+                    f"SonarQube response exceeded the {MAX_RESPONSE_BYTES // (1024 * 1024)} MiB limit; "
+                    "check the configured server URL."
+                )
+            chunks.append(chunk)
+    except Exception:
+        # A read aborted by the watchdog surfaces as a transport error; convert it to the
+        # non-retryable deadline error. Any other error is a genuine transport failure — re-raise.
+        if deadline_reached.is_set():
             raise ValueError(
                 f"SonarQube response exceeded the {MAX_TRANSFER_SECONDS}s transfer limit; "
                 "check the configured server URL."
             )
-        if not chunk:
-            continue
-        total += len(chunk)
-        if total > MAX_RESPONSE_BYTES:
-            raise ValueError(
-                f"SonarQube response exceeded the {MAX_RESPONSE_BYTES // (1024 * 1024)} MiB limit; "
-                "check the configured server URL."
-            )
-        chunks.append(chunk)
+        raise
+    finally:
+        watchdog.cancel()
+
+    if deadline_reached.is_set():
+        raise ValueError(
+            f"SonarQube response exceeded the {MAX_TRANSFER_SECONDS}s transfer limit; check the configured server URL."
+        )
     return b"".join(chunks)
 
 
@@ -197,9 +229,18 @@ def _iter_simple(
     if page > 1:
         logger.debug(f"SonarQube: resuming {config.name} from page {page}")
 
+    pages_fetched = 0
     while True:
+        if pages_fetched >= MAX_PAGES:
+            # A well-behaved server drops has_more long before this; a server that keeps claiming
+            # more results would loop forever and hold the worker. Fail non-retryably instead.
+            raise ValueError(
+                f"SonarQube {config.name} exceeded the {MAX_PAGES}-page safety cap; the server keeps "
+                "reporting more results. Check the configured server URL."
+            )
         params = {**config.extra_params, "p": page, "ps": PAGE_SIZE}
         data = _fetch_page(session, _build_url(base_url, config.path, params), headers, logger)
+        pages_fetched += 1
         items = data.get(config.response_key, [])
         page_index, page_size, total = _extract_paging(data)
         has_more = bool(items) and page_index * page_size < total
@@ -241,15 +282,24 @@ def _iter_windowed_issues(
     if resume is not None and (resume.created_after or (resume.next_page and resume.next_page > 1)):
         logger.debug(f"SonarQube: resuming issues from createdAfter={created_after}, page={page}")
 
+    pages_fetched = 0
     while True:
         last_creation_date: str | None = None
         window_exhausted = False
 
         while True:
+            if pages_fetched >= MAX_PAGES:
+                # Each window is bounded, but a server that keeps advancing the window with full
+                # pages would spawn windows forever and hold the worker. Fail non-retryably instead.
+                raise ValueError(
+                    f"SonarQube issues exceeded the {MAX_PAGES}-page safety cap; the server keeps "
+                    "advancing the window with more results. Check the configured server URL."
+                )
             params: dict[str, Any] = {"s": "CREATION_DATE", "asc": "true", "p": page, "ps": PAGE_SIZE}
             if created_after:
                 params["createdAfter"] = created_after
             data = _fetch_page(session, _build_url(base_url, config.path, params), headers, logger)
+            pages_fetched += 1
             items = data.get(config.response_key, [])
             page_index, page_size, total = _extract_paging(data)
 

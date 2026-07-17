@@ -1,4 +1,5 @@
 import json
+import threading
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -178,6 +179,22 @@ class TestSimplePagination:
         assert [r["key"] for r in rows] == ["b"]
         assert fetched == [url]
 
+    def test_raises_at_page_cap_when_server_never_stops_paging(self, monkeypatch: Any) -> None:
+        # A server that always returns a full page and claims more results would loop forever;
+        # the cap turns that into a non-retryable failure after MAX_PAGES fetches.
+        monkeypatch.setattr(sonarqube, "MAX_PAGES", 3)
+        calls = 0
+
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
+            nonlocal calls
+            calls += 1
+            return {"metrics": [{"key": "x"}], "p": 1, "ps": 500, "total": 10**9}
+
+        monkeypatch.setattr(sonarqube, "_fetch_page", fake_fetch)
+        with pytest.raises(ValueError):
+            _collect(monkeypatch, _FakeResumableManager(), endpoint="metrics")
+        assert calls == 3
+
 
 class TestWindowedIssues:
     def test_single_window_paginates_and_stops(self, monkeypatch: Any) -> None:
@@ -267,6 +284,26 @@ class TestWindowedIssues:
         # Only the first page is fetched — no infinite re-windowing on the same timestamp.
         assert fetched == list(pages)
 
+    def test_raises_at_page_cap_when_server_never_stops_advancing_windows(self, monkeypatch: Any) -> None:
+        # Each window is bounded, but a server that keeps advancing createdAfter with full windows
+        # would spawn windows forever; the cap turns that into a non-retryable failure.
+        monkeypatch.setattr(sonarqube, "MAX_PAGES", 3)
+        monkeypatch.setattr(sonarqube, "ISSUES_MAX_PAGES", 1)  # re-window after every page
+        calls = 0
+
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
+            nonlocal calls
+            calls += 1
+            return {
+                "issues": [{"key": f"i{calls}", "creationDate": f"2024-01-{calls:02d}T00:00:00+0000"}],
+                "paging": {"pageIndex": 1, "pageSize": 500, "total": 9999},
+            }
+
+        monkeypatch.setattr(sonarqube, "_fetch_page", fake_fetch)
+        with pytest.raises(ValueError):
+            _collect(monkeypatch, _FakeResumableManager(), endpoint="issues")
+        assert calls == 3
+
 
 class _FakeResponse:
     def __init__(self, status_code: int, payload: Any = None) -> None:
@@ -292,6 +329,26 @@ class _FakeStream:
     def iter_content(self, chunk_size: int = 1) -> Any:
         yield from self._chunks
 
+    def close(self) -> None:
+        pass
+
+
+class _BlockingStream:
+    """A chunk read that blocks (like a peer dripping bytes under the idle timeout) until the
+    watchdog tears the socket down, then fails as a real aborted read would."""
+
+    def __init__(self) -> None:
+        self.closed = threading.Event()
+
+    def iter_content(self, chunk_size: int = 1) -> Any:
+        if not self.closed.wait(timeout=5):
+            raise AssertionError("watchdog did not close the response")
+        raise ConnectionError("socket closed")
+        yield b""  # unreachable, but makes this a generator like requests' iter_content
+
+    def close(self) -> None:
+        self.closed.set()
+
 
 class TestReadBounded:
     @pytest.mark.parametrize(
@@ -311,13 +368,14 @@ class TestReadBounded:
         with pytest.raises(ValueError):
             sonarqube._read_bounded(_FakeStream([b"aaaa", b"b"]))  # type: ignore[arg-type]
 
-    def test_raises_when_transfer_exceeds_deadline(self, monkeypatch) -> None:
-        # Fake monotonic clock: deadline is set on the first read, jumps past it before the second chunk.
-        ticks = iter([0.0, 1.0, 999.0])
-        monkeypatch.setattr(sonarqube.time, "monotonic", lambda: next(ticks))
-        monkeypatch.setattr(sonarqube, "MAX_TRANSFER_SECONDS", 10)
+    def test_watchdog_aborts_a_read_blocked_past_the_deadline(self, monkeypatch) -> None:
+        # A read that blocks mid-chunk (a server dripping bytes under the idle timeout) is cut off
+        # by the watchdog closing the socket, rather than only being noticed between chunks.
+        monkeypatch.setattr(sonarqube, "MAX_TRANSFER_SECONDS", 0.05)
+        stream = _BlockingStream()
         with pytest.raises(ValueError):
-            sonarqube._read_bounded(_FakeStream([b"aaaa", b"bbbb"]))  # type: ignore[arg-type]
+            sonarqube._read_bounded(stream)  # type: ignore[arg-type]
+        assert stream.closed.is_set()
 
 
 class TestValidateCredentials:
