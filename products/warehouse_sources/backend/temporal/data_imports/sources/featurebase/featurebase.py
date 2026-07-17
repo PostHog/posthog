@@ -456,7 +456,7 @@ def featurebase_source(
 
 
 def _format_http_error(error: requests.HTTPError) -> str:
-    response = error.response
+    response: requests.Response | None = error.response
     if response is None:
         return str(error)
     try:

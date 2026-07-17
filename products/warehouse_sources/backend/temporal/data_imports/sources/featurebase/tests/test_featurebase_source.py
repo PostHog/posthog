@@ -7,6 +7,7 @@ from parameterized import parameterized
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
+    SourceFieldInputConfig,
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
@@ -57,8 +58,10 @@ class TestFeaturebaseSource:
 
         fields = {f.name: f for f in config.fields}
         assert set(fields.keys()) == {"api_key"}
-        assert fields["api_key"].type == "password"
-        assert fields["api_key"].required is True
+        api_key_field = fields["api_key"]
+        assert isinstance(api_key_field, SourceFieldInputConfig)
+        assert api_key_field.type == "password"
+        assert api_key_field.required is True
 
         webhook_fields = {f.name: f for f in config.webhookFields or []}
         assert set(webhook_fields.keys()) == {"signing_secret"}
