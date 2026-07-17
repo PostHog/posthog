@@ -43,7 +43,7 @@ Editing an active workflow stages a **draft** instead of changing what's running
 3. **Publish deliberately.** `workflows-publish` without `confirm` returns `in_flight_runs` — people currently mid-flow (parked on waits/delays) who will follow the new config — plus `draft_updated_at`. **Echo that impact to the user and get their go-ahead**, then call again with `confirm=true` and that exact `draft_updated_at`. A 409 means the draft changed since you read it: re-read, re-confirm. Publish revalidates everything, so an invalid draft is rejected and live config stays untouched.
 4. **Or bail.** `workflows-discard-draft` throws the staged draft away.
 
-In-flight runs follow the live config: once published, people mid-flow continue from their current step on the new version. Steps they already passed don't re-run. Deleting a step people are parked on doesn't strand them: they skip forward along the deleted step's continue path to the next surviving step, and exit the workflow only when nothing downstream survives.
+In-flight runs follow the live config: once published, people mid-flow continue from their current step on the new version. Steps they already passed don't re-run.
 
 If an edit is rejected with "editing an active workflow isn't supported", draft editing isn't enabled for this project yet — then a live change means recreating the workflow as a new draft (`workflows-create`), testing it, and enabling it as a replacement.
 
