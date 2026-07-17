@@ -14,6 +14,13 @@ from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 logger = structlog.get_logger(__name__)
 
 ####
+# Deprecated insight `dashboards` field: two-phase removal. While False (phase 1), every caller
+# still receives the field and usage is metered by access method; flipping to True (phase 2)
+# enforces the `include_dashboards` opt-in for non-first-party callers. Env-toggleable so the
+# enforcement can be reverted without a code change.
+INSIGHT_DASHBOARDS_OPT_IN_ENFORCED = get_from_env("INSIGHT_DASHBOARDS_OPT_IN_ENFORCED", False, type_cast=str_to_bool)
+
+####
 # django-axes
 
 # lockout after too many attempts
@@ -555,6 +562,7 @@ SPECTACULAR_SETTINGS = {
         "EvaluationTargetEnum": "products.ai_observability.backend.models.evaluations.EvaluationTarget",
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
+        "BatchImportStatusEnum": "products.managed_migrations.backend.models.batch_imports.BatchImport.Status",
         "HealthIssueStatusEnum": "posthog.models.health_issue.HealthIssue.Status",
         "HealthIssueSeverityEnum": "posthog.models.health_issue.HealthIssue.Severity",
         "IngestionWarningSeverityEnum": "posthog.api.ingestion_warnings_v2.INGESTION_WARNING_SEVERITIES",

@@ -1,12 +1,12 @@
 developer_instructions = """
-Run commands that depend on PostHog's development environment through
-`bash "$(git rev-parse --show-toplevel)/.codex/with-flox" <command> [args...]`.
+Run commands that depend on PostHog's development environment from the repository
+root through `.codex/with-flox <command> [args...]`.
 This includes hogli, Python and uv, Node.js and pnpm, Rust and Go, and local-stack
 commands. Basic filesystem, Git, and GitHub commands can run directly. Never use
-a dependency executable inherited from another checkout. If the wrapper reports
-that setup or a dependency change needs elevated execution, rerun that same
-wrapper command with elevated permissions. Dependency changes also apply the
-existing dev sandbox.
+a dependency executable inherited from another checkout. Request elevated
+execution on the first attempt for environment preparation, dependency changes,
+and local-stack lifecycle commands. Dependency changes also apply the existing
+dev sandbox.
 """
 
 [sandbox_workspace_write]

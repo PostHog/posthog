@@ -87,25 +87,25 @@ export function PlayerSidebarExperimentsSection(): JSX.Element | null {
             <h4 className="font-semibold text-xs mb-0">Experiments</h4>
 
             {seenItems.map((item) => {
-                const evaluatedAtMs = item.first_flag_evaluation_timestamp
-                    ? dayjs(item.first_flag_evaluation_timestamp).valueOf()
+                const exposedAtMs = item.first_exposure_timestamp
+                    ? dayjs(item.first_exposure_timestamp).valueOf()
                     : null
-                // The backend can return a flag-evaluation timestamp from its ±1h slack around the
+                // The backend can return an exposure timestamp from its ±1h slack around the
                 // recording; seeking to an out-of-bounds time silently clamps to a boundary, so only
                 // offer the jump when the moment falls inside the playable recording.
                 const canSeek =
-                    evaluatedAtMs != null &&
+                    exposedAtMs != null &&
                     recordingStartMs != null &&
                     recordingEndMs != null &&
-                    evaluatedAtMs >= recordingStartMs &&
-                    evaluatedAtMs <= recordingEndMs
+                    exposedAtMs >= recordingStartMs &&
+                    exposedAtMs <= recordingEndMs
                 return (
                     <div key={item.experiment_id} className="flex flex-row items-center gap-x-2 min-w-0">
                         {canSeek ? (
                             <Link
                                 className="truncate flex-1 min-w-0"
                                 title="Jump to when this session matched the experiment's exposure criteria"
-                                onClick={() => evaluatedAtMs != null && seekToTimestamp(evaluatedAtMs)}
+                                onClick={() => exposedAtMs != null && seekToTimestamp(exposedAtMs)}
                                 data-attr="replay-experiment-context-jump-to-first-exposure"
                             >
                                 {item.experiment_name}
@@ -126,7 +126,7 @@ export function PlayerSidebarExperimentsSection(): JSX.Element | null {
                     panels={[
                         {
                             key: 'enrolled',
-                            header: `Also enrolled, carried over (${enrolledItems.length})`,
+                            header: `Also enrolled, not exposed in this session (${enrolledItems.length})`,
                             content: (
                                 <div className="flex flex-col gap-y-1">
                                     {enrolledItems.map((item) => (

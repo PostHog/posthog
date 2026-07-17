@@ -28,10 +28,12 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_cost_per_merge_series
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
+    WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
     GitHubTables,
     list_github_sources,
     resolve_github_tables,
+    resolve_job_cost_source_pairs,
 )
 from products.engineering_analytics.backend.logic.views.source_schema import WORKFLOW_JOBS_COLUMNS
 from products.engineering_analytics.backend.tests.test_views import (
@@ -45,7 +47,7 @@ from products.engineering_analytics.backend.tests.test_views import (
     create_warehouse_table_row,
     link_schema,
 )
-from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
@@ -701,6 +703,18 @@ class TestListGitHubSources(BaseTest):
         ExternalDataSource.objects.filter(pk=source.pk).update(job_inputs=["not", "a", "dict"])
         assert list_github_sources(team=self.team) == [GitHubSource(id=str(source.id), repo="", prefix="weird")]
 
+    def test_empty_repositories_list_falls_back_to_legacy_repository(self) -> None:
+        # A legacy source with `repository` set but `repositories: []` (empty) — the sync parser treats
+        # the empty list as unset and still syncs the legacy repo, so the picker must list that repo, not
+        # a blank unknown entry.
+        source = self._source(prefix="emptylist", repository="PostHog/posthog")
+        ExternalDataSource.objects.filter(pk=source.pk).update(
+            job_inputs={"repository": "PostHog/posthog", "repositories": []}
+        )
+        assert list_github_sources(team=self.team) == [
+            GitHubSource(id=str(source.id), repo="PostHog/posthog", prefix="emptylist")
+        ]
+
     def test_excludes_non_github_and_soft_deleted_sources(self) -> None:
         self._source(prefix="stripe", source_type=ExternalDataSourceType.STRIPE)
         deleted = self._source(prefix="gone", repository="PostHog/posthog")
@@ -715,6 +729,234 @@ class TestListGitHubSources(BaseTest):
         other_team = Team.objects.create(organization=self.organization, name="other")
         self._source(prefix="theirs", repository="PostHog/posthog", team=other_team)
         assert list_github_sources(team=self.team) == []
+
+
+class TestMultiRepoGitHubResolution(BaseTest):
+    """One GitHub source can sync several repositories: its added repos carry repo-qualified schema
+    rows (``owner/repo.endpoint`` + location metadata) while its original repo keeps bare names.
+    These guard the regression where the resolver only matched bare endpoint names — which made
+    every repo-qualified row (including a new source's single day-one-qualified repo) invisible, so
+    the product 400'd, and silently dropped a multi-repo source's added repos from the cost view."""
+
+    @staticmethod
+    def _slug(repo: str) -> str:
+        return repo.replace("/", "_").replace(".", "_").lower()
+
+    def _multi_repo_source(
+        self,
+        *,
+        prefix: str,
+        legacy_repository: str = "",
+        repos: dict[str, list[tuple[str, bool]]],
+    ) -> ExternalDataSource:
+        # repos: {repo_full_name: [(endpoint, has_table), ...]}. The repo equal to
+        # legacy_repository keeps bare endpoint names (the source's pre-multi-repo repo); every
+        # other repo is qualified as ``owner/repo.endpoint`` with location metadata, exactly as the
+        # multi-repo GitHub source lands them.
+        job_inputs: dict[str, Any] = {"repositories": list(repos.keys())}
+        if legacy_repository:
+            job_inputs["repository"] = legacy_repository
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=f"src-{prefix}",
+            connection_id=f"src-{prefix}",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.GITHUB,
+            prefix=prefix,
+            job_inputs=job_inputs,
+        )
+        for repo, endpoints in repos.items():
+            is_legacy = bool(legacy_repository) and repo.casefold() == legacy_repository.casefold()
+            for endpoint, has_table in endpoints:
+                name = endpoint if is_legacy else f"{repo}.{endpoint}"
+                table = (
+                    create_warehouse_table_row(
+                        self.team, name=f"{prefix}github_{self._slug(repo)}_{endpoint}", source=source
+                    )
+                    if has_table
+                    else None
+                )
+                ExternalDataSchema.objects.create(
+                    team=self.team,
+                    source=source,
+                    name=name,
+                    table=table,
+                    should_sync=True,
+                    sync_type_config={}
+                    if is_legacy
+                    else {"schema_metadata": {"source_repository": repo.lower(), "source_endpoint": endpoint}},
+                )
+        return source
+
+    def test_new_source_single_qualified_repo_resolves(self) -> None:
+        # A source created via the multi-repo `repositories` field has no legacy `repository`, so its
+        # one repo is qualified from day one. Bare-name matching would 400 this — the onboarding break.
+        self._multi_repo_source(
+            prefix="fresh",
+            repos={"PostHog/posthog": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)]},
+        )
+        tables = resolve_github_tables(team=self.team)
+        assert tables == GitHubTables(
+            pull_requests="freshgithub_posthog_posthog_pull_requests",
+            workflow_runs="freshgithub_posthog_posthog_workflow_runs",
+            repository="posthog/posthog",
+        )
+
+    @parameterized.expand(
+        [
+            # (repo arg, expected resolved repo, expected pull_requests table)
+            (None, "PostHog/posthog", "mixgithub_posthog_posthog_pull_requests"),
+            ("posthog/posthog.com", "posthog/posthog.com", "mixgithub_posthog_posthog_com_pull_requests"),
+            ("POSTHOG/POSTHOG", "PostHog/posthog", "mixgithub_posthog_posthog_pull_requests"),
+        ]
+    )
+    def test_multi_repo_source_scopes_by_repo(self, repo: str | None, expected_repo: str, expected_pr: str) -> None:
+        # One source, two repos: the legacy repo keeps bare names, the added repo is qualified. A
+        # `repo`-scoped read must reach the added repo's own tables, never mix them with the legacy
+        # repo's; the default (no repo) resolves the legacy repo first, as a single-repo source did.
+        self._multi_repo_source(
+            prefix="mix",
+            legacy_repository="PostHog/posthog",
+            repos={
+                "PostHog/posthog": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+                "posthog/posthog.com": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+            },
+        )
+        tables = resolve_github_tables(team=self.team, repo=repo)
+        assert tables.repository == expected_repo
+        assert tables.pull_requests == expected_pr
+
+    def test_picker_marks_repos_with_both_endpoints_synced(self) -> None:
+        # `synced` drives the default page's label: a repo is synced only with both pull_requests and
+        # workflow_runs, so a still-backfilling repo (only pull_requests) is flagged unsynced and the
+        # default selection skips it — matching what the resolver reads.
+        self._multi_repo_source(
+            prefix="mark",
+            legacy_repository="PostHog/posthog",
+            repos={
+                "PostHog/posthog": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+                "posthog/posthog.com": [(PULL_REQUESTS_SCHEMA, True)],
+            },
+        )
+        assert {source.repo: source.synced for source in list_github_sources(team=self.team)} == {
+            "PostHog/posthog": True,
+            "posthog/posthog.com": False,
+        }
+
+    def test_default_repo_follows_configured_order_not_alphabetical(self) -> None:
+        # A new source with no legacy repo: the default (unscoped) resolve must pick the first
+        # *configured* repo, matching what the picker labels as githubSources[0] — an alphabetical
+        # pick would query one repo while the UI names another.
+        self._multi_repo_source(
+            prefix="ordered",
+            repos={
+                "z/org": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+                "a/org": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+            },
+        )
+        # _multi_repo_source stores repositories in dict order (z/org, a/org), so z/org is configured first.
+        assert resolve_github_tables(team=self.team).repository == "z/org"
+
+    def test_default_follows_configured_order_even_over_the_legacy_repo(self) -> None:
+        # A legacy source (bare `repository`) whose `repositories` multi-select puts another repo first:
+        # the default must resolve that configured-first repo, matching the picker's first entry — the
+        # legacy repo gets no priority, or the UI would label repo A while the backend queried the legacy.
+        self._multi_repo_source(
+            prefix="legacyorder",
+            legacy_repository="PostHog/posthog",
+            repos={
+                # posthog.com configured first (qualified); the legacy posthog repo second (bare names).
+                "posthog/posthog.com": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+                "PostHog/posthog": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+            },
+        )
+        assert resolve_github_tables(team=self.team).repository == "posthog/posthog.com"
+
+    def test_explicit_repo_does_not_fall_through_to_a_sibling_repo(self) -> None:
+        # The picker lists a repo before it finishes syncing. Selecting one whose pull_requests/
+        # workflow_runs pair is incomplete must surface not-connected — never silently resolve the
+        # source's other (complete) repo, which would mix two repos' metrics.
+        self._multi_repo_source(
+            prefix="partial",
+            legacy_repository="PostHog/posthog",
+            repos={
+                "PostHog/posthog": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+                # workflow_runs still backfilling — no complete pair for this repo yet.
+                "posthog/posthog.com": [(PULL_REQUESTS_SCHEMA, True)],
+            },
+        )
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            resolve_github_tables(team=self.team, repo="posthog/posthog.com")
+        # The complete sibling still resolves on its own.
+        assert resolve_github_tables(team=self.team, repo="PostHog/posthog").repository == "PostHog/posthog"
+
+    def test_incomplete_exact_match_does_not_fall_through_to_a_bare_source(self) -> None:
+        # An explicit repo whose own candidate exists but is half-synced must surface not-connected —
+        # never fall through to another source's bare/unattributed rows, which belong to an unknown
+        # repo. The bare fallback is only for when the requested repo has no candidate at all.
+        self._multi_repo_source(
+            prefix="halfsynced",
+            repos={"posthog/posthog.com": [(PULL_REQUESTS_SCHEMA, True)]},
+        )
+        bare = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="src-bare",
+            connection_id="src-bare",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.GITHUB,
+            prefix="bare",
+            job_inputs={},
+        )
+        for endpoint in (PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA):
+            ExternalDataSchema.objects.create(
+                team=self.team,
+                source=bare,
+                name=endpoint,
+                table=create_warehouse_table_row(self.team, name=f"baregithub_{endpoint}", source=bare),
+                should_sync=True,
+                sync_type_config={},
+            )
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            resolve_github_tables(team=self.team, repo="posthog/posthog.com")
+        # Without an exact match the bare rows still serve as the fallback (branch-hint reads).
+        assert resolve_github_tables(team=self.team, repo="some/other").pull_requests == "baregithub_pull_requests"
+
+    def test_cost_pairs_include_every_repo_in_a_source(self) -> None:
+        # The cost view unions (jobs, runs) across repos. A multi-repo source must contribute one
+        # pair per fully-synced repo — collapsing it to one repo silently under-counts the view.
+        self._multi_repo_source(
+            prefix="cost",
+            legacy_repository="PostHog/posthog",
+            repos={
+                "PostHog/posthog": [(WORKFLOW_RUNS_SCHEMA, True), (WORKFLOW_JOBS_SCHEMA, True)],
+                "posthog/posthog.com": [(WORKFLOW_RUNS_SCHEMA, True), (WORKFLOW_JOBS_SCHEMA, True)],
+                # runs but no jobs — excluded, the view needs both.
+                "posthog/other": [(WORKFLOW_RUNS_SCHEMA, True)],
+            },
+        )
+        pairs = resolve_job_cost_source_pairs(self.team)
+        assert set(pairs) == {
+            ("costgithub_posthog_posthog_workflow_jobs", "costgithub_posthog_posthog_workflow_runs"),
+            ("costgithub_posthog_posthog_com_workflow_jobs", "costgithub_posthog_posthog_com_workflow_runs"),
+        }
+
+    def test_picker_lists_one_entry_per_configured_repo(self) -> None:
+        # A multi-repo source's `repositories` list drives the picker: one selectable (id, repo) per
+        # configured repo, in order, so a repo picker offers every repo the source syncs — not just
+        # the legacy one, and not the whole GitHub App's repo catalog.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="src-picker",
+            connection_id="src-picker",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.GITHUB,
+            prefix="picker",
+            job_inputs={"repository": "PostHog/posthog", "repositories": ["PostHog/posthog", "PostHog/posthog.com"]},
+        )
+        assert list_github_sources(team=self.team) == [
+            GitHubSource(id=str(source.id), repo="PostHog/posthog", prefix="picker"),
+            GitHubSource(id=str(source.id), repo="PostHog/posthog.com", prefix="picker"),
+        ]
 
 
 class TestWorkflowHealthWindowCap(BaseTest):
