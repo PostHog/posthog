@@ -3,6 +3,7 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -12,6 +13,7 @@ from rest_framework.test import APIClient
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import Team
 
+from products.web_analytics.backend.api.heatmaps_api import SavedHeatmapRequestSerializer
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 
 
@@ -273,6 +275,36 @@ class TestHeatmapsAPI(APIBaseTest):
 
         r = self.client.post(f"/api/environments/{self.team.id}/saved/{saved.short_id}/regenerate/")
         self.assertEqual(r.status_code, 400)
+
+
+class TestSavedHeatmapURLValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (SavedHeatmap.Type.IFRAME, False),
+            (SavedHeatmap.Type.RECORDING, False),
+            (SavedHeatmap.Type.SCREENSHOT, True),
+        ]
+    )
+    @patch("products.web_analytics.backend.api.heatmaps_api.is_url_allowed")
+    def test_localhost_ssrf_check_only_applies_to_screenshot(self, heatmap_type, ssrf_checked, mock_is_url_allowed):
+        # Only screenshot heatmaps are fetched server-side, so localhost must be rejected for them but
+        # accepted for iframe/recording, which render in the user's own browser.
+        mock_is_url_allowed.return_value = (False, "Local/Loopback host not allowed")
+        serializer = SavedHeatmapRequestSerializer(data={"url": "http://localhost:8000", "type": heatmap_type})
+
+        if ssrf_checked:
+            self.assertFalse(serializer.is_valid())
+            self.assertIn("url", serializer.errors)
+            mock_is_url_allowed.assert_called_once_with("http://localhost:8000")
+        else:
+            self.assertTrue(serializer.is_valid(), serializer.errors)
+            mock_is_url_allowed.assert_not_called()
+
+    @parameterized.expand([(SavedHeatmap.Type.IFRAME,), (SavedHeatmap.Type.SCREENSHOT,)])
+    def test_wildcard_url_rejected_for_every_type(self, heatmap_type):
+        serializer = SavedHeatmapRequestSerializer(data={"url": "https://example.com/*", "type": heatmap_type})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("url", serializer.errors)
 
 
 class TestSavedHeatmapRegeneratePersonalAPIKeyScopes(APIBaseTest):

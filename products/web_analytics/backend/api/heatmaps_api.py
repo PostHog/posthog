@@ -925,10 +925,20 @@ class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
     def validate_url(self, value: str) -> str:
         if any(c in _URL_PATTERN_CHARS for c in value):
             raise serializers.ValidationError("Wildcards are not allowed in the page URL.")
-        ok, err = is_url_allowed(value)
-        if not ok:
-            raise serializers.ValidationError(err or "URL not allowed")
         return value
+
+    def validate(self, attrs: dict) -> dict:
+        attrs = super().validate(attrs)
+        # Only screenshot heatmaps are fetched server-side (a headless browser renders the URL),
+        # so the SSRF guard only applies to them. iframe/recording render in the user's own browser
+        # and can safely target localhost or other internal URLs.
+        url = attrs.get("url")
+        heatmap_type = attrs.get("type") or (self.instance.type if self.instance else SavedHeatmap.Type.SCREENSHOT)
+        if url is not None and heatmap_type == SavedHeatmap.Type.SCREENSHOT:
+            ok, err = is_url_allowed(url)
+            if not ok:
+                raise serializers.ValidationError({"url": err or "URL not allowed"})
+        return attrs
 
     class Meta:
         model = SavedHeatmap
