@@ -18,8 +18,8 @@ export interface ExperimentReplayTabLogicProps {
 export interface experimentReplayTabLogicValues {
     linkabilityLoaded: boolean // viewRecordingsLinkabilityLogic
     unlinkableEventNames: Set<string> // viewRecordingsLinkabilityLogic
-    exposureUnlinkable: boolean
     effectiveVariantKey: string | null
+    exposureUnlinkable: boolean
     recordingsFilters: RecordingUniversalFilters
     selectedVariantKey: string | null
     variantKeys: string[]
