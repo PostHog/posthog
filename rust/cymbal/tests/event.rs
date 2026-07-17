@@ -8,10 +8,7 @@ use cymbal::{
     fingerprinting::{Fingerprint, FingerprintVersion},
     frames::Frame,
     symbolication::symbol_store::saving::SymbolSetRecord,
-    types::{
-        event::AnyEvent, exception_properties::ExceptionProperties, Exception, ExceptionList,
-        Mechanism, Stacktrace,
-    },
+    types::{event::AnyEvent, Exception, ExceptionList, Mechanism, OutputErrProps, Stacktrace},
 };
 use insta::assert_json_snapshot;
 use mockall::predicate;
@@ -143,7 +140,7 @@ fn frame_at(mut frame: Frame, source: &str, line: u32, column: u32) -> Frame {
 struct SuccessResponse(Vec<Option<AnyEvent>>);
 
 impl SuccessResponse {
-    fn take_properties(self) -> ExceptionProperties {
+    fn take_properties(self) -> OutputErrProps {
         let event = self.0.first().expect("Should have at least one event");
         serde_json::from_value(event.as_ref().unwrap().properties.clone())
             .expect("Should deserialize properties")
@@ -335,9 +332,8 @@ async fn insert_symbol_set_record(db: &PgPool, team_id: i32, chunk_id: &str) {
 // Helper to extract exception list from response
 fn extract_exception_list(response: &SuccessResponse) -> ExceptionList {
     let event = response.first_event();
-    let props: ExceptionProperties =
-        serde_json::from_value(event.as_ref().unwrap().properties.clone())
-            .expect("Should deserialize properties");
+    let props: OutputErrProps = serde_json::from_value(event.as_ref().unwrap().properties.clone())
+        .expect("Should deserialize properties");
     props.exception_list
 }
 
@@ -393,14 +389,42 @@ async fn creates_issue_with_fingerprint(db: PgPool) {
     let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
 
     assert!(status.is_success(), "Expected success, got {:?}", status);
-    let event: ExceptionProperties = body.take_properties();
-    assert!(event.fingerprint.is_some());
-    assert_eq!(event.exception_types.unwrap(), vec!["Error".to_string()]);
-    assert_eq!(
-        event.exception_messages.unwrap(),
-        vec!["test error message".to_string()]
+    let event: OutputErrProps = body.take_properties();
+    assert!(!event.fingerprint.is_empty());
+    assert_eq!(event.types, vec!["Error".to_string()]);
+    assert_eq!(event.values, vec!["test error message".to_string()]);
+    assert_eq!(harness.get_issue_id().await, event.issue_id);
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn processed_properties_wire_shape_is_stable(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let mut input = make_event_with_options(
+        vec![make_exception("TypeError", "cannot read property")],
+        Some("wire-contract"),
+        Some(false),
     );
-    assert_eq!(harness.get_issue_id().await, event.issue_id.unwrap());
+    input.properties["$issue_name"] = json!("Custom issue name");
+    input.properties["$issue_description"] = json!("Custom issue description");
+    input.properties["$debug_images"] = json!([{
+        "debug_id": "67e9247c-814e-392b-a027-dbde6748fcbf",
+        "image_addr": "0x100000000",
+        "image_vmaddr": "0x0",
+        "image_size": 4096,
+        "code_file": "ExampleApp",
+        "type": "macho",
+        "arch": "arm64"
+    }]);
+    input.properties["custom_property"] = json!({"nested": true});
+
+    let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
+
+    assert!(status.is_success());
+    let properties = &body.first_event().as_ref().unwrap().properties;
+    assert_json_snapshot!("processed_properties_wire_shape", properties, {
+        ".$exception_list[].id" => "REDACTED",
+        ".$exception_issue_id" => "REDACTED",
+    });
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -416,7 +440,7 @@ async fn uses_client_fingerprint_override(db: PgPool) {
 
     let event = body.take_properties();
     assert!(status.is_success());
-    assert_eq!(event.fingerprint.unwrap(), "custom-fingerprint".to_string());
+    assert_eq!(event.fingerprint, "custom-fingerprint".to_string());
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -444,7 +468,7 @@ async fn suppressed_issue_returns_suppressed_response(db: PgPool) {
 
     let (_, created): (_, SuccessResponse) = harness.post_event(&input).await;
     let body = created.take_properties();
-    let issue_id = body.issue_id.unwrap();
+    let issue_id = body.issue_id;
     harness.suppress_issue(issue_id).await;
 
     let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
@@ -487,32 +511,18 @@ async fn extracts_metadata_from_exceptions(db: PgPool) {
     assert!(status.is_success());
     let event = body.take_properties();
 
-    assert_eq!(event.exception_types.unwrap(), vec!["TypeError"]);
+    assert_eq!(event.types, vec!["TypeError"]);
     assert_eq!(
-        event.exception_messages.unwrap(),
+        event.values,
         vec!["Cannot read property 'foo' of undefined"]
     );
-    assert!(event.exception_handled.unwrap());
+    assert!(event.handled);
     assert!(event
-        .exception_sources
-        .clone()
-        .unwrap()
+        .sources
         .contains(&"src/components/Button.tsx".to_string()));
-    assert!(event
-        .exception_sources
-        .clone()
-        .unwrap()
-        .contains(&"src/App.tsx".to_string()));
-    assert!(event
-        .exception_functions
-        .clone()
-        .unwrap()
-        .contains(&"handleClick".to_string()));
-    assert!(event
-        .exception_functions
-        .clone()
-        .unwrap()
-        .contains(&"onClick".to_string()));
+    assert!(event.sources.contains(&"src/App.tsx".to_string()));
+    assert!(event.functions.contains(&"handleClick".to_string()));
+    assert!(event.functions.contains(&"onClick".to_string()));
 }
 
 // Frame resolution tests
@@ -652,7 +662,7 @@ fn resolved_stack_event(source: &str) -> AnyEvent {
 }
 
 fn automatic_fingerprint(version: FingerprintVersion, event: &AnyEvent) -> Fingerprint {
-    let props: ExceptionProperties = serde_json::from_value(event.properties.clone())
+    let props: OutputErrProps = serde_json::from_value(event.properties.clone())
         .expect("event properties should deserialize");
     version.compute(&props.exception_list)
 }
