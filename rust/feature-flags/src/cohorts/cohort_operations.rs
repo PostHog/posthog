@@ -1451,7 +1451,10 @@ mod tests {
                 Tz::UTC,
             )
             .unwrap();
-            assert_eq!(result, expected, "plan={plan} should evaluate to {expected}");
+            assert_eq!(
+                result, expected,
+                "plan={plan} should evaluate to {expected}"
+            );
         }
     }
 
