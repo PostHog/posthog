@@ -404,7 +404,9 @@ class AppwriteSourceConfig(config.Config):
 
 @config.config
 class ArgocdSourceConfig(config.Config):
-    pass
+    host: str
+    api_token: str
+    project: str | None = None
 
 
 @config.config
