@@ -6,6 +6,7 @@ from urllib.parse import urlencode, urlparse
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -163,7 +164,12 @@ def validate_credentials(api_key: str, base_url: str | None, path: str = "/organ
         # base_url is user-supplied (self-hosted), so pin redirects off: validation and the
         # outbound request must stay on the same target (SSRF defense-in-depth). capture=False
         # keeps the probe's customer-content response body out of HTTP sample storage.
-        session = make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False)
+        # retry=Retry(total=0): the probe runs inline on an API worker, so it takes a single
+        # attempt — a hostile base_url must not be able to hold the worker via adapter retries
+        # that honour an unbounded server-controlled Retry-After.
+        session = make_tracked_session(
+            redact_values=(api_key,), allow_redirects=False, capture=False, retry=Retry(total=0)
+        )
         response = session.get(
             f"{_api_base(normalize_base_url(base_url))}{path}", headers=_headers(api_key), timeout=10
         )
@@ -290,7 +296,10 @@ def get_rows(
     headers = _headers(api_key)
     # capture=False: Flagsmith bodies carry customer-authored content the name-based scrubbers
     # can't recognise — feature values, segment rules, audit records, and member PII (names/emails).
-    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False)
+    # retry=Retry(total=0): _fetch_page owns the retry budget via tenacity with a bounded wait
+    # (_wait_strategy caps at MAX_RETRY_WAIT_SECONDS); leaving the adapter's DEFAULT_RETRY on would
+    # let a hostile base_url stall a sync worker with an unbounded, server-controlled Retry-After.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False, retry=Retry(total=0))
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
