@@ -6,8 +6,6 @@ from django.test import override_settings
 import requests
 from parameterized import parameterized
 
-from posthog.models.team import Team
-
 from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
 from products.feature_flags.backend.cross_region_flag_sync import sync_cross_region_flags
 from products.feature_flags.backend.local_evaluation import clear_flag_definition_caches, flag_definitions_hypercache
@@ -74,10 +72,10 @@ class TestSyncCrossRegionFlags(BaseTest):
     def test_writes_fetched_payload_under_sentinel_key_without_clobbering_real_team(self):
         # The collision this change fixes: before the sentinel key, the sync wrote
         # under the plain team-id key 2, which is EU's own real, unrelated team.
-        # A real team's cache entry must be untouched by this sync.
-        real_team = Team.objects.create(organization=self.organization, id=2, name="Real EU team 2")
+        # A real team's cache entry must be untouched by this sync -- exercised at
+        # the cache-key level (no DB row) so the test can't collide on team id 2.
         real_team_payload = {"flags": [{"key": "real-eu-flag"}], "group_type_mapping": {}, "cohorts": {}}
-        flag_definitions_hypercache.set_cache_value(real_team, real_team_payload)
+        flag_definitions_hypercache.set_cache_value(2, real_team_payload)
 
         sync_payload = {"flags": [{"key": "mirrored-us-flag"}], "group_type_mapping": {}, "cohorts": {}}
         with patch(f"{_MODULE}.requests.get", return_value=_mock_response(200, sync_payload)):
@@ -87,7 +85,7 @@ class TestSyncCrossRegionFlags(BaseTest):
         # A write that doesn't arm the ETag would make every later tick skip the
         # conditional GET, silently degrading to a full transfer on every poll.
         assert flag_definitions_hypercache.get_etag(EU_CROSS_REGION_MIRROR_CACHE_KEY)
-        assert flag_definitions_hypercache.get_from_cache(real_team) == real_team_payload
+        assert flag_definitions_hypercache.get_from_cache(2) == real_team_payload
 
     @parameterized.expand(
         [
@@ -118,7 +116,7 @@ class TestSyncCrossRegionFlags(BaseTest):
             patch.object(flag_definitions_hypercache, "set_cache_value") as mock_set,
             patch(f"{_MODULE}.capture_exception_throttled") as mock_capture,
         ):
-            sync_cross_region_dogfood_flags()
+            sync_cross_region_flags()
 
         mock_set.assert_not_called()
         mock_capture.assert_called_once()
