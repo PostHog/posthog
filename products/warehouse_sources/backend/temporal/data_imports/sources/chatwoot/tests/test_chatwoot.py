@@ -116,6 +116,27 @@ class TestValidateCredentials:
         assert is_valid is False
         assert message is not None and "number" in message
 
+    @pytest.mark.parametrize(
+        "host",
+        [
+            "https://169.254.169.254\\@attacker.example",
+            "https://user@attacker.example",
+            "https://169.254.169.254%5c@attacker.example",
+            "https://169.254.169.254%40attacker.example",
+        ],
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
+    )
+    def test_authority_ambiguous_host_is_rejected_without_a_request(self, mock_session, host):
+        # urlparse and the HTTP client disagree on where the host ends, so these must be rejected
+        # before any request — otherwise the host allowlist is an SSRF bypass.
+        is_valid, message = validate_credentials(host, "1", "token", TEAM_ID)
+
+        assert is_valid is False
+        assert message is not None
+        mock_session.return_value.get.assert_not_called()
+
 
 class TestGetRowsPaged:
     @mock.patch(
@@ -181,6 +202,20 @@ class TestGetRowsPaged:
         with pytest.raises(Exception, match="HTTPS"):
             list(
                 get_rows("http://chatwoot.internal", "1", "token", "agents", TEAM_ID, mock.MagicMock(), _make_manager())
+            )
+
+    def test_authority_ambiguous_host_raises(self):
+        with pytest.raises(Exception, match="not allowed"):
+            list(
+                get_rows(
+                    "https://169.254.169.254\\@attacker.example",
+                    "1",
+                    "token",
+                    "agents",
+                    TEAM_ID,
+                    mock.MagicMock(),
+                    _make_manager(),
+                )
             )
 
 

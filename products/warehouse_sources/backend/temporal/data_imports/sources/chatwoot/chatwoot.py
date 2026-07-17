@@ -62,6 +62,12 @@ RESPONSE_TOO_LARGE_ERROR = "Chatwoot response body was too large"
 RESPONSE_TOO_SLOW_ERROR = "Chatwoot response download was too slow"
 INVALID_ACCOUNT_ID_ERROR = "Chatwoot account ID must be a number"
 
+# Authority chars that let `urlparse` and the HTTP client disagree on where the host ends. A userinfo
+# separator or a (raw or percent-encoded) backslash in `https://169.254.169.254\@attacker.example`
+# makes `urlparse` report `attacker.example` while requests/urllib3 may connect to the internal IP —
+# an SSRF bypass of the host check. No legitimate Chatwoot host carries these, so reject them outright.
+_UNSAFE_URL_CHARS = re.compile(r"[\\@]|%5c|%40", re.IGNORECASE)
+
 
 class ChatwootRetryableError(Exception):
     pass
@@ -111,6 +117,11 @@ def _host_only(host: str | None) -> str:
     return (urlparse(normalize_host(host)).hostname or "").lower()
 
 
+def _has_unsafe_url_chars(host: str | None) -> bool:
+    raw = (host or "").strip()
+    return bool(raw) and _UNSAFE_URL_CHARS.search(raw) is not None
+
+
 def _is_https(host: str | None) -> bool:
     # The access token rides in the api_access_token header, so refuse plaintext HTTP to keep an
     # on-path attacker from capturing it.
@@ -136,6 +147,9 @@ def _headers(api_access_token: str) -> dict[str, str]:
 def _ensure_host_allowed(host: str | None, team_id: int) -> None:
     """Run-time host checks — not just at source-create — in case the host was edited or now
     resolves to an internal address (SSRF / DNS rebinding). Only enforced on cloud."""
+    if _has_unsafe_url_chars(host):
+        raise ChatwootHostNotAllowedError(HOST_NOT_ALLOWED_ERROR)
+
     if not _is_https(host):
         raise ChatwootHostNotAllowedError(HTTP_NOT_ALLOWED_ERROR)
 
@@ -239,6 +253,9 @@ def validate_credentials(
     """Probe the agents list — the cheapest account-scoped read any user token can perform."""
     if not api_access_token:
         return False, "Missing Chatwoot API access token"
+
+    if _has_unsafe_url_chars(host):
+        return False, HOST_NOT_ALLOWED_ERROR
 
     try:
         base_url = _account_base_url(host, account_id)
