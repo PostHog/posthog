@@ -35362,20 +35362,42 @@ export namespace Schemas {
     } as const;
 
     export interface MessageSuppression {
+      /** Server-assigned UUID for this suppression entry. */
       readonly id: string;
+      /** Normalized recipient email address. Suppression is keyed on this value, per team. */
       readonly identifier: string;
+      /** How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `MANUAL` for user-added via the UI/API.
+       *
+       * * `BOUNCE` - Bounce
+       * * `MANUAL` - Manual */
       readonly source: MessageSuppressionSourceEnum;
-      /** @nullable */
+      /**
+         * Human-readable reason for the suppression (e.g. 'Auto-suppressed after 5 consecutive soft bounces').
+         * @nullable
+         */
       readonly reason: string | null;
+      /** Rolling count of consecutive soft bounces with no successful delivery in between. Reset to 0 on any successful delivery. Ignored for MANUAL entries. */
       readonly transient_bounce_count: number;
-      /** @nullable */
+      /**
+         * Timestamp of the most recent bounce, if any.
+         * @nullable
+         */
       readonly last_bounce_at: string | null;
-      /** @nullable */
+      /**
+         * SMTP diagnostic string from the most recent bounce (e.g. '550 5.1.1 user unknown'), kept for visibility.
+         * @nullable
+         */
       readonly last_bounce_diagnostic: string | null;
+      /** Whether the address is actively suppressed. A BOUNCE row can exist while still only counting bounces (suppressed=false) before it crosses the threshold. */
       readonly suppressed: boolean;
-      /** @nullable */
+      /**
+         * Timestamp when the address was first suppressed.
+         * @nullable
+         */
       readonly suppressed_at: string | null;
+      /** When the row was first created (first bounce or manual add). */
       readonly created_at: string;
+      /** When the row was last touched by any write. */
       readonly updated_at: string;
     }
 
