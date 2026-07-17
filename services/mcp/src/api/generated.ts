@@ -7805,9 +7805,15 @@ export namespace Schemas {
       order?: number | null;
       deleted?: boolean;
       /**
+         *
        *         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
        *         A dashboard ID for each of the dashboards that this insight is displayed on.
-       *          */
+       *         This field may be omitted from responses: once opt-in enforcement is enabled, API-token
+       *         callers (personal API keys, OAuth) only receive it when passing the
+       *         `include_dashboards=true` query parameter. Do not rely on it being present.
+       *
+         * @deprecated
+         */
       dashboards?: number[];
       /**
        *     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
@@ -8028,6 +8034,48 @@ export namespace Schemas {
     export interface AddSnapshotsResult {
       added: number;
       uploads: UploadTarget[];
+    }
+
+    /**
+     * Body of POST /vision/scanners/:id/affected_cohort/. Same qualifiers as the impact GET.
+     */
+    export interface AffectedCohortRequest {
+      /**
+         * Trailing window of observations to count. Defaults to 30 days.
+         * @minimum 1
+         * @maximum 90
+         */
+      window_days?: number;
+      /**
+         * Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.
+         * @maxLength 100
+         * @nullable
+         */
+      tag?: string | null;
+      /**
+         * Scorer scanners only: count sessions scoring at or above this value. Scorers require `min_score` and/or `max_score`. Not applicable to other scanner types.
+         * @nullable
+         */
+      min_score?: number | null;
+      /**
+         * Scorer scanners only: count sessions scoring at or below this value.
+         * @nullable
+         */
+      max_score?: number | null;
+    }
+
+    /**
+     * The static cohort created from the scanner's affected users.
+     */
+    export interface AffectedCohortResponse {
+      /** ID of the created static cohort; usable anywhere cohorts are (funnels, surveys, experiments). */
+      readonly cohort_id: number;
+      /** Generated cohort name, stamped with the creation date since the snapshot doesn't live-update. */
+      readonly name: string;
+      /** Persons actually in the created cohort. Can be lower than `affected_users`: matched distinct IDs without a person profile are dropped, and merged persons deduplicate. */
+      readonly users_in_cohort: number;
+      /** Trailing window the cohort was drawn from, in days. */
+      readonly window_days: number;
     }
 
     export interface AgentAggregateStats {
@@ -12513,16 +12561,27 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    export interface BriefSectionCitation {
+      /** Cited resource type, e.g. insight or dashboard. */
+      type: string;
+      /** Stable id of the cited resource within its type. */
+      ref: string;
+      /** Human-readable name of the cited resource, for display. */
+      label: string;
+      /** Deep link into the app, or empty when the resource has no navigable target. */
+      url: string;
+    }
+
     export interface BriefSection {
-      /** Section kind, e.g. 'what_happened' or 'what_to_build_next'. */
+      /** Section kind, e.g. what_happened or what_to_build_next. */
       kind: string;
-      /** Short, specific section heading. */
+      /** Short section heading. */
       title: string;
-      /** Section body in markdown. */
+      /** Section body rendered as markdown. */
       markdown: string;
-      /** Citation ids (e.g. 'c1') backing the section, copied verbatim. */
-      citations: string[];
-      /** Confidence in this section, 0.0-1.0. */
+      /** PostHog resources this section cites as evidence. */
+      citations: BriefSectionCitation[];
+      /** Model confidence in this section, 0.0-1.0. */
       confidence: number;
     }
 
@@ -14676,6 +14735,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `acp` - ACP
+     * * `pi` - Pi
+     */
+    export type RuntimeEnum = typeof RuntimeEnum[keyof typeof RuntimeEnum];
+
+
+    export const RuntimeEnum = {
+      Acp: 'acp',
+      Pi: 'pi',
+    } as const;
+
+    /**
      * @nullable
      */
     export type TaskDetailDTOJsonSchema = { [key: string]: unknown } | null;
@@ -14697,6 +14768,11 @@ export namespace Schemas {
       title_manually_set: boolean;
       description: string;
       origin_product: string;
+      /** Agent protocol and harness used for this task's runs.
+       *
+       * * `acp` - ACP
+       * * `pi` - Pi */
+      readonly runtime: RuntimeEnum;
       /** @nullable */
       repository: string | null;
       /** @nullable */
@@ -18091,6 +18167,7 @@ export namespace Schemas {
      * * `Shopware` - Shopware
      * * `Dubsado` - Dubsado
      * * `Campfire` - Campfire
+     * * `PromptWatch` - PromptWatch
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -18953,6 +19030,7 @@ export namespace Schemas {
       Shopware: 'Shopware',
       Dubsado: 'Dubsado',
       Campfire: 'Campfire',
+      PromptWatch: 'PromptWatch',
     } as const;
 
     /**
@@ -19828,7 +19906,8 @@ export namespace Schemas {
        * * `Kajabi` - Kajabi
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire */
+       * * `Campfire` - Campfire
+       * * `PromptWatch` - PromptWatch */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -26670,7 +26749,8 @@ export namespace Schemas {
        * * `Kajabi` - Kajabi
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire */
+       * * `Campfire` - Campfire
+       * * `PromptWatch` - PromptWatch */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -27559,7 +27639,8 @@ export namespace Schemas {
        * * `Kajabi` - Kajabi
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire */
+       * * `Campfire` - Campfire
+       * * `PromptWatch` - PromptWatch */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -28471,16 +28552,21 @@ export namespace Schemas {
     }
 
     /**
-     * Fleet-wide tally of recently emitted findings — backs the "Scout findings" callout so it
-     * renders from one cheap query instead of the client walking the whole paginated runs window.
+     * Fleet-wide tally of recent scout output — legacy `emit_signal` findings plus reports
+     * authored/edited via the report channel. Backs the "Scout findings" callout so it renders
+     * from one cheap query instead of the client walking the whole paginated runs window.
      */
     export interface FleetFindingsSummary {
-      /** Total findings the fleet emitted in the window — the sum of each emitted run's `emitted_count`, over the most recent 120 emitted runs. */
+      /** Total findings the fleet emitted in the window — the sum of each run's `emitted_count`, over the most recent 120 runs that produced output. */
       count: number;
-      /** Number of distinct scouts (skills) that emitted at least one finding in the window. */
+      /** Number of distinct scouts (skills) that produced output in the window — emitted a finding, or authored/edited an inbox report that survives the 50-report cap (a report-only scout whose touched reports all fell outside the cap is not counted, matching the findings page's scout filter). */
       scout_count: number;
+      /** Number of distinct inbox reports scouts authored via `emit_report`, deduped across runs, over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently touched reports (the same slice the findings page lists). */
+      authored_report_count: number;
+      /** Number of distinct inbox reports scouts edited via `edit_report`, deduped across runs, over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently touched reports (the same slice the findings page lists) and excluding reports also authored within that set (authoring supersedes an edit; a report whose authoring run falls outside the cap counts as edited). */
+      edited_report_count: number;
       /**
-         * ISO-8601 timestamp of the most recently emitted finding's run (TaskRun completion, falling back to run creation), or null when nothing was emitted in the window.
+         * ISO-8601 timestamp of the most recent output run (TaskRun completion, falling back to run creation), or null when nothing was produced in the window.
          * @nullable
          */
       latest_at: string | null;
@@ -33093,6 +33179,8 @@ export namespace Schemas {
       /** Flat list of markdown headings parsed from the prompt. Useful as a lightweight table of contents. */
       outline: LLMPromptOutlineEntry[];
       version: number;
+      /** The label this prompt was fetched by. Only present when fetching with the label parameter. */
+      label?: string;
       created_at: string;
       updated_at: string;
       deleted: boolean;
@@ -40881,6 +40969,7 @@ export namespace Schemas {
      * * `low` - Low
      * * `medium` - Medium
      * * `high` - High
+     * * `critical` - Critical
      */
     export type TicketPriorityEnum = typeof TicketPriorityEnum[keyof typeof TicketPriorityEnum];
 
@@ -40889,6 +40978,7 @@ export namespace Schemas {
       Low: 'low',
       Medium: 'medium',
       High: 'high',
+      Critical: 'critical',
     } as const;
 
     /**
@@ -40945,11 +41035,12 @@ export namespace Schemas {
        * * `on_hold` - On hold
        * * `resolved` - Resolved */
       status?: TicketStatusEnum;
-      /** Ticket priority: low, medium, or high. Null if unset.
+      /** Ticket priority: low, medium, high, or critical. Null if unset.
        *
        * * `low` - Low
        * * `medium` - Medium
-       * * `high` - High */
+       * * `high` - High
+       * * `critical` - Critical */
       priority?: TicketPriorityEnum | BlankEnum | null;
       readonly assignee: TicketAssignment;
       /** Customer-provided traits such as name and email */
@@ -41208,7 +41299,8 @@ export namespace Schemas {
          */
       derived_name?: string | null;
       query?: unknown;
-      readonly dashboards: readonly number[];
+      /** @deprecated */
+      readonly dashboards?: readonly number[];
       readonly dashboard_tiles: readonly DashboardTileBasic[];
       /**
          * @maxLength 400
@@ -44885,9 +44977,15 @@ export namespace Schemas {
       order?: number | null;
       deleted?: boolean;
       /**
+         *
        *         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
        *         A dashboard ID for each of the dashboards that this insight is displayed on.
-       *          */
+       *         This field may be omitted from responses: once opt-in enforcement is enabled, API-token
+       *         callers (personal API keys, OAuth) only receive it when passing the
+       *         `include_dashboards=true` query parameter. Do not rely on it being present.
+       *
+         * @deprecated
+         */
       dashboards?: number[];
       /**
        *     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
@@ -48669,11 +48767,12 @@ export namespace Schemas {
        * * `on_hold` - On hold
        * * `resolved` - Resolved */
       status?: TicketStatusEnum;
-      /** Ticket priority: low, medium, or high. Null if unset.
+      /** Ticket priority: low, medium, high, or critical. Null if unset.
        *
        * * `low` - Low
        * * `medium` - Medium
-       * * `high` - High */
+       * * `high` - High
+       * * `critical` - Critical */
       priority?: TicketPriorityEnum | BlankEnum | null;
       readonly assignee?: TicketAssignment;
       /** Customer-provided traits such as name and email */
@@ -55543,6 +55642,20 @@ export namespace Schemas {
     }
 
     /**
+     * Who this scanner's findings affected in the window; counted from observations, not estimated.
+     */
+    export interface ScannerImpact {
+      /** Distinct sessions with an affected observation in the window. For monitors only verdict-yes observations count; for other scanner types every succeeded observation counts. */
+      readonly affected_sessions: number;
+      /** Distinct users behind the affected sessions, by distinct ID. May include anonymous device IDs when the recorded sessions were not identified. */
+      readonly affected_users: number;
+      /** Affected sessions whose recording carried no distinct ID at all. */
+      readonly sessions_without_user: number;
+      /** Trailing window the counts cover, in days. */
+      readonly window_days: number;
+    }
+
+    /**
      * Per-scanner-type count of enabled vs total scanners.
      */
     export interface ScannerTypeStats {
@@ -57662,7 +57775,8 @@ export namespace Schemas {
        * * `Kajabi` - Kajabi
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire */
+       * * `Campfire` - Campfire
+       * * `PromptWatch` - PromptWatch */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -58564,7 +58678,8 @@ export namespace Schemas {
        * * `Kajabi` - Kajabi
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire */
+       * * `Campfire` - Campfire
+       * * `PromptWatch` - PromptWatch */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -59458,7 +59573,8 @@ export namespace Schemas {
        * * `Kajabi` - Kajabi
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire */
+       * * `Campfire` - Campfire
+       * * `PromptWatch` - PromptWatch */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -60640,6 +60756,130 @@ export namespace Schemas {
       template_id?: string | null;
       /** Whether the schedule is active; paused when false. */
       enabled?: boolean;
+    }
+
+    /**
+     * Request body for creating or updating a task.
+     *
+     * Field required/default semantics match the ``Task`` model. The view passes
+     * ``validated_data`` (integration/report PK fields already resolved to instances) to the
+     * facade ``create_task`` / ``update_task`` functions.
+     */
+    export interface TaskCreate {
+      /**
+         * Short human-readable title. Auto-generated from `description` when omitted.
+         * @maxLength 255
+         */
+      title?: string;
+      /** Whether the title was set by a human (vs auto-generated from the description). */
+      title_manually_set?: boolean;
+      /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
+      description?: string;
+      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+       *
+       * * `onboarding` - Onboarding
+       * * `error_tracking` - Error Tracking
+       * * `eval_clusters` - Eval Clusters
+       * * `user_created` - User Created
+       * * `automation` - Automation
+       * * `slack` - Slack
+       * * `support_queue` - Support Queue
+       * * `session_summaries` - Session Summaries
+       * * `posthog_ai` - PostHog AI
+       * * `experiments` - Experiments
+       * * `signal_report` - Signal Report
+       * * `signals_scout` - Signals Scout
+       * * `support_reply` - Support Reply
+       * * `hogdesk` - HogDesk
+       * * `review_hog` - ReviewHog
+       * * `image_builder` - Image Builder */
+      origin_product?: OriginProductEnum;
+      /**
+         * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
+      /**
+         * GitHub integration for this task.
+         * @nullable
+         */
+      github_integration?: number | null;
+      /**
+         * User-scoped GitHub integration to use for user-authored cloud runs.
+         * @nullable
+         */
+      github_user_integration?: string | null;
+      /**
+         * Signal report this task implements, when created from a report.
+         * @nullable
+         */
+      signal_report?: string | null;
+      /**
+         * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+         * @maxLength 200
+         */
+      signal_report_task_relationship?: string;
+      /** JSON schema used to validate the output of the task. */
+      json_schema?: unknown;
+      /** If true, this task is for internal use and should not be exposed to end users. */
+      internal?: boolean;
+      /** If true, the task is hidden from default list responses. */
+      archived?: boolean;
+      /**
+         * Custom prompt for CI fixes. If blank, a default prompt will be used.
+         * @nullable
+         */
+      ci_prompt?: string | null;
+      /**
+         * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
+         * @maxLength 255
+         * @nullable
+         */
+      branch?: string | null;
+      /** Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum | null;
+      /**
+         * Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.
+         * @nullable
+         */
+      model?: string | null;
+      /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum | null;
+      /**
+         * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
+         * @nullable
+         */
+      pending_user_message?: string | null;
+      /**
+         * Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched.
+         * @items.maxLength 128
+         */
+      pending_user_artifact_ids?: string[];
+      /**
+         * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead.
+         * @nullable
+         */
+      auto_publish?: boolean | null;
+      /**
+         * Channel this task is owned by (the channel it was kicked off in).
+         * @nullable
+         */
+      channel?: string | null;
+      /** Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.
+       *
+       * * `acp` - ACP
+       * * `pi` - Pi */
+      runtime?: RuntimeEnum;
     }
 
     /**
@@ -65105,6 +65345,10 @@ export namespace Schemas {
 
     export type EnvironmentsDashboardsCreateParams = {
     format?: EnvironmentsDashboardsCreateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type EnvironmentsDashboardsCreateFormat = typeof EnvironmentsDashboardsCreateFormat[keyof typeof EnvironmentsDashboardsCreateFormat];
@@ -65122,6 +65366,10 @@ export namespace Schemas {
     filters_override?: string;
     format?: EnvironmentsDashboardsRetrieveFormat;
     /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
+    /**
      * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
@@ -65137,6 +65385,10 @@ export namespace Schemas {
 
     export type EnvironmentsDashboardsUpdateParams = {
     format?: EnvironmentsDashboardsUpdateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type EnvironmentsDashboardsUpdateFormat = typeof EnvironmentsDashboardsUpdateFormat[keyof typeof EnvironmentsDashboardsUpdateFormat];
@@ -65149,6 +65401,10 @@ export namespace Schemas {
 
     export type EnvironmentsDashboardsPartialUpdateParams = {
     format?: EnvironmentsDashboardsPartialUpdateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type EnvironmentsDashboardsPartialUpdateFormat = typeof EnvironmentsDashboardsPartialUpdateFormat[keyof typeof EnvironmentsDashboardsPartialUpdateFormat];
@@ -67074,6 +67330,10 @@ export namespace Schemas {
     favorited?: boolean;
     format?: EnvironmentsInsightsListFormat;
     /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
+    /**
      * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.
      */
     insight?: EnvironmentsInsightsListInsight;
@@ -67161,6 +67421,10 @@ export namespace Schemas {
 
     export type EnvironmentsInsightsCreateParams = {
     format?: EnvironmentsInsightsCreateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type EnvironmentsInsightsCreateFormat = typeof EnvironmentsInsightsCreateFormat[keyof typeof EnvironmentsInsightsCreateFormat];
@@ -67194,6 +67458,10 @@ export namespace Schemas {
      * When set, the specified dashboard's filters and date range override will be applied.
      */
     from_dashboard?: number;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     /**
      *
      * Whether to refresh the insight, how aggresively, and if sync or async:
@@ -67235,6 +67503,10 @@ export namespace Schemas {
 
     export type EnvironmentsInsightsUpdateParams = {
     format?: EnvironmentsInsightsUpdateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type EnvironmentsInsightsUpdateFormat = typeof EnvironmentsInsightsUpdateFormat[keyof typeof EnvironmentsInsightsUpdateFormat];
@@ -67247,6 +67519,10 @@ export namespace Schemas {
 
     export type EnvironmentsInsightsPartialUpdateParams = {
     format?: EnvironmentsInsightsPartialUpdateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type EnvironmentsInsightsPartialUpdateFormat = typeof EnvironmentsInsightsPartialUpdateFormat[keyof typeof EnvironmentsInsightsPartialUpdateFormat];
@@ -67423,6 +67699,10 @@ export namespace Schemas {
      */
     days?: number;
     format?: EnvironmentsInsightsTrendingRetrieveFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     /**
      * Maximum number of insights to return. Defaults to 10. Capped at 100.
      */
@@ -67896,6 +68176,12 @@ export namespace Schemas {
      * @minLength 1
      */
     content?: EnvironmentsLlmPromptsNameRetrieveContent;
+    /**
+     * Fetch the version this label currently points to, e.g. 'production'. Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version.
+     * @minLength 1
+     * @maxLength 128
+     */
+    label?: string;
     /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
@@ -69410,6 +69696,31 @@ export namespace Schemas {
      * Case-insensitive substring match across name, description, and the prompt in scanner_config.
      */
     search?: string;
+    };
+
+    export type EnvironmentsVisionScannersImpactRetrieveParams = {
+    /**
+     * Scorer scanners only: count sessions scoring at or below this value.
+     * @nullable
+     */
+    max_score?: number | null;
+    /**
+     * Scorer scanners only: count sessions scoring at or above this value. Scorers require `min_score` and/or `max_score`. Not applicable to other scanner types.
+     * @nullable
+     */
+    min_score?: number | null;
+    /**
+     * Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.
+     * @maxLength 100
+     * @nullable
+     */
+    tag?: string | null;
+    /**
+     * Trailing window of observations to count. Defaults to 30 days.
+     * @minimum 1
+     * @maximum 90
+     */
+    window_days?: number;
     };
 
     export type EnvironmentsVisionScannersObservationsListParams = {
@@ -71362,7 +71673,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`.
+     * Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`, `critical`.
      */
     priority?: string;
     /**
@@ -71587,6 +71898,10 @@ export namespace Schemas {
 
     export type DashboardsCreateParams = {
     format?: DashboardsCreateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type DashboardsCreateFormat = typeof DashboardsCreateFormat[keyof typeof DashboardsCreateFormat];
@@ -71604,6 +71919,10 @@ export namespace Schemas {
     filters_override?: string;
     format?: DashboardsRetrieveFormat;
     /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
+    /**
      * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
@@ -71619,6 +71938,10 @@ export namespace Schemas {
 
     export type DashboardsUpdateParams = {
     format?: DashboardsUpdateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type DashboardsUpdateFormat = typeof DashboardsUpdateFormat[keyof typeof DashboardsUpdateFormat];
@@ -71631,6 +71954,10 @@ export namespace Schemas {
 
     export type DashboardsPartialUpdateParams = {
     format?: DashboardsPartialUpdateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type DashboardsPartialUpdateFormat = typeof DashboardsPartialUpdateFormat[keyof typeof DashboardsPartialUpdateFormat];
@@ -74657,6 +74984,10 @@ export namespace Schemas {
     favorited?: boolean;
     format?: InsightsListFormat;
     /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
+    /**
      * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.
      */
     insight?: InsightsListInsight;
@@ -74744,6 +75075,10 @@ export namespace Schemas {
 
     export type InsightsCreateParams = {
     format?: InsightsCreateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type InsightsCreateFormat = typeof InsightsCreateFormat[keyof typeof InsightsCreateFormat];
@@ -74777,6 +75112,10 @@ export namespace Schemas {
      * When set, the specified dashboard's filters and date range override will be applied.
      */
     from_dashboard?: number;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     /**
      *
      * Whether to refresh the insight, how aggresively, and if sync or async:
@@ -74818,6 +75157,10 @@ export namespace Schemas {
 
     export type InsightsUpdateParams = {
     format?: InsightsUpdateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type InsightsUpdateFormat = typeof InsightsUpdateFormat[keyof typeof InsightsUpdateFormat];
@@ -74830,6 +75173,10 @@ export namespace Schemas {
 
     export type InsightsPartialUpdateParams = {
     format?: InsightsPartialUpdateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type InsightsPartialUpdateFormat = typeof InsightsPartialUpdateFormat[keyof typeof InsightsPartialUpdateFormat];
@@ -75006,6 +75353,10 @@ export namespace Schemas {
      */
     days?: number;
     format?: InsightsTrendingRetrieveFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     /**
      * Maximum number of insights to return. Defaults to 10. Capped at 100.
      */
@@ -75539,6 +75890,12 @@ export namespace Schemas {
      * @minLength 1
      */
     content?: LlmPromptsNameRetrieveContent;
+    /**
+     * Fetch the version this label currently points to, e.g. 'production'. Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version.
+     * @minLength 1
+     * @maxLength 128
+     */
+    label?: string;
     /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
@@ -78162,6 +78519,31 @@ export namespace Schemas {
      * Case-insensitive substring match across name, description, and the prompt in scanner_config.
      */
     search?: string;
+    };
+
+    export type VisionScannersImpactRetrieveParams = {
+    /**
+     * Scorer scanners only: count sessions scoring at or below this value.
+     * @nullable
+     */
+    max_score?: number | null;
+    /**
+     * Scorer scanners only: count sessions scoring at or above this value. Scorers require `min_score` and/or `max_score`. Not applicable to other scanner types.
+     * @nullable
+     */
+    min_score?: number | null;
+    /**
+     * Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.
+     * @maxLength 100
+     * @nullable
+     */
+    tag?: string | null;
+    /**
+     * Trailing window of observations to count. Defaults to 30 days.
+     * @minimum 1
+     * @maximum 90
+     */
+    window_days?: number;
     };
 
     export type VisionScannersObservationsListParams = {
