@@ -10855,10 +10855,14 @@ class TestCDCStatus(APIBaseTest):
         assert response.json() == {"enabled": False}
 
     @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_extraction_schedule_paused",
+        return_value=False,
+    )
+    @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
         return_value={"slot_exists": True, "publication_exists": True, "lag_bytes": 2048},
     )
-    def test_returns_live_status_when_enabled(self, mock_get_status) -> None:
+    def test_returns_live_status_when_enabled(self, mock_get_status, _mock_paused) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
         assert response.status_code == 200, response.content
@@ -10870,14 +10874,48 @@ class TestCDCStatus(APIBaseTest):
         assert body["slot_exists"] is True
         assert body["publication_exists"] is True
         assert body["lag_bytes"] == 2048
+        assert body["schedule_paused"] is False
         # Read against the stored source model, not a client payload.
         assert mock_get_status.call_args.args[0].pk == source.pk
 
     @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_extraction_schedule_paused",
+        return_value=True,
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        return_value={"slot_exists": True, "publication_exists": True, "lag_bytes": 2048},
+    )
+    def test_surfaces_schedule_paused(self, _mock_get_status, _mock_paused) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
+        assert response.status_code == 200, response.content
+        assert response.json()["schedule_paused"] is True
+
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_extraction_schedule_paused",
+        side_effect=Exception("temporal unavailable"),
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        return_value={"slot_exists": True, "publication_exists": True, "lag_bytes": 2048},
+    )
+    def test_schedule_paused_lookup_failure_degrades_to_false(self, _mock_get_status, _mock_paused) -> None:
+        # A Temporal outage must not 500 this otherwise DB-only status read.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
+        assert response.status_code == 200, response.content
+        assert response.json()["schedule_paused"] is False
+
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_extraction_schedule_paused",
+        return_value=False,
+    )
+    @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
         return_value={"slot_exists": False, "publication_exists": True, "lag_bytes": None},
     )
-    def test_surfaces_missing_slot(self, _mock_get_status) -> None:
+    def test_surfaces_missing_slot(self, _mock_get_status, _mock_paused) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
         assert response.status_code == 200, response.content
@@ -10894,6 +10932,105 @@ class TestCDCStatus(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
         assert response.status_code == 400
         assert "Could not connect to source" in response.json()["message"]
+
+
+class TestResumeCDC(APIBaseTest):
+    def _resume(self, source: ExternalDataSource):
+        return self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/resume_cdc/",
+        )
+
+    def _cdc_schema(self, source: ExternalDataSource, *, broken: bool = False) -> ExternalDataSchema:
+        config: dict[str, t.Any] = {"cdc_mode": "streaming"}
+        if broken:
+            config["cdc_broken"] = BROKEN_MARKER
+        return ExternalDataSchema.objects.create(
+            name="orders",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+            status=ExternalDataSchema.Status.FAILED,
+            sync_type_config=config,
+        )
+
+    def test_resume_cdc_rejects_when_cdc_not_enabled(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self._resume(source)
+        assert response.status_code == 400
+        assert "CDC is not enabled" in response.json()["message"]
+
+    def test_resume_cdc_rejects_when_no_cdc_schemas(self) -> None:
+        # CDC enabled but nothing syncs via CDC — resuming would report success while nothing runs.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self._resume(source)
+        assert response.status_code == 400
+        assert "nothing to resume" in response.json()["message"]
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.sync_cdc_extraction_schedule")
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.unpause_cdc_extraction_schedule")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        return_value={"slot_exists": True, "publication_exists": True, "lag_bytes": 128},
+    )
+    def test_resume_cdc_unpauses_when_slot_intact(self, mock_get_status, mock_unpause, mock_sync) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        self._cdc_schema(source)
+
+        response = self._resume(source)
+        assert response.status_code == 200, response.content
+        assert response.json()["success"] is True
+        # Recreate-if-missing then unpause, so a schedule deleted out-of-band can't report false success.
+        mock_sync.assert_called_once()
+        assert mock_sync.call_args.args[0].pk == source.pk
+        mock_unpause.assert_called_once_with(str(source.pk))
+        assert mock_get_status.call_args.args[0].pk == source.pk
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.unpause_cdc_extraction_schedule")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status"
+    )
+    def test_resume_cdc_rejected_when_broken_marker(self, mock_get_status, mock_unpause) -> None:
+        # A lost slot/publication is marked cdc_broken — resume must route to Repair, not unpause
+        # (and must not even probe, since the source is known-broken).
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        self._cdc_schema(source, broken=True)
+
+        response = self._resume(source)
+        assert response.status_code == 400
+        assert "Repair CDC" in response.json()["message"]
+        mock_unpause.assert_not_called()
+        mock_get_status.assert_not_called()
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.unpause_cdc_extraction_schedule")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        side_effect=psycopg.OperationalError("password authentication failed"),
+    )
+    def test_resume_cdc_rejected_when_connection_still_fails(self, _mock_get_status, mock_unpause) -> None:
+        # The whole point: don't unpause straight back into the same deterministic auth failure.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        self._cdc_schema(source)
+
+        response = self._resume(source)
+        assert response.status_code == 400
+        assert "check the credentials" in response.json()["message"]
+        mock_unpause.assert_not_called()
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.unpause_cdc_extraction_schedule")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        return_value={"slot_exists": False, "publication_exists": True, "lag_bytes": None},
+    )
+    def test_resume_cdc_rejected_when_slot_missing_without_marker(self, _mock_get_status, mock_unpause) -> None:
+        # Slot dropped on the source DB before any run set cdc_broken: the live probe still catches it.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        self._cdc_schema(source)
+
+        response = self._resume(source)
+        assert response.status_code == 400
+        assert "Repair CDC" in response.json()["message"]
+        mock_unpause.assert_not_called()
 
 
 class TestExternalDataSourceConnectLink(APIBaseTest):
