@@ -59,10 +59,12 @@ pnpm --filter=@posthog/desktop package
 This bundles the app with [electron-builder](https://www.electron.build/) (config in `electron-builder.yml`) into `release/`:
 the built frontend is embedded as the `frontend-dist` resource (sourcemaps stripped), so the packaged app is fully self-contained.
 
-The build is currently unsigned: there is no signing identity yet, so `scripts/after-pack.cjs` applies an ad-hoc signature, which is required for the app to launch on Apple Silicon at all.
-Because of that, macOS quarantines the downloaded app.
+Local and PR builds are unsigned: `scripts/after-pack.cjs` applies an ad-hoc signature, which is required for the app to launch on Apple Silicon at all.
+Because of that, macOS quarantines a downloaded unsigned app.
 To open it: right-click the app › Open, or run `xattr -d com.apple.quarantine /Applications/PostHog.app`.
 
 CI builds the DMG for every PR that touches `products/desktop/` (`.github/workflows/build-desktop-app.yml`) and uploads it as the `posthog-desktop-macos-arm64` artifact on the workflow run.
+On master pushes and manual dispatches, the build is signed with a Developer ID certificate and notarized (org secrets `DESKTOP_MACOS_SIGNING_CERT`, `DESKTOP_MACOS_SIGNING_CERT_PASSWORD`, `DESKTOP_APPLE_API_KEY`, `DESKTOP_APPLE_API_KEY_ID`, `DESKTOP_APPLE_API_ISSUER`), so that DMG opens without any quarantine workarounds.
+If the secrets are absent the non-PR build degrades to unsigned rather than failing.
 
 See [TODO.md](./TODO.md) for what's done and what's next.
