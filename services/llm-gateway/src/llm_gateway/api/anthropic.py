@@ -25,6 +25,7 @@ from llm_gateway.bedrock import (
     count_tokens_with_bedrock_mantle,
     ensure_bedrock_configured,
     map_to_bedrock_model,
+    supports_bedrock_runtime_count_tokens,
 )
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
 from llm_gateway.cloudflare import (
@@ -779,30 +780,36 @@ async def _bedrock_count_tokens_impl(
     status_code = "200"
 
     try:
-        input_tokens = await count_tokens_with_bedrock(
-            data,
-            bedrock_model,
-            bedrock_region_name,
-            settings.request_timeout,
-            product=product,
-        )
-        return {"input_tokens": input_tokens}
-    except Exception as e:
-        # bedrock-runtime CountTokens doesn't support every Claude model (cross-Region-inference-only
-        # models like claude-opus-4-8 return a ValidationException). AWS's recommended path for those
-        # is Anthropic's count_tokens API on the bedrock-mantle endpoint — try it before giving up.
-        logger.exception(
-            "Bedrock CountTokens failed",
-            model=bedrock_model,
-            product=product,
-            **_bedrock_runtime_exception_log_fields(e),
-        )
-        BEDROCK_COUNT_TOKENS_ERRORS.labels(
-            transport="runtime",
-            error_type=type(e).__name__,
-            product=product,
-        ).inc()
-        logger.info("Attempting bedrock-mantle count_tokens fallback", model=bedrock_model, product=product)
+        # bedrock-runtime CountTokens rejects some models outright ("The provided model doesn't
+        # support counting tokens."); for those, skip the doomed runtime call and go straight to
+        # AWS's recommended path — Anthropic's count_tokens API on the bedrock-mantle endpoint.
+        runtime_exception: Exception | None = None
+        if supports_bedrock_runtime_count_tokens(bedrock_model):
+            try:
+                input_tokens = await count_tokens_with_bedrock(
+                    data,
+                    bedrock_model,
+                    bedrock_region_name,
+                    settings.request_timeout,
+                    product=product,
+                )
+                return {"input_tokens": input_tokens}
+            except Exception as e:
+                # Unexpected runtime failure — try the mantle endpoint before giving up.
+                runtime_exception = e
+                logger.exception(
+                    "Bedrock CountTokens failed",
+                    model=bedrock_model,
+                    product=product,
+                    **_bedrock_runtime_exception_log_fields(e),
+                )
+                BEDROCK_COUNT_TOKENS_ERRORS.labels(
+                    transport="runtime",
+                    error_type=type(e).__name__,
+                    product=product,
+                ).inc()
+                logger.info("Attempting bedrock-mantle count_tokens fallback", model=bedrock_model, product=product)
+
         try:
             input_tokens = await count_tokens_with_bedrock_mantle(
                 data,
@@ -815,12 +822,15 @@ async def _bedrock_count_tokens_impl(
         except Exception as mantle_exc:
             status_code = "502"
             error_type_name = type(mantle_exc).__name__
+            runtime_log_fields = (
+                _bedrock_runtime_exception_log_fields(runtime_exception) if runtime_exception is not None else {}
+            )
             logger.exception(
                 "Error proxying bedrock-mantle count_tokens request",
                 model=bedrock_model,
                 product=product,
                 **_exception_log_fields(mantle_exc, prefix="mantle"),
-                **_bedrock_runtime_exception_log_fields(e),
+                **runtime_log_fields,
             )
             BEDROCK_COUNT_TOKENS_ERRORS.labels(
                 transport="mantle",
