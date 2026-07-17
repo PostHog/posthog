@@ -54,8 +54,9 @@ the safety judge first, then calls into this flow via a Temporal activity if the
   via the `effective_*` accessors
 
 When a report was spawned because a signal would have grouped into an already-**resolved**
-report (resolved reports are terminal and never reopen — see `grouped_from_resolved_report` on
-`SignalReport`), the caller activity passes `resolved_report_title` / `resolved_report_summary`.
+report (resolved reports are terminal and never reopen), the grouping pipeline links the two with
+symmetric `related_report` artefacts (tagged `recurrence_of` / `recurred_as`). The caller activity
+resolves the `recurrence_of` link and passes `resolved_report_title` / `resolved_report_summary`.
 The initial research prompt then includes a `## Previously resolved report` block so the agent can
 judge whether the recurrence is a regression, a new dimension of the same issue, or distinct.
 

@@ -13,7 +13,12 @@ from asgiref.sync import sync_to_async
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalReport
+from products.signals.backend.artefact_schemas import (
+    RELATED_REPORT_RECURRED_AS,
+    RELATED_REPORT_RECURRENCE_OF,
+    RelatedReport,
+)
+from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.temporal.grouping import (
     WEIGHT_THRESHOLD,
     AssignAndEmitSignalInput,
@@ -377,8 +382,8 @@ async def test_ready_repromotes_to_candidate_on_any_signal(ateam):
 @pytest.mark.django_db
 async def test_resolved_match_spawns_new_report_and_leaves_resolved_untouched(ateam):
     """A signal that would group into a RESOLVED report must not reopen it. Instead a fresh
-    POTENTIAL report is created, pointing back at the resolved one so research gets that context,
-    and the resolved report keeps its status and signal count."""
+    POTENTIAL report is created and symmetrically linked to the resolved one via related_report
+    artefacts, and the resolved report keeps its status and signal count."""
     resolved = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.RESOLVED,
@@ -396,10 +401,25 @@ async def test_resolved_match_spawns_new_report_and_leaves_resolved_untouched(at
     new_report = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
     assert new_report.status == SignalReport.Status.CANDIDATE  # weight at threshold promotes it
     assert new_report.signal_count == 1
-    assert new_report.grouped_from_resolved_report_id == resolved.id
     # Placeholder title/summary carried over from the resolved report until research rewrites them.
     assert new_report.title == "original title"
     assert new_report.summary == "original summary"
+
+    # The two reports are symmetrically linked via related_report artefacts.
+    new_link = await database_sync_to_async(
+        lambda: SignalReportArtefact.objects.get(
+            report=new_report, type=SignalReportArtefact.ArtefactType.RELATED_REPORT
+        )
+    )()
+    assert RelatedReport.model_validate_json(new_link.content) == RelatedReport(
+        report_id=str(resolved.id), relationship=RELATED_REPORT_RECURRENCE_OF
+    )
+    resolved_link = await database_sync_to_async(
+        lambda: SignalReportArtefact.objects.get(report=resolved, type=SignalReportArtefact.ArtefactType.RELATED_REPORT)
+    )()
+    assert RelatedReport.model_validate_json(resolved_link.content) == RelatedReport(
+        report_id=str(new_report.id), relationship=RELATED_REPORT_RECURRED_AS
+    )
 
     # The resolved report is untouched — not reopened, no new signal counted.
     refreshed_resolved = await database_sync_to_async(SignalReport.objects.get)(id=resolved.id)

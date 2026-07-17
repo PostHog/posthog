@@ -16,7 +16,12 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.business_knowledge.backend.logic import is_available_for_team
 from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_runtime
-from products.signals.backend.artefact_schemas import ArtefactContent, SuggestedReviewers
+from products.signals.backend.artefact_schemas import (
+    RELATED_REPORT_RECURRENCE_OF,
+    ArtefactContent,
+    RelatedReport,
+    SuggestedReviewers,
+)
 from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.research import (
@@ -137,20 +142,28 @@ async def _load_previous_research(report_id: str) -> ReportResearchOutput | None
     )
 
 
-async def _load_resolved_report_context(report_id: str) -> tuple[str | None, str | None]:
-    """Title/summary of the resolved report this one was split from, if any.
+async def _load_resolved_report_context(team_id: int, report_id: str) -> tuple[str | None, str | None]:
+    """Title/summary of the resolved report this one recurred from, if any.
 
-    A report gets a `grouped_from_resolved_report` when a signal that would have grouped into an
-    already-resolved report spawned a fresh report instead (resolved reports never reopen). Handing
-    that prior report to the research agent lets it judge regression vs. new dimension vs. distinct.
+    When a signal that would have grouped into an already-resolved report spawns a fresh report
+    instead (resolved reports never reopen), the grouping pipeline links the two with a
+    `related_report` artefact tagged `recurrence_of`. Handing that prior report to the research
+    agent lets it judge regression vs. new dimension vs. distinct.
     """
-    report = (
-        await SignalReport.objects.filter(id=report_id)
-        .select_related("grouped_from_resolved_report")
-        .only("grouped_from_resolved_report__title", "grouped_from_resolved_report__summary")
-        .afirst()
-    )
-    resolved = report.grouped_from_resolved_report if report else None
+    recurred_from_id: str | None = None
+    async for artefact in SignalReportArtefact.objects.filter(
+        team_id=team_id, report_id=report_id, type=SignalReportArtefact.ArtefactType.RELATED_REPORT
+    ).order_by("created_at"):
+        try:
+            content = RelatedReport.model_validate_json(artefact.content)
+        except ValidationError:
+            continue
+        if content.relationship == RELATED_REPORT_RECURRENCE_OF:
+            recurred_from_id = content.report_id
+            break
+    if recurred_from_id is None:
+        return None, None
+    resolved = await SignalReport.objects.filter(id=recurred_from_id, team_id=team_id).only("title", "summary").afirst()
     if resolved is None:
         return None, None
     return resolved.title, resolved.summary
@@ -371,7 +384,9 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             # 2. Load previous research if this is a re-promoted report
             previous_research = await _load_previous_research(input.report_id)
             # 2b. Load the resolved report this one recurred from, if any, as extra research context
-            resolved_report_title, resolved_report_summary = await _load_resolved_report_context(input.report_id)
+            resolved_report_title, resolved_report_summary = await _load_resolved_report_context(
+                input.team_id, input.report_id
+            )
             # 3. Run the agentic research in the sandbox
             result = await run_multi_turn_research(
                 input.signals,

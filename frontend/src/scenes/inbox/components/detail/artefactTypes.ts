@@ -68,6 +68,12 @@ export interface SummaryChangeContent {
     new_summary: string
 }
 
+export interface RelatedReportContent {
+    report_id: string
+    relationship?: string | null
+    note?: string | null
+}
+
 // ── Type labels ──────────────────────────────────────────────────────────────────────────────
 
 /** Human label for each artefact type as it reads in the activity log header. */
@@ -87,6 +93,13 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     video_segment: 'Video segment',
     title_change: 'Title edited',
     summary_change: 'Summary edited',
+    related_report: 'Related report',
+}
+
+/** Human label for a related_report artefact's `relationship`, falling back to the raw value. */
+export const RELATED_REPORT_RELATIONSHIP_LABELS: Record<string, string> = {
+    recurrence_of: 'Recurrence of a resolved report',
+    recurred_as: 'Recurred as a new report',
 }
 
 export function artefactTypeLabel(type: string): string {

@@ -1,1 +1,1 @@
-0063_signalreport_grouped_from_resolved_report
+0063_alter_signalreportartefact_type

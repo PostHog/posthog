@@ -26,6 +26,8 @@ import {
     DismissalContent,
     LineReferenceContent,
     NoteContent,
+    RELATED_REPORT_RELATIONSHIP_LABELS,
+    RelatedReportContent,
     SignalFindingContent,
     SummaryChangeContent,
     TaskRunArtefactContent,
@@ -384,6 +386,20 @@ function ArtefactBody({
                     {c.reason ? (
                         <LemonTag size="small" type="muted">
                             {dismissReasonLabel(c.reason)}
+                        </LemonTag>
+                    ) : null}
+                    {c.note ? <RelevanceNote note={c.note} /> : null}
+                </div>
+            )
+        }
+        case 'related_report': {
+            const c = content as RelatedReportContent
+            const label = c.relationship ? (RELATED_REPORT_RELATIONSHIP_LABELS[c.relationship] ?? c.relationship) : null
+            return (
+                <div className="flex flex-col gap-1">
+                    {label ? (
+                        <LemonTag size="small" type="muted">
+                            {label}
                         </LemonTag>
                     ) : null}
                     {c.note ? <RelevanceNote note={c.note} /> : null}

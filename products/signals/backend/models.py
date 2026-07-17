@@ -208,12 +208,6 @@ class SignalReport(UUIDModel):
     # return the report to where it was instead of always dropping it back to POTENTIAL.
     # Null for reports that were never suppressed (and cleared again on restore).
     status_before_suppression = models.CharField(max_length=20, choices=Status, null=True, blank=True)
-    # Resolved reports are terminal — they never reopen. When a new signal would have grouped into an
-    # already-resolved report, we start a fresh report instead and point it here, so the research agent
-    # can be told the recurring issue was previously resolved (a regression, or a new dimension of it).
-    grouped_from_resolved_report = models.ForeignKey(
-        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
-    )
 
     total_weight = models.FloatField(default=0.0)
     signal_count = models.IntegerField(default=0)
@@ -283,7 +277,8 @@ class SignalReport(UUIDModel):
             # - POTENTIAL -> CANDIDATE when the report is selected for summary generation
             # - READY -> CANDIDATE when new matching signals reopen the report for summary / agentic
             #   research. RESOLVED is terminal and never reopens: a recurring issue starts a fresh
-            #   report (see grouped_from_resolved_report / assign_and_emit_signal_activity).
+            #   report, linked to the resolved one via related_report artefacts (see
+            #   assign_and_emit_signal_activity).
             case (S.POTENTIAL | S.READY, S.CANDIDATE):
                 self.promoted_at = timezone.now()
                 updated_fields.add("promoted_at")
@@ -711,6 +706,7 @@ class SignalReportArtefact(UUIDModel):
         TITLE_CHANGE = "title_change"
         SUMMARY_CHANGE = "summary_change"
         CODE_REVIEW = "code_review"
+        RELATED_REPORT = "related_report"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
@@ -741,6 +737,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.TITLE_CHANGE,
             ArtefactType.SUMMARY_CHANGE,
             ArtefactType.CODE_REVIEW,
+            ArtefactType.RELATED_REPORT,
         }
     )
 
