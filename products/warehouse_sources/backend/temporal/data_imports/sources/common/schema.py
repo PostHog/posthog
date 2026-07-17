@@ -72,19 +72,44 @@ def _select_incremental_field(incremental_fields: list[IncrementalField]) -> Inc
     return candidates[0]
 
 
+def build_default_sync_settings(source_schema: SourceSchema) -> dict[str, Any]:
+    """Default sync settings for one discovered table.
+
+    Picks ``incremental`` when the source supports it and a tracking column exists (cheapest
+    ongoing sync), else ``append`` when supported, else ``full_refresh``. Never picks ``cdc``
+    or ``webhook`` — both need prerequisites (Postgres setup, webhook registration) and
+    explicit opt-in.
+    """
+    chosen = _select_incremental_field(source_schema.incremental_fields)
+    if source_schema.supports_incremental and chosen is not None:
+        sync_type = "incremental"
+    elif source_schema.supports_append and chosen is not None:
+        sync_type = "append"
+    else:
+        sync_type = "full_refresh"
+
+    settings: dict[str, Any] = {"sync_type": sync_type}
+    if sync_type in ("incremental", "append") and chosen is not None:
+        settings["incremental_field"] = chosen["field"]
+        settings["incremental_field_type"] = str(chosen.get("field_type") or chosen.get("type"))
+    if sync_type == "incremental" and source_schema.default_incremental_lookback_seconds is not None:
+        settings["incremental_field_lookback_seconds"] = source_schema.default_incremental_lookback_seconds
+    if source_schema.detected_primary_keys:
+        settings["primary_key_columns"] = source_schema.detected_primary_keys
+    return settings
+
+
 def build_default_schemas(source_schemas: list[SourceSchema]) -> list[dict]:
     """Build a default ``schemas`` payload for one-shot source creation.
 
-    Enables every discovered table the source marks as default-on and picks a sync type per
-    table: ``incremental`` when the source supports it and a tracking column exists (cheapest
-    ongoing sync), else ``append`` when supported, else ``full_refresh``. Never defaults to
-    ``cdc`` — that needs Postgres prerequisites and explicit opt-in. Webhook-only tables start
-    disabled because webhook registration needs the created source; the setup flow attempts it
-    right after creation and, on success, switches webhook-capable tables to the webhook sync
-    method. These polling defaults are also the fallback when that registration fails. Tables
-    with ``should_sync_default=False`` also start disabled: sources use it for tables whose
-    sync needs grants beyond what source creation validated, and the schema picker already
-    honors it, so one-shot setup must not force-enable what the picker would leave off.
+    Enables every discovered table the source marks as default-on, with each table's sync
+    settings from ``build_default_sync_settings``. Webhook-only tables start disabled because
+    webhook registration needs the created source; the setup flow attempts it right after
+    creation and, on success, switches webhook-capable tables to the webhook sync method.
+    These polling defaults are also the fallback when that registration fails. Tables with
+    ``should_sync_default=False`` also start disabled: sources use it for tables whose sync
+    needs grants beyond what source creation validated, and the schema picker already honors
+    it, so one-shot setup must not force-enable what the picker would leave off.
     """
     schemas: list[dict] = []
     for source_schema in source_schemas:
@@ -92,21 +117,7 @@ def build_default_schemas(source_schemas: list[SourceSchema]) -> list[dict]:
             schemas.append({"name": source_schema.name, "should_sync": False})
             continue
 
-        chosen = _select_incremental_field(source_schema.incremental_fields)
-        if source_schema.supports_incremental and chosen is not None:
-            sync_type = "incremental"
-        elif source_schema.supports_append and chosen is not None:
-            sync_type = "append"
-        else:
-            sync_type = "full_refresh"
-
-        entry: dict = {"name": source_schema.name, "should_sync": True, "sync_type": sync_type}
-        if sync_type in ("incremental", "append") and chosen is not None:
-            entry["incremental_field"] = chosen["field"]
-            entry["incremental_field_type"] = str(chosen.get("field_type") or chosen.get("type"))
-        if source_schema.detected_primary_keys:
-            entry["primary_key_columns"] = source_schema.detected_primary_keys
-        schemas.append(entry)
+        schemas.append({"name": source_schema.name, "should_sync": True, **build_default_sync_settings(source_schema)})
     return schemas
 
 
