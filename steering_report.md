@@ -11,7 +11,7 @@ The implementation is split across:
 - PostHog backend branch: `posthog-code/cloud-run-steering`
 - PostHog Code branch: `posthog-code/cloud-run-steering-agent`
 
-The latest fixes place the terminal persistence barrier after cleanup, reject stale queue snapshots with a monotonic generation, bound permanent persistence failures, and preserve ambiguous promptless live tails without repeatedly scanning full hydrated transcripts.
+The latest fixes place the terminal persistence barrier after cleanup, reject stale queue snapshots with a monotonic generation, bound permanent persistence failures, and use run-local log ordinals to reconcile ambiguous promptless live tails safely.
 
 ## What the feature does
 
@@ -649,6 +649,16 @@ Promptless overlap candidates use one shared structural hash index and still ver
 
 The regression covers hydrated `prompt A → Done → completion → prompt B` followed by a live promptless `Done → completion` and verifies that both current-turn events remain present.
 
+### Repeated post-tool responses use stable leaf-log positions
+
+Stored cloud-log events now carry reconciliation-only provenance in a local `WeakMap`: the task run ID and leaf-local log entry ordinal. The provenance does not alter the ACP event payload or cross the host boundary.
+
+Hydration assigns ordinals only to the current resume leaf, while live stream appends derive the same ordinals from the normalized leaf cursor. Identical response or completion payloads are discarded only when their run and ordinal identify the same persisted entry. An identical response emitted later in the turn, including after a tool boundary, remains distinct.
+
+For events created before provenance is available, reconciliation prefers an overlapping tool boundary and compares turn-local assistant message positions. If a partial live tail omits the tool boundary and the response position is ambiguous, it preserves the response instead of risking message loss.
+
+This also resolves same-millisecond turn boundaries for persisted cloud events. Exact run-local ordinals distinguish a stale prior-turn tail from a valid current response without relying on `<` or `<=` timestamp heuristics.
+
 ## Validation for the 2026-07-17 fixes
 
 ### Automated validation
@@ -662,11 +672,11 @@ Backend:
 
 PostHog Code:
 
-- Focused hydration regressions: 3 passed.
-- Core suite: 2,228 passed across 207 files.
+- Focused hydration regressions: 5 passed.
+- Core suite: 2,230 passed across 207 files.
 - Session host suite: 143 passed.
 - UI suite: 1,524 passed across 172 files.
-- Core and UI TypeScript checks, Biome, and diff checks passed.
+- All 20 package typechecks, Biome across 2,053 files, and diff checks passed.
 
 ### Active steering verification
 
@@ -700,6 +710,24 @@ Verified:
 
 The active `.env` tunnel endpoints returned HTTP 302 for the sandbox API root and HTTP 200 for the LLM gateway root throughout validation. No tunnel restart was required.
 
+### Stable-ordinal resume and post-cold verification
+
+- Task: `e791860e-5620-41c1-afc5-259250865688`
+- Initial run: `8e10c7f3-951b-4484-bf09-2571f9656a56`
+- Resumed run: `58880566-6cb0-4c77-abdf-001091c1b146`
+
+Verified with a newly created cloud task after rebuilding and fully restarting the Electron app:
+
+- The fresh turn rendered one `BASEOK717A` prompt and one response.
+- The initial workflow was explicitly completed before the next message was sent.
+- Read-only database validation confirmed that the second run's `state.resume_from_run_id` exactly matched the completed initial run.
+- The resumed turn rendered one `RESUMEOK717B` prompt and one response with no error or pending prompt.
+- After a second full Electron restart and direct task reopen, both prompt/response pairs remained present exactly once and `Restored sandbox` appeared once.
+- A new post-cold live follow-up rendered one `LIVEOK717C` prompt and one response. The leaf cursor advanced to 73 while the full transcript count remained separate at 133.
+- Both workflow runs reached `completed` with no error message.
+
+The configured sandbox API and LLM gateway tunnel roots remained healthy at HTTP 302 and HTTP 200. No tunnel restart was required.
+
 ### Earlier Codex and Claude steering coverage
 
 Live runs also verified:
@@ -717,7 +745,7 @@ Live runs also verified:
 The merge-blocking findings are addressed. The remaining recommendations are separate follow-ups:
 
 - Re-probe a child workflow after a transient two-second capability timeout instead of retaining safe queue-only behavior for that sandbox lifetime.
-- Reduce redundant full-chain reads and use stable entry identifiers for cheaper deduplication.
+- Reduce redundant full-chain reads and expose persisted entry identifiers so provenance can survive serialization boundaries.
 - Reconcile rapid optimistic steer messages using stable client message IDs.
 - Restore failed cloud steers to the queue with an actionable error state.
 - Enable per-message cloud steering in the queued-message dock.
