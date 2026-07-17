@@ -111,17 +111,22 @@ def parse_interviewee_identifier(identifier: str) -> IntervieweeIdentity:
 
 
 def has_replied(*, team_id: int, topic_id: UUID, interviewee_identifier: str) -> bool:
-    """Whether an interviewee has already completed an interview for this topic.
+    """Whether a personalised (invited) interviewee has already completed an interview for this topic.
 
     Abandoned interviews don't count: an accidental refresh mid-call leaves an abandoned
     partial behind, and treating that as "replied" would lock the interviewee out of ever
     finishing. Only a non-abandoned response gates the personalised link.
+
+    Shared-link responses never count: they carry a `respondent_key` and a namespaced
+    `interviewee_identifier`, so this filter is defense-in-depth against a shared respondent
+    (whose distinct_id is untrusted) ever being able to mark a targeted invitee as replied.
     """
     return (
         UserInterview.objects.filter(
             team_id=team_id,
             topic_id=topic_id,
             interviewee_identifier=interviewee_identifier,
+            respondent_key="",
         )
         .exclude(classifications__contains=[UserInterviewClassification.ABANDONED])
         .exists()

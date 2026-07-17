@@ -48,9 +48,11 @@ class UserInterview(UUIDTModel, CreatedMetaFields):
         blank=True,
         related_name="interviews",
     )
-    # Email or distinct_id identifying the interviewee. For shared-link respondents this holds a
-    # provided (validated) distinct_id when available — same semantics as a personalised distinct-id
-    # interview — otherwise the self-reported name, otherwise a "shared:<key>" marker.
+    # Email or distinct_id identifying a personalised (invited) interviewee. For shared-link
+    # respondents this is a namespaced, non-authoritative "shared:<key>" marker that can never equal
+    # a targeted invitee's identifier — so an anonymous respondent can neither be attributed to nor
+    # lock out a targeted person. Best-effort person linkage from a shared respondent lives in
+    # `distinct_id`, never here.
     interviewee_identifier = models.CharField(max_length=400, blank=True, default="")
     # Set for responses collected via a non-personalised (shared) topic link, where every
     # visit is a new self-identifying respondent. Empty for invited (personalised) interviews.
@@ -58,6 +60,11 @@ class UserInterview(UUIDTModel, CreatedMetaFields):
     # Stable per-browser key (localStorage) for a shared-link respondent. Used to collapse the
     # abandoned partial a refresh leaves behind into the respondent's eventual real response.
     respondent_key = models.CharField(max_length=64, blank=True, default="", db_default="")
+    # Best-effort, UNTRUSTED person linkage for a shared-link respondent: the distinct_id read from
+    # the public interview URL's query string. Never authoritative — never used for access control
+    # and never folded into interviewee_identifier — so a respondent can't claim (or suppress) a
+    # targeted invitee. Empty for personalised interviews.
+    distinct_id = models.CharField(max_length=200, blank=True, default="", db_default="")
     recording_url = models.URLField(blank=True, default="", max_length=2048)
     call_metadata = models.JSONField(default=dict, blank=True)
 

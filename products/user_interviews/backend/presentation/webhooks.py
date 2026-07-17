@@ -15,6 +15,7 @@ import json
 import string
 import hashlib
 from typing import Any
+from uuid import uuid4
 
 from django.conf import settings
 from django.db import transaction
@@ -103,13 +104,13 @@ class _MetricsEmittingRateThrottle(SimpleRateThrottle):
 
 
 class InterviewStartCallTokenThrottle(_MetricsEmittingRateThrottle):
-    """Per-share-token ceiling on `start_call`. One token now maps to either a single invited
+    """Sustained per-share-token ceiling on `start_call`. One token maps to either a single invited
     person (personalised link) or many self-serve respondents (a shared topic link), so this is a
-    generous *sustained* bucket rather than a tight per-minute burst — a low per-minute cap would
-    throttle a shared link's legitimate concurrent respondents, who all share one token. Tight
-    per-caller protection is the job of the IP (60/min) and respondent (30/min) throttles; this
-    bucket bounds the worst-case aggregate a single token can drive, and keying on the token (not
-    IP) means an attacker rotating IPs still can't drain a guessed token."""
+    generous *sustained* bucket. On its own it would still let the whole hour's budget be spent in a
+    burst — the per-IP cap doesn't bind a caller spread across many IPs, and the respondent throttle
+    keys on a client-supplied respondent_key an attacker can rotate — so the companion
+    `InterviewStartCallTokenBurstThrottle` adds a short-window per-token cap. Keying on the token (not
+    IP) means an attacker rotating IPs still can't drain a guessed token faster than these two allow."""
 
     scope = "user_interviews_start_call_token"
     rate = "600/hour"
@@ -120,6 +121,17 @@ class InterviewStartCallTokenThrottle(_MetricsEmittingRateThrottle):
         if not token:
             return None
         return self.cache_format % {"scope": self.scope, "ident": token}
+
+
+class InterviewStartCallTokenBurstThrottle(InterviewStartCallTokenThrottle):
+    """Short-window per-share-token burst cap. Bounds the *instantaneous* rate a single token can be
+    driven at — regardless of how many IPs or rotated respondent_keys a caller uses — so the sustained
+    hourly budget can't be dumped in seconds. Recovers within the minute, and 120/min sits well above
+    the realistic concurrent-Start volume for a shared link at this stage, so legitimate respondents
+    aren't throttled. Reuses the parent's token-keyed cache key under its own scope."""
+
+    scope = "user_interviews_start_call_token_burst"
+    rate = "120/minute"
 
 
 class InterviewStartCallRespondentThrottle(_MetricsEmittingRateThrottle):
@@ -302,23 +314,37 @@ def _build_first_message(
 # are echoed into Vapi metadata and persisted on the UserInterview, so cap them defensively.
 _RESPONDENT_NAME_MAX_CHARS = 200
 _RESPONDENT_KEY_MAX_CHARS = 64
-_LINKAGE_ID_MAX_CHARS = 400
+
+# Every shared-link response is stored under an identifier carrying this prefix. It can NEVER equal a
+# personalised interviewee's identifier (an email or distinct_id), so an anonymous respondent can
+# neither be attributed to nor lock out a targeted invitee.
+SHARED_RESPONDENT_IDENTIFIER_PREFIX = "shared:"
 
 
 def _clean_field(value: Any, max_chars: int) -> str:
     return str(value).strip()[:max_chars] if value else ""
 
 
-def _shared_interviewee_identifier(respondent_name: str, respondent_key: str) -> str:
-    """Display/attribution string for a shared-link respondent. Prefer the self-reported name;
-    fall back to the respondent_key so rows stay distinguishable, then a bare marker."""
-    return respondent_name or (f"shared:{respondent_key}" if respondent_key else "shared")
+def _shared_interviewee_identifier(respondent_key: str) -> str:
+    """Namespaced, non-authoritative identity for a shared-link respondent.
+
+    Keyed on the stable per-browser ``respondent_key`` so a refreshed respondent keeps one identity;
+    falls back to a random id when no key was supplied so rows stay distinct. Deliberately independent
+    of any self-reported name or untrusted ``distinct_id`` — those never determine attribution."""
+    return f"{SHARED_RESPONDENT_IDENTIFIER_PREFIX}{respondent_key or uuid4().hex}"
 
 
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
-@throttle_classes([InterviewStartCallIPThrottle, InterviewStartCallRespondentThrottle, InterviewStartCallTokenThrottle])
+@throttle_classes(
+    [
+        InterviewStartCallIPThrottle,
+        InterviewStartCallRespondentThrottle,
+        InterviewStartCallTokenBurstThrottle,
+        InterviewStartCallTokenThrottle,
+    ]
+)
 def start_call(request: Request, access_token: str) -> Response:
     """Return the Vapi credentials + assistant overrides for a public interview share.
 
@@ -373,18 +399,18 @@ def start_call(request: Request, access_token: str) -> Response:
         respondent_key = _clean_field(body.get("respondent_key"), _RESPONDENT_KEY_MAX_CHARS)
         user_name = respondent_name or "there"
         agent_context = topic.agent_context or ""
-        # A provided, valid distinct_id becomes the interviewee_identifier — same semantics as a
-        # personalised distinct-id interview — so no extra field is needed. Fall back to the
-        # self-reported name, then a shared marker.
-        distinct_id = valid_distinct_id(body.get("distinct_id"))
-        interviewee_identifier = distinct_id or _shared_interviewee_identifier(respondent_name, respondent_key)
+        # The response is stored under a namespaced identifier that can never collide with a targeted
+        # invitee's. The distinct_id from the URL is best-effort, UNTRUSTED linkage carried in its own
+        # metadata field — never folded into the identifier, so it can't forge attribution or lock a
+        # targeted person out.
         metadata: dict[str, str] = {
             "topic_id": str(topic.id),
-            "interviewee_identifier": interviewee_identifier,
+            "interviewee_identifier": _shared_interviewee_identifier(respondent_key),
             "sharing_access_token": access_token,
             "shared": "true",
             "respondent_name": respondent_name,
             "respondent_key": respondent_key,
+            "distinct_id": valid_distinct_id(body.get("distinct_id")),
             # session_id isn't persisted in the DB — it rides on the lifecycle PostHog event (as
             # $session_id, which associates the interview with the session recording). Validated
             # here at the trust boundary; invalid values are dropped, not rejected.
@@ -411,7 +437,7 @@ def start_call(request: Request, access_token: str) -> Response:
         "user_interviews_start_call_issued",
         team_id=sharing_config.team_id,
         topic_id=str(topic.id),
-        shared=ic is None,
+        shared=is_shared_interviewee_context(ic.interviewee_identifier),
     )
 
     return Response(
@@ -591,12 +617,13 @@ def vapi_webhook(request: Request) -> Response:
     if is_shared_interviewee_context(interviewee_context.interviewee_identifier):
         respondent_name = _clean_field(merged_metadata.get("respondent_name"), _RESPONDENT_NAME_MAX_CHARS)
         respondent_key = _clean_field(merged_metadata.get("respondent_key"), _RESPONDENT_KEY_MAX_CHARS)
-        # interviewee_identifier already carries a folded distinct_id when one was provided (set in
-        # start_call); fall back defensively if the metadata was stripped in transit.
-        interviewee_identifier = _clean_field(
-            merged_metadata.get("interviewee_identifier"), _LINKAGE_ID_MAX_CHARS
-        ) or _shared_interviewee_identifier(respondent_name, respondent_key)
+        # Recompute the identifier from respondent_key rather than trusting the echoed metadata, so it
+        # is always a namespaced shared marker and can never be steered onto a targeted invitee.
+        interviewee_identifier = _shared_interviewee_identifier(respondent_key)
         interviewee_emails = []
+        # Best-effort, untrusted person linkage. Re-validated here (defense in depth) and stored in its
+        # own column — never as the interviewee_identifier, so it can't forge attribution.
+        distinct_id = valid_distinct_id(merged_metadata.get("distinct_id"))
         # session_id isn't persisted — it rides on the lifecycle event below. Re-validated here
         # (defense in depth) so only a well-formed UUIDv7 reaches the event.
         session_id = valid_session_id(merged_metadata.get("session_id"))
@@ -604,6 +631,7 @@ def vapi_webhook(request: Request) -> Response:
         interviewee_identifier = interviewee_context.interviewee_identifier
         interviewee_emails = [interviewee_identifier] if "@" in interviewee_identifier else []
         respondent_name = respondent_key = ""
+        distinct_id = ""
         session_id = ""
 
     with transaction.atomic():
@@ -614,6 +642,7 @@ def vapi_webhook(request: Request) -> Response:
             interviewee_emails=interviewee_emails,
             respondent_name=respondent_name,
             respondent_key=respondent_key,
+            distinct_id=distinct_id,
             transcript=transcript,
             summary=message.get("summary", "") or "",
             recording_url=recording_url,

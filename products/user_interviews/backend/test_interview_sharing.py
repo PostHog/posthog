@@ -24,7 +24,6 @@ from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.models.sharing_configuration import SharingConfiguration
 
 from products.user_interviews.backend.models import IntervieweeContext, UserInterview, UserInterviewTopic
-from products.user_interviews.backend.presentation.views import UserInterviewTopicSerializer
 from products.user_interviews.backend.presentation.webhooks import (
     DEFAULT_FIRST_MESSAGE_TEMPLATE,
     EMBEDDING_CONTENT_MAX_BYTES,
@@ -180,13 +179,12 @@ class TestUserInterviewTopicCreate(_FeatureFlagEnabledMixin):
             ("empty_lists", {"interviewee_emails": [], "interviewee_distinct_ids": []}),
         ]
     )
-    def test_rejects_topic_without_identifiers(self, _name: str, targeting: dict[str, Any]):
+    def test_accepts_topic_without_identifiers(self, _name: str, targeting: dict[str, Any]):
+        # A zero-target topic is valid — it backs a non-personalised (shared) link for anonymous
+        # visitors we have no contact details for. Targets can be added later for personalised links.
         payload = {"topic": "Why people churn", **targeting}
         response = self.client.post(self._url(), data=payload, format="json")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
-        body = response.json()
-        candidates = body.get("non_field_errors") or [body.get("detail", "")]
-        assert UserInterviewTopicSerializer.MISSING_TARGETING_ERROR in candidates, body
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
 
     @parameterized.expand(
         [

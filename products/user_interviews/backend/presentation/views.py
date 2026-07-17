@@ -611,19 +611,10 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
     def validate_invite_message(self, value: str | None) -> str | None:
         return validate_invite_message(value)
 
-    MISSING_TARGETING_ERROR = "At least one of interviewee_emails or interviewee_distinct_ids must be provided."
-
-    def validate(self, attrs: dict) -> dict:
-        if not self._current(attrs, "interviewee_emails", []) and not self._current(
-            attrs, "interviewee_distinct_ids", []
-        ):
-            raise serializers.ValidationError(self.MISSING_TARGETING_ERROR)
-        return attrs
-
-    def _current(self, attrs: dict, field: str, default: Any) -> Any:
-        if field in attrs:
-            return attrs[field]
-        return getattr(self.instance, field, default)
+    # A topic needs no targeted interviewees to be valid: a non-personalised (shared) link is created
+    # for a zero-target topic — the whole point for reaching anonymous visitors we have no contact
+    # details for. The personalised flows (generate_links / send_invites) still guard the empty case
+    # with their own errors where they actually need targets.
 
     def create(self, validated_data: dict) -> UserInterviewTopic:
         request = self.context["request"]
@@ -748,6 +739,19 @@ def _ensure_shared_link_for_topic(*, topic: UserInterviewTopic, team: Team, crea
             defaults={"agent_context": "", "created_by": created_by},
         )
         return _get_or_create_active_share(team=team, interviewee_context=ic)
+
+
+def _disable_shared_link_for_topic(*, topic: UserInterviewTopic, team: Team) -> None:
+    """Revoke the topic's shared (non-personalised) interview link so an already-distributed URL stops
+    working. Disables every enabled SharingConfiguration on the topic's shared-link sentinel context —
+    mirrors `_disable_shares_for_identifiers` for the personalised links. A later `shared_link` POST
+    mints a fresh token (rotation)."""
+    SharingConfiguration.objects.filter(
+        team=team,
+        interviewee_context__topic=topic,
+        interviewee_context__interviewee_identifier=SHARED_INTERVIEWEE_IDENTIFIER,
+        enabled=True,
+    ).update(enabled=False)
 
 
 def _dogfood_identifier(caller: User) -> str:
@@ -1053,6 +1057,7 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return response.Response(InterviewLinkSerializer(payload, many=True).data)
 
     @extend_schema(
+        methods=["POST"],
         request=None,
         responses={200: OpenApiResponse(response=SharedInterviewLinkSerializer)},
         description=(
@@ -1063,9 +1068,22 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "to the URL are captured as best-effort person/session linkage."
         ),
     )
-    @action(detail=True, methods=["post"], url_path="shared_link")
+    @extend_schema(
+        methods=["DELETE"],
+        request=None,
+        responses={204: OpenApiResponse(description="Shared link revoked; the already-distributed URL stops working.")},
+        description=(
+            "Revoke this topic's shared (non-personalised) interview link so an already-distributed URL "
+            "can no longer start interviews. Idempotent — a no-op when no active shared link exists. A "
+            "subsequent shared_link POST mints a fresh link (rotation)."
+        ),
+    )
+    @action(detail=True, methods=["post", "delete"], url_path="shared_link")
     def shared_link(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
         topic = self.get_object()
+        if request.method == "DELETE":
+            _disable_shared_link_for_topic(topic=topic, team=self.team)
+            return response.Response(status=status.HTTP_204_NO_CONTENT)
         sharing_config = _ensure_shared_link_for_topic(topic=topic, team=self.team, created_by=cast(User, request.user))
         payload = {"interview_url": absolute_uri(f"/interview/{sharing_config.access_token}")}
         return response.Response(SharedInterviewLinkSerializer(payload).data)

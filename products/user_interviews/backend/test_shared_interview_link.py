@@ -14,7 +14,7 @@ from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 
-from products.user_interviews.backend.facade.api import SHARED_INTERVIEWEE_IDENTIFIER
+from products.user_interviews.backend.facade.api import SHARED_INTERVIEWEE_IDENTIFIER, has_replied
 from products.user_interviews.backend.models import (
     IntervieweeContext,
     UserInterview,
@@ -98,6 +98,52 @@ class TestGenerateSharedLink(_FeatureFlagEnabledMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
 
+class TestRevokeSharedLink(_FeatureFlagEnabledMixin):
+    def _topic(self) -> UserInterviewTopic:
+        return UserInterviewTopic.objects.create(
+            team=self.team,
+            created_by=self.user,
+            topic="Alternatives and comparisons",
+            questions=[],
+        )
+
+    def _url(self, topic_id: str) -> str:
+        return f"/api/environments/{self.team.id}/user_interview_topics/{topic_id}/shared_link/"
+
+    def _start_call_url(self, token: str) -> str:
+        return f"/api/user_interviews/share/{token}/start_call/"
+
+    def _token(self, body: dict) -> str:
+        return body["interview_url"].rstrip("/").rsplit("/", 1)[-1]
+
+    def _enabled_shared_count(self, topic: UserInterviewTopic) -> int:
+        return SharingConfiguration.objects.filter(
+            interviewee_context__topic=topic,
+            interviewee_context__interviewee_identifier=SHARED_INTERVIEWEE_IDENTIFIER,
+            enabled=True,
+        ).count()
+
+    @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
+    def test_delete_revokes_link_and_post_mints_a_fresh_one(self) -> None:
+        topic = self._topic()
+        token1 = self._token(self.client.post(self._url(str(topic.id))).json())
+        assert self._enabled_shared_count(topic) == 1
+
+        assert self.client.delete(self._url(str(topic.id))).status_code == status.HTTP_204_NO_CONTENT
+        assert self._enabled_shared_count(topic) == 0
+
+        token2 = self._token(self.client.post(self._url(str(topic.id))).json())
+        assert token2 != token1
+        assert self._enabled_shared_count(topic) == 1
+
+        # The revoked URL can no longer start a call; the freshly minted one can.
+        self.client.logout()
+        revoked = self.client.post(self._start_call_url(token1), data={"name": "Robin"}, format="json")
+        assert revoked.status_code == status.HTTP_404_NOT_FOUND
+        fresh = self.client.post(self._start_call_url(token2), data={"name": "Robin"}, format="json")
+        assert fresh.status_code == status.HTTP_200_OK
+
+
 class TestSharedInterviewPublicViewer(APIBaseTest):
     def _shared_config(self) -> SharingConfiguration:
         topic = UserInterviewTopic.objects.create(
@@ -159,8 +205,11 @@ class TestSharedStartCall(APIBaseTest):
         metadata = response.json()["assistant_overrides"]["metadata"]
         assert metadata["shared"] == "true"
         assert metadata["respondent_name"] == "Robin"
-        # A valid distinct_id folds into the identifier (no separate distinct_id field).
-        assert metadata["interviewee_identifier"] == "person-abc"
+        # The identifier is namespaced on the respondent_key, never the provided distinct_id — so a
+        # respondent can't attribute themselves to a targeted invitee. The distinct_id rides in its
+        # own field as best-effort, untrusted linkage.
+        assert metadata["interviewee_identifier"] == "shared:resp-123"
+        assert metadata["distinct_id"] == "person-abc"
         assert metadata["session_id"] == self._SESSION_ID_V7
         assert metadata["sharing_access_token"] == config.access_token
         # The self-reported name greets the respondent.
@@ -180,8 +229,10 @@ class TestSharedStartCall(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         metadata = response.json()["assistant_overrides"]["metadata"]
         assert metadata["session_id"] == ""
-        # Illegal distinct_id dropped, so the identifier falls back to the self-reported name.
-        assert metadata["interviewee_identifier"] == "Robin"
+        # Illegal distinct_id is dropped from the linkage field; the identifier is still a namespaced
+        # shared marker (never the self-reported name), so same-named respondents can't collide.
+        assert metadata["distinct_id"] == ""
+        assert metadata["interviewee_identifier"].startswith("shared:")
 
     @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
     def test_honeypot_filled_is_rejected(self) -> None:
@@ -218,8 +269,10 @@ class TestSharedVapiWebhook(APIBaseTest):
                         "shared": "true",
                         "respondent_name": name,
                         "respondent_key": respondent_key,
-                        # start_call folds a valid distinct_id into interviewee_identifier.
-                        "interviewee_identifier": "person-abc",
+                        # start_call namespaces the identifier on respondent_key and keeps the untrusted
+                        # distinct_id in its own field.
+                        "interviewee_identifier": f"shared:{respondent_key}",
+                        "distinct_id": "person-abc",
                         "session_id": "018f0b7a-0000-7000-8000-000000000000",
                     },
                 },
@@ -251,8 +304,10 @@ class TestSharedVapiWebhook(APIBaseTest):
         assert config.interviewee_context is not None
         assert interview.topic_id == config.interviewee_context.topic_id
         assert interview.respondent_name == "Robin"
-        # Provided distinct_id is stored in interviewee_identifier, not a dedicated column.
-        assert interview.interviewee_identifier == "person-abc"
+        # The identifier is namespaced on respondent_key; the untrusted distinct_id is stored in its
+        # own column, never as the identifier.
+        assert interview.interviewee_identifier == "shared:resp-1"
+        assert interview.distinct_id == "person-abc"
         assert interview.interviewee_emails == []
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
@@ -272,6 +327,37 @@ class TestSharedVapiWebhook(APIBaseTest):
         assert ended[0].kwargs["properties"]["$session_id"] == "018f0b7a-0000-7000-8000-000000000000"
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    def test_shared_response_cannot_impersonate_or_lock_out_a_targeted_invitee(self) -> None:
+        # A shared respondent forges a targeted invitee's identifier as their linkage. It must not
+        # become the stored identifier (no forged attribution) and must not gate the invitee's
+        # personalised link (no lockout) — the core IDOR the namespaced identity prevents.
+        topic = UserInterviewTopic.objects.create(
+            team=self.team,
+            created_by=self.user,
+            interviewee_emails=["alex@example.com"],
+            topic="Alternatives and comparisons",
+            questions=[],
+        )
+        config = _make_shared_config(team=self.team, topic=topic, created_by=self.user)
+        payload = self._payload(
+            config.access_token, call_id="call_x", respondent_key="attacker", transcript="a full answer"
+        )
+        # Forge the target's identifier in both the echoed identifier and the linkage field.
+        payload["message"]["call"]["metadata"]["interviewee_identifier"] = "alex@example.com"
+        payload["message"]["call"]["metadata"]["distinct_id"] = "alex@example.com"
+        self.client.logout()
+        response = self._signed_post("topsecret", payload)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+
+        interview = UserInterview.objects.get(team=self.team)
+        # Stored under a namespaced shared identity, never the targeted invitee's; the forged linkage
+        # is kept only in the untrusted distinct_id field.
+        assert interview.interviewee_identifier == "shared:attacker"
+        assert interview.distinct_id == "alex@example.com"
+        # The targeted invitee's personalised link is NOT marked replied.
+        assert not has_replied(team_id=self.team.id, topic_id=topic.id, interviewee_identifier="alex@example.com")
+
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
     def test_completed_response_supersedes_abandoned_partial_from_a_refresh(self) -> None:
         config = self._shared_config()
         assert config.interviewee_context is not None
@@ -281,7 +367,7 @@ class TestSharedVapiWebhook(APIBaseTest):
             team=self.team,
             created_by=self.user,
             topic=topic,
-            interviewee_identifier="Robin",
+            interviewee_identifier="shared:resp-1",
             respondent_key="resp-1",
             transcript="",
             classifications=[UserInterviewClassification.ABANDONED],
