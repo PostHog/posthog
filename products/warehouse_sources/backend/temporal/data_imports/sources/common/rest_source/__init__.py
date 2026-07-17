@@ -268,6 +268,8 @@ def create_resources(
             paginator=create_paginator(client_config.get("paginator")),
             session=client_config.get("session"),
             max_retry_attempts=client_config.get("max_retries", DEFAULT_RETRY_ATTEMPTS),
+            allowed_hosts=client_config.get("allowed_hosts"),
+            allow_redirects=client_config.get("allow_redirects", True),
         )
 
         hooks = create_response_hooks(endpoint_config.get("response_actions"))

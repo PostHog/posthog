@@ -170,6 +170,14 @@ class ClientConfig(TypedDict, total=False):
     # Cap on retry attempts per request. Left unset, RESTClient uses its default;
     # the inline preview sets 1 so a rate-limited endpoint errors instead of sleeping.
     max_retries: int
+    # SSRF host-pinning. When set (even to an empty list), every outgoing request URL —
+    # including paginator next-page links and seeded resume URLs — must resolve to one of
+    # these hosts; the base_url host is always implicitly allowed. Off-host URLs are rejected
+    # so a spoofed ``next`` link can't exfiltrate credentials. Pair with allow_redirects=False.
+    allowed_hosts: Optional[list[str]]
+    # When False, redirects are not followed and any 3xx is rejected — closes the redirect-based
+    # off-host escape that host-pinning alone would miss. Defaults to True (follow redirects).
+    allow_redirects: bool
 
 
 class IncrementalArgs(TypedDict, total=False):

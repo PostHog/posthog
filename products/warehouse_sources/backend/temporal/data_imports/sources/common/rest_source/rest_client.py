@@ -4,6 +4,7 @@ from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 from requests import Request, Response, Session
 from requests.auth import AuthBase
@@ -106,12 +107,28 @@ class RESTClient:
         paginator: Optional[BasePaginator] = None,
         session: Optional[Session] = None,
         max_retry_attempts: int = DEFAULT_RETRY_ATTEMPTS,
+        allowed_hosts: Optional[list[str]] = None,
+        allow_redirects: bool = True,
     ) -> None:
         self.base_url = base_url or ""
         self.headers = headers or {}
         self.auth = auth
         self.paginator = paginator
         self._max_retry_attempts = max_retry_attempts
+        self._allow_redirects = allow_redirects
+        # When set (even to an empty list), every outgoing request URL — including
+        # paginator next-page links and seeded resume URLs — must resolve to one of
+        # these hosts (the base_url host is always implicitly allowed). This pins
+        # pagination to the expected host so a tampered or spoofed ``next`` link can't
+        # exfiltrate the Authorization header to an attacker-controlled origin. Pair
+        # with ``allow_redirects=False`` to also reject cross-host redirects.
+        self._allowed_hosts: Optional[set[str]] = None
+        if allowed_hosts is not None:
+            hosts = {host.lower() for host in allowed_hosts if host}
+            base_host = urlsplit(self.base_url).hostname
+            if base_host:
+                hosts.add(base_host.lower())
+            self._allowed_hosts = hosts
         # Default to the tracked session so every source built on top of
         # `RESTClient` participates in HTTP logging, metrics, and sample
         # capture. Callers can pass a pre-built `Session` for tests or
@@ -124,6 +141,17 @@ class RESTClient:
 
     def _join_url(self, path: str) -> str:
         return resolve_request_url(self.base_url, path)
+
+    def _check_allowed_host(self, url: Optional[str]) -> None:
+        if self._allowed_hosts is None or not url:
+            return
+        host = urlsplit(url).hostname
+        if host is None or host.lower() not in self._allowed_hosts:
+            raise ValueError(
+                f"Refusing to send request to disallowed host {host!r} (url {url!r}); "
+                f"allowed hosts: {sorted(self._allowed_hosts)}. A pagination or resume URL "
+                "pointing off the expected API host is rejected to prevent credential exfiltration."
+            )
 
     def paginate(
         self,
@@ -187,12 +215,25 @@ class RESTClient:
     )
     def _send_request(self, request: Request, hooks: Hooks) -> tuple[Response, Any]:
         prepared = self.session.prepare_request(request)
+        # Fail loud on a pagination/resume URL that points off the expected host before the
+        # request (and its Authorization header) ever leaves the process. Raised outside the
+        # retryable-error type so it propagates immediately rather than being retried.
+        self._check_allowed_host(prepared.url)
         # `send` reads the body eagerly (stream=False), so a connection dropped mid-stream
         # surfaces here as ChunkedEncodingError. Reissue it like a truncated/partial body below.
         try:
-            response = self.session.send(prepared)
+            response = self.session.send(prepared, allow_redirects=self._allow_redirects)
         except ChunkedEncodingError as e:
             raise RESTClientRetryableError(f"Connection broken while reading response: {e}") from e
+
+        # With redirects disabled, a 3xx is not an error to `raise_for_status` and would fall
+        # through to JSON parsing; reject it explicitly so a redirect can't smuggle the request
+        # (and credentials) to another origin.
+        if not self._allow_redirects and response.is_redirect:
+            raise ValueError(
+                f"Unexpected redirect ({response.status_code}) to "
+                f"{response.headers.get('Location')!r} from {prepared.url}; refusing to follow."
+            )
 
         if response.status_code == 429 or response.status_code >= 500:
             raise RESTClientRetryableError(
