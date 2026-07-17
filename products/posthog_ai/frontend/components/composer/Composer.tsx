@@ -2,6 +2,7 @@ import {
     createContext,
     forwardRef,
     type HTMLAttributes,
+    type KeyboardEventHandler,
     type ReactNode,
     type RefObject,
     useCallback,
@@ -289,18 +290,26 @@ export interface ComposerTextareaProps {
     autoFocus?: boolean
     minRows?: number
     maxRows?: number
+    /** `'enter'` submits on Enter (PostHog AI), `'cmd-enter'` on Cmd/Ctrl+Enter (tasks composer). */
+    submitShortcut?: 'enter' | 'cmd-enter'
+    /** Extra key handling (e.g. the mode picker's `shift+tab` cycle); runs after the submit shortcut. */
+    onKeyDown?: KeyboardEventHandler<HTMLTextAreaElement>
     'data-attr'?: string
 }
 
-/** The textarea itself, wired to the context value/submit. Submits on Enter, Shift+Enter for a newline. */
+/** The textarea itself, wired to the context value/submit. */
 function ComposerTextarea({
     className,
     autoFocus,
     minRows = 1,
     maxRows = 10,
+    submitShortcut = 'enter',
     ...rest
 }: ComposerTextareaProps): JSX.Element {
     const { value, onChange, submit, textAreaRef, disabled, id } = useComposerContext()
+    // onPressEnter / onPressCmdEnter are mutually exclusive in LemonTextArea's type — pick one.
+    const submitProps =
+        submitShortcut === 'cmd-enter' ? { onPressCmdEnter: () => submit() } : { onPressEnter: () => submit() }
     return (
         <LemonTextArea
             id={id}
@@ -314,7 +323,7 @@ function ComposerTextarea({
             autoFocus={autoFocus}
             className={cn('!border-none !bg-transparent min-h-16 py-2 pl-2 pr-12 resize-none', className)}
             hideFocus
-            onPressEnter={() => submit()}
+            {...submitProps}
             {...rest}
         />
     )
