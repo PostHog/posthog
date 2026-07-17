@@ -122,5 +122,6 @@ API access requires a Pro, Premium, or Enterprise plan, and the token feature mu
         return goldcast_source(
             access_key=config.access_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )
