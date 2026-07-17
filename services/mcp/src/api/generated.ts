@@ -12281,6 +12281,254 @@ export namespace Schemas {
       readonly import_config: unknown;
     }
 
+    export interface BatchImportPartsProgress {
+      /** Number of finished parts (a part is done when its committed byte offset has reached its known total size). */
+      done: number;
+      /** Total number of parts the worker has planned for this import. */
+      total: number;
+      /**
+         * Key (file/date-range identifier) of the first unfinished part - the one in flight or next up. Null when all parts are done or the worker has not started. URL keys (url_list sources) have their query string and userinfo redacted, since those can carry presigned tokens or credentials.
+         * @nullable
+         */
+      inflight_key: string | null;
+      /**
+         * Committed byte offset (decompressed) within the in-flight part. Null when there is no in-flight part.
+         * @nullable
+         */
+      inflight_offset: number | null;
+      /**
+         * Total decompressed size in bytes of the in-flight part, or null if the worker has not measured it yet.
+         * @nullable
+         */
+      inflight_total_size: number | null;
+    }
+
+    /**
+     * Raw worker progress blob: {'parts': [{'key', 'current_offset', 'total_size'}]}. A part is done when current_offset >= total_size; parts are processed in order. URL part keys (url_list sources) have their query string and userinfo redacted, since those can carry presigned tokens or credentials.
+     * @nullable
+     */
+    export type BatchImportSupportDetailState = { [key: string]: unknown } | null;
+
+    /**
+     * Source/format/sink configuration of the job. References secrets by key name only; secret values are never returned. Embedded URLs (e.g. a custom S3 endpoint_url) have their query string and userinfo redacted.
+     * @nullable
+     */
+    export type BatchImportSupportDetailImportConfig = { [key: string]: unknown } | null;
+
+    export type DisplayStatusEnum = typeof DisplayStatusEnum[keyof typeof DisplayStatusEnum];
+
+
+    export const DisplayStatusEnum = {
+      WaitingToStart: 'waiting_to_start',
+      Running: 'running',
+      Paused: 'paused',
+      Failed: 'failed',
+      Completed: 'completed',
+    } as const;
+
+    /**
+     * Full diagnostics view: adds the raw worker `state` and `import_config` blobs.
+     *
+     * `import_config` holds secret key *names* only - secret values live exclusively in the
+     * encrypted `secrets` column, which no support serializer exposes.
+     */
+    export interface BatchImportSupportDetail {
+      /** UUID of the batch import job. */
+      readonly id: string;
+      /** ID of the team (project) the import belongs to. */
+      team_id: number;
+      /** Name of the team the import belongs to. */
+      team_name: string;
+      /** Raw persisted status of the job.
+       *
+       * * `completed` - Completed
+       * * `failed` - Failed
+       * * `paused` - Paused
+       * * `running` - Running */
+      status?: BatchImportStatusEnum;
+      /** Effective status: 'waiting_to_start' when the job is running but no worker has claimed it yet (lease_id is null), otherwise the raw status. */
+      readonly display_status: DisplayStatusEnum;
+      /**
+         * Developer-facing status message written by the worker or an operator - the primary debugging signal. Not shown to the customer. Embedded URLs have their query string and userinfo redacted, since url_list part keys can carry presigned tokens or credentials.
+         * @nullable
+         */
+      readonly status_message: string | null;
+      /**
+         * Customer-facing status message shown in the PostHog UI. Embedded URLs are redacted the same way as status_message.
+         * @nullable
+         */
+      readonly display_status_message: string | null;
+      /** Worker part progress summary derived from the raw state blob. */
+      readonly parts_progress: BatchImportPartsProgress;
+      /** Source the job imports from (e.g. s3, mixpanel, amplitude, urls, folder), or 'unknown' if unset. */
+      readonly source_type: string;
+      /** Format of the source events (e.g. mixpanel, amplitude, captured), or 'unknown' if unset. */
+      readonly content_type: string;
+      /**
+         * Start of the source date range for date-range sources (Mixpanel/Amplitude), else null.
+         * @nullable
+         */
+      readonly source_start_date: string | null;
+      /**
+         * End of the source date range for date-range sources (Mixpanel/Amplitude), else null.
+         * @nullable
+         */
+      readonly source_end_date: string | null;
+      /**
+         * Where imported events are written (normally 'capture'; 'kafka'/'noop' for internal use), or null if unset.
+         * @nullable
+         */
+      readonly sink_type: string | null;
+      /**
+         * Configured sink send rate in events per second, or null if unset.
+         * @nullable
+         */
+      readonly sink_send_rate: number | null;
+      /**
+         * Lease token of the worker currently holding the job, or null when unclaimed. Claims lease for 30 minutes; the running heartbeat renews for 5 minutes.
+         * @nullable
+         */
+      lease_id?: string | null;
+      /**
+         * When the current worker lease expires.
+         * @nullable
+         */
+      leased_until?: string | null;
+      /** True when the job holds a lease whose expiry is in the past. On a running job this means the worker died or the row is claimable again; the next poll can re-claim it. */
+      readonly lease_expired: boolean;
+      /**
+         * Consecutive transient-failure retries so far (0 = healthy).
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      backoff_attempt?: number;
+      /**
+         * When the worker will retry after a transient failure. A future value means the job is in a retry loop, not stuck.
+         * @nullable
+         */
+      backoff_until?: string | null;
+      /**
+         * ID of the user who created the import, if any.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      created_by_id?: number | null;
+      /** When the import was created. */
+      readonly created_at: string;
+      /** Last write to the row - the worker heartbeats this while processing. */
+      readonly updated_at: string;
+      /**
+         * Raw worker progress blob: {'parts': [{'key', 'current_offset', 'total_size'}]}. A part is done when current_offset >= total_size; parts are processed in order. URL part keys (url_list sources) have their query string and userinfo redacted, since those can carry presigned tokens or credentials.
+         * @nullable
+         */
+      readonly state: BatchImportSupportDetailState;
+      /**
+         * Source/format/sink configuration of the job. References secrets by key name only; secret values are never returned. Embedded URLs (e.g. a custom S3 endpoint_url) have their query string and userinfo redacted.
+         * @nullable
+         */
+      readonly import_config: BatchImportSupportDetailImportConfig;
+      /**
+         * Email of the user who created the import, if known.
+         * @nullable
+         */
+      readonly created_by_email: string | null;
+    }
+
+    /**
+     * Compact cross-team diagnostics view of a batch import job for PostHog support staff.
+     *
+     * Excludes the raw `state` / `import_config` blobs (see the detail serializer) and never
+     * exposes the encrypted `secrets` column.
+     */
+    export interface BatchImportSupportList {
+      /** UUID of the batch import job. */
+      readonly id: string;
+      /** ID of the team (project) the import belongs to. */
+      team_id: number;
+      /** Name of the team the import belongs to. */
+      team_name: string;
+      /** Raw persisted status of the job.
+       *
+       * * `completed` - Completed
+       * * `failed` - Failed
+       * * `paused` - Paused
+       * * `running` - Running */
+      status?: BatchImportStatusEnum;
+      /** Effective status: 'waiting_to_start' when the job is running but no worker has claimed it yet (lease_id is null), otherwise the raw status. */
+      readonly display_status: DisplayStatusEnum;
+      /**
+         * Developer-facing status message written by the worker or an operator - the primary debugging signal. Not shown to the customer. Embedded URLs have their query string and userinfo redacted, since url_list part keys can carry presigned tokens or credentials.
+         * @nullable
+         */
+      readonly status_message: string | null;
+      /**
+         * Customer-facing status message shown in the PostHog UI. Embedded URLs are redacted the same way as status_message.
+         * @nullable
+         */
+      readonly display_status_message: string | null;
+      /** Worker part progress summary derived from the raw state blob. */
+      readonly parts_progress: BatchImportPartsProgress;
+      /** Source the job imports from (e.g. s3, mixpanel, amplitude, urls, folder), or 'unknown' if unset. */
+      readonly source_type: string;
+      /** Format of the source events (e.g. mixpanel, amplitude, captured), or 'unknown' if unset. */
+      readonly content_type: string;
+      /**
+         * Start of the source date range for date-range sources (Mixpanel/Amplitude), else null.
+         * @nullable
+         */
+      readonly source_start_date: string | null;
+      /**
+         * End of the source date range for date-range sources (Mixpanel/Amplitude), else null.
+         * @nullable
+         */
+      readonly source_end_date: string | null;
+      /**
+         * Where imported events are written (normally 'capture'; 'kafka'/'noop' for internal use), or null if unset.
+         * @nullable
+         */
+      readonly sink_type: string | null;
+      /**
+         * Configured sink send rate in events per second, or null if unset.
+         * @nullable
+         */
+      readonly sink_send_rate: number | null;
+      /**
+         * Lease token of the worker currently holding the job, or null when unclaimed. Claims lease for 30 minutes; the running heartbeat renews for 5 minutes.
+         * @nullable
+         */
+      lease_id?: string | null;
+      /**
+         * When the current worker lease expires.
+         * @nullable
+         */
+      leased_until?: string | null;
+      /** True when the job holds a lease whose expiry is in the past. On a running job this means the worker died or the row is claimable again; the next poll can re-claim it. */
+      readonly lease_expired: boolean;
+      /**
+         * Consecutive transient-failure retries so far (0 = healthy).
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      backoff_attempt?: number;
+      /**
+         * When the worker will retry after a transient failure. A future value means the job is in a retry loop, not stuck.
+         * @nullable
+         */
+      backoff_until?: string | null;
+      /**
+         * ID of the user who created the import, if any.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      created_by_id?: number | null;
+      /** When the import was created. */
+      readonly created_at: string;
+      /** Last write to the row - the worker heartbeats this while processing. */
+      readonly updated_at: string;
+    }
+
     export type EventPropFilterTypeEnum = typeof EventPropFilterTypeEnum[keyof typeof EventPropFilterTypeEnum];
 
 
@@ -14749,7 +14997,7 @@ export namespace Schemas {
     /**
      * @nullable
      */
-    export type TaskDetailDTOJsonSchema = { [key: string]: unknown } | null;
+    export type ConversationTaskJsonSchema = { [key: string]: unknown } | null;
 
     /**
      * Conversation envelope variant: ``latest_run`` is just the latest run's id, not the nested
@@ -14759,7 +15007,7 @@ export namespace Schemas {
      * Read access here follows the conversation (the share-by-link unit), not per-creator task
      * visibility — write/send stays creator-gated. See ``tasks_facade.get_conversation_task_dtos``.
      */
-    export interface TaskDetailDTO {
+    export interface ConversationTask {
       id: string;
       /** @nullable */
       task_number: number | null;
@@ -14782,7 +15030,7 @@ export namespace Schemas {
       /** @nullable */
       signal_report: string | null;
       /** @nullable */
-      json_schema: TaskDetailDTOJsonSchema;
+      json_schema: ConversationTaskJsonSchema;
       internal: boolean;
       archived: boolean;
       /** @nullable */
@@ -14857,7 +15105,7 @@ export namespace Schemas {
        * Combines metadata from conversation.approval_decisions with payload from checkpoint
        * interrupts (single source of truth for payload data). */
       readonly pending_approvals: readonly ConversationPendingApprovalsItem[];
-      readonly task: TaskDetailDTO | null;
+      readonly task: ConversationTask | null;
     }
 
     export interface ConversationMinimal {
@@ -14901,7 +15149,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly slack_workspace_domain: string | null;
-      readonly task: TaskDetailDTO | null;
+      readonly task: ConversationTask | null;
     }
 
     export interface ConversationsTicketSignalExtra {
@@ -36949,6 +37197,15 @@ export namespace Schemas {
       results: BatchImport[];
     }
 
+    export interface PaginatedBatchImportSupportListList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: BatchImportSupportList[];
+    }
+
     export interface PaginatedBriefConfigList {
       count: number;
       /** @nullable */
@@ -40633,41 +40890,6 @@ export namespace Schemas {
       results: TaskAutomationDTO[];
     }
 
-    export interface PaginatedTaskDetailDTOList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: TaskDetailDTO[];
-    }
-
-    /**
-     * Response shape for one @-mention of the requester in a task's thread.
-     */
-    export interface TaskMentionDTO {
-      id: string;
-      message_id: string;
-      task_id: string;
-      task_title: string;
-      /** @nullable */
-      channel_id: string | null;
-      /** @nullable */
-      channel_name: string | null;
-      author?: TaskUserBasicInfo | null;
-      content: string;
-      created_at: string;
-    }
-
-    export interface PaginatedTaskMentionDTOList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: TaskMentionDTO[];
-    }
-
     /**
      * * `claude` - claude
      * * `codex` - codex
@@ -40823,6 +41045,94 @@ export namespace Schemas {
       updated_at?: string | null;
       /** @nullable */
       completed_at?: string | null;
+    }
+
+    /**
+     * @nullable
+     */
+    export type TaskDetailDTOJsonSchema = { [key: string]: unknown } | null;
+
+    /**
+     * Detail response for a task.
+     *
+     * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+     * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+     * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+     */
+    export interface TaskDetailDTO {
+      id: string;
+      /** @nullable */
+      task_number: number | null;
+      slug: string;
+      title: string;
+      title_manually_set: boolean;
+      description: string;
+      origin_product: string;
+      /** Agent protocol and harness used for this task's runs.
+       *
+       * * `acp` - ACP
+       * * `pi` - Pi */
+      readonly runtime: RuntimeEnum;
+      /** @nullable */
+      repository: string | null;
+      /** @nullable */
+      github_integration: number | null;
+      /** @nullable */
+      github_user_integration: string | null;
+      /** @nullable */
+      signal_report: string | null;
+      /** @nullable */
+      json_schema: TaskDetailDTOJsonSchema;
+      internal: boolean;
+      archived: boolean;
+      /** @nullable */
+      archived_at: string | null;
+      /** Latest run details for this task */
+      latest_run?: TaskRunDetailDTO | null;
+      /** @nullable */
+      created_at?: string | null;
+      /** @nullable */
+      updated_at?: string | null;
+      created_by?: TaskUserBasicInfo | null;
+      /** @nullable */
+      ci_prompt: string | null;
+      /** @nullable */
+      channel?: string | null;
+    }
+
+    export interface PaginatedTaskDetailDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskDetailDTO[];
+    }
+
+    /**
+     * Response shape for one @-mention of the requester in a task's thread.
+     */
+    export interface TaskMentionDTO {
+      id: string;
+      message_id: string;
+      task_id: string;
+      task_title: string;
+      /** @nullable */
+      channel_id: string | null;
+      /** @nullable */
+      channel_name: string | null;
+      author?: TaskUserBasicInfo | null;
+      content: string;
+      created_at: string;
+    }
+
+    export interface PaginatedTaskMentionDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskMentionDTO[];
     }
 
     export interface PaginatedTaskRunDetailDTOList {
@@ -42818,7 +43128,7 @@ export namespace Schemas {
        * Combines metadata from conversation.approval_decisions with payload from checkpoint
        * interrupts (single source of truth for payload data). */
       readonly pending_approvals?: readonly PatchedConversationPendingApprovalsItem[];
-      readonly task?: TaskDetailDTO | null;
+      readonly task?: ConversationTask | null;
     }
 
     export interface PatchedCoreEvent {
@@ -55473,6 +55783,10 @@ export namespace Schemas {
 
     /**
      * One typed attachment carried by a sandbox message.
+     *
+     * DEPRECATED PATH — do not extend. This structured `attached_context` (and its server-side wrap in
+     * `context_wrapper.py`) exists only for the legacy Max conversations bridge and is removed with it;
+     * the live path wraps context client-side (`products/posthog_ai/frontend/utils/posthogContextBlock.ts`).
      */
     export interface SandboxAttachedContextItem {
       /** Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.
@@ -70116,6 +70430,43 @@ export namespace Schemas {
       Number15: 15,
       Number30: 30,
       Number60: 60,
+    } as const;
+
+    export type ManagedMigrationsSupportListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string;
+    /**
+     * A search term.
+     */
+    search?: string;
+    /**
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `paused` - Paused
+     * * `running` - Running
+     */
+    status?: ManagedMigrationsSupportListStatus;
+    team_id?: number;
+    };
+
+    export type ManagedMigrationsSupportListStatus = typeof ManagedMigrationsSupportListStatus[keyof typeof ManagedMigrationsSupportListStatus];
+
+
+    export const ManagedMigrationsSupportListStatus = {
+      Completed: 'completed',
+      Failed: 'failed',
+      Paused: 'paused',
+      Running: 'running',
     } as const;
 
     export type ListParams = {
