@@ -280,6 +280,30 @@ class TestGetRows:
             with pytest.raises(requests.HTTPError):
                 list(get_rows("key", "acme.freshchat.com", "agents", logger, manager))  # type: ignore[arg-type]
 
+    # A 429 (rate limit) and any 5xx are transient: the sync must retry rather than abort. The 429
+    # case also proves a server-provided Retry-After is honored (here 0, so the retry is immediate).
+    @pytest.mark.parametrize("status_code, headers", [(429, {"Retry-After": "0"}), (500, {})])
+    def test_retryable_status_is_retried_then_succeeds(self, status_code: int, headers: dict) -> None:
+        manager = FakeResumableManager()
+        session = mock.MagicMock()
+        session.get.side_effect = [
+            FakeResponse(status_code=status_code, headers=headers),
+            FakeResponse(_page("agents", [{"id": 1}], current=1, total_pages=1)),
+        ]
+
+        # Neutralize the exponential backoff so the 5xx retry doesn't actually sleep.
+        with (
+            mock.patch(PATCH_SESSION, return_value=session),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.freshchat._EXPONENTIAL_WAIT",
+                return_value=0,
+            ),
+        ):
+            rows = list(get_rows("key", "acme.freshchat.com", "agents", logger, manager))  # type: ignore[arg-type]
+
+        assert rows == [[{"id": 1}]]
+        assert session.get.call_count == 2
+
     def test_disallowed_host_raises_before_any_request(self) -> None:
         # A saved-then-edited domain must never receive the stored token at sync time (SSRF).
         manager = FakeResumableManager()
