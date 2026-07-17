@@ -404,8 +404,16 @@ async def reconcile_team_precalculated_person_properties_activity(
                         person_id = str(row["id"])
                         properties_by_person_id[person_id] = parse_person_properties(row.get("properties"), person_id)
 
-                    for (distinct_id, condition_hash), (stored_matches, stored_person_id) in existing.items():
-                        verdicts_checked += 1
+                    # Group by distinct_id so the combined bytecode — which evaluates every
+                    # filter in one VM pass — runs once per current person, not once per
+                    # stored verdict. Evaluating it per-verdict would re-derive every other
+                    # condition's result on each call: O(distinct_ids x filters^2) instead
+                    # of O(distinct_ids x filters).
+                    verdicts_by_distinct_id: dict[str, dict[str, tuple[bool, str]]] = {}
+                    for (distinct_id, condition_hash), verdict in existing.items():
+                        verdicts_by_distinct_id.setdefault(distinct_id, {})[condition_hash] = verdict
+
+                    for distinct_id, condition_verdicts in verdicts_by_distinct_id.items():
                         current_person_id = batch_overrides[distinct_id]
                         current_properties = properties_by_person_id.get(current_person_id, {})
                         hog_globals = {"person": {"properties": current_properties}}
@@ -416,25 +424,28 @@ async def reconcile_team_precalculated_person_properties_activity(
                             hog_globals,
                             current_person_id,
                         )
-                        fresh_matches = bool(filter_results.get(condition_hash, False))
 
-                        if fresh_matches == stored_matches and current_person_id == stored_person_id:
-                            continue
+                        for condition_hash, (stored_matches, stored_person_id) in condition_verdicts.items():
+                            verdicts_checked += 1
+                            fresh_matches = bool(filter_results.get(condition_hash, False))
 
-                        produce_result = await asyncio.to_thread(
-                            kafka_producer.produce,
-                            topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
-                            data={
-                                "team_id": inputs.team_id,
-                                "distinct_id": distinct_id,
-                                "person_id": current_person_id,
-                                "condition": condition_hash,
-                                "matches": fresh_matches,
-                                "source": f"cohort_filter_{condition_hash}",
-                            },
-                        )
-                        kafka_results.append(produce_result)
-                        verdicts_corrected += 1
+                            if fresh_matches == stored_matches and current_person_id == stored_person_id:
+                                continue
+
+                            produce_result = await asyncio.to_thread(
+                                kafka_producer.produce,
+                                topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
+                                data={
+                                    "team_id": inputs.team_id,
+                                    "distinct_id": distinct_id,
+                                    "person_id": current_person_id,
+                                    "condition": condition_hash,
+                                    "matches": fresh_matches,
+                                    "source": f"cohort_filter_{condition_hash}",
+                                },
+                            )
+                            kafka_results.append(produce_result)
+                            verdicts_corrected += 1
 
                         if len(kafka_results) >= kafka_flush_batch_size:
                             await flush_kafka_batch_async(kafka_results, kafka_producer, inputs.team_id, logger)
