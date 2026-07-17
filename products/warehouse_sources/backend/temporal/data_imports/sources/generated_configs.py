@@ -4100,7 +4100,8 @@ class SonatypeNexusSourceConfig(config.Config):
 
 @config.config
 class SourcegraphSourceConfig(config.Config):
-    pass
+    host: str
+    access_token: str
 
 
 @config.config
