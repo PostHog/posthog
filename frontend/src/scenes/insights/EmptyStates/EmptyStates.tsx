@@ -555,6 +555,22 @@ function queryKindForReporting(query: Record<string, any> | Node | null | undefi
     return record?.source?.kind ?? record?.kind ?? null
 }
 
+/** True when the query breaks down by a property — the biggest memory multiplier we can name from the query alone. */
+function queryHasBreakdown(query: Record<string, any> | Node | null | undefined): boolean {
+    const source = ((query as Record<string, any> | null | undefined)?.source ?? query) as
+        | Record<string, any>
+        | null
+        | undefined
+    const breakdownFilter = source?.breakdownFilter
+    if (!breakdownFilter) {
+        return false
+    }
+    return (
+        breakdownFilter.breakdown != null ||
+        (Array.isArray(breakdownFilter.breakdowns) && breakdownFilter.breakdowns.length > 0)
+    )
+}
+
 export function InsightValidationError({
     detail,
     validationErrorCode,
@@ -571,8 +587,17 @@ export function InsightValidationError({
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const debugWithAI = (): void => openSidePanel(SidePanelTab.Max, MEMORY_LIMIT_AI_PROMPT)
     const isMemoryLimitError = validationErrorCode === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE
+
+    // A memory-limit query is simply too heavy to finish, so an identical rerun can't succeed. Drop the
+    // "Try again" button for it and point at the query debugger instead — recovery comes from the guidance
+    // above and the "Debug with PostHog AI" path, not a blind retry.
     const defaultCta =
-        cta ?? (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />)
+        cta ??
+        (onRetry && !isMemoryLimitError ? (
+            <RetryButton onRetry={onRetry} query={query} />
+        ) : (
+            <QueryDebuggerButton query={query} />
+        ))
 
     // Raw error detail can echo query fragments, so telemetry only gets the code and coarse metadata
     useOnMountEffect(() => {
@@ -597,14 +622,22 @@ export function InsightValidationError({
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ color: 'var(--warning)' }}
             >
-                There is a problem with this query
-                {/* Note that this phrasing above signals the issue is not intermittent, */}
-                {/* but rather that it's something with the definition of the query itself */}
+                {/* Both headings signal the issue is not intermittent (retrying the same query won't help),
+                    but rather something about the query itself — its cost for memory limits, or its
+                    definition otherwise. */}
+                {isMemoryLimitError ? 'This query is too heavy to run' : 'There is a problem with this query'}
             </h2>
 
             <p className="text-sm text-muted max-w-120 mb-2">{renderDetailWithLinks(detail)}</p>
 
-            {/* For memory-limit errors, lead with the AI debugger but keep the retry/debugger action
+            {isMemoryLimitError && queryHasBreakdown(query) && (
+                <p className="text-sm text-muted max-w-120 mb-2">
+                    This query breaks down by a property. Removing the breakdown or lowering its limit usually frees the
+                    most memory.
+                </p>
+            )}
+
+            {/* For memory-limit errors, lead with the AI debugger but keep the query-debugger action
                 beside it so users who decline AI consent (or lack AI access) still have a next step.
                 onClick fires when consent was already given (popover hidden); onApprove fires after
                 the consent flow completes — same pattern as InsightAIAnalysis. */}

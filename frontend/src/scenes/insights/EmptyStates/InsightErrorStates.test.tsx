@@ -50,4 +50,34 @@ describe('insight error states', () => {
             query_id: 'test-query-id',
         })
     })
+
+    it('does not offer a blind "Try again" for memory-limit errors, but keeps the debugger and AI paths', () => {
+        const { container } = render(
+            <InsightValidationError
+                detail="This query ran out of memory before it could finish."
+                validationErrorCode="clickhouse_memory_limit_exceeded"
+                query={{ kind: 'InsightVizNode', source: { kind: 'TrendsQuery' } }}
+                onRetry={() => {}}
+            />
+        )
+
+        // A memory-limit query can never succeed on an identical rerun, so "Try again" must not render
+        expect(container.querySelector('[data-attr="insight-retry-button"]')).toBeNull()
+        expect(container.querySelector('[data-attr="insight-memory-limit-debug-with-ai"]')).not.toBeNull()
+        expect(container.querySelector('[data-attr="insight-error-query"]')).not.toBeNull()
+    })
+
+    it('still offers "Try again" for other validation errors when a retry can plausibly succeed', () => {
+        const { container } = render(
+            <InsightValidationError
+                detail="Something transient went wrong."
+                validationErrorCode="some_other_error"
+                query={{ kind: 'InsightVizNode', source: { kind: 'TrendsQuery' } }}
+                onRetry={() => {}}
+            />
+        )
+
+        expect(container.querySelector('[data-attr="insight-retry-button"]')).not.toBeNull()
+        expect(container.querySelector('[data-attr="insight-memory-limit-debug-with-ai"]')).toBeNull()
+    })
 })
