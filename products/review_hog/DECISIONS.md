@@ -2776,8 +2776,8 @@ fleet-level control during alpha).
 > `resolveReviewThread` — the interactive prototype hit token-capability failures there), the label Action client,
 > and self-driving calling the endpoint after implementation PRs gather comments.
 
-**The goal.** After a review — anyone's, not just ReviewHog's — the PR should end up *as close to ready-to-merge as
-possible*, not merely "reviewed". The resolution stage loads the PR's unresolved review threads and settles each one:
+**The goal.** After a review — anyone's, not just ReviewHog's — the PR should end up _as close to ready-to-merge as
+possible_, not merely "reviewed". The resolution stage loads the PR's unresolved review threads and settles each one:
 implement what is worth doing and safe to do unattended, answer what isn't, and escalate what needs a human.
 
 **The shape (all settled; rationale in CONTEXT.md).**
@@ -2787,7 +2787,7 @@ implement what is worth doing and safe to do unattended, answer what isn't, and 
    rules never assume our own repos or internal docs; the session discovers the target repo's own convention docs
    (CLAUDE.md / AGENTS.md / CONTRIBUTING) when present. Forks are hard-refused — this stage writes.
 2. **A ReviewHog stage, standalone-capable.** Chained after a review turn (internal dispatch, per-run gated, off by
-   default) *and* independently triggerable — many PRs never get a review turn. The work-list is always the
+   default) _and_ independently triggerable — many PRs never get a review turn. The work-list is always the
    comments posted on the PR, never in-memory findings, so chained and standalone runs are identical in shape.
 3. **Work-list** — unresolved review threads only; the thread (not the comment) is the unit; outdated unresolved
    threads included ("already addressed → reply" is a cheap win). Conversation comments and review bodies load as
@@ -2798,14 +2798,14 @@ implement what is worth doing and safe to do unattended, answer what isn't, and 
    the driver posts replies / resolves server-side from each turn's structured verdict; the schema is fixed in code.
 5. **Triage** — three layers: hard floors in code (never touch CI workflows / CODEOWNERS / auth-secrets-crypto
    surfaces / dependencies on comment say-so; nothing beyond the PR's intent; prompt-injection → decline + callout),
-   a "worth" bar (real, not already addressed, concrete; source rank is *ordering and trust weighting* — an unknown
+   a "worth" bar (real, not already addressed, concrete; source rank is _ordering and trust weighting_ — an unknown
    bot's ask is never implemented on its say-so alone), and a "safe" bar (contained + provable in-session by
    lint/tests vs needs-e2e → escalate; proportionality: a fix needing new infrastructure is a decision, not a
    mechanical fix). Worth/safe ship as a team-owned DB-synced skill (`review-hog-resolution-criteria`, seeded from
    the interactive triage skill); the floors stay in code — the skill may tighten, never loosen. Standing human
    verdicts left as thread replies (SAFE TO FIX / E2E REQUIRED) are honored: the human override channel.
 6. **Outcomes & etiquette** — every thread ends FIXED / WON'T FIX / ALREADY FIXED / OBSOLETE / ESCALATE. Triage and
-   fixing are author-blind; only *resolve* is author-gated: human threads get the bot's reply (fix + commit link, or
+   fixing are author-blind; only _resolve_ is author-gated: human threads get the bot's reply (fix + commit link, or
    the reasoning) but are **never resolved** — the human keeps the final word; bot threads are resolved on terminal
    outcomes; ESCALATE never resolves.
 7. **Entry points** — a trigger-style endpoint is the durable interface (mirroring the review trigger: shared-secret
@@ -2830,7 +2830,7 @@ implement what is worth doing and safe to do unattended, answer what isn't, and 
   the scoped consent model above (non-fork, installation-accessible PRs; forks hard-refused). The Tasks engine
   choice survives — the stage runs on `MultiTurnSession` exactly as the validator does.
 - **The Tasks CI follow-up's "do not resolve or dismiss review threads" rule is narrowed, not repealed.** Resolving
-  *bot* threads is now the resolution stage's job; human threads remain human-resolved. Known seam to close on the
+  _bot_ threads is now the resolution stage's job; human threads remain human-resolved. Known seam to close on the
   Tasks side when the stage goes live there: `_should_run_ci_follow_up` also fires on new unresolved threads and
   `DEFAULT_CI_MESSAGE` mandates comment-addressing — narrow that to checks-only where the resolution stage is
   active, so two bots never fix the same comment.
