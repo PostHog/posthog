@@ -316,15 +316,12 @@ def _lookup_slack_bot_joined_at(
 ) -> dt.datetime | None:
     """Resolve the bot-joined timestamp for a selected channel row.
 
-    Rows without a workspace id fall back to a channel-id-only match; channel ids are
-    only unique per workspace, so take the earliest across candidates.
+    Channel ids are only unique per workspace, so rows without a workspace id are
+    never matched — a channel-only match could return another workspace's join.
     """
-    if slack_channel_id is None:
+    if slack_team_id is None or slack_channel_id is None:
         return None
-    if slack_team_id is not None:
-        return joined_at_by_channel.get((slack_team_id, slack_channel_id))
-    candidates = [value for (_, channel_id), value in joined_at_by_channel.items() if channel_id == slack_channel_id]
-    return min(candidates) if candidates else None
+    return joined_at_by_channel.get((slack_team_id, slack_channel_id))
 
 
 _COMMENT_ITEM_ID_CHUNK_SIZE = 1000
@@ -443,7 +440,10 @@ def aggregate_conversations_slack_signals_for_orgs(
     selected_channel_ids: set[str] = set()
     for row in selected_rows.values():
         channel_id = row.get("slack_channel_id")
-        if isinstance(channel_id, str) and channel_id:
+        workspace_id = row.get("slack_team_id")
+        # Workspace-less rows can never be matched (see _lookup_slack_bot_joined_at),
+        # so don't fetch their channels.
+        if isinstance(channel_id, str) and channel_id and isinstance(workspace_id, str) and workspace_id:
             selected_channel_ids.add(channel_id)
     bot_joined_at_by_channel = _fetch_slack_bot_joined_at_by_channel(sorted(selected_channel_ids))
 

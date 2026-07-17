@@ -192,9 +192,9 @@ class TestConversationsSlackSignals(SimpleTestCase):
         [
             ("workspace_match", "T123", "C1", dt.datetime(2026, 7, 5, 9, 0, tzinfo=dt.UTC)),
             ("workspace_mismatch", "T999", "C1", None),
-            # Workspace-less rows fall back to a channel-only match, earliest candidate wins.
-            ("no_workspace_falls_back", None, "C1", dt.datetime(2026, 7, 4, 8, 0, tzinfo=dt.UTC)),
-            ("no_workspace_no_match", None, "C_UNKNOWN", None),
+            # Channel ids are only unique per workspace, so a workspace-less row is
+            # never matched even when a channel id lines up.
+            ("no_workspace", None, "C1", None),
             ("no_channel", "T123", None, None),
         ]
     )
