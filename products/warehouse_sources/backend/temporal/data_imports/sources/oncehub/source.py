@@ -129,6 +129,8 @@ You can generate an API key in [OnceHub](https://app.oncehub.com) under **Settin
         return oncehub_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every OnceHub endpoint is full refresh
         )
