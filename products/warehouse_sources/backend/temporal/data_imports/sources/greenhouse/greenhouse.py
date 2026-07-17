@@ -1,29 +1,29 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-import requests  # used for exception types in the tenacity retry predicate
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests.auth import HTTPBasicAuth
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    HeaderLinkPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.settings import (
     GREENHOUSE_ENDPOINTS,
     GreenhouseEndpointConfig,
 )
 
 GREENHOUSE_BASE_URL = "https://harvest.greenhouse.io/v1"
-REQUEST_TIMEOUT_SECONDS = 60
 # Harvest's documented maximum page size. Fewer requests keeps us comfortably under the
 # per-10-second rate limit advertised via the `X-RateLimit-*` response headers.
 PAGE_SIZE = 500
-
-
-class GreenhouseRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -34,11 +34,6 @@ class GreenhouseResumeConfig:
     next_url: str
 
 
-def _auth(api_key: str) -> tuple[str, str]:
-    # Harvest uses HTTP Basic auth with the API key as the username and a blank password.
-    return (api_key, "")
-
-
 def _format_datetime(value: Any) -> str:
     """Format an incremental cursor value as the ISO 8601 string Harvest's `*_after` filters expect."""
     if isinstance(value, datetime):
@@ -47,39 +42,6 @@ def _format_datetime(value: Any) -> str:
     if isinstance(value, date):
         return value.strftime("%Y-%m-%dT00:00:00.000Z")
     return str(value)
-
-
-def validate_credentials(
-    api_key: str, path: str = "/candidates", accept_forbidden: bool = True
-) -> tuple[bool, str | None]:
-    """Probe a Harvest endpoint to confirm the API key is genuine.
-
-    Harvest keys are scoped per-resource: a valid key may still 403 on an endpoint it wasn't
-    granted. At source-create time (``accept_forbidden=True``) we treat 403 as success so users
-    can connect with keys scoped only to the endpoints they want; per-schema checks pass
-    ``accept_forbidden=False`` to surface a missing-scope error for that specific endpoint.
-    """
-    url = f"{GREENHOUSE_BASE_URL}{path}"
-    session = make_tracked_session()
-    try:
-        response = session.get(url, auth=_auth(api_key), params={"per_page": 1}, timeout=10)
-    except Exception as e:
-        return False, str(e)
-    finally:
-        session.close()
-
-    if response.status_code == 200:
-        return True, None
-
-    if response.status_code == 403:
-        if accept_forbidden:
-            return True, None
-        return False, "Your Greenhouse API key does not have permission to access this endpoint."
-
-    if response.status_code == 401:
-        return False, "Invalid Greenhouse API key. Please check your key and try again."
-
-    return False, f"Greenhouse API returned an unexpected status code: {response.status_code}"
 
 
 def _build_initial_params(
@@ -99,75 +61,44 @@ def _build_initial_params(
     return params
 
 
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[GreenhouseResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> Iterator[Any]:
-    config = GREENHOUSE_ENDPOINTS[endpoint]
-    session = make_tracked_session()
+def validate_credentials(
+    api_key: str, path: str = "/candidates", accept_forbidden: bool = True
+) -> tuple[bool, str | None]:
+    """Probe a Harvest endpoint to confirm the API key is genuine.
 
-    base_params = _build_initial_params(
-        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+    Harvest keys are scoped per-resource: a valid key may still 403 on an endpoint it wasn't
+    granted. At source-create time (``accept_forbidden=True``) we treat 403 as success so users
+    can connect with keys scoped only to the endpoints they want; per-schema checks pass
+    ``accept_forbidden=False`` to surface a missing-scope error for that specific endpoint.
+    """
+    _ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{GREENHOUSE_BASE_URL}{path}?per_page=1",
+        auth=HTTPBasicAuth(api_key, ""),
     )
 
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    next_url: str | None = resume_config.next_url if resume_config else None
-    if next_url:
-        logger.debug(f"Greenhouse: resuming {endpoint} from saved page URL")
+    if status == 200:
+        return True, None
 
-    @retry(
-        retry=retry_if_exception_type((GreenhouseRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(5),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
-    )
-    def fetch_page(url: str, params: dict[str, Any] | None) -> requests.Response:
-        response = session.get(url, auth=_auth(api_key), params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+    if status == 403:
+        if accept_forbidden:
+            return True, None
+        return False, "Your Greenhouse API key does not have permission to access this endpoint."
 
-        if response.status_code == 429 or response.status_code >= 500:
-            raise GreenhouseRetryableError(
-                f"Greenhouse API error (retryable): status={response.status_code}, url={url}"
-            )
+    if status == 401:
+        return False, "Invalid Greenhouse API key. Please check your key and try again."
 
-        if not response.ok:
-            logger.error(f"Greenhouse API error: status={response.status_code}, body={response.text}, url={url}")
-            response.raise_for_status()
+    if status is None:
+        return False, "Could not reach the Greenhouse API. Please try again."
 
-        return response
-
-    try:
-        while True:
-            if next_url:
-                # The `Link` URL already encodes per_page + filters; sending params again would
-                # duplicate the query string, so we follow it verbatim.
-                response = fetch_page(next_url, None)
-            else:
-                response = fetch_page(f"{GREENHOUSE_BASE_URL}{config.path}", base_params)
-
-            items = response.json()
-            if items:
-                yield items
-
-            next_url = response.links.get("next", {}).get("url")
-            if not next_url:
-                break
-
-            # Save state after yielding so a crash re-yields the last batch (merge dedupes on
-            # the primary key) rather than skipping it.
-            resumable_source_manager.save_state(GreenhouseResumeConfig(next_url=next_url))
-    finally:
-        session.close()
+    return False, f"Greenhouse API returned an unexpected status code: {status}"
 
 
 def greenhouse_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[GreenhouseResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
@@ -175,17 +106,55 @@ def greenhouse_source(
 ) -> SourceResponse:
     config = GREENHOUSE_ENDPOINTS[endpoint]
 
+    params = _build_initial_params(
+        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+    )
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": GREENHOUSE_BASE_URL,
+            # Harvest uses HTTP Basic auth with the API key as the username and a blank password.
+            # Supplied via framework auth so the key is redacted from logs and error messages.
+            "auth": {"type": "http_basic", "username": api_key, "password": ""},
+            # Harvest paginates with RFC 5988 `Link` headers; the paginator follows the
+            # `rel="next"` URL verbatim (it already encodes per_page + filters).
+            "paginator": HeaderLinkPaginator(),
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes on the primary key) rather than skipping it.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(GreenhouseResumeConfig(next_url=str(state["next_url"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -197,4 +166,5 @@ def greenhouse_source(
         # max cursor value seen) and rely on the resumable `Link` cursor to make in-run retries
         # safe; merge semantics dedupe re-fetched rows.
         sort_mode="asc",
+        column_hints=resource.column_hints,
     )

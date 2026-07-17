@@ -1,11 +1,11 @@
 import json
 import dataclasses
-from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, cast
+from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
+from unittest.mock import MagicMock
 
 from requests import Response
 
@@ -20,6 +20,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.settings import ENDPOINTS
 
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the greenhouse module.
+GREENHOUSE_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.greenhouse.make_tracked_session"
+)
+
 
 def _make_response(body: Any, status_code: int = 200, next_url: str | None = None) -> Response:
     resp = Response()
@@ -30,6 +37,13 @@ def _make_response(body: Any, status_code: int = 200, next_url: str | None = Non
         # RFC 5988 Link header, as Harvest returns it. requests parses this into `resp.links`.
         resp.headers["Link"] = f'<{next_url}>; rel="next"'
     return resp
+
+
+def _make_manager(resume_state: GreenhouseResumeConfig | None = None) -> MagicMock:
+    manager = MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
 
 class TestFormatDatetime:
@@ -94,39 +108,52 @@ class TestValidateCredentials:
             (500, True, False),
         ],
     )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.greenhouse.make_tracked_session"
-    )
+    @mock.patch(GREENHOUSE_SESSION_PATCH)
     def test_status_code_mapping(
         self, mock_session_factory: MagicMock, status_code: int, accept_forbidden: bool, expected_valid: bool
     ) -> None:
-        mock_session = mock_session_factory.return_value
-        mock_session.get.return_value = _make_response({}, status_code=status_code)
+        mock_session_factory.return_value.get.return_value = MagicMock(status_code=status_code)
 
         is_valid, error = validate_credentials("test_key", accept_forbidden=accept_forbidden)
 
         assert is_valid is expected_valid
         assert (error is None) is expected_valid
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.greenhouse.make_tracked_session"
-    )
+    @mock.patch(GREENHOUSE_SESSION_PATCH)
+    def test_per_schema_forbidden_surfaces_scope_error(self, mock_session_factory: MagicMock) -> None:
+        mock_session_factory.return_value.get.return_value = MagicMock(status_code=403)
+        is_valid, error = validate_credentials("test_key", path="/candidates", accept_forbidden=False)
+        assert is_valid is False
+        assert error is not None and "permission" in error
+
+    @mock.patch(GREENHOUSE_SESSION_PATCH)
     def test_network_error_is_not_valid(self, mock_session_factory: MagicMock) -> None:
+        # validate_via_probe swallows transport errors and reports "not validated".
         mock_session_factory.return_value.get.side_effect = Exception("boom")
         is_valid, error = validate_credentials("test_key")
         assert is_valid is False
-        assert error == "boom"
+        assert error is not None
+
+    @mock.patch(GREENHOUSE_SESSION_PATCH)
+    def test_uses_http_basic_auth_with_blank_password(self, mock_session_factory: MagicMock) -> None:
+        mock_get = mock_session_factory.return_value.get
+        mock_get.return_value = MagicMock(status_code=200)
+
+        validate_credentials("test_key")
+
+        auth = mock_get.call_args.kwargs["auth"]
+        assert (auth.username, auth.password) == ("test_key", "")
 
 
 class TestGreenhouseSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_primary_keys_match_settings(self, endpoint: str) -> None:
-        response = greenhouse_source("key", endpoint, MagicMock(), MagicMock())
+        response = greenhouse_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
         assert response.primary_keys == GREENHOUSE_ENDPOINTS[endpoint].primary_keys
 
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_partitioning_only_when_partition_key_present(self, endpoint: str) -> None:
-        response = greenhouse_source("key", endpoint, MagicMock(), MagicMock())
+        response = greenhouse_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
         partition_key = GREENHOUSE_ENDPOINTS[endpoint].partition_key
 
         if partition_key:
@@ -141,93 +168,125 @@ class TestGreenhouseSourceResponse:
         assert GREENHOUSE_ENDPOINTS[endpoint].partition_key not in ("updated_at", "last_activity_at")
 
     def test_sort_mode_is_ascending(self) -> None:
-        assert greenhouse_source("key", "candidates", MagicMock(), MagicMock()).sort_mode == "asc"
+        response = greenhouse_source(
+            "key", "candidates", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+        )
+        assert response.sort_mode == "asc"
 
 
 class TestGreenhousePaginationAndResume:
-    """Drive ``get_rows`` (via ``greenhouse_source``) with a mocked HTTP session."""
+    """Drive the rest_source transport (via ``greenhouse_source``) with a mocked HTTP session."""
 
-    def _drive(
-        self, endpoint: str, manager: MagicMock, responses: list[Response]
-    ) -> tuple[list[tuple[str, dict[str, Any] | None]], list[Any]]:
-        """Returns (per-request (url, params) tuples, batches yielded by the source)."""
-        sent: list[tuple[str, dict[str, Any] | None]] = []
-        yielded: list[Any] = []
-        response_iter = iter(responses)
+    def _wire(self, session: MagicMock, responses: list[Response]) -> list[tuple[str, dict[str, Any]]]:
+        """Snapshot each request's (url, params) at prepare time and feed ``responses`` to send."""
+        session.headers = {}
+        sent: list[tuple[str, dict[str, Any]]] = []
 
-        def fake_get(url: str, *_args: Any, **kwargs: Any) -> Response:
-            sent.append((url, kwargs.get("params")))
-            return next(response_iter)
+        def _prepare(request: Any) -> MagicMock:
+            sent.append((request.url, dict(request.params or {})))
+            prepared = MagicMock()
+            prepared.url = request.url
+            return prepared
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.greenhouse.make_tracked_session"
-        ) as mock_factory:
-            mock_factory.return_value.get.side_effect = fake_get
+        session.prepare_request.side_effect = _prepare
+        session.send.side_effect = responses
+        return sent
 
-            response = greenhouse_source("key", endpoint, MagicMock(), manager)
-            yielded.extend(cast(Iterable[Any], response.items()))
+    def _rows(self, source_response: Any) -> list[Any]:
+        return [row for page in source_response.items() for row in page]
 
-        return sent, yielded
-
-    def test_fresh_run_follows_link_header(self) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = False
-
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fresh_run_follows_link_header(self, mock_factory: MagicMock) -> None:
+        session = mock_factory.return_value
         next_url = "https://harvest.greenhouse.io/v1/candidates?per_page=500&page=2"
-        responses = [
-            _make_response([{"id": 1}], next_url=next_url),
-            _make_response([{"id": 2}]),  # no Link header -> last page
-        ]
+        sent = self._wire(
+            session,
+            [
+                _make_response([{"id": 1}], next_url=next_url),
+                _make_response([{"id": 2}]),  # no Link header -> last page
+            ],
+        )
 
-        sent, yielded = self._drive("candidates", manager, responses)
+        rows = self._rows(
+            greenhouse_source("key", "candidates", team_id=1, job_id="j", resumable_source_manager=_make_manager())
+        )
 
         # First request hits the path with params; second follows the Link URL verbatim (no params).
-        assert sent[0][0] == "https://harvest.greenhouse.io/v1/candidates"
-        assert sent[0][1] == {"per_page": PAGE_SIZE}
-        assert sent[1] == (next_url, None)
+        assert sent[0] == ("https://harvest.greenhouse.io/v1/candidates", {"per_page": PAGE_SIZE})
+        assert sent[1] == (next_url, {})
+        assert rows == [{"id": 1}, {"id": 2}]
 
-        flat = [row for batch in yielded for row in batch]
-        assert flat == [{"id": 1}, {"id": 2}]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_filter_applied_to_first_request(self, mock_factory: MagicMock) -> None:
+        session = mock_factory.return_value
+        sent = self._wire(session, [_make_response([{"id": 1}])])
 
-    def test_saves_next_url_after_each_non_terminal_page(self) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = False
+        watermark = datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)
+        self._rows(
+            greenhouse_source(
+                "key",
+                "candidates",
+                team_id=1,
+                job_id="j",
+                resumable_source_manager=_make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=watermark,
+                incremental_field="updated_at",
+            )
+        )
 
+        assert sent[0][1] == {"per_page": PAGE_SIZE, "updated_after": "2026-03-04T02:58:14.000Z"}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_saves_next_url_after_each_non_terminal_page(self, mock_factory: MagicMock) -> None:
+        session = mock_factory.return_value
         url2 = "https://harvest.greenhouse.io/v1/jobs?per_page=500&page=2"
         url3 = "https://harvest.greenhouse.io/v1/jobs?per_page=500&page=3"
-        responses = [
-            _make_response([{"id": 1}], next_url=url2),
-            _make_response([{"id": 2}], next_url=url3),
-            _make_response([{"id": 3}]),
-        ]
-        self._drive("jobs", manager, responses)
+        self._wire(
+            session,
+            [
+                _make_response([{"id": 1}], next_url=url2),
+                _make_response([{"id": 2}], next_url=url3),
+                _make_response([{"id": 3}]),
+            ],
+        )
+
+        manager = _make_manager()
+        self._rows(greenhouse_source("key", "jobs", team_id=1, job_id="j", resumable_source_manager=manager))
 
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [GreenhouseResumeConfig(next_url=url2), GreenhouseResumeConfig(next_url=url3)]
 
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = False
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_terminal_single_page_does_not_save_state(self, mock_factory: MagicMock) -> None:
+        session = mock_factory.return_value
+        self._wire(session, [_make_response([{"id": 1}])])
 
-        self._drive("jobs", manager, [_make_response([{"id": 1}])])
+        manager = _make_manager()
+        self._rows(greenhouse_source("key", "jobs", team_id=1, job_id="j", resumable_source_manager=manager))
         manager.save_state.assert_not_called()
 
-    def test_resume_seeds_first_request_with_saved_next_url(self) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = True
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_seeds_first_request_with_saved_next_url(self, mock_factory: MagicMock) -> None:
+        session = mock_factory.return_value
         saved_url = "https://harvest.greenhouse.io/v1/candidates?per_page=500&page=5"
-        manager.load_state.return_value = GreenhouseResumeConfig(next_url=saved_url)
+        sent = self._wire(session, [_make_response([{"id": 9}])])
 
-        sent, _ = self._drive("candidates", manager, [_make_response([{"id": 9}])])
+        manager = _make_manager(GreenhouseResumeConfig(next_url=saved_url))
+        self._rows(greenhouse_source("key", "candidates", team_id=1, job_id="j", resumable_source_manager=manager))
 
-        assert sent[0] == (saved_url, None)
+        assert sent[0] == (saved_url, {})
 
-    def test_empty_page_yields_nothing_and_stops(self) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = False
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_page_yields_nothing_and_stops(self, mock_factory: MagicMock) -> None:
+        session = mock_factory.return_value
+        sent = self._wire(session, [_make_response([])])
 
-        sent, yielded = self._drive("jobs", manager, [_make_response([])])
-        assert yielded == []
+        rows = self._rows(
+            greenhouse_source("key", "jobs", team_id=1, job_id="j", resumable_source_manager=_make_manager())
+        )
+        assert rows == []
+        assert session.send.call_count == 1
         assert len(sent) == 1
 
 
