@@ -589,7 +589,7 @@ export interface tracingDataLogicMeta {
         ) => number
         durationHistogramData: (rawDurationHistogram: DurationHistogramRow[]) => TracingDurationHistogramData
         latencyHeatmapData: (rawLatencyHeatmap: LatencyHeatmapRow[]) => TracingLatencyHeatmapData
-        showHeatmap: (filters: TracingFilters, compareActive: boolean, featureFlags: FeatureFlagsSet) => boolean
+        showHeatmap: (filters: TracingFilters, compareActive: boolean, featureFlags: any) => boolean
         listRows: (spans: Span[], filters: TracingFilters) => Span[]
         listRowDurations: (listRows: Span[]) => number[]
         isDurationMode: (filters: TracingFilters, compareActive: boolean) => boolean
