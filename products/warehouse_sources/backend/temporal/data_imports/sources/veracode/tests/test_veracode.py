@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.veracode.v
     VeracodeRetryableError,
     _calculate_signature,
     _fetch_page_once,
+    _make_session,
     _modified_after,
     _strip_region_prefix,
     get_rows,
@@ -114,6 +115,18 @@ class TestResolveHost:
     )
     def test_resolve_host(self, _name: str, region: str | None, expected: str) -> None:
         assert resolve_host(region) == expected
+
+
+class TestSessionSecurity:
+    def test_session_disables_sample_capture_and_redacts_credentials(self) -> None:
+        # Veracode response bodies carry customers' vulnerability inventory, so both the credential
+        # probe and the sync must stay out of HTTP sample capture. Re-enabling capture here would
+        # leak that data to anyone with sample access, outside the warehouse table's access path.
+        session = _make_session("00vc-api-id", "ff-api-secret")
+        adapter = session.get_adapter("https://api.veracode.com")
+        assert adapter._capture is False
+        assert "00vc-api-id" in adapter._redact_values
+        assert "ff-api-secret" in adapter._redact_values
 
 
 class TestModifiedAfter:

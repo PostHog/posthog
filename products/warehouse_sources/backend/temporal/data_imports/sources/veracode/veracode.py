@@ -111,7 +111,10 @@ def _base_url(region: str | None) -> str:
 def _make_session(api_id: str, api_secret: str) -> requests.Session:
     # Disable urllib3-level retries so tenacity owns retry (it re-signs each attempt); a urllib3 retry
     # would resend the same prepared request with an expired signature.
-    session = make_tracked_session(retry=Retry(total=0))
+    # capture=False: Veracode response bodies carry customers' vulnerability inventory (finding
+    # locations, components, procedure names). The generic scrubber can't recognise those, so keep
+    # them out of HTTP sample capture entirely rather than leak them outside the warehouse table.
+    session = make_tracked_session(retry=Retry(total=0), redact_values=(api_id, api_secret), capture=False)
     session.auth = VeracodeHMACAuth(api_id, api_secret)
     session.headers.update({"Accept": "application/json"})
     return session
