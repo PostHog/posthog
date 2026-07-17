@@ -86,14 +86,17 @@ fn deserialize_key<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    use serde::de::Error;
-    match serde_json::Value::deserialize(deserializer)? {
-        serde_json::Value::String(s) => Ok(s),
-        serde_json::Value::Number(n) => Ok(n.to_string()),
-        other => Err(D::Error::custom(format!(
-            "property filter `key` must be a string or number, got {other}"
-        ))),
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrNumber {
+        String(String),
+        Number(serde_json::Number),
     }
+
+    Ok(match StringOrNumber::deserialize(deserializer)? {
+        StringOrNumber::String(s) => s,
+        StringOrNumber::Number(n) => n.to_string(),
+    })
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]

@@ -455,7 +455,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         stored_key = response.json()["filters"]["groups"][0]["properties"][0]["key"]
         self.assertEqual(stored_key, str(base_flag.id))
-        self.assertIsInstance(stored_key, str)
 
     @parameterized.expand(
         [
