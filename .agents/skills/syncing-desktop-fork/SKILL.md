@@ -7,17 +7,24 @@ description: Merge PostHog/posthog master into the desktop fork branch (mariusan
 
 The PostHog desktop app lives on the `desktop` branch of the fork `mariusandra/posthog` (default branch there).
 It is upstream `PostHog/posthog` master plus the desktop changes (`products/desktop/`, scene-awareness work in `frontend/`).
-The `.github/workflows/desktop-sync.yml` workflow merges upstream master into it daily; this skill is the procedure, both for that workflow's automated agent step (OpenAI Codex CLI) and for running a sync by hand.
+The `.github/workflows/desktop-sync.yml` workflow merges into it daily; this skill is the procedure, both for that workflow's automated agent step (OpenAI Codex CLI) and for running a sync by hand.
 
 ## The merge
 
+Two upstream sources are merged into the fork's `desktop` branch, in this order:
+
+1. `upstream/master` — PostHog/posthog master, to keep the app current.
+2. `upstream/posthog-code/desktop-electron-app` — the open desktop PR branch, where ongoing desktop development happens. Optional: once that PR merges to master and the branch is deleted, master alone carries the work and this source is skipped.
+
 ```sh
 git remote add upstream https://github.com/PostHog/posthog.git 2>/dev/null || true
-git fetch --filter=blob:none upstream master
+git fetch --filter=blob:none upstream master posthog-code/desktop-electron-app
 git merge --no-edit upstream/master
+git merge --no-edit upstream/posthog-code/desktop-electron-app  # skip if the branch no longer exists
 ```
 
-If the merge is already in progress (CI invokes the agent only after a conflicted `git merge`), skip straight to conflict resolution — never `git merge --abort` and never reset the branch.
+Sync is one-directional: the PR branch and master flow into the fork, never the reverse — fork-only master-merge resolutions and release plumbing stay on the fork.
+If a merge is already in progress (CI invokes the agent only after a conflicted `git merge`), skip straight to conflict resolution — never `git merge --abort` and never reset the branch.
 
 ## Resolving conflicts
 

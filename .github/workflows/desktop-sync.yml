@@ -1,9 +1,9 @@
 name: Desktop Fork Sync
 
-# Fork-only (mariusandra/posthog): merges PostHog/posthog master into the
-# `desktop` branch daily, with the OpenAI Codex CLI resolving conflicts and
-# merge fallout per .agents/skills/syncing-desktop-fork/SKILL.md. Inert in
-# PostHog/posthog.
+# Fork-only (mariusandra/posthog): merges PostHog/posthog master AND the open
+# desktop PR branch into the fork's `desktop` branch daily, with the OpenAI
+# Codex CLI resolving conflicts and merge fallout per
+# .agents/skills/syncing-desktop-fork/SKILL.md. Inert in PostHog/posthog.
 #
 # Fork setup: enable Actions on the fork, enable this (scheduled workflows in
 # forks start disabled), and add the OPENAI_API_KEY secret.
@@ -35,21 +35,46 @@ jobs:
                   fetch-depth: 0
                   filter: blob:none
 
-            - name: Merge upstream master
+            - name: Merge upstream master and desktop PR branch
               id: merge
+              env:
+                  # Ongoing desktop development happens on this PR branch in
+                  # PostHog/posthog. It's merged in alongside master so the fork
+                  # tracks it. Optional: once the PR merges to master and the
+                  # branch is deleted, master alone carries the work and this is
+                  # skipped. Clear it (or delete the branch) to stop tracking.
+                  DESKTOP_PR_BRANCH: posthog-code/desktop-electron-app
               run: |
                   git config user.name "github-actions[bot]"
                   git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
                   git remote add upstream https://github.com/PostHog/posthog.git
+
+                  # Merge master first (PostHog updates), then the desktop PR
+                  # branch (desktop dev). Only fetch/merge the PR branch if it
+                  # still exists upstream.
                   git fetch --filter=blob:none upstream master
-                  if git merge-base --is-ancestor upstream/master HEAD; then
-                      echo "Already up to date with upstream master"
-                      echo "state=up-to-date" >> "$GITHUB_OUTPUT"
-                  elif git merge --no-edit upstream/master; then
-                      echo "state=merged" >> "$GITHUB_OUTPUT"
+                  refs="upstream/master"
+                  if [ -n "$DESKTOP_PR_BRANCH" ] && git fetch --filter=blob:none upstream "$DESKTOP_PR_BRANCH" 2>/dev/null; then
+                      refs="$refs upstream/$DESKTOP_PR_BRANCH"
                   else
-                      echo "state=conflicts" >> "$GITHUB_OUTPUT"
+                      echo "Desktop PR branch not tracked or not found; merging master only"
                   fi
+
+                  state=up-to-date
+                  for ref in $refs; do
+                      if git merge-base --is-ancestor "$ref" HEAD; then
+                          echo "Already up to date with $ref"
+                          continue
+                      fi
+                      if git merge --no-edit "$ref"; then
+                          if [ "$state" = up-to-date ]; then state=merged; fi
+                      else
+                          echo "Conflicts merging $ref"
+                          state=conflicts
+                          break
+                      fi
+                  done
+                  echo "state=$state" >> "$GITHUB_OUTPUT"
 
             # Node comes from setup-node inside the composite; skip the pnpm
             # install here when conflicted — manifests may hold conflict markers,
@@ -80,7 +105,7 @@ jobs:
                   MERGE_STATE: ${{ steps.merge.outputs.state }}
               run: |
                   npm install -g @openai/codex pnpm
-                  codex exec --dangerously-bypass-approvals-and-sandbox "You are running inside the desktop-sync workflow on the mariusandra/posthog fork. Merge state: $MERGE_STATE (either an in-progress conflicted merge of upstream/master, or a completed merge whose desktop tests fail). Read .agents/skills/syncing-desktop-fork/SKILL.md and follow it: finish the merge, fix what the merge broke, and leave the working tree committed and clean. Do not push."
+                  codex exec --dangerously-bypass-approvals-and-sandbox "You are running inside the desktop-sync workflow on the mariusandra/posthog fork. Merge state: $MERGE_STATE (either an in-progress conflicted merge of upstream master or the desktop PR branch, or a completed merge whose desktop tests fail). Read .agents/skills/syncing-desktop-fork/SKILL.md and follow it: finish the merge, fix what the merge broke, and leave the working tree committed and clean. Do not push."
 
             - name: Verify merge concluded
               run: |
