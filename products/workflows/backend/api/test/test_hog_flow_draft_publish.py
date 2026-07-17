@@ -434,7 +434,9 @@ class TestHogFlowDraftPublish(APIBaseTest):
             {"confirm": True, "draft_updated_at": flow.draft_updated_at.isoformat()},
         )
         assert response.status_code == 200, response.json()
-        flow.refresh_from_db()
+        # Re-fetch rather than refresh_from_db: the is-None assert above narrows the attribute
+        # type, and mypy doesn't un-narrow on refresh, flagging the asserts below as unreachable
+        flow = HogFlow.objects.get(pk=flow_id)
         assert flow.action_redirects == {"action_1": "action_2"}
         assert response.json()["workflow"]["action_redirects"] == {"action_1": "action_2"}
 
