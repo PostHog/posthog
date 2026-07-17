@@ -150,33 +150,39 @@ pub async fn signal_released(store: &KafkaAssignerStore, tp: &TopicPartition) {
     store.delete_handoff(tp).await.unwrap();
 }
 
-/// Drive all in-flight handoffs to completion by simulating consumer behavior.
-///
-/// Polls for handoffs and advances them:
+/// Advance any in-flight handoffs by one step, simulating consumer behavior:
 /// - Warming → signals Ready (simulates consumer finishing warm-up)
 /// - Complete → signals Released (simulates consumer releasing partition)
 /// - Ready → waits (assigner will transition to Complete)
+///
+/// Returns true when no handoffs were in flight.
+///
+/// Any wait for a settled assignment must call this: only a consumer advances a handoff,
+/// so polling for `handoffs.is_empty()` without driving them blocks until `handoff_timeout`.
+pub async fn advance_handoffs(store: &KafkaAssignerStore) -> bool {
+    let handoffs = store.list_handoffs().await.unwrap_or_default();
+    for h in &handoffs {
+        match h.phase {
+            HandoffPhase::Warming => {
+                signal_ready(store, &h.topic_partition()).await;
+            }
+            HandoffPhase::Complete => {
+                signal_released(store, &h.topic_partition()).await;
+            }
+            HandoffPhase::Ready => {}
+        }
+    }
+    handoffs.is_empty()
+}
+
+/// Drive all in-flight handoffs to completion by simulating consumer behavior.
 ///
 /// Returns when no handoffs remain.
 pub async fn drive_handoffs_to_completion(store: &KafkaAssignerStore) {
     let store = store.clone();
     wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
         let store = store.clone();
-        async move {
-            let handoffs = store.list_handoffs().await.unwrap_or_default();
-            for h in &handoffs {
-                match h.phase {
-                    HandoffPhase::Warming => {
-                        signal_ready(&store, &h.topic_partition()).await;
-                    }
-                    HandoffPhase::Complete => {
-                        signal_released(&store, &h.topic_partition()).await;
-                    }
-                    HandoffPhase::Ready => {}
-                }
-            }
-            handoffs.is_empty()
-        }
+        async move { advance_handoffs(&store).await }
     })
     .await;
 }

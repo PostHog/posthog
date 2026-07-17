@@ -35,8 +35,8 @@ use kafka_assigner_proto::kafka_assigner::v1 as proto;
 use kafka_assigner_proto::kafka_assigner::v1::kafka_assigner_server::KafkaAssignerServer;
 
 use common::{
-    create_grpc_client, create_kafka_topic, set_topic_config, signal_ready, signal_released,
-    test_store, wait_for_condition, POLL_INTERVAL,
+    advance_handoffs, create_grpc_client, create_kafka_topic, set_topic_config, test_store,
+    wait_for_condition, POLL_INTERVAL,
 };
 
 const NAMESPACE: &str = "default";
@@ -550,17 +550,19 @@ async fn deployment_rollout_reassigns_partitions() {
         .expect("register old-1 failed")
         .into_inner();
 
-    // Wait for initial assignment across both consumers
+    // Wait for initial assignment across both consumers. Drive handoffs while waiting: if the
+    // two registrations straddle the assigner's 1s debounce, old-0 takes all 8 and the next
+    // rebalance hands 4 back via the handoff protocol. Both paths settle on the same end state.
     let check_store = Arc::clone(&store);
     let check_names = old_names.clone();
     wait_for_condition(E2E_TIMEOUT, POLL_INTERVAL, || {
         let store = Arc::clone(&check_store);
         let names = check_names.clone();
         async move {
+            let no_handoffs = advance_handoffs(&store).await;
             let a = store.list_assignments().await.unwrap_or_default();
-            let h = store.list_handoffs().await.unwrap_or_default();
-            a.len() == NUM_PARTITIONS as usize
-                && h.is_empty()
+            no_handoffs
+                && a.len() == NUM_PARTITIONS as usize
                 && a.iter().any(|x| x.owner == names[0])
                 && a.iter().any(|x| x.owner == names[1])
         }
@@ -616,19 +618,7 @@ async fn deployment_rollout_reassigns_partitions() {
         let store = Arc::clone(&drive_store);
         let owners = expected_owners.clone();
         async move {
-            // Advance any in-flight handoffs
-            let handoffs = store.list_handoffs().await.unwrap_or_default();
-            for h in &handoffs {
-                match h.phase {
-                    kafka_assigner::types::HandoffPhase::Warming => {
-                        signal_ready(&store, &h.topic_partition()).await;
-                    }
-                    kafka_assigner::types::HandoffPhase::Complete => {
-                        signal_released(&store, &h.topic_partition()).await;
-                    }
-                    kafka_assigner::types::HandoffPhase::Ready => {}
-                }
-            }
+            advance_handoffs(&store).await;
 
             // Check desired end state: all partitions on new-gen consumers
             let assignments = store.list_assignments().await.unwrap_or_default();
