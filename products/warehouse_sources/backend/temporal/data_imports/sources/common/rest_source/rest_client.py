@@ -241,6 +241,14 @@ class RESTClient:
             if isinstance(data, list) and len(data) == 1:
                 data = data[0]
         else:
+            # No selector: the whole body is the row list. With ``required``, a non-list body means
+            # the response shape changed (e.g. an error object on a 200) — fail loud rather than
+            # wrapping the stray object as a single row.
+            if required and not isinstance(body, list):
+                raise ValueError(
+                    f"Required a list response body, got {type(body).__name__}. "
+                    "The API response shape may have changed."
+                )
             data = body
 
         if data is None:
