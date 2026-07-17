@@ -4612,7 +4612,7 @@ def reset_code_workflow_bindings(team_id: int, user_id: int) -> contracts.CodeWo
 # worker and split into board columns by their stored ``state``.
 
 
-def _code_home_workstream_to_dto(ws: CodeWorkstream) -> contracts.CodeHomeWorkstreamDTO:
+def _code_home_workstream_to_dto(ws: CodeWorkstream, live_task_ids: set[str]) -> contracts.CodeHomeWorkstreamDTO:
     return contracts.CodeHomeWorkstreamDTO(
         id=ws.key,
         repo_name=ws.repo_name,
@@ -4632,9 +4632,29 @@ def _code_home_workstream_to_dto(ws: CodeWorkstream) -> contracts.CodeHomeWorkst
                 quick_action=t.get("quick_action"),
             )
             for t in (ws.tasks or [])
+            if t.get("id") in live_task_ids
         ],
         situations=ws.situations or [],
     )
+
+
+def _live_code_home_task_ids(team_id: int, workstreams: list[CodeWorkstream]) -> set[str]:
+    """Task ids referenced by these workstreams that are still actionable.
+
+    Workstream rows are denormalized snapshots the worker rebuilds on a schedule, so they can
+    reference tasks the user has since archived or deleted. Such a task is hidden from the task
+    list (so "open task" no-ops) and can't be re-archived (so "archive" errors), stranding its
+    row on the board. Drop those tasks at read time so only live ones reach the client.
+    """
+    ids = {t["id"] for ws in workstreams for t in (ws.tasks or []) if t.get("id")}
+    if not ids:
+        return set()
+    return {
+        str(task_id)
+        for task_id in Task.objects.filter(id__in=ids, team_id=team_id, archived=False, deleted=False).values_list(
+            "id", flat=True
+        )
+    }
 
 
 def _code_home_active_agents(team_id: int, user_id: int) -> list[contracts.CodeHomeActiveAgentDTO]:
@@ -4678,11 +4698,16 @@ def _code_home_active_agents(team_id: int, user_id: int) -> list[contracts.CodeH
 
 def get_code_home(team_id: int, user_id: int) -> contracts.CodeHomeDTO:
     """Assemble the code-home board: live active agents plus persisted workstreams by column."""
-    workstreams = CodeWorkstream.objects.filter(team_id=team_id, user_id=user_id)
+    workstreams = list(CodeWorkstream.objects.filter(team_id=team_id, user_id=user_id))
+    live_task_ids = _live_code_home_task_ids(team_id, workstreams)
     needs_attention: list[contracts.CodeHomeWorkstreamDTO] = []
     in_progress: list[contracts.CodeHomeWorkstreamDTO] = []
-    for ws in workstreams.iterator():
-        dto = _code_home_workstream_to_dto(ws)
+    for ws in workstreams:
+        dto = _code_home_workstream_to_dto(ws, live_task_ids)
+        # A workstream whose tasks are all archived or deleted has nothing left to act on, so
+        # keeping it would just strand an un-openable, un-archivable row on the board.
+        if not dto.tasks:
+            continue
         if ws.state == CodeWorkstream.WorkstreamState.ATTENTION:
             needs_attention.append(dto)
         else:
