@@ -35,7 +35,7 @@ export interface LocalBackendOptions {
     cacheDir: string
     /** Returns the current auth, or null when signed out. May be async when a token refresh is needed. */
     getAuth: () => UpstreamAuth | null | Promise<UpstreamAuth | null>
-    /** Handles the OAuth loopback redirect (GET /oauth/callback); returns the message shown in the browser tab */
+    /** Handles the OAuth loopback redirect (GET /callback); returns the message shown in the browser tab */
     onOAuthCallback?: (query: URLSearchParams) => Promise<{ ok: boolean; message: string }>
     /** Called when the renderer navigates to /logout */
     onSignOutRequested: () => void
@@ -337,7 +337,7 @@ export async function startLocalBackend(options: LocalBackendOptions, preferredP
             })
             return
         }
-        if (pathname === '/oauth/callback' && options.onOAuthCallback) {
+        if (pathname === '/callback' && options.onOAuthCallback) {
             options
                 .onOAuthCallback(url.searchParams)
                 .then(({ ok, message }) => {

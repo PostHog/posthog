@@ -2,10 +2,12 @@
  * OAuth 2.0 authorization-code + PKCE login through the system browser.
  *
  * PostHog Cloud runs a django-oauth-toolkit authorization server with public
- * PKCE clients pre-registered per region (the same client IDs the frontend's
- * standalone OAuth mode uses, see frontend/src/lib/oauth/oauthClient.ts). The
- * flow: open {host}/oauth/authorize in the real browser, receive the code on
- * the local loopback server's /oauth/callback, exchange it at {host}/oauth/token/.
+ * PKCE clients pre-registered per region. We use PostHog Code's client IDs:
+ * they are registered with the portless loopback redirect http://localhost/callback,
+ * which the server's RFC 8252 port-flexible matching extends to any ephemeral
+ * port (see validate_redirect_uri in posthog/api/oauth/views.py). The flow:
+ * open {host}/oauth/authorize in the real browser, receive the code on the
+ * local loopback server's /callback, exchange it at {host}/oauth/token/.
  * Access tokens (pha_...) authenticate the API exactly like personal API keys.
  *
  * This module must stay free of Electron imports so it can be unit tested with
@@ -16,10 +18,12 @@ import { createHash, randomBytes } from 'node:crypto'
 
 import type { CloudRegion } from '../shared/ipc.ts'
 
-/** Registered public PKCE client IDs per cloud region (none for self-hosted). */
+/** Registered public PKCE client IDs per cloud region (none for self-hosted).
+ * These are PostHog Code's registered apps, reused until the desktop app has
+ * its own registrations with a http://localhost/callback redirect URI. */
 export const OAUTH_CLIENT_IDS: Record<Exclude<CloudRegion, 'custom'>, string> = {
-    us: '47rGkjTTMRvkbfU1sdSXsqOGLyJBlbMneRkFKhmO',
-    eu: 'VCRpJggenuNKqALWy2Um35S4mHbUcIPPg5hiA03K',
+    us: 'HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W',
+    eu: 'AIvijgMS0dxKEmr5z6odvRd8Pkh5vts3nPTzgzU9',
 }
 
 /** All scopes, mirroring what an all-access personal API key grants. */

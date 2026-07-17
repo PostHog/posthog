@@ -194,8 +194,8 @@ describe('local backend', () => {
         assert.equal(upstreamRequests.length, 0)
     })
 
-    test('/oauth/callback is routed to the OAuth handler instead of the SPA', async () => {
-        const response = await fetch(`${backend.origin}/oauth/callback?code=good&state=xyz`)
+    test('/callback is routed to the OAuth handler instead of the SPA', async () => {
+        const response = await fetch(`${backend.origin}/callback?code=good&state=xyz`)
         assert.equal(response.status, 200)
         const body = await response.text()
         assert.match(body, /handled:xyz/)

@@ -51,14 +51,14 @@ describe('oauth', () => {
             buildAuthorizeUrl({
                 apiHost: 'https://us.posthog.com',
                 clientId: 'client123',
-                redirectUri: 'http://localhost:48752/oauth/callback',
+                redirectUri: 'http://localhost:48752/callback',
                 codeChallenge: 'challenge',
                 state: 'state123',
             })
         )
         assert.equal(url.origin + url.pathname, 'https://us.posthog.com/oauth/authorize')
         assert.equal(url.searchParams.get('client_id'), 'client123')
-        assert.equal(url.searchParams.get('redirect_uri'), 'http://localhost:48752/oauth/callback')
+        assert.equal(url.searchParams.get('redirect_uri'), 'http://localhost:48752/callback')
         assert.equal(url.searchParams.get('response_type'), 'code')
         assert.equal(url.searchParams.get('code_challenge_method'), 'S256')
         assert.equal(url.searchParams.get('scope'), '*')
@@ -105,7 +105,7 @@ describe('oauth', () => {
         const { completion } = flow.begin({
             apiHost: tokenServerOrigin,
             clientId: 'client123',
-            redirectUri: 'http://localhost:48752/oauth/callback',
+            redirectUri: 'http://localhost:48752/callback',
         })
         const forged = await flow.handleCallback(new URLSearchParams({ code: 'stolen', state: 'wrong' }))
         assert.equal(forged.ok, false)
@@ -122,7 +122,7 @@ describe('oauth', () => {
         const { url, completion } = flow.begin({
             apiHost: tokenServerOrigin,
             clientId: 'client123',
-            redirectUri: 'http://localhost:48752/oauth/callback',
+            redirectUri: 'http://localhost:48752/callback',
         })
         const state = new URL(url).searchParams.get('state')!
         tokenResponses.push({

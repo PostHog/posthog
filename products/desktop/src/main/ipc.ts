@@ -99,9 +99,10 @@ export function registerIpcHandlers(state: AppState, oauthFlow: OAuthBrowserFlow
             if (!appOrigin) {
                 return { ok: false, error: 'The local server is not running yet. Try again in a moment.' }
             }
-            // `localhost` (not 127.0.0.1) so the registered portless loopback
-            // redirect URI matches under RFC 8252 port flexibility
-            const redirectUri = `http://localhost:${new URL(appOrigin).port}/oauth/callback`
+            // `localhost` (not 127.0.0.1) and path `/callback` so the port-stripped
+            // URI matches the registered http://localhost/callback under RFC 8252
+            // port flexibility
+            const redirectUri = `http://localhost:${new URL(appOrigin).port}/callback`
             const { url, completion } = oauthFlow.begin({ apiHost, clientId, redirectUri })
             void shell.openExternal(url)
             const result = await completion
