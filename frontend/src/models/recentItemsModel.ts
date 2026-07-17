@@ -166,6 +166,10 @@ export const recentItemsModel = kea<recentItemsModelType>([
         recents: [
             [] as FileSystemEntry[],
             {
+                // Drop the previous project's items the moment we switch teams. Otherwise they stay
+                // visible and clickable until the reload lands, and their relative hrefs (e.g.
+                // /surveys/{pk}) resolve under the new project and 404.
+                loadCurrentTeamSuccess: (state, { currentTeam }) => (currentTeam ? [] : state),
                 recordView: (state, { type, ref }) => {
                     const idx = state.findIndex((e) => e.type === type && e.ref === ref)
                     if (idx < 0) {
@@ -179,6 +183,7 @@ export const recentItemsModel = kea<recentItemsModelType>([
         sceneLogViewsByRef: [
             {} as Record<string, string>,
             {
+                loadCurrentTeamSuccess: (state, { currentTeam }) => (currentTeam ? {} : state),
                 recordView: (state, { type, ref }) => {
                     if (type !== 'scene') {
                         return state
@@ -190,6 +195,9 @@ export const recentItemsModel = kea<recentItemsModelType>([
         recentsHasLoaded: [
             false,
             {
+                // Reset to false on team switch so consumers show the loading state instead of the
+                // now-cleared previous project's recents while the fresh list loads.
+                loadCurrentTeamSuccess: (state, { currentTeam }) => (currentTeam ? false : state),
                 loadRecentsSuccess: () => true,
                 loadRecentsFailure: () => true,
             },
@@ -197,6 +205,7 @@ export const recentItemsModel = kea<recentItemsModelType>([
         sceneLogViewsHasLoaded: [
             false,
             {
+                loadCurrentTeamSuccess: (state, { currentTeam }) => (currentTeam ? false : state),
                 loadSceneLogViewsSuccess: () => true,
                 loadSceneLogViewsFailure: () => true,
             },
