@@ -133,6 +133,35 @@ _COMMIT_LAYOUT_CASES: list[tuple[str, list[dict], dict, bool]] = [
 ]
 
 
+class TestDeltaTableUriMemoization:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper"
+
+    @pytest.mark.asyncio
+    async def test_folder_path_resolved_once_across_calls(self) -> None:
+        # `_get_delta_table_uri` runs on every extraction (via handle_corrupted_delta_log). Resolving
+        # the folder path hops to a pooled thread and can read `schema.source` — memoizing keeps that
+        # to a single resolution per helper instead of one per call.
+        job = MagicMock()
+        job.folder_path = MagicMock(return_value="team_1_stripe_abc")
+
+        def _passthrough(fn):
+            async def _inner(*args, **kwargs):
+                return fn(*args, **kwargs)
+
+            return _inner
+
+        helper = DeltaTableHelper(resource_name="My Resource", job=job, logger=_make_logger())
+        with (
+            override_settings(BUCKET_URL="s3://bucket"),
+            patch(f"{self._MODULE}.database_sync_to_async_pool", new=_passthrough),
+        ):
+            uri1 = await helper._get_delta_table_uri()
+            uri2 = await helper._get_delta_table_uri()
+
+        assert uri1 == uri2 == "s3://bucket/team_1_stripe_abc/my_resource"
+        job.folder_path.assert_called_once()
+
+
 class TestStorageOptionsCommitSafety:
     # Re-adding AWS_S3_ALLOW_UNSAFE_RENAME unconditionally would silently restore
     # the legacy rename backend, which has no commit-conflict detection.

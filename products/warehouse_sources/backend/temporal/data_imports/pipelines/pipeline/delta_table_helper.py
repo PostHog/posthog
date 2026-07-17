@@ -172,6 +172,7 @@ class DeltaTableHelper:
     _job: ExternalDataJob
     _logger: FilteringBoundLogger
     _is_first_sync: bool
+    _folder_path: str | None
 
     def __init__(
         self, resource_name: str, job: ExternalDataJob, logger: FilteringBoundLogger, is_first_sync: bool = False
@@ -180,6 +181,7 @@ class DeltaTableHelper:
         self._job = job
         self._logger = logger
         self._is_first_sync = is_first_sync
+        self._folder_path = None
 
     @property
     def is_first_sync(self) -> bool:
@@ -223,8 +225,13 @@ class DeltaTableHelper:
 
     async def _get_delta_table_uri(self) -> str:
         normalized_resource_name = NamingConvention.normalize_identifier(self._resource_name)
-        folder_path = await database_sync_to_async_pool(self._job.folder_path)()
-        return f"{settings.BUCKET_URL}/{folder_path}/{normalized_resource_name}"
+        # The folder path is immutable for the job's lifetime, so resolve it once. This keeps the
+        # hot path (called on every extraction via handle_corrupted_delta_log) from repeatedly
+        # hopping to a pooled thread to read it — the job's `schema.source` is prefetched upstream,
+        # but memoizing avoids the round trip entirely on subsequent calls.
+        if self._folder_path is None:
+            self._folder_path = await database_sync_to_async_pool(self._job.folder_path)()
+        return f"{settings.BUCKET_URL}/{self._folder_path}/{normalized_resource_name}"
 
     async def get_table_uri(self) -> str:
         """Public accessor for the live Delta table S3 URI (used by the in-place repartitioner)."""
