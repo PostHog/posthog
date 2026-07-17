@@ -17,7 +17,7 @@ from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
@@ -125,6 +125,68 @@ class TestSkillLoader(BaseTest):
     def test_missing_skill_raises(self) -> None:
         with pytest.raises(SkillNotFoundError):
             load_skill_for_run(self.team, "signals-scout-does-not-exist")
+
+    def test_authors_lead_with_creator_not_last_editor(self) -> None:
+        # Each version row's `created_by` is whoever published that version, so the pinned
+        # (latest) row alone attributes the skill to its last editor. A regression back to
+        # reading the loaded row's `created_by` flips this ordering.
+        ben = User.objects.create_and_join(self.organization, "ben@posthog.com", None, "Ben")
+        v1 = self._create_skill("signals-scout-errors")
+        v1.created_by = ben
+        v1.is_latest = False
+        v1.save()
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="A test skill",
+            body="edited body",
+            version=2,
+            is_latest=True,
+            created_by=self.user,
+        )
+        loaded = load_skill_for_run(self.team, "signals-scout-errors")
+        assert [(a.role, a.email) for a in loaded.authors] == [
+            ("creator", "ben@posthog.com"),
+            ("editor", self.user.email),
+        ]
+
+    def test_diverged_seeded_skill_creator_is_first_human_author(self) -> None:
+        # A seeded row's v1 is system-authored (`created_by=None`); the creator of the diverged
+        # skill is whoever first edited it, not "the author of version 1".
+        seeded_metadata = {"seeded_by": HARNESS_SEEDED_BY, "canonical_hash": "0" * 64}
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-general",
+            description="d",
+            body="b",
+            metadata=seeded_metadata,
+            is_latest=False,
+        )
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-general",
+            description="d",
+            body="edited",
+            version=2,
+            is_latest=True,
+            created_by=self.user,
+            metadata=seeded_metadata,
+        )
+        loaded = load_skill_for_run(self.team, "signals-scout-general")
+        assert [(a.role, a.email) for a in loaded.authors] == [("creator", self.user.email)]
+
+    def test_authors_empty_for_pristine_canonical_skill(self) -> None:
+        skill = LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-general",
+            description="d",
+            body="b",
+            created_by=self.user,
+            metadata={"seeded_by": HARNESS_SEEDED_BY},
+        )
+        skill.metadata["canonical_hash"] = _compute_row_hash(skill, [])
+        skill.save()
+        assert load_skill_for_run(self.team, "signals-scout-general").authors == []
 
     def test_signals_scout_prefix_check(self) -> None:
         match = self._create_skill("signals-scout-errors")
@@ -309,6 +371,10 @@ class TestPromptBuilder(BaseTest):
         # has neither, so pointing it at `emit_report` would steer it into a PermissionDenied.
         expect_escalation = expect_section and "emit_report" in allowed_tools
         assert ("Scout self-improvement:" in prompt) is expect_escalation
+        # Reviewer routing for self-improvement reports points at the run-identity authors line,
+        # not at "whoever owns this scout" guesswork — dropping the reference re-opens the
+        # last-editor-becomes-the-assignee failure mode.
+        assert ("the skill authors listed under *Your run identity*" in prompt) is expect_escalation
         if _name == "custom_report_scout_emit_only":
             # The emit-only variant must never name the edit tool it lacks (fails closed).
             assert "scout-edit-report" not in prompt
@@ -335,6 +401,40 @@ class TestPromptBuilder(BaseTest):
             started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
         )
         assert "Suggest improvements to your own skill" not in prompt
+        # A canonical skill body is PostHog-owned — the run identity must not name the seeding
+        # row's incidental `created_by` as a skill author.
+        assert "skill authors" not in prompt
+
+    def test_run_identity_names_skill_authors_creator_first(self) -> None:
+        # The rendered line is what the escalation guidance points `suggested_reviewers` at;
+        # if it drops the creator, or renders for a skill with no known authors, routing
+        # falls back to the last editor (the exact misattribution this line exists to fix).
+        ben = User.objects.create_and_join(self.organization, "ben@posthog.com", None, "Ben")
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="d",
+            body="b",
+            created_by=ben,
+            is_latest=False,
+        )
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="d",
+            body="edited",
+            version=2,
+            is_latest=True,
+            created_by=self.user,
+        )
+        prompt = build_run_prompt(
+            load_skill_for_run(self.team, "signals-scout-errors"),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        )
+        assert "**skill authors**: created by Ben (ben@posthog.com); since edited by" in prompt
+        assert self.user.email in prompt
 
     def _report_prompt_for(self, allowed_tools: list[str]) -> str:
         name = "signals-scout-" + "-".join(allowed_tools)

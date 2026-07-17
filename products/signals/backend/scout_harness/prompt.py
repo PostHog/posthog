@@ -5,7 +5,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from products.signals.backend.scout_harness.skill_loader import LoadedSkill, skill_uses_report_channel
+from products.signals.backend.scout_harness.skill_loader import LoadedSkill, SkillAuthor, skill_uses_report_channel
 
 
 class SignalScoutRunSummary(BaseModel):
@@ -256,9 +256,9 @@ SELF_IMPROVEMENT_REPORT_TITLE_PREFIX = "Scout self-improvement:"
 # tools they already hold. Two variants because an emit-only scout must never be pointed at
 # `edit_report` (the endpoint fails closed on the exact tool); a signal-channel custom scout gets
 # neither — it has no report tools at all, so the scratchpad stays its only self-improvement record.
-_SELF_IMPROVEMENT_ESCALATE_BOTH = f"""- **Recurring or material? File an inbox report too.** A scratchpad entry is only seen when the owner goes looking; a report is routed to them. When a suggestion re-confirms across runs (your `improve:` entry has accumulated several dated lines), or this run's failure was material (it wasted most of your budget, or steered you into emitting something wrong), surface it with the same report tools you use for findings. If the `improve:` entry already carries a `report_id`, `append_note` the fresh evidence onto that report with `scout-edit-report`; otherwise author one with `scout-emit-report` — title `{SELF_IMPROVEMENT_REPORT_TITLE_PREFIX} <your-skill-name> – <topic>`, the suggested skill change plus the evidence in the summary, `actionability` = `requires_human_input` (applying it is a skill edit by your team), `repository` = the `NO_REPO` sentinel (the fix is a skill edit, not code), `suggested_reviewers` = whoever owns this scout when you know — and stash the returned `report_id` in the `improve:` entry so later runs update that report instead of authoring a duplicate. It lands in the inbox like any other report; your team decides whether to apply it."""
+_SELF_IMPROVEMENT_ESCALATE_BOTH = f"""- **Recurring or material? File an inbox report too.** A scratchpad entry is only seen when the owner goes looking; a report is routed to them. When a suggestion re-confirms across runs (your `improve:` entry has accumulated several dated lines), or this run's failure was material (it wasted most of your budget, or steered you into emitting something wrong), surface it with the same report tools you use for findings. If the `improve:` entry already carries a `report_id`, `append_note` the fresh evidence onto that report with `scout-edit-report`; otherwise author one with `scout-emit-report` — title `{SELF_IMPROVEMENT_REPORT_TITLE_PREFIX} <your-skill-name> – <topic>`, the suggested skill change plus the evidence in the summary, `actionability` = `requires_human_input` (applying it is a skill edit by your team), `repository` = the `NO_REPO` sentinel (the fix is a skill edit, not code), `suggested_reviewers` = the skill authors listed under *Your run identity*, creator first (match each to a `scout-members-list` row; skip anyone who doesn't resolve, and leave it empty only when no author resolves at all) — and stash the returned `report_id` in the `improve:` entry so later runs update that report instead of authoring a duplicate. It lands in the inbox like any other report; your team decides whether to apply it."""
 
-_SELF_IMPROVEMENT_ESCALATE_EMIT_ONLY = f"""- **Recurring or material? File an inbox report too.** A scratchpad entry is only seen when the owner goes looking; a report is routed to them. When a suggestion re-confirms across runs (your `improve:` entry has accumulated several dated lines), or this run's failure was material (it wasted most of your budget, or steered you into emitting something wrong), surface it with `scout-emit-report` — title `{SELF_IMPROVEMENT_REPORT_TITLE_PREFIX} <your-skill-name> – <topic>`, the suggested skill change plus the evidence in the summary, `actionability` = `requires_human_input` (applying it is a skill edit by your team), `repository` = the `NO_REPO` sentinel (the fix is a skill edit, not code), `suggested_reviewers` = whoever owns this scout when you know. Stash the returned `report_id` in the `improve:` entry — this run can't edit reports, so once the entry carries a `report_id` the report exists: keep fresh evidence in the entry rather than authoring a duplicate. It lands in the inbox like any other report; your team decides whether to apply it."""
+_SELF_IMPROVEMENT_ESCALATE_EMIT_ONLY = f"""- **Recurring or material? File an inbox report too.** A scratchpad entry is only seen when the owner goes looking; a report is routed to them. When a suggestion re-confirms across runs (your `improve:` entry has accumulated several dated lines), or this run's failure was material (it wasted most of your budget, or steered you into emitting something wrong), surface it with `scout-emit-report` — title `{SELF_IMPROVEMENT_REPORT_TITLE_PREFIX} <your-skill-name> – <topic>`, the suggested skill change plus the evidence in the summary, `actionability` = `requires_human_input` (applying it is a skill edit by your team), `repository` = the `NO_REPO` sentinel (the fix is a skill edit, not code), `suggested_reviewers` = the skill authors listed under *Your run identity*, creator first (match each to a `scout-members-list` row; skip anyone who doesn't resolve, and leave it empty only when no author resolves at all). Stash the returned `report_id` in the `improve:` entry — this run can't edit reports, so once the entry carries a `report_id` the report exists: keep fresh evidence in the entry rather than authoring a duplicate. It lands in the inbox like any other report; your team decides whether to apply it."""
 
 _SELF_IMPROVEMENT_TAIL = """- The bar is a concrete failure or waste observed this run. Generic polish ("the wording could be clearer") is noise — don't write it.
 - Routing: a problem with the tools, the harness, or these shared instructions still goes to `agent-feedback` (it reaches the PostHog team, not your team). An `improve:` entry is only for changes to your own skill body — your team reviews it and decides whether to apply it.
@@ -374,6 +374,32 @@ def _render_tail(sections: list[str], *, schema_json: str) -> str:
     return "\n\n".join(rendered)
 
 
+def _skill_authors_line(authors: list[SkillAuthor]) -> str:
+    """Run-identity line naming the custom skill's creator and recent editors, or empty.
+
+    Version rows only record who published each version, so without this line a scout that
+    reads its own (latest) version via `skill-get` sees the last editor's name and would route
+    ownership there — e.g. a bulk cleanup pass over every custom scout makes the cleaner look
+    like the owner of all of them. Resolving authorship server-side also spares the scout a
+    tool call per version; a long-lived skill can carry hundreds.
+    """
+    if not authors:
+        return ""
+    parts = []
+    creator = next((a for a in authors if a.role == "creator"), None)
+    if creator is not None:
+        parts.append(f"created by {creator.name} ({creator.email})")
+    editors = [a for a in authors if a.role == "editor"]
+    if editors:
+        edited = ", ".join(f"{a.name} ({a.email}, last edit {a.last_authored_at.date().isoformat()})" for a in editors)
+        parts.append(f"since edited by {edited}")
+    return (
+        f"\n- **skill authors**: {'; '.join(parts)} — the humans who own your skill body. "
+        "When a report needs someone who owns this scout (a self-improvement report especially), "
+        "route to them, creator first."
+    )
+
+
 def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_at: datetime) -> str:
     """Render the opening prompt for one scout run.
 
@@ -428,12 +454,13 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
         self_improvement = _self_improvement_section(can_emit_report=can_emit_report, can_edit_report=can_edit_report)
         sections = [*sections[:-1], self_improvement, sections[-1]]
     tail = _render_tail(sections, schema_json=schema_json)
+    authors_line = _skill_authors_line(skill.authors)
     return f"""{intro}
 # Your run identity
 
 - **run_id**: `{run_id}` — pass this when calling `{emit_tool}`.
 - **team_id**: `{team_id}` — implicit on every MCP call.
-- **skill**: `{skill.name}` (v{skill.version}) — your steering layer.
+- **skill**: `{skill.name}` (v{skill.version}) — your steering layer.{authors_line}
 - **started_at**: `{started_at_iso}` — when this run began (UTC). Informational; use current clock time for queries about "now".
 
 # How to call tools
