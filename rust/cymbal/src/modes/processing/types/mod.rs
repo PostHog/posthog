@@ -14,7 +14,7 @@ use crate::metric_consts::POSTHOG_SDK_EXCEPTION_RESOLVED;
 
 pub mod batch;
 pub mod event;
-pub mod exception_properties;
+pub mod exception_event;
 pub mod operator;
 pub mod stage;
 

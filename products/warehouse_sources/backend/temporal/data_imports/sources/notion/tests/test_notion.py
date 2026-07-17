@@ -12,7 +12,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.notion.not
     MAX_BLOCK_DEPTH,
     MAX_CHILD_PAGES_PER_PARENT,
     MAX_RETRY_AFTER_SECONDS,
-    NOTION_VERSION,
+    NOTION_VERSION_2025_09_03,
+    NOTION_VERSION_2026_03_11,
     NotionBadRequestError,
     NotionNotFoundError,
     NotionResumeConfig,
@@ -90,10 +91,11 @@ class _FakeRetryState:
 
 
 class TestNotion:
-    def test_headers_include_bearer_token_and_version(self) -> None:
-        headers = _get_headers("ntn_secret")
+    @parameterized.expand([(NOTION_VERSION_2025_09_03,), (NOTION_VERSION_2026_03_11,)])
+    def test_headers_carry_requested_version(self, api_version: str) -> None:
+        headers = _get_headers("ntn_secret", api_version)
         assert headers["Authorization"] == "Bearer ntn_secret"
-        assert headers["Notion-Version"] == NOTION_VERSION
+        assert headers["Notion-Version"] == api_version
         assert headers["Content-Type"] == "application/json"
 
     @parameterized.expand([("page",), ("data_source",)])
@@ -463,7 +465,7 @@ class TestNotion:
     def test_validate_credentials_status_mapping(self, status_code: int, expected_valid: bool) -> None:
         session = FakeSession([FakeResponse({}, status_code=status_code)])
         with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-            valid, message = validate_credentials("tok")
+            valid, message = validate_credentials("tok", NOTION_VERSION_2026_03_11)
 
         assert valid is expected_valid
         if expected_valid:
@@ -473,7 +475,7 @@ class TestNotion:
 
     def test_validate_credentials_handles_exception(self) -> None:
         with mock.patch(f"{MODULE}.make_tracked_session", side_effect=requests.ConnectionError("boom")):
-            valid, message = validate_credentials("tok")
+            valid, message = validate_credentials("tok", NOTION_VERSION_2026_03_11)
 
         assert valid is False
         assert message == "boom"

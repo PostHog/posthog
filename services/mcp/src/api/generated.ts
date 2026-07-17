@@ -12561,16 +12561,27 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    export interface BriefSectionCitation {
+      /** Cited resource type, e.g. insight or dashboard. */
+      type: string;
+      /** Stable id of the cited resource within its type. */
+      ref: string;
+      /** Human-readable name of the cited resource, for display. */
+      label: string;
+      /** Deep link into the app, or empty when the resource has no navigable target. */
+      url: string;
+    }
+
     export interface BriefSection {
-      /** Section kind, e.g. 'what_happened' or 'what_to_build_next'. */
+      /** Section kind, e.g. what_happened or what_to_build_next. */
       kind: string;
-      /** Short, specific section heading. */
+      /** Short section heading. */
       title: string;
-      /** Section body in markdown. */
+      /** Section body rendered as markdown. */
       markdown: string;
-      /** Citation ids (e.g. 'c1') backing the section, copied verbatim. */
-      citations: string[];
-      /** Confidence in this section, 0.0-1.0. */
+      /** PostHog resources this section cites as evidence. */
+      citations: BriefSectionCitation[];
+      /** Model confidence in this section, 0.0-1.0. */
       confidence: number;
     }
 
@@ -18156,6 +18167,7 @@ export namespace Schemas {
      * * `Shopware` - Shopware
      * * `Dubsado` - Dubsado
      * * `Campfire` - Campfire
+     * * `PromptWatch` - PromptWatch
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -19018,6 +19030,7 @@ export namespace Schemas {
       Shopware: 'Shopware',
       Dubsado: 'Dubsado',
       Campfire: 'Campfire',
+      PromptWatch: 'PromptWatch',
     } as const;
 
     /**
@@ -19893,7 +19906,8 @@ export namespace Schemas {
        * * `Kajabi` - Kajabi
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire */
+       * * `Campfire` - Campfire
+       * * `PromptWatch` - PromptWatch */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -26735,7 +26749,8 @@ export namespace Schemas {
        * * `Kajabi` - Kajabi
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire */
+       * * `Campfire` - Campfire
+       * * `PromptWatch` - PromptWatch */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -27624,7 +27639,8 @@ export namespace Schemas {
        * * `Kajabi` - Kajabi
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire */
+       * * `Campfire` - Campfire
+       * * `PromptWatch` - PromptWatch */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -28536,16 +28552,21 @@ export namespace Schemas {
     }
 
     /**
-     * Fleet-wide tally of recently emitted findings — backs the "Scout findings" callout so it
-     * renders from one cheap query instead of the client walking the whole paginated runs window.
+     * Fleet-wide tally of recent scout output — legacy `emit_signal` findings plus reports
+     * authored/edited via the report channel. Backs the "Scout findings" callout so it renders
+     * from one cheap query instead of the client walking the whole paginated runs window.
      */
     export interface FleetFindingsSummary {
-      /** Total findings the fleet emitted in the window — the sum of each emitted run's `emitted_count`, over the most recent 120 emitted runs. */
+      /** Total findings the fleet emitted in the window — the sum of each run's `emitted_count`, over the most recent 120 runs that produced output. */
       count: number;
-      /** Number of distinct scouts (skills) that emitted at least one finding in the window. */
+      /** Number of distinct scouts (skills) that produced output in the window — emitted a finding, or authored/edited an inbox report that survives the 50-report cap (a report-only scout whose touched reports all fell outside the cap is not counted, matching the findings page's scout filter). */
       scout_count: number;
+      /** Number of distinct inbox reports scouts authored via `emit_report`, deduped across runs, over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently touched reports (the same slice the findings page lists). */
+      authored_report_count: number;
+      /** Number of distinct inbox reports scouts edited via `edit_report`, deduped across runs, over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently touched reports (the same slice the findings page lists) and excluding reports also authored within that set (authoring supersedes an edit; a report whose authoring run falls outside the cap counts as edited). */
+      edited_report_count: number;
       /**
-         * ISO-8601 timestamp of the most recently emitted finding's run (TaskRun completion, falling back to run creation), or null when nothing was emitted in the window.
+         * ISO-8601 timestamp of the most recent output run (TaskRun completion, falling back to run creation), or null when nothing was produced in the window.
          * @nullable
          */
       latest_at: string | null;
@@ -57754,7 +57775,8 @@ export namespace Schemas {
        * * `Kajabi` - Kajabi
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire */
+       * * `Campfire` - Campfire
+       * * `PromptWatch` - PromptWatch */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -58656,7 +58678,8 @@ export namespace Schemas {
        * * `Kajabi` - Kajabi
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire */
+       * * `Campfire` - Campfire
+       * * `PromptWatch` - PromptWatch */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -59550,7 +59573,8 @@ export namespace Schemas {
        * * `Kajabi` - Kajabi
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
-       * * `Campfire` - Campfire */
+       * * `Campfire` - Campfire
+       * * `PromptWatch` - PromptWatch */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
