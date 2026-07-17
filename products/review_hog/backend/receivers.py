@@ -181,20 +181,28 @@ def _start_review(
     from products.review_hog.backend.temporal.client import start_review_pr_workflow  # noqa: PLC0415
     from products.review_hog.backend.temporal.types import TRIGGER_INBOX  # noqa: PLC0415
 
-    if pr_url is not None:
-        target_kwargs: dict[str, str] = {"pr_url": pr_url}
-    else:
-        target_kwargs = {"repository": repository or "", "head_branch": head_branch or ""}
     try:
-        workflow_id = start_review_pr_workflow(
-            team_id=team_id,
-            user_id=user_id,
-            publish=True,
-            acting_user_id=user_id,
-            trigger_source=TRIGGER_INBOX,
-            signal_report_id=signal_report_id,
-            **target_kwargs,
-        )
+        if pr_url is not None:
+            workflow_id = start_review_pr_workflow(
+                team_id=team_id,
+                user_id=user_id,
+                publish=True,
+                acting_user_id=user_id,
+                trigger_source=TRIGGER_INBOX,
+                signal_report_id=signal_report_id,
+                pr_url=pr_url,
+            )
+        else:
+            workflow_id = start_review_pr_workflow(
+                team_id=team_id,
+                user_id=user_id,
+                publish=True,
+                acting_user_id=user_id,
+                trigger_source=TRIGGER_INBOX,
+                signal_report_id=signal_report_id,
+                repository=repository or "",
+                head_branch=head_branch or "",
+            )
         logger.info("review_hog_inbox_review_started: workflow %s for signal report %s", workflow_id, signal_report_id)
     except Exception:
         logger.exception("review_hog_inbox_review_start_failed")

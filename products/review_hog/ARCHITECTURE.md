@@ -44,8 +44,12 @@ current focus is productionizing the reviewer-topology eval and tightening the f
 (validator strictness, fewer junk candidates, the coverage gap); the **loop** — a living, multi-turn review that
 re-checks on new commits/comments and implements fixes — is designed but not built. The single-turn pipeline
 below is its per-turn body. The **resolution stage** — a post-review, standalone-capable stage that triages every
-unresolved review thread and implements the worth-and-safe ones directly on the PR branch — is also designed but
-not built (DECISIONS.md Stage 7; vocabulary in CONTEXT.md).
+unresolved review thread and implements the worth-and-safe ones directly on the PR branch — is **built (first
+cut), pending live e2e**: `ResolvePRWorkflow` (`backend/temporal/resolution.py`) drives one warm writable sandbox
+session per PR (one thread per turn, humans → ReviewHog → other bots), persists per-thread `thread_verdict`
+artefacts on the living report, replies/resolves server-side from verdicts (bot threads only; humans keep the
+final word), and is entered via `POST /api/review_hog/resolve`, the `run_resolution` command, or chained from a
+review with `resolve=true` on the trigger. Design + decision record: DECISIONS.md Stage 7; vocabulary: CONTEXT.md.
 
 The full roadmap — every open thread with its reasoning, the loop design, the grounded implementation maps, and
 the experiment backlog — is in [DECISIONS.md](./DECISIONS.md) (start at its "🎯 NEXT" section) and `eval/`

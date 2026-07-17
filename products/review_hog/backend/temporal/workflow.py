@@ -21,8 +21,9 @@ from datetime import timedelta
 
 import temporalio
 from temporalio import workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.workflow import ParentClosePolicy
 
 from products.review_hog.backend.reviewer.constants import (
     BLIND_SPOT_PASS_NUMBER,
@@ -76,7 +77,13 @@ from products.review_hog.backend.temporal.activities import (
     validate_chunk_activity,
     validate_github_integration_activity,
 )
-from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_LABEL, ReviewPRWorkflowInputs
+from products.review_hog.backend.temporal.types import (
+    TRIGGER_INBOX,
+    TRIGGER_LABEL,
+    ResolvePRWorkflowInputs,
+    ReviewPRWorkflowInputs,
+    resolve_pr_workflow_id,
+)
 
 # Timeouts: sandbox turns can legitimately run long (a heavy validation chunk measured 34m — one
 # opus verdict per issue), so 60m start-to-close; the 5m heartbeat still catches dead sandboxes
@@ -625,6 +632,35 @@ class ReviewPRWorkflow:
             review_url=publish_result.review_url if publish_result is not None else None,
             best_effort=True,
         )
+
+        # Chained mode: hand the PR to the resolution stage once this turn's comments are on it.
+        # Fire-and-forget (ABANDON) — the resolution run outlives this workflow — and best-effort: a
+        # dispatch failure must never fail a finished review. Deterministic under replay because
+        # `resolve_comments` defaults False, so no pre-field history can reach this command.
+        if inputs.resolve_comments and meta.pr_number is not None:
+            workflow.logger.info("Dispatching the resolution stage for this PR (resolve_comments=True)")
+            try:
+                await workflow.start_child_workflow(
+                    "resolve-pr",
+                    ResolvePRWorkflowInputs(
+                        team_id=inputs.team_id,
+                        user_id=inputs.user_id,
+                        owner=inputs.owner,
+                        repo=inputs.repo,
+                        pr_number=meta.pr_number,
+                        pr_url=meta.pr_url or "",
+                        acting_user_id=acting_user_id,
+                        trigger_source=inputs.trigger_source,
+                    ),
+                    id=resolve_pr_workflow_id(
+                        team_id=inputs.team_id, owner=inputs.owner, repo=inputs.repo, pr_number=meta.pr_number
+                    ),
+                    parent_close_policy=ParentClosePolicy.ABANDON,
+                    # A resolution run already in flight for this PR wins; this dispatch just no-ops.
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                )
+            except Exception:
+                workflow.logger.warning("Could not dispatch the resolution stage; the review is unaffected")
 
         workflow.logger.info(f"ReviewHog complete · report stored on ReviewReport {report_id}")
         return report_id

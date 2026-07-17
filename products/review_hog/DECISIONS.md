@@ -2748,13 +2748,33 @@ fleet-level control during alpha).
 
 ---
 
-### 🛠️ Stage 7 — the resolution stage (design settled 2026-07-17 — not yet built)
+### 🛠️ Stage 7 — the resolution stage (design settled 2026-07-17; BUILT first cut 2026-07-17 — pending live e2e)
 
-> **Status: design settled, nothing built.** Grilled to closure with the maintainer on 2026-07-17;
+> **Status: built (first cut), not yet exercised live.** Grilled to closure with the maintainer on 2026-07-17;
 > the settled vocabulary lives in [CONTEXT.md](./CONTEXT.md) (the "Resolution stage" block) and is not repeated here.
-> This section records what was decided, the two decisions it deliberately supersedes, and the net-new build list.
+> This section records what was decided, the two decisions it deliberately supersedes, and the build map.
 > The stage was prototyped as an interactive triage skill (verify each unresolved thread against current code,
 > fix on confirmation, reply, resolve); this is its autonomous adaptation.
+>
+> **As built (same day):** everything below landed as designed. Topology map: `backend/temporal/resolution.py`
+> (`ResolvePRWorkflow`, id `resolve-pr:{team}:{owner}/{repo}:{pr}` — reuses the review's setup activities, then ONE
+> long `resolve_threads_activity` owning fetch → gates → pre-filter → warm session → verdict-driven side effects;
+> 4h ceiling, 5m heartbeat, 2 attempts with per-thread skip-resume à la validation). Thread I/O:
+> `reviewer/tools/github_threads.py` (GraphQL `reviewThreads` fetch + reply/resolve mutations over the gated egress
+> transport; `order_threads` priority tiers; `classify_thread` pre-filter incl. partial-delivery redelivery;
+> `should_resolve` etiquette gate). Turn contract: `reviewer/models/thread_resolution.py` (`ThreadResolution`,
+> `fixed` requires the real commit SHA) + `prompts/thread_resolution/` (hard floors in the template; criteria
+> pulled via `skill-get` of `review-hog-resolution-criteria`, single-active per user, validator pattern
+> end-to-end: prefix loader, lazy-seed sync, canonical skill on disk under `skills/`). Persistence:
+> `thread_verdict` artefact (latest-wins per thread; `latest_comment_id` watermark; `reply_posted`/`resolved`
+> delivery flags — written before AND after side effects so a crash redoes only writes, never LLM turns), plus the
+> first writers for `task_run` / `commit` / `note`. Entry points: `POST /api/review_hog/resolve` (standalone) and
+> `resolve` flag on `/trigger` (chained: `ReviewPRWorkflow` fire-and-forget ABANDON child dispatch, gated on the
+> new default-False `resolve_comments` input — replay-safe for in-flight histories), `run_resolution` command.
+> Model pin: `RESOLUTION_*` constants (validator's Claude tier); cap: `MAX_THREADS_PER_RUN = 20`, overflow named
+> in the run-summary `note`. **Not yet done:** live e2e on a real PR (verify the installation token can
+> `resolveReviewThread` — the interactive prototype hit token-capability failures there), the label Action client,
+> and self-driving calling the endpoint after implementation PRs gather comments.
 
 **The goal.** After a review — anyone's, not just ReviewHog's — the PR should end up *as close to ready-to-merge as
 possible*, not merely "reviewed". The resolution stage loads the PR's unresolved review threads and settles each one:

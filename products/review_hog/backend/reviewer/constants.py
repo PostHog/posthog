@@ -17,6 +17,24 @@ VALIDATION_MODEL: str | None = "claude-opus-4-8"
 VALIDATION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
 VALIDATION_INITIAL_PERMISSION_MODE: str | None = None
 
+# RESOLUTION MODEL
+# Pins for the resolution stage's warm per-PR session (assess + implement, one thread per turn).
+# Starts on the validator's setup — resolution is judgment + careful editing, the validator's tier.
+RESOLUTION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
+RESOLUTION_MODEL: str | None = "claude-opus-4-8"
+RESOLUTION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
+RESOLUTION_INITIAL_PERMISSION_MODE: str | None = None
+
+# A resolution run handles at most this many threads, priority-ordered; the binding constraint is
+# the warm session's context window (every turn accumulates), not sandbox cost. Overflow is named in
+# the run summary and the next run continues — never silent truncation.
+MAX_THREADS_PER_RUN = 20
+
+# Attempts for the per-PR resolution session. Retries are cheap — the per-thread verdicts persist,
+# so a retry redoes only unjudged threads (and undelivered side effects). On the final attempt a
+# failed turn skips its thread instead of raising, mirroring the validation session.
+RESOLUTION_MAX_ATTEMPTS = 2
+
 # CHUNKING MODEL
 # Pins for the sandbox chunking turn (PRs over the one-shot gate), matching the one-shot pin below —
 # chunking is organization, not judgment, so both delivery paths run the same cheaper model.

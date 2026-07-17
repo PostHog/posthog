@@ -49,6 +49,7 @@ from products.review_hog.backend.reviewer.lazy_seed import (
     sync_canonical_authoring,
     sync_canonical_blind_spots,
     sync_canonical_perspectives,
+    sync_canonical_resolution,
     sync_canonical_validation,
 )
 from products.review_hog.backend.reviewer.models import generate_all_schemas
@@ -639,6 +640,7 @@ def _sync_review_skills(team_id: int) -> None:
     sync_canonical_perspectives(team, prune=True)
     sync_canonical_validation(team, prune=True)
     sync_canonical_blind_spots(team, prune=True)
+    sync_canonical_resolution(team, prune=True)
     sync_canonical_authoring(team, prune=True)
 
 

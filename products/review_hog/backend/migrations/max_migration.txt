@@ -1,1 +1,1 @@
-0018_backfill_urgency_threshold_to_consider
+0019_alter_reviewreportartefact_type

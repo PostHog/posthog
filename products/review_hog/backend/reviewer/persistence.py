@@ -17,9 +17,10 @@ Durable rows this layer writes:
 - the rendered review body → `ReviewReport.report_markdown`.
 
 Findings, verdicts, and working state are attributed to the **system**: they are aggregated across
-many sandbox tasks (chunking, the parallel perspectives, dedup), so no single task produced them. The
-remaining work-log artefacts (`task_run` / `note`) are deferred to the loop-y turn tracking — the
-data they need (per-call task ids, comment-driven notes) isn't surfaced by the current pipeline.
+many sandbox tasks (chunking, the parallel perspectives, dedup), so no single task produced them.
+The resolution stage (`temporal/resolution.py`) writes here too: `thread_verdict` rows (its
+per-thread rulings + delivery watermarks, via the helpers below) plus `task_run` / `commit` / `note`
+work-log entries for its session, fix commits, and run summaries.
 """
 
 import logging
@@ -41,6 +42,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     PRSnapshotArtefact,
     ReviewArtefactContent,
     ReviewIssueFinding,
+    ThreadVerdictArtefact,
     ValidationVerdict,
     parse_artefact_content,
 )
@@ -574,6 +576,45 @@ def load_prior_findings_with_verdicts(
     for run_index in range(1, before_run_index):
         pairs.extend(bundle.turn(report_id, run_index))
     return pairs
+
+
+# --- Resolution-stage thread verdicts ---------------------------------------------------------------
+
+
+def persist_thread_verdict(*, team_id: int, report_id: str, verdict: ThreadVerdictArtefact) -> None:
+    """Append one thread's resolution verdict as a `thread_verdict` artefact (latest per thread_id wins).
+
+    Written twice per delivered thread in the normal path: once when the turn's judgment lands
+    (`reply_posted=False`) and once after the GitHub side effects (`reply_posted`/`resolved` set,
+    watermark advanced to the posted reply) — so a crash between the two leaves a row that tells the
+    next run to redo only the writes, never the LLM turn.
+    """
+    ReviewReportArtefact.append_thread_verdict(
+        team_id=team_id, report_id=report_id, content=verdict, attribution=ArtefactAttribution.system()
+    )
+
+
+def load_thread_verdicts(*, team_id: int, report_id: str) -> dict[str, ThreadVerdictArtefact]:
+    """Every thread's latest resolution verdict, keyed by thread node id.
+
+    The read side of the per-thread watermark: the deterministic pre-filter compares each live
+    thread against its latest verdict to decide skip / side-effects-only / re-triage.
+    """
+    verdicts: dict[str, ThreadVerdictArtefact] = {}
+    rows = (
+        ReviewReportArtefact.objects.for_team(team_id)
+        .filter(report_id=report_id, type=ReviewReportArtefact.ArtefactType.THREAD_VERDICT)
+        .order_by("created_at", "id")
+    )
+    for row in rows:
+        try:
+            content = parse_artefact_content(row.type, row.content)
+        except ArtefactContentValidationError as e:
+            logger.warning("Skipping unparseable thread_verdict artefact %s: %s", row.id, e)
+            continue
+        assert isinstance(content, ThreadVerdictArtefact)
+        verdicts[content.thread_id] = content
+    return verdicts
 
 
 def finalize_review_report(*, team_id: int, report_id: str, body_markdown: str, run_index: int, head_sha: str) -> None:
