@@ -1,0 +1,78 @@
+<!--
+This is the user-facing source documentation. It belongs in the posthog.com repo at
+contents/docs/cdp/sources/snowplow.md (served at /docs/cdp/sources/snowplow). It is kept here only
+because a posthog.com checkout was not available when the source was implemented — copy it across and
+delete this file from this repo. Run `python manage.py audit_source_docs --docs-dir <posthog.com>/contents/docs/cdp/sources`
+once it lands.
+-->
+
+---
+
+title: Linking Snowplow as a source
+sidebar: Docs
+showTitle: true
+availability: { free: full, selfServe: full, enterprise: full }
+sourceId: Snowplow
+beta: true
+
+---
+
+import SourceSetupIntro from '../_snippets/source-setup-intro.mdx'
+import SyncModes from '../_snippets/sync-modes.mdx'
+import TroubleshootingLink from '../_snippets/dw-troubleshooting-link.mdx'
+import AlphaRelease from '../_snippets/alpha-release.mdx'
+
+<AlphaRelease />
+
+[Snowplow](https://snowplow.io/) is a behavioral data platform built around a customer-run event pipeline.
+This connector pulls the monitoring data from your Snowplow BDP Console — pipelines, failed-event metrics,
+data modeling job runs and their steps, data structures, data models, and Console users — into the PostHog
+Data warehouse so you can track pipeline health and modeling SLAs alongside your product data.
+
+It syncs the Console (management) API, not your Snowplow event stream itself — your enriched events already
+land in your own warehouse, which you can connect to PostHog directly (e.g. via the Snowflake or BigQuery source).
+
+## Prerequisites
+
+You need a Snowplow BDP account and a Console API key. All Snowplow Console API keys carry admin
+privileges, so treat the key like a password.
+
+## Adding a data source
+
+<SourceSetupIntro />
+
+Snowplow authenticates with three values:
+
+1. **Organization ID** — shown on the Console's **Manage organization** page (also visible in your Console URL).
+2. **API key ID** and **API key** — create a key pair under **Console settings → API keys**. The key secret is
+   only shown once, at creation time.
+
+The connector exchanges the key pair for a short-lived access token automatically, so no further setup is needed.
+It talks to the standard BDP Console host (`console.snowplowanalytics.com`); privately-hosted Console deployments
+are not supported yet.
+
+## Sync modes
+
+<SyncModes />
+
+**Job runs**, **Job run steps**, and **Failed event metrics** support incremental sync — each run advances a
+rolling time window. Note that Snowplow only retains about the preceding week of job run history and
+failed-event aggregates, so schedule syncs at least weekly to avoid gaps, and expect the first sync to
+backfill at most a week. The other tables are small current-state catalogs synced as full refresh.
+
+## Configuration
+
+<SourceParameters />
+
+## Supported tables
+
+<SourceTables />
+
+## Troubleshooting
+
+- **Snowplow API authentication failed** — the organization ID, API key ID, or API key is wrong or has been
+  revoked. Check the values in your Snowplow Console settings and reconnect.
+- **Missing older job runs** — Snowplow's API only serves roughly the last week of runs; history beyond that
+  cannot be backfilled. Rows already synced to PostHog are kept.
+
+<TroubleshootingLink />

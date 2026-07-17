@@ -265,6 +265,33 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-07-17 — one-shot LLM stages retry across provider overload spells
+
+First cross-repo dogfood run (a `PostHog/billing` PR via the Stage 5c UI trigger) died in dedup on
+Anthropic 529s — nothing repo-specific: the review wave completed 9/9, then all four dedup attempts
+(2 activity attempts × 2 parent-workflow retries, ~40s apart) landed inside the same overload spell
+and the run failed within 2 minutes flat. The same spell had hit chunking ~17 minutes earlier and
+recovered on its immediate retry, so overload is intermittent-but-minutes-long — the failure mode is
+retry _spacing_, not retry _count_. Fix: the fatal one-shot LLM stages (chunking, selection, dedup)
+now run under `_ONESHOT_RETRY` (5 attempts, 30s initial, ×2 backoff capped at 4m — ~7.5m of waits
+per run, ~2× with the parent retry) instead of `_RETRY`'s two back-to-back attempts. Failed 529
+attempts are free (the call aborts before persistence) and the non-retryable classes (4xx,
+max_tokens truncation) still fail fast. The gateway's Bedrock fallback was NOT the lever: it's
+deliberately off for one-shot calls, whose `output_config` (effort pin + schema constraint) the
+Bedrock path would silently strip. Sandbox-stage units keep `_RETRY` — their overload exposure is
+absorbed by the best-effort fan-out + failure floor, not by a single fatal call.
+
+### ✅ BUILT 2026-07-16 — inline finding comments: colored severity badges replace the text meta
+
+The inline comment `_format_issue_comment` builds (`publish_review.py`) had its meta line recolored after comparing it against Greptile's PR comments — a deliberately minimal change that leaves the four collapsed sections (`Issue description`, `Suggested fix`, `Why we think it's a valid issue`, `Prompt to fix with AI`) exactly as they were.
+Before: a plain `### title` followed by a text meta line (`**Priority:** should_fix | **Category:** performance | **Lines:** …`).
+Now the comment keeps the **title**, then a line of colored [shields.io](https://shields.io) badges just beneath — a lowercase severity chip (`must fix` red `D1242F`, `should fix` orange `E36209`, `consider` blue `0969DA`) plus a neutral-grey lowercase category chip — and the four `<details>` follow unchanged.
+No line reference is shown up top: the comment is anchored inline (GitHub renders the code above it) and the lines already appear in the AI-fix prompt, so the `**Lines:**` part of the meta was dropped.
+Badge alt text is the raw enum value (`![should_fix](…)`) so the priority still reads in email digests, when images are blocked, and to screen readers — and the existing publish-gate test's `should_fix`-in-body assertion still holds.
+Helpers `_shields_badge` / `_finding_badge_line` + `_PRIORITY_BADGE` carry the label/color map.
+Color mechanism was a user decision (badge images, Greptile-style, accepting the external-image dependency) over the GitHub-native emoji/alert alternative.
+An earlier iteration also surfaced the problem/fix inline and un-collapsed two sections; that was reverted — the collapsed structure is intentional and stays.
+
 ### ✅ BUILT 2026-07-15 — reviewing-stage progress copy: "Reviewing chunks" → "Running review passes"
 
 Live misread on [posthog#71025](https://github.com/PostHog/posthog/pull/71025) (63 additions): the
@@ -2416,6 +2443,111 @@ first so the latest fixes are loaded.
   **For the CLI** this is a footgun: either detect an in-flight run for the PR and warn that `--publish` won't take
   effect until it closes (re-run after it finishes — `ALLOW_DUPLICATE` then starts a fresh turn that honors the
   flag), or simply don't overlap runs. Not a code defect — the publish path itself works.
+
+---
+
+### ✅ Stage 5c — UI trigger: review any installation-accessible PR from the Code review scene (BUILT 2026-07-16)
+
+> **Status: BUILT 2026-07-16** (same-day decision round with the maintainer, then implemented — see
+> "As built" at the end of this section). Not yet e2e'd against a live non-`posthog/posthog` PR.
+
+**Motivation.** The label trigger needs `.github/workflows/review-hog.yml` in every repo it serves — only
+`PostHog/posthog` has it, so every other `posthog/*` repo is out of reach unless we replicate the workflow
+file across the org. Instead: a **"Review this PR"** field in the Code review scene that starts the same
+server-side review for any PR the team's GitHub App installation can access — no per-repo CI configuration
+at all. Everything below the trigger already supports this: `_build_inputs` takes any `owner/repo`, the
+fetch activity resolves the installation token per repository (`first_for_team_repository`), fork rejection
+is authoritative server-side, and the deterministic per-PR workflow id + `USE_EXISTING` absorbs re-triggers.
+
+**Decisions locked (maintainer, 2026-07-16):**
+
+- **Always publish — no per-run toggle.** The UI trigger is label-path parity for repos the label can't
+  reach; `publish=True` is fixed. Results are additionally viewable in the findings drawer as usual.
+- **Team gate = `settings.REVIEWHOG_TEAM_ID` only** (prod team 2; local team 1). The endpoint rejects any
+  other team. No server-side feature-flag check — the scene's `REVIEW_HOG` flag gates discoverability only,
+  and the hard team check bounds the cost surface for now. Widening beyond the dogfood team is a later,
+  deliberate decision.
+- **Requester wins.** The acting user is the requesting PostHog user via the existing `acting_user_id`
+  override (`resolved_from="override"`): their perspectives / blind-spots / validator / urgency threshold
+  drive the run, and the report lands in their "For you" recent-reviews scope. The PR author's
+  `review_labeled_prs` opt-out stays label-only (its copy is label-specific; an explicit human ask is like
+  a manual CLI run). The GitHub author can be anyone, including a bot — no author→user mapping is needed.
+- **Repo scope = installation access, not a hardcoded org list.**
+  `GitHubIntegration.first_for_team_repository(team_id, repository)` is the boundary — for team 2 that IS
+  the `posthog` org — checked **synchronously at trigger time** so an inaccessible repo 400s immediately
+  with a clear message. The label endpoint's "no GitHub I/O" principle deliberately does not apply here:
+  that endpoint has the Action's upstream gates; the UI has none, and a silent async failure (the fetch
+  activity fails before the report row exists) would leave the user staring at nothing.
+
+**Design shape (v1):**
+
+- **New team-scoped, session-authenticated trigger action** (e.g. `POST` `trigger` on the
+  `review_hog/reviews` viewset), taking `pr_url`. The unscoped shared-secret `ReviewHogTriggerViewSet` and
+  its `ALLOWED_REPOS` stay untouched as the CI interface — the two callers have different auth and scope
+  rules, so they don't share an endpoint.
+- Sync pre-checks in the action: parse the URL (`PRParser`), team gate, installation-access check (above).
+  Optionally one PR-meta fetch to reject 404s/forks synchronously — authoritative fork rejection stays in
+  the fetch activity either way. Drafts remain reviewable + publishable (existing posture; the UI copy
+  should say the review is posted to the PR).
+- `start_review_pr_workflow(pr_url=…, publish=True, acting_user_id=request.user.id,
+trigger_source=TRIGGER_UI)` with `user_id = request.user.id` too (inbox precedent: the run user must be a
+  real active org member — the requester is one by construction). New `TRIGGER_UI = "ui"` constant beside
+  label/inbox/manual; ungated in the workflow's gate map (explicit ask); update the `trigger_source`
+  comment on `ReviewReport`.
+- **Frontend:** a PR-URL input + submit button in `CodeReviewScene` near "Your recent reviews"
+  (`reviewHogSettingsLogic` action + generated client; button disabled/loading in flight). On 202, reload
+  the recent-reviews list — the row appears once the fetch activity creates the report, and the existing
+  in-progress poll takes over. Hide the field when the trigger isn't available for the team (surface a
+  `can_trigger` boolean, e.g. on the settings GET, computed from the team gate).
+- **Accepted / out of scope for v1:** no rate limit beyond the per-PR workflow-id dedupe (internal dogfood
+  team; revisit if abused); PR URLs only (no branch targets from the UI); the label Action keeps working
+  unchanged for `PostHog/posthog`.
+
+**As built (2026-07-16):**
+
+- `backend/api/reviews.py` — `trigger` action on `ReviewRecentReviewsViewSet`
+  (`POST /api/projects/:id/review_hog/reviews/trigger/`): team gate vs `settings.REVIEWHOG_TEAM_ID`
+  (403), `PRParser` URL parse (400), sync `GitHubIntegration.first_for_team_repository` access check
+  (400), then `start_review_pr_workflow(publish=True, user_id=acting_user_id=request.user.id,
+trigger_source=TRIGGER_UI)` → `202 {workflow_id, status}`. The URL is canonicalized (trailing
+  `/files` etc. dropped) before it reaches the workflow id.
+- `backend/temporal/types.py` — `TRIGGER_UI = "ui"`; ungated in the workflow's gate map (no
+  workflow.py change, so no Temporal versioning concern).
+- `backend/api/settings.py` — `can_trigger_reviews` (read-only method field) on the settings GET;
+  the scene hides the trigger field when it's false.
+- `frontend/CodeReviewScene.tsx` — `TriggerReviewSection` (PR-URL input + submit, above the
+  recent-reviews block; button loading/disabled while in flight);
+  `frontend/reviewHogSettingsLogic.ts` — `triggerPrUrl` / `triggeringReview` state +
+  `submitTriggerReview` listener (toast on error, clear + reload recent reviews on 202; the new
+  report row appears once the fetch activity creates it and the in-progress poll takes over).
+- Tests: `backend/tests/test_ui_trigger_api.py` (gate, URL parse, access check, workflow kwargs,
+  `can_trigger_reviews` exposure), `test_settings_api.py` defaults updated, two
+  `reviewHogSettingsLogic.test.ts` cases (in-flight flag resets on both outcomes).
+- **Sync PR fetch (added 2026-07-16, closing the original "v1 gap"):** the action makes one
+  `GET /pulls/{n}` (`_fetch_pr_metadata`) so the answer is honest — nonexistent (404), fork, and
+  closed PRs reject immediately with a message instead of dying async before the report row exists,
+  and a PR whose current head equals the report's `published_head_sha` returns
+  `200 {status: "already_reviewed"}` (no run, info toast, watch not armed) instead of a false
+  "started". The report lookup is `repository__iexact` — triggers store differing casings. The
+  fetch activity keeps the authoritative fork gate.
+- **Cross-caller same-head caveat (pre-existing resume identity, now easier to reach):** the per-head
+  working-state cache is roster-blind, and the UI trigger lets different acting users hit the same
+  head. Three of four paths are safe: already-published head → the trigger answers
+  `already_reviewed` without starting (the workflow's fetch early-exit backstops the race; the
+  report is per-PR, not per-caller); run in flight → the deterministic workflow id + `USE_EXISTING`
+  joins it; new head →
+  nothing persisted under the new `head_sha`, full recompute under the new caller's roster. The
+  unsafe window: a prior turn that persisted working state **without** stamping `published_head_sha`
+  (a zero-findings turn — the watermark records only on a real post — or a crashed turn). A different
+  caller's re-trigger then resumes those rows: the persisted perspective selection is reused verbatim
+  (name-mapped, so the new caller's customs fall out of planned chunks), and perspective results
+  resume on positional `(pass_number, chunk_id)` keys — slot = position in the acting user's sorted
+  enabled set — so differing rosters silently mis-map slots. Identical rosters (canonicals only, or
+  the same customs) are always safe. This is the finding-identity residual already noted in the
+  blind-spot section; the fix belongs there: key results by `skill_name`(+version) instead of slot,
+  and drop persisted selection/results whose recorded roster differs from the run's.
+- Generated clients (`frontend/generated/*`) come from CI's OpenAPI auto-commit
+  (`hogli build:openapi` was unavailable in the authoring environment).
 
 ---
 

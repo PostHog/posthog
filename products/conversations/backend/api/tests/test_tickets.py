@@ -1494,6 +1494,30 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"][0]["person"] is None
 
+    def test_lookup_prefers_identified_person_when_email_is_shared(self, mock_on_commit):
+        # The stub is inserted first so that, without deterministic ordering, an
+        # unordered read would return it first and win the first-match pick. Its only
+        # distinct_id is the email address itself, which resolves no membership or
+        # analytics groups downstream — the identified person must win.
+        _create_person(
+            team=self.team,
+            distinct_ids=["shared@example.com"],
+            properties={"email": "shared@example.com"},
+            immediate=True,
+        )
+        identified = _create_person(
+            team=self.team,
+            distinct_ids=["real-app-distinct-id"],
+            properties={"email": "shared@example.com"},
+            is_identified=True,
+            immediate=True,
+        )
+
+        person = _get_persons_by_email(self.team, ["shared@example.com"]).get("shared@example.com")
+
+        assert person is not None
+        assert str(person.uuid) == str(identified.uuid)
+
     @snapshot_clickhouse_queries
     def test_email_fallback_uses_bloom_filter_lower_skip_index(self, mock_on_commit):
         _create_person(

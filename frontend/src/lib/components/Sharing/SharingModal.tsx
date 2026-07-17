@@ -30,8 +30,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { getDashboardAutoRefreshRestriction } from 'scenes/dashboard/dashboardAutoRefresh'
+import { DashboardAutoRefreshRestrictionNotice } from 'scenes/dashboard/DashboardAutoRefreshRestrictionBanner'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
@@ -43,6 +46,7 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     AvailableFeature,
+    DashboardType,
     InsightShortId,
     QueryBasedInsightModel,
 } from '~/types'
@@ -78,6 +82,7 @@ export const SHARING_MODAL_WIDTH = 600
 
 export interface SharingModalBaseProps {
     dashboardId?: number
+    dashboard?: DashboardType<QueryBasedInsightModel>
     insightShortId?: InsightShortId
     insight?: Partial<QueryBasedInsightModel>
     cachedResults?: AnyResponseType
@@ -104,6 +109,7 @@ export interface SharingModalProps extends SharingModalBaseProps {
 
 export function SharingModalContent({
     dashboardId,
+    dashboard,
     insightShortId,
     insight,
     cachedResults,
@@ -143,6 +149,7 @@ export function SharingModalContent({
     const { featureFlags } = useValues(featureFlagLogic)
     const passwordProtectedSharesEnabled = !!featureFlags[FEATURE_FLAGS.PASSWORD_PROTECTED_SHARES]
     const { currentProjectId } = useValues(projectLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     const { push } = useActions(router)
 
@@ -187,6 +194,7 @@ export function SharingModalContent({
     const hasEditAccess = userAccessLevel
         ? accessLevelSatisfied(resource as AccessControlResourceType, userAccessLevel, AccessControlLevel.Editor)
         : true
+    const autoRefreshRestriction = getDashboardAutoRefreshRestriction(dashboard, currentTeam?.timezone ?? 'UTC')
 
     useEffect(() => {
         setIframeLoaded(false)
@@ -251,6 +259,14 @@ export function SharingModalContent({
                                 />
                             </AccessControlAction>
                         )}
+
+                        {dashboard && autoRefreshRestriction ? (
+                            <DashboardAutoRefreshRestrictionNotice
+                                dashboard={dashboard}
+                                restriction={autoRefreshRestriction}
+                                canEdit={hasEditAccess}
+                            />
+                        ) : null}
 
                         {sharingAllowed && sharingConfiguration.enabled && sharingConfiguration.access_token ? (
                             <>
