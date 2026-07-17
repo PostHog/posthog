@@ -272,7 +272,7 @@ def _get_event_definition_descriptions(
         .exclude(description="")
         .values_list("name", "description")
     )
-    return dict(rows)
+    return {name: description for name, description in rows if description}
 
 
 def format_events_xml(events_in_context: list[MaxEventContext], team: Team, user: User) -> str:
