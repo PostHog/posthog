@@ -268,7 +268,7 @@ export interface webAnalyticsLogicActions {
     cancelAllLoading: () => {} // dataNodeCollectionLogic
     updateUser: (
         user: Partial<UserType>,
-        successCallback?: () => void
+        successCallback?: (() => void) | undefined
     ) => {
         successCallback: (() => void) | undefined
         user: Partial<UserType>
@@ -537,7 +537,7 @@ export interface webAnalyticsLogicMeta {
         activeHoursTab: (_activeHoursTab: string | null) => string
         isPathCleaningEnabled: (
             _isPathCleaningEnabled: boolean,
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
         ) => boolean
         currentFiltersConfig: (
             rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
@@ -1639,7 +1639,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 hiddenTiles: TileId[]
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
-                const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
 
                 const uniqueUserSeries: EventsNode = {
                     event: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOR_MOBILE] ? '$screen' : '$pageview',
@@ -1830,7 +1829,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 properties: webAnalyticsFilters,
                                 breakdownBy: breakdownBy,
                                 dateRange,
-                                sampling,
                                 compareFilter,
                                 limit: 10,
                                 filterTestAccounts,
@@ -1984,7 +1982,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             properties: webAnalyticsFilters,
                             dateRange,
                             interval,
-                            sampling,
                             compareFilter,
                             filterTestAccounts,
                             conversionGoal,
@@ -2216,7 +2213,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   properties: webAnalyticsFilters,
                                                   dateRange,
                                                   compareFilter,
-                                                  sampling,
                                                   limit: 10,
                                                   filterTestAccounts,
                                                   conversionGoal,
@@ -2866,7 +2862,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       properties: webAnalyticsFilters,
                                       dateRange,
                                       compareFilter,
-                                      sampling,
                                       limit: 10,
                                       orderBy: tablesOrderBy ?? undefined,
                                       filterTestAccounts,

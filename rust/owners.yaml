@@ -26,5 +26,7 @@ rules:
           - '/property-defs-rs/'
           - '/property-vals-rs/'
       owners: team-ingestion
-    - match: '/replay-anonymizer-node/'
+    - match:
+          - '/replay-anonymizer/'
+          - '/replay-anonymizer-node/'
       owners: team-ai-research

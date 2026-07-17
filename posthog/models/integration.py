@@ -384,6 +384,9 @@ class Integration(models.Model):
 
     @property
     def display_name(self) -> str:
+        if self.kind == "tiktok-ads":
+            # The OAuth id is a list of advertiser ids, so prefer whoever authorized the connection.
+            return self.config.get("user_email") or self.config.get("user_display_name") or self.integration_id
         if self.kind in OauthIntegration.supported_kinds:
             oauth_config = OauthIntegration.oauth_config_for_kind(self.kind)
             return dot_get(self.config, oauth_config.name_path, self.integration_id)
@@ -769,7 +772,12 @@ class OauthIntegration:
                 client_secret=settings.REDDIT_ADS_CLIENT_SECRET,
                 scope="read adsread adsconversions history adsedit",
                 id_path="reddit_user_id",  # We'll extract this from JWT
-                name_path="reddit_user_id",  # Same as ID for Reddit
+                # ads-api /me returns the human-readable username under the granted ads scopes
+                # (oauth.reddit.com/api/v1/me would need the extra `identity` scope), wrapped in a
+                # `data` object. Falls back to the JWT user id when absent.
+                token_info_url="https://ads-api.reddit.com/api/v3/me",
+                token_info_config_fields=["data.reddit_username"],
+                name_path="data.reddit_username",
                 additional_authorize_params={"duration": "permanent"},
             )
         elif kind == "tiktok-ads":
@@ -1164,6 +1172,23 @@ class OauthIntegration:
             data = config.pop("data", {})
             # Move other data fields to main config for TikTok
             config.update(data)
+            # Best-effort: fetch who authorized this, so it isn't listed as a row of advertiser ids.
+            try:
+                user_res = requests.get(
+                    "https://business-api.tiktok.com/open_api/v1.3/user/info/",
+                    headers={"Access-Token": config["access_token"]},
+                    timeout=10,
+                )
+                # TikTok answers 200 even when the call failed; the body `code` (0 = OK) is the outcome.
+                body = user_res.json()
+                if body.get("code") == 0:
+                    user = body.get("data") or {}
+                    if user.get("email"):
+                        config["user_email"] = user["email"]
+                    if user.get("display_name"):
+                        config["user_display_name"] = user["display_name"]
+            except Exception:
+                logger.warning("Failed to fetch TikTok user info for display name")
 
         sensitive_config: dict = {
             "access_token": config.pop("access_token"),

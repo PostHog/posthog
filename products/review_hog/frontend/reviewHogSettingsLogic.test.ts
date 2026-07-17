@@ -41,6 +41,12 @@ describe('reviewHogSettingsLogic', () => {
                 '/api/projects/:team_id/review_hog/blind_spots/': () => [200, []],
                 '/api/projects/:team_id/review_hog/validators/': () => [200, []],
             },
+            post: {
+                '/api/projects/:team_id/review_hog/reviews/trigger/': () => [
+                    202,
+                    { workflow_id: 'wf-1', status: 'started' },
+                ],
+            },
         })
         // The scope reducers persist; without this a prior test's explicit choice leaks over.
         localStorage.clear()
@@ -66,6 +72,107 @@ describe('reviewHogSettingsLogic', () => {
         // The auto-default must not write the URL: hydrating `?reviews_scope=` from a link marks
         // the scope as explicitly chosen, so mirroring the fallback would make it permanent.
         expect(router.values.searchParams.reviews_scope).toBeUndefined()
+    })
+
+    it('a started review clears the input, reloads the list, and resets the in-flight flag', async () => {
+        logic.mount()
+        // Consume the mount-time auto-default so its loadRecentReviews can't satisfy the assertion below.
+        await expectLogic(logic).toDispatchActions([
+            'loadRecentReviewsSuccess',
+            'applyDefaultReviewsScope',
+            'loadRecentReviewsSuccess',
+        ])
+        logic.actions.setTriggerPrUrl('https://github.com/PostHog/posthog.com/pull/1')
+
+        await expectLogic(logic, () => logic.actions.submitTriggerReview())
+            .toDispatchActions([
+                'submitTriggerReview',
+                'startTriggeredReviewWatch',
+                'loadRecentReviews',
+                'submitTriggerReviewFinished',
+            ])
+            .toMatchValues({ triggeringReview: false, triggerPrUrl: '' })
+        // The report row is created seconds after the 202; the watch keeps the list polling until
+        // it appears — without it the poll only arms when another review is already running.
+        expect(logic.values.awaitingTriggeredReview).toBe(true)
+    })
+
+    it('a repeat submit while a request is in flight does not start a second review', async () => {
+        // The disabled button can't stop an Enter keypress in the input, so the listener must drop
+        // repeats itself — without the guard each keypress POSTs another trigger.
+        let triggerCalls = 0
+        useMocks({
+            post: {
+                '/api/projects/:team_id/review_hog/reviews/trigger/': () => {
+                    triggerCalls++
+                    return [202, { workflow_id: 'wf-1', status: 'started' }]
+                },
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions([
+            'loadRecentReviewsSuccess',
+            'applyDefaultReviewsScope',
+            'loadRecentReviewsSuccess',
+        ])
+        logic.actions.setTriggerPrUrl('https://github.com/PostHog/posthog.com/pull/1')
+
+        logic.actions.submitTriggerReview()
+        logic.actions.submitTriggerReview()
+        await expectLogic(logic).toDispatchActions(['submitTriggerReviewFinished'])
+
+        expect(triggerCalls).toBe(1)
+    })
+
+    it('an already-reviewed PR informs without arming the watch', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team_id/review_hog/reviews/trigger/': () => [
+                    200,
+                    { workflow_id: '', status: 'already_reviewed' },
+                ],
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions([
+            'loadRecentReviewsSuccess',
+            'applyDefaultReviewsScope',
+            'loadRecentReviewsSuccess',
+        ])
+        logic.actions.setTriggerPrUrl('https://github.com/PostHog/posthog.com/pull/1')
+
+        // Arming the watch here would poll for two minutes waiting for a run that never starts.
+        await expectLogic(logic, () => logic.actions.submitTriggerReview())
+            .toDispatchActions(['submitTriggerReview', 'loadRecentReviews', 'submitTriggerReviewFinished'])
+            .toNotHaveDispatchedActions(['startTriggeredReviewWatch'])
+            .toMatchValues({ triggeringReview: false, triggerPrUrl: '', awaitingTriggeredReview: false })
+    })
+
+    it('a rejected trigger resets the in-flight flag and keeps the input for correction', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team_id/review_hog/reviews/trigger/': () => [
+                    403,
+                    { error: "ReviewHog reviews can't be started from this project yet" },
+                ],
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions([
+            'loadRecentReviewsSuccess',
+            'applyDefaultReviewsScope',
+            'loadRecentReviewsSuccess',
+        ])
+        logic.actions.setTriggerPrUrl('https://github.com/PostHog/posthog.com/pull/1')
+
+        await expectLogic(logic, () => logic.actions.submitTriggerReview())
+            .toDispatchActions(['submitTriggerReview', 'submitTriggerReviewFinished'])
+            .toNotHaveDispatchedActions(['loadRecentReviews', 'startTriggeredReviewWatch'])
+            .toMatchValues({
+                triggeringReview: false,
+                triggerPrUrl: 'https://github.com/PostHog/posthog.com/pull/1',
+                awaitingTriggeredReview: false,
+            })
     })
 
     it('respects an explicit scope choice even when that scope is empty', async () => {

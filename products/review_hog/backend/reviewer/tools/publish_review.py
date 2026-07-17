@@ -7,11 +7,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import effective_priority
-from products.review_hog.backend.reviewer.diff_position import (
-    build_diff_line_map,
-    find_diff_position,
-    format_line_ranges,
-)
+from products.review_hog.backend.reviewer.diff_position import build_diff_line_map, find_diff_position
 from products.review_hog.backend.reviewer.models.github_meta import PRFile
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.persistence import load_pr_snapshot, load_valid_findings
@@ -180,20 +176,48 @@ def publish_review(
     return PublishOutcome(posted=True, review_url=review_url)
 
 
-def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdict) -> str:
-    """Format a finding + its verdict as an inline comment body."""
-    formatted_lines = format_line_ranges(finding.lines)
-    priority = effective_priority(finding.priority, verdict.adjusted_priority)
+# Severity badge (label, shields.io hex color) per priority. The badge is a shields.io image, so its
+# alt text is the raw enum value: the priority still reads in email digests and when images are
+# blocked, and screen readers announce it. Colors track a red → orange → blue calm-down scale.
+_PRIORITY_BADGE: dict[IssuePriority, tuple[str, str]] = {
+    IssuePriority.MUST_FIX: ("must fix", "D1242F"),
+    IssuePriority.SHOULD_FIX: ("should fix", "E36209"),
+    IssuePriority.CONSIDER: ("consider", "0969DA"),
+}
+# Neutral grey for the category chip — it's context, not severity, so it shouldn't compete for color.
+_CATEGORY_BADGE_COLOR = "656D76"
 
-    meta_parts = [f"**Priority:** {priority.value}"]
-    if verdict.category:
-        meta_parts.append(f"**Category:** {verdict.category}")
-    meta_parts.append(f"**Lines:** {formatted_lines}")
+
+def _shields_badge(label: str, color: str, *, alt: str) -> str:
+    """One shields.io badge as a markdown image. A literal space in `label` is encoded as `_` (shields
+    renders `_` back as a space); `alt` is what shows when the image can't load (email, blocked, a11y).
+    """
+    return f"![{alt}](https://img.shields.io/badge/{label.replace(' ', '_')}-{color})"
+
+
+def _finding_badge_line(priority: IssuePriority, category: str | None) -> str:
+    """The colored severity (+ optional category) badge line leading an inline finding comment."""
+    label, color = _PRIORITY_BADGE[priority]
+    badges = [_shields_badge(label, color, alt=priority.value)]
+    if category:
+        # `code_quality` renders as "code quality" — shields already turns a single `_` into a space.
+        badges.append(_shields_badge(category, _CATEGORY_BADGE_COLOR, alt=category))
+    return " ".join(badges)
+
+
+def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdict) -> str:
+    """Format a finding + its verdict as an inline comment body.
+
+    Leads with the title, then a line of colored severity/category badges (replacing the old
+    `Priority | Category | Lines` text meta); the four collapsed sections below are unchanged. Line
+    refs are omitted from the top — the comment is anchored inline and the lines live in the AI prompt.
+    """
+    priority = effective_priority(finding.priority, verdict.adjusted_priority)
 
     lines = [
         f"### {finding.title}",
         "",
-        " | ".join(meta_parts),
+        _finding_badge_line(priority, verdict.category),
         "",
         "<details>",
         "<summary><strong>Issue description</strong></summary>",
@@ -212,7 +236,7 @@ def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdic
         "</details>",
         "",
         "<details>",
-        ("<summary><strong>Why we think it's a valid issue</strong></summary>"),
+        "<summary><strong>Why we think it's a valid issue</strong></summary>",
         "<br>",
         "",
         verdict.argumentation,
@@ -220,7 +244,7 @@ def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdic
         "</details>",
         "",
         "<details>",
-        ("<summary><strong>Prompt to fix with AI (copy-paste)</strong></summary>"),
+        "<summary><strong>Prompt to fix with AI (copy-paste)</strong></summary>",
         "<br>",
         "",
         "```",

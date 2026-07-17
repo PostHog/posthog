@@ -10,6 +10,7 @@ import {
     resolveFeatureFlagOverrides,
 } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
+import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
 import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
 import type { Context, Tool, Env, State, ZodObjectAny } from '@/tools/types'
@@ -176,7 +177,13 @@ export class RequestStateResolver {
             availableFeatures,
             isCloud,
         }
-        const allTools = this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes })
+        // Staff-only tools (OAuth-hidden scopes) need the extra explicit-scope +
+        // is_staff gate on top of the catalog's plain scope filter.
+        const allTools = await filterStaffOnlyTools(
+            this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
+            _apiKey ?? { scopes: [] },
+            () => context.stateManager.getUser()
+        )
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
