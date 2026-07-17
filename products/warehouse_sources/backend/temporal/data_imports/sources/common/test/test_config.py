@@ -601,7 +601,7 @@ def test_to_config_does_not_string_index_non_mapping(non_mapping):
         dataset_id: str
 
     with pytest.raises(TypeError) as exc_info:
-        config.to_config(SourceConfig, non_mapping)  # type: ignore[arg-type]
+        config.to_config(SourceConfig, non_mapping)
 
     assert "string indices" not in str(exc_info.value)
 
