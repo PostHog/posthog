@@ -46,6 +46,18 @@ def duration_bucket_expr() -> ast.Expr:
     )
 
 
+def root_scope_expr(root_spans: bool | None) -> ast.Expr:
+    """Restrict a span scan to root spans unless `root_spans` is explicitly False.
+
+    Root scoping is the default — a distribution of *traces* by root duration. `False`
+    (the operation detail page, scoped by span name) buckets every matching span instead.
+    Shared by the duration histogram and the latency heatmap so the two can't drift.
+    """
+    if root_spans is not False:
+        return parse_expr("is_root_span = 1")
+    return ast.Constant(value=True)
+
+
 class TraceSpansDurationHistogramQueryRunner(TraceSpansQueryRunner):
     """Trace counts per logarithmic duration bucket, stacked by service.
 
@@ -106,9 +118,7 @@ class TraceSpansDurationHistogramQueryRunner(TraceSpansQueryRunner):
                 **self.query_date_range.to_placeholders(),
                 "bucket_expr": duration_bucket_expr(),
                 "where": self.where(),
-                "root_scope": parse_expr("is_root_span = 1")
-                if self.query.rootSpans is not False
-                else ast.Constant(value=True),
+                "root_scope": root_scope_expr(self.query.rootSpans),
             },
         )
         assert isinstance(query, ast.SelectQuery)

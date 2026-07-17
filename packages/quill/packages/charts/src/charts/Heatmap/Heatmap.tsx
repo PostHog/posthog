@@ -180,7 +180,7 @@ function HeatmapInner({
     )
 
     const createScales: CreateScalesFn = useCallback(
-        (coloredSeries: ResolvedSeries[], scaleLabels: string[], dimensions: ChartDimensions): ChartScales => {
+        (_coloredSeries: ResolvedSeries[], scaleLabels: string[], dimensions: ChartDimensions): ChartScales => {
             const layout = computeHeatmapLayout(dimensions, scaleLabels.length, yLabels.length)
             const labelIndex = new Map(scaleLabels.map((label, i) => [label, i]))
             const priv: HeatmapPrivate = {

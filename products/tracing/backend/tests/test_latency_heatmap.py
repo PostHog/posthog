@@ -100,3 +100,12 @@ class TestTraceSpansLatencyHeatmap(_TraceSpansTestBase):
         )
         cells = {(row["time"], row["bucket_ns"]): row["count"] for row in rows if row["count"] > 0}
         self.assertEqual(cells, {(T0800, 5_000 * MS): 1})
+
+    def test_null_query_body_does_not_crash(self):
+        # An explicit `{"query": null}` body must fall back to defaults, not AttributeError into a 500.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tracing/spans/latency-heatmap/",
+            {"query": None},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)

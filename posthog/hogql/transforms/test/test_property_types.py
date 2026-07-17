@@ -538,6 +538,27 @@ class TestPropertyTypes(BaseTest):
         )
         assert printed == self._events_schema_snapshot()
 
+    def test_property_type_override_beats_detected_type(self):
+        PropertyDefinition.objects.get_or_create(
+            team=self.team,
+            type=PropertyDefinition.Type.EVENT,
+            name="ts_like_id",
+            defaults={"property_type": "DateTime"},
+        )
+
+        def _print(overrides: dict[str, str] | None) -> str:
+            query, _ = prepare_and_print_ast(
+                parse_select("select properties.ts_like_id from events"),
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True, property_type_overrides=overrides),
+                "clickhouse",
+            )
+            return pretty_print_in_tests(query, self.team.pk)
+
+        assert "parseDateTime64BestEffortOrNull" in _print(None)
+        overridden = _print({"ts_like_id": "String"})
+        assert "parseDateTime64BestEffortOrNull" not in overridden, overridden
+        assert "toDateTime" not in overridden, overridden
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_property_types_person_raw(self):
         printed = self._print_select(
@@ -690,6 +711,32 @@ class TestPropertyTypes(BaseTest):
         # toString resets the suppression, so the inner Numeric property is cast again.
         printed = self._print_select("select toFloatOrZero(toString(properties.$screen_width)) from events")
         assert "toFloat64OrZero(toString(accurateCastOrNull" in printed
+
+    @parameterized.expand(
+        [
+            ("has", "has(properties.$exception_values, 'x')"),
+            ("hasAny", "hasAny(properties.$exception_values, ['x'])"),
+            ("hasAll", "hasAll(properties.$exception_values, ['x'])"),
+        ]
+    )
+    def test_exception_array_property_extracted_for_array_membership_functions(self, fn_name: str, expr: str):
+        # $exception_* array properties are stored as a raw JSON String once materialized, so passing the
+        # bare column to an array function raises ILLEGAL_TYPE_OF_ARGUMENT. It must first be extracted to
+        # Array(String) — the same wrapping property_to_expr applies to typed exception filters.
+        with materialized("events", "$exception_values"):
+            printed = self._print_select(f"select uuid from events where {expr}")
+        # The membership function receives the property extracted to an array, not the bare String column.
+        # (The 'Array(String)' type literal is parameterized out by the printer, so match structure instead.)
+        assert f"{fn_name}(JSONExtract(ifNull(" in printed
+        assert "events.`mat_$exception_values`" in printed
+        assert f"{fn_name}(events.`mat_$exception_values`" not in printed
+
+    def test_non_exception_array_property_left_untouched(self):
+        # Only the known $exception_* array properties get the wrapping; an ordinary property passed to an
+        # array function must be left untouched so we don't change results elsewhere.
+        with materialized("events", "$browser"):
+            printed = self._print_select("select uuid from events where hasAny(properties.$browser, ['x'])")
+        assert "hasAny(JSONExtract(" not in printed
 
     def _print_select(self, select: str) -> str:
         expr = parse_select(select)

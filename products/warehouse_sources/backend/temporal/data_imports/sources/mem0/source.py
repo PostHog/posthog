@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class Mem0Source(ResumableSource[Mem0SourceConfig, Mem0ResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.mem0.ai/api-reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

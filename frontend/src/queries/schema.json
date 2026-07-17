@@ -23243,6 +23243,7 @@
                 "Pinecone",
                 "PlatformSh",
                 "PromptingCompany",
+                "PromptWatch",
                 "Qdrant",
                 "Render",
                 "Replicate",
@@ -28407,10 +28408,14 @@
         },
         "MCPToolDailyStatsQuery": {
             "additionalProperties": false,
-            "description": "Per-day activity series for a single MCP tool over the last 30 days.",
+            "description": "Per-bucket activity series for a single MCP tool over the selected window.",
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "Bucket granularity for the series. The frontend passes getDefaultInterval so a sub-day window buckets by hour/minute instead of collapsing to a single day point. Defaults to day."
                 },
                 "kind": {
                     "const": "MCPToolDailyStatsQuery",
@@ -33620,6 +33625,7 @@
                 "platform_and_support",
                 "product_analytics",
                 "product_tours",
+                "pulse",
                 "revenue_analytics",
                 "review_hog",
                 "session_replay",

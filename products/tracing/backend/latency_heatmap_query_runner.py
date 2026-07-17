@@ -10,13 +10,13 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from products.tracing.backend.duration_histogram_query_runner import duration_bucket_expr
+from products.tracing.backend.duration_histogram_query_runner import duration_bucket_expr, root_scope_expr
 from products.tracing.backend.logic import TraceSpansQueryRunner
 
 if TYPE_CHECKING:
@@ -110,9 +110,7 @@ class TraceSpansLatencyHeatmapQueryRunner(TraceSpansQueryRunner):
                 **self.query_date_range.to_placeholders(),
                 "bucket_expr": duration_bucket_expr(),
                 "where": self.where(),
-                "root_scope": parse_expr("is_root_span = 1")
-                if self.query.rootSpans is not False
-                else ast.Constant(value=True),
+                "root_scope": root_scope_expr(self.query.rootSpans),
             },
         )
         assert isinstance(query, ast.SelectQuery)
