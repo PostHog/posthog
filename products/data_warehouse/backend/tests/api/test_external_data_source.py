@@ -11521,6 +11521,7 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
     )
     _REDDIT_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source"
     _LINKEDIN_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source"
+    _PINTEREST_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.source"
     _TIKTOK_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source"
     _SNAPCHAT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.source"
     _META_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.source"
@@ -11555,6 +11556,16 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
             config={},
             sensitive_config={"access_token": "token"},
             integration_id="linkedin_test",
+            created_by=self.user,
+        )
+
+    def _pinterest_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="pinterest-ads",
+            config={},
+            sensitive_config={"access_token": "token", "refresh_token": "refresh"},
+            integration_id="pinterest_test",
             created_by=self.user,
         )
 
@@ -11613,6 +11624,62 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         response = self.client.get(self._url("Salesforce", 1))
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
+    def test_pinterest_ads_maps_accounts_with_permission_badges(self):
+        integration = self._pinterest_integration()
+        listed = [
+            {"id": "549770029420", "name": "Posthog Inc", "permissions": ["OWNER"]},
+            {"id": "111", "name": "Client", "permissions": ["CAMPAIGN_MANAGER"]},
+        ]
+        with (
+            patch(f"{self._PINTEREST_ADS_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._PINTEREST_ADS_MODULE}.build_session"),
+            patch(f"{self._PINTEREST_ADS_MODULE}.list_ad_accounts", return_value=listed),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("PinterestAds", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["accounts"] == [
+            {
+                "value": "549770029420",
+                "display_name": "Posthog Inc",
+                "is_primary": False,
+                "badges": ["Owner"],
+                "group": None,
+                "secondary_text": None,
+            },
+            {
+                "value": "111",
+                "display_name": "Client",
+                "is_primary": False,
+                "badges": ["Campaign manager"],
+                "group": None,
+                "secondary_text": None,
+            },
+        ]
+
+    def _pinterest_http_error(self, status_code: int) -> requests.HTTPError:
+        response = Mock()
+        response.status_code = status_code
+        return requests.HTTPError(f"{status_code} Client Error", response=response)
+
+    @parameterized.expand([(401,), (403,)])
+    def test_pinterest_ads_auth_error_returns_actionable_400(self, status_code: int):
+        integration = self._pinterest_integration()
+        with (
+            patch(f"{self._PINTEREST_ADS_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._PINTEREST_ADS_MODULE}.build_session"),
+            patch(
+                f"{self._PINTEREST_ADS_MODULE}.list_ad_accounts",
+                side_effect=self._pinterest_http_error(status_code),
+            ),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("PinterestAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "reconnect" in str(response.json()).lower()
+
     def _tiktok_integration(self) -> Integration:
         return Integration.objects.create(
             team=self.team,
@@ -11631,6 +11698,58 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "reconnect" in str(response.json()).lower()
+
+    @parameterized.expand([(429,), (500,), (503,)])
+    def test_pinterest_ads_transient_error_asks_the_user_to_retry(self, status_code: int):
+        # Pinterest rate-limits `/ad_accounts` and 5xxs during outages. Neither is a bug on our side,
+        # so the picker must say "try again" rather than blow up with a 500.
+        integration = self._pinterest_integration()
+        with (
+            patch(f"{self._PINTEREST_ADS_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._PINTEREST_ADS_MODULE}.build_session"),
+            patch(
+                f"{self._PINTEREST_ADS_MODULE}.list_ad_accounts",
+                side_effect=self._pinterest_http_error(status_code),
+            ),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("PinterestAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "try again" in str(response.json()).lower()
+
+    def test_pinterest_ads_non_auth_api_error_is_not_swallowed(self):
+        # A 404 means we built a request Pinterest doesn't recognise — our bug, so let it surface.
+        integration = self._pinterest_integration()
+        with (
+            patch(f"{self._PINTEREST_ADS_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._PINTEREST_ADS_MODULE}.build_session"),
+            patch(
+                f"{self._PINTEREST_ADS_MODULE}.list_ad_accounts",
+                side_effect=self._pinterest_http_error(404),
+            ),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("PinterestAds", integration.id))
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
+
+    def test_pinterest_ads_unreachable_token_endpoint_returns_400(self):
+        # `refresh_access_token` reports a refusal via `integration.errors`, but a network failure (or
+        # an HTML error page it can't parse) escapes as an exception — that must not become a 500.
+        integration = self._pinterest_integration()
+        with (
+            patch(f"{self._PINTEREST_ADS_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._PINTEREST_ADS_MODULE}.build_session"),
+            patch(f"{self._PINTEREST_ADS_MODULE}.list_ad_accounts") as mock_list,
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = True
+            mock_oauth.return_value.refresh_access_token.side_effect = requests.ConnectionError("boom")
+            response = self.client.get(self._url("PinterestAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "try again" in str(response.json()).lower()
+        mock_list.assert_not_called()
 
     @parameterized.expand([(40016,), (40100,), (40101,), (40102,), (50000,), (51001,), (60001,)])
     def test_tiktok_transient_error_returns_actionable_400_not_a_reconnect_prompt(self, api_code: int):

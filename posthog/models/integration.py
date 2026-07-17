@@ -384,6 +384,9 @@ class Integration(models.Model):
 
     @property
     def display_name(self) -> str:
+        if self.kind == "pinterest-ads":
+            # Pinterest's OAuth username is an opaque hash, so prefer the business name when there is one.
+            return self.config.get("business_name") or self.config.get("username") or self.integration_id
         if self.kind == "tiktok-ads":
             # The OAuth id is a list of advertiser ids, so prefer whoever authorized the connection.
             return self.config.get("user_email") or self.config.get("user_display_name") or self.integration_id
@@ -832,7 +835,7 @@ class OauthIntegration:
                 authorize_url="https://www.pinterest.com/oauth/",
                 token_url="https://api.pinterest.com/v5/oauth/token",
                 token_info_url="https://api.pinterest.com/v5/user_account",
-                token_info_config_fields=["id", "username"],
+                token_info_config_fields=["id", "username", "business_name"],
                 client_id=settings.PINTEREST_ADS_CLIENT_ID,
                 client_secret=settings.PINTEREST_ADS_CLIENT_SECRET,
                 scope="ads:read user_accounts:read",
