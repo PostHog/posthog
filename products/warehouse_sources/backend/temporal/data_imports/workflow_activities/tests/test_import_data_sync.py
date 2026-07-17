@@ -1,6 +1,7 @@
 import uuid
 import contextlib
 from datetime import datetime
+from typing import Any, cast
 
 import pytest
 from posthog.test.base import BaseTest
@@ -102,7 +103,9 @@ class TestGetModelsPrefetchesSource(BaseTest):
         )
 
         # Call the undecorated sync loader directly so the query capture runs on this thread.
-        loaded_job, _, _, _ = module._get_models.func(str(job.id))
+        # `.func` is the wrapped sync callable on database_sync_to_async_pool's DatabaseSyncToAsync
+        # (asgiref); it isn't on the decorator's static type, hence the cast.
+        loaded_job, _, _, _ = cast(Any, module._get_models).func(str(job.id))
 
         with self.assertNumQueries(0):
             loaded_job.folder_path()
