@@ -1,5 +1,6 @@
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -63,7 +64,7 @@ def _mock_session(mock_make_session: mock.MagicMock, responses: list[mock.MagicM
     return session
 
 
-def _query_calls(session: mock.MagicMock) -> list[mock.call]:
+def _query_calls(session: mock.MagicMock) -> list[Any]:
     # Skip the initial apiKeyUser token exchange, leaving the data queries.
     return session.post.call_args_list[1:]
 
@@ -157,6 +158,7 @@ class TestSpacelift:
 
         kwargs = mock_make_session.call_args.kwargs
         assert kwargs["capture"] is False
+        assert kwargs["allow_redirects"] is False
         assert "key-secret" in kwargs["redact_values"]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
@@ -245,7 +247,7 @@ class TestSpacelift:
         manager = _make_manager()
 
         response = spacelift_source("my-company", "key-id", "key-secret", "stacks", mock.MagicMock(), manager)
-        batches = list(response.items())
+        batches = list(cast(Iterable[Any], response.items()))
 
         assert batches == [[{"id": "stack-1"}], [{"id": "stack-2"}]]
         # The cursor checkpoints only between pages, pointing at the next page to fetch.
@@ -261,7 +263,7 @@ class TestSpacelift:
         manager = _make_manager(SpaceliftResumeConfig(cursor="saved-cursor"))
 
         response = spacelift_source("my-company", "key-id", "key-secret", "stacks", mock.MagicMock(), manager)
-        list(response.items())
+        list(cast(Iterable[Any], response.items()))
 
         assert _query_calls(session)[0].kwargs["json"]["variables"]["input"]["after"] == "saved-cursor"
 
@@ -276,7 +278,7 @@ class TestSpacelift:
         manager = _make_manager()
 
         response = spacelift_source("my-company", "key-id", "key-secret", "runs", mock.MagicMock(), manager)
-        batches = list(response.items())
+        batches = list(cast(Iterable[Any], response.items()))
 
         assert batches == [
             [
@@ -307,7 +309,7 @@ class TestSpacelift:
             db_incremental_field_last_value=1700000000,
             incremental_field="createdAt",
         )
-        list(response.items())
+        list(cast(Iterable[Any], response.items()))
 
         sent_input = _query_calls(session)[0].kwargs["json"]["variables"]["input"]
         assert sent_input["predicates"] == [
@@ -323,7 +325,7 @@ class TestSpacelift:
         manager = _make_manager()
 
         response = spacelift_source("my-company", "key-id", "key-secret", "runs", mock.MagicMock(), manager)
-        list(response.items())
+        list(cast(Iterable[Any], response.items()))
 
         assert "predicates" not in _query_calls(session)[0].kwargs["json"]["variables"]["input"]
 
@@ -336,7 +338,7 @@ class TestSpacelift:
         manager = _make_manager()
 
         response = spacelift_source("my-company", "key-id", "key-secret", "spaces", mock.MagicMock(), manager)
-        batches = list(response.items())
+        batches = list(cast(Iterable[Any], response.items()))
 
         assert batches == [[{"id": "root"}, {"id": "legacy"}]]
         manager.save_state.assert_not_called()
@@ -352,7 +354,7 @@ class TestSpacelift:
 
         response = spacelift_source("my-company", "key-id", "key-secret", "stacks", mock.MagicMock(), manager)
         with pytest.raises(Exception, match="endCursor is empty"):
-            list(response.items())
+            list(cast(Iterable[Any], response.items()))
 
     def test_unknown_endpoint_raises(self):
         with pytest.raises(ValueError, match="Unknown Spacelift endpoint"):

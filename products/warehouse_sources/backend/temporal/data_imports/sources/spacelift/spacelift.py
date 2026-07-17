@@ -147,10 +147,13 @@ class SpaceliftClient:
         # receives a minted JWT — field names the sample scrubber's denylist can't
         # recognise — so keep this session's traffic out of HTTP sample capture entirely
         # (still metered and logged) and mask the static secret wherever it appears.
+        # The host derives from a user-supplied field, so never follow redirects that
+        # could bounce a credential-bearing request elsewhere.
         self._session = make_tracked_session(
             headers={"Content-Type": "application/json"},
             redact_values=(api_key_secret,),
             capture=False,
+            allow_redirects=False,
         )
         self._jwt: str | None = None
         self._jwt_valid_until: float = 0.0
@@ -201,11 +204,10 @@ class SpaceliftClient:
 
         # Spacelift signals a bad key id/secret with a null user, not a GraphQL error.
         user = (payload.get("data") or {}).get("apiKeyUser")
-        jwt = user.get("jwt") if isinstance(user, dict) else None
-        if not jwt:
+        if not isinstance(user, dict) or not user.get("jwt"):
             raise SpaceliftAuthError("Invalid Spacelift API key: the API key ID or secret is incorrect")
 
-        self._jwt = jwt
+        self._jwt = user["jwt"]
         valid_until = to_unix_seconds(user.get("validUntil"))
         # The JWT lasts ~10h; fall back to a conservative window if the API omits the expiry.
         self._jwt_valid_until = float(valid_until) if valid_until else time.time() + 8 * 60 * 60
