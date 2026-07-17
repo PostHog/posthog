@@ -273,6 +273,7 @@
                     },
                     "id": {
                         "description": "Unique node ID within the workflow.",
+                        "maxLength": 200,
                         "type": "string"
                     },
                     "name": {
