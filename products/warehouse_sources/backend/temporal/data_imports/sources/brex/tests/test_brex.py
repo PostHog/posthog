@@ -450,11 +450,12 @@ class TestPathResolution:
         assert _resolve_path(overridden, BREX_API_VERSION_V2) == "/v3/users"
         assert _resolve_path(overridden, BREX_API_VERSION_V1) == config.path
 
-    @pytest.mark.parametrize("api_version", [BREX_API_VERSION_V1, BREX_API_VERSION_V2])
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.brex.brex.make_tracked_session")
-    def test_dispatched_url_reflects_resolved_version(self, mock_session, api_version):
+    def test_resolved_path_is_wired_into_request_url(self, mock_session):
+        # Guards that _resolve_path feeds get_rows' URL building; per-version path coverage
+        # lives in test_resolve_path_matches_current_paths_for_every_version.
         mock_session.return_value.get.return_value = _response(_page([{"id": "u1"}], None))
 
-        list(_get_rows("bxt_token", "users", mock.MagicMock(), _make_manager(), api_version=api_version))
+        list(_get_rows("bxt_token", "users", mock.MagicMock(), _make_manager(), api_version=BREX_API_VERSION_V2))
 
         assert mock_session.return_value.get.call_args.args[0] == "https://api.brex.com/v2/users?limit=100"
