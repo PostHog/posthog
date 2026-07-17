@@ -119,17 +119,12 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         if self.is_first_ever_occurrence:
             # First-ever buckets each actor by the breakdown value on their earliest START
-            # event, resolved here via argMinIf(..., start_entity_expr_no_props). The events
-            # return arm can only do that when it shares the events source with the start
-            # entity. When the start entity is a DWH table, start_entity_expr_no_props
-            # collapses to a truthy constant, so on the events return arm argMinIf would
-            # instead read the actor's earliest RETURN event's value. Degrade to the empty
-            # bucket — the start (DWH) arm already emits "", so the outer max() yields "".
-            if (
-                query_kind == "return"
-                and self.start_event.type == EntityType.DATA_WAREHOUSE
-                and self._breakdown_extract_targets_events_table()
-            ):
+            # event. Only the start arm sees the full start-matcher stream, so it is the
+            # sole authority; the return arm's scan is entity-scoped and window-bounded, and
+            # its argMinIf would resolve a later row's value whenever the start matcher
+            # overlaps return rows. Degrade the return arm to the empty bucket — the outer
+            # max() lets the start arm's real value win.
+            if query_kind == "return":
                 return ast.Constant(value="")
             # Bucket each actor by the breakdown value on their earliest start event.
             return parse_expr(
@@ -282,11 +277,23 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         # start and return timestamp arrays can be computed in one pass. Property aggregation has a known
         # legacy/variant discrepancy and stays on the UNION; a data-warehouse entity is a genuinely
         # different source and cannot collapse here.
+        # First-time modes stay on the UNION only when the split can shrink the scan: their
+        # single scan is unbounded in time (first-ever anchor), and the two arms confine the
+        # all-time read to the start entity's event names. With identical entities or an
+        # all-events start entity the arms scan the same rows twice, so keep the single pass.
         return (
             not self.has_property_aggregation
+            and not self._first_time_split_shrinks_scan()
             and self.start_event.type != EntityType.DATA_WAREHOUSE
             and self.return_event.type != EntityType.DATA_WAREHOUSE
         )
+
+    def _first_time_split_shrinks_scan(self) -> bool:
+        if not (self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence):
+            return False
+        if self._start_and_return_entities_are_same():
+            return False
+        return None not in self.runner.get_events_for_entity(self.start_event)
 
     def _build_single_scan_query(
         self,
@@ -497,7 +504,20 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         table_name = entity.table_name if entity_is_dwh else "events"
         assert table_name
-        where_expr = None if entity_is_dwh else ast.And(exprs=self._event_filters())
+        where_expr: ast.Expr | None = None
+        if not entity_is_dwh:
+            arm_filters = [*self.runner.arm_event_filters(entity, query_kind), *self._cohort_breakdown_filters()]
+            # Push the arm's own entity predicate into WHERE so non-matching rows are pruned
+            # before aggregation. The first-ever start arm must keep no-props rows: its anchor
+            # minIfs and breakdown argMinIf aggregate over the no-props matcher.
+            arm_entity_predicate = (
+                self.entity_expr_no_props(entity)
+                if self.is_first_ever_occurrence and query_kind == "start"
+                else entity_expr
+            )
+            if not (isinstance(arm_entity_predicate, ast.Constant) and arm_entity_predicate.value is True):
+                arm_filters.append(arm_entity_predicate)
+            where_expr = ast.And(exprs=arm_filters)
 
         select_fields: list[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=actor_field),
@@ -913,7 +933,9 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         )
 
     def _event_filters(self) -> list[ast.Expr]:
-        event_filters = self.global_event_filters.copy()
+        return [*self.global_event_filters, *self._cohort_breakdown_filters()]
+
+    def _cohort_breakdown_filters(self) -> list[ast.Expr]:
         if (
             self.query.breakdownFilter
             and self.query.breakdownFilter.breakdowns
@@ -923,15 +945,15 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             cohort_id = self.query.breakdownFilter.breakdowns[0].property
             # Don't add cohort filter for "all users" (cohort_id = 0)
             if int(cohort_id) != ALL_USERS_COHORT_ID:
-                event_filters.append(
+                return [
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.InCohort,
                         left=ast.Field(chain=["person_id"]),
                         right=ast.Constant(value=int(cohort_id)),
                     )
-                )
+                ]
 
-        return event_filters
+        return []
 
     def _is_valid_start_interval_expr(self, start_event_timestamps_field: str = "start_event_timestamps") -> ast.Expr:
         start_event_timestamps = ast.Field(chain=[start_event_timestamps_field])

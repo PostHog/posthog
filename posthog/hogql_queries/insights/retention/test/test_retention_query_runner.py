@@ -2870,6 +2870,47 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             ],
         )
 
+    def test_retention_first_time_ever_breakdown_with_overlapping_action_target(self):
+        """First-ever breakdown must come from the actor's first-ever start event, not a later
+        return event whose row also matches the start entity (overlapping action steps)."""
+        action = Action.objects.create(
+            team=self.team,
+            name="any signup",
+            steps_json=[{"event": "signup_a"}, {"event": "signup_b"}],
+        )
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        # First-ever action-matching event: signup_b with plan "a"; later in-window return
+        # events (signup_a) carry plan "z", which sorts higher and must not win the bucket.
+        _create_events(self.team, [("person1", _date(1), {"plan": "a"})], "signup_b")
+        _create_events(
+            self.team, [("person1", _date(2), {"plan": "z"}), ("person1", _date(4), {"plan": "z"})], "signup_a"
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(7)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 7,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
+                    "targetEntity": {"id": action.id, "type": TREND_FILTER_TYPE_ACTIONS},
+                    "returningEntity": {"id": "signup_a", "name": "signup_a", "type": TREND_FILTER_TYPE_EVENTS},
+                },
+                "breakdownFilter": {
+                    "breakdown": "plan",
+                    "breakdown_type": "event",
+                },
+            }
+        )
+
+        buckets = {row.get("breakdown_value") for row in result}
+        self.assertIn("a", buckets)
+        self.assertNotIn("z", buckets)
+        bucket_a = [row for row in result if row.get("breakdown_value") == "a"]
+        # Cohorted on day 1, returned via signup_a on days 2 and 4 (intervals 1 and 3).
+        self.assertEqual(pluck(bucket_a, "values", "count")[1][:4], [1, 1, 0, 1])
+
     def test_retention_first_time_ever_with_event_breakdown(self):
         """Test first time ever retention with event property breakdown"""
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])
@@ -8132,3 +8173,117 @@ class TestClickhouseRetentionGroupAggregation(
     #     self.assertIn("USA", breakdown_values)
     #     self.assertNotIn("Canada", breakdown_values)
     #     self.assertIn(BREAKDOWN_OTHER_STRING_LABEL, breakdown_values)  # Canada should be in "Other"
+
+
+class TestRetentionFirstTimeTwoLegScan(APIBaseTest):
+    def _variant_base_query(
+        self,
+        retention_type: str,
+        target: dict | None = None,
+        returning: dict | None = None,
+        aggregation_group_type_index: int | None = None,
+    ) -> ast.SelectQuery:
+        query: dict = {
+            "kind": "RetentionQuery",
+            "retentionFilter": {
+                "retentionType": retention_type,
+                "targetEntity": target or {"id": "signup", "type": "events"},
+                "returningEntity": returning or {"id": "did_action", "type": "events"},
+            },
+        }
+        if aggregation_group_type_index is not None:
+            query["aggregation_group_type_index"] = aggregation_group_type_index
+        runner = RetentionQueryRunner(team=self.team, query=query)
+        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
+            return RetentionFixedIntervalBaseQueryBuilder(runner).build_base_query()
+
+    @staticmethod
+    def _where_constants(arm: ast.SelectQuery) -> list[Any]:
+        constants: list[Any] = []
+
+        def walk(value: Any) -> None:
+            if isinstance(value, ast.Constant):
+                constants.append(value.value)
+            if hasattr(value, "__dataclass_fields__"):
+                for field_name in value.__dataclass_fields__:
+                    walk(getattr(value, field_name))
+            elif isinstance(value, list | tuple):
+                for item in value:
+                    walk(item)
+
+        walk(arm.where)
+        return constants
+
+    @staticmethod
+    def _where_has_timestamp_bound(arm: ast.SelectQuery) -> bool:
+        found = False
+
+        def walk(value: Any) -> None:
+            nonlocal found
+            if isinstance(value, ast.CompareOperation) and isinstance(value.left, ast.Field):
+                if value.left.chain[-1] == "timestamp":
+                    found = True
+            if hasattr(value, "__dataclass_fields__"):
+                for field_name in value.__dataclass_fields__:
+                    walk(getattr(value, field_name))
+            elif isinstance(value, list | tuple):
+                for item in value:
+                    walk(item)
+
+        walk(arm.where)
+        return found
+
+    @parameterized.expand(["retention_first_time", "retention_first_ever_occurrence"])
+    def test_first_time_modes_scan_two_arms_with_bounded_return_arm(self, retention_type):
+        base_query = self._variant_base_query(retention_type)
+        assert base_query.select_from is not None
+        table = base_query.select_from.table
+        self.assertIsInstance(table, ast.SelectSetQuery)
+        start_arm, return_arm = list(table.select_queries())  # type: ignore[union-attr]
+
+        start_constants = self._where_constants(start_arm)
+        return_constants = self._where_constants(return_arm)
+        self.assertIn("signup", start_constants)
+        self.assertNotIn("did_action", start_constants)
+        self.assertIn("did_action", return_constants)
+        self.assertNotIn("signup", return_constants)
+
+        self.assertFalse(self._where_has_timestamp_bound(start_arm))
+        self.assertTrue(self._where_has_timestamp_bound(return_arm))
+
+    def test_recurring_mode_keeps_single_scan(self):
+        base_query = self._variant_base_query("retention_recurring")
+        assert base_query.select_from is not None
+        self.assertIsInstance(base_query.select_from.table, ast.Field)
+
+    @parameterized.expand(
+        [
+            ("same_entity", {"id": "signup", "type": "events"}, {"id": "signup", "type": "events"}),
+            ("all_events_target", {"id": None, "type": "events"}, {"id": "did_action", "type": "events"}),
+        ]
+    )
+    def test_first_time_keeps_single_scan_when_split_cannot_shrink_the_scan(self, _name, target, returning):
+        base_query = self._variant_base_query("retention_first_time", target=target, returning=returning)
+        assert base_query.select_from is not None
+        self.assertIsInstance(base_query.select_from.table, ast.Field)
+
+    def test_first_time_group_aggregation_filters_both_arms(self):
+        base_query = self._variant_base_query("retention_first_time", aggregation_group_type_index=0)
+        assert base_query.select_from is not None
+        table = base_query.select_from.table
+        self.assertIsInstance(table, ast.SelectSetQuery)
+
+        def collect_chains(value, chains):
+            if isinstance(value, ast.Field):
+                chains.append(value.chain)
+            if hasattr(value, "__dataclass_fields__"):
+                for field_name in value.__dataclass_fields__:
+                    collect_chains(getattr(value, field_name), chains)
+            elif isinstance(value, list | tuple):
+                for item in value:
+                    collect_chains(item, chains)
+
+        for arm in table.select_queries():  # type: ignore[union-attr]
+            chains: list = []
+            collect_chains(arm.where, chains)
+            self.assertIn(["events", "$group_0"], chains)
