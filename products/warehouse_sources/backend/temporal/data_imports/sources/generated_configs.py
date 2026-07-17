@@ -3989,7 +3989,9 @@ class SnowplowSourceConfig(config.Config):
 
 @config.config
 class SnykSourceConfig(config.Config):
-    pass
+    api_token: str
+    region: Literal["us", "eu", "au"] = config.value(default="us")
+    organization_id: str | None = None
 
 
 @config.config
