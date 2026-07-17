@@ -94,6 +94,15 @@ class HubspotCustomPropertiesConfig(config.Config):
 
 
 @config.config
+class JamfProAuthMethodConfig(config.Config):
+    selection: Literal["client_credentials", "basic"] = "client_credentials"
+    client_id: str | None = None
+    client_secret: str | None = None
+    username: str | None = None
+    password: str | None = None
+
+
+@config.config
 class MetabaseAuthMethodConfig(config.Config):
     selection: Literal["api_key", "session"] = "api_key"
     api_key: str | None = None
@@ -584,7 +593,7 @@ class BitlySourceConfig(config.Config):
 
 @config.config
 class BitriseSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -736,7 +745,7 @@ class CampaynSourceConfig(config.Config):
 
 @config.config
 class CampfireSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -805,7 +814,9 @@ class ChartMogulSourceConfig(config.Config):
 
 @config.config
 class ChatwootSourceConfig(config.Config):
-    pass
+    account_id: str
+    api_access_token: str
+    host: str | None = None
 
 
 @config.config
@@ -858,7 +869,12 @@ class CircleCISourceConfig(config.Config):
 
 @config.config
 class CircleciInsightsSourceConfig(config.Config):
-    pass
+    api_token: str
+    project_slugs: str
+    reporting_window: Literal["last-24-hours", "last-7-days", "last-30-days", "last-60-days", "last-90-days"] | None = (
+        config.value(default="last-90-days")
+    )
+    branch_scope: Literal["default_branch", "all_branches"] | None = config.value(default="default_branch")
 
 
 @config.config
@@ -1079,7 +1095,17 @@ class CopperSourceConfig(config.Config):
 
 @config.config
 class CoralogixSourceConfig(config.Config):
-    pass
+    api_key: str
+    domain: Literal[
+        "coralogix.us",
+        "cx498.coralogix.com",
+        "coralogix.com",
+        "eu2.coralogix.com",
+        "coralogix.in",
+        "coralogixsg.com",
+        "ap3.coralogix.com",
+    ] = config.value(default="coralogix.us")
+    tier: Literal["frequent_search", "archive"] = config.value(default="frequent_search")
 
 
 @config.config
@@ -1167,7 +1193,9 @@ class CustomerlySourceConfig(config.Config):
 
 @config.config
 class DagsterCloudSourceConfig(config.Config):
-    pass
+    organization: str
+    deployment: str
+    api_token: str
 
 
 @config.config
@@ -1444,7 +1472,8 @@ class EnchargeSourceConfig(config.Config):
 
 @config.config
 class Env0SourceConfig(config.Config):
-    pass
+    api_key_id: str
+    api_key_secret: str
 
 
 @config.config
@@ -2210,7 +2239,8 @@ class IterableSourceConfig(config.Config):
 
 @config.config
 class JamfProSourceConfig(config.Config):
-    pass
+    instance_url: str
+    auth_method: JamfProAuthMethodConfig
 
 
 @config.config
@@ -2260,7 +2290,9 @@ class JudgeMeReviewsSourceConfig(config.Config):
 
 @config.config
 class JumpcloudSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
+    org_id: str | None = None
 
 
 @config.config
@@ -2384,7 +2416,9 @@ class KustomerSourceConfig(config.Config):
 
 @config.config
 class LaceworkSourceConfig(config.Config):
-    pass
+    account_name: str
+    key_id: str
+    secret_key: str
 
 
 @config.config
@@ -2475,7 +2509,7 @@ class LinearSourceConfig(config.Config):
 
 @config.config
 class LinearbSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2677,7 +2711,7 @@ class MetabaseSourceConfig(config.Config):
 
 @config.config
 class MetaplaneSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2907,7 +2941,7 @@ class NotionSourceConfig(config.Config):
 
 @config.config
 class NugetSourceConfig(config.Config):
-    pass
+    package_ids: str
 
 
 @config.config
@@ -2932,7 +2966,8 @@ class OctolensSourceConfig(config.Config):
 
 @config.config
 class OctopusDeploySourceConfig(config.Config):
-    pass
+    host: str
+    api_key: str
 
 
 @config.config
@@ -3406,6 +3441,11 @@ class ProductboardSourceConfig(config.Config):
 
 @config.config
 class ProductiveSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class PromptWatchSourceConfig(config.Config):
     pass
 
 
@@ -4037,7 +4077,9 @@ class SolarwindsServiceDeskSourceConfig(config.Config):
 
 @config.config
 class SonarCloudSourceConfig(config.Config):
-    pass
+    token: str
+    organization: str
+    region: Literal["eu", "us"] = config.value(default="eu")
 
 
 @config.config
@@ -4115,7 +4157,7 @@ class StatsigSourceConfig(config.Config):
 
 @config.config
 class StatuscakeSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -4156,7 +4198,8 @@ class StripeSourceConfig(config.Config):
 
 @config.config
 class StytchSourceConfig(config.Config):
-    pass
+    project_id: str
+    secret: str
 
 
 @config.config
@@ -4266,7 +4309,8 @@ class TavusSourceConfig(config.Config):
 
 @config.config
 class TawkToSourceConfig(config.Config):
-    pass
+    api_key: str
+    property_id: str | None = None
 
 
 @config.config
@@ -4536,12 +4580,14 @@ class UptimerobotSourceConfig(config.Config):
 
 @config.config
 class UsersnapSourceConfig(config.Config):
-    pass
+    jwt_secret: str
+    jwt_id: str
 
 
 @config.config
 class UservoiceSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -5488,6 +5534,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PRINTIFY: PrintifySourceConfig,
         ExternalDataSourceType.PRODUCTBOARD: ProductboardSourceConfig,
         ExternalDataSourceType.PRODUCTIVE: ProductiveSourceConfig,
+        ExternalDataSourceType.PROMPTWATCH: PromptWatchSourceConfig,
         ExternalDataSourceType.PROMPTINGCOMPANY: PromptingCompanySourceConfig,
         ExternalDataSourceType.PULUMICLOUD: PulumiCloudSourceConfig,
         ExternalDataSourceType.PYPI: PyPISourceConfig,
