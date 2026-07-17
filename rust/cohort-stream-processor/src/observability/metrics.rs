@@ -465,10 +465,10 @@ pub const SEED_REKEY_HOP_CAPPED_TOTAL: &str = "cohort_seed_rekey_hop_capped_tota
 /// a sustained non-zero level — same fail-stop semantics as [`MERGE_HELD_OFFSET_GAUGE`].
 pub const SEED_HELD_OFFSET_GAUGE: &str = "seed_held_offset";
 /// Seed partitions currently held (fence-closed or backpressured) — the paused target size (gauge).
-pub const SEED_FENCED_PARTITIONS: &str = "seed_fenced_partitions";
+pub const SEED_FENCED_PARTITIONS: &str = "cohort_seed_fenced_partitions";
 /// How far the live watermark trails `s_chunk + margin` for a fence-closed partition, labelled by
 /// `partition` (gauge, ms). `0` once the fence opens.
-pub const SEED_FENCE_DEFICIT_MS: &str = "seed_fence_deficit_ms";
+pub const SEED_FENCE_DEFICIT_MS: &str = "cohort_seed_fence_deficit_ms";
 /// Age of each owned partition's live watermark, labelled by `partition` (gauge, ms). The design's
 /// accepted residual (a silent shuffler stall during an active run) alerts on this.
 pub const LIVE_WATERMARK_AGE_MS: &str = "cohort_live_watermark_age_ms";
@@ -675,6 +675,47 @@ mod tests {
             STAGE2_ORPHAN_GC_UNDECODABLE_KEYS_TOTAL,
             "stage2_orphan_gc_undecodable_keys_total",
         );
+    }
+
+    #[test]
+    fn seed_metric_names_are_stable() {
+        assert_eq!(
+            COHORT_STREAM_SEEDS_CONSUMED,
+            "cohort_stream_seeds_consumed_total"
+        );
+        assert_eq!(
+            COHORT_STREAM_SEED_DESERIALIZE_ERRORS,
+            "cohort_stream_seed_deserialize_errors_total",
+        );
+        assert_eq!(
+            COHORT_STREAM_SEEDS_CONSUME_BATCH_SIZE,
+            "cohort_stream_seeds_consume_batch_size",
+        );
+        assert_eq!(
+            COHORT_STREAM_SEEDS_SKIPPED_NOT_OWNED,
+            "cohort_stream_seeds_skipped_not_owned_total",
+        );
+        assert_eq!(SEED_TILES_APPLIED_TOTAL, "cohort_seed_tiles_applied_total");
+        assert_eq!(
+            SEED_TILES_UNCHANGED_TOTAL,
+            "cohort_seed_tiles_unchanged_total"
+        );
+        assert_eq!(SEED_TILES_DROPPED_TOTAL, "cohort_seed_tiles_dropped_total");
+        assert_eq!(SEED_TILES_SKIPPED_TOTAL, "cohort_seed_tiles_skipped_total");
+        assert_eq!(SEED_REKEYED_TOTAL, "cohort_seed_rekeyed_total");
+        assert_eq!(
+            SEED_REKEY_PRODUCE_FAILURE_TOTAL,
+            "cohort_seed_rekey_produce_failure_total",
+        );
+        assert_eq!(
+            SEED_REKEY_HOP_CAPPED_TOTAL,
+            "cohort_seed_rekey_hop_capped_total"
+        );
+        // The held-offset gauge deliberately mirrors merge_held_offset/cascade_held_offset.
+        assert_eq!(SEED_HELD_OFFSET_GAUGE, "seed_held_offset");
+        assert_eq!(SEED_FENCED_PARTITIONS, "cohort_seed_fenced_partitions");
+        assert_eq!(SEED_FENCE_DEFICIT_MS, "cohort_seed_fence_deficit_ms");
+        assert_eq!(LIVE_WATERMARK_AGE_MS, "cohort_live_watermark_age_ms");
     }
 
     #[test]

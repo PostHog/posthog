@@ -329,10 +329,7 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
     }
 
     fn owned_committable_offsets(&self) -> HashMap<i32, i64> {
-        restrict_to_owned(
-            self.tracker().committable_offsets(),
-            &self.dispatcher.owned_partitions(),
-        )
+        owned_committable_offsets(self.tracker(), &self.dispatcher)
     }
 }
 
@@ -342,7 +339,19 @@ struct FollowerOutcome<T> {
     transport_error: bool,
 }
 
-pub(crate) fn restrict_to_owned(offsets: HashMap<i32, i64>, owned: &[i32]) -> HashMap<i32, i64> {
+/// A tracker's committable offsets restricted to the partitions this pod currently owns — the
+/// commit shape every follower loop shares.
+pub(crate) fn owned_committable_offsets(
+    tracker: &OffsetTracker,
+    dispatcher: &EventDispatcher,
+) -> HashMap<i32, i64> {
+    restrict_to_owned(
+        tracker.committable_offsets(),
+        &dispatcher.owned_partitions(),
+    )
+}
+
+fn restrict_to_owned(offsets: HashMap<i32, i64>, owned: &[i32]) -> HashMap<i32, i64> {
     let owned: HashSet<i32> = owned.iter().copied().collect();
     offsets
         .into_iter()

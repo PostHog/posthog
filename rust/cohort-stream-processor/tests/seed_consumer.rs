@@ -29,9 +29,9 @@ use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFiltersBuilder, TeamId,
 };
 use cohort_stream_processor::partitions::{
-    merge_partition_key, partition_of, run_rebalance_worker, CohortConsumerContext, ConsumerPauser,
-    Follower, FollowerSet, LiveWatermarks, OffsetTracker, PartitionPauser, PartitionRouter,
-    COHORT_PARTITION_COUNT,
+    merge_partition_key, partition_for, partition_of, run_rebalance_worker, CohortConsumerContext,
+    ConsumerPauser, Follower, FollowerSet, LiveWatermarks, OffsetTracker, PartitionPauser,
+    PartitionRouter, COHORT_PARTITION_COUNT,
 };
 use cohort_stream_processor::producer::{
     CascadeSink, ChangeOrigin, CohortMembershipChange, KafkaCascadeSink, KafkaMembershipSink,
@@ -697,10 +697,12 @@ async fn seed_tile_applies_on_the_owning_worker_and_commits_to_the_hwm() {
         assert_eq!(change.status, MembershipStatus::Entered);
         assert_eq!(change.origin, Some(ChangeOrigin::Seed));
         assert_eq!(change.run_id, Some(RunId(Uuid::from_u128(0xBF))));
+        // The shadow topic is keyed by bare person id, not the "{team}:{person}" state key, so it
+        // does not co-partition with the owning worker; only the keying itself is assertable here.
         assert_eq!(
-            partition as u16,
-            part(alice),
-            "the change was emitted by alice's owning worker",
+            partition as u32,
+            partition_for(&alice.to_string(), COHORT_PARTITION_COUNT),
+            "the change is person-id keyed on the shadow topic",
         );
 
         // Run-completion precondition: committed ⇒ durably applied, reaching the produced HWM.

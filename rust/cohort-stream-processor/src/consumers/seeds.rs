@@ -24,7 +24,7 @@ use rdkafka::{Offset, TopicPartitionList};
 use tracing::{debug, info, warn};
 
 use crate::consumers::events::{fsync_then_commit, run_pauser_loop, EventDispatcher};
-use crate::consumers::merges::restrict_to_owned;
+use crate::consumers::merges::owned_committable_offsets;
 use crate::observability::metrics::{
     COHORT_STREAM_KAFKA_RECV_ERRORS, COHORT_STREAM_SEEDS_CONSUMED,
     COHORT_STREAM_SEEDS_CONSUME_BATCH_SIZE, COHORT_STREAM_SEED_DESERIALIZE_ERRORS,
@@ -434,13 +434,7 @@ impl SeedFollowerConsumer {
     }
 
     fn owned_committable_offsets(&self) -> HashMap<i32, i64> {
-        restrict_to_owned(
-            self.dispatcher
-                .merge_deps()
-                .seed_tracker
-                .committable_offsets(),
-            &self.dispatcher.owned_partitions(),
-        )
+        owned_committable_offsets(&self.dispatcher.merge_deps().seed_tracker, &self.dispatcher)
     }
 }
 
