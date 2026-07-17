@@ -176,7 +176,7 @@ class TestReconcileTeamPrecalculatedEventsActivity:
 
 
 @pytest.mark.asyncio
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 class TestGetReconciliationTeamIdsActivity:
     async def test_returns_distinct_realtime_cohort_teams_only(self, team):
         other_team = await sync_to_async(Team.objects.create)(
