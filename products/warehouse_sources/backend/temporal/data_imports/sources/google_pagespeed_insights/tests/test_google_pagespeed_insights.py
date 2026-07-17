@@ -252,7 +252,7 @@ class TestFetch:
         session = mock.MagicMock()
         session.get.side_effect = [exc, _response(200, {"analysisUTCTimestamp": "2024-01-15T12:34:56Z"})]
 
-        with mock.patch.object(_fetch.retry, "sleep"):
+        with mock.patch.object(_fetch.retry, "sleep"):  # type: ignore[attr-defined]
             body = _fetch(session, "k", "DESKTOP", "https://posthog.com", structlog.get_logger())
 
         assert body == {"analysisUTCTimestamp": "2024-01-15T12:34:56Z"}
