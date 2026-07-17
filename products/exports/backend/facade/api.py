@@ -5,6 +5,7 @@ delivering a chart to Slack) can render server-side without shuttling bytes thro
 API clients.
 """
 
+import copy
 from datetime import timedelta
 from typing import Any
 
@@ -50,7 +51,7 @@ def _enable_legend_for_multi_series(query: Any) -> None:
 def render_png_export(
     *,
     team: Team,
-    created_by: User | None,
+    created_by: User,
     export_context: dict | None = None,
     insight_id: int | None = None,
 ) -> tuple[ExportedAsset, bytes | None]:
@@ -59,16 +60,20 @@ def render_png_export(
     Blocks until the export workflow finishes (typically a few seconds). On failure the
     returned bytes are None and ``asset.exception`` carries the error.
     """
+    if created_by is None:
+        # Access control below resolves against created_by; a principal-less render would
+        # silently skip it, so service callers must attribute the render to a real user.
+        raise ValueError("created_by is required")
     if (export_context is None) == (insight_id is None):
         raise ValueError("Provide exactly one of export_context or insight_id")
     if export_context is not None:
+        export_context = copy.deepcopy(export_context)
         _enable_legend_for_multi_series(export_context.get("source"))
     if insight_id is not None:
         insight = Insight.objects.filter(id=insight_id, team_id=team.id, deleted=False).first()
         # Object-level access matters here: created_by may not be allowed to view the insight.
-        if insight is None or (
-            created_by is not None
-            and not UserAccessControl(user=created_by, team=team).check_access_level_for_object(insight, "viewer")
+        if insight is None or not UserAccessControl(user=created_by, team=team).check_access_level_for_object(
+            insight, "viewer"
         ):
             raise ValueError("Insight not found")
 
@@ -87,7 +92,7 @@ def render_png_export(
             ExportAssetWorkflowInputs(
                 exported_asset_id=asset.id,
                 team_id=team.id,
-                distinct_id=str(created_by.distinct_id) if created_by else str(team.id),
+                distinct_id=str(created_by.distinct_id),
             ),
             id=f"export-asset-{asset.id}",
             task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,

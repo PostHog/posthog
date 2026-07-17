@@ -611,14 +611,21 @@ def export_image(
                 # Ad-hoc query export: run the query now so a bad query fails here (with a real
                 # exception on the asset) rather than inside the headless browser, and so the
                 # sharing view's cache-aggressive recompute at page load is a cache hit.
-                # Blocking-if-stale: callers usually just ran this query; invalid queries still raise.
-                process_query_dict(
+                warm_result = process_query_dict(
                     exported_asset.team,
                     exported_asset.export_context["source"],
                     execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                     # Background render (no request user); attribute the read to the export owner.
                     user=exported_asset.created_by,
                 )
+                # Validation failures come back as an error response rather than raising
+                # (process_query_dict only raises for dashboard contexts) — surface them here
+                # instead of letting the render burn a browserless timeout on a broken page.
+                warm_error = (
+                    warm_result.get("error") if isinstance(warm_result, dict) else getattr(warm_result, "error", None)
+                )
+                if warm_error:
+                    raise InvalidExportContext(f"Invalid query: {warm_error}")
 
             if exported_asset.export_format == "image/png":
                 with EXPORT_TIMER.labels(type=exported_asset.export_format).time():

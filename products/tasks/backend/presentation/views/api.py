@@ -20,7 +20,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -32,6 +32,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.models import User
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, CodeInviteThrottle
 from posthog.renderers import ServerSentEventRenderer
@@ -2207,10 +2208,13 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                     TaskRunErrorResponseSerializer({"error": "Invalid insight query"}).data,
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+        if not isinstance(request.user, User):
+            # Scoped-token auth guarantees a real user; the facade's access checks need one.
+            raise NotAuthenticated()
         try:
             asset, png = render_png_export(
                 team=self.team,
-                created_by=request.user if request.user.is_authenticated else None,
+                created_by=request.user,
                 export_context={"source": query} if query is not None else None,
                 insight_id=request.validated_data.get("insight_id"),
             )
