@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -80,6 +81,7 @@ export type pipelineStatusSceneLogicType = MakeLogicType<
 
 export const pipelineStatusSceneLogic = kea<pipelineStatusSceneLogicType>([
     path(['scenes', 'health', 'pipelineStatus', 'pipelineStatusSceneLogic']),
+    tabAwareScene(),
     connect({
         values: [pipelineHealthLogic, ['issues'], featureFlagLogic, ['featureFlags']],
     }),

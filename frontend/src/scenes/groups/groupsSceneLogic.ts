@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 
 import { urlToAction } from 'kea-router'
 
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -70,6 +71,7 @@ export type groupsSceneLogicType = MakeLogicType<
 
 export const groupsSceneLogic = kea<groupsSceneLogicType>([
     path(['scenes', 'groups', 'groupsSceneLogic']),
+    tabAwareScene(),
     connect(() => ({
         values: [groupsModel, ['aggregationLabel', 'groupTypes', 'groupTypesLoading', 'groupsAccessStatus']],
     })),

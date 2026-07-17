@@ -4,6 +4,7 @@ import { router, urlToAction } from 'kea-router'
 
 import { Sorting } from '@posthog/lemon-ui'
 
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -321,6 +322,7 @@ export type subscriptionsSceneLogicType = MakeLogicType<
 
 export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
     path(['scenes', 'subscriptions', 'subscriptionsSceneLogic']),
+    tabAwareScene(),
     connect(() => ({ values: [userLogic, ['user']] })),
     actions({
         loadSubscriptions: true,
