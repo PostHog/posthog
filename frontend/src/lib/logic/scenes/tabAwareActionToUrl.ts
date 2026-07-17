@@ -17,10 +17,12 @@ export const tabAwareActionToUrl = <L extends Logic = Logic>(
                 k,
                 (payload: Record<string, any>): any => {
                     if (v) {
-                        // Check if sceneLogic is mounted before accessing values
-                        if (!sceneLogic.isMounted()) {
-                            // If sceneLogic is not mounted, just execute the original action
-                            return v(payload)
+                        // A logic without a tabId prop is not tab-scoped — route as plain
+                        // actionToUrl would. Same when sceneLogic isn't mounted.
+                        if (!sceneLogic.isMounted() || logic.props.tabId === undefined) {
+                            const response = v(payload)
+                            trackUrlChange(response, logic.pathString, k)
+                            return response
                         }
 
                         if (sceneLogic.values.activeTabId === logic.props.tabId) {

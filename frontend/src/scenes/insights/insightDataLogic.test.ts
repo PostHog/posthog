@@ -535,7 +535,12 @@ describe('insightDataLogic', () => {
             // Editing an insight opened from a dashboard reuses the tile's keyed logic, which wired
             // persistDisplayOptions as props.setQuery. The scene must persist only via explicit save.
             sceneLogic.mount()
-            sceneLogic.actions.setScene(Scene.Insight, undefined, {} as any)
+            sceneLogic.actions.setScene(
+                Scene.Insight,
+                undefined,
+                sceneLogic.values.activeTabId || 'test-tab',
+                {} as any
+            )
             const findMountedSpy = jest.spyOn(insightSceneLogic, 'findMounted').mockReturnValue({
                 values: { insightLogicRef: { logic: { key: Insight42 } } },
             } as any)

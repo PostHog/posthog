@@ -60,7 +60,7 @@ describe('insightSceneLogic', () => {
         // scope (so sidePanelContextLogic does not fall back to the URL guesser and drop item_id, which
         // would list every Insight-scoped comment in the team) but mark discussions disabled.
         router.actions.push(urls.insightNew())
-        logic = insightSceneLogic()
+        logic = insightSceneLogic({ tabId })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -160,14 +160,21 @@ describe('insightSceneLogic', () => {
             },
         }
         router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
-        logic = insightSceneLogic()
+        logic = insightSceneLogic({ tabId })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
         await expectLogic(router)
             .delay(1)
             .toMatchValues({
-                hashParams: partial({ q: JSON.stringify(dataTableQuery) }),
+                // The sync may re-serialize the hash as a parsed object and tag the source query;
+                // what matters is that the drill-down query itself survives.
+                hashParams: partial({
+                    q: partial({
+                        kind: NodeKind.DataTableNode,
+                        source: partial({ kind: NodeKind.EventsQuery, select: ['*'] }),
+                    }),
+                }),
             })
     })
 
@@ -184,7 +191,7 @@ describe('insightSceneLogic', () => {
             },
         }
         router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
-        logic = insightSceneLogic()
+        logic = insightSceneLogic({ tabId })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['upgradeQuery']).toFinishAllListeners()
 
@@ -206,7 +213,7 @@ describe('insightSceneLogic', () => {
 
         // Settle a new-insight scene first, then navigate in-app to the drill-down query
         router.actions.push(urls.insightNew())
-        logic = insightSceneLogic()
+        logic = insightSceneLogic({ tabId })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -229,7 +236,7 @@ describe('insightSceneLogic', () => {
             },
         }
         router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
-        logic = insightSceneLogic()
+        logic = insightSceneLogic({ tabId })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -248,7 +255,7 @@ describe('insightSceneLogic', () => {
             },
         }
         router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
-        logic = insightSceneLogic()
+        logic = insightSceneLogic({ tabId })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 

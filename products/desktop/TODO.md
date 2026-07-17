@@ -24,7 +24,7 @@ The long-term goal is to merge PostHog Code (github.com/posthog/code) into this 
 - [x] Fresh additional windows: windows opened via "open in new window" / File → New window start with just the opened location plus pinned tabs (`__posthogDesktopFreshWindow` param → sessionStorage flag) instead of cloning the saved tab set, and don't overwrite the primary window's persisted tabs
 - [x] Frameless window on macOS (`titleBarStyle: hiddenInset`): the frontend reserves space for the traffic lights (`isDesktopAppMac()` via `window.__POSTHOG_DESKTOP__.platform`) — beside the org/project picker when the navbar is wide, above it when collapsed/narrow, plus left padding on the tab strip in collapsed/mobile modes; the top chrome doubles as the window drag region
 - [x] Link context menus: right-click on any link without its own context menu offers open in new tab / new window (or browser / email app for external links), copy URL, and copy link text (`DesktopLinkContextMenu`, mounted app-wide in desktop mode)
-- [x] Tab-aware scenes: `sceneTabsLogic` keeps the scene root logic mounted per open tab for notebooks, insights, dashboards, feature flags, experiments (view/edit), and their list pages, so scene state survives tab switches; `notebookSceneLogic` skips refetching an already-loaded notebook. Two tabs on the same resource share one logic (state is per-resource, not per-tab)
+- [x] Tab-aware scenes: the in-app tab scaffolding removed upstream in #61977–#62052 is restored — `sceneLogic` owns the tab set (`tabs[]`, per-tab mounted scene logics, pin/close/reorder/rename/scroll depth) and injects `tabId` into scene components and logics; scenes key their root logic per tab via `tabAwareScene()` and sync URLs with `tabAwareUrlToAction`/`tabAwareActionToUrl`, so state is genuinely per-tab. `frontend/src/layout/scenes/sceneTabsLogic.ts` is now a thin desktop layer (localStorage persistence via `sceneLogic`'s `persistTabs`, restore on launch, fresh windows, background tabs from `newInternalTab`, eager keep-alive preload for restored tabs). Which scenes are converted is tracked in [TAB_AWARENESS.md](./TAB_AWARENESS.md); the conversion playbook is the `making-scenes-tab-aware` skill
 - [x] "Code" navbar tab (desktop-only demo): a third tab next to Browse/Chat whose sidepanel mimics the PostHog Code sidebar (New task, Home, Search, Inbox, Agents, Skills, MCP servers, Command Center, Contexts + the live task list from the tasks API). Inbox and tasks link to the real PostHog surfaces; the other sections open demo stubs in `frontend/src/scenes/code/CodeScene.tsx` at `/code/:section`
 - [x] `POSTHOG_DESKTOP_SCREENSHOT` capture hook for headless verification under Xvfb
 
@@ -39,7 +39,8 @@ The long-term goal is to merge PostHog Code (github.com/posthog/code) into this 
 
 ### Frontend integration
 
-- [ ] Tabs polish: global keyboard shortcuts (new tab / close tab / next tab), per-scene state preservation when switching tabs for scenes beyond notebooks (the old implementation kept per-tab mounted scene logics), corner join between the active first tab and the scene container, pinned-tabs backend sync
+- [ ] Tabs polish: global keyboard shortcuts (new tab / close tab / next tab), corner join between the active first tab and the scene container, pinned-tabs backend sync, avoid the one-time scene re-key when the persisted tab set is adopted after launch
+- [ ] Convert the remaining scenes to tab awareness — tracked scene by scene in [TAB_AWARENESS.md](./TAB_AWARENESS.md) (`making-scenes-tab-aware` skill is the playbook); tracing / replay vision / metrics / the logs viewer family were deliberately left on their newer architectures and need careful conversion
 - [ ] Hide the traffic-light spacers while the window is in native macOS fullscreen (needs a main-process fullscreen event over IPC)
 - [ ] Handle endpoints that need session auth rather than a personal API key (e.g. some billing routes) gracefully
 - [ ] Per-scene chunk preload map (the Django index.html embeds one; the desktop server could read it from the build metafile)
@@ -59,7 +60,7 @@ The long-term goal is to merge PostHog Code (github.com/posthog/code) into this 
 - [x] macOS signing + notarization on master/dispatch builds (PostHog Inc. Developer ID cert + Apple ID notarization, reusing PostHog Code's org secrets in `build-desktop-app.yml`)
 - [x] Fork-based release pipeline: `desktop` branch on `mariusandra/posthog` (fork default branch), daily agent-driven upstream sync (`desktop-sync.yml` runs the OpenAI Codex CLI + `syncing-desktop-fork` skill), version-bump-triggered GitHub releases with signed macOS DMG + Windows installer (`desktop-release.yml`)
 - [x] Landing page (`website/`) for `posthogondesktop.com`: static `index.html` + screenshot, download buttons wired to the stable latest-release links, deploys on Cloudflare Pages
-- [ ] Tab-awareness conversion playbook for the sync skill: how to convert an incoming/new scene to the scene-aware pattern, then convert all remaining scenes
+- [x] Tab-awareness conversion playbook: the `making-scenes-tab-aware` skill (restored with the tab scaffolding) plus the scene-by-scene tracker in [TAB_AWARENESS.md](./TAB_AWARENESS.md)
 - [ ] Windows signing; release hardening (packaged-app smoke test, checksums — PostHog Code's `code-release.yml` is the model)
 - [ ] Auto-update via `electron-updater` with GitHub Releases
 - [ ] `posthog://` deep links (protocol registration, second-instance/open-url handling)

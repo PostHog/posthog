@@ -26,6 +26,7 @@ export interface insightUsageLogicValues {
     query: DataNode<Record<string, any>> // dataNodeLogic
     insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> // insightLogic
     currentProjectId: number | null // projectLogic
+    activeTabId: string | null // sceneLogic
     isFirstLoad: boolean
 }
 

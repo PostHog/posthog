@@ -888,6 +888,7 @@ describe('experimentWizardLogic', () => {
             const vpLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false, tabId: 'tab-1' })
             vpLogic.actions.validateFeatureFlagKeySuccess({
                 valid: false,
+                key: 'test-key',
                 error: 'A feature flag with this key already exists.',
                 existingFlag: mockEligibleFlags[0] as FeatureFlagType,
             })

@@ -377,7 +377,7 @@ export interface endpointSceneLogicMeta {
 export type endpointSceneLogicType = MakeLogicType<
     endpointSceneLogicValues,
     endpointSceneLogicActions,
-    Record<string, any>,
+    EndpointSceneLogicProps,
     endpointSceneLogicMeta
 >
 

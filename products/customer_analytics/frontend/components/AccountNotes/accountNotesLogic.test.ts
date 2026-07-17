@@ -50,7 +50,7 @@ describe('accountNotesLogic', () => {
         }).toFinishAllListeners()
 
         expect(logic.values.assignedToFilter).toEqual([CURRENT_USER_ID])
-        expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(true)
+        expect(logic.values.mineOnly).toBe(true)
         expect(mockAccountNotesList).toHaveBeenLastCalledWith(
             expect.any(String),
             expect.objectContaining({ assigned_to: [CURRENT_USER_ID] })
@@ -67,7 +67,7 @@ describe('accountNotesLogic', () => {
         }).toFinishAllListeners()
 
         expect(logic.values.createdByCurrentUser).toBe(true)
-        expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(false)
+        expect(logic.values.mineOnly).toBe(false)
     })
 
     it('restores "My accounts" from the shared toggle on mount', async () => {

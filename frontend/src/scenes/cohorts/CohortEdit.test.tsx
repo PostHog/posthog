@@ -380,7 +380,7 @@ describe('cohortEditLogic', () => {
                 },
             })
 
-            render(<CohortEdit id={cohortId} />)
+            render(<CohortEdit id={cohortId} tabId="test-tab" />)
 
             await screen.findByText(/Calculation failed:/)
             expect(screen.getByText(/Invalid regular expression/)).toBeInTheDocument()
@@ -415,7 +415,7 @@ describe('cohortEditLogic', () => {
                 },
             })
 
-            render(<CohortEdit id={cohortId} />)
+            render(<CohortEdit id={cohortId} tabId="test-tab" />)
 
             expect(await screen.findAllByText('In progress...')).not.toHaveLength(0)
             expect(screen.queryByText(/Calculation failed:/)).not.toBeInTheDocument()
@@ -517,7 +517,7 @@ describe('cohortEditLogic', () => {
                 },
             })
 
-            render(<CohortEdit id={cohortId} />)
+            render(<CohortEdit id={cohortId} tabId="test-tab" />)
 
             // The current value is always visible in plain text; the "why can't I change this"
             // explanation lives in an info tooltip instead of being repeated inline.

@@ -496,7 +496,11 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             // stale availability check must not decide this silently: re-run it, and fail loud if
             // it still can't complete.
             const flagKey = values.experiment.feature_flag_key
-            const panelLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false })
+            const panelLogic = variantsPanelLogic({
+                experiment: { ...NEW_EXPERIMENT },
+                disabled: false,
+                tabId: props.tabId,
+            })
             if (values.featureFlagKeyValidation?.key !== flagKey) {
                 try {
                     await panelLogic.asyncActions.validateFeatureFlagKey(flagKey)

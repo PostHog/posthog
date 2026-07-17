@@ -23,6 +23,7 @@ export interface breadcrumbsLogicValues {
     preflight: PreflightStatus | null // preflightLogic
     currentProject: ProjectType | null // projectLogic
     activeSceneId: string | null // sceneLogic
+    activeTabId: string | null // sceneLogic
     sceneConfig: SceneConfig | null // sceneLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     otherOrganizations: OrganizationBasicType[] // userLogic

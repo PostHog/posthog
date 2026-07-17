@@ -27,6 +27,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
+import { isDesktopApp, isDesktopFreshWindow } from 'lib/utils/isDesktopApp'
 import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
 import { retryImport } from 'lib/utils/retryImport'
 import { identifierToHuman } from 'lib/utils/strings'
@@ -89,7 +90,7 @@ interface MountedTabLogic {
     unmount: () => void
 }
 
-const generateTabId = (): string => crypto?.randomUUID?.()?.split('-')?.pop() || `${Date.now()}-${Math.random()}`
+export const generateTabId = (): string => crypto?.randomUUID?.()?.split('-')?.pop() || `${Date.now()}-${Math.random()}`
 
 /**
  * Snapshot for JSON / structuredClone. Strips only `sceneParams` (deep/cyclic routing state); everything
@@ -119,8 +120,20 @@ const getBootstrappedHomepage = (): SceneTab | null => {
     return homepage ? sanitizeTabForPersistence(homepage) : null
 }
 
-const persistTabs = (_tabs: SceneTab[], _homepage: SceneTab | null): void => {
-    // PostHog tabs were removed — no longer persist tab state to storage.
+/** localStorage key the desktop app persists its tab set under (see layout/scenes/sceneTabsLogic). */
+export const DESKTOP_TABS_STORAGE_KEY = 'posthog-desktop-scene-tabs'
+
+const persistTabs = (tabs: SceneTab[], _homepage: SceneTab | null): void => {
+    // Tabs are persisted only in the desktop app; additional ("fresh") windows don't persist —
+    // the primary window owns the saved tab set.
+    if (!isDesktopApp() || isDesktopFreshWindow() || tabs.length === 0) {
+        return
+    }
+    try {
+        localStorage.setItem(DESKTOP_TABS_STORAGE_KEY, JSON.stringify(tabs.map((t) => tabToPersistableSnapshot(t))))
+    } catch {
+        // localStorage full or unavailable; tabs just won't survive a restart
+    }
 }
 
 const partitionTabs = (tabs: SceneTab[]): { pinned: SceneTab[]; unpinned: SceneTab[] } => {
@@ -306,22 +319,30 @@ export interface sceneLogicValues {
     organizationBeingDeleted: string | null // organizationLogic
     activeExportedScene: SceneExport<SceneProps> | null
     activeLoadedScene: LoadedScene | null
-    activeSceneComponentParams: Record<string, any>
+    activeSceneComponentParamsWithTabId: Record<string, any>
     activeSceneId: string | null
     activeSceneLogic: BuiltLogic | null
-    activeSceneLogicProps: Record<string, any>
+    activeSceneLogicPropsWithTabId: Record<string, any>
     activeSceneProductKey: ProductKey | null
+    activeTab: SceneTab | null
+    activeTabId: string | null
+    editingTabId: string | null
     exportedScenes: Record<string, SceneExport<SceneProps>>
+    firstTabIsActive: boolean
+    frozenWidths: Record<string, number> | null
     hashParams: Record<string, any>
     homepage: SceneTab | null
     lastReloadAt: number | null
     lastSetScenePayload: Record<string, any>
     loadingScene: string | null
     sceneConfig: SceneConfig | null
-    sceneId: string | null
-    sceneKey: string | null
+    sceneId: any
+    sceneKey: any
     sceneParams: SceneParams
     searchParams: Record<string, any>
+    tabIds: Record<string, boolean>
+    tabScrollDepths: Record<string, number>
+    tabs: SceneTab[]
     titleAndIcon: {
         iconType: FileSystemIconType | 'blank' | 'loading'
         title: string
@@ -354,9 +375,57 @@ export interface sceneLogicActions {
         searchParams: Record<string, any>
         url: string
     } // router
+    push: (
+        url: string,
+        searchInput?: string | Record<string, any>,
+        hashInput?: string | Record<string, any>
+    ) => {
+        hashInput: string | Record<string, any>
+        searchInput: string | Record<string, any>
+        url: string
+    } // router
+    activateTab: (tab: SceneTab) => {
+        tab: SceneTab
+    }
+    applyTitleAndIcon: (
+        title: string,
+        iconType: FileSystemIconType | 'blank' | 'loading'
+    ) => {
+        iconType: FileSystemIconType | 'blank' | 'loading'
+        title: string
+    }
+    clearFrozenWidths: () => {
+        value: true
+    }
+    clickOnTab: (tab: SceneTab) => {
+        tab: SceneTab
+    }
+    closeTabId: (
+        tabId: string,
+        options?: {
+            source?: TabCloseSource
+        }
+    ) => {
+        options:
+            | {
+                  source?: TabCloseSource | undefined
+              }
+            | undefined
+        tabId: string
+    }
+    duplicateTab: (tab: SceneTab) => {
+        tab: SceneTab
+    }
+    endTabEdit: () => {
+        value: true
+    }
+    freezeTabWidths: () => {
+        value: true
+    }
     loadScene: (
         sceneId: string,
         sceneKey: string | undefined,
+        tabId: string,
         params: SceneParams,
         method: string
     ) => {
@@ -364,10 +433,35 @@ export interface sceneLogicActions {
         params: SceneParams
         sceneId: string
         sceneKey: string | undefined
+        tabId: string
+    }
+    newTab: (
+        href?: string | null,
+        options?: {
+            activate?: boolean
+            id?: string
+            skipNavigate?: boolean
+            source?: TabOpenSource
+            /** Title hint (e.g. the link text) shown until the scene loads — background tabs never load at all */
+            title?: string
+        }
+    ) => {
+        href: string | null | undefined
+        options:
+            | {
+                  activate?: boolean | undefined
+                  id?: string | undefined
+                  skipNavigate?: boolean | undefined
+                  source?: TabOpenSource | undefined
+                  title?: string | undefined
+              }
+            | undefined
+        tabId: string
     }
     openScene: (
         sceneId: string,
         sceneKey: string | undefined,
+        tabId: string,
         params: SceneParams,
         method: string
     ) => {
@@ -375,20 +469,59 @@ export interface sceneLogicActions {
         params: SceneParams
         sceneId: string
         sceneKey: string | undefined
+        tabId: string
+    }
+    pinTab: (tabId: string) => {
+        tabId: string
     }
     reloadBrowserDueToImportError: () => {
         value: true
+    }
+    removeTab: (
+        tab: SceneTab,
+        options?: {
+            source?: TabCloseSource
+        }
+    ) => {
+        options:
+            | {
+                  source?: TabCloseSource | undefined
+              }
+            | undefined
+        tab: SceneTab
+    }
+    renameTab: (tab: SceneTab) => {
+        tab: SceneTab
+    }
+    reorderTabs: (
+        activeId: string,
+        overId: string
+    ) => {
+        activeId: string
+        overId: string
+    }
+    saveTabEdit: (
+        tab: SceneTab,
+        name: string
+    ) => {
+        name: string
+        tab: SceneTab
     }
     setExportedScene: (
         exportedScene: SceneExport,
         sceneId: string,
         sceneKey: string | undefined,
+        tabId: string,
         params: SceneParams
     ) => {
         exportedScene: SceneExport<SceneProps>
         params: SceneParams
         sceneId: string
         sceneKey: string | undefined
+        tabId: string
+    }
+    setFrozenWidths: (widths: Record<string, number> | null) => {
+        widths: Record<string, number> | null
     }
     setHomepage: (tab: SceneTab | null) => {
         tab: SceneTab | null
@@ -396,6 +529,7 @@ export interface sceneLogicActions {
     setScene: (
         sceneId: string,
         sceneKey: string | undefined,
+        tabId: string,
         params: SceneParams,
         scrollToTop?: boolean,
         exportedScene?: SceneExport
@@ -405,6 +539,23 @@ export interface sceneLogicActions {
         sceneId: string
         sceneKey: string | undefined
         scrollToTop: boolean
+        tabId: string
+    }
+    setTabScrollDepth: (
+        tabId: string,
+        scrollTop: number
+    ) => {
+        scrollTop: number
+        tabId: string
+    }
+    setTabs: (tabs: SceneTab[]) => {
+        tabs: SceneTab[]
+    }
+    startTabEdit: (tab: SceneTab) => {
+        tab: SceneTab
+    }
+    unpinTab: (tabId: string) => {
+        tabId: string
     }
 }
 
@@ -416,8 +567,13 @@ export interface sceneLogicProps {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface sceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        sceneConfig: (sceneId: string | null) => SceneConfig | null
-        activeSceneId: (sceneId: string | null, isCurrentTeamUnavailable: boolean) => string | null
+        activeTab: (tabs: SceneTab[]) => SceneTab | null
+        activeTabId: (activeTab: SceneTab | null) => string | null
+        sceneId: (activeTab: SceneTab | null) => any
+        sceneKey: (activeTab: SceneTab | null) => any
+        sceneConfig: (sceneId: any) => SceneConfig | null
+        sceneParams: (activeTab: SceneTab | null) => SceneParams
+        activeSceneId: (sceneId: any, isCurrentTeamUnavailable: boolean) => string | null
         activeExportedScene: (
             activeSceneId: string | null,
             exportedScenes: Record<string, SceneExport<SceneProps>>
@@ -425,23 +581,30 @@ export interface sceneLogicMeta {
         activeLoadedScene: (
             activeSceneId: string | null,
             activeExportedScene: SceneExport<SceneProps> | null,
-            sceneParams: SceneParams
+            sceneParams: SceneParams,
+            activeTabId: string | null
         ) => LoadedScene | null
-        activeSceneComponentParams: (sceneParams: SceneParams) => Record<string, any>
-        activeSceneLogicProps: (
+        activeSceneComponentParamsWithTabId: (
+            sceneParams: SceneParams,
+            activeTabId: string | null
+        ) => Record<string, any>
+        activeSceneLogicPropsWithTabId: (
             activeExportedScene: SceneExport<SceneProps> | null,
-            sceneParams: SceneParams
+            sceneParams: SceneParams,
+            activeTabId: string | null
         ) => Record<string, any>
         activeSceneLogic: (
             activeExportedScene: SceneExport<SceneProps> | null,
-            activeSceneLogicProps: Record<string, any>
+            activeSceneLogicPropsWithTabId: Record<string, any>
         ) => BuiltLogic | null
         searchParams: (sceneParams: SceneParams) => Record<string, any>
         hashParams: (sceneParams: SceneParams) => Record<string, any>
+        tabIds: (tabs: SceneTab[]) => Record<string, boolean>
         titleAndIcon: (arg: { iconType: FileSystemIconType | 'blank' | 'loading'; title: string }) => {
             iconType: FileSystemIconType | 'blank' | 'loading'
             title: string
         }
+        firstTabIsActive: (activeTabId: string | null, tabs: SceneTab[]) => boolean
         activeSceneProductKey: (activeExportedScene: SceneExport<SceneProps> | null) => ProductKey | null
     }
 }
@@ -530,7 +693,14 @@ export const sceneLogic = kea<sceneLogicType>([
 
         newTab: (
             href?: string | null,
-            options?: { activate?: boolean; skipNavigate?: boolean; id?: string; source?: TabOpenSource }
+            options?: {
+                activate?: boolean
+                skipNavigate?: boolean
+                id?: string
+                source?: TabOpenSource
+                /** Title hint (e.g. the link text) shown until the scene loads — background tabs never load at all */
+                title?: string
+            }
         ) => {
             const tabId = options?.id ?? generateTabId()
             return {
@@ -580,8 +750,9 @@ export const sceneLogic = kea<sceneLogicType>([
                         pathname: addProjectIdIfMissing(pathname),
                         search,
                         hash,
-                        title: 'Search',
-                        iconType: 'search',
+                        ...(options?.title
+                            ? { title: options.title, iconType: 'blank' as const }
+                            : { title: 'Search', iconType: 'search' as const }),
                         pinned: false,
                     }
                     return sortTabsPinnedFirst([...baseTabs, newTab])
@@ -837,8 +1008,8 @@ export const sceneLogic = kea<sceneLogicType>([
             (s) => [s.activeTab],
             (activeTab: SceneTab | null): string | null => (activeTab ? activeTab.id : null),
         ],
-        sceneId: [(s) => [s.activeTab], (activeTab) => activeTab?.sceneId],
-        sceneKey: [(s) => [s.activeTab], (activeTab) => activeTab?.sceneKey],
+        sceneId: [(s) => [s.activeTab], (activeTab: SceneTab | null) => activeTab?.sceneId],
+        sceneKey: [(s) => [s.activeTab], (activeTab: SceneTab | null) => activeTab?.sceneKey],
         sceneConfig: [
             (s) => [s.sceneId],
             (sceneId: Scene): SceneConfig | null => {
@@ -849,7 +1020,7 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
         sceneParams: [
             (s) => [s.activeTab],
-            (activeTab): SceneParams => {
+            (activeTab: SceneTab | null): SceneParams => {
                 return activeTab?.sceneParams || { params: {}, searchParams: {}, hashParams: {} }
             },
         ],
@@ -1023,7 +1194,7 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
         firstTabIsActive: [
             (s) => [s.activeTabId, s.tabs],
-            (activeTabId, tabs): boolean => {
+            (activeTabId: string | null, tabs: SceneTab[]): boolean => {
                 return activeTabId === tabs[0]?.id
             },
         ],

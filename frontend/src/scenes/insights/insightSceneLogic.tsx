@@ -164,6 +164,7 @@ export interface insightSceneLogicValues {
     projectTreeRef: ProjectTreeRef
     sceneSource: InsightSceneSource | null
     sidePanelContext: SidePanelSceneContext | null
+    tabId: any
     tileFiltersOverride: TileFilters | null
     variablesOverride: Record<string, HogQLVariable> | null
 }
@@ -242,6 +243,7 @@ export interface insightSceneLogicMeta {
         ) => void | Promise<void>
     }
     __keaTypeGenInternalSelectorTypes: {
+        tabId: (arg: string | undefined) => any
         insightQuerySelector: (
             insightDataLogicRef: {
                 logic: BuiltLogic<insightDataLogicType>
@@ -283,6 +285,7 @@ export interface insightSceneLogicMeta {
             insightQuery: Node<Record<string, any>> | null | undefined,
             dashboardId: number | null,
             dashboardName: string | null,
+            arg: string | undefined,
             sceneSource: InsightSceneSource | null
         ) => Breadcrumb[]
         projectTreeRef: (insightId: InsightId) => ProjectTreeRef
@@ -451,7 +454,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         freshQuery: [false, { setFreshQuery: (_, { freshQuery }) => freshQuery }],
     }),
     selectors({
-        tabId: [() => [(_, props: InsightSceneLogicProps) => props.tabId], (tabId) => tabId],
+        tabId: [() => [(_, props: InsightSceneLogicProps) => props.tabId], (tabId: string | undefined) => tabId],
         insightQuerySelector: [
             (s) => [s.insightDataLogicRef],
             (

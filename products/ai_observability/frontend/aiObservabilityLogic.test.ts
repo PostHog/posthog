@@ -187,7 +187,7 @@ describe('aiObservabilitySharedLogic', () => {
         router.actions.push(urls.aiObservabilityTraces(), { trace_search: 'walrus' })
         expectLogic(logic).toMatchValues({ searchQuery: 'walrus' })
 
-        const tabLogic = aiObservabilityTracesTabLogic()
+        const tabLogic = aiObservabilityTracesTabLogic({ tabId: sceneLogic.values.activeTabId || '' })
         tabLogic.mount()
         const source = tabLogic.values.tracesQuery.source
         expect(isTracesQuery(source) && source.searchTerm).toBe('walrus')
@@ -208,7 +208,7 @@ describe('aiObservabilitySharedLogic', () => {
         router.actions.push(urls.aiObservabilityTraces(), { trace_search: 'walrus' })
         expectLogic(logic).toMatchValues({ searchQuery: 'walrus' })
 
-        const tabLogic = aiObservabilityTracesTabLogic()
+        const tabLogic = aiObservabilityTracesTabLogic({ tabId: sceneLogic.values.activeTabId || '' })
         tabLogic.mount()
         const source = tabLogic.values.tracesQuery.source
         expect(isTracesQuery(source) && source.searchTerm).toBeUndefined()
@@ -252,7 +252,7 @@ describe('aiObservabilitySessionsViewLogic', () => {
     }
 
     function setActiveTab(sceneKey: string): void {
-        sceneLogic.actions.setScene('AIObservability', sceneKey, emptySceneParams)
+        sceneLogic.actions.setScene('AIObservability', sceneKey, sceneLogic.values.activeTabId || '', emptySceneParams)
     }
 
     function sessionRow(index: number): unknown[] {
@@ -295,9 +295,10 @@ describe('aiObservabilitySessionsViewLogic', () => {
             results: [],
         } as any)
         sceneLogic.mount()
-        sharedLogic = aiObservabilitySharedLogic({})
+        const tabId = sceneLogic.values.activeTabId || ''
+        sharedLogic = aiObservabilitySharedLogic({ tabId })
         sharedLogic.mount()
-        logic = aiObservabilitySessionsViewLogic({})
+        logic = aiObservabilitySessionsViewLogic({ tabId })
         logic.mount()
     })
 
