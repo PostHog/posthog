@@ -1,5 +1,7 @@
 import { MakeLogicType, connect, kea, path, selectors } from 'kea'
 
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+
 import { sceneLogic } from '~/scenes/sceneLogic'
 
 /** The root scene's views: the repo hub landing, the PR list page, the workflow list page, test health, and teams. */
@@ -43,6 +45,7 @@ export type engineeringAnalyticsSceneLogicType = MakeLogicType<
 
 export const engineeringAnalyticsSceneLogic = kea<engineeringAnalyticsSceneLogicType>([
     path(['products', 'engineering_analytics', 'frontend', 'scenes', 'engineeringAnalyticsSceneLogic']),
+    tabAwareScene(),
     connect(() => ({
         values: [sceneLogic, ['sceneKey']],
     })),

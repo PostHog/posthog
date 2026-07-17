@@ -3,6 +3,7 @@ import { combineUrl, router } from 'kea-router'
 
 import { LemonBanner, LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -26,10 +27,12 @@ export const scene: SceneExport = {
     logic: engineeringAnalyticsSceneLogic,
 }
 
-export function EngineeringAnalyticsScene(): JSX.Element {
+export function EngineeringAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
     const { searchParams: linkParams } = useValues(router)
-    const { activeView } = useValues(engineeringAnalyticsSceneLogic)
-    const logic = engineeringAnalyticsLogic()
+    const { activeView } = useValues(engineeringAnalyticsSceneLogic({ tabId }))
+    const logic = engineeringAnalyticsLogic({ tabId })
+    // Keep this tab's filters and data alive across tab switches (React unmounts inactive tabs).
+    useAttachedLogic(logic, tabId ? engineeringAnalyticsSceneLogic({ tabId }) : undefined)
     const { anyLoading } = useValues(logic)
     const { refresh } = useActions(logic)
 
@@ -73,7 +76,7 @@ export function EngineeringAnalyticsScene(): JSX.Element {
     ]
 
     return (
-        <BindLogic logic={engineeringAnalyticsLogic} props={{}}>
+        <BindLogic logic={engineeringAnalyticsLogic} props={{ tabId }}>
             <SceneContent>
                 <SceneTitleSection
                     name="Engineering analytics"

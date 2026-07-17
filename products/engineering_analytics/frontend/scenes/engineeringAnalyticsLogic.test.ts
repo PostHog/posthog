@@ -328,11 +328,10 @@ describe('engineeringAnalyticsLogic', () => {
         expect(logic.values.activeCard).toBeNull()
     })
 
-    it('scene logic mounts without a tabId so /engineering-analytics resolves instead of 404ing', () => {
-        // #62051 collapsed sceneLogic to single-scene state and stopped threading a tabId into
-        // scene logics. A tab-aware scene logic then throws "must have a tabId prop" on mount,
-        // sceneLogic's catch falls back to Error404, and every visit to the scene 404s.
-        expect(() => engineeringAnalyticsSceneLogic().mount()).not.toThrow()
+    it('scene logic mounts with a tabId key', () => {
+        // Tab-aware scene logics are keyed by tabId (tabAwareScene); sceneLogic supplies the
+        // tabId prop when it mounts the scene. A missing key would throw and 404 the scene.
+        expect(() => engineeringAnalyticsSceneLogic({ tabId: 'tab-test' }).mount()).not.toThrow()
     })
 
     it('maps the three endpoints into typed rows and defaults to the open filter', async () => {
