@@ -174,6 +174,13 @@ def test_signed_webhook_drives_review_and_posts_approval(team, stamphog_chain: S
     assert approvals[0]["body"]["event"] == "APPROVE"
     assert approvals[0]["body"]["commit_id"] == head_sha
 
+    # signal_review_started posts a "review in flight" 👀 right after the stale-approval sweep, and
+    # post_verdict removes it once the verdict lands — the same reaction, added once and removed once.
+    additions = [w for w in recorder.github_writes if w["kind"] == "add_reaction"]
+    removals = [w for w in recorder.github_writes if w["kind"] == "remove_reaction"]
+    assert len(additions) == 1
+    assert [r["reaction_id"] for r in removals] == [additions[0]["id"]]
+
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_sandbox_destroy_failure_does_not_mask_a_completed_review(team, stamphog_chain: StamphogChain) -> None:
@@ -281,6 +288,53 @@ def test_failed_run_still_dismisses_the_stale_approval_first(team, stamphog_chai
     assert prior.approval_dismissed_at is not None
     dismissals = [w for w in recorder.github_writes if w["kind"] == "dismiss_review"]
     assert [w["review_id"] for w in dismissals] == [777]
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_signal_review_started_posts_eyes_and_persists_reaction_id(team, stamphog_chain: StamphogChain) -> None:
+    # The moment a run commits to reviewing, it should show the same "review in flight" 👀 signal
+    # STAMPHOG_TRUSTED_REACTOR_BOTS reads off other reviewer bots — and the reaction id must be
+    # persisted so the terminal activities can find and remove it again.
+    repo_config = _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=141, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha141a", status=ReviewRunStatus.QUEUED
+    )
+
+    _run_activity(activities.signal_review_started, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    additions = [w for w in recorder.github_writes if w["kind"] == "add_reaction"]
+    assert len(additions) == 1
+    assert additions[0]["content"] == "eyes"
+    run.refresh_from_db()
+    assert run.output["own_eyes_reaction_id"] == additions[0]["id"]
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_signal_review_started_reaction_failure_does_not_fail_the_activity(team, stamphog_chain: StamphogChain) -> None:
+    # add_pr_reaction is deliberately the one fail-open call on this client (see its docstring): a
+    # GitHub hiccup posting the cosmetic 👀 must never fail or retry the review run itself.
+    repo_config = _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    recorder.reaction_response_override = fakes.FakeResponse(500, text="rate limited")
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=142, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha142a", status=ReviewRunStatus.QUEUED
+    )
+
+    result = _run_activity(
+        activities.signal_review_started, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id)
+    )
+
+    assert result == {"reaction_id": None}
+    run.refresh_from_db()
+    assert run.output["own_eyes_reaction_id"] is None
+    assert run.status == ReviewRunStatus.QUEUED  # the activity neither raised nor marked the run failed
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -812,7 +866,8 @@ def test_bot_eyes_on_a_later_reactions_page_still_counts_as_in_flight(team, stam
 def test_mark_review_failed_dismisses_an_orphaned_approval(team, stamphog_chain: StamphogChain) -> None:
     # post_verdict can approve on GitHub, persist the id, and then exhaust retries before the
     # terminal save — the workflow's failure path is the last chance to retract that approval:
-    # without a future delivery, nothing else ever sweeps a FAILED run's orphan.
+    # without a future delivery, nothing else ever sweeps a FAILED run's orphan. It's also the last
+    # chance to remove the "review in flight" 👀 signal_review_started posted for this same run.
     repo_config = _repo_config(team.id)
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=119, author_login="devex-dev"
@@ -823,6 +878,7 @@ def test_mark_review_failed_dismisses_an_orphaned_approval(team, stamphog_chain:
         head_sha="sha119a",
         status=ReviewRunStatus.REVIEWING,
         posted_review_id=888,
+        output={"own_eyes_reaction_id": 777},
     )
 
     with patch("products.stamphog.backend.temporal.activities.ph_scoped_capture") as mock_capture_cm:
@@ -832,6 +888,8 @@ def test_mark_review_failed_dismisses_an_orphaned_approval(team, stamphog_chain:
 
     dismissals = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "dismiss_review"]
     assert [d["review_id"] for d in dismissals] == [888]
+    removals = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "remove_reaction"]
+    assert [r["reaction_id"] for r in removals] == [777]
     run.refresh_from_db()
     assert run.status == ReviewRunStatus.FAILED
     assert run.approval_dismissed_at is not None

@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 
 import pytest
 from unittest.mock import patch
@@ -256,6 +257,63 @@ class GetPrReviewThreadsTests(SimpleTestCase):
         # A PR whose threads never stop paginating must raise rather than review a truncated list.
         with pytest.raises(StamphogGitHubError):
             self._fetch(self._threads_page([], has_next=True))
+
+
+class PrReactionFailOpenTests(SimpleTestCase):
+    """add_pr_reaction / remove_pr_reaction are deliberately the one fail-open pair on this client
+    (see their docstrings): a cosmetic "review in flight" 👀 must never fail or retry the calling
+    review activity, unlike every other read/write on ``StamphogGitHubClient``."""
+
+    def _call(
+        self,
+        transport_response_or_error: fakes.FakeResponse | Exception,
+        call: Callable[[StamphogGitHubClient], object],
+    ) -> object:
+        def fake_request(method: str, url: str, **kwargs: object) -> fakes.FakeResponse:
+            if url.endswith("/access_tokens"):
+                return fakes.FakeResponse(201, json_data={"token": "t", "expires_at": "2999-01-01T00:00:00Z"})
+            if isinstance(transport_response_or_error, Exception):
+                raise transport_response_or_error
+            return transport_response_or_error
+
+        with (
+            override_settings(STAMPHOG_GITHUB_APP_ID="1", STAMPHOG_GITHUB_APP_PRIVATE_KEY=_generate_app_private_key()),
+            patch(f"{_GH}.github_request", fake_request),
+            patch(f"{_GH}.remember_observed_core_limit", lambda *a, **k: None),
+            patch(f"{_GH}.raise_if_github_rate_limited", lambda *a, **k: None),
+        ):
+            return call(StamphogGitHubClient("123"))
+
+    @parameterized.expand(
+        [
+            ("http_error", fakes.FakeResponse(500, text="boom")),
+            ("non_json_body", fakes.FakeResponse(201, text="not json")),
+            ("transport_exception", RuntimeError("network blew up")),
+        ]
+    )
+    def test_add_pr_reaction_fails_open(self, _name: str, failure: fakes.FakeResponse | Exception) -> None:
+        result = self._call(failure, lambda c: c.add_pr_reaction("acme/widgets", 5))
+        assert result is None
+
+    @parameterized.expand(
+        [
+            ("http_error", fakes.FakeResponse(500, text="boom")),
+            ("transport_exception", RuntimeError("network blew up")),
+        ]
+    )
+    def test_remove_pr_reaction_fails_open(self, _name: str, failure: fakes.FakeResponse | Exception) -> None:
+        # Must not raise — a failed removal is cosmetic cleanup, never worth retrying the activity.
+        self._call(failure, lambda c: c.remove_pr_reaction("acme/widgets", 5, 999))
+
+    def test_remove_pr_reaction_404_is_a_benign_noop(self) -> None:
+        self._call(fakes.FakeResponse(404, text="not found"), lambda c: c.remove_pr_reaction("acme/widgets", 5, 999))
+
+    def test_add_pr_reaction_200_returns_the_existing_id_not_a_new_one(self) -> None:
+        # GitHub's own idempotency: reacting again with the same identity+content returns 200 with the
+        # EXISTING reaction rather than 201 with a new one — the client must surface that id either way.
+        response = fakes.FakeResponse(200, json_data={"id": 555, "content": "eyes"})
+        result = self._call(response, lambda c: c.add_pr_reaction("acme/widgets", 5))
+        assert result == 555
 
 
 class BuildAppJwtIssuerTests(SimpleTestCase):

@@ -101,6 +101,7 @@ _CONTENTS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/contents/(?P<path>.+)$
 _CHECK_RUNS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/commits/(?P<sha>[^/]+)/check-runs$")
 _COLLABORATOR_PERMISSION_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/collaborators/(?P<username>[^/]+)/permission$")
 _PR_REACTIONS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>\d+)/reactions$")
+_PR_REACTION_DELETE_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>\d+)/reactions/(?P<rid>\d+)$")
 
 _API_PREFIX = "https://api.github.com"
 
@@ -140,6 +141,12 @@ class GitHubRecorder:
         self.collaborator_permissions: dict[tuple[str, str], str] = {}
         # (repo, number) -> raw reaction dicts for the in-flight reviewer-bot wait; default none.
         self.pr_reactions: dict[tuple[str, int], list[dict]] = {}
+        # (repo, number) -> id of the reaction stamphog's own add_pr_reaction posted, so a repeat POST
+        # returns the same id (GitHub's real idempotency) and a DELETE has something to clear.
+        self._own_reactions: dict[tuple[str, int], int] = {}
+        # Test hook: force every reaction POST to return this response (e.g. a 500) to
+        # exercise the client's fail-open path without monkeypatching bound methods.
+        self.reaction_response_override: FakeResponse | None = None
         self.teams_by_login: dict[str, list[str]] = {}
         self.policy_files: dict[str, str] = {}
         self.github_writes: list[dict[str, Any]] = []
@@ -177,6 +184,10 @@ class GitHubRecorder:
             per_page = int(params.get("per_page", 30))
             items = self.pr_reactions.get((m.group("repo"), int(m.group("number"))), [])
             return FakeResponse(200, json_data=items[per_page * (page - 1) : per_page * page])
+        if method == "POST" and (m := _PR_REACTIONS_RE.match(path)):
+            return self._add_reaction(m.group("repo"), int(m.group("number")), json_body)
+        if method == "DELETE" and (m := _PR_REACTION_DELETE_RE.match(path)):
+            return self._remove_reaction(m.group("repo"), int(m.group("number")), int(m.group("rid")))
         if method == "GET" and (m := _CONTENTS_RE.match(path)):
             return self._get_contents(m.group("path"))
         if method == "POST" and path == "/graphql":
@@ -259,6 +270,32 @@ class GitHubRecorder:
         new_id = self._alloc_id()
         self.github_writes.append({"kind": kind, "repo": repo, "number": number, "body": body or {}, "id": new_id})
         return FakeResponse(201 if kind != "issue_comment_edit" else 200, json_data={"id": new_id})
+
+    def _add_reaction(self, repo: str, number: int, body: dict | None) -> FakeResponse:
+        """Mirror GitHub's real idempotency: a repeat POST with the same identity returns 200 + the
+        existing id instead of stacking a second reaction; only the first POST is a 201 creation."""
+        if self.reaction_response_override is not None:
+            return self.reaction_response_override
+        content = (body or {}).get("content", "")
+        key = (repo, number)
+        existing_id = self._own_reactions.get(key)
+        if existing_id is not None:
+            return FakeResponse(200, json_data={"id": existing_id, "content": content})
+        new_id = self._alloc_id()
+        self._own_reactions[key] = new_id
+        self.github_writes.append(
+            {"kind": "add_reaction", "repo": repo, "number": number, "content": content, "id": new_id}
+        )
+        return FakeResponse(201, json_data={"id": new_id, "content": content})
+
+    def _remove_reaction(self, repo: str, number: int, reaction_id: int) -> FakeResponse:
+        key = (repo, number)
+        if self._own_reactions.get(key) == reaction_id:
+            del self._own_reactions[key]
+        self.github_writes.append(
+            {"kind": "remove_reaction", "repo": repo, "number": number, "reaction_id": reaction_id}
+        )
+        return FakeResponse(204)
 
     def _remove_label(self, repo: str, number: int, label: str) -> FakeResponse:
         self.github_writes.append({"kind": "remove_label", "repo": repo, "number": number, "label": label})

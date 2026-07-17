@@ -41,7 +41,7 @@ from posthog.temporal.oauth import create_oauth_access_token_for_user
 from products.stamphog.backend.facade.enums import TERMINAL_STATUSES, ReviewMode, ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import resolve_audience_key
-from products.stamphog.backend.logic.github_client import StamphogGitHubClient
+from products.stamphog.backend.logic.github_client import StamphogGitHubClient, expected_app_bot_login
 from products.stamphog.backend.logic.reviewer import (
     ReviewerInvocation,
     ReviewerVerdict,
@@ -307,6 +307,32 @@ def dismiss_stale_approvals(input: StamphogReviewInput) -> dict:
 
 @activity.defn
 @asyncify
+def signal_review_started(input: StamphogReviewInput) -> dict:
+    """Post stamphog's own 👀 on the PR the moment this run commits to reviewing.
+
+    Mirrors the convention this same workflow reads off OTHER bots (``STAMPHOG_TRUSTED_REACTOR_BOTS``,
+    ``list_in_flight_reviewer_bots``): a fresh 👀 means "a review is in flight". Emitting it lets other
+    tooling (and a human watching the PR) see stamphog is actively working, the same signal every other
+    reviewer bot already gives. Runs right after ``dismiss_stale_approvals`` — the moment this run
+    commits to reviewing — so the 👀 appears before the (possibly long) context fetch and sandbox run.
+    Cosmetic only: ``add_pr_reaction`` fails open (see its docstring), so a reaction hiccup here never
+    fails or retries this activity, let alone the review itself. The returned reaction id (if any) rides
+    on ``run.output`` so the terminal activities (``post_verdict``, ``mark_review_failed``) can remove it.
+    """
+    run = _load_run(input)
+    if run.status == ReviewRunStatus.SUPERSEDED:
+        return {"reaction_id": None}
+    pull_request = run.pull_request
+    repo_config = pull_request.repo_config
+    client = StamphogGitHubClient(repo_config.installation_id)
+    reaction_id = client.add_pr_reaction(repo_config.repository, pull_request.pr_number)
+    run.output = {**(run.output or {}), "own_eyes_reaction_id": reaction_id}
+    run.save(update_fields=["output", "updated_at"])
+    return {"reaction_id": reaction_id}
+
+
+@activity.defn
+@asyncify
 def list_in_flight_reviewer_bots(input: StamphogReviewInput) -> dict:
     """Allowlisted reviewer bots with a fresh 👀 on the PR, refreshing the stored snapshot.
 
@@ -326,12 +352,18 @@ def list_in_flight_reviewer_bots(input: StamphogReviewInput) -> dict:
     run.save(update_fields=["output", "updated_at"])
 
     now = timezone.now()
+    # Exclude stamphog's own bot login: STAMPHOG_TRUSTED_REACTOR_BOTS is a hardcoded set of OTHER
+    # reviewer bots' logins, so this app's own 👀 (posted by signal_review_started) can't collide
+    # with it today — but that set is just literal strings, not a same-app check, so a future
+    # addition or a misconfigured STAMPHOG_GITHUB_APP_SLUG could make stamphog wait out itself.
+    own_login = (expected_app_bot_login() or "").lower()
     in_flight = sorted(
         {
             reaction["user"]
             for reaction in reactions
             if reaction.get("content") == "eyes"
-            and (reaction.get("user") or "").lower() in STAMPHOG_TRUSTED_REACTOR_BOTS
+            and (login := (reaction.get("user") or "").lower()) in STAMPHOG_TRUSTED_REACTOR_BOTS
+            and (not own_login or login != own_login)
             and (created := parse_datetime(reaction.get("created_at") or "")) is not None
             and (now - created).total_seconds() <= STAMPHOG_BOT_EYES_MAX_AGE_SECONDS
         }
@@ -486,6 +518,21 @@ def _dismiss_orphaned_approval(client: StamphogGitHubClient, run: ReviewRun, tea
         approval_dismissed_at=run.approval_dismissed_at, updated_at=timezone.now()
     )
     activity.logger.info(f"Run {run.id}: dismissed orphaned approval {run.posted_review_id}")
+
+
+def _remove_own_eyes_reaction(client: StamphogGitHubClient, run: ReviewRun) -> None:
+    """Remove this run's own "review in flight" 👀, if ``signal_review_started`` posted one.
+
+    Called from the terminal activities (``post_verdict``'s completion path, ``mark_review_failed``)
+    once this run is done actively reviewing. No id on ``run.output`` means either the signal never
+    posted one (fail-open there too) or a later run already adopted/removed it — either way, nothing
+    to do. ``remove_pr_reaction`` itself fails open, so this never raises into the caller.
+    """
+    reaction_id = (run.output or {}).get("own_eyes_reaction_id")
+    if not isinstance(reaction_id, int):
+        return
+    pull_request = run.pull_request
+    client.remove_pr_reaction(pull_request.repo_config.repository, pull_request.pr_number, reaction_id)
 
 
 @activity.defn
@@ -644,6 +691,10 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     if run.verdict == ReviewVerdict.APPROVED:
         _stamp_digest_audience_if_merged(repo_config, pull_request, run, current_pr)
 
+    # The run stopped actively reviewing the moment the terminal save above committed — remove the
+    # "review in flight" 👀 now, whichever verdict landed (approved, gated, refused, escalate).
+    _remove_own_eyes_reaction(client, run)
+
     activity.logger.info(f"Posted verdict {parsed.verdict} for run {run.id}")
     return {"verdict": str(parsed.verdict)}
 
@@ -665,9 +716,11 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     # would ever retract the approval on a FAILED run. Dismiss BEFORE marking FAILED: if the
     # dismissal itself fails, this activity retries into a still-non-terminal run and tries again,
     # whereas the reverse order would hit the terminal guard above and orphan the approval forever.
+    client = StamphogGitHubClient(run.pull_request.repo_config.installation_id)
     if run.verdict != ReviewVerdict.APPROVED and run.posted_review_id and run.approval_dismissed_at is None:
-        client = StamphogGitHubClient(run.pull_request.repo_config.installation_id)
         _dismiss_orphaned_approval(client, run, input.team_id)
+    # This run is done reviewing (unrecoverably) — clean up its own "review in flight" 👀 too.
+    _remove_own_eyes_reaction(client, run)
     # Persist only the first line, truncated: run.error is returned by the serializer to anyone with
     # stamphog:read, and raw exception text can embed repository file content (a yaml.YAMLError over
     # .stamphog/policy.yml echoes the offending source lines on its continuation lines). Full detail is

@@ -37,12 +37,14 @@ _SOURCE = "stamphog"
 STICKY_COMMENT_MARKER = "<!-- stamphog:review-status -->"
 
 
-def _expected_app_bot_login() -> str | None:
+def expected_app_bot_login() -> str | None:
     """The GitHub login this App acts under (``<slug>[bot]``), or None if the slug is unconfigured.
 
     GitHub App reviews and comments are authored by ``<app-slug>[bot]`` with ``user.type == "Bot"``.
     When we know the slug we can require that exact identity; when it isn't configured, callers decide
-    whether "any Bot" is an acceptable floor (see ``_is_own_bot_actor``'s ``allow_any_bot``).
+    whether "any Bot" is an acceptable floor (see ``_is_own_bot_actor``'s ``allow_any_bot``). Public
+    (not underscore-prefixed) because the in-flight reviewer-bot wait in ``temporal/activities.py``
+    needs it too, to exclude stamphog's own 👀 reaction from the trusted-bot reactor set it reads.
     """
     slug = settings.STAMPHOG_GITHUB_APP_SLUG
     return f"{slug}[bot]" if slug else None
@@ -472,6 +474,73 @@ class StamphogGitHubClient:
             f"Reactions on {repo}#{number} exceed {_MAX_PAGES * _PER_PAGE}; refusing to evaluate a truncated list"
         )
 
+    def add_pr_reaction(self, repo: str, number: int, content: str = "eyes") -> int | None:
+        """Add a reaction to the PR itself (``POST .../issues/{number}/reactions``), returning its id.
+
+        Fail-open, UNLIKE every other method on this client: an 👀 reaction is the same cosmetic
+        "review in flight" signal ``get_pr_reactions``/``STAMPHOG_TRUSTED_REACTOR_BOTS`` reads off
+        other bots, never a gate on anything. A failed reaction post must never fail or retry the
+        calling review activity, so every exception and non-2xx response is caught and logged here
+        instead of raised — callers get ``None`` and carry on. GitHub itself returns 200 with the
+        EXISTING reaction if this identity already reacted with ``content`` on this target (natural
+        idempotency: a retried activity, or adopting a crashed predecessor's leftover reaction), or
+        201 with a freshly created one — either way the id is what callers persist to remove later.
+        """
+        path = f"/repos/{repo}/issues/{number}/reactions"
+        try:
+            response = self._request(
+                "POST",
+                path,
+                endpoint="/repos/{owner}/{repo}/issues/{issue_number}/reactions",
+                json_body={"content": content},
+            )
+        except Exception:
+            logger.warning("stamphog github: failed to add PR reaction", repo=repo, pr_number=number, exc_info=True)
+            return None
+        if response.status_code not in (200, 201):
+            logger.warning(
+                "stamphog github: unexpected status adding PR reaction",
+                repo=repo,
+                pr_number=number,
+                status_code=response.status_code,
+            )
+            return None
+        try:
+            data = self._json(response, path)
+        except StamphogGitHubError:
+            logger.warning("stamphog github: non-JSON response adding PR reaction", repo=repo, pr_number=number)
+            return None
+        reaction_id = data.get("id") if isinstance(data, dict) else None
+        return reaction_id if isinstance(reaction_id, int) else None
+
+    def remove_pr_reaction(self, repo: str, number: int, reaction_id: int) -> None:
+        """Remove a reaction from the PR itself (``DELETE .../issues/{number}/reactions/{reaction_id}``).
+
+        Fail-open like ``add_pr_reaction``, for the same reason: this only cleans up the cosmetic
+        "review in flight" 👀, so a failure here must never fail or retry the calling activity — a
+        leftover reaction is harmless (the next run's ``add_pr_reaction`` adopts it via GitHub's own
+        idempotency). Every exception and non-2xx response is caught and logged instead of raised.
+        A 404 means the reaction is already gone (a prior attempt succeeded before crashing, or
+        someone removed it by hand) and is treated the same as success.
+        """
+        path = f"/repos/{repo}/issues/{number}/reactions/{reaction_id}"
+        try:
+            response = self._request(
+                "DELETE",
+                path,
+                endpoint="/repos/{owner}/{repo}/issues/{issue_number}/reactions/{reaction_id}",
+            )
+        except Exception:
+            logger.warning("stamphog github: failed to remove PR reaction", repo=repo, pr_number=number, exc_info=True)
+            return
+        if response.status_code not in (200, 204, 404):
+            logger.warning(
+                "stamphog github: unexpected status removing PR reaction",
+                repo=repo,
+                pr_number=number,
+                status_code=response.status_code,
+            )
+
     def get_collaborator_permission(self, repo: str, username: str) -> str:
         """The user's effective permission on the repo: ``admin``, ``write``, ``read``, or ``none``.
 
@@ -558,7 +627,7 @@ class StamphogGitHubClient:
         Callers filter further (e.g. adopt only at an exact ``commit_id``); the raw dicts carry ``id`` and
         ``commit_id`` for that.
         """
-        expected_login = _expected_app_bot_login()
+        expected_login = expected_app_bot_login()
         if expected_login is None:
             return []
         return [
@@ -995,7 +1064,7 @@ class StamphogGitHubClient:
         PATCH their comment; candidates are filtered to this App's bot identity (see
         _is_own_sticky_comment) so an impostor comment is ignored and a fresh one is posted instead.
         """
-        expected_login = _expected_app_bot_login()
+        expected_login = expected_app_bot_login()
         for page in range(1, _MAX_PAGES + 1):
             response = self._request(
                 "GET",
