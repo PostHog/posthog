@@ -150,6 +150,16 @@ class TestSpacelift:
         assert build_incremental_predicates("createdAt", "garbage") is None
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_session_keeps_credentials_out_of_sample_capture(self, mock_make_session):
+        # The exchange body carries the raw secret and the response a minted JWT — names
+        # the sample scrubber can't recognise, so the session must opt out of capture.
+        SpaceliftClient("my-company", "key-id", "key-secret")
+
+        kwargs = mock_make_session.call_args.kwargs
+        assert kwargs["capture"] is False
+        assert "key-secret" in kwargs["redact_values"]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_token_exchange_null_user_raises_auth_error(self, mock_make_session):
         # Spacelift signals a bad key with apiKeyUser=null and no GraphQL error.
         _mock_session(mock_make_session, [_response({"data": {"apiKeyUser": None}})])

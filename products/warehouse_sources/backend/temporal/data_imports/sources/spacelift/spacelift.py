@@ -143,7 +143,15 @@ class SpaceliftClient:
         self._graphql_url = _graphql_url(account_name)
         self._api_key_id = api_key_id
         self._api_key_secret = api_key_secret
-        self._session = make_tracked_session(headers={"Content-Type": "application/json"})
+        # The token exchange sends the API-key secret in a GraphQL `secret` variable and
+        # receives a minted JWT — field names the sample scrubber's denylist can't
+        # recognise — so keep this session's traffic out of HTTP sample capture entirely
+        # (still metered and logged) and mask the static secret wherever it appears.
+        self._session = make_tracked_session(
+            headers={"Content-Type": "application/json"},
+            redact_values=(api_key_secret,),
+            capture=False,
+        )
         self._jwt: str | None = None
         self._jwt_valid_until: float = 0.0
 
