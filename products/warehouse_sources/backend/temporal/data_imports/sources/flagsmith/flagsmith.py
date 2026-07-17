@@ -25,11 +25,28 @@ REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRY_ATTEMPTS = 5
 MAX_RETRY_WAIT_SECONDS = 60
 
-# Per-run cap on pages walked for a single resource. `next` links come from a user-supplied
-# (self-hosted) host, so a hostile or misconfigured server can return a non-empty cyclic `next`
-# forever; this bounds each pagination loop so a sync self-terminates instead of issuing
-# credentialed requests until the activity is cancelled. Generous enough not to truncate real data.
-MAX_PAGES_PER_RESOURCE = 10_000
+# Cap on the total pages walked in one sync invocation, shared across parent enumeration and
+# every fan-out child listing. `next` links come from a user-supplied (self-hosted) host, so a
+# hostile or misconfigured server can return a non-empty cyclic `next` forever — and in a fan-out
+# multiply that across thousands of parents. A single shared budget makes the whole sync
+# self-terminate instead of issuing credentialed requests until the activity is cancelled.
+# Generous enough not to truncate real data.
+MAX_PAGES_PER_SYNC = 10_000
+
+
+class _PageBudget:
+    """Mutable page allowance drawn down across a whole sync (all parents and child listings)."""
+
+    def __init__(self, limit: int) -> None:
+        self.remaining = limit
+
+    def take(self) -> bool:
+        """Consume one page; return False once the shared budget is exhausted."""
+        if self.remaining <= 0:
+            return False
+        self.remaining -= 1
+        return True
+
 
 # base_url can be a customer-controlled self-hosted host, so response bodies are streamed and
 # read under a byte cap and a total-transfer deadline: an arbitrarily large (or endlessly
@@ -264,19 +281,22 @@ def validate_credentials(api_key: str, base_url: str | None, path: str = "/organ
 
 
 def _iter_pages(
-    session: requests.Session, base: str, start_url: str, headers: dict[str, str], logger: FilteringBoundLogger
+    session: requests.Session,
+    base: str,
+    start_url: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    budget: _PageBudget,
 ) -> Iterator[list[dict[str, Any]]]:
     """Walk a listing (paginated or plain-array) without touching resume state — used to
     enumerate fan-out parents, which must be re-listed from scratch on every run."""
     url: str | None = start_url
-    pages = 0
     while url:
-        if pages >= MAX_PAGES_PER_RESOURCE:
-            logger.warning(f"Flagsmith: page cap ({MAX_PAGES_PER_RESOURCE}) reached for {start_url}, truncating")
-            break
+        if not budget.take():
+            logger.warning(f"Flagsmith: sync page budget ({MAX_PAGES_PER_SYNC}) exhausted at {start_url}, truncating")
+            return
         data = _fetch_page(session, url, headers, logger)
         rows, url = _extract_rows(base, data)
-        pages += 1
         if rows:
             yield rows
 
@@ -287,12 +307,13 @@ def _fetch_parent_keys(
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     parent: ParentResource,
+    budget: _PageBudget,
 ) -> list[str]:
     if parent == "organisation":
-        listing = _iter_pages(session, base, _initial_url(base, "/organisations/", {}), headers, logger)
+        listing = _iter_pages(session, base, _initial_url(base, "/organisations/", {}), headers, logger, budget)
         return [str(row["id"]) for rows in listing for row in rows]
 
-    project_listing = _iter_pages(session, base, _initial_url(base, "/projects/", {}), headers, logger)
+    project_listing = _iter_pages(session, base, _initial_url(base, "/projects/", {}), headers, logger, budget)
     project_ids = [str(row["id"]) for rows in project_listing for row in rows]
     if parent == "project":
         return project_ids
@@ -302,7 +323,7 @@ def _fetch_parent_keys(
     keys: list[str] = []
     for project_id in project_ids:
         env_listing = _iter_pages(
-            session, base, _initial_url(base, f"/environments/?project={project_id}", {}), headers, logger
+            session, base, _initial_url(base, f"/environments/?project={project_id}", {}), headers, logger, budget
         )
         keys.extend(str(row["api_key"]) for rows in env_listing for row in rows)
     return keys
@@ -317,16 +338,18 @@ def _paginate_resource(
     resumable_source_manager: ResumableSourceManager[FlagsmithResumeConfig],
     parent_key: str,
     parent_field: str | None,
+    budget: _PageBudget,
 ) -> Iterator[list[dict[str, Any]]]:
     url: str | None = start_url
-    pages = 0
     while url:
-        if pages >= MAX_PAGES_PER_RESOURCE:
-            logger.warning(f"Flagsmith: page cap ({MAX_PAGES_PER_RESOURCE}) reached for {start_url}, truncating")
-            break
+        if not budget.take():
+            logger.warning(f"Flagsmith: sync page budget ({MAX_PAGES_PER_SYNC}) exhausted at {start_url}, truncating")
+            # Terminal resume state so a resume advances past this parent instead of re-entering
+            # the same (possibly cyclic) chain and re-spending the budget on it.
+            resumable_source_manager.save_state(FlagsmithResumeConfig(next_url="", parent_key=parent_key))
+            return
         data = _fetch_page(session, url, headers, logger)
         rows, next_url = _extract_rows(base, data)
-        pages += 1
 
         if parent_field:
             for row in rows:
@@ -349,9 +372,10 @@ def _get_fan_out_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[FlagsmithResumeConfig],
     resume: FlagsmithResumeConfig | None,
+    budget: _PageBudget,
 ) -> Iterator[list[dict[str, Any]]]:
     assert config.parent is not None
-    parent_keys = _fetch_parent_keys(session, base, headers, logger, config.parent)
+    parent_keys = _fetch_parent_keys(session, base, headers, logger, config.parent, budget)
     if not parent_keys:
         logger.warning(f"Flagsmith: no {config.parent}s found, nothing to sync for endpoint={config.name}")
         return
@@ -375,7 +399,7 @@ def _get_fan_out_rows(
         else:
             start_url = _initial_url(base, config.path.format(parent=parent_key), config.params)
         yield from _paginate_resource(
-            session, base, start_url, headers, logger, resumable_source_manager, parent_key, config.parent_field
+            session, base, start_url, headers, logger, resumable_source_manager, parent_key, config.parent_field, budget
         )
 
 
@@ -398,8 +422,12 @@ def get_rows(
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
+    # One budget for the whole invocation so a fan-out can't multiply the per-listing cap across
+    # parents into unbounded credentialed requests.
+    budget = _PageBudget(MAX_PAGES_PER_SYNC)
+
     if config.parent is not None:
-        yield from _get_fan_out_rows(session, base, config, headers, logger, resumable_source_manager, resume)
+        yield from _get_fan_out_rows(session, base, config, headers, logger, resumable_source_manager, resume, budget)
         return
 
     if resume is not None and resume.next_url:
@@ -409,7 +437,15 @@ def get_rows(
         start_url = _initial_url(base, config.path, config.params)
 
     yield from _paginate_resource(
-        session, base, start_url, headers, logger, resumable_source_manager, parent_key="", parent_field=None
+        session,
+        base,
+        start_url,
+        headers,
+        logger,
+        resumable_source_manager,
+        parent_key="",
+        parent_field=None,
+        budget=budget,
     )
 
 

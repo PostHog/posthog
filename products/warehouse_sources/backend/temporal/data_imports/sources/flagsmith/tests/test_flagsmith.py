@@ -7,7 +7,6 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.flagsmith import (
     DEFAULT_BASE_URL,
-    MAX_PAGES_PER_RESOURCE,
     FlagsmithResponseTimeoutError,
     FlagsmithResponseTooLargeError,
     FlagsmithResumeConfig,
@@ -28,6 +27,7 @@ API_BASE = f"{DEFAULT_BASE_URL}/api/v1"
 SESSION_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.flagsmith.make_tracked_session"
 )
+BUDGET_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.flagsmith.MAX_PAGES_PER_SYNC"
 
 
 def _make_manager(resume_state: FlagsmithResumeConfig | None = None) -> mock.MagicMock:
@@ -176,15 +176,19 @@ class TestGetRowsTopLevel:
 
         assert list(get_rows("key", None, "organisations", mock.MagicMock(), _make_manager())) == []
 
+    @mock.patch(BUDGET_PATH, 5)
     @mock.patch(SESSION_PATH)
     def test_cyclic_next_link_is_capped(self, mock_session):
         # A hostile self-hosted host can return a non-empty `next` forever; pagination must
-        # self-terminate at the page cap instead of looping on credentialed requests.
+        # self-terminate at the page budget instead of looping on credentialed requests.
         mock_session.return_value.get.return_value = _resp(_page([{"id": 1}], f"{API_BASE}/organisations/?page=next"))
 
-        batches = list(get_rows("key", None, "organisations", mock.MagicMock(), _make_manager()))
+        manager = _make_manager()
+        batches = list(get_rows("key", None, "organisations", mock.MagicMock(), manager))
 
-        assert len(batches) == MAX_PAGES_PER_RESOURCE
+        assert len(batches) == 5
+        # Terminal resume state so a resume advances past the cyclic resource, not back into it.
+        assert manager.save_state.call_args_list[-1].args[0].next_url == ""
 
 
 class TestGetRowsFanout:
@@ -295,6 +299,23 @@ class TestGetRowsFanout:
         mock_session.return_value.get.return_value = _resp([])
 
         assert list(get_rows("key", None, "features", mock.MagicMock(), _make_manager())) == []
+
+    @mock.patch(BUDGET_PATH, 5)
+    @mock.patch(SESSION_PATH)
+    def test_budget_is_shared_across_fan_out_parents(self, mock_session):
+        # Many parents, each with a cyclic child `next`. A per-parent cap would multiply into
+        # budget-per-parent requests; the shared budget bounds the whole invocation instead.
+        def _get(url, **kwargs):
+            if "/features/" in url:
+                return _resp(_page([{"id": 1}], f"{API_BASE}/projects/1/features/?page=next"))
+            return _resp([{"id": 1}, {"id": 2}, {"id": 3}])  # projects (plain array, one fetch)
+
+        mock_session.return_value.get.side_effect = _get
+
+        list(get_rows("key", None, "features", mock.MagicMock(), _make_manager()))
+
+        # 1 projects fetch + 4 feature fetches = the whole 5-page budget, not 5 per parent.
+        assert mock_session.return_value.get.call_count == 5
 
 
 class TestErrors:
