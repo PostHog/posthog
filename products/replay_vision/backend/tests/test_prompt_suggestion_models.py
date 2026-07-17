@@ -17,8 +17,10 @@ class TestSuggestionConfigFields(_VisionAPITestCase):
             ],
         )
         suggestion.refresh_from_db()
-        assert suggestion.suggested_config["tags"] == ["a", "b"]
-        assert suggestion.changes[0]["op"] == "add"
+        assert suggestion.suggested_config == {"prompt": "p", "tags": ["a", "b"]}
+        assert suggestion.changes == [
+            {"field": "tags", "kind": "tags", "op": "add", "before": ["a"], "after": ["a", "b"], "rationale": "x"}
+        ]
 
     def test_config_fields_null_by_default(self) -> None:
         scanner = self._create_scanner(scanner_type="monitor")
