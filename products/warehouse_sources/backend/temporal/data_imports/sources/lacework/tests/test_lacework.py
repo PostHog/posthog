@@ -12,6 +12,7 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.lacework.lacework import (
     INVALID_ACCOUNT_ERROR,
     LaceworkResumeConfig,
+    _is_same_host,
     base_url,
     get_rows,
     lacework_source,
@@ -39,7 +40,7 @@ class _FakeResponse:
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
-            raise requests.HTTPError(f"{self.status_code} Client Error: error for url: fake", response=None)
+            raise requests.HTTPError(f"{self.status_code} Client Error: error for url: fake")
 
 
 class _FakeSession:
@@ -124,6 +125,33 @@ class TestAccountNormalization:
             base_url(value)
 
 
+class TestIsSameHost:
+    @parameterized.expand(
+        [
+            ("plain", "https://mycompany.lacework.net/api/v2/Alerts/next"),
+            ("uppercase_host", "https://MyCompany.Lacework.NET/api/v2/next"),
+            ("default_port", "https://mycompany.lacework.net:443/api/v2/next"),
+        ]
+    )
+    def test_accepts_matching_host(self, _name: str, url: str) -> None:
+        assert _is_same_host(url, "mycompany") is True
+
+    @parameterized.expand(
+        [
+            ("foreign_host", "https://evil.com/api/v2/steal"),
+            # requests/urllib3 treat a backslash in the authority as a path separator, so these
+            # connect to evil.example while urlparse would otherwise report the trusted host.
+            ("literal_backslash", "https://evil.example\\@mycompany.lacework.net/api/v2/next"),
+            ("encoded_backslash_lower", "https://evil.example%5c@mycompany.lacework.net/api/v2/next"),
+            ("encoded_backslash_upper", "https://evil.example%5C@mycompany.lacework.net/api/v2/next"),
+            ("http_scheme", "http://mycompany.lacework.net/api/v2/next"),
+            ("non_default_port", "https://mycompany.lacework.net:8443/api/v2/next"),
+        ]
+    )
+    def test_rejects_bad_host(self, _name: str, url: str) -> None:
+        assert _is_same_host(url, "mycompany") is False
+
+
 class TestValidateCredentials:
     def _validate(self, response: _FakeResponse) -> tuple[bool, str | None]:
         session = MagicMock()
@@ -176,7 +204,9 @@ class TestGetRowsWindowing:
         )
 
         assert [r["vulnId"] for r in rows] == ["CVE-1", "CVE-2", "CVE-3"]
-        assert [(method, body["timeFilter"]) for method, _url, body, _headers in session.data_calls] == [
+        assert [
+            (method, body["timeFilter"]) for method, _url, body, _headers in session.data_calls if body is not None
+        ] == [
             ("POST", {"startTime": "2026-06-13T00:00:00.000Z", "endTime": "2026-06-14T00:00:00.000Z"}),
             ("POST", {"startTime": "2026-06-14T00:00:00.000Z", "endTime": "2026-06-15T00:00:00.000Z"}),
             ("POST", {"startTime": "2026-06-15T00:00:00.000Z", "endTime": "2026-06-15T12:00:00.000Z"}),

@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LaceworkSourceConfig
@@ -33,9 +33,13 @@ class TestLaceworkSource:
     def test_source_config_fields(self) -> None:
         fields = {f.name: f for f in self.source.get_source_config.fields}
         assert list(fields.keys()) == ["account_name", "key_id", "secret_key"]
-        assert all(f.required for f in fields.values())
-        assert fields["secret_key"].secret is True
-        assert fields["account_name"].secret is False
+        assert all(isinstance(f, SourceFieldInputConfig) and f.required for f in fields.values())
+        secret_key_field = fields["secret_key"]
+        account_name_field = fields["account_name"]
+        assert isinstance(secret_key_field, SourceFieldInputConfig)
+        assert isinstance(account_name_field, SourceFieldInputConfig)
+        assert secret_key_field.secret is True
+        assert account_name_field.secret is False
 
     def test_account_name_is_a_connection_host_field(self) -> None:
         # Retargeting the account (and therefore the host the secret is sent to) must force the

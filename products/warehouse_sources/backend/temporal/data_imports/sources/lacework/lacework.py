@@ -72,10 +72,23 @@ def base_url(account_name: str) -> str:
 
 
 def _is_same_host(url: str, account_name: str) -> bool:
-    """Whether a (server-controlled) nextPage URL points back at the configured account host."""
+    """Whether a (server-controlled) nextPage URL points back at the configured account host.
+
+    Parse the URL the way requests/urllib3 will before comparing hosts: a backslash (literal or
+    percent-encoded) in the authority is a path separator to them, so ``https://evil.example\\@host``
+    connects to ``evil.example`` even though ``urlparse`` reports ``host``. Normalize backslashes to
+    forward slashes first, then require an ``https`` URL on the default port whose hostname matches
+    exactly — otherwise a crafted resume/nextPage URL could exfiltrate the bearer token.
+    """
     try:
+        normalized = url.replace("\\", "/").replace("%5c", "/").replace("%5C", "/")
+        parsed = urlparse(normalized)
+        if parsed.scheme.lower() != "https":
+            return False
+        if parsed.port not in (None, 443):
+            return False
         expected = urlparse(base_url(account_name)).hostname or ""
-        return (urlparse(url).hostname or "").lower() == expected.lower()
+        return (parsed.hostname or "").lower() == expected.lower()
     except Exception:
         return False
 
