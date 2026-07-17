@@ -487,6 +487,26 @@ def _find_webhook_by_url(
     return next((wh for wh in _list_webhooks(session, base_url, logger) if wh.get("url") == webhook_url), None)
 
 
+def _read_json_response(response: requests.Response, url: str, logger: FilteringBoundLogger) -> tuple[int, Any]:
+    """Status + parsed JSON body for webhook-management calls, with the same redirect refusal and
+    capped body read as _fetch_json — the host is customer-controlled on these paths too, so the
+    body must never be buffered unbounded."""
+    if response.is_redirect or response.is_permanent_redirect:
+        response.close()
+        raise ChatwootHostNotAllowedError(
+            f"{HOST_NOT_ALLOWED_ERROR}: Chatwoot returned an unexpected redirect "
+            f"(status={response.status_code}); refusing to follow it"
+        )
+    status = response.status_code
+    body = _read_capped_body(response)
+    if status >= 400:
+        logger.error(f"Chatwoot API error: status={status}, body={body.decode(errors='replace')[:500]}, url={url}")
+    try:
+        return status, json.loads(body or b"null")
+    except ValueError:
+        return status, None
+
+
 def _parse_webhook_response(data: Any) -> dict[str, Any]:
     if isinstance(data, dict):
         payload = data.get("payload")
@@ -524,31 +544,34 @@ def create_webhook(
         session = _make_session(api_access_token)
 
         body = {"webhook": {"url": webhook_url, "subscriptions": all_webhook_events()}}
+        create_url = f"{base_url}/webhooks"
         response = session.post(
-            f"{base_url}/webhooks", json=body, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False
+            create_url, json=body, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False, stream=True
         )
+        status, data = _read_json_response(response, create_url, logger)
 
-        if response.status_code in (401, 403):
+        if status in (401, 403):
             return WebhookCreationResult(success=False, error=_WEBHOOK_PERMISSION_ERROR)
 
         # Webhook URLs are unique per account, so re-registering after a partial setup 422s.
         # Reconcile the existing webhook instead of failing.
-        if response.status_code == 422:
+        if status == 422:
             existing = _find_webhook_by_url(session, base_url, webhook_url, logger)
             if existing is not None and existing.get("id") is not None:
+                update_url = f"{base_url}/webhooks/{existing['id']}"
                 update_response = session.patch(
-                    f"{base_url}/webhooks/{existing['id']}",
-                    json=body,
-                    timeout=REQUEST_TIMEOUT_SECONDS,
-                    allow_redirects=False,
+                    update_url, json=body, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False, stream=True
                 )
-                update_response.raise_for_status()
-                return _webhook_creation_result_from_webhook(
-                    _parse_webhook_response(update_response.json()) or existing
-                )
+                update_status, update_data = _read_json_response(update_response, update_url, logger)
+                if update_status in (401, 403):
+                    return WebhookCreationResult(success=False, error=_WEBHOOK_PERMISSION_ERROR)
+                if update_status >= 400:
+                    raise Exception(f"Chatwoot webhook update failed with HTTP {update_status}")
+                return _webhook_creation_result_from_webhook(_parse_webhook_response(update_data) or existing)
 
-        response.raise_for_status()
-        return _webhook_creation_result_from_webhook(_parse_webhook_response(response.json()))
+        if status >= 400:
+            raise Exception(f"Chatwoot webhook creation failed with HTTP {status}")
+        return _webhook_creation_result_from_webhook(_parse_webhook_response(data))
     except Exception as e:
         logger.exception(f"Chatwoot: failed to create webhook: {e}")
         return WebhookCreationResult(success=False, error=f"Failed to create Chatwoot webhook automatically: {e}")
@@ -575,15 +598,19 @@ def update_webhook_events(
         if sorted(existing.get("subscriptions") or []) == sorted(desired_events):
             return WebhookSyncResult(success=True)
 
+        update_url = f"{base_url}/webhooks/{existing['id']}"
         response = session.patch(
-            f"{base_url}/webhooks/{existing['id']}",
+            update_url,
             json={"webhook": {"url": webhook_url, "subscriptions": desired_events}},
             timeout=REQUEST_TIMEOUT_SECONDS,
             allow_redirects=False,
+            stream=True,
         )
-        if response.status_code in (401, 403):
+        status, _ = _read_json_response(response, update_url, logger)
+        if status in (401, 403):
             return WebhookSyncResult(success=False, error=_WEBHOOK_PERMISSION_ERROR)
-        response.raise_for_status()
+        if status >= 400:
+            raise Exception(f"Chatwoot webhook update failed with HTTP {status}")
         return WebhookSyncResult(success=True)
     except Exception as e:
         logger.exception(f"Chatwoot: failed to sync webhook events: {e}")
@@ -634,12 +661,13 @@ def delete_webhook(
             # Nothing to delete — the desired end state already holds.
             return WebhookDeletionResult(success=True)
 
-        response = session.delete(
-            f"{base_url}/webhooks/{existing['id']}", timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False
-        )
-        if response.status_code in (401, 403):
+        delete_url = f"{base_url}/webhooks/{existing['id']}"
+        response = session.delete(delete_url, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False, stream=True)
+        status, _ = _read_json_response(response, delete_url, logger)
+        if status in (401, 403):
             return WebhookDeletionResult(success=False, error=_WEBHOOK_PERMISSION_ERROR)
-        response.raise_for_status()
+        if status >= 400:
+            raise Exception(f"Chatwoot webhook deletion failed with HTTP {status}")
         return WebhookDeletionResult(success=True)
     except Exception as e:
         logger.exception(f"Chatwoot: failed to delete webhook: {e}")
