@@ -12,7 +12,7 @@ from botocore.config import Config
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.models.integration import Integration
 from posthog.models.utils import uuid7
 from posthog.settings import (
@@ -323,6 +323,49 @@ class TestErrorTracking(APIBaseTest):
         assert response.status_code == 400
         assert response.json()["type"] == "validation_error"
         assert response.json()["code"] == "required"
+
+    def test_fingerprint_resolve_returns_issue(self):
+        fingerprint = "$uper/strange#fingerprint"
+        issue = self.create_issue(fingerprints=[fingerprint])
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/fingerprints/resolve",
+            data={"fingerprint": fingerprint},
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["issue_id"] == str(issue.id)
+        assert response.json()["fingerprint"] == fingerprint
+
+    @parameterized.expand(
+        [
+            ("missing_param", {}, 400),
+            ("unknown_fingerprint", {"fingerprint": "does_not_exist"}, 404),
+        ]
+    )
+    def test_fingerprint_resolve_error_cases(self, _name, params, expected_status):
+        self.create_issue(fingerprints=["fingerprint_one"])
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/fingerprints/resolve",
+            data=params,
+        )
+
+        assert response.status_code == expected_status
+
+    def test_fingerprint_resolve_is_scoped_to_team(self):
+        other_team = Team.objects.create(organization=self.organization)
+        other_issue = ErrorTrackingIssue.objects.create(team=other_team)
+        ErrorTrackingIssueFingerprintV2.objects.create(
+            team=other_team, issue=other_issue, fingerprint="other_team_fingerprint"
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/fingerprints/resolve",
+            data={"fingerprint": "other_team_fingerprint"},
+        )
+
+        assert response.status_code == 404
 
     def test_can_start_symbol_set_upload(self) -> None:
         chunk_id = uuid7()
