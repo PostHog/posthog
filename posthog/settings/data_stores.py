@@ -534,6 +534,15 @@ INTERNAL_API_SECRET = get_from_env(
 # Receivers accept INTERNAL_API_SECRET plus these; senders always send INTERNAL_API_SECRET.
 INTERNAL_API_SECRET_FALLBACKS = get_list(os.getenv("INTERNAL_API_SECRET_FALLBACKS", ""))
 
+# Scoped JWT keys for the workflows timing-reschedule sweep (Django mints, the plugin server's
+# reschedule_parked route verifies) — a per-purpose secret so this caller never touches
+# INTERNAL_API_SECRET. Comma-separated, newest first: the first key signs, the plugin server
+# verifies against all. Empty outside dev/test, so the sweep fails closed until provisioned.
+# The dev/test value must match the plugin server's default (nodejs/src/cdp/config.ts).
+WORKFLOWS_RESCHEDULE_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOWS_RESCHEDULE_JWT_SECRET", "local-dev-workflows-reschedule-jwt" if DEBUG or TEST else "")
+)
+
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
 # Used to generate embeddings on the fly, for use with the document embeddings table
