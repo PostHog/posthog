@@ -1167,7 +1167,9 @@ class CustomerlySourceConfig(config.Config):
 
 @config.config
 class DagsterCloudSourceConfig(config.Config):
-    pass
+    organization: str
+    deployment: str
+    api_token: str
 
 
 @config.config
