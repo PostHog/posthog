@@ -198,9 +198,7 @@ class TestRestRows:
         ]
 
     @parameterized.expand([("applications", False), ("users", True)])
-    def test_secret_bearing_endpoint_disables_http_sample_capture(
-        self, endpoint: str, expected_capture: bool
-    ) -> None:
+    def test_secret_bearing_endpoint_disables_http_sample_capture(self, endpoint: str, expected_capture: bool) -> None:
         # HTTP sample capture writes the raw response body before row-level `redact_keys` runs, so
         # endpoints that redact secrets (applications' SAML key) must opt out of capture entirely.
         capture_kwargs: list[Any] = []
