@@ -154,6 +154,12 @@ class TestCommunitySkillSync(APIBaseTest):
             ),
             ("non_string_body", {"body": {"nested": "object"}}),
             ("non_dict_file", {"files": ["not-a-dict"]}),
+            # Shape checks: a slug DRF can't route, or a mistyped metadata/tags/allowed_tools that
+            # would 500 the list/detail render or fracture allowed-tools on export.
+            ("non_routable_slug", {"slug": "triage.v2"}),
+            ("scalar_metadata", {"metadata": 5}),
+            ("non_list_tags", {"tags": 5}),
+            ("whitespace_allowed_tool", {"allowed_tools": ["Bash Write"]}),
         ]
     )
     @patch("products.skills.backend.api.community_skill_sync.github_request")
