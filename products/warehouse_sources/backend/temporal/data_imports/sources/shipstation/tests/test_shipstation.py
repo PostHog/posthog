@@ -317,6 +317,19 @@ class TestVersionDispatch:
             assert session.auth == ("key", "secret")
             assert "API-Key" not in session.headers
 
+    @pytest.mark.parametrize("api_version, expected_allow_redirects", [("v1", True), ("v2", False)])
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.shipstation.make_tracked_session"
+    )
+    def test_v2_session_refuses_redirects_to_protect_api_key_header(
+        self, mock_session, api_version, expected_allow_redirects
+    ):
+        # The v2 API-Key header would survive a cross-host redirect (requests only strips
+        # Authorization), so the v2 session must be built with redirects disabled.
+        _get_session("key", "secret", _dialect(api_version))
+
+        assert mock_session.call_args.kwargs["allow_redirects"] is expected_allow_redirects
+
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.shipstation.make_tracked_session"
     )

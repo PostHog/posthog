@@ -85,7 +85,14 @@ class ShipStationResumeConfig:
 def _get_session(
     api_key: str, api_secret: str, dialect: ShipStationDialect = SHIPSTATION_DIALECTS[SHIPSTATION_API_VERSION_V1]
 ) -> requests.Session:
-    session = make_tracked_session(redact_values=(api_key, api_secret))
+    # v2 auth rides in a custom API-Key header, which requests does NOT strip on a
+    # cross-host redirect (it only strips Authorization). Refuse redirects on that path so
+    # a 3xx can't forward the credential to another origin. v1 basic auth is stripped by
+    # requests across hosts, so its redirect behavior is left unchanged.
+    session = make_tracked_session(
+        redact_values=(api_key, api_secret),
+        allow_redirects=not dialect.uses_api_key_header,
+    )
     if dialect.uses_api_key_header:
         session.headers["API-Key"] = api_key
     else:

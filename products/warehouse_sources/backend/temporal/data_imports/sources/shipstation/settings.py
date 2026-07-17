@@ -125,8 +125,19 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 
 # Vendor API versions. v1 is the original ssapi.shipstation.com API (HTTP basic auth,
 # US Pacific DateTimes); v2 is the newer, ShipEngine-based api.shipstation.com/v2 API
-# (API-Key header, ISO 8601 UTC). Both are actively supported by the vendor.
+# (API-Key header, ISO 8601 UTC). Both are live at the vendor.
+#
+# v1 is the only advertised and default version: it is the sole one that is functional
+# end-to-end today. v2 is a different resource API (shipments/labels/rates/carriers,
+# snake_case) whose schema surface and credential fields diverge from v1, and the source
+# framework cannot yet express per-version schemas (`get_schemas`) or credential fields
+# (`SourceConfig.fields`) — both are version-blind. Advertising v2 or defaulting to it
+# would stamp new sources with a version that 404s on every table. The v2 transport
+# groundwork below is therefore kept but NOT advertised; it is reachable only by an
+# explicit `ExternalDataSource.api_version` pin, which `resolve_api_version` honors
+# verbatim. Flip v2 into `SHIPSTATION_SUPPORTED_VERSIONS`/`SHIPSTATION_DEFAULT_VERSION`
+# once the framework can diverge schemas and credential fields per version.
 SHIPSTATION_API_VERSION_V1 = "v1"
 SHIPSTATION_API_VERSION_V2 = "v2"
-SHIPSTATION_SUPPORTED_VERSIONS = (SHIPSTATION_API_VERSION_V1, SHIPSTATION_API_VERSION_V2)
-SHIPSTATION_DEFAULT_VERSION = SHIPSTATION_API_VERSION_V2
+SHIPSTATION_SUPPORTED_VERSIONS = (SHIPSTATION_API_VERSION_V1,)
+SHIPSTATION_DEFAULT_VERSION = SHIPSTATION_API_VERSION_V1
