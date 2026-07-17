@@ -1,17 +1,17 @@
-# 1. TODO: add a new value for your source in the following three places:
-#       - ExternalDataSourceType at `posthog/warehouse/types.py`
-#       - ExternalDataSourceType at `posthog/schema.py`. this is only needed so type checking doesn't initially fail
+# 1. TODO: add a new value for your source in these TWO hand-edited places:
+#       - ExternalDataSourceType at `products/warehouse_sources/backend/types.py`
+#         (models.TextChoices: `KEY = "PascalValue", "PascalValue"`, KEY is ALL_CAPS with NO underscores)
 #       - externalDataSources at `frontend/src/queries/schema/schema-general.ts`
-#
-#       following the casing conventions for each file whether ALL_CAPS_WITH_UNDERS, PascalCase, or
-#       lower-kebab-case
+#         (PascalCase string, identical to the types.py value — NOT kebab-case)
+#       Do NOT hand-edit `posthog/schema.py` / `posthog/schema_enums.py` — `pnpm run schema:build`
+#       (step 12) regenerates the ExternalDataSourceType enum there from schema-general.ts.
 # 2. TODO: run django migrations with `DEBUG=1 python manage.py makemigrations && DEBUG=1 ./bin/migrate`
 # 3. TODO: change the name of your source class from TemplateSource
 # 4. TODO: update the return value of source_type to match the ExternalDataSourceType you created in step one
-# 5. TODO: update ExternalDataSourceType in `posthog/schema.py` to include your
-#       source type as an enum value again, the key should be ALL_CAPS_WITH_UNDERS
-#       and the value should be PascalCase
-# 6. TODO: update get_source_config(). update the name to match the SchemaExternalDataSourceType from step 5.
+# 5. NOTE: you do NOT hand-edit posthog/schema.py — `pnpm run schema:build` (step 12) regenerates the
+#       SchemaExternalDataSourceType enum from your schema-general.ts entry (step 1). The member key is
+#       derived automatically (PascalCase value -> ALL_CAPS_WITH_UNDERS key, e.g. GoogleAds -> GOOGLE_ADS).
+# 6. TODO: update get_source_config(). set the name to SchemaExternalDataSourceType.<YOUR_KEY> (generated in step 12).
 #       also add any config fields users will need to connect the source. see other sources for examples.
 #       set `category` to the closest DataWarehouseSourceCategory bucket (required — it groups the source in
 #       the new-source wizard catalog) and optionally `keywords` (search aliases). see other sources for examples.

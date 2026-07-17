@@ -52,6 +52,7 @@
         "build:replay-anonymizer:dev": "pnpm --filter=@posthog/replay-anonymizer run build:dev",
         "generate:personhog-proto": "cd ../proto && buf generate --template ../nodejs/buf.gen.yaml --path personhog/service --path personhog/types .",
         "update-ai-costs": "ts-node src/ingestion/pipelines/ai/costs/scripts/update-ai-costs.ts",
+        "gen:ingestion-warning-types": "ts-node src/ingestion/common/scripts/generate-ingestion-warning-types.ts",
         "sync-segment-icons": "DATABASE_URL=something ts-node src/cdp/segment/sync-segment-icons.ts",
         "start:recording-rasterizer": "node dist/session-replay/recording-rasterizer/index.js"
     },

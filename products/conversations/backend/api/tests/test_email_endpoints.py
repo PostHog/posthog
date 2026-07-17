@@ -829,6 +829,62 @@ class TestEmailInboundMultiConfig(BaseTest):
         assert ticket.email_config_id == config2.id
 
 
+class TestEmailInboundContent(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save()
+        EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="cc00dd11ee2233ff",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+        )
+
+    @parameterized.expand(
+        [
+            # Mailgun sometimes mis-classifies trailing content (e.g. a list of bare emails)
+            # as a signature — it must be reattached, not dropped.
+            (
+                "signature_reattached",
+                {"stripped-text": "Missing recordings for:", "stripped-signature": "a@gmail.com\nb@gmail.com"},
+                "Missing recordings for:\n\na@gmail.com\nb@gmail.com",
+            ),
+            (
+                "stripped_text_only",
+                {"stripped-text": "Just a question"},
+                "Just a question",
+            ),
+            (
+                "falls_back_to_body_plain",
+                {"body-plain": "Full body text"},
+                "Full body text",
+            ),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_inbound_content_extraction(
+        self, _name: str, body_fields: dict[str, str], expected_content: str, _mock_sig: MagicMock
+    ):
+        response = self.client.post(
+            "/api/conversations/v1/email/inbound",
+            {
+                "recipient": "team-cc00dd11ee2233ff@mg.posthog.com",
+                "from": "customer@test.com",
+                "Message-Id": f"<content-{_name}@test.com>",
+                "subject": "Help",
+                **body_fields,
+            },
+        )
+        assert response.status_code == 200
+
+        comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
+        assert comment.content == expected_content
+
+
 class TestSendEmailReplyMultiConfig(BaseTest):
     def setUp(self):
         super().setUp()

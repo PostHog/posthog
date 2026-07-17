@@ -38,6 +38,7 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     ReplayVisionGeminiCleanupSweepWorkflow,
     sweep_gemini_files_activity,
 )
+from products.replay_vision.backend.temporal.logs import install_vision_log_bridge
 from products.replay_vision.backend.temporal.reconciler import ReconcileScannerSchedulesWorkflow
 from products.replay_vision.backend.temporal.sweep_workflow import SweepScannerWorkflow
 from products.replay_vision.backend.temporal.vision_actions import (
@@ -51,6 +52,10 @@ from products.replay_vision.backend.temporal.vision_actions import (
     validate_vision_action_activity,
 )
 from products.replay_vision.backend.temporal.workflow import ApplyScannerWorkflow
+
+# Ship this package's pipeline logs into the PostHog Logs product wherever the worker imports it.
+# A no-op until OTLP_LOGS_INGEST_* are configured.
+install_vision_log_bridge()
 
 WORKFLOWS = [
     ApplyScannerWorkflow,
