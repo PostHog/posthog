@@ -694,7 +694,7 @@ SPECTACULAR_SETTINGS = {
         # SignalReportBulkStateRequest) that both expose the same `state` ChoiceField. Pin the
         # shared enum to a stable name so it doesn't collide with the other `state` enums
         # (tasks, cdp) into a component-prefixed auto-name.
-        "SignalReportStateEnum": ["suppressed", "potential"],
+        "SignalReportStateEnum": ["suppressed", "potential", "resolved"],
         # Two serializers now expose an `op` ChoiceField (metrics filters and email-template design
         # patches). Pin both to stable names so neither gets a component-prefixed auto-name on collision.
         # "OpEnum" keeps the metrics filter enum at its pre-existing generated name.
