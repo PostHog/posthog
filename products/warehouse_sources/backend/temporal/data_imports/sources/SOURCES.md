@@ -217,6 +217,7 @@ the row lists both.
 | gainsight_px                     | HTTP                        | requests                                                        | ✅                          |
 | gerrit                           | HTTP                        | requests                                                        | ✅                          |
 | gitbook                          | HTTP                        | requests                                                        | ✅                          |
+| gitea                            | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | github                           | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | giphy                            | HTTP                        | requests                                                        | ✅                          |
 | gitlab                           | HTTP                        | requests                                                        | ✅                          |
