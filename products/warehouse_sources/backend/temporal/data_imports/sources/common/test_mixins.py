@@ -16,6 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
     _is_host_safe,
+    make_ssh_tunnel_factory,
+    open_ssh_tunnel,
 )
 
 _MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
@@ -234,6 +236,73 @@ class TestSSHTunnelHostValidation(SimpleTestCase):
         config = FakeConfig(ssh_tunnel=FakeSSHTunnelConfig(enabled=True, host=host))
         valid, _ = mixin.ssh_tunnel_is_valid(config, team_id=999)
         assert not valid
+
+
+class TestConnectionOpenLogging(SimpleTestCase):
+    def test_direct_connection_logs_open_event(self):
+        config = FakeConfig(ssh_tunnel=FakeSSHTunnelConfig(enabled=False, host=""))
+        with patch(f"{_MIXINS_MODULE}.logger") as mock_logger:
+            with open_ssh_tunnel(config, team_id=42) as (host, port):
+                assert (host, port) == ("dbhost.example.com", 5432)
+        mock_logger.info.assert_called_once()
+        args, kwargs = mock_logger.info.call_args
+        assert args[0] == "data_imports.connection_open"
+        assert kwargs["db_host"] == "dbhost.example.com"
+        assert kwargs["db_port"] == 5432
+        assert kwargs["via"] == "direct"
+        assert kwargs["team_id"] == 42
+        assert "ssh_host" not in kwargs
+        mock_logger.warning.assert_not_called()
+
+    def test_none_team_id_is_omitted_so_contextvars_can_fill_it(self):
+        config = FakeConfig(ssh_tunnel=None)
+        with patch(f"{_MIXINS_MODULE}.logger") as mock_logger:
+            with open_ssh_tunnel(config):
+                pass
+        _args, kwargs = mock_logger.info.call_args
+        assert "team_id" not in kwargs
+
+    def test_tunneled_connection_logs_both_hosts(self):
+        config = FakeConfig(ssh_tunnel=FakeSSHTunnelConfig(enabled=True, host="0.tcp.ngrok.example", port=12345))
+        with (
+            patch(f"{_MIXINS_MODULE}.SSHTunnel") as mock_ssh,
+            patch(f"{_MIXINS_MODULE}.logger") as mock_logger,
+        ):
+            tunnel = mock_ssh.from_config.return_value.get_tunnel.return_value.__enter__.return_value
+            tunnel.local_bind_host, tunnel.local_bind_port = "127.0.0.1", 55555
+            with open_ssh_tunnel(config, team_id=42) as (host, port):
+                assert (host, port) == ("127.0.0.1", 55555)
+        _args, kwargs = mock_logger.info.call_args
+        assert kwargs["via"] == "ssh_tunnel"
+        assert kwargs["ssh_host"] == "0.tcp.ngrok.example"
+        assert kwargs["ssh_port"] == 12345
+        assert kwargs["db_host"] == "dbhost.example.com"
+
+    def test_error_inside_connection_block_logs_connection_error(self):
+        config = FakeConfig(ssh_tunnel=None)
+        with patch(f"{_MIXINS_MODULE}.logger") as mock_logger:
+            with pytest.raises(ConnectionRefusedError):
+                with open_ssh_tunnel(config, team_id=42):
+                    raise ConnectionRefusedError("connection refused")
+        mock_logger.warning.assert_called_once()
+        args, kwargs = mock_logger.warning.call_args
+        assert args[0] == "data_imports.connection_error"
+        assert kwargs["error_type"] == "ConnectionRefusedError"
+        assert kwargs["db_port"] == 5432
+        assert kwargs["team_id"] == 42
+
+    def test_factory_logs_once_per_reopen(self):
+        config = FakeConfig(ssh_tunnel=None)
+        factory = make_ssh_tunnel_factory(config, team_id=42)
+        with patch(f"{_MIXINS_MODULE}.logger") as mock_logger:
+            with factory() as (host, port):
+                assert (host, port) == ("dbhost.example.com", 5432)
+            with factory():
+                pass
+        assert mock_logger.info.call_count == 2
+        assert all(call.args[0] == "data_imports.connection_open" for call in mock_logger.info.call_args_list)
+        # The closure must carry team_id into every reopen — this is the sync-path attribution.
+        assert all(call.kwargs["team_id"] == 42 for call in mock_logger.info.call_args_list)
 
 
 class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):

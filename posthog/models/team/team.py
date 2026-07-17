@@ -60,6 +60,9 @@ DEPRECATED_ATTRS = (
     "event_properties",
     "event_properties_with_usage",
     "event_properties_numerical",
+    # Replaced by the `revenue_analytics_config` extension; only the raw-SQL Postgres->ClickHouse
+    # ETL still reads the column, and that bypasses this manager.
+    "revenue_tracking_config",
 )
 
 # Django requires a list of tuples for choices

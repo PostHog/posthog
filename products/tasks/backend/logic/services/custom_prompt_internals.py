@@ -32,7 +32,7 @@ OutputFn = Callable[[str], object] | None
 
 # Sandbox logs polling from S3
 POLL_INTERVAL_SECONDS = 10
-MAX_POLL_SECONDS = 30 * 60  # 30 minutes (matches sandbox TTL)
+MAX_POLL_SECONDS = 30 * 60  # default per-turn budget; callers with longer turns pass max_poll_seconds
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
 # Continuous log silence required before salvaging a dropped-finalization turn — one SSE read window
 # (SSE_READ_TIMEOUT_SECONDS). The null-cost finalization fingerprint (_ended_on_pending_finalization)
@@ -100,6 +100,15 @@ class CustomPromptSandboxContext:
     Set it alongside a non-default ``model``: the agent server derives the provider from the runtime,
     so a model handed over with no runtime can't be routed and falls back to the server default.
     ``None`` keeps the agent server's default runtime (only valid when ``model`` is also ``None``)."""
+    reasoning_effort: str | None = None
+    """Reasoning-effort tier for ``model`` (e.g. ``"xhigh"``). Only meaningful alongside a pinned
+    ``model`` + ``runtime_adapter``; ``None`` keeps the model's default effort. The supported tiers
+    depend on the (runtime, model) pair — see ``get_reasoning_effort_error``."""
+    initial_permission_mode: str | None = None
+    """Agent approval mode. ``None`` lets ``_build_task`` pick the default (``"auto"`` for Codex). A
+    headless run that calls MCP tools must set ``"full-access"`` (Codex) / ``"bypassPermissions"``
+    (Claude) — ``"auto"`` does NOT auto-approve MCP tool calls, so the agent stalls on an approval
+    prompt no one can answer."""
     sandbox_resources: SandboxResources | None = None
     """Override the sandbox's compute (CPU / memory). Unset fields keep the
     SandboxConfig defaults (4 cores / 16 GB)."""
@@ -125,6 +134,7 @@ async def create_task_and_trigger(
     signal_report_id: str | None = None,
     ai_stage: str | None = None,
     internal: bool = False,
+    workflow_id_prefix: str | None = None,
 ):
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
@@ -149,9 +159,12 @@ async def create_task_and_trigger(
         sandbox_environment_id=context.sandbox_environment_id,
         model=context.model,
         runtime_adapter=context.runtime_adapter,
+        reasoning_effort=context.reasoning_effort,
+        initial_permission_mode=context.initial_permission_mode,
         internal=internal,
         sandbox_resources=context.sandbox_resources,
         sandbox_timeout_seconds=context.sandbox_timeout_seconds,
+        workflow_id_prefix=workflow_id_prefix,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()

@@ -117,7 +117,26 @@ class MetricSamplesTable(Table):
         "timestamp": DateTimeDatabaseField(
             name="timestamp", nullable=False, description="When the metric was emitted (UTC)."
         ),
-        "value": FloatDatabaseField(name="value", nullable=False, description="The emitted value."),
+        "value": FloatDatabaseField(
+            name="value",
+            nullable=False,
+            description="The emitted value. For histogram/summary points this is the distribution sum; pair with `count`.",
+        ),
+        "count": IntegerDatabaseField(
+            name="count",
+            nullable=False,
+            description="Observations behind this point: 1 for gauges/counters, the distribution count for histograms/summaries.",
+        ),
+        "histogram_bounds": StringJSONDatabaseField(
+            name="histogram_bounds",
+            nullable=False,
+            description="Histogram bucket boundaries; empty for non-histograms.",
+        ),
+        "histogram_counts": StringJSONDatabaseField(
+            name="histogram_counts",
+            nullable=False,
+            description="Per-bucket counts, aligned with `histogram_bounds`; empty for non-histograms.",
+        ),
         "trace_id": StringDatabaseField(
             name="trace_id",
             nullable=False,
@@ -152,6 +171,14 @@ class MetricSeriesTable(Table):
             description="OTel metric type (gauge, sum, histogram, summary, exponential_histogram).",
         ),
         "unit": StringDatabaseField(name="unit", nullable=False),
+        "aggregation_temporality": StringDatabaseField(
+            name="aggregation_temporality",
+            nullable=False,
+            description="For counters: 'delta' or 'cumulative'. Decides whether rate() must diff. Empty for gauges.",
+        ),
+        "is_monotonic": BooleanDatabaseField(
+            name="is_monotonic", nullable=False, description="True for monotonically increasing counters."
+        ),
         "service_name": StringDatabaseField(name="service_name", nullable=False),
         "resource_attributes": MapStringDatabaseField(name="resource_attributes", nullable=False),
         "attributes": MapStringDatabaseField(name="attributes", nullable=False),

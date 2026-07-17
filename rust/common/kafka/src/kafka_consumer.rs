@@ -10,7 +10,7 @@ use lz4::Decoder;
 use rdkafka::{
     consumer::{CommitMode, Consumer, ConsumerGroupMetadata, StreamConsumer},
     error::KafkaError,
-    ClientConfig, Message,
+    ClientConfig, Message, TopicPartitionList,
 };
 use serde::de::DeserializeOwned;
 use tracing::warn;
@@ -217,6 +217,33 @@ impl SingleTopicConsumer {
     pub fn commit(&self) -> Result<(), KafkaError> {
         self.inner.consumer.commit_consumer_state(CommitMode::Sync)
     }
+
+    /// Synchronously commit explicit next-offsets for this consumer's topic, bypassing stored
+    /// offsets. Each pair is `(partition, next_offset)` where `next_offset` is the offset
+    /// consumption should resume from (last fully processed + 1), per Kafka commit semantics.
+    pub fn commit_partition_offsets(&self, offsets: &[(i32, i64)]) -> Result<(), KafkaError> {
+        let mut tpl = TopicPartitionList::with_capacity(offsets.len());
+        for &(partition, next_offset) in offsets {
+            tpl.add_partition_offset(
+                &self.inner.topic,
+                partition,
+                rdkafka::Offset::Offset(next_offset),
+            )?;
+        }
+        self.inner.consumer.commit(&tpl, CommitMode::Sync)
+    }
+
+    /// Currently assigned partitions of this consumer's topic (local call, no broker round-trip).
+    pub fn assigned_partitions(&self) -> Result<Vec<i32>, KafkaError> {
+        Ok(self
+            .inner
+            .consumer
+            .assignment()?
+            .elements_for_topic(&self.inner.topic)
+            .iter()
+            .map(|elem| elem.partition())
+            .collect())
+    }
 }
 
 fn maybe_decompress_lz4_payload<'a>(payload: &'a [u8], topic: &str) -> Cow<'a, [u8]> {
@@ -349,11 +376,17 @@ impl fmt::Debug for Offset {
 #[cfg(test)]
 mod tests {
     use std::io::Write;
+    use std::time::Duration;
 
+    use envconfig::Envconfig;
     use lz4::EncoderBuilder;
+    use rdkafka::consumer::Consumer;
+    use rdkafka::producer::FutureRecord;
     use serde_json::{json, Value};
 
+    use super::SingleTopicConsumer;
     use super::{decompress_lz4_payload, maybe_decompress_lz4_payload, Lz4PayloadError};
+    use crate::config::ConsumerConfig;
 
     fn decode_json_payload(payload: &[u8], topic: &str) -> Result<Value, serde_json::Error> {
         let payload = maybe_decompress_lz4_payload(payload, topic);
@@ -404,5 +437,56 @@ mod tests {
         let (compressed, result) = encoder.finish();
         result.unwrap();
         compressed
+    }
+
+    #[tokio::test]
+    async fn commits_explicit_partition_offsets_and_reports_assignment() {
+        const TOPIC: &str = "explicit-commit-topic";
+        let (cluster, producer) = crate::test::create_mock_kafka().await;
+        cluster.create_topic(TOPIC, 1, 1).expect("create topic");
+
+        let mut kafka_config = crate::config::KafkaConfig::init_from_env().unwrap();
+        kafka_config.kafka_hosts = cluster.bootstrap_servers();
+        let consumer_config = ConsumerConfig {
+            kafka_consumer_group: "explicit-commit-group".to_string(),
+            kafka_consumer_topic: TOPIC.to_string(),
+            kafka_consumer_offset_reset: "earliest".to_string(),
+            kafka_consumer_auto_commit: false,
+            kafka_consumer_auto_commit_interval_ms: 5000,
+            kafka_consumer_fetch_wait_max_ms: None,
+            kafka_consumer_fetch_min_bytes: None,
+            kafka_consumer_fetch_max_bytes: None,
+            kafka_consumer_max_partition_fetch_bytes: None,
+            kafka_consumer_group_instance_id: None,
+            kafka_consumer_partition_strategy: None,
+            kafka_consumer_socket_send_buffer_bytes: None,
+            kafka_consumer_socket_receive_buffer_bytes: None,
+            kafka_consumer_metadata_refresh_interval_ms: None,
+        };
+        let consumer = SingleTopicConsumer::new(kafka_config, consumer_config).unwrap();
+
+        producer
+            .send_result(FutureRecord::to(TOPIC).key("k").payload(r#"{"a":1}"#))
+            .expect("enqueue")
+            .await
+            .expect("produce canceled")
+            .expect("produce failed");
+
+        let (_, offset) = consumer.json_recv::<Value>().await.expect("recv");
+        assert_eq!((offset.partition(), offset.get_value()), (0, 0));
+
+        assert_eq!(consumer.assigned_partitions().unwrap(), vec![0]);
+        consumer
+            .commit_partition_offsets(&[(0, 1)])
+            .expect("explicit commit");
+
+        let committed = consumer
+            .inner
+            .consumer
+            .committed(Duration::from_secs(5))
+            .expect("fetch committed");
+        let elems = committed.elements_for_topic(TOPIC);
+        assert_eq!(elems.len(), 1);
+        assert_eq!(elems[0].offset(), rdkafka::Offset::Offset(1));
     }
 }

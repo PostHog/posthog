@@ -242,12 +242,7 @@ def _serialize_rich_content_node(
         return escape_markdown_block_lines(_serialize_inline_content(_content_list(node), options))
 
     if node_type == "blockquote":
-        return "\n".join(
-            f"> {line}"
-            for line in "\n".join(
-                _serialize_rich_content_node(child, list_depth, options) for child in _content_list(node)
-            ).split("\n")
-        )
+        return _serialize_blockquote_node(node, list_depth, options)
 
     if node_type in LIST_NODE_TYPES:
         return _serialize_list(node, node_type == "orderedList", list_depth, options)
@@ -287,7 +282,9 @@ def _serialize_rich_content_node(
     if isinstance(node_type, str) and node_type in NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG:
         return _serialize_component_node(
             NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG[node_type],
-            _get_serializable_attrs(node.get("attrs") if isinstance(node.get("attrs"), dict) else None),
+            _with_default_hidden_filters(
+                _get_serializable_attrs(node.get("attrs") if isinstance(node.get("attrs"), dict) else None)
+            ),
         )
 
     child_markdown = "\n\n".join(
@@ -314,7 +311,10 @@ def _serialize_legacy_insight_node(node: JSONContent) -> str:
     insight_short_id = attrs.get("short_id") if isinstance(attrs.get("short_id"), str) else attrs.get("id")
     if not isinstance(insight_short_id, str) or not insight_short_id:
         return _serialize_unknown_rich_content_node(node)
-    return _serialize_component_node("Query", {"query": {"kind": "SavedInsightNode", "shortId": insight_short_id}})
+    return _serialize_component_node(
+        "Query",
+        _with_default_hidden_filters({"query": {"kind": "SavedInsightNode", "shortId": insight_short_id}}),
+    )
 
 
 def _serialize_legacy_dashboard_node(node: JSONContent) -> str:
@@ -330,7 +330,7 @@ def _serialize_legacy_query_node(node: JSONContent) -> str:
     query = props.get("query")
     if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
         props["query"] = {"kind": "DataVisualizationNode", "source": query}
-    return _serialize_component_node("Query", props)
+    return _serialize_component_node("Query", _with_default_hidden_filters(props))
 
 
 def _serialize_legacy_link_node(node: JSONContent, options: NotebookMarkdownConversionOptions) -> str:
@@ -352,20 +352,80 @@ def _serialize_legacy_link_node(node: JSONContent, options: NotebookMarkdownConv
     return _serialize_unknown_rich_content_node(node)
 
 
+# The markdown notebook blockquote only holds inline text (and list lines), so block content
+# inside a v1 blockquote or callout — embedded cards like Query/Python, headings, code blocks,
+# tables, nested quotes — is emitted as standalone blocks that split the quote. Quoting those
+# lines instead would produce markdown the parser can only read back as escaped literal text,
+# destroying the nodes on the next save.
+def _is_blockquotable_rich_content_node(node: JSONContent, serialized: str) -> bool:
+    node_type = _node_type(node)
+    if node_type in ("paragraph", "text"):
+        return True
+    # Blockquoted lists parse back (`> - item`), but only while every line is a list line — a
+    # list that spilled block content into standalone blocks splits out of the quote with them.
+    if node_type in LIST_NODE_TYPES:
+        return "\n\n" not in serialized
+    return False
+
+
+def _serialize_blockquote_node(node: JSONContent, list_depth: int, options: NotebookMarkdownConversionOptions) -> str:
+    blocks: list[str] = []
+    pending_quote_lines: list[str] = []
+
+    def flush_quote_lines() -> None:
+        if pending_quote_lines:
+            blocks.append("\n".join(f"> {line}" for line in pending_quote_lines))
+            pending_quote_lines.clear()
+
+    for child in _content_list(node):
+        child_markdown = _serialize_rich_content_node(child, list_depth, options)
+        if _is_blockquotable_rich_content_node(child, child_markdown):
+            pending_quote_lines.extend(child_markdown.split("\n"))
+        elif child_markdown.strip():
+            flush_quote_lines()
+            blocks.append(child_markdown)
+    flush_quote_lines()
+
+    return "\n\n".join(blocks)
+
+
 def _serialize_callout_node(node: JSONContent, options: NotebookMarkdownConversionOptions) -> str:
     attrs = node.get("attrs")
     raw_emoji = attrs.get("emoji") if isinstance(attrs, dict) else None
-    emoji = raw_emoji.strip() if isinstance(raw_emoji, str) else ""
-    body = "\n\n".join(
-        block
-        for block in (_serialize_rich_content_node(child, 0, options) for child in _content_list(node))
-        if block.strip()
-    ).strip()
-    if emoji:
-        body = f"{escape_inline_markdown_text(emoji)} {body}".strip()
-    if not body:
+    emoji = escape_inline_markdown_text(raw_emoji.strip()) if isinstance(raw_emoji, str) and raw_emoji.strip() else ""
+    blocks: list[str] = []
+    pending_quote_bodies: list[str] = []
+    emoji_placed = False
+
+    def flush_quote_bodies() -> None:
+        nonlocal emoji_placed
+        if not pending_quote_bodies:
+            return
+        body = "\n\n".join(pending_quote_bodies)
+        if emoji and not emoji_placed:
+            body = f"{emoji} {body}"
+            emoji_placed = True
+        blocks.append("\n".join(f"> {line}" for line in body.split("\n")))
+        pending_quote_bodies.clear()
+
+    for child in _content_list(node):
+        child_markdown = _serialize_rich_content_node(child, 0, options)
+        if not child_markdown.strip():
+            continue
+        if _is_blockquotable_rich_content_node(child, child_markdown):
+            pending_quote_bodies.append(child_markdown)
+        else:
+            flush_quote_bodies()
+            blocks.append(child_markdown)
+    flush_quote_bodies()
+
+    if emoji and not emoji_placed:
+        blocks.insert(0, f"> {emoji}")
+
+    if not blocks:
         return _serialize_unknown_rich_content_node(node)
-    return "\n".join(f"> {line}" for line in body.split("\n"))
+
+    return "\n\n".join(blocks)
 
 
 def _serialize_unknown_rich_content_node(node: JSONContent) -> str:
@@ -626,6 +686,12 @@ def _get_serializable_component_props(props: Mapping[str, NotebookPropValue]) ->
     if hide_results:
         next_props["hideResults"] = True
     return next_props
+
+
+def _with_default_hidden_filters(props: dict[str, NotebookPropValue]) -> dict[str, NotebookPropValue]:
+    if isinstance(props.get("hideFilters"), bool) or isinstance(props.get("edit"), bool):
+        return props
+    return {**props, "hideFilters": True}
 
 
 def _get_ordered_component_prop_entries(props: Mapping[str, NotebookPropValue]) -> list[tuple[str, NotebookPropValue]]:

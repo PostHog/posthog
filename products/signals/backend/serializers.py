@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import cast
 
 from asgiref.sync import async_to_sync
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 from rest_framework import serializers
@@ -11,11 +12,16 @@ from rest_framework import serializers
 from posthog.models import User
 from posthog.temporal.common.client import sync_connect
 
+from products.signals.backend import contracts
+from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
+from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
+
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
 from .models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
+    SignalReportRefund,
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
@@ -169,6 +175,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         model = SignalTeamConfig
         fields = [
             "id",
+            "autostart_enabled",
             "default_autostart_priority",
             "default_slack_notification_channel",
             "autostart_base_branches",
@@ -177,6 +184,13 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
         extra_kwargs = {
+            "autostart_enabled": {
+                "help_text": (
+                    "Master switch for autonomous inbox PRs. Null (never set) leaves autostart on; set "
+                    "false to opt out, so actionable reports still generate and notify but the team "
+                    "never auto-starts an implementation task or opens a PR — reviewers open PRs manually."
+                )
+            },
             "default_slack_notification_channel": {
                 "help_text": (
                     "Default Slack channel for this team's signal inbox notifications, in the same "
@@ -269,8 +283,66 @@ class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
     )
 
 
+class SignalReportRefundSerializer(serializers.ModelSerializer):
+    billing_synced = serializers.SerializerMethodField(
+        help_text=(
+            "Whether the billing service has acknowledged this refund. Always relevant for the "
+            "credited path (the Stripe credit is issued asynchronously); excluded-path refunds "
+            "need no billing sync and report false."
+        ),
+    )
+
+    class Meta:
+        model = SignalReportRefund
+        fields = [
+            "id",
+            "reason",
+            "note",
+            "billing_path",
+            "credits",
+            "pr_url",
+            "pr_run_created_at",
+            "credit_amount_usd",
+            "billing_synced",
+            "created_at",
+        ]
+        read_only_fields = fields
+        extra_kwargs = {
+            "reason": {"help_text": "Why the user refunded this PR (feeds the refund review)."},
+            "note": {"help_text": "Optional free-form note captured with the refund."},
+            "billing_path": {
+                "help_text": (
+                    "How the refund was executed, frozen at refund time: 'excluded' (same UTC day as "
+                    "the billable PR run — the report never reaches billing) or 'credited' (billing "
+                    "issues a Stripe customer-balance credit)."
+                )
+            },
+            "credits": {"help_text": "Signals credits refunded (flat per-PR charge snapshot; 1 credit = $0.01)."},
+            "pr_url": {"help_text": "The refunded implementation PR's GitHub URL, snapshotted at refund time."},
+            "pr_run_created_at": {
+                "help_text": "When the first billable PR run was created — the charge this reverses."
+            },
+            "credit_amount_usd": {
+                "help_text": (
+                    "USD amount the billing service credited (credited path only). Null until the sync "
+                    "completes; '0.00' is a legitimate outcome (e.g. the PR was inside the free tier)."
+                )
+            },
+            "created_at": {"help_text": "When the refund was created."},
+        }
+
+    def get_billing_synced(self, obj: SignalReportRefund) -> bool:
+        return obj.billing_synced_at is not None
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
+    refund_ineligibility_reason = serializers.SerializerMethodField(
+        help_text=(
+            "Why refunding this report's PR would be rejected right now, or null when a refund "
+            "would be accepted (see the field's schema for the reason values)."
+        ),
+    )
     priority = serializers.SerializerMethodField(
         help_text="P0–P4 from the latest priority judgment artefact (when present).",
     )
@@ -290,8 +362,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
     source_products = serializers.SerializerMethodField(
         help_text="Distinct source products contributing signals to this report (from ClickHouse).",
     )
+    scout_name = serializers.SerializerMethodField(
+        help_text="skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.",
+    )
     implementation_pr_url = serializers.SerializerMethodField(
         help_text="PR URL from the latest implementation task run, if available.",
+    )
+    refund = serializers.SerializerMethodField(
+        help_text="The report's PR refund, when one exists. One refund per report, ever.",
     )
 
     class Meta:
@@ -314,9 +392,22 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "dismissal_note",
             "is_suggested_reviewer",
             "source_products",
+            "scout_name",
             "implementation_pr_url",
+            "refund",
+            "refund_ineligibility_reason",
+            "billing_exempt_reason",
         ]
         read_only_fields = fields
+        extra_kwargs = {
+            "billing_exempt_reason": {
+                "help_text": (
+                    "Non-null when this report is system-marked never-billable (PostHog-system origin, "
+                    "e.g. a health-check scout finding) — its implementation PRs are free and cannot be "
+                    "refunded because nothing was charged."
+                )
+            },
+        }
 
     def _get_actionability_artefact_data(self, obj: SignalReport) -> dict | None:
         prefetched = getattr(obj, "prefetched_actionability_artefacts", None)
@@ -406,12 +497,147 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return source_products_map.get(str(obj.id), [])
         return []
 
+    def get_scout_name(self, obj: SignalReport) -> str | None:
+        scout_names_map: dict[str, str] | None = self.context.get("scout_names_map")
+        if scout_names_map is not None:
+            return scout_names_map.get(str(obj.id))
+        return None
+
     def get_implementation_pr_url(self, obj: SignalReport) -> str | None:
         implementation_pr_url_map: dict[str, str] | None = self.context.get("implementation_pr_url_map")
         if implementation_pr_url_map is not None:
             return implementation_pr_url_map.get(str(obj.id))
         value = getattr(obj, "implementation_pr_url", None)
         return value if isinstance(value, str) else None
+
+    @extend_schema_field(SignalReportRefundSerializer(allow_null=True))
+    def get_refund(self, obj: SignalReport) -> dict | None:
+        # Reverse OneToOne: RelatedObjectDoesNotExist subclasses AttributeError, so getattr
+        # degrades to None for unrefunded reports. The viewset select_related()s the relation.
+        refund = getattr(obj, "refund", None)
+        if refund is None:
+            return None
+        return SignalReportRefundSerializer(refund).data
+
+    @extend_schema_field(
+        serializers.ChoiceField(
+            choices=list(REFUND_INELIGIBILITY_REASONS),
+            allow_null=True,
+            help_text=(
+                "Why refunding this report's PR would be rejected right now, or null when a refund "
+                "would be accepted. Shares the refund endpoint's eligibility decision, so the UI can "
+                "disable the Refund action instead of offering a request that would 400. One of: "
+                "already_refunded, billing_exempt, no_billable_pr, out_of_period."
+            ),
+        )
+    )
+    def get_refund_ineligibility_reason(self, obj: SignalReport) -> str | None:
+        period = self.context.get("billing_period_bounds")
+        # Degrades to null (eligible) outside the reports viewset, where neither the period
+        # context nor the billable-moment annotation exists — the refund endpoint re-enforces.
+        if period is None:
+            return None
+        return refund_ineligibility_reason(
+            has_refund=getattr(obj, "refund", None) is not None,
+            billing_exempt=bool(obj.billing_exempt_reason),
+            billable_run_at=getattr(obj, "first_billable_pr_run_at", None),
+            period=period,
+        )
+
+
+# ── Report `signals` action ─────────────────────────────────────────────────────
+#
+# A signal's `extra` blob is one of the Pydantic `*SignalExtra` shapes from `contracts.py`. Those
+# models are passed straight to `PolymorphicProxySerializer` — drf-spectacular's built-in
+# `PydanticExtension` turns each into a named OpenAPI component (nested models included), so the
+# frontend types flow through the standard OpenAPI/Orval pipeline without re-declaring the shapes.
+
+# All `extra` payload shapes. They're discriminated at runtime by the (source_product, source_type)
+# pair on the signal row, not by a field inside `extra`, so the OpenAPI union carries no discriminator.
+SIGNAL_EXTRA_MODELS = list(contracts.SignalExtraBase.__subclasses__())
+
+
+@extend_schema_field(
+    PolymorphicProxySerializer(
+        component_name="SignalExtra",
+        # drf-spectacular's built-in PydanticExtension resolves the Pydantic models at schema-build
+        # time; the stubs only know about DRF serializers, hence the cast.
+        serializers=cast(list, SIGNAL_EXTRA_MODELS),
+        resource_type_field_name=None,
+    )
+)
+class SignalExtraField(serializers.JSONField):
+    """Product-specific `extra` payload — one of the *SignalExtra shapes."""
+
+
+# Mirrors of the clustering dataclasses in `temporal/types.py` (SpecificityMetadata,
+# MatchedMetadata, NoMatchMetadata). Those are plain dataclasses, which spectacular's
+# PydanticExtension can't consume directly, so the shape is declared here as DRF serializers.
+
+
+class SpecificityMetadataSerializer(serializers.Serializer):
+    pr_title = serializers.CharField(help_text="Title of the PR the specificity gate evaluated.")
+    specific_enough = serializers.BooleanField(help_text="Whether the report passed the PR-specificity gate.")
+    reason = serializers.CharField(help_text="The gate's reasoning.")
+
+
+class MatchedMetadataSerializer(serializers.Serializer):
+    parent_signal_id = serializers.CharField(help_text="Signal already in the report that this one matched.")
+    match_query = serializers.CharField(help_text="Query used to find the parent signal.")
+    reason = serializers.CharField(help_text="Why the signals were judged to describe the same issue.")
+    specificity = SpecificityMetadataSerializer(
+        required=False, allow_null=True, help_text="PR-specificity gate result, when the gate ran."
+    )
+
+
+class NoMatchMetadataSerializer(serializers.Serializer):
+    reason = serializers.CharField(help_text="Why no existing report matched.")
+    rejected_signal_ids = serializers.ListField(
+        child=serializers.CharField(), help_text="Candidate signals that were considered and rejected."
+    )
+    specificity_rejection = SpecificityMetadataSerializer(
+        required=False, allow_null=True, help_text="PR-specificity gate result that caused a rejection, when present."
+    )
+
+
+@extend_schema_field(
+    PolymorphicProxySerializer(
+        component_name="SignalMatchMetadata",
+        serializers=[MatchedMetadataSerializer, NoMatchMetadataSerializer],
+        resource_type_field_name=None,
+    )
+)
+class SignalMatchMetadataField(serializers.JSONField):
+    """Why the signal matched (or didn't) into its report cluster."""
+
+
+class SignalNodeSerializer(serializers.Serializer):
+    signal_id = serializers.CharField(help_text="ClickHouse document id of the signal.")
+    content = serializers.CharField(help_text="The signal's human-readable description.")
+    source_product = serializers.ChoiceField(
+        choices=[(p.value, p.value) for p in SignalSourceProduct],
+        help_text="Product that emitted the signal.",
+    )
+    source_type = serializers.ChoiceField(
+        choices=[(t.value, t.value) for t in SignalSourceType],
+        help_text="Signal type within the source product.",
+    )
+    source_id = serializers.CharField(help_text="Emitter-scoped id of the underlying object (issue, ticket, ...).")
+    weight = serializers.FloatField(help_text="Signal weight in [0, 1]; drives report ranking.")
+    timestamp = serializers.DateTimeField(help_text="Emission timestamp.")
+    extra = SignalExtraField(help_text="Product-specific payload; shape depends on (source_product, source_type).")
+    match_metadata = SignalMatchMetadataField(
+        required=False,
+        allow_null=True,
+        help_text="Clustering match/no-match metadata, when present.",
+    )
+
+
+class ReportSignalsResponseSerializer(serializers.Serializer):
+    """Response body for GET /api/projects/:id/signals/reports/:id/signals/."""
+
+    report = SignalReportSerializer(help_text="The report these signals were clustered into.")
+    signals = SignalNodeSerializer(many=True, help_text="All signals contributing to the report.")
 
 
 class SignalReportArtefactSerializer(serializers.ModelSerializer):

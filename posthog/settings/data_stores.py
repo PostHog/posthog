@@ -1,8 +1,6 @@
 import os
 import json
-import time
 from contextlib import suppress
-from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
@@ -318,6 +316,10 @@ CLICKHOUSE_WRITABLE_CLUSTER: str = os.getenv("CLICKHOUSE_WRITABLE_CLUSTER", "pos
 CLICKHOUSE_PRIMARY_REPLICA_CLUSTER: str = os.getenv("CLICKHOUSE_PRIMARY_REPLICA_CLUSTER", "posthog_primary_replica")
 CLICKHOUSE_AUX_CLUSTER: str = os.getenv("CLICKHOUSE_AUX_CLUSTER", "aux")
 CLICKHOUSE_AI_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_AI_EVENTS_CLUSTER", "ai_events")
+# CI uses this to run the test suite against both schemas. Production reads use the instance settings.
+CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: bool = TEST and get_from_env(
+    "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False, type_cast=str_to_bool
+)
 # query_log_archive's single data table lives on the OPS cluster; every cluster's
 # Distributed read/write tables route to it via this cluster name.
 CLICKHOUSE_OPS_CLUSTER: str = os.getenv("CLICKHOUSE_OPS_CLUSTER", "ops")
@@ -406,23 +408,6 @@ except Exception:
     CLICKHOUSE_PER_TEAM_QUERY_SETTINGS = {}
 
 
-def is_web_analytics_events_prefilter_team(team_id: int | None) -> bool:
-    if team_id is None:
-        return False
-    return team_id in _get_web_analytics_events_prefilter_teams(round(time.time() / 120))
-
-
-@lru_cache(maxsize=1)
-def _get_web_analytics_events_prefilter_teams(_ttl: int) -> list[int]:
-    from posthog.models.instance_setting import get_instance_setting
-
-    try:
-        value = get_instance_setting("WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS")
-        return value if isinstance(value, list) else []
-    except Exception:
-        return []
-
-
 # Set of teams querying the data before we switched to new limits
 API_QUERIES_LEGACY_TEAM_LIST: Optional[set[int]] = None
 with suppress(Exception):
@@ -501,6 +486,13 @@ if not REDIS_URL:
         "https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
     )
 
+# Socket timeouts for the central Redis clients (posthog/redis.py). The connect timeout is kept
+# small so a dead node fails fast. The read timeout must comfortably exceed the largest server-side
+# blocking window on the central client, which is a 15s XREAD BLOCK (notebooks collab_stream);
+# 20s leaves margin so blocking stream reads never spuriously time out.
+REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS: float = get_from_env("REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS", 3.0, type_cast=float)
+REDIS_SOCKET_TIMEOUT_SECONDS: float = get_from_env("REDIS_SOCKET_TIMEOUT_SECONDS", 20.0, type_cast=float)
+
 # Controls whether the ZstdCompressor is used for Redis compression when writing to Redis.
 # The ZstdCompressor uses zstd compression and can cope with compressed and uncompressed reading at the same time
 USE_REDIS_COMPRESSION = get_from_env("USE_REDIS_COMPRESSION", True, type_cast=str_to_bool)
@@ -532,6 +524,8 @@ if not CDP_API_URL:
 # internal API requests fail closed at request time (InternalAPIAuthentication) rather than silently
 # running on a known-public value. Stripped at load so a mounted secret's trailing newline can't
 # cause a spurious mismatch; get_list already strips the fallbacks.
+# Do not add new callers or protected endpoints to this shared secret — mint a scoped JWT (see
+# RECORDING_API_JWT_SECRET) or add a dedicated per-purpose secret. See .agents/security.md.
 LOCAL_DEV_INTERNAL_API_SECRET = "posthog123"
 INTERNAL_API_SECRET = get_from_env(
     "INTERNAL_API_SECRET", LOCAL_DEV_INTERNAL_API_SECRET if DEBUG or TEST else ""
@@ -539,6 +533,15 @@ INTERNAL_API_SECRET = get_from_env(
 # Previous secrets still accepted for verification during zero-downtime rotation, newest first.
 # Receivers accept INTERNAL_API_SECRET plus these; senders always send INTERNAL_API_SECRET.
 INTERNAL_API_SECRET_FALLBACKS = get_list(os.getenv("INTERNAL_API_SECRET_FALLBACKS", ""))
+
+# Scoped JWT keys for the workflows timing-reschedule sweep (Django mints, the plugin server's
+# reschedule_parked route verifies) — a per-purpose secret so this caller never touches
+# INTERNAL_API_SECRET. Comma-separated, newest first: the first key signs, the plugin server
+# verifies against all. Empty outside dev/test, so the sweep fails closed until provisioned.
+# The dev/test value must match the plugin server's default (nodejs/src/cdp/config.ts).
+WORKFLOWS_RESCHEDULE_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOWS_RESCHEDULE_JWT_SECRET", "local-dev-workflows-reschedule-jwt" if DEBUG or TEST else "")
+)
 
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
@@ -665,7 +668,10 @@ if TEST:
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)
-MATERIALIZED_COLUMNS_USE_CACHE: bool = get_from_env("MATERIALIZED_COLUMNS_USE_CACHE", False, type_cast=str_to_bool)
+# Default on in TEST: the schema-introspection query behind materialized-column lookups otherwise runs
+# hundreds of times per suite, and the test cache backend is process-local (LocMem) with all column
+# mutations invalidating the key (see ee/clickhouse/materialized_columns/columns.py).
+MATERIALIZED_COLUMNS_USE_CACHE: bool = get_from_env("MATERIALIZED_COLUMNS_USE_CACHE", TEST, type_cast=str_to_bool)
 
 # Limiting event_list API, saving ClickHouse, 0 - disabled, 1 - migration period, 2 - enabled.
 PATCH_EVENT_LIST_MAX_OFFSET: int = get_from_env("PATCH_EVENT_LIST_MAX_OFFSET", 0, type_cast=int)

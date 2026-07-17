@@ -8,6 +8,7 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TZLabel } from 'lib/components/TZLabel'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { urls } from 'scenes/urls'
@@ -19,7 +20,14 @@ import type {
 
 import { customPropertyDefinitionsLogic } from './customPropertyDefinitionsLogic'
 import { CustomPropertyModal } from './CustomPropertyModal'
-import { labelForDisplayType } from './customPropertyTypes'
+import { labelForDisplayType, type SourceSyncStatusLevel, sourceSyncStatus } from './customPropertyTypes'
+
+const TAG_TYPE_BY_SYNC_LEVEL: Record<SourceSyncStatusLevel, LemonTagType> = {
+    synced: 'success',
+    error: 'danger',
+    disabled: 'muted',
+    pending: 'default',
+}
 
 export function CustomPropertiesConfig(): JSX.Element {
     const { definitions, definitionsLoading } = useValues(customPropertyDefinitionsLogic)
@@ -77,6 +85,25 @@ export function CustomPropertiesConfig(): JSX.Element {
                 ) : (
                     <span className="text-secondary">—</span>
                 ),
+        },
+        {
+            title: 'Sync',
+            render: (_, definition) => {
+                if (!definition.source) {
+                    return <span className="text-secondary">Manual</span>
+                }
+                const status = sourceSyncStatus(definition.source)
+                return (
+                    <Tooltip title={status.tooltip}>
+                        <span className="flex items-center gap-2">
+                            <LemonTag type={TAG_TYPE_BY_SYNC_LEVEL[status.level]}>{status.label}</LemonTag>
+                            {status.level === 'synced' && definition.source.last_synced_at && (
+                                <TZLabel time={definition.source.last_synced_at} className="text-secondary" />
+                            )}
+                        </span>
+                    </Tooltip>
+                )
+            },
         },
         {
             title: '',

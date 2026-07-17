@@ -84,7 +84,7 @@ No charts/cloud-infra needed locally. The `metrics` dev intent boots the whole p
 
 1. `hogli dev:setup` → select the **`metrics`** intent (boots `capture-logs`, `ingestion-metrics`, `ingestion-logs`, the dev `otel-collector`, deps; `metrics1` created by CH bootstrap). `hogli start`.
 2. Enable the `metrics` feature flag for your user.
-3. Real PostHog logs services pipe through automatically: the dev collector (`otel-collector-config.dev.yaml`) scrapes `/_metrics` on `logs-ingestion` (`:6743`), `metrics-ingestion` (`:6744`), and the plugin server (`:6738`) every 15s and exports OTLP to `capture-logs` (token `phc_local` → team*id 1). Their `prom-client` counters (`logs_ingestion*_`, `metrics*ingestion*_`, consumer lag, batch utilization) are exactly the Grafana logs-dashboard metrics.
+3. Real PostHog logs services pipe through automatically: the dev collector (`otel-collector-config.dev.yaml`) scrapes `/_metrics` on `logs-ingestion` (`:6743`), `metrics-ingestion` (`:6744`), and the plugin server (`:6738`) every 15s and exports OTLP to `capture-logs` (token `phc_local` → `team_id` 1). Their `prom-client` counters (`logs_ingestion_*`, `metrics_ingestion_*`, consumer lag, batch utilization) are exactly the Grafana logs-dashboard metrics.
 4. Validate:
    - `bin/verify-metrics-pipe` — checks `metrics1` for the piped service metrics and prints what arrived (pass/fail with troubleshooting).
    - `/metrics` SQL tab: `SELECT metric_name, count() FROM posthog.metrics WHERE service_name = 'logs-ingestion' GROUP BY 1 ORDER BY 2 DESC` (note: data lands on **team_id 1** via `phc_local`).
@@ -97,7 +97,7 @@ clickhouse-client -h localhost --query "
 INSERT INTO metrics1 (uuid, team_id, timestamp, service_name, metric_name, metric_type, value, attributes_map_str, resource_attributes)
 SELECT generateUUIDv4(), 2, now() - INTERVAL number SECOND, 'logs-ingestion', 'logs_ingestion_bytes_received_total', 'sum',
        toFloat64(number * 1024),
-       map('container_str','logs-ingestion','team_id_str','2'),
+       map('container__str','logs-ingestion','team_id__str','2'),
        map('namespace','posthog')
 FROM numbers(3600)"
 ```

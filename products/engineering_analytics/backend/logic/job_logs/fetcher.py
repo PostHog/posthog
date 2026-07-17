@@ -6,12 +6,12 @@ following the redirect is fine (no SSRF surface). Rate limits surface as ``GitHu
 the Temporal retry honors the reset.
 """
 
-import requests
+import contextlib
 
-from posthog.models.integration import GITHUB_API_VERSION, _is_safe_github_repo_path, raise_if_github_rate_limited
+from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
+from posthog.models.integration import _is_safe_github_repo_path
 
 _GITHUB_API = "https://api.github.com"
-_BASE_HEADERS = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": GITHUB_API_VERSION}
 # A connected repo's failed job can print an arbitrarily large log; cap the bytes we pull into memory
 # before thinning (the thinner only caps line count, after the bytes are already decoded).
 _MAX_LOG_BYTES = 20 * 1024 * 1024
@@ -26,11 +26,22 @@ def fetch_job_log(
         # value can't steer this authenticated request to a different GitHub endpoint.
         raise ValueError(f"Unsafe GitHub repo path: {repo!r}")
     url = f"{_GITHUB_API}/repos/{repo}/actions/jobs/{job_id}/logs"
-    headers = {**_BASE_HEADERS, "Authorization": f"Bearer {access_token}"}
     # Stream within the byte budget so a pathological log can't OOM the worker. Keep a bounded head
     # AND a rolling tail: failures surface at the end (the run summary), so a head-only cap could drop
     # the very lines thin_log needs if a job pads the start with noise.
-    with requests.get(url, headers=headers, timeout=timeout, allow_redirects=True, stream=True) as response:
+    # Identity-blind on purpose: the activity already gated this call against the installation
+    # budget before dispatch, so gating here again would consume the budget twice.
+    with contextlib.closing(
+        github_request(
+            "GET",
+            url,
+            source="job_logs",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=timeout,
+            allow_redirects=True,
+            stream=True,
+        )
+    ) as response:
         raise_if_github_rate_limited(response)
         if response.status_code == 404:
             return None

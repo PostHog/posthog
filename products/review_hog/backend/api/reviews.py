@@ -1,0 +1,750 @@
+import uuid
+import logging
+from datetime import timedelta
+from typing import Any, cast, get_args
+
+from django.conf import settings
+from django.db.models import Max, QuerySet
+from django.utils import timezone
+
+from drf_spectacular.openapi import AutoSchema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
+from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
+from rest_framework.request import Request
+from rest_framework.response import Response
+
+from posthog.api.integration import github_rate_limited_response
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.models.integration import GitHubIntegration
+from posthog.models.scoping.manager import resolve_effective_team_id
+from posthog.models.user import User
+
+from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
+from products.review_hog.backend.reviewer.artefact_content import (
+    ReviewIssueCategory,
+    ReviewIssueFinding,
+    ValidationVerdict,
+)
+from products.review_hog.backend.reviewer.constants import effective_priority
+from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
+from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
+from products.review_hog.backend.reviewer.persistence import load_chunk_set, load_findings_bundle, load_turn_findings
+from products.review_hog.backend.reviewer.progress import (
+    REVIEW_STAGES,
+    SnapshotStats,
+    TurnStats,
+    progress_payload,
+    snapshot_stats,
+    turn_stats,
+)
+from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
+from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher, PRMetadata, PRParser
+from products.review_hog.backend.temporal.client import start_review_pr_workflow
+from products.review_hog.backend.temporal.types import TRIGGER_UI
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_REVIEWS_LIMIT = 5
+# Caps "Show more" growth — enrichment (jsonb stats + findings bundle) is per-row work.
+MAX_REVIEWS_LIMIT = 100
+
+# Effectiveness stats aggregate deeper than the list — enough history for survival rates to mean something.
+PERSPECTIVE_STATS_REPORT_LIMIT = 50
+
+# An ACTIVE report only counts as "in progress" while its run is visibly moving (artefacts stream in
+# throughout a run); past this an abandoned/crashed run stops rendering as a live row.
+IN_PROGRESS_STALE_AFTER = timedelta(minutes=30)
+
+_PRIORITY_CHOICES = [priority.value for priority in IssuePriority]
+# Display order for the detail view: most urgent first.
+_PRIORITY_DISPLAY_RANK = {IssuePriority.MUST_FIX: 0, IssuePriority.SHOULD_FIX: 1, IssuePriority.CONSIDER: 2}
+
+SCOPE_MINE = "mine"
+SCOPE_EVERYONE = "everyone"
+
+
+class ReviewsListParamsSerializer(serializers.Serializer):
+    scope = serializers.ChoiceField(
+        choices=[SCOPE_MINE, SCOPE_EVERYONE],
+        default=SCOPE_MINE,
+        help_text="Whose reviews to list: `mine` for reviews of the requesting user's pull requests "
+        "(the default), `everyone` for every review on this project.",
+    )
+    limit = serializers.IntegerField(
+        default=DEFAULT_REVIEWS_LIMIT,
+        min_value=1,
+        max_value=MAX_REVIEWS_LIMIT,
+        help_text="Maximum rows to return. The list grows this instead of paging by offset — "
+        "in-progress rows reorder the list between refreshes, so offset pages would shift under the reader.",
+    )
+
+
+class ReviewProgressSerializer(serializers.Serializer):
+    review_stage = serializers.ChoiceField(
+        choices=REVIEW_STAGES,
+        help_text="How far the in-flight review turn has come: fetching the diff, chunking, picking "
+        "each chunk's perspectives, reviewing chunks, merging overlapping findings, validating them, "
+        "or finalizing (building and publishing the review).",
+    )
+    done = serializers.IntegerField(
+        allow_null=True, help_text="Work units finished within the stage; null when the stage has no counter."
+    )
+    total = serializers.IntegerField(
+        allow_null=True, help_text="Work units the stage expects in total; null when unknown."
+    )
+
+
+class ReviewSelectionChunkSerializer(serializers.Serializer):
+    chunk_id = serializers.IntegerField(help_text="The chunk this row describes, as numbered by the chunker.")
+    chunk_type = serializers.CharField(
+        allow_null=True,
+        help_text="The chunker's category for the chunk; null on the deterministic single-chunk path.",
+    )
+    files = serializers.ListField(
+        child=serializers.CharField(), help_text="The chunk's files, from the turn's chunk set."
+    )
+    perspectives = serializers.ListField(
+        child=serializers.CharField(), help_text="Perspectives the selector ran on this chunk, in pass order."
+    )
+    skipped = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Roster perspectives the selector skipped on this chunk, in pass order.",
+    )
+    reason = serializers.CharField(
+        allow_blank=True, help_text="The selector's one-line reasoning for this chunk's picks."
+    )
+
+
+class ReviewPerspectiveSelectionSerializer(serializers.Serializer):
+    roster = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Every enabled perspective the selector chose from, in pass order.",
+    )
+    chunks = ReviewSelectionChunkSerializer(many=True, help_text="Per-chunk picks with reasons, in chunk order.")
+
+
+class ReviewRecentReviewSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="The review report's id, for fetching the review's detail.")
+    repository = serializers.CharField(help_text="The reviewed repository, as `owner/repo`.")
+    pr_number = serializers.IntegerField(
+        allow_null=True, help_text="The reviewed pull request's number; null for a branch target with no PR yet."
+    )
+    pr_title = serializers.CharField(
+        allow_null=True, help_text="The pull request's title, from the latest reviewed snapshot; null if unknown."
+    )
+    pr_author = serializers.CharField(
+        allow_null=True, help_text="The pull request author's GitHub login; null if unknown."
+    )
+    additions = serializers.IntegerField(allow_null=True, help_text="Lines added by the PR; null if unknown.")
+    deletions = serializers.IntegerField(allow_null=True, help_text="Lines deleted by the PR; null if unknown.")
+    changed_files = serializers.IntegerField(allow_null=True, help_text="Files the PR changes; null if unknown.")
+    head_branch = serializers.CharField(help_text="The pull request's head branch.")
+    github_url = serializers.CharField(
+        help_text="Where to see the review on GitHub: the pull request when its URL is known, "
+        "otherwise the head branch."
+    )
+    run_count = serializers.IntegerField(help_text="How many review turns have completed on this report.")
+    last_run_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the latest review turn completed; null while the first is in flight."
+    )
+    published = serializers.BooleanField(help_text="Whether a review has been published back to GitHub.")
+    in_progress = serializers.BooleanField(
+        help_text="Whether a review turn is running on this report right now (activity within the last 30 minutes)."
+    )
+    progress = ReviewProgressSerializer(
+        allow_null=True, help_text="The in-flight turn's stage and counters; null unless `in_progress`."
+    )
+    must_fix_count = serializers.IntegerField(
+        help_text="The latest turn's valid findings at must_fix effective priority."
+    )
+    should_fix_count = serializers.IntegerField(
+        help_text="The latest turn's valid findings at should_fix effective priority."
+    )
+    consider_count = serializers.IntegerField(
+        help_text="The latest turn's valid findings at consider effective priority."
+    )
+    candidate_count = serializers.IntegerField(
+        help_text="All findings the latest turn raised after dedupe, before validation."
+    )
+    dismissed_count = serializers.IntegerField(
+        help_text="The latest turn's findings the validator dismissed as not worth publishing."
+    )
+    files_reviewed = serializers.IntegerField(
+        allow_null=True,
+        help_text="Meaningful files the latest turn actually read, after skipping generated/lock/snapshot files; "
+        "null if unknown.",
+    )
+    chunk_count = serializers.IntegerField(
+        allow_null=True, help_text="Reviewable chunks the latest turn split the PR into; null if unknown."
+    )
+    perspective_count = serializers.IntegerField(
+        allow_null=True, help_text="Review perspectives that read each chunk in the latest turn; null if unknown."
+    )
+    perspective_issue_count = serializers.IntegerField(
+        allow_null=True,
+        help_text="Raw issues the perspectives raised in the latest turn, before dedupe; null if unknown.",
+    )
+    blind_spot_issue_count = serializers.IntegerField(
+        allow_null=True,
+        help_text="Raw issues the blind-spot sweep added in the latest turn, before dedupe; null if unknown.",
+    )
+
+
+class ReviewRecentReviewsPageSerializer(serializers.Serializer):
+    results = ReviewRecentReviewSerializer(
+        many=True, help_text="The scoped reviews: in-progress runs first, then completed newest first."
+    )
+    has_more = serializers.BooleanField(
+        help_text='Whether reviews exist beyond this page — drives the list\'s "Show more" button.'
+    )
+
+
+class ReviewTriggerRequestSerializer(serializers.Serializer):
+    pr_url = serializers.CharField(
+        help_text="GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. "
+        "The repository must be accessible to the project's GitHub App installation.",
+    )
+
+
+class ReviewTriggerResponseSerializer(serializers.Serializer):
+    workflow_id = serializers.CharField(
+        allow_blank=True, help_text="Temporal workflow id for the started review run; empty when no run was started."
+    )
+    status = serializers.CharField(
+        help_text="Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the "
+        "pull request's current commit already has a published review (no new run starts)."
+    )
+
+
+class ReviewTriggerErrorSerializer(serializers.Serializer):
+    error = serializers.CharField(help_text="Human-readable explanation of why the trigger was rejected.")
+
+
+class ReviewFindingLineRangeSerializer(serializers.Serializer):
+    start = serializers.IntegerField(help_text="First affected line.")
+    end = serializers.IntegerField(allow_null=True, help_text="Last affected line; null for a single line.")
+
+
+class ReviewFindingSerializer(serializers.Serializer):
+    title = serializers.CharField(help_text="One-line summary of the finding.")
+    file = serializers.CharField(help_text="Repository-relative path of the affected file.")
+    lines = ReviewFindingLineRangeSerializer(many=True, help_text="Affected line ranges within the file.")
+    body = serializers.CharField(help_text="Description of the problem.")
+    suggestion = serializers.CharField(help_text="The specific fix or improvement the reviewer proposes.")
+    effective_priority = serializers.ChoiceField(
+        choices=_PRIORITY_CHOICES,
+        help_text="The priority that gates publishing: the validator's override when set, else the reviewer's.",
+    )
+    reviewer_priority = serializers.ChoiceField(
+        choices=_PRIORITY_CHOICES, help_text="The reviewer's original priority, before any validator override."
+    )
+    source_perspective = serializers.CharField(
+        allow_null=True, help_text="The review skill that produced the finding (perspective or blind-spot sweep)."
+    )
+    validator_category = serializers.ChoiceField(
+        choices=list(get_args(ReviewIssueCategory)),
+        allow_null=True,
+        help_text="The validator's category for the finding; null when it didn't set one.",
+    )
+    validator_note = serializers.CharField(
+        help_text="The validator's argumentation for keeping or dismissing the finding."
+    )
+
+
+class ReviewDetailSerializer(ReviewRecentReviewSerializer):
+    head_sha = serializers.CharField(
+        allow_null=True,
+        help_text="The PR head commit the latest turn reviewed — anchors GitHub links to the exact code.",
+    )
+    perspective_selection = ReviewPerspectiveSelectionSerializer(
+        allow_null=True,
+        help_text="The selector's per-chunk perspective plan for the latest turn; null when the turn ran "
+        "without a selection (selector unavailable, failed, or the run predates it).",
+    )
+    report_markdown = serializers.CharField(
+        allow_blank=True, help_text="The rendered review body published to GitHub, as markdown."
+    )
+    findings = ReviewFindingSerializer(many=True, help_text="The latest turn's validated findings, most urgent first.")
+    dismissed_findings = ReviewFindingSerializer(
+        many=True, help_text="The latest turn's findings the validator dismissed, with its reasoning."
+    )
+
+
+class ReviewPerspectiveStatItemSerializer(serializers.Serializer):
+    skill_name = serializers.CharField(
+        help_text="The review skill (perspective or blind-spot sweep) that raised the findings."
+    )
+    raised = serializers.IntegerField(
+        help_text="Findings this skill raised across the aggregated reviews (post-dedupe candidates)."
+    )
+    kept = serializers.IntegerField(help_text="Of those, findings the validator kept.")
+    dismissed = serializers.IntegerField(help_text="Of those, findings the validator dismissed.")
+
+
+class ReviewPerspectiveStatsSerializer(serializers.Serializer):
+    report_count = serializers.IntegerField(help_text="How many recent completed reviews the stats aggregate over.")
+    perspectives = ReviewPerspectiveStatItemSerializer(
+        many=True, help_text="Per-skill effectiveness across those reviews, most kept findings first."
+    )
+
+
+class _PageEnvelopeSchema(AutoSchema):
+    """Stops drf-spectacular's list-view heuristic from wrapping the `list` response in an array.
+
+    `list` returns a single page envelope (`results` + `has_more`), not a bare collection. The
+    default heuristic already returns False for this viewset's other operations, but forcing it
+    renames the list operation to `*_retrieve` — pin the operationId back so the generated client
+    keeps its `*List` name and doesn't collide with the real retrieve.
+    """
+
+    def _is_list_view(self, serializer: Any = None) -> bool:
+        return False
+
+    def get_operation_id(self) -> str:
+        operation_id = super().get_operation_id()
+        if getattr(self.view, "action", None) == "list" and operation_id.endswith("_retrieve"):
+            return operation_id.removesuffix("_retrieve") + "_list"
+        return operation_id
+
+
+def _fetch_pr_metadata(github: GitHubIntegration, owner: str, repo: str, pr_number: int) -> PRMetadata:
+    """One `GET /pulls/{n}` with the installation token — enough to answer the trigger honestly.
+
+    Raises `GitHubAPIError` (404 for a nonexistent PR); the caller maps it to a clear response.
+    """
+    token, installation_id = github.get_access_token(), github.github_installation_id
+    pr = github_api_request(
+        "GET",
+        f"/repos/{owner}/{repo}/pulls/{pr_number}",
+        token=token,
+        installation_id=installation_id,
+        endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+    ).json()
+    return PRFetcher(owner=owner, repo=repo, pr_number=pr_number, token=token).fetch_pr_metadata(pr)
+
+
+def _in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[str]:
+    """Which ACTIVE reports are visibly running: artefact or report activity within the staleness window.
+
+    Artefacts stream in throughout a run (snapshot, chunk set, per-chunk results, verdicts), so the
+    newest artefact is the liveness signal; a crashed run goes quiet and ages out instead of showing
+    a stuck spinner forever.
+    """
+    candidates = [report for report in reports if report.status == ReviewReport.Status.ACTIVE]
+    if not candidates:
+        return set()
+    latest_artefact = dict(
+        ReviewReportArtefact.objects.for_team(team_id)
+        .filter(report_id__in=[report.id for report in candidates])
+        .values_list("report_id")
+        .annotate(latest=Max("created_at"))
+        .values_list("report_id", "latest")
+    )
+    cutoff = timezone.now() - IN_PROGRESS_STALE_AFTER
+    fresh: set[str] = set()
+    for report in candidates:
+        last_activity = max(filter(None, [report.updated_at, latest_artefact.get(report.id)]), default=None)
+        if last_activity is not None and last_activity >= cutoff:
+            fresh.add(str(report.id))
+    return fresh
+
+
+def _finding_payload(finding: ReviewIssueFinding, verdict: ValidationVerdict) -> dict[str, Any]:
+    return {
+        "title": finding.title,
+        "file": finding.file,
+        "lines": [{"start": line_range.start, "end": line_range.end} for line_range in finding.lines],
+        "body": finding.body,
+        "suggestion": finding.suggestion,
+        "effective_priority": effective_priority(finding.priority, verdict.adjusted_priority).value,
+        "reviewer_priority": finding.priority.value,
+        "source_perspective": finding.source_perspective,
+        "validator_category": verdict.category,
+        "validator_note": verdict.argumentation,
+    }
+
+
+def _selection_payload(turn: TurnStats, chunks: ChunksList | None) -> dict[str, Any] | None:
+    """The selector's per-chunk plan for the detail drawer, joined with the chunk set's metadata."""
+    if turn.selection_roster is None or turn.selection_chunks is None:
+        return None
+    meta_by_id = {chunk.chunk_id: chunk for chunk in chunks.chunks} if chunks is not None else {}
+    rows: list[dict[str, Any]] = []
+    for entry in turn.selection_chunks:
+        meta = meta_by_id.get(entry.chunk_id)
+        selected = set(entry.perspectives)
+        rows.append(
+            {
+                "chunk_id": entry.chunk_id,
+                "chunk_type": meta.chunk_type if meta else None,
+                "files": [f.filename for f in meta.files] if meta else [],
+                "perspectives": [name for name in turn.selection_roster if name in selected],
+                "skipped": [name for name in turn.selection_roster if name not in selected],
+                "reason": entry.reason,
+            }
+        )
+    return {"roster": turn.selection_roster, "chunks": rows}
+
+
+def _review_payload(
+    report: ReviewReport,
+    snapshot: SnapshotStats,
+    turn: TurnStats,
+    pairs: list[tuple[ReviewIssueFinding, ValidationVerdict | None]],
+    progress: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """The list-row payload for one report; the detail endpoint layers findings on top."""
+    counts = dict.fromkeys(IssuePriority, 0)
+    dismissed = 0
+    for finding, verdict in pairs:
+        if verdict is None:
+            continue
+        if verdict.is_valid:
+            counts[effective_priority(finding.priority, verdict.adjusted_priority)] += 1
+        else:
+            dismissed += 1
+    meta = snapshot.meta
+    return {
+        "id": report.id,
+        "repository": report.repository,
+        "pr_number": report.pr_number,
+        "pr_title": meta.title if meta else None,
+        "pr_author": meta.author if meta else None,
+        "additions": meta.additions if meta else None,
+        "deletions": meta.deletions if meta else None,
+        "changed_files": meta.changed_files if meta else None,
+        "head_branch": report.head_branch,
+        "github_url": report.pr_url or f"https://github.com/{report.repository}/tree/{report.head_branch}",
+        "run_count": report.run_count,
+        "last_run_at": report.last_run_at,
+        "published": report.published_head_sha is not None,
+        "in_progress": progress is not None,
+        "progress": progress,
+        "must_fix_count": counts[IssuePriority.MUST_FIX],
+        "should_fix_count": counts[IssuePriority.SHOULD_FIX],
+        "consider_count": counts[IssuePriority.CONSIDER],
+        "candidate_count": len(pairs),
+        "dismissed_count": dismissed,
+        "files_reviewed": snapshot.files_reviewed,
+        "chunk_count": turn.chunk_count,
+        "perspective_count": turn.perspective_count,
+        "perspective_issue_count": turn.perspective_issue_count,
+        "blind_spot_issue_count": turn.blind_spot_issue_count,
+    }
+
+
+class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Recent ReviewHog reviews on this project.
+
+    Read-only meta for the Code review tab's "recent reviews" block: what was reviewed, how many
+    valid findings at each effective priority, the reviewed PR's facts, and the pipeline shape of
+    the latest turn. `list` covers the requesting user's reviews (reports where they are the acting
+    user) by default, or the whole project's via `scope=everyone` — mirroring the inbox's
+    "For you / Entire project" switch. `retrieve` adds the findings themselves (valid + dismissed)
+    and the published review body; it is project-wide so any listed review can be opened.
+    """
+
+    scope_object = "INTERNAL"
+    # Unscoped only to satisfy the router/introspection; every real query goes through `for_team`.
+    queryset = ReviewReport.objects.unscoped()
+    serializer_class = ReviewRecentReviewSerializer
+    pagination_class = None
+    schema = _PageEnvelopeSchema()
+
+    def _reports(self, request: Request, scope: str = SCOPE_MINE) -> tuple[int, QuerySet[ReviewReport]]:
+        team_id = resolve_effective_team_id(self.team_id)
+        queryset = ReviewReport.objects.for_team(team_id, canonical=True)
+        if scope == SCOPE_MINE:
+            queryset = queryset.filter(acting_user_id=request.user.id)
+        return team_id, queryset
+
+    @extend_schema(
+        parameters=[ReviewsListParamsSerializer],
+        responses={
+            200: OpenApiResponse(
+                response=ReviewRecentReviewsPageSerializer,
+                description="The scoped reviews: in-progress runs first, then completed newest first, "
+                "with a flag for whether more exist beyond `limit`.",
+            ),
+        },
+        summary="List recent reviews",
+        description="Recent ReviewHog reviews on this project: actively running reviews first (with the "
+        "in-flight turn's stage), then the most recent completed ones — at most `limit` rows (default 5), "
+        "plus `has_more` for whether a larger `limit` would reveal more. By default only the requesting "
+        "user's reviews; `scope=everyone` lists every review on the project.",
+    )
+    def list(self, request: Request, **kwargs) -> Response:
+        params = ReviewsListParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        limit: int = params.validated_data["limit"]
+        # One row beyond the limit proves whether "Show more" has anything left to reveal.
+        probe_limit = limit + 1
+        team_id, queryset = self._reports(request, scope=params.validated_data["scope"])
+        completed = list(queryset.filter(last_run_at__isnull=False).order_by("-last_run_at")[:probe_limit])
+        # First-turn runs have no completed turn yet; they only surface while visibly running.
+        running_first_turn = list(
+            queryset.filter(status=ReviewReport.Status.ACTIVE, last_run_at__isnull=True).order_by("-created_at")[
+                :probe_limit
+            ]
+        )
+        # A re-review keeps the previous turn's last_run_at until it finalizes, so a dormant report's
+        # in-flight turn can rank below the completed slice — fetch running re-reviews explicitly or
+        # an actively reviewed PR vanishes from the list mid-run.
+        running_re_review = list(
+            queryset.filter(status=ReviewReport.Status.ACTIVE, last_run_at__isnull=False).order_by("-updated_at")[
+                :probe_limit
+            ]
+        )
+        in_progress_ids = _in_progress_report_ids(team_id, running_first_turn + running_re_review + completed)
+        # Visibly running first (first turns, then re-reviews), then recent completed — deduped so a
+        # re-review that also ranks in the completed slice keeps its front position.
+        seen: set[str] = set()
+        reports: list[ReviewReport] = []
+        for report in [
+            *[report for report in running_first_turn if str(report.id) in in_progress_ids],
+            *[report for report in running_re_review if str(report.id) in in_progress_ids],
+            *completed,
+        ]:
+            if str(report.id) not in seen:
+                seen.add(str(report.id))
+                reports.append(report)
+        has_more = len(reports) > limit
+        reports = reports[:limit]
+
+        # Row stats anchor to each report's COMPLETED turn (matching the findings' run_count); the
+        # in-flight progress payload alone reads the live head. Pre-column rows fall back to the live
+        # watermark, which is also correct for never-finalized first turns.
+        snapshots = snapshot_stats(team_id, {str(r.id): r.completed_head_sha or r.head_sha for r in reports})
+        turns = turn_stats(team_id, {str(r.id): r.completed_head_sha or r.head_sha for r in reports})
+        in_flight = [report for report in reports if str(report.id) in in_progress_ids]
+        live_heads = {str(report.id): report.head_sha for report in in_flight}
+        live_snapshots = snapshot_stats(team_id, live_heads) if in_flight else {}
+        live_turns = turn_stats(team_id, live_heads) if in_flight else {}
+        bundle = load_findings_bundle(team_id=team_id, report_ids=[str(report.id) for report in reports])
+        items = []
+        for report in reports:
+            report_id = str(report.id)
+            snapshot = snapshots.get(report_id, SnapshotStats())
+            turn = turns.get(report_id, TurnStats())
+            pairs = bundle.turn(report_id, report.run_count)
+            progress = None
+            if report_id in in_progress_ids:
+                # The in-flight turn's findings live one run_index ahead of the completed watermark.
+                current_pairs = bundle.turn(report_id, report.run_count + 1)
+                progress = progress_payload(
+                    team_id,
+                    report,
+                    live_snapshots.get(report_id, SnapshotStats()),
+                    live_turns.get(report_id, TurnStats()),
+                    current_pairs,
+                )
+            items.append(_review_payload(report, snapshot, turn, pairs, progress))
+        return Response(ReviewRecentReviewsPageSerializer({"results": items, "has_more": has_more}).data)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=ReviewPerspectiveStatsSerializer,
+                description="Per-skill effectiveness across the user's recent completed reviews.",
+            ),
+        },
+        summary="Perspective effectiveness stats",
+        description="How many findings each review skill (perspective or blind-spot sweep) raised across the "
+        "requesting user's recent completed reviews, and how many of those the validator kept vs dismissed.",
+    )
+    @action(methods=["GET"], detail=False)
+    def perspective_stats(self, request: Request, **kwargs) -> Response:
+        team_id, queryset = self._reports(request)
+        reports = list(
+            queryset.filter(last_run_at__isnull=False).order_by("-last_run_at")[:PERSPECTIVE_STATS_REPORT_LIMIT]
+        )
+        stats: dict[str, dict[str, int]] = {}
+        bundle = load_findings_bundle(team_id=team_id, report_ids=[str(report.id) for report in reports])
+        for report in reports:
+            pairs = bundle.turn(str(report.id), report.run_count)
+            for finding, verdict in pairs:
+                entry = stats.setdefault(
+                    finding.source_perspective or "unknown", {"raised": 0, "kept": 0, "dismissed": 0}
+                )
+                entry["raised"] += 1
+                if verdict is not None:
+                    entry["kept" if verdict.is_valid else "dismissed"] += 1
+        items: list[dict[str, Any]] = [{"skill_name": skill_name, **counts} for skill_name, counts in stats.items()]
+        items.sort(key=lambda item: (-item["kept"], -item["raised"], item["skill_name"]))
+        payload = {"report_count": len(reports), "perspectives": items}
+        return Response(ReviewPerspectiveStatsSerializer(payload).data)
+
+    @extend_schema(
+        request=ReviewTriggerRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ReviewTriggerResponseSerializer,
+                description="No new run needed: the PR's current commit already has a published review.",
+            ),
+            202: OpenApiResponse(response=ReviewTriggerResponseSerializer, description="Review run started."),
+            400: OpenApiResponse(
+                response=ReviewTriggerErrorSerializer,
+                description="Invalid PR URL, inaccessible repository, or a nonexistent, closed, or fork PR.",
+            ),
+            403: OpenApiResponse(
+                response=ReviewTriggerErrorSerializer,
+                description="The ReviewHog UI trigger is not enabled for this project.",
+            ),
+            429: OpenApiResponse(description="GitHub rate-limited the App's token; retry after the Retry-After delay."),
+        },
+        summary="Start a review of a pull request",
+        description="Start a ReviewHog review of any pull request the project's GitHub App installation can "
+        "access, and publish it back to the PR. The requesting user is the review's acting user: their "
+        "enabled perspectives, blind-spot check, validator, and urgency threshold drive the run, and it "
+        "appears under their recent reviews. Nonexistent, closed, and fork PRs are rejected synchronously; "
+        "a PR whose current commit already has a published review returns 'already_reviewed' without "
+        "starting a run, and triggering a PR whose review is currently running joins the in-flight run. "
+        "Otherwise non-blocking: returns the Temporal workflow id immediately while the review runs in "
+        "the worker.",
+    )
+    @action(methods=["POST"], detail=False)
+    def trigger(self, request: Request, **kwargs) -> Response:
+        team_id = resolve_effective_team_id(self.team_id)
+        # Dogfood gate: the UI trigger only runs on the designated ReviewHog team for now — reviews are
+        # expensive, so widening beyond it is a deliberate later decision, not a default.
+        if not settings.REVIEWHOG_TEAM_ID or team_id != settings.REVIEWHOG_TEAM_ID:
+            return Response(
+                {"error": "ReviewHog reviews can't be started from this project yet"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        serializer = ReviewTriggerRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            pr_info = PRParser().parse_github_pr_url(serializer.validated_data["pr_url"])
+        except ValueError:
+            return Response(
+                {
+                    "error": "That doesn't look like a GitHub pull request URL (expected https://github.com/OWNER/REPO/pull/NUMBER)"
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        repository = f"{pr_info['owner']}/{pr_info['repo']}"
+        # Checked synchronously (one GitHub API call) so an inaccessible repo errors here, in the UI —
+        # asynchronously the fetch activity would fail before the report row exists, showing nothing.
+        try:
+            github = GitHubIntegration.first_for_team_repository(team_id, repository)
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
+        if github is None:
+            return Response(
+                {
+                    "error": f"ReviewHog's GitHub App can't access {repository}. It reviews repositories covered by this project's GitHub integration."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        pr_number = int(pr_info["pr_number"])
+        # One PR fetch so the answer is honest: without it a typo'd number or fork dies async (before
+        # the report row exists — nothing appears), and an already-reviewed head silently no-ops while
+        # the response still claims "started". Fork/closed rejection here is UX; the fetch activity
+        # keeps the authoritative fork gate.
+        try:
+            pr_meta = _fetch_pr_metadata(github, str(pr_info["owner"]), str(pr_info["repo"]), pr_number)
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
+        except GitHubAPIError as e:
+            if e.status == 404:
+                return Response(
+                    {"error": f"No pull request #{pr_number} found in {repository}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            raise
+        if pr_meta.is_fork:
+            return Response(
+                {"error": "ReviewHog doesn't review fork pull requests (a fork's head can't be trusted)"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if pr_meta.state != "open":
+            return Response(
+                {"error": f"Pull request #{pr_number} is {pr_meta.state}; ReviewHog reviews open pull requests"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Repository casing can differ per trigger (the report stores whatever its trigger carried).
+        report = (
+            ReviewReport.objects.for_team(team_id).filter(repository__iexact=repository, pr_number=pr_number).first()
+        )
+        if report is not None and pr_meta.head_sha and report.published_head_sha == pr_meta.head_sha:
+            # The workflow would early-exit before resolving the acting user anyway — say so instead
+            # of answering "started" for a run that will do nothing.
+            return Response(
+                ReviewTriggerResponseSerializer({"workflow_id": "", "status": "already_reviewed"}).data,
+                status=status.HTTP_200_OK,
+            )
+        # Rebuilt canonical URL: the parser accepts trailing paths (e.g. …/pull/123/files).
+        pr_url = f"https://github.com/{pr_info['owner']}/{pr_info['repo']}/pull/{pr_info['pr_number']}"
+        # The requester is both the run user (sandbox identity) and the acting user (whose
+        # perspectives/validator/threshold apply). The route is authenticated, so never anonymous.
+        requester_id = cast(User, request.user).id
+        workflow_id = start_review_pr_workflow(
+            pr_url=pr_url,
+            team_id=team_id,
+            user_id=requester_id,
+            publish=True,
+            acting_user_id=requester_id,
+            trigger_source=TRIGGER_UI,
+        )
+        logger.info(f"ReviewHog UI trigger started workflow {workflow_id} for {pr_url} by user {requester_id}")
+        return Response(
+            ReviewTriggerResponseSerializer({"workflow_id": workflow_id, "status": "started"}).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=ReviewDetailSerializer,
+                description="The review's detail: findings (valid and dismissed) and the published body.",
+            ),
+            404: OpenApiResponse(description="No such review on this project."),
+        },
+        summary="Retrieve one review's detail",
+        description="One completed ReviewHog review on this project, with the latest turn's validated "
+        "findings, the findings the validator dismissed (and why), and the review body published to "
+        "GitHub. Project-wide, so reviews listed under `scope=everyone` can be opened too.",
+    )
+    def retrieve(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+        try:
+            report_uuid = uuid.UUID(str(pk))
+        except ValueError:
+            raise NotFound("Review not found.")
+        # Project-wide on purpose: the detail must open for any review the everyone-scope list shows.
+        team_id, queryset = self._reports(request, scope=SCOPE_EVERYONE)
+        # Detail describes a completed turn — a first run still in flight has nothing to show yet.
+        report = queryset.filter(id=report_uuid, last_run_at__isnull=False).first()
+        if report is None:
+            raise NotFound("Review not found.")
+
+        report_id = str(report.id)
+        # Everything the detail returns — stats, chunk set, link-anchoring head — describes the same
+        # completed turn the findings come from, never an in-flight turn's watermark.
+        completed_head = report.completed_head_sha or report.head_sha
+        snapshots = snapshot_stats(team_id, {report_id: completed_head})
+        turns = turn_stats(team_id, {report_id: completed_head})
+        pairs = load_turn_findings(team_id=team_id, report_id=report_id, run_index=report.run_count)
+        chunk_set = (
+            load_chunk_set(team_id=team_id, report_id=report_id, head_sha=completed_head) if completed_head else None
+        )
+
+        def sort_key(payload: dict[str, Any]) -> tuple[int, str]:
+            return (_PRIORITY_DISPLAY_RANK[IssuePriority(payload["effective_priority"])], payload["file"])
+
+        valid = [_finding_payload(f, v) for f, v in pairs if v is not None and v.is_valid]
+        dismissed = [_finding_payload(f, v) for f, v in pairs if v is not None and not v.is_valid]
+        payload = {
+            **_review_payload(
+                report, snapshots.get(report_id, SnapshotStats()), turns.get(report_id, TurnStats()), pairs
+            ),
+            "head_sha": completed_head,
+            "report_markdown": report.report_markdown,
+            "findings": sorted(valid, key=sort_key),
+            "dismissed_findings": sorted(dismissed, key=sort_key),
+            "perspective_selection": _selection_payload(turns.get(report_id, TurnStats()), chunk_set),
+        }
+        return Response(ReviewDetailSerializer(payload).data)

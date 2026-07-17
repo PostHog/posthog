@@ -15,8 +15,8 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.errors import CHQueryErrorNoCommonType
 
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-from products.endpoints.backend.services.execution import EndpointExecutionService
+from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.endpoints.backend.logic.execution import EndpointExecutionService
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
@@ -172,9 +172,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
 
         with (
-            mock.patch("products.endpoints.backend.services.execution.process_query_model", side_effect=error),
-            mock.patch("products.endpoints.backend.services.execution.capture_exception"),
-            mock.patch("products.endpoints.backend.services.execution._emit_endpoint_failure_signal"),
+            mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=error),
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception"),
+            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal"),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
@@ -1795,7 +1795,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     # BREAKDOWN SENTINEL CLEANUP
     # =========================================================================
 
-    @mock.patch("products.endpoints.backend.services.execution.process_query_model")
+    @mock.patch("products.endpoints.backend.logic.execution.process_query_model")
     def test_inline_insight_sentinel_null_cleaned_from_breakdown_value(self, mock_process):
         mock_process.return_value = {
             "results": [
@@ -1822,7 +1822,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0]["breakdown_value"], ["Chrome", None])
         self.assertIsNone(results[1]["breakdown_value"])
 
-    @mock.patch("products.endpoints.backend.services.execution.process_query_model")
+    @mock.patch("products.endpoints.backend.logic.execution.process_query_model")
     def test_inline_insight_sentinel_cleaned_from_label(self, mock_process):
         mock_process.return_value = {
             "results": [
@@ -1851,7 +1851,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         results = response.json()["results"]
         self.assertEqual(results[0]["label"], "Chrome::null")
 
-    @mock.patch("products.endpoints.backend.services.execution.process_query_model")
+    @mock.patch("products.endpoints.backend.logic.execution.process_query_model")
     def test_hogql_result_sentinel_cleaned_from_breakdown_column(self, mock_process):
         mock_process.return_value = {
             "results": [
@@ -1906,7 +1906,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         # Patch the limit to a low value so the 30 distinct breakdown values exceed it
         with (
             mock.patch("products.endpoints.backend.materialization_transforms.ENDPOINT_BREAKDOWN_LIMIT", 5),
-            mock.patch("products.endpoints.backend.services.strategies.capture_exception") as mock_capture,
+            mock.patch("products.endpoints.backend.logic.strategies.capture_exception") as mock_capture,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
@@ -2230,7 +2230,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     def test_disable_materialization_no_op_does_not_increment_counter(self):
         from prometheus_client import REGISTRY
 
-        from products.endpoints.backend.services.materialization import EndpointMaterializationService
+        from products.endpoints.backend.logic.materialization import EndpointMaterializationService
 
         endpoint = self._make_simple_hogql_endpoint("metric_disable_no_op")
         labels = {"action": "disable", "status": "success"}
@@ -2248,8 +2248,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         boom = RuntimeError("synthetic failure")
 
         with (
-            mock.patch("products.endpoints.backend.services.execution.process_query_model", side_effect=boom),
-            mock.patch("products.endpoints.backend.services.execution._emit_endpoint_failure_signal") as mock_emit,
+            mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=boom),
+            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal") as mock_emit,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
@@ -2267,7 +2267,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
     def test_emit_failure_signal_swallows_errors(self):
         """Signal emission must never mask the original exception."""
-        from products.endpoints.backend.services.execution import _emit_endpoint_failure_signal
+        from products.endpoints.backend.logic.execution import _emit_endpoint_failure_signal
 
         endpoint = self._make_simple_hogql_endpoint("failure_signal_swallow")
 
@@ -2388,10 +2388,43 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(mock_exec.call_count, 2, "expected materialized attempt then inline fallback")
 
+    def test_materialized_cache_ttl_derived_from_modeling_jobs(self):
+        """v2 DAG runs record success in DataModelingJob but never write saved_query.last_run_at.
+        The cache TTL must key on the job, not clamp to 1s off the frozen saved-query timestamp."""
+        endpoint = self._make_fresh_materialized_endpoint(
+            "v2-cache-ttl", {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}
+        )
+        version = endpoint.versions.first()
+        saved_query = version.saved_query
+        saved_query.sync_frequency_interval = None  # migration cleanup nulls this on v2 teams
+        saved_query.last_run_at = timezone.now() - timedelta(days=3)
+        saved_query.save()
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJob.Engine.CLICKHOUSE,
+            last_run_at=timezone.now() - timedelta(minutes=5),
+        )
+
+        with mock.patch.object(
+            EndpointExecutionService,
+            "_execute_query_and_respond",
+            return_value=Response({"results": [[1]], "columns": ["count()"]}),
+        ) as mock_exec:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        cache_ttl = mock_exec.call_args.kwargs["cache_age_seconds"]
+        # data_freshness_seconds=86400, materialized ~5 min ago -> ~86100s remaining
+        self.assertGreater(cache_ttl, 80000, f"cache TTL clamped ({cache_ttl}s): freshness read from frozen timestamp")
+
     def test_series_mismatch_falls_back_to_inline(self):
         """Series drift triggers re-materialization AND serves the request inline."""
         from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
-        from products.endpoints.backend.services.strategies import InsightEndpointStrategy
+        from products.endpoints.backend.logic.strategies import InsightEndpointStrategy
 
         endpoint = self._make_fresh_materialized_endpoint(
             "mismatch-fallback",
@@ -2414,7 +2447,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 "transform_materialized_response",
                 side_effect=MaterializedSeriesMismatchError("series drift"),
             ),
-            mock.patch("products.endpoints.backend.services.execution.trigger_saved_query_schedule") as mock_trigger,
+            mock.patch("products.endpoints.backend.logic.execution.trigger_saved_query_schedule") as mock_trigger,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
@@ -2427,7 +2460,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     def test_emit_failure_signal_reaches_workflow_boundary(self):
         """The failure-signal plumbing must make it to the Temporal boundary when the
         org/source gates allow it — anything raising before that is a plumbing bug."""
-        from products.endpoints.backend.services.execution import _emit_endpoint_failure_signal
+        from products.endpoints.backend.logic.execution import _emit_endpoint_failure_signal
         from products.signals.backend.models import SignalSourceConfig
 
         self.organization.is_ai_data_processing_approved = True

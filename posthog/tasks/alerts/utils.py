@@ -10,10 +10,10 @@ from dateutil.relativedelta import MO, relativedelta
 from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayType, NodeKind, TrendsQuery
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
-from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 
+from products.alerts.backend.facade.api import send_alert_email
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, derive_detector_event_fields
 
 logger = structlog.get_logger(__name__)
@@ -46,28 +46,37 @@ def is_non_time_series_trend(query: TrendsQuery) -> bool:
     return display in NON_TIME_SERIES_DISPLAY_TYPES
 
 
+REAL_TIME_CADENCE_MINUTES = 2
+EVERY_15_MINUTES_CADENCE_MINUTES = 15
+
+# Cheaper, more time-sensitive checks get workers first when the due batch is large.
+# Single source for both the Python ordering and the ORM Case in
+# posthog/temporal/alerts/activities.py retrieve_due_alerts.
+CALCULATION_INTERVAL_ORDER: dict[AlertCalculationInterval, int] = {
+    AlertCalculationInterval.REAL_TIME: 0,
+    AlertCalculationInterval.EVERY_15_MINUTES: 1,
+    AlertCalculationInterval.HOURLY: 2,
+    AlertCalculationInterval.DAILY: 3,
+    AlertCalculationInterval.WEEKLY: 4,
+    AlertCalculationInterval.MONTHLY: 4,
+}
+
+
 def calculation_interval_to_order(interval: AlertCalculationInterval | None) -> int:
-    match interval:
-        case AlertCalculationInterval.EVERY_15_MINUTES:
-            return 0
-        case AlertCalculationInterval.HOURLY:
-            return 1
-        case AlertCalculationInterval.DAILY:
-            return 2
-        case AlertCalculationInterval.WEEKLY:
-            return 3
-        case AlertCalculationInterval.MONTHLY:
-            return 3
-        case None:
-            raise ValueError("Invalid alert calculation interval: None")
-        case _ as unreachable:
-            raise ValueError(f"Unhandled alert calculation interval: {unreachable!r}")
+    if interval is None:
+        raise ValueError("Invalid alert calculation interval: None")
+    try:
+        return CALCULATION_INTERVAL_ORDER[interval]
+    except KeyError:
+        raise ValueError(f"Unhandled alert calculation interval: {interval!r}")
 
 
 def alert_calculation_interval_to_relativedelta(alert_calculation_interval: AlertCalculationInterval) -> relativedelta:
     match alert_calculation_interval:
+        case AlertCalculationInterval.REAL_TIME:
+            return relativedelta(minutes=REAL_TIME_CADENCE_MINUTES)
         case AlertCalculationInterval.EVERY_15_MINUTES:
-            return relativedelta(minutes=15)
+            return relativedelta(minutes=EVERY_15_MINUTES_CADENCE_MINUTES)
         case AlertCalculationInterval.HOURLY:
             return relativedelta(hours=1)
         case AlertCalculationInterval.DAILY:
@@ -97,6 +106,8 @@ def _next_check_time_core(alert: AlertConfiguration) -> datetime:
     team_timezone = pytz.timezone(alert.team.timezone)
 
     match alert.calculation_interval:
+        case AlertCalculationInterval.REAL_TIME:
+            return (alert.next_check_at or now) + relativedelta(minutes=REAL_TIME_CADENCE_MINUTES)
         case AlertCalculationInterval.EVERY_15_MINUTES:
             return (alert.next_check_at or now) + relativedelta(minutes=15)
         case AlertCalculationInterval.HOURLY:
@@ -168,6 +179,7 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
         props = {
             "alert_id": str(alert.id),
             "alert_name": alert.name,
+            "project_name": alert.team.name,
             "insight_name": alert.insight.name,
             "insight_id": alert.insight.short_id,
             "state": alert.state,
@@ -201,17 +213,27 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
         )
 
 
-def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[str], idempotency_key: str) -> list[str]:
+def send_notifications_for_breaches(
+    alert: AlertConfiguration,
+    breaches: list[str],
+    idempotency_key: str,
+    extra_properties: dict[str, str] | None = None,
+) -> list[str]:
     """A stable idempotency_key (typically alert_check.id) lets MessagingRecord enforce
     per-recipient at-most-once delivery on retries.
+
+    `extra_properties` are merged into the internal-event properties that HogFunction
+    destinations render (e.g. the anomaly investigation notebook URL for the Slack button).
     """
     email_targets = alert.get_subscribed_users_emails()
     if email_targets:
-        subject = f"PostHog alert {alert.name} is firing"
+        subject = f"PostHog alert {alert.name} is firing for {alert.team.name}"
         campaign_key = f"alert-firing-notification-{idempotency_key}"
         insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
         alert_url = f"{insight_url}?alert_id={alert.id}"
-        message = EmailMessage(
+        logger.info("send_notifications_for_breaches", alert_id=alert.id, anomaly_count=len(breaches))
+        send_alert_email(
+            recipients=email_targets,
             campaign_key=campaign_key,
             subject=subject,
             template_name="alert_check_firing",
@@ -221,16 +243,13 @@ def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[st
                 "insight_name": alert.insight.name,
                 "alert_url": alert_url,
                 "alert_name": alert.name,
+                "project_name": alert.team.name,
             },
         )
 
-        for target in email_targets:
-            message.add_recipient(email=target)
-
-        logger.info("send_notifications_for_breaches", alert_id=alert.id, anomaly_count=len(breaches))
-        message.send()
-
-    trigger_alert_hog_functions(alert=alert, properties={"breaches": ", ".join(breaches)})
+    # Join with newlines so each breach/investigation line renders on its own line in
+    # Slack/Discord/Teams destinations rather than as one run-on comma-separated string.
+    trigger_alert_hog_functions(alert=alert, properties={"breaches": "\n".join(breaches), **(extra_properties or {})})
 
     return email_targets
 
@@ -268,6 +287,7 @@ def dispatch_alert_notification(
     alert: AlertConfiguration,
     alert_check: AlertCheck,
     breaches: list[str] | None,
+    extra_properties: dict[str, str] | None = None,
 ) -> list[str] | None:
     """Route an AlertCheck to the correct notification sender.
 
@@ -300,6 +320,12 @@ def dispatch_alert_notification(
                     "caller must pass the breaches list from AlertEvaluationResult"
                 )
             logger.info("Sending alert firing notifications", alert_id=alert.id)
+            # Only forward extra_properties when there's something to add (anomaly investigations),
+            # keeping the common threshold-alert call unchanged.
+            if extra_properties:
+                return send_notifications_for_breaches(
+                    alert, breaches, idempotency_key=str(alert_check.id), extra_properties=extra_properties
+                )
             return send_notifications_for_breaches(alert, breaches, idempotency_key=str(alert_check.id))
         case _:
             raise AssertionError(f"dispatch_alert_notification: unhandled alert state: {alert_check.state}")
@@ -371,7 +397,13 @@ def add_alert_check(
     return alert_check, notify
 
 
-def disable_invalid_alert(alert: AlertConfiguration, reason: str) -> None:
+def disable_invalid_alert(alert: AlertConfiguration, reason: str) -> AlertCheck:
+    """Auto-disable a misconfigured alert and email its subscribers.
+
+    Used for configuration problems that make the alert unevaluable as set up — a deliberate,
+    fail-loud outcome, not a bug — so the reason is surfaced to the owner rather than captured
+    as an exception. Returns the recorded ERRORED AlertCheck so callers can reference it.
+    """
     logger.warning("check_alert.auto_disabling", alert_id=alert.id, reason=reason)
     AlertConfiguration.objects.filter(pk=alert.pk).update(
         enabled=False,
@@ -381,7 +413,7 @@ def disable_invalid_alert(alert: AlertConfiguration, reason: str) -> None:
     alert.refresh_from_db()
 
     targets_to_notify = alert.get_subscribed_users_emails()
-    AlertCheck.objects.create(
+    alert_check = AlertCheck.objects.create(
         alert_configuration=alert,
         calculated_value=None,
         condition=alert.condition,
@@ -391,16 +423,18 @@ def disable_invalid_alert(alert: AlertConfiguration, reason: str) -> None:
     )
     if targets_to_notify:
         send_notifications_for_disabled(alert, reason, targets_to_notify)
+    return alert_check
 
 
 def send_notifications_for_disabled(alert: AlertConfiguration, reason: str, targets: list[str]) -> None:
     logger.info("Sending alert disabled notification", alert_id=alert.id, reason=reason)
 
-    subject = f"PostHog alert {alert.name} has been disabled"
+    subject = f"PostHog alert {alert.name} for {alert.team.name} has been disabled"
     campaign_key = f"alert-disabled-notification-{alert.id}-{timezone.now().timestamp()}"
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
     alert_url = f"{insight_url}?alert_id={alert.id}"
-    message = EmailMessage(
+    send_alert_email(
+        recipients=targets,
         campaign_key=campaign_key,
         subject=subject,
         template_name="alert_disabled",
@@ -410,9 +444,6 @@ def send_notifications_for_disabled(alert: AlertConfiguration, reason: str, targ
             "insight_url": insight_url,
             "insight_name": alert.insight.name,
             "alert_error": reason,
+            "project_name": alert.team.name,
         },
     )
-    for target in targets:
-        message.add_recipient(email=target)
-
-    message.send()

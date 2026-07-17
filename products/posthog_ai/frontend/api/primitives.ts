@@ -11,6 +11,10 @@
 // Part of the `products/posthog_ai/frontend/api/<module>` public surface — import from here, not from
 // deep `../components/*` paths. See ../README.md for the tier model and ../AGENTS.md for the coupling rule.
 
+// Render-null wrapper that attaches context for JSX-only call sites (the hook flavor is in api/logics).
+export { AttachedContextProvider } from '../components/AttachedContextProvider'
+export type { AttachedContextProviderProps } from '../components/AttachedContextProvider'
+
 export { Composer } from '../components/composer/Composer'
 export type {
     ComposerRootProps,
@@ -18,6 +22,14 @@ export type {
     ComposerTextareaProps,
     ComposerSubmitProps,
 } from '../components/composer/Composer'
+
+// Controlled model + reasoning-effort pickers for a composer footer.
+export { ComposerModelEffortPickers } from '../components/composer/ComposerModelEffortPickers'
+export type { ComposerModelEffortPickersProps } from '../components/composer/ComposerModelEffortPickers'
+
+// The composer's context affordance: @-picker (TaxonomicPopover) + removable chips over the
+// attached-context store. Drop into `Composer.Header`; headless half is in api/logics.
+export { AttachedContextBar } from '../components/composer/AttachedContextBar'
 
 // Welcome header (logomark + headline + subheadline) and its overridable default headlines.
 export { Welcome } from '../components/welcome/Welcome'
@@ -59,6 +71,10 @@ export {
 } from '../components/ActivityPrimitives'
 export type { ActivityStatus } from '../components/ActivityPrimitives'
 export { RunActivity } from '../components/RunActivity'
+export { RunAlertActivity } from '../components/RunAlertActivity'
+
+export { TaskRunStatusDot } from '../components/TaskRunStatusDot'
+export { TaskRunLivenessDot } from '../components/TaskRunLivenessDot'
 
 export { PermissionInput } from '../components/PermissionInput'
 export { QuestionInput } from '../components/QuestionInput'
@@ -67,3 +83,11 @@ export { ContextUsageBar } from '../components/ContextUsageBar'
 export { QuestionField, MultiFieldQuestion, isFieldValid } from '../components/QuestionField'
 export { OptionSelector } from '../components/OptionSelector'
 export type { Option } from '../components/OptionSelector'
+
+// Product data-tool widgets — the atomic PostHog-entity renderers Max's LangGraph path composes directly
+// (the sandbox path reaches them through the tool registry, not these exports).
+export { VisualizationWidget, getArtifactOpenTarget } from '../components/tool/widgets/VisualizationWidget'
+export type { VisualizationWidgetProps } from '../components/tool/widgets/VisualizationWidget'
+export { RecordingsWidget } from '../components/tool/widgets/RecordingsWidget'
+export { ErrorTrackingFiltersWidget } from '../components/tool/widgets/ErrorTrackingFiltersWidget'
+export { ErrorTrackingIssueCard } from '../components/tool/widgets/ErrorTrackingIssueCard'

@@ -23,16 +23,16 @@ import { TeamManager } from '~/common/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManagerComponent } from '~/ingestion/common/event-filters'
 import { CommonIngestionConsumerConfig, CommonIngestionConsumerScope } from '~/ingestion/common/ingestion-consumer'
-import { ProducerName } from '~/ingestion/common/producers'
+import { ProducerName } from '~/ingestion/common/outputs/producers'
+import { DisabledOverflowRedirectComponent } from '~/ingestion/common/overflow-redirect/disabled-overflow-redirect'
+import { MainLaneOverflowRedirectComponent } from '~/ingestion/common/overflow-redirect/main-lane-overflow-redirect'
+import { OverflowLaneOverflowRedirectComponent } from '~/ingestion/common/overflow-redirect/overflow-lane-overflow-redirect'
+import { RedisOverflowRepositoryComponent } from '~/ingestion/common/overflow-redirect/overflow-redis-repository'
 import { Scope, extend } from '~/ingestion/common/scopes'
 import { PromiseSchedulerComponent } from '~/ingestion/common/utils/promise-scheduler'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
 import { createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { TopHog } from '~/ingestion/framework/tophog'
-import { DisabledOverflowRedirectComponent } from '~/ingestion/utils/overflow-redirect/disabled-overflow-redirect'
-import { MainLaneOverflowRedirectComponent } from '~/ingestion/utils/overflow-redirect/main-lane-overflow-redirect'
-import { OverflowLaneOverflowRedirectComponent } from '~/ingestion/utils/overflow-redirect/overflow-lane-overflow-redirect'
-import { RedisOverflowRepositoryComponent } from '~/ingestion/utils/overflow-redirect/overflow-redis-repository'
 import { RedisPool } from '~/types'
 
 import { createAiIngestionPipeline } from './pipeline'
@@ -42,8 +42,8 @@ export type AiConsumerConfig = CommonIngestionConsumerConfig &
     PersonHogConfig &
     Pick<
         IngestionConsumerConfig,
+        | 'INGESTION_OVERFLOW_MODE'
         | 'INGESTION_CONSUMER_OVERFLOW_TOPIC'
-        | 'INGESTION_STATEFUL_OVERFLOW_ENABLED'
         | 'INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS'
         | 'INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS'
         | 'EVENT_OVERFLOW_BUCKET_CAPACITY'
@@ -82,10 +82,7 @@ export type AiSharedScope = Scope<{
 
 export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiSharedScope) {
     const splitTokens = (value: string): string[] => value.split(',').filter((x) => !!x)
-    const overflowEnabled =
-        !!config.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
-        config.INGESTION_CONSUMER_OVERFLOW_TOPIC !== config.INGESTION_CONSUMER_CONSUME_TOPIC
-    const overflowLaneEnabled = config.INGESTION_LANE === 'overflow' && config.INGESTION_STATEFUL_OVERFLOW_ENABLED
+    const overflowMode = config.INGESTION_OVERFLOW_MODE
     const preservePartitionLocality = config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
     // Client name for personhog read metrics: pipeline + lane (e.g. "ai/main").
     // The query name is supplied per call (e.g. "person-properties").
@@ -119,20 +116,19 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             // Dedicated 'ai' keyspace so AI overflow never affects analytics.
             .add(
                 'overflowRedirectService',
-                overflowEnabled
+                overflowMode === 'redirect'
                     ? new MainLaneOverflowRedirectComponent({
                           redisRepository: container.overflowRedisRepository,
                           localCacheTTLSeconds: config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
                           bucketCapacity: config.EVENT_OVERFLOW_BUCKET_CAPACITY,
                           replenishRate: config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
-                          statefulEnabled: config.INGESTION_STATEFUL_OVERFLOW_ENABLED,
                           overflowType: 'ai',
                       })
                     : new DisabledOverflowRedirectComponent()
             )
             .add(
                 'overflowLaneTTLRefreshService',
-                overflowLaneEnabled
+                overflowMode === 'consume'
                     ? new OverflowLaneOverflowRedirectComponent({
                           redisRepository: container.overflowRedisRepository,
                           overflowType: 'ai',
@@ -169,7 +165,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             groupTypeManager: new ReadOnlyGroupTypeManager(
                 new PersonHogGroupReadRepository(container.personhogClient, clientLabel)
             ),
-            overflowEnabled,
+            overflowMode,
             preservePartitionLocality,
             overflowRedirectService: container.overflowRedirectService,
             overflowLaneTTLRefreshService: container.overflowLaneTTLRefreshService,

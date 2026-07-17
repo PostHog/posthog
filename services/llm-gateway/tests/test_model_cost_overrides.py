@@ -95,9 +95,7 @@ class TestOverrideSurfacesThroughRefresh:
         assert "claude-fable-5" in service.get_all_models()
 
     @patch("llm_gateway.rate_limiting.model_cost_service.get_model_cost_map")
-    def test_fable_5_not_listed_for_posthog_code(self, mock_get_cost_map: MagicMock) -> None:
-        # The cost-override bridge keeps the model resolvable, but it is removed
-        # from the posthog_code allowlist so /v1/models must not list it.
+    def test_fable_5_listed_for_posthog_code(self, mock_get_cost_map: MagicMock) -> None:
         mock_get_cost_map.return_value = {
             "claude-opus-4-8": {
                 "litellm_provider": "anthropic",
@@ -123,4 +121,4 @@ class TestOverrideSurfacesThroughRefresh:
                 model_ids = {m.id for m in get_available_models("posthog_code")}
 
         assert "claude-opus-4-8" in model_ids
-        assert "claude-fable-5" not in model_ids
+        assert "claude-fable-5" in model_ids

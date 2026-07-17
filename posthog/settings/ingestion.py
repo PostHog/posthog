@@ -1,4 +1,5 @@
 import os
+from enum import StrEnum
 
 import structlog
 
@@ -59,10 +60,43 @@ CAPTURE_REPLAY_INTERNAL_URL = os.getenv("CAPTURE_REPLAY_INTERNAL_URL", "http://l
 # empty = emission disabled (the activity skips/raises rather than shipping to the wrong place); set
 # per-region via charts in prod, and to the local capture proxy when testing locally.
 OTLP_LOGS_INGEST_ENDPOINT = os.getenv("OTLP_LOGS_INGEST_ENDPOINT", "")
+
+# Internal OTLP/HTTP endpoint for first-party metric emission into the Metrics product (the
+# `capture-logs` service, path `/i/v1/metrics`), with a project token as the OTLP Bearer.
+# Names match the Node twins (nodejs/src/common/metrics/otel-metrics.ts) so one env pair
+# configures both runtimes. Defaults to empty = emission disabled (posthog/otel_metrics.py
+# records into a no-op meter).
+OTEL_METRICS_EXPORT_URL = os.getenv("OTEL_METRICS_EXPORT_URL", "")
+OTEL_METRICS_EXPORT_TOKEN = os.getenv("OTEL_METRICS_EXPORT_TOKEN", "")
+OTEL_METRICS_EXPORT_INTERVAL_MS = get_from_env("OTEL_METRICS_EXPORT_INTERVAL_MS", type_cast=int, default=60_000)
+
 # Thread-pool size for capture_internal batch chunk fan-out (default 8, was per-event fan-out pre-v1).
 CAPTURE_INTERNAL_MAX_WORKERS = get_from_env("CAPTURE_INTERNAL_MAX_WORKERS", type_cast=int, default=8)
 
 NEW_ANALYTICS_CAPTURE_ENDPOINT = os.getenv("NEW_CAPTURE_ENDPOINT", "/i/v0/e/")
+
+
+# Cumulative rollout of the dedicated AI ingestion pipeline for our own `$ai_*` events: each stage
+# also routes the stages before it. Chart-toggled so we can advance or roll back without a deploy.
+class DedicatedAIEndpointRollout(StrEnum):
+    OFF = "off"
+    RUNNER = "runner"
+    ALL = "all"
+
+
+def _parse_dedicated_ai_rollout(value: str) -> "DedicatedAIEndpointRollout":
+    try:
+        return DedicatedAIEndpointRollout(value.strip().lower())
+    except ValueError:
+        logger.warning("invalid_dedicated_ai_endpoint_rollout", value=value)
+        return DedicatedAIEndpointRollout.OFF
+
+
+POSTHOG_DEDICATED_AI_ENDPOINT_ROLLOUT = get_from_env(
+    "POSTHOG_DEDICATED_AI_ENDPOINT_ROLLOUT",
+    DedicatedAIEndpointRollout.OFF,
+    type_cast=_parse_dedicated_ai_rollout,
+)
 
 CAPTURE_V1_INTERNAL_ENDPOINT = os.getenv("CAPTURE_V1_INTERNAL_ENDPOINT", "/i/v1/analytics/events")
 CAPTURE_V1_INTERNAL_MAX_ATTEMPTS = get_from_env("CAPTURE_V1_INTERNAL_MAX_ATTEMPTS", type_cast=int, default=4)
@@ -71,6 +105,32 @@ CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS = get_from_env(
 )
 # Chunk fan-out reuses CAPTURE_INTERNAL_MAX_WORKERS (above) for its thread pool.
 CAPTURE_INTERNAL_BATCH_CHUNK_SIZE = get_from_env("CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", type_cast=int, default=200)
+
+# Buffered CSP capture-forward: when enabled, /report/ enqueues accepted reports to a
+# bounded in-process buffer and returns 204 immediately; a background thread batches
+# them to capture-rs. Keeps request-worker hold time independent of capture-rs latency,
+# which is required for servers with bounded worker pools (WSGI). Off = legacy
+# synchronous forward.
+CSP_REPORT_BUFFERED_FORWARD = get_from_env("CSP_REPORT_BUFFERED_FORWARD", False, type_cast=str_to_bool)
+CSP_REPORT_BUFFER_MAX_EVENTS = get_from_env("CSP_REPORT_BUFFER_MAX_EVENTS", type_cast=int, default=10000)
+CSP_REPORT_BUFFER_FLUSH_INTERVAL_SECONDS = get_from_env(
+    "CSP_REPORT_BUFFER_FLUSH_INTERVAL_SECONDS", type_cast=float, default=0.5
+)
+CSP_REPORT_BUFFER_FLUSH_MAX_EVENTS = get_from_env("CSP_REPORT_BUFFER_FLUSH_MAX_EVENTS", type_cast=int, default=1000)
+# Wall-clock ceiling per flush: token groups are submitted serially, so many
+# distinct tokens against a slow capture-rs would otherwise stall the sender for
+# the sum of every group's transport budget. Events still unsent at the deadline
+# are dropped (reason="flush_deadline"). A healthy flush finishes well under a
+# second; the ceiling only bites while capture-rs degrades.
+CSP_REPORT_BUFFER_FLUSH_MAX_SECONDS = get_from_env("CSP_REPORT_BUFFER_FLUSH_MAX_SECONDS", type_cast=float, default=5.0)
+# Fairness: the largest share of the buffer any single token may hold, so one
+# token's report storm cannot evict every other token's events on overflow.
+CSP_REPORT_BUFFER_MAX_TOKEN_SHARE = get_from_env("CSP_REPORT_BUFFER_MAX_TOKEN_SHARE", type_cast=float, default=0.5)
+# Memory bounds: the count cap alone doesn't bound memory because events carry the
+# raw report body. Per-event cap rejects pathological payloads (legit CSP reports
+# are a few KB); the total cap evicts oldest when crossed.
+CSP_REPORT_BUFFER_MAX_EVENT_BYTES = get_from_env("CSP_REPORT_BUFFER_MAX_EVENT_BYTES", type_cast=int, default=64 * 1024)
+CSP_REPORT_BUFFER_MAX_BYTES = get_from_env("CSP_REPORT_BUFFER_MAX_BYTES", type_cast=int, default=64 * 1024 * 1024)
 NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS = get_set(os.getenv("NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS", ""))
 
 ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS = get_set(os.getenv("ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS", ""))

@@ -29,6 +29,10 @@ _TERMINAL_STATUS_TO_METRIC: dict[str, tuple[str, str]] = {
 # emission on the first terminal transition.
 TERMINAL_JOB_STATUSES: frozenset[str] = frozenset(_TERMINAL_STATUS_TO_METRIC)
 
+# latest_error written when lock takeover force-fails a stuck-RUNNING job; sentinel that
+# lets update_external_job_status permit Failed -> Completed for takeover-failed jobs only.
+LOCK_TAKEOVER_LATEST_ERROR = "Lock takeover: workflow terminated but job was stuck in RUNNING"
+
 
 def get_data_import_finished_metric(source_type: str | None, status: str) -> MetricCounter:
     source_type = source_type or "unknown"
@@ -36,6 +40,14 @@ def get_data_import_finished_metric(source_type: str | None, status: str) -> Met
         workflow.metric_meter()
         .with_additional_attributes({"source_type": source_type, "status": status})
         .create_counter("data_import_finished", "Number of data imports finished, for any reason (including failure).")
+    )
+
+
+def get_v3_lock_skipped_metric() -> MetricCounter:
+    # A skipped run leaves no job row and no schema-status change; without this
+    # counter a schema can silently miss every scheduled slot for days.
+    return workflow.metric_meter().create_counter(
+        "data_import_v3_lock_skipped", "Scheduled v3 runs skipped because the pipeline lock was not acquired."
     )
 
 

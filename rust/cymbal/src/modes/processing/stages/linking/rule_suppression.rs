@@ -25,11 +25,6 @@ impl ValueOperator for RuleSuppression {
     }
 
     async fn execute_value(&self, input: Self::Item, ctx: LinkingStage) -> OperatorResult<Self> {
-        let props_json = match serde_json::to_value(&input) {
-            Ok(v) => v,
-            Err(_) => return Ok(Ok(input)),
-        };
-
         let mut rules = ctx
             .app_context
             .team_manager
@@ -41,6 +36,12 @@ impl ValueOperator for RuleSuppression {
         }
 
         rules.sort_unstable_by_key(|r| r.order_key);
+
+        // Only serialize the event once we know the team has suppression rules.
+        let props_json = match serde_json::to_value(&input) {
+            Ok(v) => v,
+            Err(_) => return Ok(Ok(input)),
+        };
 
         for rule in rules {
             match rule.should_suppress(&props_json, &input.uuid) {

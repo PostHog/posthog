@@ -11,6 +11,7 @@ from posthog.session_recordings.models.session_recording_playlist import Session
 from posthog.sync import database_sync_to_async
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.error_tracking.backend.facade.api import query_new_error_issues as query_new_error_issues
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag

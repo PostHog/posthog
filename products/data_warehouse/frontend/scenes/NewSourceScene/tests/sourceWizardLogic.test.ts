@@ -261,9 +261,24 @@ describe('sourceWizardLogic', () => {
             expect(res).toEqual({ payload: {} })
         })
 
-        it('returns errors for an invalid prefix', () => {
-            const res = getErrorsForFields([], { prefix: '@@@', payload: {} })
-            expect(res.prefix).toBeTruthy()
+        // Warehouse-mode prefixes must satisfy the backend `validate_source_prefix` rules so an
+        // invalid prefix is caught in the wizard rather than only after the create request fails.
+        it.each([
+            ['@@@', true],
+            ['my-prefix', true], // hyphen — rejected by the backend, previously allowed here
+            ['2things', true], // leading digit
+            ['___', true], // only underscores
+            [' my ', true], // backend strips only underscores, not whitespace
+            ['my_prefix', false],
+            ['_leading', false],
+            ['', false], // empty prefix is allowed
+        ])('validates warehouse-mode prefix %p', (prefix, expectError) => {
+            const res = getErrorsForFields([], { prefix, payload: {} })
+            if (expectError) {
+                expect(res.prefix).toBeTruthy()
+            } else {
+                expect(res.prefix).toBeUndefined()
+            }
         })
 
         it('requires name for direct mode', () => {

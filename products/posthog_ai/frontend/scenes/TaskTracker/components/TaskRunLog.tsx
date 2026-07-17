@@ -14,11 +14,33 @@ import { TaskRunChat } from './TaskRunChat'
  * `TaskRunChat`. The skeleton is the only loading affordance here — once it hands off to `TaskRunChat`, the
  * eager `RunSurface` shows the same `RunLogSkeleton` during its own bootstrap, so the transition is seamless.
  */
-export function TaskRunLog({ taskId }: { taskId: string }): JSX.Element | null {
+export function TaskRunLog({
+    taskId,
+    optimisticStreamKey,
+    optimisticRunId,
+}: {
+    taskId: string
+    /** Client `streamKey` of an optimistic-create stream to adopt — set only during the create handoff. */
+    optimisticStreamKey?: string
+    /** Run id created by the optimistic flow, before the runs list has loaded it. */
+    optimisticRunId?: string
+}): JSX.Element | null {
     const logic = taskDetailSceneLogic({ taskId })
     const { runs, selectedRun, selectedRunId, runsError, selectedRunError, selectedRunNotFound, isRunPending } =
         useValues(logic)
     const { loadTaskRuns, loadSelectedTaskRun } = useActions(logic)
+
+    // Optimistic-create handoff: render the run immediately on the seeded stream, bypassing the runs-list
+    // load (no skeleton re-flash). `selectedRunId ?? optimisticRunId` tracks the live id — the created run
+    // up front, then `selectedRunId` once the runs list resolves it (same id), then any later new run.
+    const effectiveRunId = selectedRunId ?? optimisticRunId
+    if (optimisticStreamKey && effectiveRunId) {
+        return (
+            <div className="flex-1 min-h-0">
+                <TaskRunChat taskId={taskId} runId={effectiveRunId} streamKey={optimisticStreamKey} />
+            </div>
+        )
+    }
 
     if (runsError) {
         return (

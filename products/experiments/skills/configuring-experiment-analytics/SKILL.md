@@ -81,16 +81,18 @@ compare on what each metric measures (its `query`), never on its title.
    (mean / funnel / ratio / retention) before searching — see Step 2 to confirm the event exists via
    `read-data-schema`. You can only recognize a duplicate once you know the concrete event/action,
    so this check runs _after_ you've pinned down the event, not before.
-2. **List the library and compare each candidate's `query`.** Call `experiment-saved-metrics-list`
-   and inspect every result's **`query`** field (not just `name`/`description`). A saved metric is a
-   reuse match when its `query` measures the **same event or action with the same `metric_type`**
-   (and compatible `math`) as the metric you'd otherwise build — even if its name is
-   different.
-   - **Match locally, not via `search`.** `search` matches only `name` / `description` / tags —
-     never the underlying event or action — so it cannot find a definition match, and an empty
-     result means nothing here. Page through the full library with `limit`/`offset` and compare each
-     row's `query` yourself. (Use `search` only when the user names a specific saved metric to
-     attach — that's name resolution, not a definition match.)
+2. **Search by the event, then compare each candidate's `query`.** Call `experiment-saved-metrics-list`
+   with `?event=<the event you're measuring>` to find metrics that reference it — matched directly (an
+   `EventsNode`) **or** via the step events of any action a metric references, so action-based metrics are
+   found by the event their action fires on. Then for each returned row, inspect its **`query`** (not the
+   `name`/`description`): a saved metric is a reuse match when its `query` measures the **same event or
+   action with the same `metric_type`** (and compatible `math`) as the metric you'd otherwise build, even
+   if its name is different.
+   - **Match on the event, not the action's name.** An action-based metric is discoverable by the event
+     the action fires on — pass that event, not the action's label.
+   - **Do not use `search` for this.** `search` matches only the metric's own `name` / `description` / tags —
+     never the underlying event or action — so it cannot find a definition match. Use `search` only when the
+     user names a specific saved metric to attach (name resolution, not a definition match).
 3. **If a saved metric matches the definition** — confirm the match with the user by name/description,
    then attach it instead of building a new one:
    - Call `experiment-get` to read the experiment's current `saved_metrics`.

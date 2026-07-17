@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from posthog.clickhouse.client.execute import ClickHouseExternalTable
     from posthog.models import Team, User
     from posthog.rbac.user_access_control import UserAccessControl
+    from posthog.scopes import APIScopeObject
 
 
 def _default_modifiers() -> "HogQLQueryModifiers":
@@ -68,11 +69,7 @@ class HogQLContext:
     external_tables: dict[str, "ClickHouseExternalTable"] = field(default_factory=dict, compare=False, repr=False)
     # Are we small part of a non-HogQL query? If so, use custom syntax for accessed person properties.
     within_non_hogql_query: bool = False
-    # Temporary (June 2026 MaxMind incident): the geoip dict fallback decision, evaluated exactly once per query in
-    # `prepare_ast_for_printing` so the transform and the printer's `_lookupGeoip*` gate can never disagree mid-query
-    # (the underlying probe is a background-refreshed cache that may flip between evaluations). Remove with the
-    # transform in posthog/hogql/transforms/geoip_dict_fallback.py.
-    geoip_dict_fallback_enabled: bool = False
+    use_new_events_schema: Optional[bool] = None
     # Enable full SELECT queries and subqueries in ClickHouse
     enable_select_queries: bool = False
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
@@ -97,6 +94,12 @@ class HogQLContext:
     # Data warehouse sync warnings collected while resolving warehouse tables referenced by the query.
     # Keyed by (table_id, schema_name) to dedupe when a table is referenced multiple times.
     data_warehouse_sync_warnings: dict[tuple[str, str], "DataWarehouseSyncWarning"] = field(default_factory=dict)
+
+    # Resources with object-level access restrictions referenced by the query, collected while printing
+    # system tables. A set dedupes when several system tables share an access scope (e.g. system.dashboards
+    # and system.dashboard_tiles both scope "dashboard"). Turned into a single AccessControlFilterWarning
+    # on the response by build_access_control_warning.
+    access_control_restricted_resources: set["APIScopeObject"] = field(default_factory=set)
 
     # Timings in seconds for different parts of the HogQL query
     timings: HogQLTimings = field(default_factory=HogQLTimings)
@@ -140,6 +143,15 @@ class HogQLContext:
     def __post_init__(self):
         if self.team:
             self.team_id = self.team.id
+
+    def uses_new_events_schema(self) -> bool:
+        if self.use_new_events_schema is None:
+            # Deferred: keeps posthog.models off this module's import path (see _default_modifiers).
+            from posthog.models.event.new_events_schema import use_new_events_schema  # noqa: PLC0415
+
+            # Pin per context so an instance-setting flip can't mix schemas within one query.
+            self.use_new_events_schema = use_new_events_schema(self.team_id)
+        return self.use_new_events_schema
 
     def add_value(self, value: Any) -> str:
         key = f"hogql_val_{len(self.values)}"

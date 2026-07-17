@@ -20,7 +20,10 @@ from posthog.models.user import User
 from products.conversations.backend.mailgun import validate_webhook_signature
 from products.conversations.backend.models import Channel, EmailChannel, EmailMessageMapping, Status
 from products.conversations.backend.models.ticket import Ticket
-from products.conversations.backend.services.attachments import save_file_to_uploaded_media
+from products.conversations.backend.services.attachments import (
+    sanitize_attachment_filename,
+    save_file_to_uploaded_media,
+)
 from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
 
 logger = structlog.get_logger(__name__)
@@ -31,17 +34,6 @@ _BASIC_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MAX_EMAIL_BODY_LENGTH = 50_000
 MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10 MB per file
 MAX_ATTACHMENTS = 20
-MAX_FILENAME_LENGTH = 255
-_FILENAME_STRIP_RE = re.compile(r"[^\w\s\-.,()]+")
-
-
-def _sanitize_filename(name: str) -> str:
-    """Strip potentially dangerous characters from an email attachment filename."""
-    name = name.strip().replace("/", "_").replace("\\", "_")
-    name = _FILENAME_STRIP_RE.sub("", name)
-    if len(name) > MAX_FILENAME_LENGTH:
-        name = name[:MAX_FILENAME_LENGTH]
-    return name or "attachment"
 
 
 def _extract_inbound_token(recipient: str) -> str | None:
@@ -100,7 +92,7 @@ def _extract_attachments(request: HttpRequest, team: Team) -> list[dict[str, Any
             continue
 
         file_bytes = uploaded_file.read()
-        safe_name = _sanitize_filename(uploaded_file.name or "attachment")
+        safe_name = sanitize_attachment_filename(uploaded_file.name)
         url = save_file_to_uploaded_media(team, safe_name, uploaded_file.content_type or "", file_bytes)
         if url:
             attachments.append(
@@ -256,6 +248,34 @@ def _sender_authenticated(request: HttpRequest, sender_email: str) -> bool:
     return bool(envelope_domain and from_domain and envelope_domain == from_domain)
 
 
+def _collect_participants(
+    to_header: str,
+    cc_header: str,
+    inbound_token: str,
+    channel_email: str,
+    sender_email: str,
+) -> list[str]:
+    """Collect the other people on the thread from the To + Cc headers.
+
+    Excludes the support inbox itself (the Mailgun team-<token>@ inbound address
+    and the channel's own from_email) and the sender, since none of those are
+    "other participants" — they're the mailbox we received on, or the person we
+    reply back to. The result is what we keep CC'd on outbound replies, so a
+    direct recipient (someone in To with the support address only CC'd) stays on
+    the thread instead of being dropped.
+    """
+    team_inbound_address = f"team-{inbound_token}@"
+    excluded = {channel_email.lower(), sender_email.lower()}
+    participants: list[str] = []
+    for _name, addr in getaddresses([to_header, cc_header]):
+        low = addr.lower()
+        if not low or low in excluded or low.startswith(team_inbound_address):
+            continue
+        if low not in participants:
+            participants.append(low)
+    return participants
+
+
 def _resolve_team_member(email: str, team: Team) -> User | None:
     """Match a sender email to a PostHog user within the team's organization."""
     if not email:
@@ -337,16 +357,16 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
     # senders whose domain has p=quarantine or p=reject).
     sender_email, sender_name = _recover_dmarc_rewritten_sender(request, config, sender_email, sender_name)
 
-    # 6b. Parse CC recipients
-    cc_header = request.POST.get("Cc", "")
-    cc_list: list[str] = []
-    if cc_header:
-        team_inbound_address = f"team-{inbound_token}@"
-        cc_list = [
-            addr.lower()
-            for _name, addr in getaddresses([cc_header])
-            if addr and not addr.lower().startswith(team_inbound_address)
-        ]
+    # 6b. Parse other thread participants from To + Cc. We fold both into a single
+    # list (dropping the support inbox itself and the sender) so a direct recipient
+    # who only CC'd the support address still shows up and stays on replies.
+    cc_list = _collect_participants(
+        to_header=request.POST.get("To", ""),
+        cc_header=request.POST.get("Cc", ""),
+        inbound_token=inbound_token,
+        channel_email=config.from_email,
+        sender_email=sender_email,
+    )
 
     # 7. Get content (stripped by Mailgun to remove quotes/signatures)
     content = (request.POST.get("stripped-text", "") or request.POST.get("body-plain", ""))[:MAX_EMAIL_BODY_LENGTH]
@@ -354,7 +374,8 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
 
     # 7b. Detect team member sender — only trust From when DKIM passes
     # AND the envelope-sender domain aligns with the From domain.
-    posthog_user = _resolve_team_member(sender_email, team) if _sender_authenticated(request, sender_email) else None
+    sender_authenticated = _sender_authenticated(request, sender_email)
+    posthog_user = _resolve_team_member(sender_email, team) if sender_authenticated else None
     is_team_member = posthog_user is not None
 
     # 8. Create ticket/comment/mapping in a transaction
@@ -387,7 +408,19 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
                     email_from=sender_email,
                     cc_participants=cc_list,
                     unread_team_count=0 if is_team_member else 1,
+                    identity_verified=sender_authenticated,
                 )
+            elif (
+                sender_authenticated
+                and not ticket.identity_verified
+                and sender_email.lower() == (ticket.email_from or ticket.distinct_id or "").lower()
+            ):
+                # A later authenticated message promotes the thread to verified — but only when the
+                # authenticated sender matches the identity already on the ticket. Otherwise a different
+                # SPF-aligned sender could thread onto a ticket claiming someone else's identity and
+                # falsely mark it verified.
+                ticket.identity_verified = True
+                ticket.save(update_fields=["identity_verified", "updated_at"])
 
             assert ticket is not None
 
@@ -412,6 +445,11 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
             )
 
             if existing_ticket:
+                # The requester is already the reply target (to=email_from); when another
+                # participant reply-alls, the requester shows up in their To/Cc and must not
+                # be folded into cc_participants or replies would deliver to them twice.
+                ticket_from = (ticket.email_from or "").lower()
+                cc_list = [addr for addr in cc_list if addr != ticket_from]
                 qs = Ticket.objects.filter(id=ticket.id, team=team)
                 if not is_team_member and cc_list:
                     qs.update(

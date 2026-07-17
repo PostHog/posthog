@@ -5,7 +5,7 @@ import pytest
 from unittest.mock import Mock, patch
 
 from parameterized import parameterized
-from requests.exceptions import HTTPError
+from requests.exceptions import HTTPError, JSONDecodeError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SentrySourceConfig
@@ -559,15 +559,77 @@ class TestSentrySourceValidation:
         assert rows == [{"value": "Chrome", "issue_id": "100", "tag_key": "browser"}]
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
-    def test_issue_tag_values_propagates_client_error(self, mock_request) -> None:
+    def test_issue_tag_values_skips_tag_on_unparseable_ok_body(self, mock_request) -> None:
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/issues/"):
+                return _response([{"id": "100"}])
+            if url.endswith("/organizations/acme/issues/100/tags/"):
+                return _response([{"key": "bad tag"}, {"key": "browser"}])
+            if "tags/bad%20tag/values/" in url:
+                # Sentry returns a 200 with an empty/unparseable body for this tag.
+                bad = _response([])
+                bad.json.side_effect = JSONDecodeError("Expecting value", "", 0)
+                return bad
+            if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
+                return _response([{"value": "Chrome"}])
+            return _response([])
+
+        mock_request.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        # The unparseable 200 on the "bad tag" values endpoint is skipped; the
+        # healthy "browser" tag still yields its values instead of crashing.
+        rows = list(cast(Any, resp.items()))
+        assert rows == [{"value": "Chrome", "issue_id": "100", "tag_key": "browser"}]
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_issue_tag_values_skips_tag_on_forbidden(self, mock_request) -> None:
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/issues/"):
+                return _response([{"id": "100"}])
+            if url.endswith("/organizations/acme/issues/100/tags/"):
+                return _response([{"key": "dart.name"}, {"key": "browser"}])
+            if url.endswith("/organizations/acme/issues/100/tags/dart.name/values/"):
+                # Sentry gates this tag's values at the org level (data scrubbing).
+                return _response(None, status_code=403)
+            if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
+                return _response([{"value": "Chrome"}])
+            return _response([])
+
+        mock_request.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        # The 403 on the gated tag is skipped; the healthy "browser" tag still
+        # yields its values instead of the whole sync failing.
+        rows = list(cast(Any, resp.items()))
+        assert rows == [{"value": "Chrome", "issue_id": "100", "tag_key": "browser"}]
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_issue_tag_values_propagates_non_forbidden_client_error(self, mock_request) -> None:
         def side_effect(url, headers=None, params=None, timeout=None):
             if url.endswith("/organizations/acme/issues/"):
                 return _response([{"id": "100"}])
             if url.endswith("/organizations/acme/issues/100/tags/"):
                 return _response([{"key": "browser"}])
             if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
-                # A 4xx is not a transient upstream blip — it must still propagate.
-                return _response(None, status_code=403)
+                # A revoked token (401) is a genuine failure — it must still propagate.
+                return _response(None, status_code=401)
             return _response([])
 
         mock_request.side_effect = side_effect

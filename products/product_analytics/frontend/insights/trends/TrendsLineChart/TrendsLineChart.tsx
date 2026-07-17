@@ -4,9 +4,7 @@ import { useCallback, useMemo } from 'react'
 import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useChartTheme, useChartConfig, useDateRangeZoom } from 'lib/charts/hooks'
 import { ciRanges } from 'lib/statistics'
 import { percentage } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -18,7 +16,6 @@ import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -26,15 +23,15 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
+import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
-import { INSIGHT_TOOLTIP_CONFIG, INSIGHT_TOOLTIP_CONFIG_LEGACY } from '../../shared/tooltipConfig'
+import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
 import { handleTrendsChartClick } from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { buildTrendsSeriesMeta, resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
-import { TrendsTooltip as TrendsTooltipLegacy } from '../shared/TrendsTooltip'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from './trendsChartTransforms'
 
@@ -46,15 +43,10 @@ interface TrendsLineChartProps {
 const handleChartError = makeChartErrorHandler('trends-line-chart')
 
 export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineChartProps): JSX.Element | null {
-    const { isDarkModeOn } = useValues(themeLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
-    const TOOLTIP_CONFIG = quillTooltipEnabled ? INSIGHT_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG_LEGACY
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
     const { insightProps, insight } = useValues(insightLogic)
 
     const legendConfig = useInsightsLegendConfig({ insightProps, inSharedMode })
-    const quillLegendEnabled = !!legendConfig
 
     const {
         indexedResults,
@@ -168,6 +160,8 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         [clickDeps]
     )
 
+    const onDateRangeZoom = useDateRangeZoom(currentPeriodResult?.days, context?.onDateRangeZoom)
+
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {
             const onRowClick = canHandleClick
@@ -191,11 +185,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 formatCompareLabel: context?.formatCompareLabel,
                 onRowClick,
             }
-            return quillTooltipEnabled ? (
-                <InsightSeriesTooltip {...tooltipProps} />
-            ) : (
-                <TrendsTooltipLegacy {...tooltipProps} />
-            )
+            return <InsightSeriesTooltip {...tooltipProps} />
         },
         [
             timezone,
@@ -211,7 +201,6 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             context?.formatCompareLabel,
             canHandleClick,
             clickDeps,
-            quillTooltipEnabled,
         ]
     )
 
@@ -223,9 +212,9 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 incompletenessOffsetFromEnd,
                 isStickiness,
                 getColor: getTrendsColor,
-                // With the quill legend on, hidden series are listed (dimmed) and excluded via
-                // config.legend.hiddenKeys instead of being dropped here, so the legend can restore them.
-                getHidden: quillLegendEnabled ? undefined : getTrendsHidden,
+                // Hidden series are listed (dimmed) and excluded via config.legend.hiddenKeys instead
+                // of being dropped here, so the legend can restore them.
+                getHidden: undefined,
                 getLabel,
                 buildMeta: buildTrendsSeriesMeta,
             }),
@@ -236,13 +225,11 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             incompletenessOffsetFromEnd,
             isStickiness,
             getTrendsColor,
-            getTrendsHidden,
             getLabel,
-            quillLegendEnabled,
         ]
     )
 
-    const config = useMemo(
+    const config = useChartConfig(
         () =>
             buildTrendsLineTimeSeriesConfig<IndexedTrendResult>({
                 results: indexedResults ?? [],
@@ -267,8 +254,9 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 movingAverageIntervals: movingAverageIntervals ?? undefined,
                 showTrendLines: showTrendLines ?? undefined,
                 valueLabels: showValuesOnSeries && valueLabelFormatter ? { formatter: valueLabelFormatter } : false,
+                curve: chartStyleCurve(trendsFilter?.chartStyle),
                 showCrosshair: true,
-                tooltip: TOOLTIP_CONFIG,
+                tooltip: INSIGHT_TOOLTIP_CONFIG,
                 legend: legendConfig,
             }),
         [
@@ -293,12 +281,17 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             showValuesOnSeries,
             valueLabelFormatter,
             legendConfig,
-            TOOLTIP_CONFIG,
         ]
     )
 
     if (!hasData) {
-        return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+        return (
+            <InsightEmptyState
+                heading={context?.emptyStateHeading}
+                detail={context?.emptyStateDetail}
+                sampleDataVariant="line"
+            />
+        )
     }
 
     const showAnnotations = !inSharedMode && trendsFilter?.showAnnotations !== false
@@ -312,6 +305,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             config={config}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
+            onDateRangeZoom={onDateRangeZoom}
             className="LineGraph"
             dataAttr="trend-line-graph"
             onError={handleChartError}

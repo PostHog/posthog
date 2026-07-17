@@ -117,6 +117,11 @@ def seed_metric_event(
     span_id: str = "",
     attributes: Mapping[str, str] | None = None,
     resource_attributes: Mapping[str, str] | None = None,
+    count: int = 1,
+    aggregation_temporality: str = "cumulative",
+    is_monotonic: bool = False,
+    histogram_bounds: list[float] | None = None,
+    histogram_counts: list[int] | None = None,
 ) -> None:
     """Insert one `metric_samples` row per `(timestamp, value)` point plus the
     matching `metric_series` row, the way the ingest MVs split a metric.
@@ -139,6 +144,9 @@ def seed_metric_event(
             "series_fingerprint": fingerprint,
             "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
             "value": value,
+            "count": count,
+            "histogram_bounds": histogram_bounds or [],
+            "histogram_counts": histogram_counts or [],
             "trace_id": trace_id,
             "span_id": span_id,
             "trace_flags": 0,
@@ -151,6 +159,8 @@ def seed_metric_event(
         "series_fingerprint": fingerprint,
         "metric_type": metric_type,
         "unit": unit,
+        "aggregation_temporality": aggregation_temporality,
+        "is_monotonic": is_monotonic,
         "service_name": service_name,
         "resource_attributes": resource_attributes,
         "attributes": attributes,

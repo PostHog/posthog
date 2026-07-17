@@ -1,3 +1,5 @@
+import typing
+import collections.abc
 from types import SimpleNamespace
 
 import pytest
@@ -13,6 +15,8 @@ from google.ads.googleads.v23.errors.types.request_error import RequestErrorEnum
 from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
 
+from posthog.schema import SourceFieldOauthConfig
+
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
@@ -24,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     GoogleAdsColumn,
     GoogleAdsTable,
     _get_integration,
+    _is_rejected_page_token_error,
     _is_stale_page_token_error,
     _is_transient_client_init_error,
     _is_transient_grpc_error,
@@ -37,6 +42,17 @@ from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _CUSTOMER_ID_ERROR = "valid Google Ads customer ID"
 _MANAGER_ID_ERROR = "valid Google Ads manager customer ID"
+
+
+def test_get_source_config_oauth_field_declares_required_scope():
+    oauth_field = next(
+        (field for field in GoogleAdsSource().get_source_config.fields if field.name == "google_ads_integration_id"),
+        None,
+    )
+    assert oauth_field is not None, "OAuth field 'google_ads_integration_id' not found in source config"
+    assert isinstance(oauth_field, SourceFieldOauthConfig)
+    assert oauth_field.kind == "google-ads"
+    assert oauth_field.requiredScopes == "https://www.googleapis.com/auth/adwords"
 
 
 class TestCleanCustomerId:
@@ -201,14 +217,28 @@ class TestGoogleAdsNonRetryableErrors:
                 "token, login cookie or other valid authentication credential. See "
                 "https://developers.google.com/identity/sign-in/web/devconsole-project."
             ),
+            # The other gapic-wrapped Unauthenticated message, seen on the sync path when the OAuth
+            # access token is rejected — same "401 {message}" shape, no bare UNAUTHENTICATED token.
+            (
+                "401 Request had invalid authentication credentials. Expected OAuth 2 access "
+                "token, login cookie or other valid authentication credential. See "
+                "https://developers.google.com/identity/sign-in/web/devconsole-project."
+            ),
         ],
     )
     def test_missing_auth_credential_is_non_retryable(self, error_msg):
         is_non_retryable = any(pattern in error_msg for pattern in self.non_retryable.keys())
         assert is_non_retryable, f"Expected error to be non-retryable: {error_msg}"
 
-    def test_missing_auth_credential_has_friendly_message(self):
-        friendly = self.non_retryable["Request is missing required authentication credential"]
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "Request is missing required authentication credential",
+            "Request had invalid authentication credentials",
+        ],
+    )
+    def test_auth_credential_patterns_have_friendly_message(self, pattern):
+        friendly = self.non_retryable[pattern]
         assert friendly is not None
         assert "reconnect" in friendly.lower()
 
@@ -247,6 +277,7 @@ class TestGoogleAdsNonRetryableErrors:
             "invalid_grant",
             "access_not_configured",
             "Request is missing required authentication credential",
+            "Request had invalid authentication credentials",
         ],
     )
     def test_documented_patterns_present(self, pattern):
@@ -363,6 +394,27 @@ class TestValidateCredentials:
         assert ok is False
         assert "reconnect your Google Ads account" in (message or "")
 
+    def test_permission_denied_returns_actionable_message(self):
+        # A connected login that can't access the customer ID surfaces as a raw gRPC PERMISSION_DENIED
+        # dump (with a per-request peer IP) at validate time. Surface a clean, actionable prompt rather
+        # than leaking the protobuf dump to the wizard.
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        client = mock.Mock()
+        client.get_service.return_value.list_accessible_customers.side_effect = Exception(
+            'status = StatusCode.PERMISSION_DENIED\n\tdetails = "The caller does not have permission"\n\t'
+            'debug_error_string = "peer_address:ipv4:216.239.36.223:443"'
+        )
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
+            return_value=client,
+        ):
+            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert "reconnect your Google Ads account" in (message or "")
+        assert "216.239.36.223" not in (message or "")
+        assert "StatusCode" not in (message or "")
+
     def test_transient_google_side_error_returns_retry_message(self):
         # A transient INTERNAL/UNAVAILABLE blip from Google stringifies as a raw gRPC status plus a
         # protobuf failure dump. Surface a clean retry prompt instead of leaking that to the wizard.
@@ -393,6 +445,18 @@ def _google_ads_exception(request_error: int) -> GoogleAdsException:
             )
         ]
     )
+    return GoogleAdsException(error=None, call=None, failure=failure, request_id="req-1")
+
+
+def _google_ads_exception_with_trigger(request_error: int, trigger_value: str) -> GoogleAdsException:
+    # A failure whose request_error code the pinned library can't decode (surfaced as UNKNOWN /
+    # "The error code is not in this version.") but whose trigger still echoes the offending value.
+    error = GoogleAdsError(
+        error_code=ErrorCode(request_error=request_error),
+        message="The error code is not in this version.",
+    )
+    error.trigger.string_value = trigger_value
+    failure = GoogleAdsFailure(errors=[error])
     return GoogleAdsException(error=None, call=None, failure=failure, request_id="req-1")
 
 
@@ -473,6 +537,29 @@ class TestStalePageTokenDetection:
         assert _is_stale_page_token_error(exc) is expected
 
 
+class TestRejectedPageTokenDetection:
+    @pytest.mark.parametrize(
+        "exc, page_token, expected",
+        [
+            # Google rejected our token with a code the pinned library can't decode, but the
+            # failure trigger echoes the exact token we sent — recognise it as a stale token.
+            (
+                _google_ads_exception_with_trigger(RequestErrorEnum.RequestError.UNKNOWN, "SAVED_TOKEN"),
+                "SAVED_TOKEN",
+                True,
+            ),
+            # A trigger naming some other value must not be mistaken for a rejected page token.
+            (_google_ads_exception_with_trigger(RequestErrorEnum.RequestError.UNKNOWN, "other"), "SAVED_TOKEN", False),
+            # An empty page token (first-page request) can never be the rejected value.
+            (_google_ads_exception_with_trigger(RequestErrorEnum.RequestError.UNKNOWN, ""), "", False),
+            # A non-``GoogleAdsException`` shape (no ``failure``) must not match.
+            (SimpleNamespace(failure=None), "SAVED_TOKEN", False),
+        ],
+    )
+    def test_is_rejected_page_token_error(self, exc, page_token, expected):
+        assert _is_rejected_page_token_error(exc, page_token) is expected
+
+
 class TestSearchPageTokenResumption:
     @pytest.mark.parametrize(
         "request_error",
@@ -500,6 +587,30 @@ class TestSearchPageTokenResumption:
         # The stale token is cleared from saved state so a later resume won't reuse it.
         assert manager.saved_states == [""]
         # Rows are still yielded — the data was never lost.
+        assert [t.to_pylist() for t in tables] == [[{"campaign_name": "Acme"}]]
+
+    def test_restarts_pagination_when_page_token_rejected_with_unrecognised_code(self):
+        # Google rejected the saved token with a request_error code the pinned library can't
+        # decode (UNKNOWN / "The error code is not in this version."), so the code-text match
+        # misses it; the trigger echoing the token is the only stable signal to restart.
+        service = _FakeService(
+            _single_page(),
+            error_on_token=_google_ads_exception_with_trigger(RequestErrorEnum.RequestError.UNKNOWN, "STALE_TOKEN"),
+        )
+        manager = _FakeResumableManager(saved_token="STALE_TOKEN")
+
+        tables = list(
+            _search_as_arrow_tables(
+                service=service,  # type: ignore[arg-type]
+                customer_id="1234567890",
+                query="SELECT campaign.name FROM campaign",
+                table=_single_row_table(),
+                resumable_source_manager=manager,  # type: ignore[arg-type]
+            )
+        )
+
+        assert service.calls == ["STALE_TOKEN", ""]
+        assert manager.saved_states == [""]
         assert [t.to_pylist() for t in tables] == [[{"campaign_name": "Acme"}]]
 
     def test_other_google_ads_errors_propagate(self):
@@ -1020,3 +1131,80 @@ class TestOverviewStatsSchemas:
         assert overview["field_names"] == [f for f in stats["field_names"] if f != "segments.click_type"]
         assert overview["primary_key"] == [k for k in stats["primary_key"] if k != "segments.click_type"]
         assert overview["filter_field_names"] == [("segments.date", IncrementalFieldType.Date)]
+
+
+class TestGoogleAdsQueryConstruction:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads"
+
+    def _stats_table(self) -> GoogleAdsTable:
+        return GoogleAdsTable(
+            name="campaign_stats",
+            alias="campaign_stats",
+            columns=[_string_column("campaign.id"), _string_column("segments.date")],
+            parents=None,
+            requires_filter=True,
+            primary_key=["campaign_id", "segments_date"],
+            should_sync_default=True,
+            description=None,
+        )
+
+    def _run_source(self, table: GoogleAdsTable, **source_kwargs):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
+            google_ads_source,
+        )
+
+        captured: dict = {}
+
+        def fake_search(*, service, customer_id, query, table, resumable_source_manager):
+            captured["query"] = query
+            return iter([])
+
+        assert table.alias is not None
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        with (
+            mock.patch(f"{self._MODULE}.get_schemas", return_value={table.alias: table}),
+            mock.patch(f"{self._MODULE}.google_ads_client"),
+            mock.patch(f"{self._MODULE}._search_as_arrow_tables", side_effect=fake_search),
+        ):
+            response = google_ads_source(
+                config,
+                table.alias,
+                team_id=1,
+                resumable_source_manager=mock.Mock(),
+                **source_kwargs,
+            )
+            list(typing.cast(collections.abc.Iterable, response.items()))
+        return response, captured["query"]
+
+    def test_incremental_query_is_bounded_and_ordered_by_cursor(self):
+        import datetime as dt
+
+        response, query = self._run_source(
+            self._stats_table(),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=dt.date(2026, 4, 2),
+            incremental_field="segments.date",
+            incremental_field_type=IncrementalFieldType.Date,
+        )
+
+        assert "WHERE segments.date >= '2026-04-02'" in query
+        # Ascending order is load-bearing: the pipeline advances the incremental watermark after
+        # every durably written chunk under sort_mode "asc". Unordered pages would let the
+        # watermark skip past unfetched older rows, and make every chunk's Delta merge touch the
+        # whole date window instead of a narrow band — the stuck-cursor OOM spiral.
+        assert query.endswith("ORDER BY segments.date ASC")
+        assert response.sort_mode == "asc"
+
+    def test_stats_table_forces_incremental_and_still_orders(self):
+        # requires_filter tables force segments.date filtering even when the caller didn't pass
+        # incremental args (e.g. first backfill) — the ordering must apply on that path too.
+        _response, query = self._run_source(self._stats_table())
+
+        assert "WHERE segments.date >=" in query
+        assert query.endswith("ORDER BY segments.date ASC")
+
+    def test_dimension_table_query_has_no_order_clause(self):
+        _response, query = self._run_source(_single_row_table())
+
+        assert "WHERE" not in query
+        assert "ORDER BY" not in query

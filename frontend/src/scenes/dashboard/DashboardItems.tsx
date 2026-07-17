@@ -3,7 +3,7 @@ import './DashboardItems.scss'
 import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
 import { GridBackground } from 'react-grid-layout/extras'
 
@@ -15,6 +15,7 @@ import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverl
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectsEqual } from 'lib/utils/objects'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { getAddTileMenuItems } from 'scenes/dashboard/DashboardHeaderActions'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -39,7 +40,34 @@ const BASE_ROW_HEIGHT = 80
 const BASE_MARGIN: [number, number] = [16, 16]
 const CONTAINER_PADDING: [number, number] = [0, 0]
 
-export function DashboardItems(): JSX.Element {
+interface DashboardItemsProps {
+    showCreateAnomalyAlertButton?: boolean
+}
+
+/**
+ * Shallow prop compare, except: `style` by value (react-grid-layout rebuilds it every drag/resize mousemove even
+ * for tiles that haven't moved) and `children` ignored (the RGL-injected resize handles, recreated each render
+ * with identical content). Lets untouched tiles skip re-rendering during gestures.
+ */
+function gridTilePropsEqual(prevProps: Record<string, any>, nextProps: Record<string, any>): boolean {
+    return [...new Set([...Object.keys(prevProps), ...Object.keys(nextProps)])].every(
+        (key) =>
+            key === 'children' ||
+            (key === 'style'
+                ? objectsEqual(prevProps.style, nextProps.style)
+                : Object.is(prevProps[key], nextProps[key]))
+    )
+}
+
+const MemoizedInsightCard = memo(InsightCard, gridTilePropsEqual) as typeof InsightCard
+const MemoizedDashboardTextItem = memo(DashboardTextItem, gridTilePropsEqual) as typeof DashboardTextItem
+const MemoizedDashboardButtonTileItem = memo(
+    DashboardButtonTileItem,
+    gridTilePropsEqual
+) as typeof DashboardButtonTileItem
+const MemoizedDashboardWidgetItem = memo(DashboardWidgetItem, gridTilePropsEqual) as typeof DashboardWidgetItem
+
+export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsProps = {}): JSX.Element {
     const {
         dashboard,
         tiles,
@@ -336,6 +364,7 @@ export function DashboardItems(): JSX.Element {
                 setContainerHeight(containerRef.current.clientHeight)
             }
         })
+        // oxlint-disable-next-line react-hooks/exhaustive-deps -- ref reads inside requestAnimationFrame aren't valid deps
     }, [updateLayouts])
 
     const handleWidthChange = useCallback(
@@ -507,7 +536,7 @@ export function DashboardItems(): JSX.Element {
                                 const loading = isErrorTile ? false : isRefreshing(insight.short_id)
 
                                 return (
-                                    <InsightCard
+                                    <MemoizedInsightCard
                                         key={tile.id}
                                         tile={tile}
                                         insight={insight}
@@ -533,6 +562,7 @@ export function DashboardItems(): JSX.Element {
                                         breakdownColorOverride={temporaryBreakdownColors}
                                         dataColorThemeId={dataColorThemeId}
                                         surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
+                                        showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}
                                         {...commonTileProps}
                                     />
                                 )
@@ -540,7 +570,7 @@ export function DashboardItems(): JSX.Element {
 
                             if (text) {
                                 return (
-                                    <DashboardTextItem
+                                    <MemoizedDashboardTextItem
                                         key={tile.id}
                                         tile={tile}
                                         placement={placement}
@@ -565,7 +595,7 @@ export function DashboardItems(): JSX.Element {
 
                             if (button_tile) {
                                 return (
-                                    <DashboardButtonTileItem
+                                    <MemoizedDashboardButtonTileItem
                                         key={tile.id}
                                         tile={tile}
                                         placement={placement}
@@ -593,7 +623,7 @@ export function DashboardItems(): JSX.Element {
                                 const refreshState = widgetRefreshStatus[tile.id]
 
                                 return (
-                                    <DashboardWidgetItem
+                                    <MemoizedDashboardWidgetItem
                                         key={tile.id}
                                         tile={tile}
                                         placement={placement}

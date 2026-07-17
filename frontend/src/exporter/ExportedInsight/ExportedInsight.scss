@@ -32,6 +32,24 @@
         border-radius: 0 0 var(--radius) var(--radius);
     }
 
+    // A metric card renders best as a square card — header plus chart, proportioned like a dashboard
+    // tile on a 2x2 grid — rather than stretched to the full exporter height. The aspect-ratio derives
+    // the card's height from the export width, and the content flex-fills the space under the header so
+    // the filling sparkline hugs the bottom of the card.
+    &--metric {
+        flex: 0 0 auto;
+        height: auto;
+        aspect-ratio: 1 / 1;
+
+        .ExportedInsight__content {
+            flex: 1 1 0;
+
+            // `min-height: 0` overrides the flex-item `auto` floor so the aspect-ratio governs the card's
+            // height instead of the content's min-content height stretching it taller than a square.
+            min-height: 0;
+        }
+    }
+
     .LemonTable {
         --lemon-table-background-color: var(--color-bg-surface-primary);
     }
@@ -44,7 +62,6 @@
 
         svg {
             margin: 0.25rem;
-            font-size: 0.75rem;
         }
     }
 }

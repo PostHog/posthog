@@ -26,13 +26,13 @@ import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
 import { TeamManagerComponent } from '~/common/utils/team-manager'
 import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
-import { KafkaProducerRegistryComponent } from '~/ingestion/common/producer-registry'
+import { KafkaProducerRegistryComponent } from '~/ingestion/common/outputs/producer-registry'
 import {
     KafkaDownstreamProducerEnvConfig,
     KafkaUpstreamProducerEnvConfig,
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
-} from '~/ingestion/common/producers'
+} from '~/ingestion/common/outputs/producers'
 import { createAiConsumer, createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
 import { createOutputsRegistry as createAiOutputsRegistry } from '~/ingestion/pipelines/ai/outputs/registry'
 import { createOutputsRegistry } from '~/ingestion/pipelines/analytics/outputs/registry'

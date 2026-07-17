@@ -18,8 +18,10 @@ STREAMLIT_OAUTH_CLIENT_ID = "posthog-streamlit-apps-first-party"
 ACCESS_TOKEN_EXPIRY_SECONDS = 60 * 60  # 1 hour
 BRIDGE_TOKEN_EXPIRY_SECONDS = 60 * 20  # sandbox TTL + buffer
 
-# streamlit:iframe and streamlit:bridge suffixes let the proxy and the bridge
-# refuse tokens of the opposite type even if they leak between contexts.
+# streamlit:iframe and streamlit:bridge are deliberately internal first-party
+# discriminators, not registered API scopes: they never reach APIScopePermission
+# or a user-facing scope picker. They exist so the proxy and the bridge can refuse
+# tokens of the opposite type even if one leaks between contexts.
 IFRAME_TOKEN_SCOPE = "streamlit:iframe"
 BRIDGE_TOKEN_SCOPE = "query:read streamlit:bridge"
 
@@ -92,7 +94,12 @@ def find_reusable_streamlit_access_token(
 
 
 def create_sandbox_bridge_token(user: User | None, team_id: int) -> str:
-    """Mint a long-TTL OAuth token for the sandbox→PostHog HogQL bridge hop."""
+    """Mint a long-TTL OAuth token for the sandbox→PostHog HogQL bridge hop.
+
+    OAuth rather than a project secret API key is deliberate: the token carries a
+    `user`, which the bridge's org-membership re-check relies on to revoke access
+    when the minting user leaves the org. A PSAK is user-less and couldn't gate that.
+    """
     oauth_app = get_streamlit_oauth_app()
     token_value = generate_random_oauth_access_token(None)
 

@@ -22,6 +22,7 @@ from posthog.models.team.team import Team
 
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
+from products.signals.backend.signal_metadata import ReportSignalMeta
 from products.signals.backend.task_run_artefacts import append_task_run_artefact, record_implementation_task
 
 if TYPE_CHECKING:
@@ -874,12 +875,18 @@ class TestSignalReportListAPI(APIBaseTest):
 
         with patch(
             "products.signals.backend.views.fetch_source_products_for_reports",
-            return_value={str(report.id): ["zendesk", "github"]},
+            return_value={
+                str(report.id): ReportSignalMeta(
+                    source_products=["zendesk", "github"], scout_name="signals-scout-error-tracking"
+                )
+            },
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["source_products"] == ["zendesk", "github"]
+        # scout_name flows from the ClickHouse meta through the view's map split into the serializer.
+        assert response.json()["scout_name"] == "signals-scout-error-tracking"
 
     def test_source_products_present_on_signals_action(self):
         report = self._create_report()
@@ -887,7 +894,7 @@ class TestSignalReportListAPI(APIBaseTest):
         with (
             patch(
                 "products.signals.backend.views.fetch_source_products_for_reports",
-                return_value={str(report.id): ["zendesk"]},
+                return_value={str(report.id): ReportSignalMeta(source_products=["zendesk"], scout_name=None)},
             ),
             patch("products.signals.backend.views.fetch_signals_for_report_sync", return_value=[]),
         ):
@@ -907,6 +914,27 @@ class TestSignalReportListAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["source_products"] == []
+
+    @parameterized.expand(
+        [
+            ("source_products", "fetch_source_products_for_reports"),
+            ("implementation_pr_urls", "fetch_implementation_pr_urls_for_reports"),
+        ]
+    )
+    def test_list_resilient_to_supplementary_fetch_failure(self, _name, fetch_fn):
+        # A transient failure in either decorative metadata fetch must degrade to empty badges
+        # rather than 500 the whole inbox load — the list still renders from Postgres data.
+        report = self._create_report()
+
+        with patch(
+            f"products.signals.backend.views.{fetch_fn}",
+            side_effect=Exception("clickhouse timeout"),
+        ):
+            response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["source_products"] == []
 
     # --- suppressed report reachability ---
     #
@@ -930,7 +958,7 @@ class TestSignalReportListAPI(APIBaseTest):
         with (
             patch(
                 "products.signals.backend.views.fetch_source_products_for_reports",
-                return_value={str(report.id): ["zendesk"]},
+                return_value={str(report.id): ReportSignalMeta(source_products=["zendesk"], scout_name=None)},
             ),
             patch("products.signals.backend.views.fetch_signals_for_report_sync", return_value=[]),
         ):
@@ -959,12 +987,59 @@ class TestSignalReportListAPI(APIBaseTest):
         ids = {r["id"] for r in response.json()["results"]}
         assert str(suppressed.id) in ids
 
+    def test_list_include_all_statuses_returns_suppressed_but_never_deleted(self):
+        ready = self._create_report(status=SignalReport.Status.READY)
+        suppressed = self._create_report(status=SignalReport.Status.SUPPRESSED)
+        deleted = self._create_report(status=SignalReport.Status.DELETED)
+
+        response = self.client.get(self._list_url(include_all_statuses="true"))
+
+        assert response.status_code == status.HTTP_200_OK
+        rows = {r["id"]: r["status"] for r in response.json()["results"]}
+        assert rows[str(ready.id)] == SignalReport.Status.READY
+        assert rows[str(suppressed.id)] == SignalReport.Status.SUPPRESSED
+        assert str(deleted.id) not in rows
+
+    def test_list_include_all_statuses_false_keeps_default_exclusions(self):
+        suppressed = self._create_report(status=SignalReport.Status.SUPPRESSED)
+
+        response = self.client.get(self._list_url(include_all_statuses="false"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert str(suppressed.id) not in {r["id"] for r in response.json()["results"]}
+
+    def test_list_include_all_statuses_invalid_value_returns_400(self):
+        response = self.client.get(self._list_url(include_all_statuses="maybe"))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_list_explicit_status_filter_overrides_include_all_statuses(self):
+        ready = self._create_report(status=SignalReport.Status.READY)
+        suppressed = self._create_report(status=SignalReport.Status.SUPPRESSED)
+
+        response = self.client.get(self._list_url(status="ready", include_all_statuses="true"))
+
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert str(ready.id) in ids
+        assert str(suppressed.id) not in ids
+
     def test_reingest_suppressed_report_returns_404(self):
         # reingest is a mutating-by-ID action, so a suppressed report stays unreachable
         # and 404s before any workflow is started (mirrors the delete contract).
         report = self._create_report(status=SignalReport.Status.SUPPRESSED)
 
         response = self.client.post(f"/api/projects/{self.team.id}/signals/reports/{report.id}/reingest/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_include_all_statuses_is_ignored_on_by_id_actions(self):
+        # The flag is list-only: it must not widen reachability for mutating-by-ID actions.
+        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/reports/{report.id}/reingest/?include_all_statuses=true"
+        )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
@@ -1253,7 +1328,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
 
         with patch(
             "products.signals.backend.views.fetch_source_products_for_reports",
-            return_value={str(report.id): ["zendesk"]},
+            return_value={str(report.id): ReportSignalMeta(source_products=["zendesk"], scout_name=None)},
         ):
             response = self.client.post(
                 self._state_url(str(report.id)),

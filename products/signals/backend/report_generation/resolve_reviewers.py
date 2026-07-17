@@ -14,13 +14,14 @@ from django.db.models.functions import Concat, Lower
 
 from social_django.models import UserSocialAuth
 
-from posthog.schema import RelevantCommit
-
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
+
+from products.signals.backend.contracts import RelevantCommit
 
 from ..models import SignalReportArtefact
 
@@ -122,7 +123,12 @@ def resolve_suggested_reviewers(
     if not commit_hashes_with_reasons or not repository:
         return []
 
-    github = GitHubIntegration.first_for_team_repository(team_id, repository)
+    try:
+        github = GitHubIntegration.first_for_team_repository(team_id, repository)
+    except GitHubRateLimitError:
+        # Suggested reviewers are an optional artefact — omit them rather than failing the report.
+        logger.info("GitHub rate limited while probing %s, skipping reviewer resolution", repository)
+        return []
     if github is None:
         logger.info(
             "No GitHub integration for team %d can access %s, cannot resolve reviewers",
@@ -142,7 +148,11 @@ def resolve_suggested_reviewers(
             pool.submit(github.get_commit_author_info, repository, sha): i for i, (sha, _reason) in enumerate(items)
         }
         for future in as_completed(future_to_idx):
-            author_results[future_to_idx[future]] = future.result()
+            try:
+                author_results[future_to_idx[future]] = future.result()
+            except GitHubRateLimitError:
+                # Best-effort: score reviewers from whatever lookups landed before the limit.
+                logger.info("GitHub rate limited during commit author lookups for %s", repository)
 
     # Weight earlier commits more heavily (position-based weighting)
     login_weights: Counter[str] = Counter()
@@ -257,7 +267,7 @@ def list_project_members(
 ) -> list[ProjectMemberIdentity]:
     """Members with access to ``team`` — their UUID/email/name and resolved GitHub login.
 
-    Backs the `signals-scout-members-list` tool: the cold-start reviewer-routing path for a scout
+    Backs the `scout-members-list` tool: the cold-start reviewer-routing path for a scout
     that can't read an owner off a fetched entity's ``created_by`` and has no cached
     ``reviewer:<area>`` memory or inbox precedent. Scoped via ``Team.all_users_with_access()`` so
     private-project access control is honored — a scout on a private project sees only the people who

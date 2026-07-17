@@ -5,7 +5,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
-from clickhouse_connect.driver.exceptions import ClickHouseError
+from clickhouse_connect.driver.exceptions import ClickHouseError, OperationalError
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
     _build_query,
     _get_client,
     _get_incremental_row_count,
+    _get_partition_settings,
     _has_duplicate_primary_keys,
     _is_transient_connect_drop,
     _parse_mv_target,
@@ -661,6 +662,8 @@ class TestClickHouseSourceNonRetryableErrors:
             # Transient gateway errors must stay retryable — only 404 is permanent.
             "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 502",
             "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 503",
+            # 429 Too Many Requests is a rate-limit ("retry later"), not a permanent error.
+            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 429",
         ],
     )
     def test_transient_errors_are_retryable(self, source, error_msg):
@@ -680,6 +683,16 @@ class TestIsTransientConnectDrop:
             "EOF occurred in violation of protocol",
             "Connection reset by peer",
             "('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))",
+            # The exact wrapped message that reached error tracking: the egress proxy
+            # returned a 502 while opening the CONNECT tunnel to a ClickHouse host.
+            "Error HTTPSConnectionPool(host='h', port=8443): Max retries exceeded with url: /? "
+            "(Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: "
+            "502 Bad gateway'))) executing HTTP request attempt 1",
+            "Tunnel connection failed: 503 Service Unavailable",
+            "Tunnel connection failed: 504 Gateway Timeout",
+            # HTTP 429 rate-limit at connect time — clickhouse-connect doesn't
+            # retry the client-construction probe, so we retry it in-process.
+            "HTTPDriver for https://host:8443 returned response code 429",
         ],
     )
     def test_matches_transient_drops(self, message):
@@ -692,6 +705,8 @@ class TestIsTransientConnectDrop:
             "[SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:2657)",
             "Code: 516. DB::Exception: Authentication failed",
             "HTTPDriver for https://host:8443 returned response code 404",
+            # A proxy 407 is a deterministic auth-config failure, not a transient gateway blip.
+            "Tunnel connection failed: 407 Proxy Authentication Required",
         ],
     )
     def test_does_not_match_deterministic_failures(self, message):
@@ -716,6 +731,18 @@ class TestGetClientTransientRetry:
             assert self._connect() is client
         assert mock_get_client.call_count == 2
 
+    def test_retries_connect_time_429_then_succeeds(self):
+        # clickhouse-connect raises OperationalError for a 429 exhausted at the
+        # client-construction probe (which runs with retries=0). We retry it.
+        client = MagicMock()
+        rate_limited = OperationalError("HTTPDriver for https://host:8443 returned response code 429")
+        with (
+            patch.object(ch_module.time, "sleep"),
+            patch.object(ch_module, "get_client", side_effect=[rate_limited, client]) as mock_get_client,
+        ):
+            assert self._connect() is client
+        assert mock_get_client.call_count == 2
+
     def test_gives_up_after_max_attempts(self):
         ssl_eof = ClickHouseError("[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol")
         with (
@@ -725,6 +752,16 @@ class TestGetClientTransientRetry:
             with pytest.raises(ClickHouseConnectionError):
                 self._connect()
         assert mock_get_client.call_count == _MAX_CONNECT_ATTEMPTS
+
+    def test_retries_rate_limit_then_succeeds(self):
+        client = MagicMock()
+        rate_limited = OperationalError("HTTPDriver for https://host:8443 returned response code 429")
+        with (
+            patch.object(ch_module.time, "sleep"),
+            patch.object(ch_module, "get_client", side_effect=[rate_limited, client]) as mock_get_client,
+        ):
+            assert self._connect() is client
+        assert mock_get_client.call_count == 2
 
     def test_does_not_retry_deterministic_failure(self):
         cert_error = ClickHouseError("certificate verify failed")
@@ -1001,6 +1038,40 @@ class TestGetIncrementalRowCount:
         result.result_rows = [(None,)]
         client.query.return_value = result
         assert _get_incremental_row_count(client, "db", "t", "id", 0, self._logger()) is None
+
+
+class TestGetPartitionSettings:
+    def _logger(self):
+        return MagicMock()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "HTTPDriver for https://example.invalid:443 returned response code 429",
+            "HTTPDriver for https://example.invalid:443 returned response code 502",
+            "HTTPDriver for https://example.invalid:443 returned response code 503",
+            "HTTPDriver for https://example.invalid:443 returned response code 504",
+        ],
+    )
+    def test_transient_http_response_not_captured(self, error_msg):
+        client = MagicMock()
+        client.query.side_effect = ClickHouseError(error_msg)
+
+        with patch.object(ch_module, "capture_exception") as mock_capture:
+            # Falls back to default partitioning without adding error-tracking
+            # noise — the source rate-limiting us isn't actionable on our side.
+            assert _get_partition_settings(client, "db", "t", self._logger()) is None
+
+        mock_capture.assert_not_called()
+
+    def test_unexpected_error_is_captured(self):
+        client = MagicMock()
+        client.query.side_effect = ClickHouseError("Code: 62. DB::Exception: Syntax error")
+
+        with patch.object(ch_module, "capture_exception") as mock_capture:
+            assert _get_partition_settings(client, "db", "t", self._logger()) is None
+
+        mock_capture.assert_called_once()
 
 
 class TestGetRowsBatching:

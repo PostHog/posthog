@@ -1,45 +1,39 @@
 import { useActions, useValues } from 'kea'
 
 import { IconKeyboard } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
-import { TimezoneSelect } from 'lib/components/TimezoneSelect'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconPauseCircle, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { Scene } from 'scenes/sceneTypes'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
-import { LogsOrderBy } from 'products/logs/frontend/types'
 
+import { LogsColumnConfigurator } from './config/LogsColumnConfigurator'
 import { LogsExportMenu } from './LogsExportMenu'
-import { logsViewerLogic } from './logsViewerLogic'
+import { LogsViewSettings } from './LogsViewSettings'
 
 export interface LogsViewerToolbarProps {
     // Used by the export menu for its "all matching logs" label + size limit, not shown as a count here
     // (the lens-aware count indicator lives in the results bar's persistent-left frame).
     totalLogsCount?: number
-    orderBy: LogsOrderBy
-    onChangeOrderBy: (orderBy: LogsOrderBy) => void
 }
 
 /**
- * Contextual-right cluster of the results bar — live tail plus how the Logs list renders (sort, wrap,
- * timezone, export) and the keyboard-shortcut help. Logs-only: the bar hides this whole cluster in
- * Patterns mode, where none of it applies. Live tail streams the query (the others don't re-run it) —
- * it lives here, technically the "wrong" scope, so it hides with this cluster instead of shifting the
- * top bar's layout when the lens changes.
+ * Contextual-right cluster of the results bar — live tail, view settings (wrap + timezone display),
+ * export and the keyboard-shortcut help. Logs-only: the bar hides this whole cluster in Patterns mode,
+ * where none of it applies. Sort order is driven by the timestamp-column arrow, so it has no control
+ * here. Timezone is editable both in view settings and in the date range picker — both write the same
+ * logsViewerSettingsLogic state. Live tail streams the query (the others don't re-run it) — it lives
+ * here, technically the "wrong" scope, so it hides with this cluster instead of shifting the top bar's
+ * layout when the lens changes.
  */
-export const LogsViewerToolbar = ({
-    totalLogsCount,
-    orderBy,
-    onChangeOrderBy,
-}: LogsViewerToolbarProps): JSX.Element => {
-    const { wrapBody, timezone } = useValues(logsViewerLogic)
-    const { setWrapBody, setTimezone } = useActions(logsViewerLogic)
+export const LogsViewerToolbar = ({ totalLogsCount }: LogsViewerToolbarProps): JSX.Element => {
     const { liveTailRunning, liveTailDisabledReason } = useValues(logsViewerDataLogic)
+    const showColumnConfigurator = useFeatureFlag('LOGS_COLUMN_CONFIGURATION')
     const { setLiveTailRunning } = useActions(logsViewerDataLogic)
 
     return (
@@ -61,23 +55,8 @@ export const LogsViewerToolbar = ({
                     Live tail
                 </LemonButton>
             </Shortcut>
-            <LemonSegmentedButton
-                value={orderBy}
-                onChange={onChangeOrderBy}
-                options={[
-                    {
-                        value: 'earliest',
-                        label: 'Earliest',
-                    },
-                    {
-                        value: 'latest',
-                        label: 'Latest',
-                    },
-                ]}
-                size="small"
-            />
-            <LemonCheckbox checked={wrapBody} bordered onChange={setWrapBody} label="Wrap message" size="small" />
-            <TimezoneSelect value={timezone} onChange={setTimezone} size="small" />
+            <LogsViewSettings />
+            {showColumnConfigurator && <LogsColumnConfigurator />}
             <LogsExportMenu totalLogsCount={totalLogsCount} />
             <Tooltip
                 title={

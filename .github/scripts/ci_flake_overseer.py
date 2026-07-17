@@ -30,33 +30,40 @@ def compile_patterns(*patterns: str) -> tuple[re.Pattern[str], ...]:
     return tuple(re.compile(pattern, re.IGNORECASE) for pattern in patterns)
 
 
+def compile_classified(*rules: tuple[str, str]) -> tuple[tuple[re.Pattern[str], str], ...]:
+    return tuple((re.compile(pattern, re.IGNORECASE), failure_class) for pattern, failure_class in rules)
+
+
 # Jobs/steps whose failures a rerun can't fix — excluded from the flake measurement.
-DETERMINISTIC_JOB_PATTERNS = compile_patterns(
-    r"\brepo checks?\b",
-    r"\bopenapi\b",
-    r"\bmigrations?\b",
-    r"\blint\b",
-    r"\btype ?check\b",
-    r"\btypescript\b",
-    r"\bvisual\b",
-    r"\bsnapshot\b",
-    r"\bstorybook\b",
-    r"\btach\b",
-    r"\bimport-linter\b",
+# Each rule carries a stable failure-class key (matching `hogli ci:preflight` check
+# keys where the two overlap) so dashboards can group deterministic failures that
+# reached CI and join them against local preflight interceptions.
+DETERMINISTIC_JOB_RULES = compile_classified(
+    (r"\brepo checks?\b", "repo-checks"),
+    (r"\bopenapi\b", "openapi"),
+    (r"\bmigrations?\b", "migrations"),
+    (r"\blint\b", "lint"),
+    (r"\btype ?check\b", "typecheck"),
+    (r"\btypescript\b", "typecheck"),
+    (r"\bvisual\b", "visual-review"),
+    (r"\bsnapshot\b", "snapshot"),
+    (r"\bstorybook\b", "storybook"),
+    (r"\btach\b", "module-boundaries"),
+    (r"\bimport-linter\b", "module-boundaries"),
 )
 
-DETERMINISTIC_STEP_PATTERNS = compile_patterns(
-    r"\bcheck module boundaries\b",
-    r"\bproduct facade enforcement\b",
-    r"\bopenapi\b",
-    r"\bmigrations?\b",
-    r"\blint\b",
-    r"\btype ?check\b",
-    r"\btypescript\b",
-    r"\bvisual review\b",
-    r"\bsnapshot\b",
-    r"\bverify changed playwright tests are stable\b",
-    r"\bverify new snapshots\b",
+DETERMINISTIC_STEP_RULES = compile_classified(
+    (r"\bcheck module boundaries\b", "module-boundaries"),
+    (r"\bproduct facade enforcement\b", "module-boundaries"),
+    (r"\bopenapi\b", "openapi"),
+    (r"\bmigrations?\b", "migrations"),
+    (r"\blint\b", "lint"),
+    (r"\btype ?check\b", "typecheck"),
+    (r"\btypescript\b", "typecheck"),
+    (r"\bvisual review\b", "visual-review"),
+    (r"\bsnapshot\b", "snapshot"),
+    (r"\bverify changed playwright tests are stable\b", "playwright-stability"),
+    (r"\bverify new snapshots\b", "snapshot"),
 )
 
 TEST_STEP_PATTERNS = compile_patterns(
@@ -112,6 +119,8 @@ class WorkflowRun:
     html_url: str
     head_branch: str = ""
     event: str = ""
+    # Empty `pull_requests` (e.g. fork PRs) collapses to None; head_branch stays the primary join key.
+    pr_number: int | None = None
 
 
 @dataclass(frozen=True)
@@ -121,6 +130,8 @@ class Decision:
     job: Job
     # Which signal classified an `observe`: the job name or a failed step. Surfaces silent allowlist drift.
     classified_via: str | None = None
+    # Canonical failure-class key for `skip deterministic` decisions (see the rule tables above).
+    failure_class: str | None = None
 
 
 def as_str(value: object) -> str | None:
@@ -166,6 +177,11 @@ def gh_json(repo: str, path: str) -> JsonObject:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def pr_number_from_object(raw: JsonObject) -> int | None:
+    pulls = as_object_list(raw.get("pull_requests"))
+    return as_int(pulls[0].get("number")) if pulls else None
+
+
 def workflow_run_from_object(raw: JsonObject) -> WorkflowRun:
     return WorkflowRun(
         id=as_int(raw.get("id")) or 0,
@@ -177,6 +193,7 @@ def workflow_run_from_object(raw: JsonObject) -> WorkflowRun:
         html_url=as_str(raw.get("html_url")) or "",
         head_branch=as_str(raw.get("head_branch")) or "",
         event=as_str(raw.get("event")) or "",
+        pr_number=pr_number_from_object(raw),
     )
 
 
@@ -227,14 +244,14 @@ def fetch_jobs(repo: str, run_id: int, run_attempt: int, *, strict: bool = False
         page += 1
 
 
-def deterministic_reason(job: Job) -> str | None:
-    for pattern in DETERMINISTIC_JOB_PATTERNS:
+def deterministic_match(job: Job) -> tuple[str, str] | None:
+    for pattern, failure_class in DETERMINISTIC_JOB_RULES:
         if pattern.search(job.name):
-            return f"job name matches deterministic rule `{pattern.pattern}`"
+            return f"job name matches deterministic rule `{pattern.pattern}`", failure_class
     for step_name in job.failed_step_names():
-        for pattern in DETERMINISTIC_STEP_PATTERNS:
+        for pattern, failure_class in DETERMINISTIC_STEP_RULES:
             if pattern.search(step_name):
-                return f"failed step `{step_name}` matches deterministic rule `{pattern.pattern}`"
+                return f"failed step `{step_name}` matches deterministic rule `{pattern.pattern}`", failure_class
     return None
 
 
@@ -251,9 +268,10 @@ def is_test_job_failure(job: Job) -> bool:
 
 
 def classify_job(job: Job) -> Decision:
-    deterministic = deterministic_reason(job)
+    deterministic = deterministic_match(job)
     if deterministic is not None:
-        return Decision(action="skip deterministic", reason=deterministic, job=job)
+        reason, failure_class = deterministic
+        return Decision(action="skip deterministic", reason=reason, job=job, failure_class=failure_class)
     source = test_failure_source(job)
     if source is None:
         return Decision(action="skip non-test", reason="failed job or step is not an allowlisted test runner", job=job)
@@ -276,6 +294,7 @@ def base_event_properties(repo: str, workflow_run: WorkflowRun) -> JsonObject:
         "run_url": workflow_run.html_url,
         "head_sha": workflow_run.head_sha,
         "head_branch": workflow_run.head_branch,
+        "pr_number": workflow_run.pr_number,
         # Master failures block the deploy gate; PR failures only annoy the author — keep them separable.
         "is_master": workflow_run.head_branch in {"master", "main"},
         "trigger_event": workflow_run.event,
@@ -294,6 +313,7 @@ def build_decision_events(repo: str, workflow_run: WorkflowRun, decisions: tuple
                 "action": decision.action,
                 "reason": decision.reason,
                 "classified_via": decision.classified_via,
+                "failure_class": decision.failure_class,
                 "job_name": job.name,
                 "job_id": job.id,
                 "job_url": job.html_url,

@@ -8,6 +8,12 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.temporal.observability import log_activity_execution
+from products.tasks.backend.temporal.process_task.activities.feature_flags import AGENT_DESIGN_STATE_KEY
+from products.tasks.backend.temporal.process_task.utils import (
+    get_actor_distinct_id,
+    get_task_run_credential_user,
+    is_slack_interaction_state,
+)
 
 logger = get_logger(__name__)
 
@@ -56,7 +62,7 @@ def forward_pending_user_message(run_id: str) -> None:
     from products.tasks.backend.models import TaskRun
 
     try:
-        task_run = TaskRun.objects.select_related("task__created_by").get(id=run_id)
+        task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=run_id)
     except TaskRun.DoesNotExist:
         logger.warning("forward_pending_message_run_not_found", run_id=run_id)
         return
@@ -92,10 +98,13 @@ def forward_pending_user_message(run_id: str) -> None:
                 raise RuntimeError(f"Pending task artifacts not found on this run: {missing_ids}")
 
         auth_token = None
-        created_by = task_run.task.created_by
-        if created_by and created_by.id:
-            distinct_id = created_by.distinct_id or f"user_{created_by.id}"
-            auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
+        actor_user = get_task_run_credential_user(task_run.task, state)
+        if is_slack_interaction_state(state) and actor_user is None:
+            raise RuntimeError("Slack task run is missing an acting user")
+        if actor_user and actor_user.id:
+            auth_token = create_sandbox_connection_token(
+                task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
+            )
 
         result = send_user_message(
             task_run,
@@ -169,6 +178,10 @@ def _enqueue_pending_delivery_failure_relay(task_run: Any, user_message_ts: str 
 
 
 def _enqueue_pending_reply_relay(task_run: Any, user_message_ts: str | None, command_result_data: Any) -> None:
+    # Agent-design already streamed the reply into the plan block — don't post it again.
+    if bool((task_run.state or {}).get(AGENT_DESIGN_STATE_KEY)):
+        return
+
     from products.tasks.backend.temporal.client import execute_posthog_code_agent_relay_workflow
 
     reply_text = _extract_assistant_text_from_command_result(
@@ -222,8 +235,13 @@ def _extract_text_from_message_payload(message: dict[str, Any]) -> str | None:
         return content.strip()
 
     if isinstance(content, list):
+        # Only text after the last tool_use is the final answer; text before it is interim narration.
+        last_tool_use = -1
+        for i, part in enumerate(content):
+            if isinstance(part, dict) and part.get("type") == "tool_use":
+                last_tool_use = i
         text_parts: list[str] = []
-        for part in content:
+        for part in content[last_tool_use + 1 :]:
             if not isinstance(part, dict):
                 continue
             if part.get("type") == "text" and isinstance(part.get("text"), str):

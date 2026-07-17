@@ -4,7 +4,16 @@ from typing import Any, Literal, Optional, TypedDict
 
 from requests import Session
 
-from .auth import APIKeyAuth, AuthConfigBase, BearerTokenAuth, HttpBasicAuth, TApiKeyLocation
+from .auth import (
+    APIKeyAuth,
+    AuthConfigBase,
+    BearerTokenAuth,
+    HttpBasicAuth,
+    OAuth2Auth,
+    OAuth2ClientAuthMethod,
+    OAuth2GrantType,
+    TApiKeyLocation,
+)
 from .jsonpath_utils import TJsonPath, compile_path
 from .paginators import (
     BasePaginator,
@@ -87,7 +96,7 @@ PaginatorConfig = (
 )
 
 
-AuthType = Literal["bearer", "api_key", "http_basic"]
+AuthType = Literal["bearer", "api_key", "http_basic", "oauth2"]
 
 
 class AuthTypeConfig(TypedDict, total=True):
@@ -110,15 +119,39 @@ class HttpBasicAuthConfig(AuthTypeConfig, total=True):
     password: str
 
 
+class OAuth2AuthConfig(AuthTypeConfig, total=False):
+    # Mirrors OAuth2Auth.__init__. Every field is optional so the engine's generic
+    # create_auth(auth_class(**exclude_keys(config, {"type"}))) unpacking works; the
+    # non-secret fields live in the manifest, the secrets are injected at sync time.
+    token_url: str
+    client_id: str
+    client_secret: str
+    grant_type: Optional[OAuth2GrantType]
+    scopes: Optional[str]
+    refresh_token: str
+    access_token: str
+    access_token_name: Optional[str]
+    expires_in_name: Optional[str]
+    expiry_date_format: Optional[str]
+    extra_token_request_params: Optional[dict[str, str]]
+    token_request_headers: Optional[dict[str, str]]
+    client_auth_method: Optional[OAuth2ClientAuthMethod]
+    manages_own_token: Optional[
+        bool
+    ]  # False from integration injection: token is minted+persisted up front, so the engine must never mint
+
+
 AuthConfig = (
     AuthConfigBase
     | AuthType
     | BearerTokenAuthConfig
     | ApiKeyAuthConfig
     | HttpBasicAuthConfig
+    | OAuth2AuthConfig
     | BearerTokenAuth
     | APIKeyAuth
     | HttpBasicAuth
+    | OAuth2Auth
 )
 
 

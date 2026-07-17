@@ -11,7 +11,7 @@ import {
     useRef,
 } from 'react'
 
-import { IconArrowRight } from '@posthog/icons'
+import { IconArrowRight, IconStopFilled } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
@@ -29,6 +29,10 @@ interface ComposerContextValue {
     disabled: boolean
     /** Empty input / loading / caller's `disabledReason`, collapsed to a single reason (undefined when sendable). */
     sendDisabledReason: string | undefined
+    /** True when the send button should swap to a Stop button (active turn + empty input + an `onStop` handler). */
+    showStop: boolean
+    /** Cancels the active turn; drives the Stop button that replaces send when `showStop`. */
+    onStop: (() => void) | undefined
     /** Focuses the textarea when blocked, otherwise calls the caller's `onSubmit`. */
     submit: () => void
     textAreaRef: RefObject<HTMLTextAreaElement>
@@ -57,6 +61,10 @@ export interface ComposerRootProps {
     disabled?: boolean
     /** Extra reason to block sending, beyond the internally-handled empty input. */
     disabledReason?: string
+    /** True while the agent is actively working a turn. With empty input, the send button becomes a Stop button. */
+    isTurnActive?: boolean
+    /** Cancels the active turn. Wired to the Stop button that replaces send when `isTurnActive` and input is empty. */
+    onStop?: () => void
     /** Renders the sticky page-level chrome (bordered, blurred, bottom-pinned) around the input. */
     isSticky?: boolean
     /** Follow-up variant: tighter frame border/radius and send-button offset. */
@@ -79,6 +87,8 @@ const ComposerRoot = forwardRef<HTMLFormElement, ComposerRootProps>(function Com
         loading = false,
         disabled = false,
         disabledReason,
+        isTurnActive = false,
+        onStop,
         isSticky = false,
         isThreadVisible = false,
         className,
@@ -95,6 +105,10 @@ const ComposerRoot = forwardRef<HTMLFormElement, ComposerRootProps>(function Com
     const id = idProp ?? generatedId
 
     const sendDisabledReason = !value.trim() ? 'Type a message first' : loading ? 'Sending…' : disabledReason
+
+    // While a turn is active with no drafted text, the send button becomes a Stop button (cancel the run)
+    // rather than a disabled "Type a message first" — a follow-up with text still sends/queues as usual.
+    const showStop = isTurnActive && !value.trim() && !loading && !!onStop
 
     // Focuses the textarea when blocked, otherwise submits — shared by the native form submit and the
     // textarea keyboard shortcuts.
@@ -113,12 +127,26 @@ const ComposerRoot = forwardRef<HTMLFormElement, ComposerRootProps>(function Com
             loading,
             disabled,
             sendDisabledReason,
+            showStop,
+            onStop,
             submit,
             textAreaRef,
             id,
             isThreadVisible,
         }),
-        [value, onChange, loading, disabled, sendDisabledReason, submit, textAreaRef, id, isThreadVisible]
+        [
+            value,
+            onChange,
+            loading,
+            disabled,
+            sendDisabledReason,
+            showStop,
+            onStop,
+            submit,
+            textAreaRef,
+            id,
+            isThreadVisible,
+        ]
     )
 
     // The relative wrapper is the positioning context for the absolutely-placed Submit + Placeholder. It's a
@@ -173,6 +201,18 @@ const ComposerBanner = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>
 ): JSX.Element {
     return (
         <div data-slot="composer-banner" ref={ref} className={className} {...rest}>
+            {children}
+        </div>
+    )
+})
+
+/** The in-frame top row for context chips / attachments, above the textarea. */
+const ComposerHeader = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function ComposerHeader(
+    { className, children, ...rest },
+    ref
+): JSX.Element {
+    return (
+        <div data-slot="composer-header" ref={ref} className={cn('pt-2 px-2', className)} {...rest}>
             {children}
         </div>
     )
@@ -249,24 +289,18 @@ export interface ComposerTextareaProps {
     autoFocus?: boolean
     minRows?: number
     maxRows?: number
-    /** `'enter'` submits on Enter (PostHog AI), `'cmd-enter'` on Cmd/Ctrl+Enter (tasks composer). */
-    submitShortcut?: 'enter' | 'cmd-enter'
     'data-attr'?: string
 }
 
-/** The textarea itself, wired to the context value/submit. */
+/** The textarea itself, wired to the context value/submit. Submits on Enter, Shift+Enter for a newline. */
 function ComposerTextarea({
     className,
     autoFocus,
     minRows = 1,
     maxRows = 10,
-    submitShortcut = 'enter',
     ...rest
 }: ComposerTextareaProps): JSX.Element {
     const { value, onChange, submit, textAreaRef, disabled, id } = useComposerContext()
-    // onPressEnter / onPressCmdEnter are mutually exclusive in LemonTextArea's type — pick one.
-    const submitProps =
-        submitShortcut === 'cmd-enter' ? { onPressCmdEnter: () => submit() } : { onPressEnter: () => submit() }
     return (
         <LemonTextArea
             id={id}
@@ -280,13 +314,13 @@ function ComposerTextarea({
             autoFocus={autoFocus}
             className={cn('!border-none !bg-transparent min-h-16 py-2 pl-2 pr-12 resize-none', className)}
             hideFocus
-            {...submitProps}
+            onPressEnter={() => submit()}
             {...rest}
         />
     )
 }
 
-/** The in-frame bottom row for context chips / actions. */
+/** The in-frame bottom row for pickers / actions. */
 const ComposerFooter = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function ComposerFooter(
     { className, children, ...rest },
     ref
@@ -306,36 +340,58 @@ export interface ComposerSubmitProps {
     'data-attr'?: string
 }
 
-/** The absolutely-positioned send cluster, sibling of Frame inside Root's relative wrapper. */
-function ComposerSubmit({ icon, tooltip, className, ...rest }: ComposerSubmitProps): JSX.Element {
-    const { sendDisabledReason, loading, isThreadVisible } = useComposerContext()
+/**
+ * The absolutely-positioned send cluster, sibling of Frame inside Root's relative wrapper. `forwardRef`
+ * so callers can anchor a `Popover` to it (Popover clones its child with a ref).
+ */
+const ComposerSubmit = forwardRef<HTMLDivElement, ComposerSubmitProps>(function ComposerSubmit(
+    { icon, tooltip, className, ...rest },
+    ref
+): JSX.Element {
+    const { sendDisabledReason, loading, showStop, onStop, isThreadVisible } = useComposerContext()
     return (
         <div
             data-slot="composer-submit"
+            ref={ref}
             className={cn(
                 'absolute flex items-center',
                 isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]',
                 className
             )}
         >
-            <LemonButton
-                type="primary"
-                size="small"
-                htmlType="submit"
-                icon={icon ?? <IconArrowRight />}
-                loading={loading}
-                disabledReason={sendDisabledReason}
-                tooltip={sendDisabledReason ? undefined : (tooltip ?? "Let's go!")}
-                {...rest}
-            />
+            {showStop ? (
+                // Stop the active turn. `htmlType="button"` so it never submits the (empty) form; the Enter
+                // shortcut still routes through `submit` and just focuses, so Stop stays a click-only affordance.
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    htmlType="button"
+                    icon={<IconStopFilled />}
+                    onClick={() => onStop?.()}
+                    tooltip="Stop"
+                    {...rest}
+                />
+            ) : (
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    htmlType="submit"
+                    icon={icon ?? <IconArrowRight />}
+                    loading={loading}
+                    disabledReason={sendDisabledReason}
+                    tooltip={sendDisabledReason ? undefined : (tooltip ?? "Let's go!")}
+                    {...rest}
+                />
+            )}
         </div>
     )
-}
+})
 
 export const Composer = Object.assign(ComposerRoot, {
     Root: ComposerRoot,
     Banner: ComposerBanner,
     Frame: ComposerFrame,
+    Header: ComposerHeader,
     Field: ComposerField,
     Placeholder: ComposerPlaceholder,
     Textarea: ComposerTextarea,

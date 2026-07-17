@@ -116,15 +116,19 @@ EVALUATION_CONFIG_CONTENT_KEYS: dict[str, str] = {
     EvaluationType.SENTIMENT.value: "source",
 }
 
-REPORTABLE_OUTPUT_TYPES: tuple[str, ...] = (OutputType.BOOLEAN.value,)
+REPORTABLE_OUTPUT_TYPES: tuple[str, ...] = (OutputType.BOOLEAN.value, OutputType.SENTIMENT.value)
+REPORTABLE_OUTPUT_TYPES_BY_TARGET: dict[str, tuple[str, ...]] = {
+    "generation": REPORTABLE_OUTPUT_TYPES,
+    "trace": (OutputType.BOOLEAN.value,),
+}
 
 
 def evaluation_uses_model_configuration(evaluation_type: str | None) -> bool:
     return evaluation_type == EvaluationType.LLM_JUDGE.value
 
 
-def evaluation_supports_reports(output_type: str | None) -> bool:
-    return output_type in REPORTABLE_OUTPUT_TYPES
+def evaluation_supports_reports(output_type: str | None, target: str | None) -> bool:
+    return output_type in REPORTABLE_OUTPUT_TYPES_BY_TARGET.get(target or "", ())
 
 
 def get_evaluation_config_content_key(evaluation_type: str | None) -> str | None:

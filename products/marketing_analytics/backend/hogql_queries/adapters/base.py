@@ -579,6 +579,12 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
             MarketingAnalyticsDrillDownLevel.AD,
         )
 
+        # Entity and report/stats tables can store the same id with different types
+        # (e.g. Reddit's ad_groups.id vs ad_group_report.ad_group_id), so cast both
+        # join keys to String — otherwise the LEFT JOIN silently matches zero rows.
+        def join_key(table: str, column: str) -> ast.Call:
+            return ast.Call(name="toString", args=[ast.Field(chain=[table, column])])
+
         # entity LEFT JOIN stats ON entity.<pk> = stats.<fk> — skipped in unified mode
         # because entity_table === stats_table (a single performance report).
         stats_join: ast.JoinExpr | None = None
@@ -588,9 +594,9 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
                 join_type="LEFT JOIN",
                 constraint=ast.JoinConstraint(
                     expr=ast.CompareOperation(
-                        left=ast.Field(chain=[entity_table_name, tables.entity_id_column]),
+                        left=join_key(entity_table_name, tables.entity_id_column),
                         op=ast.CompareOperationOp.Eq,
-                        right=ast.Field(chain=[stats_table_name, tables.stats_entity_id_column]),
+                        right=join_key(stats_table_name, tables.stats_entity_id_column),
                     ),
                     constraint_type="ON",
                 ),
@@ -614,9 +620,9 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
                     join_type="LEFT JOIN",
                     constraint=ast.JoinConstraint(
                         expr=ast.CompareOperation(
-                            left=ast.Field(chain=[entity_table_name, self._ad_adset_fk_column]),
+                            left=join_key(entity_table_name, self._ad_adset_fk_column),
                             op=ast.CompareOperationOp.Eq,
-                            right=ast.Field(chain=[config.adset_table.name, self._adset_pk_column]),
+                            right=join_key(config.adset_table.name, self._adset_pk_column),
                         ),
                         constraint_type="ON",
                     ),
@@ -642,9 +648,9 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
                     join_type="LEFT JOIN",
                     constraint=ast.JoinConstraint(
                         expr=ast.CompareOperation(
-                            left=ast.Field(chain=[campaign_join_table, campaign_fk]),
+                            left=join_key(campaign_join_table, campaign_fk),
                             op=ast.CompareOperationOp.Eq,
-                            right=ast.Field(chain=[config.campaign_table.name, self._campaign_pk_column]),
+                            right=join_key(config.campaign_table.name, self._campaign_pk_column),
                         ),
                         constraint_type="ON",
                     ),

@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
+from django.conf import settings
 from django.db.models import Q
 
 import structlog
@@ -226,7 +227,11 @@ def resolve_user_for_workspace(
     # The user resolver lives in api.py alongside the Slack-API helpers it
     # depends on (``get_slack_user_info`` etc). Inline-imported to break the
     # cycle until those helpers are factored out into a shared module.
-    from products.slack_app.backend.api import get_slack_email_for_user, resolve_posthog_user_from_event
+    from products.slack_app.backend.api import (
+        LOCAL_DEV_SLACK_EMAIL,
+        get_slack_email_for_user,
+        resolve_posthog_user_from_event,
+    )
 
     if not slack_user_id:
         logger.warning(
@@ -240,14 +245,20 @@ def resolve_user_for_workspace(
 
     probe = workspace_result.candidates[0]
 
-    # Pass slack_email=None so the linked-user path short-circuits before
-    # users.info; the resolver fetches lazily on the email-fallback branch.
-    # Re-fetch on the failure branches below is a cache hit.
+    # In local dev, match the seeded user the single-integration resolver also
+    # uses. Keep this at the resolver layer so lower-level callers like channel
+    # approval can still exercise real or stubbed Slack emails under DEBUG.
+    slack_email = LOCAL_DEV_SLACK_EMAIL if settings.DEBUG else None
+
+    # Pass slack_email=None outside local dev so the linked-user path
+    # short-circuits before users.info; the resolver fetches lazily on the
+    # email-fallback branch. Re-fetch on the failure branches below is a cache
+    # hit.
     posthog_user = resolve_posthog_user_from_event(
         slack_user_id=slack_user_id,
         probe_integration=probe,
         candidate_integrations=workspace_result.candidates,
-        slack_email=None,
+        slack_email=slack_email,
     )
     if posthog_user is None:
         slack_email = get_slack_email_for_user(probe, slack_user_id)

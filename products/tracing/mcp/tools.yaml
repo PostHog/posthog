@@ -173,6 +173,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: ?trace={params.trace_id}
         title: Retrieve trace spans
         description: >
             Fetch all spans for a specific trace by its hex trace ID. Returns the full span tree for the trace including

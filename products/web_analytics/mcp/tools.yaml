@@ -147,11 +147,17 @@ tools:
     web-analytics-achievements-overview:
         operation: web_analytics_achievements_overview
         enabled: false
+    web-analytics-achievements-preferences:
+        operation: web_analytics_achievements_preferences
+        enabled: false
     web-analytics-achievements-record-interaction:
         operation: web_analytics_achievements_record_interaction
         enabled: false
     web-analytics-achievements-record-visit:
         operation: web_analytics_achievements_record_visit
+        enabled: false
+    web-analytics-achievements-update-preferences:
+        operation: web_analytics_achievements_update_preferences
         enabled: false
     web-analytics-filter-presets-create:
         operation: web_analytics_filter_presets_create

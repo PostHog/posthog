@@ -8,6 +8,8 @@ from unittest import mock
 
 from django.db import OperationalError
 
+from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads import meta_ads as meta_ads_module
@@ -42,10 +44,12 @@ def _mock_response(status: int, body: dict) -> mock.MagicMock:
 
 def _mock_truncated_response() -> mock.MagicMock:
     # Meta occasionally returns HTTP 200 with a truncated JSON body, so `.json()`
-    # raises JSONDecodeError even though the status is healthy.
+    # raises JSONDecodeError even though the status is healthy. requests raises its
+    # own JSONDecodeError (subclass of simplejson's, not the stdlib json's, when
+    # simplejson is installed), so mirror that here rather than the stdlib type.
     response = mock.MagicMock()
     response.status_code = 200
-    response.json.side_effect = json.JSONDecodeError("Unterminated string starting at", "{", 98254)
+    response.json.side_effect = RequestsJSONDecodeError("Unterminated string starting at", "{", 98254)
     response.text = '{"data": [{"id": "1"'
     return response
 
@@ -366,7 +370,7 @@ class TestSimplePaginationMalformedJson:
             "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
         ) as mock_get:
             mock_get.return_value.get.side_effect = responses
-            with pytest.raises(json.JSONDecodeError):
+            with pytest.raises(RequestsJSONDecodeError):
                 list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
 
         # Bounded: one attempt per allowed try, then it gives up (stays retryable upstream).
@@ -1003,7 +1007,7 @@ class TestTimeRangeMalformedJson:
             "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
         ) as mock_get:
             mock_get.return_value.get.side_effect = responses
-            with pytest.raises(json.JSONDecodeError):
+            with pytest.raises(RequestsJSONDecodeError):
                 list(
                     _iter_time_range_pagination(
                         self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, None, manager

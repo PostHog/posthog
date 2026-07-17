@@ -1,25 +1,13 @@
+import type { MemLensScanner } from '@memlab/lens/dist/memlens.lib.bundle.js'
+
+import { getAppContext } from 'lib/utils/getAppContext'
+
 const SCAN_INTERVAL_MS = 30_000
 const TOP_N = 10
 const IDLE_TIMEOUT_MS = 5_000
 
 interface Capturable {
     capture: (event: string, properties?: Record<string, unknown>) => void
-}
-
-interface MemLensScanResult {
-    totalElements: number
-    totalDetachedElements: number
-    detachedComponentToFiberNodeCount: Map<string, number>
-    componentToFiberNodeCount: Map<string, number>
-    start: number
-    end: number
-}
-
-interface MemLensScanner {
-    subscribe: (callback: (result: MemLensScanResult) => void) => () => void
-    start: () => void
-    stop: () => void
-    dispose: () => void
 }
 
 export function shouldCaptureDetachedElements(currentCount: number, previousCount: number | null): boolean {
@@ -70,7 +58,7 @@ export function startDetachedElementTracking(posthog: Capturable): void {
 
             state = 'ready'
 
-            const scan: MemLensScanner = createReactMemoryScan({
+            const scan = createReactMemoryScan({
                 scanIntervalMs: SCAN_INTERVAL_MS,
                 trackEventListenerLeaks: false,
             })
@@ -105,6 +93,10 @@ export function startDetachedElementTracking(posthog: Capturable): void {
 
             document.addEventListener('visibilitychange', onVisibilityChange)
 
+            if (getAppContext()?.preflight?.is_debug) {
+                exposeLeakHunterDevHelpers(scan)
+            }
+
             if (!document.hidden) {
                 scan.start()
             }
@@ -112,6 +104,7 @@ export function startDetachedElementTracking(posthog: Capturable): void {
             window.addEventListener('beforeunload', () => {
                 scan.stop()
                 scan.dispose()
+                delete (window as unknown as { __leakHunter?: unknown }).__leakHunter
                 document.removeEventListener('visibilitychange', onVisibilityChange)
             })
         } catch {
@@ -119,4 +112,52 @@ export function startDetachedElementTracking(posthog: Capturable): void {
             console.warn('[detachedElementTracker] Failed to load MemLens, detached element tracking disabled')
         }
     }, IDLE_TIMEOUT_MS)
+}
+
+interface LeakHunterScanSummary {
+    totalElements: number
+    totalDetachedElements: number
+    detachedComponents: Record<string, number>
+}
+
+interface LeakHunterDetachedElementSummary {
+    i: number
+    tag?: string
+    id?: string
+    classes?: string | null
+    components?: string[]
+}
+
+// Dev-only console helpers for hunting detached-DOM retainers. The convenience
+// accessors (`el(i)`, `detached()`) deref WeakRefs on demand rather than holding
+// elements; `scanner` is the raw MemLens instance and keeps its own tracking state.
+function exposeLeakHunterDevHelpers(scan: MemLensScanner): void {
+    const leakHunter = {
+        scanner: scan,
+        scan: (): LeakHunterScanSummary => {
+            const result = scan.scan()
+            return {
+                totalElements: result.totalElements,
+                totalDetachedElements: result.totalDetachedElements,
+                detachedComponents: mapToTopN(result.detachedComponentToFiberNodeCount, 50),
+            }
+        },
+        detached: (limit: number = 50): LeakHunterDetachedElementSummary[] =>
+            scan
+                .getDetachedDOMInfo()
+                .slice(0, limit)
+                .map((info, i) => {
+                    const el = info.element.deref()
+                    return {
+                        i,
+                        tag: el?.tagName,
+                        id: el?.id,
+                        classes: el?.getAttribute('class'),
+                        components: info.componentStack?.slice(0, 10) ?? undefined,
+                    }
+                }),
+        el: (i: number): Element | undefined => scan.getDetachedDOMInfo()[i]?.element.deref(),
+    }
+    ;(window as unknown as { __leakHunter?: typeof leakHunter }).__leakHunter = leakHunter
+    console.info('[leak-hunter] window.__leakHunter ready')
 }

@@ -6,11 +6,9 @@ import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -30,8 +28,11 @@ import {
     formatLLMCost,
     formatLLMLatency,
     formatLLMUsage,
-    getTraceStepCount,
     getTraceTimestamp,
+    INTERNAL_TOOL_RESULT_ROLE,
+    isInternalToolResultUserMessage,
+    isToolResult,
+    isToolStepItem,
     LLM_TRACES_PAGE_SIZE,
     sanitizeTraceUrlSearchParams,
 } from './utils'
@@ -43,10 +44,17 @@ export function AIObservabilityTraces(): JSX.Element {
     const { applyUrlState, setShouldFilterSupportTraces } = useActions(aiObservabilitySharedLogic)
     const { dateFilter, propertyFilters: currentPropertyFilters } = useValues(aiObservabilitySharedLogic)
     const { tracesQuery } = useValues(aiObservabilityTracesTabLogic)
+    const appliedSearchTerm = isTracesQuery(tracesQuery.source) ? tracesQuery.source.searchTerm : undefined
 
     const baseContext = useTracesQueryContext()
     const context: QueryContext<DataTableNode> = {
         ...baseContext,
+        ...(appliedSearchTerm
+            ? {
+                  emptyStateHeading: 'No traces matched your search',
+                  emptyStateDetail: 'Try a different search term, date range, or filters.',
+              }
+            : {}),
         customActions: <TracesOptionsMenu key="traces-options-menu" />,
     }
 
@@ -66,15 +74,13 @@ export function AIObservabilityTraces(): JSX.Element {
                     // separate — it cannot contribute to the URL-change counter.
                     setShouldFilterSupportTraces(query.source.filterSupportTraces ?? true)
 
-                    // Batch the remaining three URL-synced fields into a single
-                    // applyUrlState dispatch so the DataTable's setQuery emits
-                    // one URL change instead of three.
                     applyUrlState(
                         buildApplyUrlStatePayload({
                             dateFrom: query.source.dateRange?.date_from || null,
                             dateTo: query.source.dateRange?.date_to || null,
                             shouldFilterTestAccounts: query.source.filterTestAccounts || false,
                             propertyFilters: query.source.properties || [],
+                            searchQuery: query.source.searchTerm || '',
                             currentDateFilter: dateFilter,
                             currentPropertyFilters,
                         })
@@ -88,11 +94,8 @@ export function AIObservabilityTraces(): JSX.Element {
 }
 
 function TracesOptionsMenu(): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { showInputOutputColumns, showSentimentColumn } = useValues(aiObservabilityTracesTabLogic)
     const { setShowInputOutputColumns, setShowSentimentColumn } = useActions(aiObservabilityTracesTabLogic)
-
-    const showInputOutputToggleEnabled = !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
 
     return (
         <LemonDropdown
@@ -100,16 +103,14 @@ function TracesOptionsMenu(): JSX.Element | null {
             placement="bottom-end"
             overlay={
                 <div className="flex flex-col gap-2 py-1 px-2 min-w-64">
-                    {showInputOutputToggleEnabled && (
-                        <LemonSwitch
-                            checked={showInputOutputColumns}
-                            onChange={setShowInputOutputColumns}
-                            label="Show input/output"
-                            fullWidth
-                            tooltip="Preview each trace's first input and last output in the table. Turn off for a denser view."
-                            data-attr="llm-traces-show-input-output-toggle"
-                        />
-                    )}
+                    <LemonSwitch
+                        checked={showInputOutputColumns}
+                        onChange={setShowInputOutputColumns}
+                        label="Show input/output"
+                        fullWidth
+                        tooltip="Preview each trace's first input and last output in the table. Turn off for a denser view."
+                        data-attr="llm-traces-show-input-output-toggle"
+                    />
                     <LemonSwitch
                         checked={showSentimentColumn}
                         onChange={setShowSentimentColumn}
@@ -175,12 +176,6 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
             errorCount: {
                 renderTitle: () => <Tooltip title="Number of errors in this trace">Errors</Tooltip>,
                 render: ErrorsColumn,
-            },
-            stepCount: {
-                renderTitle: () => (
-                    <Tooltip title="Number of steps (generations, spans, embeddings) in this trace">Steps</Tooltip>
-                ),
-                render: StepsColumn,
             },
             totalLatency: {
                 renderTitle: () => <Tooltip title="Total latency of all operations in this trace">Latency</Tooltip>,
@@ -341,16 +336,6 @@ const ErrorsColumn: QueryContextColumnComponent = ({ record }) => {
 }
 ErrorsColumn.displayName = 'ErrorsColumn'
 
-const StepsColumn: QueryContextColumnComponent = ({ record }) => {
-    const row = record as LLMTrace
-    return (
-        <Tooltip title="Number of steps (generations, spans, embeddings) in this trace">
-            <span>{getTraceStepCount(row)}</span>
-        </Tooltip>
-    )
-}
-StepsColumn.displayName = 'StepsColumn'
-
 // `undefined` = cache miss (still loading). Checking the cached record
 // directly avoids a one-frame dash flash before a separate loading reducer
 // catches up on the first render.
@@ -461,12 +446,39 @@ export function pickLastInputMessage(
 }
 
 /**
- * Preferred → fallback cascade for the trace output column. We prefer the
- * last assistant message with real content, but fall back to the last
- * displayable message (e.g. tool_calls) so tool-calling traces still show
- * something useful instead of a dash.
+ * A message is "tool traffic" (a tool call or a tool result) rather than a
+ * user-facing turn. Tool calls frequently end an agent chain, but the traces
+ * list should surface the last human-readable answer, not the machinery that
+ * produced it. Covers the explicit `tool_calls` field, tool-result roles, and
+ * content arrays made up entirely of tool-call / tool-result parts — while
+ * still treating a message that mixes real text with a tool call as
+ * user-facing.
  */
-function pickLastOutputMessage(
+function isToolMessage(message: NormalizedMessage): boolean {
+    const { role, content, tool_calls } = message as NormalizedMessage & { tool_calls?: unknown }
+    const hasText =
+        (typeof content === 'string' && content.trim().length > 0) ||
+        (Array.isArray(content) && content.some((item) => !isToolStepItem(item) && !isToolResult(item)))
+    if (Array.isArray(tool_calls) && tool_calls.length > 0) {
+        return !hasText
+    }
+    if (role === 'tool' || role === INTERNAL_TOOL_RESULT_ROLE || isInternalToolResultUserMessage(message)) {
+        return true
+    }
+    if (Array.isArray(content) && content.length > 0 && !hasText) {
+        return true
+    }
+    return false
+}
+
+/**
+ * Preferred → fallback cascade for the trace output column. We prefer the last
+ * assistant message that carries user-facing content, skipping pure tool calls
+ * and tool results so a tool-calling agent chain still shows its last readable
+ * answer. Only when a trace has nothing but tool traffic do we fall back to the
+ * last displayable message, so those traces still show something instead of a dash.
+ */
+export function pickLastOutputMessage(
     raw: unknown,
     { strict }: { strict: boolean } = { strict: false }
 ): NormalizedMessage | null {
@@ -474,15 +486,15 @@ function pickLastOutputMessage(
     if (normalized.length === 0) {
         return null
     }
-    for (let i = normalized.length - 1; i >= 0; i--) {
-        if (normalized[i].role === 'assistant' && hasDisplayableContent(normalized[i])) {
-            return normalized[i]
-        }
+    const lastAssistant = normalized.findLast(
+        (m) => m.role === 'assistant' && hasDisplayableContent(m) && !isToolMessage(m)
+    )
+    if (lastAssistant) {
+        return lastAssistant
     }
-    for (let i = normalized.length - 1; i >= 0; i--) {
-        if (hasDisplayableContent(normalized[i])) {
-            return normalized[i]
-        }
+    const lastDisplayable = normalized.findLast(hasDisplayableContent)
+    if (lastDisplayable) {
+        return lastDisplayable
     }
     return normalized[normalized.length - 1]
 }

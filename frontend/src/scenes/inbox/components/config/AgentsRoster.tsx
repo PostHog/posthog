@@ -151,6 +151,7 @@ export function AgentsRoster(): JSX.Element {
     const {
         sessionAnalysisConfig,
         conversationsConfig,
+        evalReportsConfig,
         githubIssuesConfig,
         linearIssuesConfig,
         zendeskTicketsConfig,
@@ -158,14 +159,20 @@ export function AgentsRoster(): JSX.Element {
         errorTrackingIsFullyEnabled,
         isSessionAnalysisToggling,
         isConversationsToggling,
+        isEvalReportsToggling,
         isErrorTrackingToggling,
         isGithubIssuesToggling,
         isLinearIssuesToggling,
         isZendeskTicketsToggling,
         isPgAnalyzeIssuesToggling,
     } = useValues(signalSourcesLogic)
-    const { toggleSessionAnalysis, toggleConversations, toggleErrorTracking, initiateDataWarehouseSourceToggle } =
-        useActions(signalSourcesLogic)
+    const {
+        toggleSessionAnalysis,
+        toggleConversations,
+        toggleErrorTracking,
+        toggleEvalReports,
+        initiateDataWarehouseSourceToggle,
+    } = useActions(signalSourcesLogic)
 
     const stateFor = useCallback(
         (source: AgentRosterSource): AgentSourceState => {
@@ -198,6 +205,13 @@ export function AgentsRoster(): JSX.Element {
                         requiresSetup: false,
                         syncStatus: sessionAnalysisConfig?.status,
                     }
+                case 'llm_analytics':
+                    return {
+                        armed: !!evalReportsConfig?.enabled,
+                        loading: isEvalReportsToggling,
+                        requiresSetup: false,
+                        syncStatus: null,
+                    }
                 case 'github':
                     return dwState(githubIssuesConfig, isGithubIssuesToggling)
                 case 'linear':
@@ -215,6 +229,8 @@ export function AgentsRoster(): JSX.Element {
             isConversationsToggling,
             sessionAnalysisConfig,
             isSessionAnalysisToggling,
+            evalReportsConfig,
+            isEvalReportsToggling,
             githubIssuesConfig,
             isGithubIssuesToggling,
             linearIssuesConfig,
@@ -238,6 +254,9 @@ export function AgentsRoster(): JSX.Element {
                 case 'session_replay':
                     toggleSessionAnalysis()
                     return
+                case 'llm_analytics':
+                    toggleEvalReports()
+                    return
                 case 'github':
                     initiateDataWarehouseSourceToggle('Github')
                     return
@@ -252,7 +271,13 @@ export function AgentsRoster(): JSX.Element {
                     return
             }
         },
-        [toggleErrorTracking, toggleConversations, toggleSessionAnalysis, initiateDataWarehouseSourceToggle]
+        [
+            toggleErrorTracking,
+            toggleConversations,
+            toggleSessionAnalysis,
+            toggleEvalReports,
+            initiateDataWarehouseSourceToggle,
+        ]
     )
 
     return (

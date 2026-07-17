@@ -7,6 +7,8 @@ import {
     InsightVariablesDestroyParams,
     InsightVariablesPartialUpdateBody,
     InsightVariablesPartialUpdateParams,
+    SavedQueryColumnAnnotationsCreateBody,
+    SavedQueryColumnAnnotationsListQueryParams,
     WarehouseColumnAnnotationsCreateBody,
     WarehouseColumnAnnotationsListQueryParams,
     WarehouseColumnAnnotationsPartialUpdateBody,
@@ -28,6 +30,62 @@ import {
 } from '@/generated/data_warehouse/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const SavedQueryColumnAnnotationsCreateSchema = SavedQueryColumnAnnotationsCreateBody.extend({
+    column_name: SavedQueryColumnAnnotationsCreateBody.shape['column_name'].describe(
+        'Column to describe. Use an empty string to describe the view itself.'
+    ),
+})
+
+const savedQueryColumnAnnotationsCreate = (): ToolBase<
+    typeof SavedQueryColumnAnnotationsCreateSchema,
+    Schemas.DataWarehouseSavedQueryColumnAnnotation
+> => ({
+    name: 'saved-query-column-annotations-create',
+    schema: SavedQueryColumnAnnotationsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof SavedQueryColumnAnnotationsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.saved_query !== undefined) {
+            body['saved_query'] = params.saved_query
+        }
+        if (params.column_name !== undefined) {
+            body['column_name'] = params.column_name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        const result = await context.api.request<Schemas.DataWarehouseSavedQueryColumnAnnotation>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/saved_query_column_annotations/`,
+            body,
+        })
+        return result
+    },
+})
+
+const SavedQueryColumnAnnotationsListSchema = SavedQueryColumnAnnotationsListQueryParams
+
+const savedQueryColumnAnnotationsList = (): ToolBase<
+    typeof SavedQueryColumnAnnotationsListSchema,
+    WithPostHogUrl<Schemas.PaginatedDataWarehouseSavedQueryColumnAnnotationList>
+> => ({
+    name: 'saved-query-column-annotations-list',
+    schema: SavedQueryColumnAnnotationsListSchema,
+    handler: async (context: Context, params: z.infer<typeof SavedQueryColumnAnnotationsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedDataWarehouseSavedQueryColumnAnnotationList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/saved_query_column_annotations/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                saved_query_id: params.saved_query_id,
+            },
+        })
+        return await withPostHogUrl(context, result, '/sql')
+    },
+})
 
 const SqlVariablesCreateSchema = InsightVariablesCreateBody
 
@@ -121,6 +179,9 @@ const viewCreate = (): ToolBase<typeof ViewCreateSchema, WithPostHogUrl<Schemas.
         }
         if (params.query !== undefined) {
             body['query'] = params.query
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
         }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
@@ -227,6 +288,9 @@ const viewMaterialize = (): ToolBase<
         if (params.query !== undefined) {
             body['query'] = params.query
         }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
         }
@@ -272,6 +336,9 @@ const viewRun = (): ToolBase<typeof ViewRunSchema, WithPostHogUrl<Schemas.DataWa
         }
         if (params.query !== undefined) {
             body['query'] = params.query
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
         }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
@@ -337,6 +404,9 @@ const viewUnmaterialize = (): ToolBase<
         if (params.query !== undefined) {
             body['query'] = params.query
         }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
         }
@@ -386,6 +456,9 @@ const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.
         }
         if (params.query !== undefined) {
             body['query'] = params.query
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
         }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
@@ -514,6 +587,8 @@ const warehouseTablesRefreshSchemaCreate = (): ToolBase<typeof WarehouseTablesRe
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'saved-query-column-annotations-create': savedQueryColumnAnnotationsCreate,
+    'saved-query-column-annotations-list': savedQueryColumnAnnotationsList,
     'sql-variables-create': sqlVariablesCreate,
     'sql-variables-delete': sqlVariablesDelete,
     'sql-variables-update': sqlVariablesUpdate,

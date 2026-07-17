@@ -12,7 +12,7 @@ export function ConnectGitHubSource(): JSX.Element {
             productKey={ProductKey.ENGINEERING_ANALYTICS}
             thingName="GitHub source"
             titleOverride="Connect a GitHub source to get started"
-            description="Engineering analytics reads pull requests and workflow runs from a GitHub data warehouse source — once connected, you'll see CI health, throughput, and where engineering hours go."
+            description="Engineering analytics reads pull requests and workflow runs from a GitHub data warehouse source. Connect one to see CI health, pull request throughput, and cost."
             isEmpty
             actionElementOverride={
                 <LemonButton

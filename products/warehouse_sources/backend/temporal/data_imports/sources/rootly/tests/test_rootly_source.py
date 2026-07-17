@@ -27,8 +27,6 @@ class TestRootlySourceConfig:
         assert config.label == "Rootly"
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Ships hidden until end-to-end sync is verified against a live key.
-        assert config.unreleasedSource is True
 
     def test_single_password_api_key_field(self) -> None:
         fields = RootlySource().get_source_config.fields

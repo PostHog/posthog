@@ -1,27 +1,14 @@
 import { subDays, subHours, subMinutes, subMonths, subYears } from 'date-fns'
 
-export type DateTimeRangeName =
-    | 'Custom'
-    | 'Last 5 minutes'
-    | 'Last 15 minutes'
-    | 'Last 30 minutes'
-    | 'Last 1 hour'
-    | 'Last 3 hours'
-    | 'Last 6 hours'
-    | 'Last 12 hours'
-    | 'Last 24 hours'
-    | 'Last 2 days'
-    | 'Last 7 days'
-    | 'Last 30 days'
-    | 'Last 90 days'
-    | 'Last 6 months'
-    | 'Last 1 year'
-    | 'Last 2 years'
+export type DateTimeRangeName = string
 
 export interface DateTimeRange {
     id: number
     name: DateTimeRangeName
+    /** Returns the range's start for a given "now". */
     rangeSetter: (date: Date) => Date
+    /** Returns the range's end for a given "now". Defaults to "now" itself. */
+    endSetter?: (date: Date) => Date
 }
 
 export const CUSTOM_RANGE: DateTimeRange = {

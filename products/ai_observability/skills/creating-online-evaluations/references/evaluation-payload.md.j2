@@ -1,0 +1,128 @@
+# Evaluation create payload reference
+
+Full field reference for `posthog:llma-evaluation-create`. The `evaluation_config` and `output_config`
+schemas below are rendered from the backend Pydantic models at build time, so they can't drift.
+
+## Top-level fields
+
+| Field                 | Required | Notes                                                                       |
+| --------------------- | -------- | --------------------------------------------------------------------------- |
+| `name`                | yes      | Up to 400 chars.                                                            |
+| `description`         | no       | Defaults to `""`.                                                          |
+| `evaluation_type`     | yes      | `"hog"`, `"llm_judge"`, or `"sentiment"`.                                  |
+| `evaluation_config`   | yes      | Shape depends on `evaluation_type` (below).                                |
+| `output_type`         | yes      | `"boolean"` for `hog`/`llm_judge`; `"sentiment"` for `sentiment`.         |
+| `output_config`       | no       | `{ "allows_na": bool }` for boolean; `{}` for sentiment.                   |
+| `model_configuration` | llm_judge only | Provider/model/key. Rejected on `hog`/`sentiment`.                  |
+| `conditions`          | no       | List of trigger condition sets (below). Omit to evaluate all generations. |
+| `enabled`             | no       | Defaults to `false`. Create disabled, then flip with `llma-evaluation-update`. |
+
+Valid `(evaluation_type, output_type)` pairs: `(hog, boolean)`, `(llm_judge, boolean)`,
+`(sentiment, sentiment)`.
+
+## `evaluation_config` by type
+
+### `llm_judge`
+
+```json
+{{ pydantic_schema("products.ai_observability.backend.models.evaluation_configs.LLMJudgeConfig") }}
+```
+
+### `hog`
+
+```json
+{{ pydantic_schema("products.ai_observability.backend.models.evaluation_configs.HogEvalConfig") }}
+```
+
+`bytecode` is compiled and written by the server on save — never pass it. Send only `source`.
+
+### `sentiment`
+
+```json
+{{ pydantic_schema("products.ai_observability.backend.models.evaluation_configs.SentimentEvalConfig") }}
+```
+
+## `output_config`
+
+### boolean output
+
+```json
+{{ pydantic_schema("products.ai_observability.backend.models.evaluation_configs.BooleanOutputConfig") }}
+```
+
+`allows_na: true` lets the evaluator return N/A (skip) in addition to pass/fail.
+
+### sentiment output
+
+Empty object: `{}`.
+
+## `model_configuration` (llm_judge only)
+
+| Field             | Required | Notes                                                                          |
+| ----------------- | -------- | ------------------------------------------------------------------------------ |
+| `provider`        | yes      | One of `openai`, `anthropic`, `gemini`, `openrouter`, `fireworks`, `azure_openai`, `together_ai`. |
+| `model`           | yes      | Model id, e.g. `gpt-5-mini`. Validate against `llma-evaluation-judge-models`.  |
+| `provider_key_id` | yes      | UUID of an `ok`-state `LLMProviderKey` from `llma-provider-key-list`. |
+
+Pin `provider_key_id` to an `ok`-state key; the eval runs on that key.
+
+## `conditions`
+
+A **list** of condition sets. **OR between sets, AND within a set's `properties`.** Omitting `conditions`
+(or an empty list) evaluates every `$ai_generation`.
+
+| Field                | Required | Notes                                                                 |
+| -------------------- | -------- | --------------------------------------------------------------------- |
+| `id`                 | yes      | Stable string identifier for the set (e.g. `"default"`).             |
+| `rollout_percentage` | no       | 0–100, defaults to 100. The sampling rate the dispatcher reads.       |
+| `properties`         | no       | Flat list of PostHog property filters, AND-ed together.               |
+
+Each property filter: `{ "key": "...", "type": "event" | "person", "operator": "...", "value": ... }`.
+Common operators: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `gt`, `lt`, `is_set`,
+`is_not_set`. There is no time/date field inside conditions — scope by event timestamp upstream if needed,
+and sample volume with `rollout_percentage`.
+
+```json
+"conditions": [
+  {
+    "id": "gpt-only",
+    "rollout_percentage": 50,
+    "properties": [
+      { "key": "$ai_model", "type": "event", "operator": "icontains", "value": "gpt" },
+      { "key": "$ai_is_error", "type": "event", "operator": "exact", "value": ["false"] }
+    ]
+  }
+]
+```
+
+## Full examples
+
+### Hog (no provider key required)
+
+```json
+{
+  "name": "Reply is under 500 tokens",
+  "evaluation_type": "hog",
+  "evaluation_config": { "source": "return properties.$ai_output_tokens < 500;" },
+  "output_type": "boolean",
+  "output_config": { "allows_na": false },
+  "conditions": [{ "id": "default", "rollout_percentage": 100, "properties": [] }],
+  "enabled": false
+}
+```
+
+### LLM judge
+
+```json
+{
+  "name": "Response stays on-topic",
+  "description": "Fails if the assistant changes topic from the user's question",
+  "evaluation_type": "llm_judge",
+  "evaluation_config": { "prompt": "Return true if the assistant's reply stays on the user's topic, false if it changes subject. Return N/A if the user did not ask a question." },
+  "output_type": "boolean",
+  "output_config": { "allows_na": true },
+  "model_configuration": { "provider": "openai", "model": "gpt-5-mini", "provider_key_id": "<ok-state key uuid from llma-provider-key-list>" },
+  "conditions": [{ "id": "default", "rollout_percentage": 100, "properties": [] }],
+  "enabled": false
+}
+```

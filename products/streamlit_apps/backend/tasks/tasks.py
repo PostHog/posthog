@@ -237,7 +237,7 @@ def stop_idle_streamlit_sandboxes() -> int:
 def auto_restart_crashed_streamlit_sandboxes() -> int:
     """Restart sandboxes that died on their own (Modal TTL timeout), respecting
     the MAX_RESTART_COUNT cap. Only acts on the exact `last_error` set by
-    `_sync_sandbox_status` — user-initiated stops, idle stops, and startup
+    `sync_sandbox_status` — user-initiated stops, idle stops, and startup
     failures leave a different string and are not restarted."""
     from products.streamlit_apps.backend.logic.app_runtime import MAX_RESTART_COUNT, TTL_TIMEOUT_LAST_ERROR
     from products.streamlit_apps.backend.models import StreamlitAppSandbox

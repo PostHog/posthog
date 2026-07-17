@@ -7,11 +7,11 @@ import api from 'lib/api'
 import { identifierToHuman } from 'lib/utils/strings'
 
 import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
+import { TaskRunStatusDot } from 'products/posthog_ai/frontend/api/primitives'
 import { ReadonlyRunSurface } from 'products/posthog_ai/frontend/api/readableRun'
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { isCustomAgentTaskRun, taskRunTypeLabel, TaskRunArtefactContent } from './artefactTypes'
-import { TaskRunStatusDot } from './taskRunDisplay'
 
 /**
  * A `task_run` artefact: the linked task badged from its `(product, type)` (signals-pipeline runs

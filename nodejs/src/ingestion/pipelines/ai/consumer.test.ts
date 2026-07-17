@@ -4,7 +4,7 @@ import { PersonHogConfig } from '~/common/personhog'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { TeamManagerComponent } from '~/common/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
-import { ProducerName } from '~/ingestion/common/producers'
+import { ProducerName } from '~/ingestion/common/outputs/producers'
 import { newScope } from '~/ingestion/common/scopes'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
 import { RedisPool } from '~/types'
@@ -21,6 +21,7 @@ describe('createAiConsumer', () => {
             INGESTION_CONSUMER_CONSUME_TOPIC: 't',
             INGESTION_PIPELINE: 'ai',
             INGESTION_LANE: 'main',
+            INGESTION_OVERFLOW_MODE: 'disabled',
             KAFKA_BATCH_START_LOGGING_ENABLED: false,
             INGESTION_CONSUMER_OVERFLOW_TOPIC: '',
             INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
@@ -32,7 +33,6 @@ describe('createAiConsumer', () => {
             CDP_HOG_WATCHER_SAMPLE_RATE: 1,
             ...({} as Pick<
                 IngestionConsumerConfig,
-                | 'INGESTION_STATEFUL_OVERFLOW_ENABLED'
                 | 'INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS'
                 | 'INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS'
                 | 'EVENT_OVERFLOW_BUCKET_CAPACITY'

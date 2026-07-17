@@ -20,10 +20,8 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+from products.warehouse_sources.backend.facade.sources import INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
-    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
-)
 
 
 class TestRevenueAnalyticsViews(BaseTest):

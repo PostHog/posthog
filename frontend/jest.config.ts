@@ -9,6 +9,8 @@ process.env.TZ = process.env.TZ || 'UTC'
 
 const esmModules = [
     'query-selector-shadow-dom',
+    // @posthog/brand is ESM-only (ships .mjs); let Sucrase transpile it so its import/export parses.
+    '@posthog/brand',
     // @shadcn/react ships ESM-only; @posthog/quill-primitives chat components re-export its
     // message-scroller, pulling it into frontend test module graphs via the quill barrel.
     '@shadcn/react',
@@ -81,6 +83,7 @@ const esmModules = [
 function rootDirectories(): string[] {
     return [
         '<rootDir>/src',
+        '<rootDir>/bin',
         '<rootDir>/../products',
         '<rootDir>/../packages/quill/packages/charts/src',
         '<rootDir>/../packages/quill/packages/components/src',
@@ -137,9 +140,11 @@ const config: Config = {
     // Faking queueMicrotask starves the web-streams pump that MSW v2 response bodies ride on:
     // each pump microtask lands in the fake queue and respawns the next one, so any
     // advanceTimersByTimeAsync allocates unboundedly until the worker OOMs. Keep microtasks real.
+    // setImmediate drives MSW v2's interceptor response pump the same way — faking it deadlocks
+    // any test that awaits a mocked request under fake timers (upstream stance: mswjs/msw#1830).
     // Merged into per-test `jest.useFakeTimers({...})` configs unless they pass their own doNotFake.
     fakeTimers: {
-        doNotFake: ['queueMicrotask'],
+        doNotFake: ['queueMicrotask', 'setImmediate'],
     },
 
     // Force coverage collection from ignored files using an array of glob patterns
@@ -172,6 +177,10 @@ const config: Config = {
     // A map from regular expressions to module names or to arrays of module names that allow to stub out resources with a single module
     moduleNameMapper: {
         '^.+\\.(css|less|scss|svg|png)$': '<rootDir>/src/test/mocks/styleMock.js',
+        // @posthog/brand PNG subpaths resolve to .mjs modules that build a URL via
+        // `new URL("./x.png", import.meta.url)` — import.meta is unavailable under Sucrase/CJS,
+        // so mock them to the styleMock string instead of executing them.
+        '^@posthog/brand/.*/png/.*$': '<rootDir>/src/test/mocks/styleMock.js',
         '^.+\\.sql\\?raw$': '<rootDir>/src/test/mocks/rawFileMock.js',
         '^(.+)\\.yaml\\?raw$': '$1.yaml',
         '^~/(.*)$': '<rootDir>/src/$1',
@@ -207,6 +216,7 @@ const config: Config = {
         '^@posthog/quill-charts/testing$': '<rootDir>/../packages/quill/packages/charts/src/testing/index.ts',
         '^@posthog/quill-charts/story-helpers$': '<rootDir>/../packages/quill/packages/charts/src/story-helpers.tsx',
         '^@posthog/quill-components$': '<rootDir>/../packages/quill/packages/components/src/index.ts',
+        '^@posthog/quill-components/metric$': '<rootDir>/../packages/quill/packages/components/src/metric.tsx',
         '^@posthog/quill-primitives$': '<rootDir>/../packages/quill/packages/primitives/src/index.ts',
         '^@posthog/quill-tokens$': '<rootDir>/../packages/quill/packages/tokens/src/index.ts',
         '^@posthog/shared-onboarding/(.*)$': '<rootDir>/../docs/onboarding/$1',
@@ -230,8 +240,8 @@ const config: Config = {
     // Run tests from one or more projects
     // projects: undefined,
 
-    // Use this configuration option to add custom reporters to Jest
-    // reporters: undefined,
+    // Emit JUnit XML for Trunk flaky-test detection only when JEST_JUNIT_OUTPUT_DIR is set.
+    reporters: process.env.JEST_JUNIT_OUTPUT_DIR ? ['default', 'jest-junit'] : ['default'],
 
     // Automatically reset mock state between every test
     // resetMocks: false,

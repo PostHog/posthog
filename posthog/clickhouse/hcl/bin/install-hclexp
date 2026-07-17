@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Put the pinned `hclexp` on $PATH as a native binary.
+#
+# chschema publishes no release asset, but its distroless image carries the
+# static binary at /hclexp — so extract it once instead of paying container
+# startup on every hclexp call (bin/hclexp prefers a $PATH binary over the image,
+# and dump-live.sh then talks to localhost directly, no --network host).
+#
+# In GitHub Actions the install dir is appended to $GITHUB_PATH for later steps.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HCLEXP_IMAGE="${HCLEXP_IMAGE:-$(cat "$HERE/image.txt")}"
+BIN_DIR="${HCLEXP_INSTALL_DIR:-${RUNNER_TEMP:-/usr/local}/bin}"
+
+mkdir -p "$BIN_DIR"
+docker pull "$HCLEXP_IMAGE"
+cid="$(docker create "$HCLEXP_IMAGE")"
+trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+docker cp "$cid:/hclexp" "$BIN_DIR/hclexp"
+chmod +x "$BIN_DIR/hclexp"
+
+if [[ -n "${GITHUB_PATH:-}" ]]; then
+  echo "$BIN_DIR" >> "$GITHUB_PATH"
+fi
+
+# The image ships a Linux binary, so it only runs where the host is Linux (CI).
+# On macOS the extraction still succeeds — build hclexp natively instead.
+if [[ "$(uname -s)" != "Linux" ]]; then
+  echo "installed $BIN_DIR/hclexp (Linux binary — not runnable on $(uname -s))" >&2
+  exit 0
+fi
+
+"$BIN_DIR/hclexp" -version

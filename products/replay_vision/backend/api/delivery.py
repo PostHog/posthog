@@ -36,6 +36,12 @@ def _managed_destinations(action: VisionAction, team: Team) -> QuerySet[HogFunct
     )
 
 
+def _channel_id(value: str) -> str:
+    # The channel is stored as the `${id}|#${name}` picker composite so the UI can show a friendly
+    # name; the Slack template wants the bare id. Mirrors `slackChannelId` in the frontend.
+    return value.split("|", 1)[0].strip()
+
+
 def _slack_destination_payload(action: VisionAction, target: dict[str, Any]) -> dict[str, Any]:
     return {
         "type": _INTERNAL_DESTINATION,
@@ -50,8 +56,12 @@ def _slack_destination_payload(action: VisionAction, target: dict[str, Any]) -> 
         },
         "inputs": {
             "slack_workspace": {"value": target["integration_id"]},
-            "channel": {"value": target["channel"]},
-            # Hog-templated pass-through of the pre-formatted Slack text carried on the event.
+            "channel": {"value": _channel_id(target["channel"])},
+            # Pre-split section blocks carried on the event: a whole-string template on a json input
+            # resolves to the raw list, so the full report renders as ONE message (Slack never splits
+            # blocks, while `text` over ~4k gets split at arbitrary positions, cutting links in half).
+            "blocks": {"value": "{event.properties.slack_blocks}"},
+            # Fallback + notification preview when blocks are present or missing (pre-blocks runs).
             "text": {"value": "{event.properties.slack_text}"},
         },
     }

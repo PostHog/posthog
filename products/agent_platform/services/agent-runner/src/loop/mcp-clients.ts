@@ -12,7 +12,8 @@
  *   - `auth.provider` → resolve the asker's linked identity via `ctx.identity`
  *     → `Authorization: Bearer <token>`. Host-bound by the provider's own
  *     `allowedHosts()` so a spec author can't redirect a user's OAuth token to
- *     an arbitrary URL; an unlinked asker surfaces a relayable authorize link.
+ *     an arbitrary URL. Startup is lookup-only: it never initiates OAuth or
+ *     reconnects. Authorization starts only through an explicit connect tool.
  *   - `secrets[]` → resolve each name via `secrets[NAME]`; substitute
  *     `${NAME}` placeholders in the URL + author-supplied headers before
  *     opening the transport. Each substitution is gated on the secret's
@@ -45,7 +46,14 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 
-import { HttpFetcher, type IdentityResolution, isDev, McpRef, secretHostMatches } from '@posthog/agent-shared'
+import {
+    HttpFetcher,
+    type IdentityResolution,
+    isDev,
+    type McpConnectionResolution,
+    McpRef,
+    secretHostMatches,
+} from '@posthog/agent-shared'
 
 /** Remote tool descriptor as returned by `client.listTools()`. */
 export interface RemoteMcpTool {
@@ -81,6 +89,16 @@ export interface OpenedMcp {
  * upstream error string, which often leaks transport URLs / docs links /
  * provider-side stack hints). The agent owner gets the full reason via
  * log_entries.
+ *   - `connection_dead` — a `kind: 'agent'` SHARED connection is permanently
+ *                   broken: the installing owner's token can't refresh
+ *                   (`needs_reauth`), they disabled the install (`disabled`),
+ *                   or the install is gone (`not_found`). The asker can't fix
+ *                   someone else's shared credential and a retry won't heal it —
+ *                   only the owner/admin reconnecting will. Kept distinct from
+ *                   `auth` (per-asker) so the prompt says "an admin must
+ *                   reconnect" instead of "retry shortly". A TRANSIENT refresh
+ *                   blip (`mcp_connection_refresh_failed`, 5xx/429) is NOT this —
+ *                   it self-heals, so it stays `auth`.
  *   - `auth`      — credentials / token / secret resolution problem
  *                   (`mcp_secret_not_resolved`, `mcp_identity_*`,
  *                   401/403 from the remote)
@@ -88,32 +106,19 @@ export interface OpenedMcp {
  *   - `not_found` — server responded but said the endpoint is gone (404, 410)
  *   - `unknown`   — anything else; default bucket for novel transport errors
  */
-export type McpFailureCategory = 'auth' | 'network' | 'not_found' | 'unknown'
+export type McpFailureCategory = 'connection_dead' | 'auth' | 'network' | 'not_found' | 'unknown'
 
 export interface McpOpenFailure {
     ref: McpRef
     category: McpFailureCategory
+    /** Identity provider that can repair an auth failure through an explicit
+     *  `@posthog/identity-connect` call. Metadata only: startup never initiates
+     *  authorization or mints a link. */
+    provider?: string
     /** The raw error message. Server-side observability only — never to be
      *  forwarded to the chat UI or the model's view of the world. The agent
      *  owner reads this via `log_entries` on the session detail page. */
     devReason: string
-    /** Set when the open failed because the asker hasn't linked the MCP's
-     *  `auth.provider` identity yet. The model relays this so the user can
-     *  connect (vs a dead "temporarily unavailable"). Safe to surface — it's a
-     *  per-asker authorize link, not a secret. */
-    authorizeUrl?: string
-}
-
-/** Thrown by `resolveTarget` when an `auth.provider` MCP can't open because the
- *  asker is unlinked. Carries the authorize URL so `openMcpClients` can surface
- *  it as a relayable link rather than an opaque "unavailable". */
-class McpIdentityLinkRequiredError extends Error {
-    constructor(
-        readonly provider: string,
-        readonly authorizeUrl: string
-    ) {
-        super(`mcp_identity_link_required: ${provider}`)
-    }
 }
 
 /**
@@ -126,9 +131,26 @@ class McpIdentityLinkRequiredError extends Error {
  */
 export function categorizeMcpOpenError(err: Error): McpFailureCategory {
     const msg = err.message.toLowerCase()
+    // Checked FIRST: a permanently-dead shared connection. These three are
+    // terminal states `resolve()` returns for an `mcp_store` install the asker
+    // can't fix (it's the owner's credential) and a retry won't heal — only the
+    // owner/admin reconnecting will. Must precede the generic `auth`/`not_found`
+    // matches below (which would otherwise swallow needs_reauth/disabled →
+    // `auth` and not_found → `not_found`). The TRANSIENT `refresh_failed` is
+    // deliberately absent — it self-heals next session, so it falls through to
+    // `auth` as retryable.
+    if (
+        msg.includes('mcp_connection_needs_reauth') ||
+        msg.includes('mcp_connection_disabled') ||
+        msg.includes('mcp_connection_not_found')
+    ) {
+        return 'connection_dead'
+    }
     if (
         msg.includes('mcp_secret_') ||
         msg.includes('mcp_identity_') ||
+        // Transient shared-credential refresh blip (5xx/429) → retryable auth.
+        msg.includes('mcp_connection_refresh_failed') ||
         msg.includes('no token') ||
         msg.includes('unauthor') ||
         msg.includes(' 401') ||
@@ -199,11 +221,16 @@ export interface OpenMcpClientsDeps {
      * host allowlist). Absent → any `auth.provider` ref is refused at open time.
      */
     identity?: {
-        resolve(provider: string, scopes?: string[]): Promise<IdentityResolution>
-        /** Force a reconnect link for an already-linked provider — used when the
-         *  resolved bearer is rejected at open (e.g. missing scope). See
-         *  `openMcpClients`'s failure handling. */
-        relink?(provider: string): Promise<string | null>
+        resolve(provider: string, scopes?: string[], options?: { initiate?: boolean }): Promise<IdentityResolution>
+    }
+    /**
+     * Agent-level shared-credential resolver (`ref.connection` → a native
+     * `mcp_store` installation), team-bound by the worker. Returns the upstream
+     * URL + bearer; absent → a `connection` ref is refused. Wins over
+     * `auth.provider` / `secrets` / `headers`.
+     */
+    connections?: {
+        resolve(connectionId: string): Promise<McpConnectionResolution>
     }
     /**
      * Dev-only bearer attached to MCP requests when the ref has no
@@ -272,16 +299,12 @@ export async function openMcpClients(
         const err = r.reason instanceof Error ? r.reason : new Error(String(r.reason))
         const ref = refs[i]
         const category = categorizeMcpOpenError(err)
-        let authorizeUrl = err instanceof McpIdentityLinkRequiredError ? err.authorizeUrl : undefined
-        // Reconnect path: an `auth.provider` MCP that resolved a bearer but was
-        // rejected at open (a revoked or under-scoped linked grant) surfaces as
-        // an `auth` failure WITHOUT a link. Offer a fresh authorize URL so the
-        // asker can re-authorize, instead of a dead "unavailable" the agent
-        // can't act on. A never-linked asker already carries the URL above.
-        if (!authorizeUrl && category === 'auth' && ref.auth?.provider && deps.identity?.relink) {
-            authorizeUrl = (await deps.identity.relink(ref.auth.provider)) ?? undefined
-        }
-        failures.push({ ref, category, devReason: err.message, authorizeUrl })
+        failures.push({
+            ref,
+            category,
+            devReason: err.message,
+            provider: category === 'auth' ? ref.auth?.provider : undefined,
+        })
         log('warn', 'mcp.open.failed', { prefix: ref.id, category, devReason: err.message })
     }
 
@@ -348,7 +371,40 @@ function isLoopbackHost(hostname: string): boolean {
 async function resolveTarget(
     ref: McpRef,
     deps: OpenMcpClientsDeps
-): Promise<{ url: string; headers: Record<string, string> }> {
+): Promise<{
+    url: string
+    headers: Record<string, string>
+}> {
+    // Shared-credential path (`ref.connection`): bearer + URL come from the
+    // referenced installation, ignoring auth/secrets/headers. No author secrets
+    // substituted → no cross-host exfiltration; just refuse non-https (loopback
+    // dev-only). Smokescreen handles SSRF.
+    if (ref.connection) {
+        if (!deps.connections) {
+            throw new Error(`mcp_connection_not_wired: ${ref.connection}`)
+        }
+        const res = await deps.connections.resolve(ref.connection)
+        if (res.kind === 'not_found') {
+            throw new Error(`mcp_connection_not_found: ${ref.connection}`)
+        }
+        if (res.kind === 'disabled') {
+            throw new Error(`mcp_connection_disabled: ${ref.connection}`)
+        }
+        if (res.kind === 'needs_reauth') {
+            // Owner must reconnect; asker can't fix a shared credential. → `auth`.
+            throw new Error(`mcp_connection_needs_reauth: ${ref.connection}`)
+        }
+        const parsed = new URL(res.url)
+        const loopback = isLoopbackHost(parsed.hostname) && isDev()
+        if (!loopback && parsed.protocol !== 'https:') {
+            throw new Error(`mcp_connection_unsafe_scheme: ${ref.connection} → ${parsed.protocol}`)
+        }
+        return {
+            url: res.url,
+            headers: { Authorization: `Bearer ${res.bearer}` },
+        }
+    }
+
     // SSRF protection is handled at the infra layer by smokescreen (see
     // charts/shared/agent-platform/common.yaml `httpProxy.enabled: true`).
     // Author chose the URL; smokescreen denies RFC1918 / loopback /
@@ -371,9 +427,9 @@ async function resolveTarget(
         if (!deps.identity) {
             throw new Error(`mcp_identity_not_wired: ${ref.auth.provider}`)
         }
-        const res = await deps.identity.resolve(ref.auth.provider)
+        const res = await deps.identity.resolve(ref.auth.provider, [], { initiate: false })
         if (res.kind === 'link_required') {
-            throw new McpIdentityLinkRequiredError(ref.auth.provider, res.authorizeUrl)
+            throw new Error(`mcp_identity_not_connected: ${ref.auth.provider}`)
         }
         if (res.kind === 'unavailable') {
             throw new Error(`mcp_identity_unavailable: ${ref.auth.provider} (${res.reason})`)

@@ -224,6 +224,29 @@ describe('definitionPopoverLogic', () => {
                     }
                 })
             })
+
+            it('saves a name-only property against the id recovered from the model', async () => {
+                // A pinned/default property arrives as { name } with no id; Save used to PATCH
+                // /property_definitions/undefined. resolvedDefinition hydrates the recovered id.
+                propertyDefinitionsModel.actions.updatePropertyDefinitions({
+                    [`event/${mockEventPropertyDefinition.name}`]: mockEventPropertyDefinition as PropertyDefinition,
+                })
+
+                logic = definitionPopoverLogic({ type: TaxonomicFilterGroupType.EventProperties })
+                logic.mount()
+
+                await expectLogic(logic, async () => {
+                    logic.actions.setDefinition({ name: mockEventPropertyDefinition.name })
+                    logic.actions.setPopoverState(DefinitionPopoverState.Edit)
+                    logic.actions.setLocalDefinition({ description: 'edited' })
+                    logic.actions.handleSave({})
+                }).toDispatchActions(['handleSaveSuccess'])
+
+                expect(api.update).toHaveBeenCalledWith(
+                    `api/projects/${MOCK_TEAM_ID}/property_definitions/${mockEventPropertyDefinition.id}`,
+                    expect.objectContaining({ description: 'edited' })
+                )
+            })
         })
 
         it('add tags', async () => {
@@ -352,6 +375,40 @@ describe('definitionPopoverLogic', () => {
                     }
                     await expectChain
                 })
+            })
+        })
+
+        describe('recovers a missing property id from the definitions model', () => {
+            // Pinned/default property items (e.g. seeded $current_url, email) are stored
+            // as { name } with no id, so viewFullDetailUrl used to build
+            // /data-management/properties/undefined. It must recover the saved id from
+            // propertyDefinitionsModel so the View link resolves to the real property.
+            // Per-type mapping lives in resolvePropertyDefinitionId (tested in utils.test);
+            // this asserts the selector wires the recovered id into the URL and guards it.
+            it('resolves the View URL for a name-only property from the model', async () => {
+                propertyDefinitionsModel.actions.updatePropertyDefinitions({
+                    [`event/${mockEventPropertyDefinition.name}`]: mockEventPropertyDefinition as PropertyDefinition,
+                })
+
+                logic = definitionPopoverLogic({ type: TaxonomicFilterGroupType.EventProperties })
+                logic.mount()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDefinition({ name: mockEventPropertyDefinition.name })
+                })
+                    .toDispatchActions(['setDefinitionSuccess'])
+                    .toMatchValues({ viewFullDetailUrl: urls.propertyDefinition(mockEventPropertyDefinition.id) })
+            })
+
+            it('stays undefined when the property id cannot be resolved', async () => {
+                logic = definitionPopoverLogic({ type: TaxonomicFilterGroupType.EventProperties })
+                logic.mount()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDefinition({ name: 'property-with-no-saved-definition' })
+                })
+                    .toDispatchActions(['setDefinitionSuccess'])
+                    .toMatchValues({ viewFullDetailUrl: undefined })
             })
         })
     })

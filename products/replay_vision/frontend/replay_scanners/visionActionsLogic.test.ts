@@ -1,7 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -90,58 +88,7 @@ describe('visionActionsLogic', () => {
         })
     })
 
-    it('creating an action submits, closes the form, and reloads', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.openCreateForm()
-            logic.actions.setVisionActionFormValue('name', 'My action')
-            logic.actions.submitVisionActionForm()
-        })
-            .toDispatchActions(['submitVisionActionFormSuccess', 'closeForm', 'loadActions'])
-            .toMatchValues({ formVisible: false })
-    })
-
-    it('openEditForm prefills the form from an existing action', async () => {
-        const existing: VisionActionApi = {
-            ...action('e'),
-            trigger_config: { rrule: 'FREQ=WEEKLY;BYDAY=MO,WE;BYHOUR=14;BYMINUTE=30', timezone: 'Europe/Prague' },
-            synthesis_config: { prompt_guide: 'focus on checkout' },
-            delivery_config: [{ type: 'slack', integration_id: 5, channel: 'C123' }],
-        }
-        await expectLogic(logic, () => {
-            logic.actions.openEditForm(existing)
-        }).toMatchValues({
-            formVisible: true,
-            editingAction: expect.objectContaining({ id: 'e' }),
-            visionActionForm: {
-                name: 'action-e',
-                cadence: { weekdays: [0, 2], hour: 14, minute: 30 },
-                timezone: 'Europe/Prague',
-                prompt_guide: 'focus on checkout',
-                integration_id: 5,
-                channel: 'C123',
-            },
-        })
-    })
-
-    it('keeps the form open and surfaces the API error detail when the submit fails', async () => {
-        useMocks({
-            post: {
-                '/api/projects/:team/vision/actions/': () => [400, { detail: 'nope' }],
-            },
-        })
-        const errorToast = jest.spyOn(lemonToast, 'error')
-        await expectLogic(logic, () => {
-            logic.actions.openCreateForm()
-            logic.actions.setVisionActionFormValue('name', 'My action')
-            logic.actions.submitVisionActionForm()
-        })
-            .toDispatchActions(['submitVisionActionFormFailure'])
-            .toMatchValues({ formVisible: true })
-        // The toast must surface the API's `detail` so the user sees why it failed, not a generic message.
-        expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('nope'))
-    })
-
-    it('buildActionBody maps the form to the API body, including a Slack delivery target', () => {
+    it('buildActionBody maps the form to the API body, including a Slack delivery target and targeting', () => {
         const form: VisionActionForm = {
             name: '  Daily digest  ',
             cadence: { weekdays: [0, 2], hour: 14, minute: 30 },
@@ -149,17 +96,31 @@ describe('visionActionsLogic', () => {
             prompt_guide: 'focus on checkout',
             integration_id: 5,
             channel: 'C123|#general',
+            verdict: ['yes'],
+            tags: ['bug'],
+            min_score: 1,
+            max_score: 5,
+            mode: 'group_summary',
+            alert_frequency: 'on_breach',
+            alert_metric: 'count',
+            alert_threshold: 1,
+            alert_direction: 'above',
+            alert_window_days: 1,
         }
         expect(buildActionBody(form, 's1')).toEqual({
             name: 'Daily digest', // trimmed
             scanner: 's1',
+            mode: 'group_summary',
             trigger_config: { rrule: 'FREQ=WEEKLY;BYDAY=MO,WE;BYHOUR=14;BYMINUTE=30', timezone: 'Europe/Prague' },
+            selection: { verdict: ['yes'], tags: ['bug'], min_score: 1, max_score: 5 },
             synthesis_config: { prompt_guide: 'focus on checkout' },
-            delivery_config: [{ type: DeliveryTargetTypeEnumApi.Slack, integration_id: 5, channel: 'C123' }],
+            // The full `${id}|#${name}` composite is stored so the actions table can show the channel
+            // name; the backend strips it to the bare id for the Slack destination.
+            delivery_config: [{ type: DeliveryTargetTypeEnumApi.Slack, integration_id: 5, channel: 'C123|#general' }],
         })
     })
 
-    it('buildActionBody emits an empty delivery_config when no integration/channel is set', () => {
+    it('buildActionBody emits empty delivery_config and selection when nothing is set', () => {
         const form: VisionActionForm = {
             name: 'No delivery',
             cadence: { weekdays: [0, 1, 2, 3, 4, 5, 6], hour: 9, minute: 0 },
@@ -167,7 +128,62 @@ describe('visionActionsLogic', () => {
             prompt_guide: '',
             integration_id: null,
             channel: '',
+            verdict: [],
+            tags: [],
+            min_score: null,
+            max_score: null,
+            mode: 'group_summary',
+            alert_frequency: 'on_breach',
+            alert_metric: 'count',
+            alert_threshold: 1,
+            alert_direction: 'above',
+            alert_window_days: 1,
         }
-        expect(buildActionBody(form, 's1').delivery_config).toEqual([])
+        const body = buildActionBody(form, 's1')
+        expect(body.delivery_config).toEqual([])
+        // Empty selection is sent explicitly so clearing targeting on edit persists as "run on everything".
+        expect(body.selection).toEqual({})
+        // A summary must not carry an alert condition even though the form holds the defaults.
+        expect(body.alert_config).toBeUndefined()
+    })
+
+    it('buildActionBody sends the alert condition and drops the prompt guide for alert mode', () => {
+        const form: VisionActionForm = {
+            name: 'Rage click alert',
+            cadence: { weekdays: [0, 1, 2, 3, 4, 5, 6], hour: 9, minute: 0 },
+            timezone: 'UTC',
+            prompt_guide: 'leftover from summary mode',
+            integration_id: null,
+            channel: '',
+            verdict: [],
+            tags: ['rage-click'],
+            min_score: null,
+            max_score: null,
+            mode: 'alert',
+            alert_frequency: 'on_breach',
+            alert_metric: 'count',
+            alert_threshold: 1,
+            alert_direction: 'below',
+            alert_window_days: 1,
+        }
+        const body = buildActionBody(form, 's1')
+        expect(body.mode).toEqual('alert')
+        expect(body.alert_config).toEqual({
+            frequency: 'on_breach',
+            metric: 'count',
+            threshold: 1,
+            direction: 'below',
+            window_days: 1,
+        })
+        expect(body.selection).toEqual({ tags: ['rage-click'] })
+        // Alerts have no user-facing schedule; the stored rrule keeps the trigger well-formed while
+        // the engine checks them on every sweep.
+        expect(body.trigger_config).toEqual({ rrule: 'FREQ=HOURLY', timezone: 'UTC' })
+        // Alerts never synthesize, so a stale guide from a mode switch must not persist.
+        expect(body.synthesis_config).toEqual({ prompt_guide: '' })
+
+        // Every-match alerts carry no threshold machinery — just the frequency and the count metric.
+        const everyMatch = buildActionBody({ ...form, alert_frequency: 'every_match' }, 's1')
+        expect(everyMatch.alert_config).toEqual({ frequency: 'every_match', metric: 'count' })
     })
 })

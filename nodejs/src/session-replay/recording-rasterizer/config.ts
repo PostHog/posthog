@@ -40,4 +40,7 @@ export const config = {
     // Player
     siteUrl: process.env.SITE_URL || 'http://localhost:8000',
     playerHtmlPath: process.env.PLAYER_HTML_PATH || '/code/common/replay-headless/dist/player.html',
+    // Opt-in: serve the player under a script-locking CSP (nonce). Off by default so it can be
+    // rolled out and verified in dev before enabling in production.
+    enablePlayerCsp: process.env.ENABLE_PLAYER_CSP === '1',
 }

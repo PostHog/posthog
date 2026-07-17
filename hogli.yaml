@@ -62,6 +62,8 @@ metadata:
           title: Authenticate to internal services
         - key: tools
           title: Developer tools and utilities
+        - key: devex
+          title: Developer experience feedback
         - key: utilities
           title: Git worktrees and admin
         - key: devbox
@@ -303,7 +305,7 @@ core:
             - name: dev:demo-data
               cmd: python manage.py generate_demo_data --skip-flag-sync
             - dev:sync-flags
-            - dev:api-key
+            - ensure:local:setup
         description: Full reset - wipe volumes, migrate, load demo data, sync flags
         prompt: true
     dev:api-key:
@@ -614,7 +616,7 @@ docker:
         hidden: true
     docker:server:
         bin_script: docker-server
-        description: Run NGINX Unit application server
+        description: Run dual-mode server (Granian/Unit) with Prometheus metrics support
         hidden: true
     docker:server-unit:
         bin_script: docker-server-unit
@@ -774,6 +776,14 @@ tests:
     test:quarantine:
         click: hogli_commands.quarantine.cli:quarantine
         description: Manage .test_quarantine.json — quarantine flaky tests so they stop blocking CI
+    evals:
+        cmd: python -m products.posthog_ai.eval_harness.harness
+        description: Run evals — sandboxed agent and one-shot suites (extra args pass through, e.g. `sql` or `cli_mcp --provider modal`)
+        needs_secrets: true
+    evals:sandboxed:
+        cmd: python -m products.posthog_ai.eval_harness.harness
+        description: Alias of `evals` (kept for back-compat)
+        needs_secrets: true
 quality:
     lint:
         cmd: ./bin/ruff.sh check . && pnpm --filter=@posthog/frontend run lint
@@ -789,8 +799,8 @@ quality:
             "$@"
         description: Format CSS/SCSS files
     format:js:
-        cmd: pnpm oxlint --fix --fix-suggestions --quiet "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern
-            "$@"
+        cmd: pnpm oxlint --fix --fix-suggestions --quiet --no-error-on-unmatched-pattern
+            "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
         description: Format JavaScript/TypeScript files (frontend)
     format:nodejs:
         cmd: pnpm --dir nodejs exec eslint --fix "$@" && pnpm --dir nodejs exec prettier
@@ -821,6 +831,9 @@ quality:
     lint:workflows:
         click: hogli_commands.workflow_lint.cli:cmd_lint_workflows
         description: Lint .github/workflows/** for repo conventions
+    lint:migration-deletions:
+        click: hogli_commands.migration_deletions:cmd_lint_migration_deletions
+        description: Block deleting historical Django migration files
     format:mcp:
         cmd: pnpm run --filter @posthog/mcp format
         description: Format MCP files
@@ -936,6 +949,10 @@ tools:
         bin_script: create-notebook-node.sh
         description: Create a new NotebookNode file and update types and editor references
         hidden: true
+    tool:granian-metrics:
+        bin_script: granian_metrics.py
+        description: HTTP server that aggregates Prometheus metrics from Granian workers
+        hidden: true
     sync:storage:
         bin_script: sync-storage
         description: 'TODO: add description for sync-storage'
@@ -985,6 +1002,29 @@ tools:
     ci:insights:
         click: hogli_commands.ci_insights:ci_insights
         description: Show CI insights for the current repo + branch (search/view/plan subcommands)
+    ci:preflight:
+        click: hogli_commands.ci_preflight:ci_preflight
+        description: Catch deterministic CI failures reachable from your diff before you push (advisory; --fix, --strict)
+owners:
+    owners:resolve:
+        click: posthog_owners.cli:cmd_resolve
+        description: Resolve ownership for paths (args or newline-delimited stdin); --json for machine output
+    owners:who:
+        click: posthog_owners.cli:cmd_who
+        description: Show who owns a single path (owners, status, slack, source)
+    owners:unowned:
+        click: posthog_owners.cli:cmd_unowned
+        description: List unowned tracked files, respecting owners:null exemptions (optional PREFIX)
+    owners:lint:
+        click: posthog_owners.cli:cmd_lint
+        description: Validate owners.yaml schema, product.yaml conflicts, dead globs, coverage (--live checks the GitHub org)
+    owners:fmt:
+        click: posthog_owners.cli:cmd_fmt
+        description: Dry-run oracle showing how the owners.yaml layout differs from canonical placement (never writes)
+devex:
+    devex:feedback:
+        click: hogli_commands.feedback:devex_feedback
+        description: Send feedback about the dev experience to the devex team (humans and agents)
 utilities:
     nuke:
         steps:
@@ -1004,6 +1044,9 @@ utilities:
     worktrees:clean:
         click: hogli_commands.worktrees:worktrees_clean
         description: Clear out unused Claude Code / Codex / PostHog Code worktrees by age
+    pr:upload-image:
+        click: hogli_commands.upload_image:upload_image
+        description: Upload screenshot(s) to the public PostHog/pr-assets repo and print embeddable PR markdown
     utilities:posthog-worktree:
         bin_script: posthog-worktree
         description: Manage isolated git worktrees for PostHog development
@@ -1120,4 +1163,8 @@ environment:
     docker:agent:proxy:
         cmd: node dist/agent-proxy-server.mjs
         description: 'Production entrypoint: run the agent-proxy Node service'
+        hidden: true
+    ensure:local:setup:
+        bin_script: ensure-local-setup
+        description: Idempotent local-dev bootstrap (e.g. the wizard OAuth app); runs automatically on hogli start
         hidden: true

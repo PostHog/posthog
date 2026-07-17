@@ -8,7 +8,6 @@ from ..utils import (
     format_matrix,
     format_number,
     format_percentage,
-    replace_breakdown_labels,
     strip_datetime_seconds,
 )
 
@@ -63,21 +62,6 @@ class TestFormatUtils(BaseTest):
         self.assertEqual(format_percentage(0.999), "99.9%")
         self.assertEqual(format_percentage(0.1234), "12.34%")
         self.assertEqual(format_percentage(0.12345), "12.35%")  # Tests rounding
-
-    def test_replace_breakdown_labels(self):
-        # Test with breakdown other string
-        self.assertEqual(
-            replace_breakdown_labels("test $$_posthog_breakdown_other_$$"), "test Other (i.e. all remaining values)"
-        )
-        # Test with breakdown null string
-        self.assertEqual(replace_breakdown_labels("test $$_posthog_breakdown_null_$$"), "test None (i.e. no value)")
-        # Test with both
-        self.assertEqual(
-            replace_breakdown_labels("$$_posthog_breakdown_other_$$ and $$_posthog_breakdown_null_$$"),
-            "Other (i.e. all remaining values) and None (i.e. no value)",
-        )
-        # Test with normal string
-        self.assertEqual(replace_breakdown_labels("normal text"), "normal text")
 
     def test_strip_datetime_seconds(self):
         self.assertEqual(strip_datetime_seconds("2025-01-20"), "2025-01-20")

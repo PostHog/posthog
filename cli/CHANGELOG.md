@@ -1,5 +1,35 @@
 # posthog-cli
 
+## 0.8.4 — 2026-07-16
+
+### Patch changes
+
+- [f45778f281](https://github.com/PostHog/posthog/commit/f45778f28141b42559f59dca347aa64e8671c8bd) The dotenv credentials file can now also be pointed at with the `POSTHOG_CLI_DOTENV_FILE` environment variable, equivalent to passing `--dotenv-file` — for callers that control the environment but not the command line (e.g. an Xcode build phase invoking the iOS SDK's upload-symbols.sh). — Thanks @ablaszkiewicz!
+
+## 0.8.3 — 2026-07-15
+
+### Patch changes
+
+- [97457ef9b4](https://github.com/PostHog/posthog/commit/97457ef9b493debd3975f12b8b6d1c4baaee2d93) Sourcemap upload concurrency can now be configured with `--concurrency` or `POSTHOG_CLI_SOURCEMAP_UPLOAD_CONCURRENCY`, while keeping the existing default of 10 uploads at a time. — Thanks @DebadityaHait!
+
+## 0.8.2 — 2026-07-13
+
+### Patch changes
+
+- [e38163eaab](https://github.com/PostHog/posthog/commit/e38163eaab6d1120f3c87fc2c38f2772ee9cadf2) Fix concurrent release creation and multipart symbol uploads — Thanks @ablaszkiewicz!
+
+## 0.8.1 — 2026-07-06
+
+### Patch changes
+
+- [d57bdcce6d](https://github.com/PostHog/posthog/commit/d57bdcce6dc77adde629de5ffbbad10a6a99b850) Capture CLI errors with PostHog telemetry — Thanks @hpouillot!
+
+## 0.8.0 — 2026-07-03
+
+### Minor changes
+
+- [066d914497](https://github.com/PostHog/posthog/commit/066d9144970955eaf366ff2a8be818460c6ad759) `symbol-sets upload` now also accepts Apple `.dSYM` bundles, packaging them through the same path as `dsym upload` (uppercase UUID chunk_ids, `AppleDsym` container). A single `posthog-cli symbol-sets upload --directory <dir>` run uploads both Linux ELF debug symbols and macOS dSYMs, so native symbol uploads no longer need a different command per platform. The dSYM branch shells out to `dwarfdump` (Xcode, macOS-only); when it is unavailable the bundle is reported and skipped while ELF symbols in the same directory still upload. The standalone `dsym upload` command is unchanged. — Thanks @cat-ph!
+
 ## 0.7.34 — 2026-06-30
 
 ### Patch changes

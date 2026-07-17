@@ -28,6 +28,8 @@ export interface AuthorizedUrlListProps {
     allowAdd?: boolean
     allowDelete?: boolean
     launchInSameTab?: boolean
+    /** Drop the verbose "there are no authorized URLs" explainer box (e.g. compact onboarding). */
+    hideEmptyState?: boolean
 }
 
 export function AuthorizedUrlList({
@@ -44,6 +46,7 @@ export function AuthorizedUrlList({
     allowDelete = true,
     showLaunch = true,
     launchInSameTab = false,
+    hideEmptyState = false,
 }: AuthorizedUrlListProps & { addText?: string }): JSX.Element {
     const logic = authorizedUrlListLogic({
         experimentId: experimentId ?? null,
@@ -66,13 +69,15 @@ export function AuthorizedUrlList({
 
     return (
         <div className="flex flex-col gap-2" data-attr="authorized-urls-table">
-            <EmptyState
-                experimentId={experimentId}
-                productTourId={productTourId}
-                actionId={actionId}
-                type={type}
-                displaySuggestions={displaySuggestions}
-            />
+            {!hideEmptyState && (
+                <EmptyState
+                    experimentId={experimentId}
+                    productTourId={productTourId}
+                    actionId={actionId}
+                    type={type}
+                    displaySuggestions={displaySuggestions}
+                />
+            )}
 
             {isAddUrlFormVisible ? (
                 <div className="border rounded p-2 bg-surface-primary">

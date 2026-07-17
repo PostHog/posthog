@@ -7,17 +7,19 @@
         "kea": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
+        "kea-subscriptions": "catalog:",
         "posthog-js": "catalog:"
     },
     "devDependencies": {
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
+        "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@testing-library/react": "*",
         "@types/react": "*",
         "clsx": "*",
-        "fast-deep-equal": "*",
+        "fast-equals": "catalog:",
         "react": "*",
         "react-window": "*"
     }

@@ -21,7 +21,6 @@
         "title": "Submit PostHog feedback",
         "required_scopes": [],
         "always_available": true,
-        "feature_flag": "mcp-feedback-tool",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -324,7 +323,7 @@
         }
     },
     "notebook-edit": {
-        "description": "Edit part of a notebook's content. Use this for any change inside a notebook — text, headings, attributes, whole paragraphs. Call `notebooks-retrieve` first to see what to target.\n\nMatching is by content. The tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it — call `notebooks-retrieve` and re-apply your edit against the latest content.",
+        "description": "Edit part of a notebook's content by short_id.\n\nFor markdown notebooks, use `execute-sql` to read the current markdown from `system.notebooks.markdown`, then edit with `old_markdown` / `new_markdown`. These are plain markdown strings; do not copy or construct the nested `ph-markdown-notebook` JSON wrapper.\n\nFor legacy rich-text notebooks, inspect the JSON content from `system.notebooks.content`, then edit with `old_value` / `new_value` JSON subtree replacement. Matching is by content: the tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it; reload the latest markdown or JSON content and re-apply your edit.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Edit part of a notebook's content.",
@@ -390,6 +389,20 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "path-cleaning-rules-update": {
+        "description": "Safely add, replace, remove, or reorder a project's path cleaning rules (Team.path_cleaning_filters) without hand-managing the whole list. Reads the current rules, applies your ordered operations, auto-numbers them, and (unless confirm:true) returns a PREVIEW of the resulting rules — plus how they rewrite any sample_paths — without saving. Path cleaning normalizes $pathname/$entry_pathname so pages sharing a template (/users/123, /users/456) collapse into one row (/users/<id>) in Web analytics, Paths, and apply_path_cleaning HogQL. Prefer this over project-settings-update for path cleaning: it avoids clobbering existing rules and renumbering by hand. Rules apply sequentially (order matters) and globally wherever cleaning is enabled, changing historical numbers — surface the preview to the user, then re-run with confirm:true.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Edit path cleaning rules with granular ops, a preview step, and safe read-modify-write.",
+        "title": "Update path cleaning rules",
+        "required_scopes": ["project:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }
@@ -620,24 +633,8 @@
             "readOnlyHint": true
         }
     },
-    "read-data-warehouse-schema": {
-        "description": "Use this tool to retrieve the core data warehouse schemas for PostHog tables (events, groups, persons, sessions) and the available data warehouse tables, views, and system tables. Use this to understand the data model before writing HogQL queries.",
-        "category": "Data schema",
-        "feature": "data_schema",
-        "summary": "Read core data warehouse schemas and table lists.",
-        "title": "Read data warehouse schema",
-        "required_scopes": ["warehouse_table:read", "warehouse_view:read"],
-        "feature_flag": "mcp-sql-schema-discovery",
-        "feature_flag_behavior": "disable",
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "workflows-enable": {
-        "description": "Enable / activate a draft workflow and start processing events. One-way door: a live workflow can't be edited over MCP (to change it you recreate it as a new draft), so test it first and get the user's explicit approval before invoking. Don't enable on your own initiative.",
+        "description": "Enable / activate a draft workflow and start processing events. From then on it runs on real people: test it first with workflows-test-run and get the user's explicit approval before invoking - don't enable on your own initiative. Once live, content edits stage as a draft you publish with workflows-publish; if draft editing isn't enabled for the project yet, a live change means recreating the workflow as a new draft.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Enable workflow",

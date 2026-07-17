@@ -123,7 +123,7 @@ class TestFormatEventsPrompt(BaseTest):
             ]
         )
 
-        result = format_events_xml(events_in_context, self.team)
+        result = format_events_xml(events_in_context, self.team, self.user)
 
         # Verify the XML structure
         root = ET.fromstring(result)
@@ -151,7 +151,7 @@ class TestFormatEventsPrompt(BaseTest):
         self._setup_mock_runner(mock_runner_class, taxonomy_items)
 
         events_in_context: list[MaxEventContext] = []
-        result = format_events_xml(events_in_context, self.team)
+        result = format_events_xml(events_in_context, self.team, self.user)
 
         event_names = self._get_event_names_from_xml(result)
 
@@ -169,7 +169,7 @@ class TestFormatEventsPrompt(BaseTest):
         self._setup_mock_runner(mock_runner_class, taxonomy_items)
 
         events_in_context: list[MaxEventContext] = []
-        result = format_events_xml(events_in_context, self.team)
+        result = format_events_xml(events_in_context, self.team, self.user)
 
         event_names = self._get_event_names_from_xml(result)
 
@@ -193,7 +193,7 @@ class TestFormatEventsPrompt(BaseTest):
             ]
         )
 
-        result = format_events_xml(events_in_context, self.team)
+        result = format_events_xml(events_in_context, self.team, self.user)
 
         event_names = self._get_event_names_from_xml(result)
 
@@ -216,7 +216,7 @@ class TestFormatEventsPrompt(BaseTest):
             ]
         )
 
-        result = format_events_xml(events_in_context, self.team)
+        result = format_events_xml(events_in_context, self.team, self.user)
 
         description = self._get_event_description(result, "custom_event")
         self.assertEqual(description, "Custom event description")
@@ -232,7 +232,7 @@ class TestFormatEventsPrompt(BaseTest):
             ]
         )
 
-        result = format_events_xml(events_in_context, self.team)
+        result = format_events_xml(events_in_context, self.team, self.user)
 
         description = self._get_event_description(result, "test_event")
         self.assertEqual(description, "Line 1 Line 2 Line 3")
@@ -248,7 +248,7 @@ class TestFormatEventsPrompt(BaseTest):
         self._setup_mock_runner(mock_runner_class, taxonomy_items)
 
         events_in_context: list[MaxEventContext] = []
-        result = format_events_xml(events_in_context, self.team)
+        result = format_events_xml(events_in_context, self.team, self.user)
 
         event_names = self._get_event_names_from_xml(result)
         self.assertEqual(set(event_names), {"All events", "$pageview"})
@@ -264,7 +264,7 @@ class TestFormatEventsPrompt(BaseTest):
             ]
         )
 
-        result = format_events_xml(events_in_context, self.team)
+        result = format_events_xml(events_in_context, self.team, self.user)
 
         root = ET.fromstring(result)
         test_event = root.find(".//event[name='test_event']")
@@ -285,7 +285,7 @@ class TestFormatEventsPrompt(BaseTest):
             ]
         )
 
-        result = format_events_xml(events_in_context, self.team)
+        result = format_events_xml(events_in_context, self.team, self.user)
 
         root = ET.fromstring(result)
         test_event = root.find(".//event[name='test_event']")
@@ -310,7 +310,7 @@ class TestFormatEventsPrompt(BaseTest):
             ]
         )
 
-        result = format_events_xml(events_in_context, self.team)
+        result = format_events_xml(events_in_context, self.team, self.user)
 
         event_names = self._get_event_names_from_xml(result)
 
@@ -327,7 +327,7 @@ class TestFormatEventsPrompt(BaseTest):
         events_in_context: list[MaxEventContext] = []
 
         with self.assertRaises(ValueError, msg="Failed to generate events prompt."):
-            format_events_xml(events_in_context, self.team)
+            format_events_xml(events_in_context, self.team, self.user)
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
     def test_format_events_xml_uses_label_llm_when_available(self, mock_runner_class):
@@ -340,7 +340,7 @@ class TestFormatEventsPrompt(BaseTest):
         self._setup_mock_runner(mock_runner_class, taxonomy_items)
 
         events_in_context: list[MaxEventContext] = []
-        result = format_events_xml(events_in_context, self.team)
+        result = format_events_xml(events_in_context, self.team, self.user)
 
         description = self._get_event_description(result, "$pageview")
 
@@ -360,7 +360,7 @@ class TestFormatEventsPrompt(BaseTest):
             MaxEventContext(id="2", name="", description="Empty name event", type="event"),
         ]
 
-        result = format_events_xml(events_in_context, self.team)
+        result = format_events_xml(events_in_context, self.team, self.user)
 
         event_names = self._get_event_names_from_xml(result)
 
@@ -373,10 +373,10 @@ class TestFormatEventsPrompt(BaseTest):
         self._setup_mock_runner(mock_runner_class, [])
 
         events_in_context: list[MaxEventContext] = []
-        format_events_xml(events_in_context, self.team)
+        format_events_xml(events_in_context, self.team, self.user)
 
         # Verify TeamTaxonomyQueryRunner was called correctly
-        mock_runner_class.assert_called_once_with(TeamTaxonomyQuery(), self.team)
+        mock_runner_class.assert_called_once_with(TeamTaxonomyQuery(), self.team, user=self.user)
         mock_runner_class.return_value.run.assert_called_once_with(
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
             analytics_props=ANY,

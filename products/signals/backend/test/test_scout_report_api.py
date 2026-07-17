@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.apps import apps
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -16,11 +17,14 @@ from posthog.models.organization import OrganizationMembership
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalSourceConfig
 from products.signals.backend.scout_harness.tools.report import (
     MAX_SUGGESTED_REVIEWERS,
+    REPORT_KIND_FINDING,
+    REPORT_KIND_SELF_IMPROVEMENT,
     EditReportResult,
     InvalidScoutReportError,
     ReviewerInput,
     _build_suggested_reviewers,
     _capture_report_edited,
+    _report_classification_props,
 )
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
@@ -120,6 +124,9 @@ class TestScoutReportAPI(APIBaseTest):
         body = response.json()
         assert body["skipped_reason"] == "ai_processing_not_approved"
         assert body["report_id"] is None
+        # A gate-skipped report must hand back an actionable next step, not a bare reason code —
+        # otherwise the scout is blocked with a dead end and loses the whole run's work.
+        assert body["remediation"] and "AI data processing" in body["remediation"]
         # Gate stops before judging or persisting.
         judge_mock.assert_not_awaited()
         embed_mock.assert_not_called()
@@ -326,6 +333,9 @@ class TestScoutReportAPI(APIBaseTest):
         assert props["title"] == "Checkout p99 regressed after 4.2"
         assert props["summary"] == "The /checkout endpoint p99 doubled after the 4.2 deploy."
         assert props["actionability"] == "immediately_actionable"
+        # A regular finding classifies as such (the self-improvement path has its own test below).
+        assert props["report_kind"] == REPORT_KIND_FINDING
+        assert props["is_self_improvement_report"] is False
         # The customer-facing copy must land in the team's *own* project (their token), never create a
         # person (it's the scout's output, not a user action), and carry a report deep link when a report
         # exists — that link is what a CDP Slack destination templates the message from.
@@ -358,6 +368,7 @@ class TestScoutReportAPI(APIBaseTest):
         assert props["title"] == "new title"
         assert props["note"] == "re-validated"
         assert props["summary"] is None
+        assert props["is_self_improvement_report"] is False
         # The edit also fans out to the team's own project, deep-linking the edited report.
         forward = next(
             c for c in self.capture_internal_mock.call_args_list if c.kwargs["event_name"] == "$scout_report_edited"
@@ -365,6 +376,25 @@ class TestScoutReportAPI(APIBaseTest):
         assert forward.kwargs["token"] == self.team.api_token
         assert forward.kwargs["process_person_profile"] is False
         assert forward.kwargs["properties"]["report_url"].endswith(f"/inbox/reports/{created['report_id']}")
+
+    def test_self_improvement_report_classified_on_emit_and_edit(self) -> None:
+        # Classification must ride both lifecycle events: stamped from the authored title on emit, and
+        # resolved from the *stored* report title on a note-only edit (the payload carries no title) —
+        # the path that breaks if `_do_edit_report` stops resolving the report's effective title.
+        run = _make_run(self.team)
+        title = "Scout self-improvement: signals-scout-general – dead quick-close trigger"
+        with _safe_judge(), patch(EMBED_PATH), patch(CAPTURE_PATH) as capture:
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(title=title), format="json")
+            self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created.json()["report_id"], "append_note": "re-confirmed on this run"},
+                format="json",
+            )
+        emitted = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_emitted")
+        edited = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_edited")
+        for props in (emitted.kwargs["properties"], edited.kwargs["properties"]):
+            assert props["report_kind"] == REPORT_KIND_SELF_IMPROVEMENT
+            assert props["is_self_improvement_report"] is True
 
     def test_reviewer_edit_event_uuid_keys_on_reviewers(self) -> None:
         # A reviewer-only edit carries no `updated_fields` and no title/summary/note, so two distinct
@@ -512,3 +542,24 @@ class TestBuildSuggestedReviewers(APIBaseTest):
         with patch(resolver) as resolve_mock, pytest.raises(InvalidScoutReportError):
             _build_suggested_reviewers(self.team.id, entries)
         resolve_mock.assert_not_called()
+
+
+class TestReportClassificationProps(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("exact_prefix", "Scout self-improvement: my-scout – dead trigger", True),
+            # LLM-authored titles drift in case/whitespace; the classifier must tolerate that.
+            ("case_and_whitespace_drift", "  scout SELF-improvement: my-scout – topic", True),
+            ("space_before_colon", "Scout self-improvement : my-scout – topic", True),
+            ("hyphen_dropped", "Scout self improvement: my-scout – topic", True),
+            ("finding_title", "Checkout p99 regressed after 4.2", False),
+            # The phrase mid-title (e.g. a finding *about* the escalation flow) is not a prefix match.
+            ("prefix_mid_title", "Fix the Scout self-improvement: escalation flow", False),
+            ("no_title", None, False),
+        ]
+    )
+    def test_classifies_by_title_prefix(self, _name: str, title: str | None, is_self_improvement: bool) -> None:
+        props = _report_classification_props(title)
+        assert props["is_self_improvement_report"] is is_self_improvement
+        expected_kind = REPORT_KIND_SELF_IMPROVEMENT if is_self_improvement else REPORT_KIND_FINDING
+        assert props["report_kind"] == expected_kind

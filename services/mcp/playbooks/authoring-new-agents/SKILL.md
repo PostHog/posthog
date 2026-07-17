@@ -27,7 +27,7 @@ will throw away.
 1. discover     — what's available, what already exists
 2. design       — write the spec
 3. create       — application + empty draft
-4. configure    — wire secrets / integrations (punch-out)
+4. configure    — wire secrets (punch-out)
 5. write        — agent.md, skills, custom tools
 6. validate     — structural check
 7. freeze + test — sandboxed runs, self-eval
@@ -75,8 +75,6 @@ calling any create endpoint. Cover:
 - **`skills[]`** — usually 0-3 for v0. Plan one per "domain of
   knowledge"; don't pre-create skills for ideas the agent might
   reach for.
-- **`integrations[]`** — list any team-wide OAuth integrations
-  (e.g. `"slack"`).
 - **`secrets[]`** — list any per-application keys the agent's tools
   read (e.g. `"STRIPE_API_KEY"`). Trigger-required keys are handled
   separately — see the note after this list.
@@ -157,7 +155,7 @@ If you need to amend the spec on a draft:
 posthog__agent-applications-revisions-partial-update revision_id=<rid> spec=<json>
 ```
 
-## Phase 4 — configure secrets / integrations
+## Phase 4 — configure secrets
 
 For each item in `spec.secrets[]`, you cannot accept the value
 directly. Load the `secrets-and-integrations` playbook and follow the
@@ -169,11 +167,6 @@ entries in `encrypted_env` that the spec doesn't name explicitly
 endpoint refuses if any are missing; catch them here so the user
 isn't surprised at the end. See the `secrets-and-integrations` playbook
 → "Trigger-required secrets" for the registry + punch-out flow.
-
-For each item in `spec.integrations[]`, check whether the team
-already has that integration installed. If not, tell the user to
-install it from the PostHog integrations UI — you can't do this
-for them.
 
 When the new agent must call PostHog or a third-party API as the
 user, load the `authenticating-as-the-user` playbook to wire its identity

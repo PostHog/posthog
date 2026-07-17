@@ -125,13 +125,12 @@ export async function* streamTaskRunEvents(
         let delay = WAIT_INITIAL_DELAY_MS
         const waitStartedAt = Date.now()
         let lastKeepaliveAt = waitStartedAt
-        let waited = false
-
+        let waitedForStream = false
         while (!(await redisStream.exists())) {
             const now = Date.now()
 
-            if (!waited) {
-                waited = true
+            if (!waitedForStream) {
+                waitedForStream = true
                 logger.debug('stream:waiting', { streamKey })
             }
 
@@ -153,7 +152,7 @@ export async function* streamTaskRunEvents(
             delay = Math.min(delay + WAIT_DELAY_INCREMENT_MS, WAIT_MAX_DELAY_MS)
         }
 
-        if (waited) {
+        if (waitedForStream) {
             logger.debug('stream:available', { streamKey, waitedMs: Date.now() - waitStartedAt })
         }
 
@@ -161,7 +160,7 @@ export async function* streamTaskRunEvents(
         let startId: string
         if (lastEventId) {
             startId = lastEventId
-        } else if (startLatest) {
+        } else if (startLatest && !waitedForStream) {
             startId = (await redisStream.getLatestStreamId()) ?? '0'
         } else {
             startId = '0'

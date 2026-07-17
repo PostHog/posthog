@@ -57,6 +57,7 @@ Endpoint
 EnterpriseEventDefinition
 EnterprisePropertyDefinition
 ErrorTrackingAssignmentRule
+ErrorTrackingBypassRule
 ErrorTrackingGroupingRule
 ErrorTrackingIssue
 ErrorTrackingIssueFingerprintV2
@@ -104,6 +105,7 @@ IntervieweeContext
 KernelRuntime
 LLMModelConfiguration
 LLMPrompt
+LLMPromptLabel
 LLMProviderKey
 LLMSkill
 LLMTraceSummary
@@ -133,7 +135,10 @@ QuickFilter
 QuickFilterContext
 Reminder
 ReplayObservation
+ReplayObservationLabel
+ReplayObservationUsage
 ReplayScanner
+ReplayScannerPromptSuggestion
 RepoRoutingRule
 ReviewQueue
 ReviewQueueItem

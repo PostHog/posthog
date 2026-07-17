@@ -41,10 +41,11 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.instance_setting import override_instance_config
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
-from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery"
 
@@ -111,6 +112,104 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         )
 
         return table.name
+
+    def setup_data_warehouse_with_decoy_timestamp(self):
+        # Table whose real event time lives in `event_time`, but which also has a DateTime column
+        # literally named `timestamp` (e.g. an ingestion timestamp). The DataWarehouseEventsModifier
+        # must still map the configured `timestamp_field` so queries don't bucket on the wrong column.
+        table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(
+            csv_path=Path(__file__).parent / "data" / "trends_dw_decoy_timestamp.csv",
+            table_name="test_table_decoy",
+            table_columns={
+                "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "event_time": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                "timestamp": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                "prop_1": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+            },
+            test_bucket=TEST_BUCKET,
+            team=self.team,
+        )
+
+        return table.name
+
+    def test_trends_data_warehouse_uses_configured_timestamp_field(self):
+        # Regression: the configured `timestamp_field` must drive bucketing even when the source table
+        # has its own DateTime column named `timestamp`. Each row has a distinct `event_time` day, so
+        # bucketing by `event_time` spreads counts across days ([1, 1, 1, 1, 0, 0, 0]); bucketing by the
+        # decoy `timestamp` (all 2023-01-04) would pile everything onto day 4 ([0, 0, 0, 4, 0, 0, 0]).
+        table_name = self.setup_data_warehouse_with_decoy_timestamp()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="event_time",
+                )
+            ],
+        )
+
+        with freeze_time("2023-01-07"):
+            response = self.get_response(trends_query=trends_query)
+
+        assert response.columns is not None
+        assert set(response.columns).issubset({"date", "total"})
+        assert response.results[0][1] == [1, 1, 1, 1, 0, 0, 0]
+
+    def setup_data_warehouse_with_decoy_distinct_id(self):
+        # Table whose real actor identifier lives in `user_id`, but which also has a column literally
+        # named `distinct_id` (a decoy, e.g. a source-system id). With `aggregate_users_by_distinct_id`,
+        # trends `dau` counts the virtual `distinct_id` field, which must resolve to the configured
+        # `distinct_id_field` (`user_id`) rather than the decoy column, or unique-user counts are wrong.
+        table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(
+            csv_path=Path(__file__).parent / "data" / "trends_dw_decoy_distinct_id.csv",
+            table_name="test_table_decoy_distinct_id",
+            table_columns={
+                "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "user_id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "distinct_id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "event_time": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                "prop_1": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+            },
+            test_bucket=TEST_BUCKET,
+            team=self.team,
+        )
+
+        return table.name
+
+    def test_trends_data_warehouse_uses_configured_distinct_id_field(self):
+        # Regression: with `aggregate_users_by_distinct_id`, trends `dau` counts the virtual `distinct_id`
+        # field, which must resolve to the configured `distinct_id_field` (`user_id`) even when the source
+        # table has its own column named `distinct_id`. Both rows on 2023-01-01 share one decoy
+        # `distinct_id` value but have two distinct `user_id`s, so counting `user_id` yields 2 while
+        # counting the decoy column would yield 1.
+        table_name = self.setup_data_warehouse_with_decoy_distinct_id()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="user_id",
+                    timestamp_field="event_time",
+                    math="dau",
+                )
+            ],
+        )
+
+        with override_instance_config("AGGREGATE_BY_DISTINCT_IDS_TEAMS", f"{self.team.pk}"), freeze_time("2023-01-07"):
+            response = self.get_response(trends_query=trends_query)
+
+        assert response.columns is not None
+        assert set(response.columns).issubset({"date", "total"})
+        assert response.results[0][1] == [2, 0, 0, 0, 0, 0, 0]
 
     @snapshot_clickhouse_queries
     def test_trends_data_warehouse(self):

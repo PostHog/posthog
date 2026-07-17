@@ -182,6 +182,9 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                 "paginator": ZendeskIncrementalEndpointPaginator(),
                 "params": {
                     "per_page": 1000,
+                    # Enrich each event's `child_events` with the full comment body
+                    # (public replies and internal notes); without it bodies are stripped.
+                    "include": "comment_events",
                     "start_time": {
                         "type": "incremental",
                         "cursor_path": "created_at",

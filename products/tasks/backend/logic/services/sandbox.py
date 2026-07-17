@@ -25,12 +25,14 @@ from typing import TYPE_CHECKING, Protocol, Self
 from django.conf import settings
 
 import structlog
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
+from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_FILESYSTEM, SnapshotKind
 from products.tasks.backend.logic.services.sandbox_config import (
     BURSTABLE_REQUEST_CPU_CORES,
     BURSTABLE_REQUEST_MEMORY_MB,
     SANDBOX_TTL_SECONDS,
+    VM_SANDBOX_CPU_CORES,
 )
 
 if TYPE_CHECKING:
@@ -57,6 +59,10 @@ class SandboxTemplate(str, Enum):
     VM_BASE = "vm_base"
 
     STREAMLIT_BASE = "streamlit_base"
+    # Minimal template (git, node, uv — no agent server, no skills). For review/exec
+    # sandboxes like stamphog that never run the agent server. See
+    # Dockerfile.sandbox-slim and modal_sandbox.py's SLIM_BASE image definition.
+    SLIM_BASE = "slim_base"
 
 
 class ExecutionResult(BaseModel):
@@ -88,6 +94,10 @@ class SandboxConfig(BaseModel):
     environment_variables: dict[str, str] | None = None
     snapshot_id: str | None = None
     snapshot_external_id: str | None = None
+    snapshot_kind: SnapshotKind = SNAPSHOT_KIND_FILESYSTEM
+    snapshot_mount_path: str | None = None
+    snapshot_source: str = "none"
+    snapshot_restored: bool = False
     ttl_seconds: int = SANDBOX_TTL_SECONDS
     metadata: dict[str, str] | None = None
     memory_gb: float = 16
@@ -103,13 +113,29 @@ class SandboxConfig(BaseModel):
     vm_runtime: bool = False
     # gVisor only — Modal rejects this under vm_runtime.
     outbound_domain_allowlist: list[str] | None = None
+    # VM runtime only — custom images layer on the VM base; snapshot restores take precedence.
+    custom_image_name: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_vm_cpu(cls, data: object) -> object:
+        if (
+            isinstance(data, dict)
+            and "cpu_cores" not in data
+            and (
+                data.get("vm_runtime")
+                or data.get("template") in (SandboxTemplate.VM_BASE, SandboxTemplate.VM_BASE.value)
+            )
+        ):
+            return {**data, "cpu_cores": VM_SANDBOX_CPU_CORES}
+        return data
 
     @property
     def is_vm(self) -> bool:
         return self.vm_runtime or self.template == SandboxTemplate.VM_BASE
 
 
-WORKING_DIR = "/tmp/workspace"
+WORKING_DIR = DEFAULT_SANDBOX_WORKING_DIR
 
 REPO_READY_FILE = f"{WORKING_DIR}/.repo-ready"
 
@@ -128,6 +154,12 @@ def is_public_sandbox_repo(repository: str | None) -> bool:
     return repository is not None and repository.lower() in PUBLIC_SANDBOX_REPOS
 
 
+def sandbox_repo_path(repository: str) -> str:
+    """Absolute path an ``org/repo`` is cloned to inside the sandbox (the agent-server's cwd)."""
+    org, repo = repository.lower().split("/")
+    return f"{WORKING_DIR}/repos/{org}/{repo}"
+
+
 def redact_sandbox_command(command: str) -> str:
     return SENSITIVE_AGENT_RUNTIME_ENV_PATTERN.sub(r"\g<name>=<redacted>", command)
 
@@ -139,8 +171,11 @@ def build_agent_runtime_env_prefix(
     provider: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
+    initial_permission_mode: str | None = None,
     event_ingest_token: str | None = None,
     event_ingest_url: str | None = None,
+    event_ingest_keep_stream_open: bool = False,
+    rtk_enabled: bool = True,
 ) -> str:
     env_vars = {
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
@@ -148,8 +183,13 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_CODE_PROVIDER": provider,
         "POSTHOG_CODE_MODEL": model,
         "POSTHOG_CODE_REASONING_EFFORT": reasoning_effort,
+        "POSTHOG_CODE_INITIAL_PERMISSION_MODE": initial_permission_mode,
         "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN": event_ingest_token,
         "POSTHOG_TASK_RUN_EVENT_INGEST_URL": event_ingest_url,
+        "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN": "true" if event_ingest_keep_stream_open else None,
+        # Set explicitly in both states: "0" opts the run out, "1" pins auto-detection on
+        # even if a stale env value survives in a resumed sandbox.
+        "POSTHOG_RTK": "1" if rtk_enabled else "0",
     }
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
@@ -191,6 +231,25 @@ class SandboxBase(ABC):
     @abstractmethod
     def write_file(self, path: str, payload: bytes) -> ExecutionResult: ...
 
+    def stop_agent_server(self) -> ExecutionResult:
+        """Stop the agent server gracefully so it can flush terminal events."""
+        return self.execute(
+            "pkill -TERM -f '[a]gent-server' 2>/dev/null || true; "
+            "for _ in $(seq 1 80); do "
+            "pgrep -f '[a]gent-server' >/dev/null || exit 0; "
+            "sleep 0.5; "
+            "done; "
+            "exit 1",
+            timeout_seconds=45,
+        )
+
+    def agent_server_supports_auto_publish(self) -> bool:
+        """Sandboxes restored from old snapshots can carry an agent-server that rejects unknown
+        CLI options, so probe the installed binary before passing --autoPublish; unsupported
+        binaries degrade to review-first instead of crashing at launch."""
+        result = self.execute("grep -q autoPublish /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
+        return result.exit_code == 0
+
     def clone_repository(self, repository: str, github_token: str | None = "", shallow: bool = True) -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
@@ -202,7 +261,7 @@ class SandboxBase(ABC):
             else f"https://github.com/{org}/{repo}.git"
         )
 
-        target_path = f"{WORKING_DIR}/repos/{org}/{repo}"
+        target_path = sandbox_repo_path(repository)
         org_path = f"{WORKING_DIR}/repos/{org}"
 
         depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
@@ -250,18 +309,23 @@ class SandboxBase(ABC):
         run_id: str,
         mode: str = "background",
         create_pr: bool = True,
+        auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
         runtime_adapter: str | None = None,
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        initial_permission_mode: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
+        relayed_mcp_servers: list[str] | None = None,
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
+        event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
+        rtk_enabled: bool = True,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -278,6 +342,9 @@ class SandboxBase(ABC):
 
     @abstractmethod
     def create_snapshot(self) -> str: ...
+
+    @abstractmethod
+    def create_directory_snapshot(self, path: str) -> str: ...
 
     @abstractmethod
     def destroy(self) -> None: ...
@@ -380,10 +447,13 @@ SandboxClass = type[SandboxBase]
 
 
 def _get_docker_sandbox_class() -> SandboxClass:
-    if not settings.DEBUG:
+    # Allow TEST too: the guard runs at module import, and pytest loads settings with
+    # DEBUG off in some paths — blocking there would kill collection, not production.
+    if not (settings.DEBUG or settings.TEST):
         raise RuntimeError(
-            "DockerSandbox cannot be used in production. "
-            "Set DEBUG=True for local development or remove SANDBOX_PROVIDER=docker."
+            "DockerSandbox is for local development only. Set DEBUG=1 (the flox env sets this "
+            "automatically — are you outside 'flox activate'?) or unset SANDBOX_PROVIDER "
+            "(check .env/.env.local and your shell)."
         )
     from .docker_sandbox import DockerSandbox
 
@@ -397,8 +467,14 @@ def _get_modal_docker_sandbox_class() -> SandboxClass:
     local image builds with LOCAL_POSTHOG_CODE_MONOREPO_ROOT don't
     pollute the production app's image cache.
     """
-    if not settings.DEBUG:
-        raise RuntimeError("MODAL_DOCKER sandbox is for local development only (DEBUG=True).")
+    # Allow TEST too: the guard runs at module import, and pytest loads settings with
+    # DEBUG off in some paths — blocking there would kill collection, not production.
+    if not (settings.DEBUG or settings.TEST):
+        raise RuntimeError(
+            "MODAL_DOCKER sandbox is for local development only. Set DEBUG=1 (the flox env sets "
+            "this automatically — are you outside 'flox activate'?) or unset SANDBOX_PROVIDER "
+            "(check .env/.env.local and your shell)."
+        )
     from .modal_sandbox import ModalSandbox
 
     class ModalDockerSandbox(ModalSandbox):
@@ -406,6 +482,19 @@ def _get_modal_docker_sandbox_class() -> SandboxClass:
         NOTEBOOK_APP_NAME = "posthog-sandbox-modal-docker-notebook"
 
     return ModalDockerSandbox
+
+
+def _get_modal_evals_sandbox_class() -> SandboxClass:
+    """Modal sandbox isolated from both production and local development apps."""
+    if not (settings.DEBUG or settings.TEST):
+        raise RuntimeError("MODAL_EVALS sandbox is for evals only and requires DEBUG=1 or TEST=1.")
+    from .modal_sandbox import ModalSandbox
+
+    class ModalEvalsSandbox(ModalSandbox):
+        DEFAULT_APP_NAME = "posthog-sandbox-evals"
+        NOTEBOOK_APP_NAME = "posthog-sandbox-evals"
+
+    return ModalEvalsSandbox
 
 
 def get_sandbox_class() -> SandboxClass:
@@ -416,6 +505,9 @@ def get_sandbox_class() -> SandboxClass:
 
     if provider and provider.upper() == "MODAL_DOCKER":
         return _get_modal_docker_sandbox_class()
+
+    if provider and provider.upper() == "MODAL_EVALS":
+        return _get_modal_evals_sandbox_class()
 
     # Default to Modal everywhere
     from .modal_sandbox import ModalSandbox
@@ -430,12 +522,31 @@ def get_sandbox_class_for_backend(backend: str) -> SandboxClass:
         return ModalSandbox
     if backend in ("modal_docker", "MODAL_DOCKER"):
         return _get_modal_docker_sandbox_class()
+    if backend in ("modal_evals", "MODAL_EVALS"):
+        return _get_modal_evals_sandbox_class()
     if backend == "docker":
         return _get_docker_sandbox_class()
     raise RuntimeError(f"Unsupported sandbox backend: {backend}")
 
 
-Sandbox: SandboxClass = get_sandbox_class()
+if TYPE_CHECKING:
+    # Declared for type-checkers only; resolved at runtime by __getattr__ -> get_sandbox_class().
+    Sandbox: SandboxClass
+else:
+
+    def __getattr__(name: str) -> object:
+        # Resolve `Sandbox` lazily. Computing it at import time calls get_sandbox_class(),
+        # which for the docker / local Modal providers imports a sibling module
+        # (docker_sandbox / modal_sandbox). When that sibling is the first of the pair to be
+        # imported (e.g. test_docker_sandbox.py imports docker_sandbox, which imports this
+        # module), the eager call reaches back into the still-initializing sibling and fails
+        # as a circular import. Deferring to first attribute access breaks the cycle.
+        if name == "Sandbox":
+            sandbox_class = get_sandbox_class()
+            globals()["Sandbox"] = sandbox_class  # cache so later lookups skip __getattr__
+            return sandbox_class
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "AgentServerResult",
@@ -449,6 +560,7 @@ __all__ = [
     "SandboxBase",
     "WORKING_DIR",
     "parse_sandbox_repo_mount_map",
+    "sandbox_repo_path",
     "get_sandbox_class",
     "get_sandbox_class_for_backend",
     "wait_for_health_check",

@@ -1,0 +1,27 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "date_from": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Earliest start time of the recordings, as an ISO date or a relative offset like '-30d'. Providing this narrows the lookup and speeds up the request; defaults to the project's recording retention period."
+        },
+        "session_recording_ids": {
+            "description": "Session IDs of the recordings to delete (max 100 per call).",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+        }
+    },
+    "required": ["session_recording_ids"],
+    "type": "object"
+}

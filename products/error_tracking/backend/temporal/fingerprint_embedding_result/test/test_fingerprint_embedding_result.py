@@ -5,7 +5,7 @@ from typing import cast
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
@@ -13,11 +13,17 @@ from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models import Team
 
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingIssueMergeResult,
+)
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.activities import (
     FingerprintIssueNotFoundError,
+    StaleAutoMergeStateError,
     TargetFingerprintEmbeddingNotFoundError,
     _closest_fingerprints_query,
     _merge_fingerprint_into_closest_issue,
@@ -156,10 +162,12 @@ class TestFingerprintEmbeddingResultActivity:
         assert execute_hogql_query.call_args_list[0].kwargs["query_type"] == (
             "ErrorTrackingFingerprintEmbeddingResultTargetEmbedding"
         )
+        assert execute_hogql_query.call_args_list[0].kwargs["ch_user"] == ClickHouseUser.ERROR_TRACKING
         assert execute_hogql_query.call_args_list[1].kwargs["team"] == team
         assert execute_hogql_query.call_args_list[1].kwargs["query_type"] == (
             "ErrorTrackingFingerprintEmbeddingResultClosestFingerprints"
         )
+        assert execute_hogql_query.call_args_list[1].kwargs["ch_user"] == ClickHouseUser.ERROR_TRACKING
 
     def test_query_closest_fingerprints_uses_input_embedding(self) -> None:
         closest_response = MagicMock(
@@ -182,6 +190,7 @@ class TestFingerprintEmbeddingResultActivity:
         assert execute_hogql_query.call_args.kwargs["query_type"] == (
             "ErrorTrackingFingerprintEmbeddingResultClosestFingerprints"
         )
+        assert execute_hogql_query.call_args.kwargs["ch_user"] == ClickHouseUser.ERROR_TRACKING
 
     def test_target_embedding_from_inputs_rejects_invalid_embedding(self) -> None:
         inputs = FingerprintEmbeddingResultInputs(
@@ -207,6 +216,7 @@ class TestFingerprintEmbeddingResultActivity:
                 _query_closest_fingerprints(team, _inputs(), "text-embedding-3-large-3072")
 
         execute_hogql_query.assert_called_once()
+        assert execute_hogql_query.call_args.kwargs["ch_user"] == ClickHouseUser.ERROR_TRACKING
 
     def test_query_closest_fingerprints_raises_with_invalid_target_embedding(self) -> None:
         team = MagicMock()
@@ -255,8 +265,7 @@ class TestFingerprintEmbeddingResultActivity:
         assert properties["rank_2_fingerprint"] == "fingerprint-2"
         assert properties["rank_3_fingerprint"] == "fingerprint-3"
 
-    @pytest.mark.asyncio
-    async def test_merge_activity_reports_distances(self) -> None:
+    def test_merge_activity_reports_distances(self) -> None:
         closest_fingerprints = [
             SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.01),
             SimilarFingerprintDistance(fingerprint="fingerprint-2", distance=0.02),
@@ -265,8 +274,8 @@ class TestFingerprintEmbeddingResultActivity:
 
         with (
             patch(
-                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.Team.objects.aget",
-                new=AsyncMock(return_value=MagicMock()),
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.Team.objects.get",
+                return_value=MagicMock(),
             ),
             patch(
                 "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities._query_closest_fingerprints",
@@ -276,11 +285,26 @@ class TestFingerprintEmbeddingResultActivity:
                 "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities._report_closest_fingerprint_metrics"
             ),
         ):
-            result = await merge_similar_fingerprints_activity(_inputs())
+            result = merge_similar_fingerprints_activity(_inputs())
 
         assert result.merged_count == 0
         assert result.query_duration_ms is not None
         assert result.closest_fingerprints == closest_fingerprints
+
+    def test_merge_activity_returns_empty_result_when_team_deleted(self) -> None:
+        with (
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.Team.objects.get",
+                side_effect=Team.DoesNotExist(),
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities._capture_activity_exception"
+            ) as capture_exception,
+        ):
+            result = merge_similar_fingerprints_activity(_inputs())
+
+        assert result == FingerprintEmbeddingMergeResult()
+        capture_exception.assert_not_called()
 
     def test_merge_fingerprint_skips_when_auto_merge_disabled(self) -> None:
         with override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=False):
@@ -302,15 +326,14 @@ class TestFingerprintEmbeddingResultActivity:
 
         assert result == 0
 
-    @pytest.mark.django_db
     def test_merge_fingerprint_raises_when_source_fingerprint_is_missing(self) -> None:
         fingerprint_query = MagicMock()
-        fingerprint_query.filter.return_value.select_related.return_value.order_by.return_value = []
+        fingerprint_query.select_related.return_value.order_by.return_value = []
 
         with (
             override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=True),
             patch(
-                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ErrorTrackingIssueFingerprintV2.objects.select_for_update",
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ErrorTrackingIssueFingerprintV2.objects.filter",
                 return_value=fingerprint_query,
             ),
             pytest.raises(FingerprintIssueNotFoundError, match="Source fingerprint test-fingerprint not found"),
@@ -321,16 +344,16 @@ class TestFingerprintEmbeddingResultActivity:
                 closest_fingerprints=[SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.018)],
             )
 
-    @pytest.mark.django_db
     def test_merge_fingerprint_moves_source_fingerprint_to_closest_issue(self) -> None:
         source_issue_id = uuid.uuid4()
         target_issue_id = uuid.uuid4()
         source_fingerprint = MagicMock(issue_id=source_issue_id, fingerprint="test-fingerprint")
         target_issue = MagicMock()
+        target_issue.merge.return_value = ErrorTrackingIssueMergeResult.MERGED
         target_fingerprint = MagicMock(issue_id=target_issue_id, issue=target_issue, fingerprint="fingerprint-1")
         team = MagicMock(id=2, uuid=uuid.uuid4())
         fingerprint_query = MagicMock()
-        fingerprint_query.filter.return_value.select_related.return_value.order_by.return_value = [
+        fingerprint_query.select_related.return_value.order_by.return_value = [
             target_fingerprint,
             source_fingerprint,
         ]
@@ -341,9 +364,9 @@ class TestFingerprintEmbeddingResultActivity:
         with (
             override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=True),
             patch(
-                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ErrorTrackingIssueFingerprintV2.objects.select_for_update",
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ErrorTrackingIssueFingerprintV2.objects.filter",
                 return_value=fingerprint_query,
-            ),
+            ) as filter_fingerprints,
             patch(
                 "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_scoped_capture",
                 return_value=capture_context,
@@ -360,15 +383,49 @@ class TestFingerprintEmbeddingResultActivity:
             )
 
         assert result == 1
-        assert fingerprint_query.filter.call_args.kwargs == {
+        assert filter_fingerprints.call_args.kwargs == {
             "team_id": 2,
             "fingerprint__in": ["test-fingerprint", "fingerprint-1"],
         }
-        target_issue.merge.assert_called_once_with(issue_ids=[str(source_issue_id)])
+        target_issue.merge.assert_called_once_with(
+            issue_ids=[source_issue_id],
+            expected_fingerprint_issue_ids={
+                "test-fingerprint": source_issue_id,
+                "fingerprint-1": target_issue_id,
+            },
+        )
         properties = capture.call_args.kwargs["properties"]
         assert properties["merge_source"] == "auto"
         assert properties["source_issue_id"] == str(source_issue_id)
         assert properties["target_issue_id"] == str(target_issue_id)
+
+    def test_merge_fingerprint_retries_when_merge_state_is_stale(self) -> None:
+        source_issue_id = uuid.uuid4()
+        target_issue_id = uuid.uuid4()
+        source_fingerprint = MagicMock(issue_id=source_issue_id, fingerprint="test-fingerprint")
+        target_issue = MagicMock()
+        target_issue.merge.return_value = ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS
+        target_fingerprint = MagicMock(issue_id=target_issue_id, issue=target_issue, fingerprint="fingerprint-1")
+        team = MagicMock(id=2, uuid=uuid.uuid4())
+        fingerprint_query = MagicMock()
+        fingerprint_query.select_related.return_value.order_by.return_value = [
+            target_fingerprint,
+            source_fingerprint,
+        ]
+
+        with (
+            override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=True),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ErrorTrackingIssueFingerprintV2.objects.filter",
+                return_value=fingerprint_query,
+            ),
+            pytest.raises(StaleAutoMergeStateError, match="Fingerprint issue ownership changed"),
+        ):
+            _merge_fingerprint_into_closest_issue(
+                team=team,
+                fingerprint="test-fingerprint",
+                closest_fingerprints=[SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.018)],
+            )
 
 
 class TestMergeFingerprintCrossTeamIsolation(BaseTest):

@@ -1,4 +1,4 @@
-import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
+import { AI_EVENT_TYPES } from '~/ingestion/common/subpipelines/ai-event-types'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
