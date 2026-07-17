@@ -91,8 +91,9 @@ _VALIDATE_RETRY = RetryPolicy(maximum_attempts=VALIDATION_MAX_ATTEMPTS)
 # The one-shot LLM stages (chunking, selection, dedup): provider overload (529) spells last
 # minutes, so back-to-back attempts all land inside the same spell and the run dies in ~2 minutes
 # flat (observed). Spaced escalating attempts ride the spell out — waits total ~7.5m per run, ~2×
-# that with the parent retry. Failed attempts are cheap (the call aborts before any persistence)
-# and non-retryable failures (4xx, max_tokens truncation) still fail fast regardless of attempts.
+# that with the parent retry. Overload-failed attempts are cheap (the provider call dies before
+# anything persists; a rare failure after persistence redoes the LLM call, superseded latest-wins
+# per issue_key). Non-retryable failures (4xx, max_tokens truncation) still fail fast.
 _ONESHOT_RETRY = RetryPolicy(
     maximum_attempts=5,
     initial_interval=timedelta(seconds=30),
