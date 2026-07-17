@@ -2,14 +2,12 @@ import { useActions, useValues } from 'kea'
 
 import { LemonCollapse, LemonInput, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 
-import { HeatmapsForbiddenURL } from 'scenes/heatmaps/components/HeatmapsForbiddenURL'
 import { heatmapLogic } from 'scenes/heatmaps/scenes/heatmap/heatmapLogic'
 
 export interface HeatmapAdvancedSettingsProps {
     dataUrlPlaceholderFallback: string
     dataUrlHelp: React.ReactNode
     consentHelp: React.ReactNode
-    showForbiddenUrl?: boolean
     showDataUrl?: boolean
     showConsent?: boolean
     header?: string
@@ -19,12 +17,11 @@ export function HeatmapAdvancedSettings({
     dataUrlPlaceholderFallback,
     dataUrlHelp,
     consentHelp,
-    showForbiddenUrl = false,
     showDataUrl = true,
     showConsent = true,
     header = 'Advanced settings',
 }: HeatmapAdvancedSettingsProps): JSX.Element {
-    const { dataUrl, displayUrl, type, blockConsentModals, isBrowserUrlAuthorized } = useValues(heatmapLogic)
+    const { dataUrl, displayUrl, type, blockConsentModals } = useValues(heatmapLogic)
     const { setDataUrl, setDataUrlUserTouched, setBlockConsentModals } = useActions(heatmapLogic)
 
     return (
@@ -51,9 +48,6 @@ export function HeatmapAdvancedSettings({
                                         fullWidth={true}
                                     />
                                     <div className="text-xs text-muted mt-1">{dataUrlHelp}</div>
-                                    {showForbiddenUrl && dataUrl && !isBrowserUrlAuthorized ? (
-                                        <HeatmapsForbiddenURL />
-                                    ) : null}
                                 </div>
                             ) : null}
                             {showConsent ? (

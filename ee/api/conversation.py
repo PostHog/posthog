@@ -213,6 +213,14 @@ class SandboxAttachedContextItemSerializer(serializers.Serializer):
     value = serializers.CharField(required=False, help_text="Free-text content. Only for `text` attachments.")
 
 
+def _validate_sandbox_task(task_id: uuid.UUID, team_id: int, user_id: int | None) -> None:
+    runtime = tasks_facade.task_runtime(task_id, team_id, user_id)
+    if runtime is None:
+        raise serializers.ValidationError("Task not found or not accessible.")
+    if runtime == tasks_facade.TaskRuntime.PI:
+        raise serializers.ValidationError("Pi tasks cannot be opened in PostHog AI.")
+
+
 class SandboxOpenSerializer(serializers.Serializer):
     """Request body for `POST /conversations/{id}/open/`. A string `content` processes a turn; a
     null/absent `content` warms a sandbox that idles awaiting the first message."""
@@ -258,8 +266,7 @@ class SandboxOpenSerializer(serializers.Serializer):
         """
         team = self.context["team"]
         user = self.context["user"]
-        if not tasks_facade.task_visible(value, team.id, user.id):
-            raise serializers.ValidationError("Task not found or not accessible.")
+        _validate_sandbox_task(value, team.id, user.id)
         return value
 
 
@@ -680,7 +687,7 @@ class ConversationViewSet(
         responses={
             200: SandboxMessageResponseSerializer,
             204: OpenApiResponse(description="Warm request that provisioned nothing (pool full / released)."),
-            400: OpenApiResponse(description="Conversation is not on the sandbox runtime."),
+            400: OpenApiResponse(description="Conversation or task uses an unsupported runtime."),
         },
         description=(
             "Create-or-resume a sandbox conversation — the single sandbox session opener. With `content`, "
@@ -702,6 +709,9 @@ class ConversationViewSet(
         conversation, created = self._get_or_create_sandbox_conversation(
             request, bind_task=serializer.validated_data.get("task_id")
         )
+        if conversation.task_id is not None:
+            _validate_sandbox_task(conversation.task_id, self.team.id, request.user.id)
+
         has_content = bool(serializer.validated_data.get("content"))
         convert_to_acp, resumed_context = self._compute_sandbox_conversion(request, conversation, has_content)
 

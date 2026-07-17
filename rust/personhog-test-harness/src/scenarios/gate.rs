@@ -32,7 +32,8 @@ enum ChaosEvent {
     WriterCrash,
     WriterPause,
     WriterResume,
-    RouterKill,
+    RouterKill { fast: bool },
+    RouterShutdown,
 }
 
 impl fmt::Display for ChaosEvent {
@@ -48,7 +49,11 @@ impl fmt::Display for ChaosEvent {
             ChaosEvent::WriterCrash => write!(f, "writer crash-restart"),
             ChaosEvent::WriterPause => write!(f, "writer pause (lag injection)"),
             ChaosEvent::WriterResume => write!(f, "writer resume"),
-            ChaosEvent::RouterKill => write!(f, "coordinator router kill"),
+            ChaosEvent::RouterKill { fast: true } => write!(f, "coordinator router kill"),
+            ChaosEvent::RouterKill { fast: false } => {
+                write!(f, "coordinator router crash (lease TTL expiry)")
+            }
+            ChaosEvent::RouterShutdown => write!(f, "coordinator router graceful shutdown"),
         }
     }
 }
@@ -84,7 +89,15 @@ fn chaos_timeline(args: &GateArgs) -> Vec<(Duration, ChaosEvent)> {
         events.push((after + args.writer_pause_duration, ChaosEvent::WriterResume));
     }
     if let Some(after) = args.router_kill_after {
-        events.push((after, ChaosEvent::RouterKill));
+        events.push((
+            after,
+            ChaosEvent::RouterKill {
+                fast: args.router_kill_fast,
+            },
+        ));
+    }
+    if let Some(after) = args.router_shutdown_after {
+        events.push((after, ChaosEvent::RouterShutdown));
     }
     events.sort_by_key(|(after, _)| *after);
     events
@@ -118,8 +131,14 @@ pub async fn run(args: GateArgs) -> Result<()> {
     if args.external_router_url.is_some() && (!chaos.is_empty() || args.kill_handoff_target) {
         bail!("chaos flags require a spawned stack; they cannot target --external-router-url");
     }
-    if args.router_kill_after.is_some() && args.routers < 2 {
-        bail!("--router-kill-after requires --routers >= 2 (traffic targets the last router)");
+    if (args.router_kill_after.is_some() || args.router_shutdown_after.is_some())
+        && args.routers < 3
+    {
+        bail!(
+            "coordinator chaos requires --routers >= 3: traffic targets the last router, \
+             which never campaigns, so two routers leave no standby to win the failover \
+             election"
+        );
     }
     if args.kill_handoff_target && args.shutdown_after.is_none() && args.scale_up_after.is_none() {
         bail!("--kill-handoff-target needs a handoff-creating event (--shutdown-after or --scale-up-after)");
@@ -247,7 +266,8 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 stack.resume_writer()?;
                 None
             }
-            ChaosEvent::RouterKill => Some(stack.kill_coordinator_router().await?),
+            ChaosEvent::RouterKill { fast } => Some(stack.kill_coordinator_router(fast).await?),
+            ChaosEvent::RouterShutdown => Some(stack.shutdown_coordinator_router().await?),
         };
         println!(
             "Chaos at {:.1}s: {event} → pod {} | {}",

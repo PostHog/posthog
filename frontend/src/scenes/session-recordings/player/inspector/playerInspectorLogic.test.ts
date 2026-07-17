@@ -23,7 +23,7 @@ const experimentContextResponse = {
             variant: 'test',
             variants_seen: ['test'],
             multiple_variants: false,
-            first_flag_evaluation_timestamp: '2023-08-11T12:03:40.000Z',
+            first_exposure_timestamp: '2023-08-11T12:03:40.000Z',
             experiment_start_date: '2023-08-01T00:00:00Z',
             experiment_end_date: null,
         },
@@ -34,7 +34,7 @@ const experimentContextResponse = {
             variant: 'control',
             variants_seen: ['control'],
             multiple_variants: false,
-            first_flag_evaluation_timestamp: null,
+            first_exposure_timestamp: null,
             experiment_start_date: '2023-08-01T00:00:00Z',
             experiment_end_date: null,
         },
@@ -292,7 +292,7 @@ describe('playerInspectorLogic', () => {
             logic.mount()
         }
 
-        it('synthesizes one marker per context item with a flag-evaluation timestamp', async () => {
+        it('synthesizes one marker per context item with a first-exposure timestamp', async () => {
             remountWithFlagState(true)
 
             const contextLogic = sessionRecordingExperimentContextLogic({ sessionRecordingId: '1' })
