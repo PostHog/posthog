@@ -285,6 +285,7 @@ the row lists both.
 | iterable                         | HTTP                        | requests                                                        | ✅                          |
 | jamf_pro                         | HTTP                        | requests                                                        | ✅                          |
 | jellyfish                        | HTTP                        | requests                                                        | ✅                          |
+| jfrog_artifactory                | HTTP                        | requests                                                        | ✅                          |
 | jira                             | HTTP                        | requests                                                        | ✅                          |
 | jobnimbus                        | HTTP                        | requests                                                        | ✅                          |
 | jotform                          | HTTP                        | requests                                                        | ✅                          |
@@ -485,6 +486,7 @@ the row lists both.
 | solarwinds_service_desk          | HTTP                        | requests                                                        | ✅                          |
 | sonar_cloud                      | HTTP                        | requests                                                        | ✅                          |
 | sonarqube                        | HTTP                        | requests                                                        | ✅                          |
+| sonatype_nexus                   | HTTP                        | requests                                                        | ✅                          |
 | spacelift                        | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | sparkpost                        | HTTP                        | requests                                                        | ✅                          |
 | split_io                         | HTTP                        | requests                                                        | ✅                          |
@@ -758,7 +760,6 @@ doesn't conflict with concurrent PRs.
 - instantly
 - interzoid
 - jenkins
-- jfrog_artifactory
 - jobber
 - judgeme_reviews
 - justsift
@@ -925,6 +926,7 @@ doesn't conflict with concurrent PRs.
 - smartengage
 - smartwaiver
 - solarwinds_service_desk
+- sonar_cloud
 - sonatype_nexus
 - sourcegraph
 - spacelift
