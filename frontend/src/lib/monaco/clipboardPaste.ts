@@ -25,7 +25,10 @@ function registerClipboardPasteOverride(): void {
         void navigator.clipboard.readText().then(
             (text) => {
                 if (text) {
-                    targetEditor.trigger('keyboard', 'type', { text })
+                    // Use the 'paste' handler, not 'type': 'type' runs each character through Monaco's
+                    // typing interceptors (auto-closing brackets, auto-indent), which corrupts pasted
+                    // code. 'paste' inserts the text verbatim like a native paste.
+                    targetEditor.trigger('keyboard', 'paste', { text })
                 }
             },
             (error) => {
