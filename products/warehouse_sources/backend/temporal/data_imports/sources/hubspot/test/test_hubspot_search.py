@@ -912,6 +912,7 @@ class TestHubspotSourceRouting:
                     logger=MagicMock(),
                     resumable_source_manager=MagicMock(),
                     use_search_path=True,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
         finally:
             HUBSPOT_ENDPOINTS["deals"].cursor_filter_property_field = original
@@ -925,6 +926,7 @@ class TestHubspotSourceRouting:
             resumable_source_manager=MagicMock(),
             use_search_path=True,
             db_incremental_field_last_value=None,
+            api_version=HUBSPOT_API_VERSION_V3,
         )
         # SourceResponse should be returned with partition settings preserved.
         assert resp.name == "deals"
@@ -939,6 +941,7 @@ class TestHubspotSourceRouting:
             logger=MagicMock(),
             resumable_source_manager=MagicMock(),
             use_search_path=False,
+            api_version=HUBSPOT_API_VERSION_V3,
         )
         assert resp.name == "deals"
 

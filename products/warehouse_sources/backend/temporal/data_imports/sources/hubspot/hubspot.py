@@ -742,7 +742,11 @@ def hubspot_source(
     source_id: str | None = None,
     db_incremental_field_last_value: Any = None,
     use_search_path: bool = False,
-    api_version: str = HUBSPOT_API_VERSION_V3,
+    *,
+    # Required (no default) so a cross-module caller can't silently downgrade a pinned
+    # source to the legacy version by forgetting to thread it. Internal request helpers
+    # keep the legacy default; they're only reached through this guarded entry point.
+    api_version: str,
 ) -> SourceResponse:
     """Build a SourceResponse for the pipeline.
 
