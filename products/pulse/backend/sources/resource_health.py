@@ -193,7 +193,11 @@ class ResourceHealthSource:
             label = row["name"] or row["derived_name"] or short_id
             metrics: dict[str, float | int | str] = {"refresh_attempts": row["refresh_attempts"]}
             last_successful_refresh = max(
-                (timestamp for timestamp in (row["last_refresh"], row["dashboard_last_successful_refresh"]) if timestamp),
+                (
+                    timestamp
+                    for timestamp in (row["last_refresh"], row["dashboard_last_successful_refresh"])
+                    if timestamp
+                ),
                 default=None,
             )
             if last_successful_refresh:
