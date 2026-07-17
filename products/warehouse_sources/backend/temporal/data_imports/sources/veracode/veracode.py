@@ -317,7 +317,7 @@ def get_rows(
 
     if config.fan_out_over_applications:
         yield from _iter_fan_out_rows(
-            session, region, logger, resumable_source_manager, config, dict(config.extra_params)
+            session, region, logger, resumable_source_manager, config, {"size": PAGE_SIZE, **config.extra_params}
         )
         return
 

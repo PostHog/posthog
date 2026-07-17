@@ -7,7 +7,10 @@ import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import TrackedHTTPAdapter
-from products.warehouse_sources.backend.temporal.data_imports.sources.veracode.settings import VERACODE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.veracode.settings import (
+    PAGE_SIZE,
+    VERACODE_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.veracode.veracode import (
     VeracodeHMACAuth,
     VeracodeResumeConfig,
@@ -284,6 +287,9 @@ class TestGetRowsFanOut:
 
         findings_url = session.get.call_args_list[1].args[0]
         assert "scan_type=SCA" in findings_url
+        # Fan-out child requests must carry the configured page size too, not fall back to the API
+        # default — the top-level path and application enumeration both set it.
+        assert f"size={PAGE_SIZE}" in findings_url
 
 
 class TestVeracodeSourceResponse:
