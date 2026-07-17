@@ -21,8 +21,8 @@ LOGGER = get_logger(__name__)
 class _SupportsVersionedSchemas(t.Protocol):
     """Multi-version sources widen ``get_schemas`` with an ``api_version`` pin.
 
-    The base ``get_schemas`` signature deliberately omits ``api_version`` so the ~250
-    single-version source overrides stay Liskov-compatible; this protocol narrows the
+    The base ``get_schemas`` signature deliberately omits ``api_version`` so every
+    single-version source override stays Liskov-compatible; this protocol narrows the
     call site for the sources that do accept the pin.
     """
 
