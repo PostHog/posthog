@@ -2334,7 +2334,8 @@ class KlarnaSourceConfig(config.Config):
 
 @config.config
 class KlausSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_token: str
 
 
 @config.config
