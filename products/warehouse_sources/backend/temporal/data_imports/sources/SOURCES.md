@@ -457,6 +457,7 @@ the row lists both.
 | sonarqube                        | HTTP                        | requests                                                        | ✅                          |
 | sparkpost                        | HTTP                        | requests                                                        | ✅                          |
 | split_io                         | HTTP                        | requests                                                        | ✅                          |
+| squadcast                        | HTTP                        | requests                                                        | ✅                          |
 | square                           | HTTP                        | requests                                                        | ✅                          |
 | squarespace                      | HTTP                        | requests                                                        | ✅                          |
 | statuspage                       | HTTP                        | requests                                                        | ✅                          |
@@ -919,7 +920,6 @@ doesn't conflict with concurrent PRs.
 - spacelift
 - spotify_ads
 - spotlercrm
-- squadcast
 - statsig
 - statuscake
 - stockdata

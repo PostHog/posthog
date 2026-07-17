@@ -4057,7 +4057,8 @@ class SpotlerCRMSourceConfig(config.Config):
 
 @config.config
 class SquadcastSourceConfig(config.Config):
-    pass
+    refresh_token: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
