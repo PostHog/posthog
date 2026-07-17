@@ -30,6 +30,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
@@ -57,6 +58,8 @@ import {
     PropertyFilterType,
     PropertyOperator,
     RatingSurveyQuestion,
+    Survey,
+    SurveyEventName,
     SurveyMatchType,
     SurveyQuestion,
     SurveyQuestionType,
@@ -65,7 +68,13 @@ import {
 } from '~/types'
 
 import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
-import { SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels, defaultSurveyFieldValues } from './constants'
+import {
+    NEW_SURVEY,
+    NewSurvey,
+    SURVEY_TYPE_LABEL_MAP,
+    SurveyMatchTypeLabels,
+    defaultSurveyFieldValues,
+} from './constants'
 import { COMMON_LANGUAGES, getBaseLanguage, getSurveyLanguageName } from './language'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
@@ -76,8 +85,51 @@ import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogi
 import { surveysLogic } from './surveysLogic'
 import { canUseSurveyWizard } from './utils'
 
+export function SurveyResponsesLimitProgress({
+    survey,
+    limit,
+    responsesReceived,
+    loading,
+}: {
+    survey: Survey | NewSurvey
+    limit: number | null
+    responsesReceived: number
+    loading: boolean
+}): JSX.Element | null {
+    // Response counts are only meaningful for a saved survey that has started collecting responses.
+    if (survey.id === NEW_SURVEY.id || !survey.start_date) {
+        return null
+    }
+
+    if (loading) {
+        return <span className="text-secondary text-xs ml-1">Loading current responses…</span>
+    }
+
+    const hasLimit = typeof limit === 'number' && limit > 0
+    const percentage = hasLimit ? Math.min(100, Math.round((responsesReceived / limit) * 100)) : 0
+
+    return (
+        <div className="flex flex-col gap-1 max-w-100 ml-1">
+            <div className="text-secondary text-xs">
+                {hasLimit ? (
+                    <>
+                        <b>{responsesReceived.toLocaleString()}</b> of <b>{limit.toLocaleString()}</b> responses
+                        received so far ({percentage}%)
+                    </>
+                ) : (
+                    <>
+                        <b>{responsesReceived.toLocaleString()}</b> responses received so far
+                    </>
+                )}
+            </div>
+            {hasLimit && <LemonProgress percent={percentage} />}
+        </div>
+    )
+}
+
 function SurveyCompletionConditions(): JSX.Element {
-    const { survey, dataCollectionType, isAdaptiveLimitFFEnabled } = useValues(surveyLogic)
+    const { survey, dataCollectionType, isAdaptiveLimitFFEnabled, processedSurveyStats, surveyBaseStatsLoading } =
+        useValues(surveyLogic)
     const { setSurveyValue, resetSurveyResponseLimits, resetSurveyAdaptiveSampling, setDataCollectionType } =
         useActions(surveyLogic)
     const [visible, setVisible] = useState(false)
@@ -202,27 +254,35 @@ function SurveyCompletionConditions(): JSX.Element {
                 <LemonField name="responses_limit" className="ml-5">
                     {({ onChange, value }) => {
                         return (
-                            <div className="flex flex-row gap-2 items-center">
-                                Stop the survey once
-                                <LemonInput
-                                    type="number"
-                                    data-attr="survey-responses-limit-input"
-                                    size="small"
-                                    min={1}
-                                    value={value || NaN}
-                                    onChange={(newValue) => {
-                                        if (newValue && newValue > 0) {
-                                            onChange(newValue)
-                                        } else {
-                                            onChange(null)
-                                        }
-                                    }}
-                                    className="w-16"
-                                />{' '}
-                                responses are received.
-                                <Tooltip title="This is a rough guideline, not an absolute one, so the survey might receive slightly more responses than the limit specifies.">
-                                    <IconInfo />
-                                </Tooltip>
+                            <div className="flex flex-col gap-2">
+                                <div className="flex flex-row gap-2 items-center">
+                                    Stop the survey once
+                                    <LemonInput
+                                        type="number"
+                                        data-attr="survey-responses-limit-input"
+                                        size="small"
+                                        min={1}
+                                        value={value || NaN}
+                                        onChange={(newValue) => {
+                                            if (newValue && newValue > 0) {
+                                                onChange(newValue)
+                                            } else {
+                                                onChange(null)
+                                            }
+                                        }}
+                                        className="w-16"
+                                    />{' '}
+                                    responses are received.
+                                    <Tooltip title="This is a rough guideline, not an absolute one, so the survey might receive slightly more responses than the limit specifies.">
+                                        <IconInfo />
+                                    </Tooltip>
+                                </div>
+                                <SurveyResponsesLimitProgress
+                                    survey={survey}
+                                    limit={value}
+                                    responsesReceived={processedSurveyStats?.[SurveyEventName.SENT]?.total_count ?? 0}
+                                    loading={surveyBaseStatsLoading && !processedSurveyStats}
+                                />
                             </div>
                         )
                     }}

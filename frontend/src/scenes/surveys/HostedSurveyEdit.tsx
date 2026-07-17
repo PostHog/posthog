@@ -32,13 +32,14 @@ import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surve
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { Survey, SurveyQuestion, SurveyQuestionType, SurveyType } from '~/types'
+import { Survey, SurveyEventName, SurveyQuestion, SurveyQuestionType, SurveyType } from '~/types'
 
 import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
 import { defaultSurveyFieldValues, NewSurvey, SurveyQuestionLabel } from './constants'
 import { CopySurveyLink } from './CopySurveyLink'
 import { HostedSurveyCanvas } from './hosted-canvas/HostedSurveyCanvas'
 import { HostedSurveySettingsPanel } from './hosted-canvas/HostedSurveySettingsPanel'
+import { SurveyResponsesLimitProgress } from './SurveyEdit'
 import { surveyLogic } from './surveyLogic'
 import { SurveyResponsesCollection } from './SurveyResponsesCollection'
 import { AddQuestionButton } from './wizard/AddQuestionButton'
@@ -400,8 +401,16 @@ function HostedSurveyEditorHeader({
 }
 
 export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
-    const { survey, selectedPageIndex, hasBranchingLogic, surveyErrors, surveyLoading, editingLanguage } =
-        useValues(surveyLogic)
+    const {
+        survey,
+        selectedPageIndex,
+        hasBranchingLogic,
+        surveyErrors,
+        surveyLoading,
+        editingLanguage,
+        processedSurveyStats,
+        surveyBaseStatsLoading,
+    } = useValues(surveyLogic)
     const {
         deleteBranchingLogic,
         editingSurvey,
@@ -683,6 +692,14 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
                                             responses
                                         </div>
                                     </LemonField.Pure>
+                                    <SurveyResponsesLimitProgress
+                                        survey={survey}
+                                        limit={survey.responses_limit ?? null}
+                                        responsesReceived={
+                                            processedSurveyStats?.[SurveyEventName.SENT]?.total_count ?? 0
+                                        }
+                                        loading={surveyBaseStatsLoading && !processedSurveyStats}
+                                    />
                                     <SurveyResponsesCollection />
                                 </div>
                             ),
