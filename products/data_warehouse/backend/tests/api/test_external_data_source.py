@@ -10885,15 +10885,30 @@ class TestCDCStatus(APIBaseTest):
         assert body["slot_exists"] is False
         assert body["lag_bytes"] is None
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
-        side_effect=psycopg.OperationalError("connection refused"),
+    @parameterized.expand(
+        [
+            # Routine "source DB unreachable" errors 400 but must not pollute error tracking.
+            ("operational_error", psycopg.OperationalError("connection refused"), False),
+            ("connection_timeout", psycopg.errors.ConnectionTimeout("connection timeout expired"), False),
+            # Genuinely unexpected failures still get captured.
+            ("unexpected_error", RuntimeError("boom"), True),
+        ]
     )
-    def test_returns_400_when_source_unreachable(self, _mock_get_status) -> None:
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
+    def test_source_unreachable_400_only_captures_unexpected_errors(
+        self, _name, error, expect_capture, mock_capture_exception
+    ) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
-        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+            side_effect=error,
+        ):
+            response = self.client.get(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/"
+            )
         assert response.status_code == 400
         assert "Could not connect to source" in response.json()["message"]
+        assert mock_capture_exception.called is expect_capture
 
 
 class TestExternalDataSourceConnectLink(APIBaseTest):
