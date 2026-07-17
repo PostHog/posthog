@@ -32,22 +32,17 @@ class GetPrContextOutput:
     changes_requested: bool = False
 
 
-def decide_ci_follow_up(pr: GetPrContextOutput) -> tuple[bool, str | None]:
-    """Decide whether a changed PR snapshot warrants waking the agent.
+def is_pr_actionable(pr: GetPrContextOutput) -> bool:
+    """Whether a changed PR snapshot warrants waking the agent.
 
-    Returns ``(fire, fingerprint_to_store)``; a ``None`` fingerprint means the
-    caller keeps its previous one. Only an actionable state — failing CI or a
-    changes-requested review — fires: waking the agent for a green or check-less
-    PR produces a "nothing to report" turn that spams the originating Slack
-    thread and burns one of the limited CI follow-up repetitions. Pending CI
-    keeps the old fingerprint so the settled state (which may be failing) still
-    registers as a change on the next tick.
+    Only failing CI or a changes-requested review gives the agent real work to
+    do. Waking it for a green, pending, or check-less PR produces a "nothing to
+    report" turn that spams the originating Slack thread and burns one of the
+    limited CI follow-up repetitions. Pending needs no special handling: the
+    head SHA and CI status are both in the fingerprint, so the settled state
+    (which may be failing) registers as its own change on a later tick.
     """
-    if pr.changes_requested or pr.ci_status == "failing":
-        return True, pr.fingerprint
-    if pr.ci_status == "pending":
-        return False, None
-    return False, pr.fingerprint
+    return pr.changes_requested or pr.ci_status == "failing"
 
 
 def compute_pr_fingerprint(pr: dict[str, Any]) -> str:
@@ -62,12 +57,17 @@ def compute_pr_fingerprint(pr: dict[str, Any]) -> str:
     For the review signal we key on the boolean ``review_decision == "changes_requested"``
     rather than the raw decision: ``changes_requested`` is the only value that means
     the agent has code to fix, so an ``approved`` or ``review_required`` transition no
-    longer re-pokes it for nothing. The fingerprint only detects that these signals
-    changed; whether a change is worth firing on is decided by ``decide_ci_follow_up``.
+    longer re-pokes it for nothing.
+
+    The head SHA is included so that a new commit failing with the same coarse
+    ``ci_status`` as its predecessor still reads as a change — without it, an
+    agent push that fails again would hash identically to the previous failure
+    and the follow-up would never re-fire. The fingerprint only detects change;
+    whether a change is worth firing on is decided by ``is_pr_actionable``.
     """
     changes_requested = pr.get("review_decision") == "changes_requested"
     fingerprint_source = "|".join(
-        [str(pr.get(key, "")) for key in ("url", "state", "ci_status")] + [str(changes_requested)]
+        [str(pr.get(key, "")) for key in ("url", "state", "ci_status", "head_sha")] + [str(changes_requested)]
     )
     return hashlib.sha256(fingerprint_source.encode()).hexdigest()
 

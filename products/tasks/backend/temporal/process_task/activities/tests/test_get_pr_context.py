@@ -45,6 +45,11 @@ class TestComputePrFingerprint:
             ("ci_status", "pending", "failing"),
             ("review_decision", None, "changes_requested"),
             ("state", "open", "closed"),
+            # A new head commit failing with the same coarse ci_status as its
+            # predecessor must still read as a change — without the SHA, an agent
+            # push that fails again would hash identically to the previous failure
+            # and the follow-up would never re-fire.
+            ("head_sha", "aaa111", "bbb222"),
         ]
     )
     def test_changes_when_actionable_field_changes(self, field, before, after):

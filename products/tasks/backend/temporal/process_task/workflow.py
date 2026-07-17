@@ -23,8 +23,8 @@ from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnaps
 from products.tasks.backend.temporal.patches import ci_follow_up_actionable_gate
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
     GetPrContextInput,
-    decide_ci_follow_up,
     get_pr_context,
+    is_pr_actionable,
 )
 
 from .activities.cleanup_sandbox import (
@@ -496,13 +496,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 },
             )
             return CIFollowUpDecision.SKIP
+        self._pr_fingerprint = pr_context.fingerprint
         if not ci_follow_up_actionable_gate():
             # Legacy replay path: any fingerprint change fires.
-            self._pr_fingerprint = pr_context.fingerprint
             return CIFollowUpDecision.FIRE
-        fire, fingerprint_to_store = decide_ci_follow_up(pr_context)
-        if fingerprint_to_store is not None:
-            self._pr_fingerprint = fingerprint_to_store
+        fire = is_pr_actionable(pr_context)
         workflow.logger.info(
             "PR context has changed, deciding CI follow-up",
             extra={

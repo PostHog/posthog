@@ -19,15 +19,16 @@ class TestShouldRunCIFollowUpDecision:
     @pytest.mark.parametrize(
         "ci_status,changes_requested,expected_decision,expected_fingerprint",
         [
-            # Actionable changes fire and persist the fingerprint.
+            # Actionable changes fire.
             ("failing", False, CIFollowUpDecision.FIRE, "fp-1"),
             ("passing", True, CIFollowUpDecision.FIRE, "fp-1"),
-            # Green or check-less changes persist the fingerprint but stay quiet.
+            # Non-actionable changes persist the fingerprint but stay quiet.
+            # Pending needs no deferral: the settled state hashes differently
+            # (CI status and head SHA are both in the fingerprint), so it still
+            # registers as a change on a later tick.
             ("passing", False, CIFollowUpDecision.SKIP, "fp-1"),
             ("none", False, CIFollowUpDecision.SKIP, "fp-1"),
-            # Pending keeps the old fingerprint so the settled state (which may
-            # be failing) still registers as a change on the next tick.
-            ("pending", False, CIFollowUpDecision.SKIP, "fp-0"),
+            ("pending", False, CIFollowUpDecision.SKIP, "fp-1"),
         ],
     )
     async def test_fingerprint_change_fires_only_when_actionable(
