@@ -62,11 +62,12 @@ def _signals(
         slack_user_count=12,
         last_slack_activity=last_slack_activity or dt.datetime(2026, 6, 29, 15, 30, tzinfo=dt.UTC),
         most_recent_support_ticket_url=f"https://us.posthog.com/project/2/support/tickets/{1000 if org_id == 'org-1' else 1001}",
+        last_customer_message_at=dt.datetime(2026, 6, 28, 14, 30, tzinfo=dt.UTC),
     )
 
 
 class TestPrepareConversationsSlackUpdateRecord(SimpleTestCase):
-    def test_formats_last_slack_activity_as_salesforce_date(self):
+    def test_formats_datetime_fields_per_salesforce_field_type(self):
         record = prepare_conversations_slack_update_record("001ABC", _signals())
 
         assert record == {
@@ -74,8 +75,10 @@ class TestPrepareConversationsSlackUpdateRecord(SimpleTestCase):
             "Slack_Channel__c": "https://app.slack.com/client/T123/C123",
             "slack_issue_count__c": 3,
             "slack_user_count__c": 12,
+            # last_slack_activity__c is a Date field; last_customer_message_at__c is DateTime.
             "last_slack_activity__c": "2026-06-29",
             "Most_Recent_Support_Ticket__c": "https://us.posthog.com/project/2/support/tickets/1000",
+            "last_customer_message_at__c": "2026-06-28T14:30:00+00:00",
         }
 
     def test_omits_none_fields(self):
@@ -86,6 +89,7 @@ class TestPrepareConversationsSlackUpdateRecord(SimpleTestCase):
             slack_user_count=None,
             last_slack_activity=None,
             most_recent_support_ticket_url=None,
+            last_customer_message_at=None,
         )
 
         record = prepare_conversations_slack_update_record("001ABC", signals)

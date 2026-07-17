@@ -11,6 +11,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.models import Organization, Team, User
+from posthog.models.comment import Comment
 
 from products.conversations.backend.models import TeamConversationsSlackConfig, Ticket
 from products.conversations.backend.models.constants import Channel
@@ -33,11 +34,12 @@ class TestConversationsSlackSignals(SimpleTestCase):
         with self.settings(SITE_URL="https://us.posthog.com"):
             assert build_support_ticket_url(2, 1234) == "https://us.posthog.com/project/2/support/tickets/1234"
 
+    @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_last_customer_message_at_by_org")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_latest_support_ticket_rows")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_trusted_slack_channel_activity_rows")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_slack_channel_aggregate_rows")
     def test_aggregates_latest_channel_for_org(
-        self, mock_fetch_rows, mock_fetch_channel_activity, mock_fetch_latest_tickets
+        self, mock_fetch_rows, mock_fetch_channel_activity, mock_fetch_latest_tickets, mock_fetch_last_customer
     ):
         org_id = "org-1"
         mock_fetch_rows.return_value = [
@@ -67,6 +69,7 @@ class TestConversationsSlackSignals(SimpleTestCase):
                 "activity_at": dt.datetime(2026, 6, 30, 8, 0, tzinfo=dt.UTC),
             }
         ]
+        mock_fetch_last_customer.return_value = {org_id: dt.datetime(2026, 6, 28, 14, 30, tzinfo=dt.UTC)}
 
         with self.settings(SITE_URL="https://us.posthog.com"):
             result = aggregate_conversations_slack_signals_for_orgs([org_id], include_slack_user_count=False)
@@ -79,12 +82,17 @@ class TestConversationsSlackSignals(SimpleTestCase):
         assert signals.slack_user_count is None
         assert signals.last_slack_activity == dt.datetime(2026, 6, 29, 9, 0, tzinfo=dt.UTC)
         assert signals.most_recent_support_ticket_url == "https://us.posthog.com/project/2/support/tickets/1234"
+        assert signals.last_customer_message_at == dt.datetime(2026, 6, 28, 14, 30, tzinfo=dt.UTC)
 
+    @patch(
+        "ee.billing.salesforce_enrichment.conversations_signals._fetch_last_customer_message_at_by_org",
+        return_value={},
+    )
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_latest_support_ticket_rows")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_trusted_slack_channel_activity_rows")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_slack_channel_aggregate_rows")
     def test_returns_latest_support_ticket_without_slack_rows(
-        self, mock_fetch_rows, mock_fetch_channel_activity, mock_fetch_latest_tickets
+        self, mock_fetch_rows, mock_fetch_channel_activity, mock_fetch_latest_tickets, _mock_fetch_last_customer
     ):
         org_id = "org-1"
         mock_fetch_rows.return_value = []
@@ -109,10 +117,16 @@ class TestConversationsSlackSignals(SimpleTestCase):
         assert signals.last_slack_activity is None
         assert signals.most_recent_support_ticket_url == "https://us.posthog.com/project/2/support/tickets/5678"
 
+    @patch(
+        "ee.billing.salesforce_enrichment.conversations_signals._fetch_last_customer_message_at_by_org",
+        return_value={},
+    )
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_latest_support_ticket_rows")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_trusted_slack_channel_activity_rows")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_slack_channel_aggregate_rows")
-    def test_returns_empty_when_no_rows(self, mock_fetch_rows, mock_fetch_channel_activity, mock_fetch_latest_tickets):
+    def test_returns_empty_when_no_rows(
+        self, mock_fetch_rows, mock_fetch_channel_activity, mock_fetch_latest_tickets, _mock_fetch_last_customer
+    ):
         mock_fetch_rows.return_value = []
         mock_fetch_channel_activity.return_value = []
         mock_fetch_latest_tickets.return_value = []
@@ -171,6 +185,21 @@ class TestConversationsSlackSignalsDatabase(BaseTest):
         organization = Organization.objects.create(name=f"other-{uuid.uuid4()}")
         user = User.objects.create_and_join(organization, email, None)
         return organization, user
+
+    def _create_ticket_comment(
+        self, ticket: Ticket, author_type: str, created_at: dt.datetime, deleted: bool = False
+    ) -> Comment:
+        comment = Comment.objects.create(
+            team=ticket.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="message",
+            item_context={"author_type": author_type, "is_private": False},
+            deleted=deleted,
+        )
+        # created_at is auto_now_add, so backdate it after the fact.
+        Comment.objects.filter(id=comment.id).update(created_at=created_at)
+        return comment
 
     def test_aggregate_query_applies_recency_and_tie_break_ordering(self):
         selected_activity = dt.datetime(2026, 6, 30, 11, 0, tzinfo=dt.UTC)
@@ -422,6 +451,54 @@ class TestConversationsSlackSignalsDatabase(BaseTest):
         assert together[self.org_id] == alone[self.org_id]
         assert together[self.org_id].slack_channel_url == "https://app.slack.com/archives/C_OWN"
         assert together[self.org_id].last_slack_activity == own_activity
+
+    def test_last_customer_message_at_counts_only_customer_comments_on_verified_tickets(self):
+        slack_ticket = self._create_slack_ticket(
+            channel_id="C123", activity_at=dt.datetime(2026, 6, 28, 10, 0, tzinfo=dt.UTC)
+        )
+        expected = dt.datetime(2026, 6, 29, 11, 0, tzinfo=dt.UTC)
+        self._create_ticket_comment(slack_ticket, "customer", dt.datetime(2026, 6, 28, 10, 0, tzinfo=dt.UTC))
+        # Staff, AI, and deleted-customer messages are all newer but must not count.
+        self._create_ticket_comment(slack_ticket, "support", dt.datetime(2026, 6, 30, 9, 0, tzinfo=dt.UTC))
+        self._create_ticket_comment(slack_ticket, "AI", dt.datetime(2026, 6, 30, 10, 0, tzinfo=dt.UTC))
+        self._create_ticket_comment(
+            slack_ticket, "customer", dt.datetime(2026, 6, 30, 11, 0, tzinfo=dt.UTC), deleted=True
+        )
+
+        # The org-wide max spans channels: a newer customer message on an email ticket wins.
+        email_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=f"session-{uuid.uuid4()}",
+            distinct_id="",
+            channel_source=Channel.EMAIL,
+            email_from=self.user.email,
+            organization_id=self.org_id,
+            last_message_at=expected,
+            identity_verified=True,
+        )
+        self._create_ticket_comment(email_ticket, "customer", expected)
+
+        # Customer messages on unverified tickets must not count.
+        unverified_ticket = self._create_slack_ticket(
+            channel_id="C_UNVERIFIED",
+            activity_at=dt.datetime(2026, 6, 30, 12, 0, tzinfo=dt.UTC),
+            identity_verified=False,
+        )
+        self._create_ticket_comment(unverified_ticket, "customer", dt.datetime(2026, 6, 30, 12, 0, tzinfo=dt.UTC))
+
+        result = aggregate_conversations_slack_signals_for_orgs([self.org_id], include_slack_user_count=False)
+
+        assert result[self.org_id].last_customer_message_at == expected
+
+    def test_last_customer_message_at_is_none_without_customer_comments(self):
+        ticket = self._create_slack_ticket(
+            channel_id="C123", activity_at=dt.datetime(2026, 6, 30, 10, 0, tzinfo=dt.UTC)
+        )
+        self._create_ticket_comment(ticket, "support", dt.datetime(2026, 6, 30, 10, 0, tzinfo=dt.UTC))
+
+        result = aggregate_conversations_slack_signals_for_orgs([self.org_id], include_slack_user_count=False)
+
+        assert result[self.org_id].last_customer_message_at is None
 
     def test_get_slack_bot_token_resolves_by_workspace_then_team(self):
         TeamConversationsSlackConfig.objects.update_or_create(

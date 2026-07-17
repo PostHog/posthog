@@ -2,6 +2,7 @@
 
 import datetime as dt
 from dataclasses import dataclass
+from itertools import batched
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
@@ -11,6 +12,7 @@ from django.db.models.functions import Cast, Coalesce
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
+from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.temporal.common.logger import get_logger
 
@@ -32,6 +34,7 @@ class ConversationsSlackSignals:
     slack_user_count: int | None
     last_slack_activity: dt.datetime | None
     most_recent_support_ticket_url: str | None
+    last_customer_message_at: dt.datetime | None = None
 
 
 def build_slack_channel_url(slack_channel_id: str, slack_team_id: str | None = None) -> str:
@@ -245,6 +248,53 @@ def _fetch_latest_support_ticket_rows(org_ids: list[str]) -> list[dict[str, obje
     )
 
 
+_COMMENT_ITEM_ID_CHUNK_SIZE = 1000
+
+
+def _fetch_last_customer_message_at_by_org(org_ids: list[str]) -> dict[str, dt.datetime]:
+    """Per org, ``created_at`` of the most recent customer-authored (non-staff) support message.
+
+    Messages live in ``Comment`` rows keyed by ``item_id`` (the ticket id as text,
+    with no FK), so this resolves the batch's verified tickets first and then takes
+    the max over their customer comments. Staff (``support``/``human``) and ``AI``
+    replies don't count, and neither do comments on tickets without verified org
+    attribution.
+    """
+    if not org_ids:
+        return {}
+
+    ticket_rows = (
+        _tickets_with_verified_org().filter(organization_id__in=org_ids).values_list("organization_id", "team_id", "id")
+    )
+    org_by_item_id = {str(ticket_id): str(org_id) for org_id, _team_id, ticket_id in ticket_rows}
+    team_ids = {team_id for _org_id, team_id, _ticket_id in ticket_rows}
+    if not org_by_item_id:
+        return {}
+
+    last_by_org: dict[str, dt.datetime] = {}
+    # Chunk item_id__in so one org with pathologically many tickets can't blow up a
+    # single SQL statement; each chunk stays on the (team_id, scope, item_id, deleted)
+    # comment index.
+    for chunk in batched(org_by_item_id, _COMMENT_ITEM_ID_CHUNK_SIZE, strict=False):
+        comment_rows = (
+            Comment.objects.filter(
+                team_id__in=team_ids,
+                scope="conversations_ticket",
+                item_id__in=chunk,
+                item_context__author_type="customer",
+                deleted=False,
+            )
+            .values("item_id")
+            .annotate(last_customer_message_at=Max("created_at"))
+        )
+        for row in comment_rows:
+            org_id = org_by_item_id[str(row["item_id"])]
+            value = row["last_customer_message_at"]
+            if isinstance(value, dt.datetime) and (org_id not in last_by_org or value > last_by_org[org_id]):
+                last_by_org[org_id] = value
+    return last_by_org
+
+
 def aggregate_conversations_slack_signals_for_orgs(
     org_ids: list[str],
     *,
@@ -268,6 +318,7 @@ def aggregate_conversations_slack_signals_for_orgs(
     rows = _fetch_slack_channel_aggregate_rows(org_ids)
     channel_activity_rows = _fetch_trusted_slack_channel_activity_rows(rows)
     latest_ticket_rows = _fetch_latest_support_ticket_rows(org_ids)
+    last_customer_message_at_by_org = _fetch_last_customer_message_at_by_org(org_ids)
 
     channel_activity_by_key = {
         (row.get("team_id"), row.get("slack_team_id"), row.get("slack_channel_id")): row.get("last_slack_activity")
@@ -354,6 +405,7 @@ def aggregate_conversations_slack_signals_for_orgs(
             slack_user_count=slack_user_count,
             last_slack_activity=last_slack_activity,
             most_recent_support_ticket_url=most_recent_support_ticket_url,
+            last_customer_message_at=last_customer_message_at_by_org.get(org_id),
         )
 
     LOGGER.info("fetched_conversations_slack_signals", org_count=len(org_ids), signals_found=len(result))

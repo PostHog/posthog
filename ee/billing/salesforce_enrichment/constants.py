@@ -156,6 +156,7 @@ CONVERSATIONS_SLACK_FIELD_MAPPINGS: dict[str, str] = {
     "slack_user_count": "slack_user_count__c",
     "last_slack_activity": "last_slack_activity__c",
     "most_recent_support_ticket_url": "Most_Recent_Support_Ticket__c",
+    "last_customer_message_at": "last_customer_message_at__c",
 }
 
 PERSONAL_EMAIL_DOMAINS = {
