@@ -18,6 +18,7 @@ import type {
     AgentApplicationSessionsRetrieveResponseApi,
     AgentApplicationsApprovalsListParams,
     AgentApplicationsListParams,
+    AgentApplicationsListenParams,
     AgentApplicationsPreviewProxyGetParams,
     AgentApplicationsPreviewProxyParams,
     AgentApplicationsPreviewTokenMintParams,
@@ -33,6 +34,9 @@ import type {
     AgentFleetLiveSessionsParams,
     AgentFleetLiveSessionsResponseApi,
     AgentFleetStatsParams,
+    AgentInvokeRequestApi,
+    AgentInvokeResponseApi,
+    AgentListenResponseApi,
     AgentMemoryDeleteFileParams,
     AgentMemoryFileApi,
     AgentMemoryGetFileParams,
@@ -54,6 +58,8 @@ import type {
     AgentRevisionSlackManifestResponseApi,
     AgentRevisionSystemPromptResponseApi,
     AgentRevisionValidateResponseApi,
+    AgentSendRequestApi,
+    AgentSendResponseApi,
     AgentTableRowsResponseApi,
     AgentTablesListResponseApi,
     AgentUsersListApi,
@@ -1699,6 +1705,67 @@ export const agentApplicationsApprovalsDecide = async (
     )
 }
 
+export const getAgentApplicationsInvokeUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/agent_applications/${id}/invoke/`
+}
+
+/**
+ * Start a new session on this agent's LIVE (promoted) revision.
+ *
+ * Bridges to ingress `POST /agents/<slug>/run`, forwarding the caller's PAT
+ * so the session principal is the real caller. Returns the new `session_id`;
+ * drive the conversation with `agent-applications-send` and read progress with
+ * `agent-applications-listen`. For non-live / draft revisions use `preview_proxy` instead.
+ */
+export const agentApplicationsInvoke = async (
+    projectId: string,
+    id: string,
+    agentInvokeRequestApi: AgentInvokeRequestApi,
+    options?: RequestInit
+): Promise<AgentInvokeResponseApi> => {
+    return apiMutator<AgentInvokeResponseApi>(getAgentApplicationsInvokeUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(agentInvokeRequestApi),
+    })
+}
+
+export const getAgentApplicationsListenUrl = (projectId: string, id: string, params: AgentApplicationsListenParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/${id}/listen/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/${id}/listen/`
+}
+
+/**
+ * Poll a LIVE session's progress as a single JSON digest (non-streaming,
+ * MCP-friendly). Bridges to the internal ingress digest RPC — the digest is
+ * built node-side (never in Python). Tenancy is enforced by the team-scoped
+ * `get_object()` here plus the ingress digest's `application_id` re-scope;
+ * there is no janitor pre-check on this polled path (see the comment below).
+ */
+export const agentApplicationsListen = async (
+    projectId: string,
+    id: string,
+    params: AgentApplicationsListenParams,
+    options?: RequestInit
+): Promise<AgentListenResponseApi> => {
+    return apiMutator<AgentListenResponseApi>(getAgentApplicationsListenUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getAgentApplicationsPreviewProxyGetUrl = (
     projectId: string,
     id: string,
@@ -1881,6 +1948,35 @@ export const agentApplicationsPreviewTokenMint = async (
             method: 'POST',
         }
     )
+}
+
+export const getAgentApplicationsSendUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/agent_applications/${id}/send/`
+}
+
+/**
+ * Append a message to an existing LIVE session and re-queue it.
+ *
+ * Bridges to ingress `POST /agents/<slug>/send`, forwarding the caller's PAT
+ * so the ACL principal-match passes. A `completed` session is NOT terminal —
+ * it's a per-turn idle state for a multi-turn agent, so send re-queues it for
+ * another turn; only truly-terminal states (failed / cancelled / closed) 410,
+ * which passes through as a 410. A janitor ownership pre-check runs first, but
+ * it's redundant defense-in-depth (ingress `/send` already app-scopes the
+ * load), kept for a clean early 404.
+ */
+export const agentApplicationsSend = async (
+    projectId: string,
+    id: string,
+    agentSendRequestApi: AgentSendRequestApi,
+    options?: RequestInit
+): Promise<AgentSendResponseApi> => {
+    return apiMutator<AgentSendResponseApi>(getAgentApplicationsSendUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(agentSendRequestApi),
+    })
 }
 
 export const getAgentApplicationsSessionsListUrl = (

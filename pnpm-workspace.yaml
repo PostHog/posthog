@@ -33,7 +33,7 @@ trustPolicy: no-downgrade
 
 catalog:
     # Kea ecosystem - state management
-    kea: ^4.0.0-pre.5
+    kea: ^4.0.0-pre.6
     kea-forms: ^3.2.0
     kea-loaders: ^3.1.1
     kea-localstorage: ^3.1.0
@@ -46,7 +46,7 @@ catalog:
     '@posthog/icons': ^0.38.0
     '@posthog/brand': 0.6.0
     '@posthog/react': ^1.9.0
-    posthog-js: ^1.402.3
+    posthog-js: ^1.404.0
     # Build tools
     '@parcel/packager-ts': 2.16.4
     '@parcel/transformer-typescript-types': 2.16.4
@@ -88,7 +88,8 @@ minimumReleaseAgeExclude:
     - posthog-js-lite
     - posthog-node
     - '@posthog/*'
-    - kea@4.0.0-pre.5
+    - kea@4.0.0-pre.6
+    - kea-typegen@3.8.3
     - '@earendil-works/*'
     - typebox
     - chartjs-plugin-stacked100@1.7.1

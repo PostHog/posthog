@@ -2789,12 +2789,15 @@ export interface MCPToolDailyStatsQueryResponse extends AnalyticsQueryResponseBa
     results: MCPToolDailyStatItem[]
 }
 
-/** Per-day activity series for a single MCP tool over the last 30 days. */
+/** Per-bucket activity series for a single MCP tool over the selected window. */
 export interface MCPToolDailyStatsQuery extends DataNode<MCPToolDailyStatsQueryResponse> {
     kind: NodeKind.MCPToolDailyStatsQuery
     /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
     toolName: string
     dateRange?: DateRange
+    /** Bucket granularity for the series. The frontend passes getDefaultInterval so a sub-day window
+     * buckets by hour/minute instead of collapsing to a single day point. Defaults to day. */
+    interval?: IntervalType
 }
 
 export type CachedMCPToolDailyStatsQueryResponse = CachedQueryResponse<MCPToolDailyStatsQueryResponse>
@@ -4120,6 +4123,7 @@ export type FileSystemIconType =
     | 'toolbar'
     | 'visual_review'
     | 'code_review'
+    | 'stamphog'
     | 'settings'
     | 'health'
     | 'inbox'
@@ -6695,6 +6699,14 @@ export interface SourceFieldOauthAccountSelectConfig {
     placeholder?: string
     caption?: string
     required?: boolean
+    /** Allow selecting multiple values; the field's payload value becomes string[]. */
+    multiple?: boolean
+    /**
+     * Keep the field in the config tree (so its value parses and survives job_inputs
+     * redaction) without rendering it in the source form. Used for legacy fields that
+     * a newer field supersedes.
+     */
+    hidden?: boolean
 }
 
 export type SourceFieldSelectConfigConverter = 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
@@ -6713,6 +6725,7 @@ export interface SourceFieldSelectConfig {
     defaultValue: string
     options: SourceFieldSelectConfigOption[]
     converter?: SourceFieldSelectConfigConverter
+    caption?: string
 }
 
 export interface SourceFieldSwitchGroupConfig {

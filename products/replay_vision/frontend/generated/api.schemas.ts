@@ -402,6 +402,8 @@ export interface VisionActionRunListApi {
      * @nullable
      */
     readonly error_reason: string | null
+    /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
+    readonly is_recovery: boolean
     readonly created_at: string
     readonly updated_at: string
 }
@@ -463,6 +465,8 @@ export interface VisionActionRunApi {
      * @nullable
      */
     readonly error_reason: string | null
+    /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
+    readonly is_recovery: boolean
     readonly created_at: string
     readonly updated_at: string
     /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
@@ -1387,7 +1391,7 @@ export type VisionObservationsRetrieveParams = {
      */
     order_by?: string
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string
     /**
@@ -1465,7 +1469,7 @@ export type VisionScannersObservationsListParams = {
      */
     order_by?: string
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string
     /**
@@ -1500,7 +1504,7 @@ export type VisionScannersObservationsRetrieveParams = {
      */
     order_by?: string
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string
     /**
@@ -1535,7 +1539,7 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      */
     recent_days?: number
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string
     /**
