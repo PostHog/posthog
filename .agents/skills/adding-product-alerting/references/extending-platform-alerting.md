@@ -2,6 +2,21 @@
 
 Use this path when adding a reusable alert capability, option, or advanced behavior. Keep a change product-local when only one product needs it and the shared contract would become speculative.
 
+## Contents
+
+- [1. Classify the extension](#1-classify-the-extension)
+- [2. Preserve extension rules](#2-preserve-extension-rules)
+  - [Lifecycle](#lifecycle)
+  - [Scheduling](#scheduling)
+  - [Destinations and advanced destination options](#destinations-and-advanced-destination-options)
+  - [Delivery](#delivery)
+  - [Email](#email)
+  - [Shared insight evaluation](#shared-insight-evaluation)
+  - [AlertWizard](#alertwizard)
+- [3. Expose the shared contract](#3-expose-the-shared-contract)
+- [4. Prove backward compatibility](#4-prove-backward-compatibility)
+- [5. Reject the wrong abstraction](#5-reject-the-wrong-abstraction)
+
 ## 1. Classify the extension
 
 | Capability                                                                       | Primary source of truth                                              | Also inspect                                                                           |
