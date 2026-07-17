@@ -42,7 +42,7 @@ from posthog.models.team import Team
 from posthog.storage.hypercache import (
     HYPERCACHE_REBUILD_SKIPPED_COUNTER,
     HyperCache,
-    HyperCacheStoreMissing,
+    HyperCacheDependencyUnavailable,
     KeyType,
     emit_cache_sync_metrics,
 )
@@ -385,12 +385,14 @@ DATABASE_FOR_LOCAL_EVALUATION = (
 )
 
 
-def _load_flag_definitions_with_cohorts(key: KeyType) -> dict[str, Any] | HyperCacheStoreMissing:
+def _load_flag_definitions_with_cohorts(key: KeyType) -> dict[str, Any]:
     if key == EU_CROSS_REGION_MIRROR_CACHE_KEY:
         # No DB row backs this key — it's a pure cache mirror written only by
         # cross_region_flag_sync's periodic task. A cold cache should wait for the
-        # next sync tick, not attempt (and fail) a Team lookup.
-        return HyperCacheStoreMissing()
+        # next sync tick, not attempt (and fail) a Team lookup. Raising (rather than
+        # returning HyperCacheStoreMissing) avoids caching a day-long miss sentinel
+        # and deleting the ETag, which could shadow a concurrent sync write.
+        raise HyperCacheDependencyUnavailable(f"{EU_CROSS_REGION_MIRROR_CACHE_KEY} not yet synced")
     return _get_flags_response_for_local_evaluation(HyperCache.team_from_key(key))
 
 
