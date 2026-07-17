@@ -155,6 +155,8 @@ Grant the following read permissions:
             access_token_id=config.access_token_id,
             secret_key=config.secret_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Mux endpoint is full refresh
         )
