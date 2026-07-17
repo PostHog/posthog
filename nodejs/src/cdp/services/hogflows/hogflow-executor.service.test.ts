@@ -773,15 +773,20 @@ describe('Hogflow Executor', () => {
 
                     expect(result.finished).toBe(true)
                     expect(result.error).toBe('Action delay not found')
-                    expect(result.metrics.map((m) => m.metric_name)).toContain('failed')
+                    // Deleting the current action itself throws in ensureCurrentAction, before the
+                    // per-action failure metric is emitted - so the loud failure surfaces via
+                    // result.error rather than a 'failed' metric (unlike a deleted *edge*, which
+                    // throws inside the action handler where the metric is tracked).
                     expect(result.metrics.map((m) => m.metric_name)).not.toContain('redirected_workflow_changed')
                 })
 
                 it('fails the run (no loop) when the redirect target itself dead-ends', async () => {
                     // The target enters with a fresh step timestamp, so its own structural miss no
-                    // longer classifies as a live edit - it must surface as a plain failure
+                    // longer classifies as a live edit - it must surface as a plain failure. Uses a
+                    // trigger target so the dead end throws synchronously on entry (a delay would
+                    // park first and only fail on the next wake, which one execute() can't observe).
                     const hogFlow = createHogFlow({
-                        actions: { hop: { type: 'delay', config: { delay_duration: '0s' } } },
+                        actions: { hop: { type: 'trigger', config: { type: 'schedule' } } },
                         edges: [
                             { from: 'trigger', to: 'delay', type: 'continue' },
                             { from: 'delay', to: 'hop', type: 'continue' },
