@@ -585,6 +585,11 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             applyDefaultReviewsScope: () => null,
         },
         recentReviewsPage: {
+            // A different scope is a different list — drop it together with perspectiveStats so
+            // the section skeletons instead of showing the other scope's rows (and never strands
+            // them if the reload fails). Poll refreshes still keep prior rows.
+            setReviewsScope: () => null,
+            applyDefaultReviewsScope: () => null,
             // "Show fewer" collapses instantly from data already loaded; the listener's refetch
             // reconciles silently and breakpoint-drops any wider in-flight response (e.g. a poll).
             showFewerReviews: (state: ReviewRecentReviewsPageApi | null) =>
