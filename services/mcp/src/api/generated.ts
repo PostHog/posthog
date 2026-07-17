@@ -14749,7 +14749,7 @@ export namespace Schemas {
     /**
      * @nullable
      */
-    export type TaskDetailDTOJsonSchema = { [key: string]: unknown } | null;
+    export type ConversationTaskJsonSchema = { [key: string]: unknown } | null;
 
     /**
      * Conversation envelope variant: ``latest_run`` is just the latest run's id, not the nested
@@ -14759,7 +14759,7 @@ export namespace Schemas {
      * Read access here follows the conversation (the share-by-link unit), not per-creator task
      * visibility — write/send stays creator-gated. See ``tasks_facade.get_conversation_task_dtos``.
      */
-    export interface TaskDetailDTO {
+    export interface ConversationTask {
       id: string;
       /** @nullable */
       task_number: number | null;
@@ -14782,7 +14782,7 @@ export namespace Schemas {
       /** @nullable */
       signal_report: string | null;
       /** @nullable */
-      json_schema: TaskDetailDTOJsonSchema;
+      json_schema: ConversationTaskJsonSchema;
       internal: boolean;
       archived: boolean;
       /** @nullable */
@@ -14857,7 +14857,7 @@ export namespace Schemas {
        * Combines metadata from conversation.approval_decisions with payload from checkpoint
        * interrupts (single source of truth for payload data). */
       readonly pending_approvals: readonly ConversationPendingApprovalsItem[];
-      readonly task: TaskDetailDTO | null;
+      readonly task: ConversationTask | null;
     }
 
     export interface ConversationMinimal {
@@ -14901,7 +14901,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly slack_workspace_domain: string | null;
-      readonly task: TaskDetailDTO | null;
+      readonly task: ConversationTask | null;
     }
 
     export interface ConversationsTicketSignalExtra {
@@ -20308,7 +20308,7 @@ export namespace Schemas {
     export interface DigestChannel {
       readonly id: string;
       /**
-         * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'.
+         * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone.
          * @maxLength 255
          */
       audience_key: string;
@@ -25877,6 +25877,8 @@ export namespace Schemas {
          * @nullable
          */
       row_filters?: ExternalDataSourceBulkUpdateSchemaRowFiltersItem[] | null;
+      /** When true and the schema has no sync method configured yet (and this update does not set one), discover the table on the source and fill in default sync settings: incremental sync with an auto-selected tracking column where supported, otherwise append, otherwise full refresh. Ignored for schemas that already have a sync method. */
+      apply_sync_defaults?: boolean;
     }
 
     export interface ExternalDataSourceConnectionOption {
@@ -27763,6 +27765,15 @@ export namespace Schemas {
       readonly access_method: AccessMethodEnum;
       /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
       direct_query_enabled?: boolean;
+      /** Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources. */
+      auto_sync_new_schemas?: boolean;
+      /**
+         * Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.
+         * @maxItems 100
+         * @nullable
+         * @items.maxLength 250
+         */
+      auto_sync_schema_patterns?: string[] | null;
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
@@ -40622,41 +40633,6 @@ export namespace Schemas {
       results: TaskAutomationDTO[];
     }
 
-    export interface PaginatedTaskDetailDTOList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: TaskDetailDTO[];
-    }
-
-    /**
-     * Response shape for one @-mention of the requester in a task's thread.
-     */
-    export interface TaskMentionDTO {
-      id: string;
-      message_id: string;
-      task_id: string;
-      task_title: string;
-      /** @nullable */
-      channel_id: string | null;
-      /** @nullable */
-      channel_name: string | null;
-      author?: TaskUserBasicInfo | null;
-      content: string;
-      created_at: string;
-    }
-
-    export interface PaginatedTaskMentionDTOList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: TaskMentionDTO[];
-    }
-
     /**
      * * `claude` - claude
      * * `codex` - codex
@@ -40812,6 +40788,94 @@ export namespace Schemas {
       updated_at?: string | null;
       /** @nullable */
       completed_at?: string | null;
+    }
+
+    /**
+     * @nullable
+     */
+    export type TaskDetailDTOJsonSchema = { [key: string]: unknown } | null;
+
+    /**
+     * Detail response for a task.
+     *
+     * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+     * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+     * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+     */
+    export interface TaskDetailDTO {
+      id: string;
+      /** @nullable */
+      task_number: number | null;
+      slug: string;
+      title: string;
+      title_manually_set: boolean;
+      description: string;
+      origin_product: string;
+      /** Agent protocol and harness used for this task's runs.
+       *
+       * * `acp` - ACP
+       * * `pi` - Pi */
+      readonly runtime: RuntimeEnum;
+      /** @nullable */
+      repository: string | null;
+      /** @nullable */
+      github_integration: number | null;
+      /** @nullable */
+      github_user_integration: string | null;
+      /** @nullable */
+      signal_report: string | null;
+      /** @nullable */
+      json_schema: TaskDetailDTOJsonSchema;
+      internal: boolean;
+      archived: boolean;
+      /** @nullable */
+      archived_at: string | null;
+      /** Latest run details for this task */
+      latest_run?: TaskRunDetailDTO | null;
+      /** @nullable */
+      created_at?: string | null;
+      /** @nullable */
+      updated_at?: string | null;
+      created_by?: TaskUserBasicInfo | null;
+      /** @nullable */
+      ci_prompt: string | null;
+      /** @nullable */
+      channel?: string | null;
+    }
+
+    export interface PaginatedTaskDetailDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskDetailDTO[];
+    }
+
+    /**
+     * Response shape for one @-mention of the requester in a task's thread.
+     */
+    export interface TaskMentionDTO {
+      id: string;
+      message_id: string;
+      task_id: string;
+      task_title: string;
+      /** @nullable */
+      channel_id: string | null;
+      /** @nullable */
+      channel_name: string | null;
+      author?: TaskUserBasicInfo | null;
+      content: string;
+      created_at: string;
+    }
+
+    export interface PaginatedTaskMentionDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskMentionDTO[];
     }
 
     export interface PaginatedTaskRunDetailDTOList {
@@ -42807,7 +42871,7 @@ export namespace Schemas {
        * Combines metadata from conversation.approval_decisions with payload from checkpoint
        * interrupts (single source of truth for payload data). */
       readonly pending_approvals?: readonly PatchedConversationPendingApprovalsItem[];
-      readonly task?: TaskDetailDTO | null;
+      readonly task?: ConversationTask | null;
     }
 
     export interface PatchedCoreEvent {
@@ -43329,7 +43393,7 @@ export namespace Schemas {
     export interface PatchedDigestChannel {
       readonly id?: string;
       /**
-         * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'.
+         * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone.
          * @maxLength 255
          */
       audience_key?: string;
@@ -44327,6 +44391,15 @@ export namespace Schemas {
       readonly access_method?: AccessMethodEnum;
       /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
       direct_query_enabled?: boolean;
+      /** Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources. */
+      auto_sync_new_schemas?: boolean;
+      /**
+         * Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.
+         * @maxItems 100
+         * @nullable
+         * @items.maxLength 250
+         */
+      auto_sync_schema_patterns?: string[] | null;
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
@@ -55453,6 +55526,10 @@ export namespace Schemas {
 
     /**
      * One typed attachment carried by a sandbox message.
+     *
+     * DEPRECATED PATH — do not extend. This structured `attached_context` (and its server-side wrap in
+     * `context_wrapper.py`) exists only for the legacy Max conversations bridge and is removed with it;
+     * the live path wraps context client-side (`products/posthog_ai/frontend/utils/posthogContextBlock.ts`).
      */
     export interface SandboxAttachedContextItem {
       /** Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.
@@ -59827,25 +59904,39 @@ export namespace Schemas {
     }
 
     /**
+     * One installation of the App the authorizing user can reach, offered for an explicit pick.
+     */
+    export interface StamphogDiscoveredInstallation {
+      /** GitHub installation id, as a string. */
+      readonly id: string;
+      /** Login of the org or user account the installation lives on. */
+      readonly account_login: string;
+    }
+
+    /**
      * Static info the frontend needs to render the 'Connect a repository' button.
      */
     export interface StamphogInstallInfo {
       /** URL-friendly slug of the dedicated Stamphog GitHub App, or blank if unconfigured. */
       readonly app_slug: string;
-      /** GitHub install URL (github.com/apps/<slug>/installations/new) the user opens to install the App, or blank if the App slug is unconfigured. */
+      /** GitHub install URL (github.com/apps/<slug>/installations/new) the user opens to install the App, or blank if the App slug is unconfigured. Used for the genuinely-not-installed case; the primary 'Connect' button uses authorize_url instead. */
       readonly install_url: string;
+      /** GitHub authorize URL (github.com/login/oauth/authorize) the 'Connect' button opens. Authorize-first: an already-installed user is redirected straight back with an OAuth code (no installation_id), and sync_installation then discovers their installations server-side. Blank if the App client id is unconfigured. */
+      readonly authorize_url: string;
     }
 
     /**
-     * Request body for binding a completed GitHub App installation to the current team.
+     * Request body for binding a GitHub App installation to the current team.
      *
-     * Requires both the ``installation_id`` and the user-to-server OAuth ``code`` from the post-install
-     * redirect: the code proves the caller actually owns the installation, without which any caller could
-     * bind another org's installation to their own team.
+     * Always requires the user-to-server OAuth ``code`` (the ownership proof) and the ``state`` token.
+     * ``installation_id`` is optional: when present (the fresh-install redirect) exactly that installation
+     * is verified and synced; when absent or blank (the authorize-first redirect) the caller's accessible
+     * installations are discovered server-side from the code, so the client never has to supply a
+     * forgeable id.
      */
     export interface StamphogSyncInstallationRequest {
-      /** GitHub App installation ID returned on the post-install Setup URL redirect. */
-      installation_id: string;
+      /** GitHub App installation ID from the fresh-install Setup URL redirect. Optional: absent or blank means discover the caller's installations from the OAuth code instead (authorize-first flow). The id is not trusted on its own — ownership is always proven via the code. */
+      installation_id?: string;
       /** GitHub user-to-server OAuth code from the post-install redirect (present when the App has 'Request user authorization during installation' enabled). Exchanged server-side to prove the caller owns the installation before its repos are bound. */
       code: string;
       /** Signed state token minted by install_info and round-tripped through GitHub's install redirect. Binds the callback to the team and user that started the flow, so a stolen installation_id + code can't be replayed against another team's session. */
@@ -59860,6 +59951,10 @@ export namespace Schemas {
       readonly synced: readonly StamphogRepoConfig[];
       /** Repository full names skipped because another team already owns them under this installation. */
       readonly skipped: readonly string[];
+      /** True only on the discovery path (no installation_id) when the caller can reach no installation of this App — it isn't installed anywhere they can see. The frontend should route the user to the GitHub install page (install_url). Always false on the explicit installation_id path. */
+      readonly app_not_installed: boolean;
+      /** Populated only on the discovery path when the caller can reach MORE than one installation of this App: nothing was bound, and the user must pick which installation to connect. The frontend re-runs the authorize flow and calls back with the chosen installation_id, which the explicit path verifies. Empty whenever a bind happened (or nothing was found). */
+      readonly installations: readonly StamphogDiscoveredInstallation[];
     }
 
     /**
@@ -64880,6 +64975,25 @@ export namespace Schemas {
     export interface _TracingDurationHistogramRequest {
       /** The duration-histogram query to execute. */
       query: _TracingDurationHistogramQueryBody;
+    }
+
+    export interface _TracingLatencyHeatmapCell {
+      /** ISO 8601 UTC start of the time bucket. */
+      time: string;
+      /** Lower edge of the 1-2-5 series duration bucket in nanoseconds (1ms, 2ms, 5ms, 10ms, ...). 0 on the sentinel row that enumerates a time bucket with no matching spans. */
+      bucket_ns: number;
+      /** Spans (or traces when rootSpans is true) in this cell. 0 only on sentinel rows. */
+      count: number;
+    }
+
+    export interface _TracingLatencyHeatmapRequest {
+      /** The latency-heatmap query to execute. */
+      query: _TracingDurationHistogramQueryBody;
+    }
+
+    export interface _TracingLatencyHeatmapResponse {
+      /** Sparse heatmap cells ordered by time then duration bucket. Every time bucket in the window appears in at least one row, so the full x axis can be derived from the response. */
+      results: _TracingLatencyHeatmapCell[];
     }
 
     /**

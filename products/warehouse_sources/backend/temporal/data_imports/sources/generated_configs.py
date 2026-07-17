@@ -1677,7 +1677,8 @@ class FreshcallerSourceConfig(config.Config):
 
 @config.config
 class FreshchatSourceConfig(config.Config):
-    pass
+    domain: str
+    api_key: str
 
 
 @config.config
@@ -2255,7 +2256,8 @@ class JenkinsSourceConfig(config.Config):
 
 @config.config
 class JfrogArtifactorySourceConfig(config.Config):
-    pass
+    base_url: str
+    access_token: str
 
 
 @config.config
@@ -2711,7 +2713,7 @@ class MetabaseSourceConfig(config.Config):
 
 @config.config
 class MetaplaneSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -4090,7 +4092,9 @@ class SonarqubeSourceConfig(config.Config):
 
 @config.config
 class SonatypeNexusSourceConfig(config.Config):
-    pass
+    host: str
+    username: str
+    password: str
 
 
 @config.config
