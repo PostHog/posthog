@@ -233,20 +233,42 @@ export function mapHttpStatusToStreamError(status: number | undefined): StreamEr
 }
 
 /**
- * Recovers the raw text the user typed from a persisted `_posthog/user_message`. The backend
- * prepends a `<posthog_context>…</posthog_context>` block when attachments are present
- * (`context_wrapper.wrap_user_message`); stripping it keeps a replayed prompt identical to the one
- * the live send path echoed via `pushHumanMessage`.
+ * Recovers the raw text the user typed from a persisted `_posthog/user_message`. The send paths
+ * prepend context blocks when attachments are present — `<posthog_trusted_context>` and/or
+ * `<posthog_untrusted_context>` from the frontend builder (`utils/posthogContextBlock.ts`), or the
+ * legacy `<posthog_context>` wrapper from the deprecated backend `context_wrapper.py` path and old
+ * persisted history. Stripping every leading block keeps a replayed prompt identical to the one the
+ * live send path echoed via `pushHumanMessage`.
  */
-export function unwrapUserMessageContent(content: string): string {
-    const closeTag = '</posthog_context>'
-    if (content.startsWith('<posthog_context>')) {
-        const closeIdx = content.indexOf(closeTag)
-        if (closeIdx !== -1) {
-            return content.slice(closeIdx + closeTag.length).replace(/^\n+/, '')
+const CONTEXT_BLOCK_TAGS = ['posthog_trusted_context', 'posthog_untrusted_context', 'posthog_context']
+
+export interface SplitUserMessageContent {
+    /** The user's own text, with every leading context block removed. */
+    text: string
+    /** Each stripped context block, raw (tags included), in message order. */
+    contextBlocks: string[]
+}
+
+export function splitUserMessageContent(content: string): SplitUserMessageContent {
+    const contextBlocks: string[] = []
+    let rest = content
+    for (;;) {
+        const tag = CONTEXT_BLOCK_TAGS.find((t) => rest.startsWith(`<${t}>`))
+        if (!tag) {
+            return { text: rest, contextBlocks }
         }
+        const closeTag = `</${tag}>`
+        const closeIdx = rest.indexOf(closeTag)
+        if (closeIdx === -1) {
+            return { text: rest, contextBlocks }
+        }
+        contextBlocks.push(rest.slice(0, closeIdx + closeTag.length))
+        rest = rest.slice(closeIdx + closeTag.length).replace(/^\n+/, '')
     }
-    return content
+}
+
+export function unwrapUserMessageContent(content: string): string {
+    return splitUserMessageContent(content).text
 }
 
 /**
@@ -525,6 +547,24 @@ function currentTurnHasHumanText(state: ThreadItem[], text: string): boolean {
             return false
         }
         if (item.type === 'human_message' && item.text === text) {
+            return true
+        }
+    }
+    return false
+}
+
+/**
+ * Is this context block already shown as a debug row in the current turn? A send can echo in two
+ * wire forms (`user_message` + `user_message_chunk`), both carrying the wrapped prefix — without
+ * this guard each form would add its own context rows.
+ */
+function currentTurnHasContextBlock(state: ThreadItem[], block: string): boolean {
+    for (let i = state.length - 1; i >= 0; i--) {
+        const item = state[i]
+        if (item.type === 'turn_separator') {
+            return false
+        }
+        if (item.type === 'debug' && item.debugLevel === 'context' && item.text === block) {
             return true
         }
     }
@@ -940,6 +980,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
     let compactSeq = 0
     let taskSeq = 0
     let consoleSeq = 0
+    let contextSeq = 0
 
     const pushHuman = (text: string): void => {
         items = insertHumanMessageAtTurnStart(items, {
@@ -948,6 +989,18 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             text,
             complete: true,
         })
+    }
+
+    // Surface the context blocks a send was wrapped with as copyable debug rows (gated downstream by
+    // `showDebugLogs`, like `_posthog/console` rows). Deduped per turn — a send can echo in two wire
+    // forms, both carrying the same wrapped prefix.
+    const pushContextBlocks = (contextBlocks: string[]): void => {
+        for (const block of contextBlocks) {
+            if (currentTurnHasContextBlock(items, block)) {
+                continue
+            }
+            items.push({ id: `context-${contextSeq++}`, type: 'debug', text: block, debugLevel: 'context' })
+        }
     }
 
     const appendChunk = (id: string, type: ThreadItemType, delta: string): void => {
@@ -1001,7 +1054,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
     }
 
     const renderReplayHuman = (rawText: string, remember: boolean): void => {
-        const text = unwrapUserMessageContent(rawText)
+        const { text, contextBlocks } = splitUserMessageContent(rawText)
         if (!text) {
             return
         }
@@ -1016,16 +1069,20 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             }
         }
         pushHuman(text)
+        pushContextBlocks(contextBlocks)
         if (remember) {
             rememberedHumanTexts.set(text, (rememberedHumanTexts.get(text) ?? 0) + 1)
         }
     }
 
     const renderLiveHuman = (rawText: string): void => {
-        const text = unwrapUserMessageContent(rawText)
+        const { text, contextBlocks } = splitUserMessageContent(rawText)
         if (!text) {
             return
         }
+        // The blocks ride only the server echo (the optimistic `_client/human_message` carries the raw
+        // text), so push them even when the human text below dedupes against the optimistic render.
+        pushContextBlocks(contextBlocks)
         // The server echoes every user send live. An idle send already rendered it optimistically via
         // `_client/human_message`; a queue-drained send (dispatched with `addToThread: false`) did not,
         // so its echo is what surfaces it. Render unless the current turn already shows this message —

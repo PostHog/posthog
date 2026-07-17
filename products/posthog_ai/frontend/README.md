@@ -184,10 +184,12 @@ No React presenters, no tool registry — this import lane stays out of those ch
 ### Inject context the agent should see
 
 Register the resource(s) the user is looking at; while registered, every message sent from the surface is
-prefixed with an invisible `<posthog_context>` block describing them (the user only ever sees their own
-text). Items are abstract — `type` is any string (`'insight'`, `'trace'`, `'text'`…), plus
-`key`/`label`/`value` — and are deduped across providers and across sends within a task (the whole
-resume chain of runs, matching the backend's per-task semantics; except `text`, which always resends).
+prefixed with invisible context blocks describing them (the user only ever sees their own text):
+`type: 'instructions'` items render into `<posthog_trusted_context>` (our own injected guidance — never put
+user/ingested data there), everything else into `<posthog_untrusted_context>` behind hardening prose. Items
+are abstract — `type` is any string (`'insight'`, `'trace'`, `'text'`…), plus `key`/`label`/`value` — and
+are deduped across providers and across sends within a task (the whole resume chain of runs, matching the
+backend's per-task semantics; except `text`, which always resends).
 
 ```tsx
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'

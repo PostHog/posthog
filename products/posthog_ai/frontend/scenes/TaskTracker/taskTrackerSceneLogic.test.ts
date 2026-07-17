@@ -118,7 +118,7 @@ describe('taskTrackerSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         // The message sent to the agent is wrapped; the task description stays raw.
-        expect(runBody?.pending_user_message).toContain('<posthog_context>')
+        expect(runBody?.pending_user_message).toContain('<posthog_untrusted_context>')
         expect(runBody?.pending_user_message).toContain('- insight sig ("Signups")')
         expect(createBody?.description).toBe('why the drop?')
         // Only the entity ref is marked sent (text items always resend), under the created task's id.

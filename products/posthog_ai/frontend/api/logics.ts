@@ -23,8 +23,8 @@ export { getThinkingMessageFromResponse, getRandomThinkingMessage, THINKING_MESS
 export { resolveEffortForModel, DEFAULT_COMPOSER_MODEL, DEFAULT_COMPOSER_EFFORT } from '../utils/composerModels'
 
 // --- Attached-context store + injection hook (headless) ---
-// Global registry of on-screen context providers; `contextItems` is what the send paths wrap into a
-// `<posthog_context>` block. `useAttachedContext` registers a provider for the lifetime of a mount.
+// Global registry of on-screen context providers; `contextItems` is what the send paths wrap into the
+// trusted/untrusted context blocks. `useAttachedContext` registers a provider for the lifetime of a mount.
 export { attachedContextLogic } from '../logics/attachedContextLogic'
 export { useAttachedContext } from '../hooks/useAttachedContext'
 export type { UseAttachedContextOptions } from '../hooks/useAttachedContext'

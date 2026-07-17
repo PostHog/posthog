@@ -4,7 +4,12 @@
  * 'trace', 'text') and the block builder renders it as-is.
  */
 export interface AttachedContextItem {
-    /** Arbitrary resource kind, e.g. 'insight', 'dashboard', 'trace', 'text'. */
+    /**
+     * Arbitrary resource kind, e.g. 'insight', 'dashboard', 'trace', 'text'. The one reserved value
+     * is 'instructions': it renders into the trusted `<posthog_trusted_context>` block the agent is
+     * told to follow, so it must only ever carry our own static strings — never interpolated user or
+     * ingested data. Every other type renders as untrusted data.
+     */
     type: string
     /** Resource identifier — entity id, short_id, $ai_trace_id, … */
     key?: string | number
@@ -12,7 +17,7 @@ export interface AttachedContextItem {
     label?: string
     /** Free-text payload (used when there's no keyed resource, e.g. type 'text'). */
     value?: string
-    /** Rendered into `<posthog_context>` as usual but never shown as a composer chip (so not dismissable either). */
+    /** Rendered into the context blocks as usual but never shown as a composer chip (so not dismissable either). */
     hidden?: boolean
 }
 

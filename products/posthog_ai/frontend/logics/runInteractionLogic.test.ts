@@ -311,7 +311,7 @@ describe('runInteractionLogic', () => {
             params: { content: string }
         }
         // The wire content carries the invisible context block; the echoed human message stays raw.
-        expect(firstSend.params.content).toContain('<posthog_context>')
+        expect(firstSend.params.content).toContain('<posthog_untrusted_context>')
         expect(firstSend.params.content).toContain('- insight sig ("Signups")')
         expect(firstSend.params.content.endsWith('why the drop?')).toBe(true)
         await expectLogic(stream).toDispatchActions([
