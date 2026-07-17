@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -6,6 +6,8 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import { AggregatedSpanRow, DateRange } from '~/queries/schema/schema-general'
 
@@ -40,6 +42,7 @@ export interface tracingOperationSceneLogicValues {
     currentSample: Span | null
     dateRange: DateRange
     durationSelection: DurationRange | null
+    heatmapEnabled: boolean
     histogramData: TracingDurationHistogramData
     latencyHeatmapData: TracingLatencyHeatmapData
     operationStats: AggregatedSpanRow | null
@@ -187,8 +190,9 @@ export interface tracingOperationSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         serviceName: (arg: any) => string
         spanName: (arg: any) => string
+        heatmapEnabled: (featureFlags: any) => boolean
         histogramData: (rawHistogram: DurationHistogramRow[]) => TracingDurationHistogramData
-        latencyHeatmapData: (rawLatencyHeatmap: any) => TracingLatencyHeatmapData
+        latencyHeatmapData: (rawLatencyHeatmap: LatencyHeatmapRow[]) => TracingLatencyHeatmapData
         currentSample: (samples: Span[], sampleIndex: number) => Span | null
     }
 }
@@ -204,6 +208,10 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
     props({} as TracingOperationSceneLogicProps),
     key(({ serviceName, spanName }) => `${serviceName}//${spanName}`),
     path((key) => ['products', 'tracing', 'frontend', 'tracingOperationSceneLogic', key]),
+
+    connect(() => ({
+        values: [featureFlagLogic, ['featureFlags']],
+    })),
 
     actions({
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
@@ -323,6 +331,10 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
     selectors({
         serviceName: [() => [(_, props) => props.serviceName], (serviceName: string): string => serviceName],
         spanName: [() => [(_, props) => props.spanName], (spanName: string): string => spanName],
+        heatmapEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.TRACING_LATENCY_HEATMAP],
+        ],
         histogramData: [
             (s) => [s.rawHistogram],
             (rows: DurationHistogramRow[]): TracingDurationHistogramData => pivotDurationHistogram(rows, dataColorVars),
@@ -453,7 +465,10 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
             if (!isNaN(sample) && sample >= 0 && sample !== values.sampleIndex) {
                 actions.setSampleIndex(sample)
             }
-            const chartFromUrl: OperationChartType = searchParams.chart === 'heatmap' ? 'heatmap' : 'histogram'
+            // With the flag off a ?chart=heatmap deep link degrades to the histogram (and never
+            // fetches heatmap data — this restore is the only non-toggle entry point).
+            const chartFromUrl: OperationChartType =
+                searchParams.chart === 'heatmap' && values.heatmapEnabled ? 'heatmap' : 'histogram'
             if (chartFromUrl !== values.chartType) {
                 actions.setChartType(chartFromUrl)
             }
