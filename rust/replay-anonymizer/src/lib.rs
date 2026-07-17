@@ -32,7 +32,10 @@ pub mod value;
 
 pub use allow_lists::AllowLists;
 pub use context::Ctx;
-pub use event::{anonymize_event, anonymize_event_str, anonymize_message};
+pub use event::{
+    anonymize_event, anonymize_event_str, anonymize_line, anonymize_line_with_ctx,
+    anonymize_message,
+};
 pub use snapshot::{
     anonymize_kafka_payload, anonymize_kafka_payload_opts, AnonymizeOpts, AnonymizedMessage,
     FailKind, Failure, Route,

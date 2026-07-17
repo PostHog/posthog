@@ -16,7 +16,7 @@ use crate::json::{as_array_mut, key, parse_untrusted, reject_if_too_deep, string
 /// PostHog wire format: each gzip byte stored as its U+00XX codepoint (latin-1). Per-char is
 /// deliberate — a hand-rolled byte loop measured slower than `chars()` on high-entropy gzip bytes.
 /// The structural win is decoding off the escaped wire span (`bytewalk::latin1_from_wire`) instead.
-fn latin1_to_bytes(s: &str) -> Result<Vec<u8>> {
+pub(crate) fn latin1_to_bytes(s: &str) -> Result<Vec<u8>> {
     let mut out = Vec::with_capacity(s.len());
     for c in s.chars() {
         let cp = c as u32;
@@ -28,7 +28,7 @@ fn latin1_to_bytes(s: &str) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-fn bytes_to_latin1(bytes: &[u8]) -> String {
+pub(crate) fn bytes_to_latin1(bytes: &[u8]) -> String {
     // Exact presize: one two-byte UTF-8 sequence per byte >= 0x80 (the count pass vectorizes).
     let extra = bytes.iter().filter(|&&b| b >= 0x80).count();
     let mut out = String::with_capacity(bytes.len() + extra);

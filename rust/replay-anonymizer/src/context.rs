@@ -43,6 +43,13 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    /// Restore the full cv decompression budget. The budget bounds one message; per-line callers
+    /// ([`crate::event::anonymize_line_with_ctx`]) reset it each call so a long session file
+    /// cannot exhaust it, while the blur memo keeps spanning the whole `Ctx`.
+    pub fn reset_cv_budget(&self) {
+        self.cv_budget.set(CV_MESSAGE_DECOMPRESSION_BUDGET);
+    }
+
     /// The only budgeted cv decompression path — cv code must not call the `gzip` codecs directly.
     /// Dispatches on the leading magic: gzip is the SDK wire format, zstd is what the anonymizer
     /// itself re-emits (so re-scrubbing already-anonymized data works). Unknown magic fails closed.
