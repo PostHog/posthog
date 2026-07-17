@@ -16,6 +16,8 @@ import {
 import {
     LemonBanner,
     LemonButton,
+    LemonInput,
+    LemonSegmentedButton,
     LemonSkeleton,
     LemonSlider,
     LemonSwitch,
@@ -48,8 +50,9 @@ import type {
     ReviewRecentReviewApi,
     UrgencyThresholdEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
+import { ReviewHogReviewsListScope } from 'products/review_hog/frontend/generated/api.schemas'
 
-import { ReviewDrawerTab, ReviewSkillKind, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
+import { REVIEWS_PAGE_SIZE, ReviewDrawerTab, ReviewSkillKind, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
 
 /** "review-hog-perspective-logic-correctness" → "Logic correctness" */
 function prettifySkillName(skillName: string): string {
@@ -102,12 +105,13 @@ const URGENCY_STOPS: { key: UrgencyThresholdEnumApi; label: string; description:
     {
         key: 'consider',
         label: 'All issues',
-        description: 'Every validated finding is published, including the minor consider-level ones.',
+        description:
+            'Every validated finding is published, including the minor consider-level ones. This is the default.',
     },
     {
         key: 'should_fix',
         label: 'Should fix',
-        description: 'Recommended fixes and anything more serious — the default balance.',
+        description: 'Recommended fixes and anything more serious. Minor consider-level findings are dropped.',
     },
     {
         key: 'must_fix',
@@ -316,6 +320,9 @@ function progressLabel(review: ReviewRecentReviewApi): string {
 
 /** A first review still running: no findings to expand into yet, just the live stage. */
 function RunningReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Element {
+    const { reviewsScope } = useValues(reviewHogSettingsLogic)
+    // On the Entire project scope, whose PR it is matters at a glance; on For you it's always yours.
+    const showAuthor = reviewsScope === ReviewHogReviewsListScope.Everyone && !!review.pr_author
     return (
         <div className="flex items-center gap-3 px-4 py-3">
             <span className="flex w-6 shrink-0 justify-center">
@@ -327,6 +334,12 @@ function RunningReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.El
                     <span className="whitespace-nowrap font-mono text-tertiary">
                         {review.repository}#{review.pr_number ?? review.head_branch}
                     </span>
+                    {showAuthor && (
+                        <>
+                            <span className="text-tertiary">·</span>
+                            <span className="whitespace-nowrap">by {review.pr_author}</span>
+                        </>
+                    )}
                     <span className="text-tertiary">·</span>
                     <span className="whitespace-nowrap font-medium text-warning">{progressLabel(review)}</span>
                 </div>
@@ -340,10 +353,12 @@ function RunningReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.El
 
 /** One expandable review row: essentials collapsed; PR facts + funnel + findings entry when open. */
 function RecentReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Element {
-    const { expandedReviewIds } = useValues(reviewHogSettingsLogic)
+    const { expandedReviewIds, reviewsScope } = useValues(reviewHogSettingsLogic)
     const { toggleReviewRowExpanded, openReviewDetail } = useActions(reviewHogSettingsLogic)
     const expanded = expandedReviewIds.includes(review.id)
     const validated = review.must_fix_count + review.should_fix_count + review.consider_count
+    // On the Entire project scope, whose PR it is matters at a glance; on For you it's always yours.
+    const showAuthor = reviewsScope === ReviewHogReviewsListScope.Everyone && !!review.pr_author
 
     // A first review has no completed turn to expand into — it renders as a live progress row.
     if (review.in_progress && review.run_count === 0) {
@@ -379,6 +394,12 @@ function RecentReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Ele
                         <span className="whitespace-nowrap font-mono text-tertiary">
                             {review.repository}#{review.pr_number ?? review.head_branch}
                         </span>
+                        {showAuthor && (
+                            <>
+                                <span className="text-tertiary">·</span>
+                                <span className="whitespace-nowrap">by {review.pr_author}</span>
+                            </>
+                        )}
                         <span className="text-tertiary">·</span>
                         <FindingCounts review={review} />
                         {review.last_run_at && (
@@ -463,39 +484,148 @@ function RecentReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Ele
     )
 }
 
-/** Compact proof-of-life block under the hero — hidden entirely until the user has reviews. */
+/** Compact proof-of-life block under the hero — hidden entirely until the project has reviews. */
 function RecentReviewsSection(): JSX.Element | null {
-    const { recentReviews } = useValues(reviewHogSettingsLogic)
+    const {
+        recentReviews,
+        recentReviewsPageLoading,
+        moreReviewsAvailable,
+        reviewsExpanding,
+        reviewsScope,
+        hasUserChosenReviewsScope,
+    } = useValues(reviewHogSettingsLogic)
+    const { setReviewsScope, showMoreReviews, showFewerReviews } = useActions(reviewHogSettingsLogic)
+    const everyone = reviewsScope === ReviewHogReviewsListScope.Everyone
+    const loadedEmpty = recentReviews !== null && recentReviews.length === 0
 
-    // Loaded-and-empty hides the section entirely; `null` means the first load is still in flight,
-    // so a skeleton holds the space instead of the page jumping when the rows land. Poll refreshes
-    // keep the previous rows, so the skeleton only ever shows once.
-    if (recentReviews !== null && !recentReviews.length) {
+    // Settled-and-empty on the Entire project scope means the project has no reviews at all — hide
+    // the section entirely. The scope flips before the reload lands, so an in-flight load keeps the
+    // section mounted (skeleton below) instead of yanking the toggle away mid-click. An empty
+    // For-you scope keeps the section (with an empty state) so the scope switch stays reachable.
+    if (loadedEmpty && everyone && !recentReviewsPageLoading) {
         return null
     }
+    // A stale EMPTY list must not render an empty state while a reload (scope switch, auto-default)
+    // is in flight — but previous ROWS are kept during refreshes, so the in-progress poll never
+    // flashes skeletons.
+    const emptyAwaitingReload = loadedEmpty && (recentReviewsPageLoading || !hasUserChosenReviewsScope)
 
     return (
         // The one section without a top hairline — it reads as a continuation of the hero.
         <section className="flex flex-col gap-4">
-            <SectionHeader icon={<IconPullRequest />} title="Your recent reviews">
-                The latest ReviewHog runs on pull requests you authored. Expand a review for its details and findings.
-            </SectionHeader>
+            <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+                <SectionHeader icon={<IconPullRequest />} title={everyone ? 'Recent reviews' : 'Your recent reviews'}>
+                    {everyone
+                        ? 'The latest ReviewHog runs on pull requests across this project. Expand a review for its details and findings.'
+                        : 'The latest ReviewHog runs on pull requests you authored. Expand a review for its details and findings.'}
+                </SectionHeader>
+                <LemonSegmentedButton
+                    size="small"
+                    value={reviewsScope}
+                    onChange={(value) => setReviewsScope(value)}
+                    options={[
+                        {
+                            value: ReviewHogReviewsListScope.Mine,
+                            label: 'For you',
+                            tooltip: 'Only reviews of pull requests you authored',
+                        },
+                        {
+                            value: ReviewHogReviewsListScope.Everyone,
+                            label: 'Entire project',
+                            tooltip: 'Every ReviewHog review on this project',
+                        },
+                    ]}
+                />
+            </div>
             <LemonCard hoverEffect={false} className="divide-y divide-primary p-0">
-                {recentReviews === null
-                    ? [0, 1, 2].map((i) => (
-                          <div key={i} className="flex items-center gap-3 px-4 py-3">
-                              <span className="flex w-6 shrink-0 justify-center">
-                                  <LemonSkeleton.Circle className="size-2" />
-                              </span>
-                              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                                  <LemonSkeleton className="h-4 w-80 max-w-full" />
-                                  <LemonSkeleton className="h-3 w-56 max-w-full" />
-                              </div>
-                              <LemonSkeleton className="h-8 w-24 shrink-0" />
-                          </div>
-                      ))
-                    : recentReviews.map((review) => <RecentReviewRow key={review.id} review={review} />)}
+                {recentReviews === null || emptyAwaitingReload ? (
+                    [0, 1, 2].map((i) => (
+                        <div key={i} className="flex items-center gap-3 px-4 py-3">
+                            <span className="flex w-6 shrink-0 justify-center">
+                                <LemonSkeleton.Circle className="size-2" />
+                            </span>
+                            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                                <LemonSkeleton className="h-4 w-80 max-w-full" />
+                                <LemonSkeleton className="h-3 w-56 max-w-full" />
+                            </div>
+                            <LemonSkeleton className="h-8 w-24 shrink-0" />
+                        </div>
+                    ))
+                ) : recentReviews.length ? (
+                    <>
+                        {recentReviews.map((review) => (
+                            <RecentReviewRow key={review.id} review={review} />
+                        ))}
+                        {(moreReviewsAvailable || recentReviews.length > REVIEWS_PAGE_SIZE) && (
+                            <div className="flex justify-center gap-2 px-4 py-1.5">
+                                {moreReviewsAvailable && (
+                                    <LemonButton
+                                        size="small"
+                                        type="tertiary"
+                                        onClick={showMoreReviews}
+                                        loading={reviewsExpanding}
+                                    >
+                                        Show more
+                                    </LemonButton>
+                                )}
+                                {recentReviews.length > REVIEWS_PAGE_SIZE && (
+                                    <LemonButton size="small" type="tertiary" onClick={showFewerReviews}>
+                                        Show fewer
+                                    </LemonButton>
+                                )}
+                            </div>
+                        )}
+                    </>
+                ) : (
+                    <div className="px-4 py-6 text-center text-sm text-secondary">
+                        No reviews of your pull requests yet. Switch to "Entire project" to see the whole team's.
+                    </div>
+                )}
             </LemonCard>
+        </section>
+    )
+}
+
+/**
+ * "Review a pull request": paste any PR URL the project's GitHub App installation can access and
+ * start a publishing review, acting as the requesting user. Hidden unless the backend says this
+ * project can trigger reviews (limited to the designated ReviewHog team while in alpha).
+ */
+function TriggerReviewSection(): JSX.Element | null {
+    const { settings, triggerPrUrl, triggeringReview } = useValues(reviewHogSettingsLogic)
+    const { setTriggerPrUrl, submitTriggerReview } = useActions(reviewHogSettingsLogic)
+
+    if (!settings?.can_trigger_reviews) {
+        return null
+    }
+    return (
+        <section className="flex flex-col gap-4">
+            <SectionHeader icon={<IconGithub />} title="Review a pull request">
+                Start a review of any pull request the GitHub App can access. The review is posted back to the pull
+                request, runs with your perspectives, and shows up under your recent reviews.
+            </SectionHeader>
+            <form
+                className="ml-9 flex flex-wrap items-center gap-2"
+                onSubmit={(e) => {
+                    e.preventDefault()
+                    submitTriggerReview()
+                }}
+            >
+                <LemonInput
+                    className="min-w-80 flex-1"
+                    placeholder="https://github.com/posthog/posthog.com/pull/1234"
+                    value={triggerPrUrl}
+                    onChange={setTriggerPrUrl}
+                />
+                <LemonButton
+                    type="primary"
+                    htmlType="submit"
+                    loading={triggeringReview}
+                    disabledReason={!triggerPrUrl.trim() ? 'Paste a pull request URL first' : undefined}
+                >
+                    Review
+                </LemonButton>
+            </form>
         </section>
     )
 }
@@ -940,7 +1070,7 @@ function UrgencySection(): JSX.Element {
 
     const activeIndex = Math.max(
         0,
-        URGENCY_STOPS.findIndex((stop) => stop.key === (settings?.urgency_threshold ?? 'should_fix'))
+        URGENCY_STOPS.findIndex((stop) => stop.key === (settings?.urgency_threshold ?? 'consider'))
     )
 
     return (
@@ -1407,6 +1537,7 @@ export function CodeReviewScene(): JSX.Element {
                     </LemonBanner>
                 )}
 
+                <TriggerReviewSection />
                 <RecentReviewsSection />
                 <PipelineSection />
                 <TriggersSection />

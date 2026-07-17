@@ -75,10 +75,11 @@ target/debug/personhog-test-harness gate --leaders 3 --duration 15s --restart-af
 target/debug/personhog-test-harness gate --duration 15s --writer-crash-after 5s
 target/debug/personhog-test-harness gate --duration 15s --writer-pause-after 3s --writer-pause-duration 8s
 
-# Kill the coordinator: bring-up guarantees the first router holds the
-# election, traffic targets the last; the kill revokes the election lease so
-# failover is immediate and a later handoff runs under the new coordinator
-target/debug/personhog-test-harness gate --leaders 3 --routers 2 --duration 20s \
+# Kill the coordinator: the kill resolves the live election holder from etcd
+# (the traffic router never campaigns, so it can never be the target),
+# revokes the election lease so failover is immediate, and a later handoff
+# runs under the new coordinator
+target/debug/personhog-test-harness gate --leaders 3 --routers 3 --duration 20s \
   --router-kill-after 5s --shutdown-after 9s
 
 # Compound: kill the target pod of an in-flight handoff (best-effort timing —
@@ -103,40 +104,47 @@ target/debug/personhog-test-harness gate --persons 50 --cache-capacity 10 --dura
 
 Fix direction: pin dirty entries until the writer's committed offset passes their produce offset (see the TODO in `personhog-leader/src/cache/persons.rs`).
 
-**Graceful shutdown black-holes the leader's partitions — elevated Failed count, gate stays green.**
-The leader's lifecycle manager signals every component at SIGTERM simultaneously, so the gRPC server and Kafka producer finish shutting down (~160ms) long before the coordination drain hands partitions off (~2s: Draining status → 1s coordinator rebalance debounce → freeze → stash → fence → release).
-For most of that window the pod is still the registered owner with a dead server: writes get UNAVAILABLE, the router retries against the same owner (the stash only engages once it observes Freezing), and callers fail.
+**Graceful shutdown black-holes the leader's partitions — FIXED via lifecycle shutdown phases.**
+The leader's lifecycle manager used to signal every component at SIGTERM simultaneously, so the gRPC server and Kafka producer finished shutting down (~160ms) long before the coordination drain handed partitions off, leaving the pod a registered owner with a dead server for the whole drain (~1% failed writes per drain).
+The lifecycle crate now supports ordered shutdown phases (`ComponentOptions::with_shutdown_phase`): coordination drains in phase 0 while the server keeps serving and the producer keeps delivering, and both stop in phase 1 once the partitions are handed off.
 
 ```bash
-# Expect ~1% failed writes. All are unacked, so the invariant holds and the
-# gate passes — the signature is the Failed column, not violations.
+# Expect zero failed writes through the drain.
 target/debug/personhog-test-harness gate --leaders 3 --duration 15s --shutdown-after 5s
 ```
 
-Fix direction: ordered shutdown — drain the coordination component before stopping the gRPC server and producer (the lifecycle crate currently has no phase/ordering primitive).
-Once fixed, this run's Failed count should drop to ~0, matching the zombie scenario's.
-
-**A crashed coordinator blocks all handoffs for 10–20s — currently masked in the gate.**
-The coordinator election is a lease-backed CAS (15s TTL, 5s keepalives, 5s campaign retry); a crash of the router holding it leaves the key in place until the lease expires, and no handoff can start until a survivor wins.
-Leader crashes are usually unaffected (their own 30s registration lease gates discovery anyway), but a leader *drain* during the window stalls — which today, combined with the unordered-shutdown defect above, black-holes the draining pod's partitions for the whole gap (observed: 731 failed writes in ~10s at harness scale; one served strong read also returned NotFound for a person with acked writes, unreproduced and unexplained).
-The gate's coordinator-kill scenario deliberately revokes the election lease to stay deterministic, so it does NOT exercise this window; the slow-failover variant is worth adding once the shutdown ordering is fixed and traffic survives the wait.
-Fix direction: release the election on graceful exit reliably (the best-effort revoke can be dropped by the surrounding `select!` before it runs), and/or tune the election lease and retry intervals against the drain grace budget.
-
-**A drain overlapping a pod death wedges convergence for the drained pod's full lifecycle timeout — the gate waits it out.**
-The rebalance a drain triggers can race a concurrent pod death and create handoffs targeting the dead pod (self-healing: stale-handoff cleanup deletes them within a tick), but the re-drive rebalance still counts the *draining* pod as an assignment target — nothing marks it as leaving — and hands partitions back to it.
-Its gRPC server is already dead (the unordered-shutdown defect above) and its coordination component gets only a 5s grace, so those handoffs stall in Draining with no DrainedAck; rebalancing is globally deferred while any handoff is in flight, so nothing can converge until the pod's 30s lifecycle timeout force-exits it, deregistration fires, and cleanup plus a fresh rebalance finally move everything to survivors (observed: ~36s end to end, with the affected partitions black-holed throughout).
+**A crashed or restarted coordinator blocked all handoffs for 10–30s — FIXED.**
+Two leases gated failover and both could dangle. The election lease's revoke-on-exit could be dropped by an unbiased `select!` racing cancellation, so even graceful restarts stranded the election until its TTL; and a router never deregistered on exit, so freeze quorums kept counting it until its registration lease expired, stalling any handoff frozen in that window.
+Graceful exits now run both revokes deterministically (measured handover: ~250ms), a failed election keepalive makes the leader abdicate instead of coordinating as a zombie beside its successor, and crash failover is bounded by tightened TTLs (election 5s + 1s campaign retry, registration 10s with 3s heartbeats).
+Both paths are gated in CI and the slow-failover window is finally exercised:
 
 ```bash
-# Nondeterministic: wedges only when the mid-drain rebalance picks the
-# draining pod as a target. The signature is a large "settled in Ns" line
-# and an elevated Failed count.
-target/debug/personhog-test-harness gate --routers 2 --leaders 3 --duration 18s \
+# Graceful handover: SIGTERM the coordinator, then drain a leader under
+# the successor. Settles in ~0s with zero failed writes.
+target/debug/personhog-test-harness gate --routers 3 --leaders 3 --duration 15s \
+  --router-shutdown-after 4s --shutdown-after 8s
+
+# True crash: no lease revoked, the survivor is blind until the TTLs
+# expire; a drain issued inside the window completes once they do. The
+# phased leader shutdown keeps the drained pod serving throughout.
+target/debug/personhog-test-harness gate --routers 3 --leaders 3 --duration 18s \
+  --router-kill-after 4s --router-kill-fast false --shutdown-after 8s
+```
+
+The one served strong read that returned NotFound during the original coordinator-less drain (pre-fix, compounded by unordered shutdown) has not reproduced across the newly covered slow-failover runs with probers active.
+
+**A drain overlapping a pod death wedged convergence for the drained pod's full lifecycle timeout — MOSTLY FIXED by the shutdown phases above.**
+The rebalance a drain triggers can race a concurrent pod death and create handoffs targeting the dead pod (self-healing: stale-handoff cleanup deletes them within a tick), and the re-drive rebalance still counts the *draining* pod as an assignment target — nothing marks it as leaving — handing partitions back to it.
+Before ordered shutdown, that wedged everything: the draining pod's coordination component was cancelled after a 5s grace, so those handoffs stalled with no DrainedAck until the pod's lifecycle timeout force-exited it (observed: ~36s end to end, partitions black-holed throughout).
+With phased shutdown, coordination survives the whole drain and acks promptly — the composite below now settles in ~0s with only the killed pod's own crash window as failures.
+
+```bash
+target/debug/personhog-test-harness gate --routers 3 --leaders 3 --duration 18s \
   --router-kill-after 4s --shutdown-after 8s --kill-handoff-target
 ```
 
-Verification waits for convergence (bounded at 90s) before asserting strong reads, so the gate stays green through the wedge; red here means convergence itself failed.
-Fix direction: the ordered-shutdown fix removes both halves (the server survives the drain, and coordination lives to write DrainedAck, collapsing "settled in" to near-zero — at which point the convergence deadline can tighten to re-gate on recovery time).
-Independently worth fixing: draining pods should be excluded as rebalance targets, and one stuck handoff should not defer all rebalancing.
+Verification still waits for convergence (bounded at 90s) before asserting strong reads; red here means convergence itself failed.
+Remaining scope: draining pods should be excluded as rebalance targets (now mere churn rather than a black hole — a mid-drain rebalance can hand partitions to a pod that immediately re-drains them), and one stuck handoff should not defer all rebalancing.
 
 ## `seed` / `cleanup` — manage traffic targets
 

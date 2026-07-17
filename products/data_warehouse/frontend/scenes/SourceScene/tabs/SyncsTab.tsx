@@ -127,12 +127,23 @@ export const SyncsTab = ({ id }: SyncsTabProps): JSX.Element => {
                             const tagContent = (
                                 <LemonTag type={StatusTagSetting[job.status] || 'default'}>{job.status}</LemonTag>
                             )
-                            return job.latest_error && job.status === ExternalDataJobStatus.Failed ? (
-                                <Tooltip title={job.latest_error} interactive>
-                                    {tagContent}
-                                </Tooltip>
-                            ) : (
-                                tagContent
+                            return (
+                                <span className="flex items-center gap-1">
+                                    {job.latest_error && job.status === ExternalDataJobStatus.Failed ? (
+                                        <Tooltip title={job.latest_error} interactive>
+                                            {tagContent}
+                                        </Tooltip>
+                                    ) : (
+                                        tagContent
+                                    )}
+                                    {job.billable === false && (
+                                        <Tooltip title="You're not charged for this sync. These are usually system-initiated runs, like rebuilding a table after an issue on our side.">
+                                            <LemonTag type="muted" size="small">
+                                                Non-billable
+                                            </LemonTag>
+                                        </Tooltip>
+                                    )}
+                                </span>
                             )
                         },
                     },

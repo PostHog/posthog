@@ -138,7 +138,6 @@ import {
     ExternalDataJob,
     ExternalDataSchemaWithSource,
     ExternalDataSource,
-    ExternalDataSourceConnectionOption,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
@@ -1802,10 +1801,6 @@ export class ApiRequest {
         return this.externalDataSources(teamId).addPathComponent(sourceId)
     }
 
-    public externalDataSourceConnections(teamId?: TeamType['id']): ApiRequest {
-        return this.externalDataSources(teamId).addPathComponent('connections')
-    }
-
     public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('external_data_schemas')
     }
@@ -2576,9 +2571,6 @@ const api = {
         async list(): Promise<CountedPaginatedResponse<UserProductListItem>> {
             return await new ApiRequest().userProductList().get()
         },
-        async seed(): Promise<CountedPaginatedResponse<UserProductListItem>> {
-            return await new ApiRequest().userProductList().withAction('seed').create()
-        },
         async bulkUpdate(
             items: { product_path: string; enabled: boolean }[]
         ): Promise<{ results: UserProductListItem[] }> {
@@ -2909,6 +2901,8 @@ const api = {
                 // false (default) groups by trace_id and returns root spans; true returns every
                 // matching span (root and child) flat. See products/tracing/backend logic.py.
                 flatSpans?: boolean
+                // true omits the per-span attribute maps — use when only scalar span fields are read.
+                excludeAttributes?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
@@ -2926,12 +2920,14 @@ const api = {
                 statusCodes?: number[]
                 filterGroup?: PropertyGroupFilter
                 offset?: number
-            }
+            },
+            signal?: AbortSignal
         ): Promise<{ results: Record<string, any>[]; hasMore: boolean; nextOffset?: number | null }> {
             return new ApiRequest()
                 .tracingSpans()
                 .withAction(`trace/${traceId}`)
                 .create({
+                    signal,
                     data: {
                         ...query,
                         dateRange: query?.dateRange ?? { date_from: '-24h' },
@@ -5878,9 +5874,6 @@ const api = {
     externalDataSources: {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataSource>> {
             return await new ApiRequest().externalDataSources().get(options)
-        },
-        async connections(options?: ApiMethodOptions | undefined): Promise<ExternalDataSourceConnectionOption[]> {
-            return await new ApiRequest().externalDataSourceConnections().get(options)
         },
         async get(sourceId: ExternalDataSource['id']): Promise<ExternalDataSource> {
             return await new ApiRequest().externalDataSource(sourceId).get()
