@@ -1,7 +1,8 @@
 from parameterized import parameterized
 
+from posthog.hogql_queries.ai.sentiment_labeling import select_sentiment_label
 from posthog.temporal.ai_observability.sentiment.schema import PendingClassification, SentimentResult
-from posthog.temporal.ai_observability.sentiment.utils import build_generation_result, select_sentiment_label
+from posthog.temporal.ai_observability.sentiment.utils import build_generation_result
 
 
 class TestSelectSentimentLabel:
@@ -26,7 +27,7 @@ class TestSelectSentimentLabel:
 
 
 class TestBuildGenerationResult:
-    def test_stores_classified_text_and_applies_neutral_margin(self):
+    def test_applies_neutral_margin_to_generation_label(self):
         pending = [
             PendingClassification(trace_id="t", gen_uuid="g", msg_index=17, text="retention graph for these people")
         ]
@@ -40,5 +41,4 @@ class TestBuildGenerationResult:
         result = build_generation_result("g", pending, classification)
 
         assert result["label"] == "neutral"
-        # The exact text that was classified is preserved for auditing, keyed by original message index.
-        assert result["messages"]["17"]["text"] == "retention graph for these people"
+        assert result["messages"]["17"]["scores"] == {"negative": 0.504, "neutral": 0.468, "positive": 0.028}

@@ -14,6 +14,7 @@ from typing import Any
 
 import structlog
 
+from posthog.hogql_queries.ai.sentiment_labeling import select_sentiment_label
 from posthog.temporal.ai_observability.sentiment.constants import (
     CLASSIFY_BATCH_SIZE,
     LABELS,
@@ -24,7 +25,6 @@ from posthog.temporal.ai_observability.sentiment.constants import (
     ONNX_INTRA_OP_NUM_THREADS,
 )
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
-from posthog.temporal.ai_observability.sentiment.utils import select_sentiment_label
 
 logger = structlog.get_logger(__name__)
 

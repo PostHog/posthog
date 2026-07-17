@@ -10,6 +10,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
+from posthog.hogql_queries.ai.sentiment_labeling import select_sentiment_label
 
 if TYPE_CHECKING:
     from posthog.hogql.constants import LimitContext
@@ -79,7 +80,7 @@ WHERE event = '$ai_evaluation'
   AND length(toString(properties.$ai_target_event_id)) > 0
   AND {generation_filter}
 GROUP BY trace_id, toString(properties.$ai_target_event_id)
-HAVING argMax(toString(properties.$ai_sentiment_message_count), timestamp) != '0'
+HAVING message_count != '0'
 LIMIT {limit}
 """
 
@@ -102,7 +103,7 @@ FROM (
       AND trace_id IN {trace_ids}
       AND length(toString(properties.$ai_target_event_id)) > 0
     GROUP BY trace_id, toString(properties.$ai_target_event_id)
-    HAVING argMax(toString(properties.$ai_sentiment_message_count), timestamp) != '0'
+    HAVING message_count != '0'
 )
 GROUP BY trace_id
 LIMIT {limit}
@@ -293,11 +294,7 @@ def _aggregate_trace_sentiment(generation_results: list[tuple[str, SentimentResu
             score_dicts.append(result_scores)
 
     scores = _average_score_dicts(score_dicts)
-    label = (
-        max(SENTIMENT_LABELS, key=lambda sentiment_label: scores.get(sentiment_label, 0.0))
-        if _has_score_signal(scores)
-        else "neutral"
-    )
+    label = select_sentiment_label(scores) if _has_score_signal(scores) else "neutral"
     return {
         "label": label,
         "score": scores[label],
