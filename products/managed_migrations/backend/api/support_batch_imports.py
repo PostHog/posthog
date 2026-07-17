@@ -355,7 +355,7 @@ class BatchImportSupportViewSet(viewsets.ReadOnlyModelViewSet):
                 # search for a full status message can itself carry a credential-bearing
                 # URL - redact it like every response surface.
                 query_params={
-                    k: (redact_urls_in_text(v) if k == "search" else v)
+                    k: (redact_urls_in_text(v) if k == "search" and isinstance(v, str) else v)
                     for k, v in request.query_params.items()
                     if k in self.LOGGED_QUERY_PARAMS
                 },

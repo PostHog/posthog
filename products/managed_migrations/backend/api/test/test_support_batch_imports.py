@@ -267,6 +267,7 @@ class TestBatchImportSupportAPI(APIBaseTest):
         self.assertEqual(entry.team_id, self.team.id)
         self.assertEqual(entry.organization_id, self.organization.id)
         self.assertEqual(entry.user_id, self.user.id)
+        assert entry.detail is not None
         self.assertEqual(entry.detail["name"], "mixpanel (mixpanel)")
 
     def test_secret_values_never_appear_in_responses(self):
