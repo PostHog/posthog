@@ -119,5 +119,6 @@ Create an API key in your [Cohere dashboard](https://dashboard.cohere.com/api-ke
         return cohere_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )
