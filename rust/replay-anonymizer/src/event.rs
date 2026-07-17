@@ -38,29 +38,36 @@ pub const SOURCE_ADOPTED_STYLESHEET: u8 = 15;
 pub const NETWORK_PLUGIN: &str = "rrweb/network@1";
 pub const CONSOLE_PLUGIN: &str = "rrweb/console@1";
 
+/// Panic backstop for the anyhow-based entry points (see [`crate::unwind`]).
+fn contain_panics<T>(f: impl FnOnce() -> Result<T>) -> Result<T> {
+    crate::unwind::contain_unwind(f, |msg| anyhow::anyhow!("panic while anonymizing: {msg}"))
+}
+
 /// Anonymizes every event in a parsed message (`{ windowId: Event[] }`) in place. `Ok(None)` means
 /// nothing changed (the caller can keep its original). `Err` means an event could not be anonymized —
 /// fail closed, the caller must drop the message. A single `Ctx` spans the whole message so its blur
 /// memo is shared across every event (an image recurring across events is blurred once).
 pub fn anonymize_message(allow: &AllowLists, json: &mut [u8]) -> Result<Option<String>> {
-    reject_if_too_deep(json, "eventsByWindowId")?;
-    let mut root = parse_untrusted(json).context("parse eventsByWindowId json")?;
-    let Some(obj) = as_object_mut(&mut root) else {
-        bail!("eventsByWindowId is not an object");
-    };
-    let ctx = Ctx::new(allow);
-    let mut changed = false;
-    for (_, events) in obj.iter_mut() {
-        if let Some(arr) = as_array_mut(events) {
-            for event in arr.iter_mut() {
-                changed |= route_event(&ctx, event)?;
+    contain_panics(|| {
+        reject_if_too_deep(json, "eventsByWindowId")?;
+        let mut root = parse_untrusted(json).context("parse eventsByWindowId json")?;
+        let Some(obj) = as_object_mut(&mut root) else {
+            bail!("eventsByWindowId is not an object");
+        };
+        let ctx = Ctx::new(allow);
+        let mut changed = false;
+        for (_, events) in obj.iter_mut() {
+            if let Some(arr) = as_array_mut(events) {
+                for event in arr.iter_mut() {
+                    changed |= route_event(&ctx, event)?;
+                }
             }
         }
-    }
-    if !changed {
-        return Ok(None);
-    }
-    Ok(Some(root.encode()))
+        if !changed {
+            return Ok(None);
+        }
+        Ok(Some(root.encode()))
+    })
 }
 
 /// Scrub one JSONL line: a bare rrweb event object or the PostHog `["window_id", event]` tuple.
@@ -80,36 +87,40 @@ pub fn anonymize_line(allow: &AllowLists, line: &mut [u8]) -> Result<Option<Stri
 /// across a message's events). The cumulative cv decompression budget is per line — it resets on
 /// every call, so a long session cannot starve later lines.
 pub fn anonymize_line_with_ctx(ctx: &Ctx<'_>, line: &mut [u8]) -> Result<Option<String>> {
-    reject_if_too_deep(line, "jsonl line")?;
-    let mut root = parse_untrusted(line).context("parse jsonl line")?;
-    ctx.reset_cv_budget();
-    let changed = match &mut root {
-        Value::Object(_) => route_event(ctx, &mut root)?,
-        Value::Array(items) => match items.as_mut_slice() {
-            [Value::String(_), event @ Value::Object(_)] => route_event(ctx, event)?,
+    contain_panics(|| {
+        reject_if_too_deep(line, "jsonl line")?;
+        let mut root = parse_untrusted(line).context("parse jsonl line")?;
+        ctx.reset_cv_budget();
+        let changed = match &mut root {
+            Value::Object(_) => route_event(ctx, &mut root)?,
+            Value::Array(items) => match items.as_mut_slice() {
+                [Value::String(_), event @ Value::Object(_)] => route_event(ctx, event)?,
+                _ => return Ok(None),
+            },
             _ => return Ok(None),
-        },
-        _ => return Ok(None),
-    };
-    if !changed {
-        return Ok(None);
-    }
-    Ok(Some(root.encode()))
+        };
+        if !changed {
+            return Ok(None);
+        }
+        Ok(Some(root.encode()))
+    })
 }
 
 /// Convenience for tests/callers holding a single event as a JSON string: parse, scrub, re-serialize.
 pub fn anonymize_event_str(allow: &AllowLists, event_json: &str) -> Result<String> {
-    let mut bytes = event_json.as_bytes().to_vec();
-    let mut value = parse_untrusted(&mut bytes).context("parse event json")?;
-    anonymize_event(allow, &mut value)?;
-    Ok(value.encode())
+    contain_panics(|| {
+        let mut bytes = event_json.as_bytes().to_vec();
+        let mut value = parse_untrusted(&mut bytes).context("parse event json")?;
+        route_event(&Ctx::new(allow), &mut value)?;
+        Ok(value.encode())
+    })
 }
 
 /// Scrubs a single event in place, returning whether it changed. `Err` = "could not anonymize".
 /// Builds its own `Ctx` (single-event scope); the message path uses [`anonymize_message`] instead so
 /// the blur memo is shared across events.
 pub fn anonymize_event(allow: &AllowLists, event: &mut Value<'_>) -> Result<bool> {
-    route_event(&Ctx::new(allow), event)
+    contain_panics(|| route_event(&Ctx::new(allow), event))
 }
 
 /// True when the event's `cv` marker means "compressed" (present and non-null).

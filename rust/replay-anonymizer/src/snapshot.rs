@@ -87,6 +87,17 @@ impl Failure {
 
 type SResult<T> = Result<T, Failure>;
 
+/// Panic backstop for the byte-buffer entry points (see [`crate::unwind`]): a panic on untrusted
+/// input classifies as `anonymize_failed`, so the caller drops the message like any scrub error.
+fn contain_panics<T>(f: impl FnOnce() -> SResult<T>) -> SResult<T> {
+    crate::unwind::contain_unwind(f, |msg| {
+        Failure::new(
+            FailKind::AnonymizeFailed,
+            format!("panic while anonymizing: {msg}"),
+        )
+    })
+}
+
 // Per-event flags, mirroring `rrweb-types.ts` / `segmentation.ts` predicates.
 pub const FLAG_ACTIVE: u8 = 1;
 pub const FLAG_CLICK: u8 = 2;
@@ -222,6 +233,15 @@ pub fn anonymize_kafka_payload(
 }
 
 pub fn anonymize_kafka_payload_opts(
+    allow: &AllowLists,
+    payload: &mut [u8],
+    opts: AnonymizeOpts,
+    first_party_hosts: Vec<String>,
+) -> SResult<AnonymizedMessage> {
+    contain_panics(|| anonymize_kafka_payload_opts_impl(allow, payload, opts, first_party_hosts))
+}
+
+fn anonymize_kafka_payload_opts_impl(
     allow: &AllowLists,
     payload: &mut [u8],
     opts: AnonymizeOpts,
@@ -378,16 +398,18 @@ pub fn anonymize_snapshot_data_opts(
     opts: AnonymizeOpts,
     first_party_hosts: Vec<String>,
 ) -> SResult<AnonymizedMessage> {
-    // No whole-message depth pre-pass here: the byte walk bounds its own recursion and declines
-    // past its limit, and every recursive parse below is preceded by a span-local
-    // reject_if_too_deep — so the common all-walked path never pays a depth scan at all.
-    let ctx = Ctx::with_first_party_hosts(allow, first_party_hosts);
-    match stream_message(&ctx, distinct_id, inner, opts)? {
-        Some(msg) => Ok(msg),
-        // Escaped/duplicate envelope keys: only a real parse resolves them, and nothing was
-        // consumed before the signal, so the tree path re-reads the intact buffer.
-        None => anonymize_via_tree_mut(&ctx, distinct_id, inner),
-    }
+    contain_panics(|| {
+        // No whole-message depth pre-pass here: the byte walk bounds its own recursion and declines
+        // past its limit, and every recursive parse below is preceded by a span-local
+        // reject_if_too_deep — so the common all-walked path never pays a depth scan at all.
+        let ctx = Ctx::with_first_party_hosts(allow, first_party_hosts);
+        match stream_message(&ctx, distinct_id, inner, opts)? {
+            Some(msg) => Ok(msg),
+            // Escaped/duplicate envelope keys: only a real parse resolves them, and nothing was
+            // consumed before the signal, so the tree path re-reads the intact buffer.
+            None => anonymize_via_tree_mut(&ctx, distinct_id, inner),
+        }
+    })
 }
 
 const MAX_FAIL_DETAIL: usize = 200;
@@ -1285,8 +1307,10 @@ pub fn anonymize_via_tree(
     distinct_id: &str,
     inner: &[u8],
 ) -> SResult<AnonymizedMessage> {
-    let mut buf = inner.to_vec();
-    anonymize_via_tree_mut(ctx, distinct_id, &mut buf)
+    contain_panics(|| {
+        let mut buf = inner.to_vec();
+        anonymize_via_tree_mut(ctx, distinct_id, &mut buf)
+    })
 }
 
 /// [`anonymize_via_tree`] parsing the buffer in place (it is consumed).

@@ -7,7 +7,7 @@ Consumers:
 - `replay-anonymizer-node` (this workspace) wraps it as a Neon addon for the Node ingestion workers.
 - The MLHog training pipelines consume it from crates.io.
 
-Behavior is pinned by the JSON fixtures under `tests/fixtures/`, shared with the Node addon's Jest suite. Scrubbing operates on untrusted input and may panic on pathological payloads; callers that must fail closed should wrap calls in `catch_unwind` under `panic = "unwind"`.
+Behavior is pinned by the JSON fixtures under `tests/fixtures/`, shared with the Node addon's Jest suite. Scrubbing operates on untrusted input; the public entry points contain panics and convert them to errors, so callers fail closed (drop the message) without their own `catch_unwind`. Under `panic = "abort"` that backstop cannot run — builds that must fail closed need `panic = "unwind"`.
 
 ## Releasing
 
