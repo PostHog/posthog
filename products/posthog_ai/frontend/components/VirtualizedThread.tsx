@@ -381,7 +381,10 @@ function Root<T>({
 
     return (
         <RootContext.Provider value={rootValue}>
-            <div className={cn('flex flex-col h-full min-h-0 w-full', className)}>
+            {/* `translate="no"` keeps browser page-translation (Edge/Chrome) from swapping text nodes out
+            from under React as rows stream and virtualize. When it does, React's next reconcile tries to
+            remove a node the translator already replaced and throws NotFoundError (removeChild). */}
+            <div className={cn('flex flex-col h-full min-h-0 w-full', className)} translate="no">
                 <div
                     ref={scrollRef}
                     className={cn('flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain', listClassName)}
