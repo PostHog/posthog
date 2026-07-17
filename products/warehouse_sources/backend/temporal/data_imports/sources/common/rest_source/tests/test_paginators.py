@@ -246,3 +246,17 @@ class TestPaginatorResume:
         req = Request(method="GET", url="https://api.example.com/page1")
         resumed.init_request(req)
         assert req.url == "https://api.example.com/page2"
+
+
+class TestOffsetPaginatorTotalHeader:
+    def test_stops_when_offset_reaches_header_total(self) -> None:
+        p = OffsetPaginator(limit=2, total_path=None, total_header="X-Total")
+        resp = _make_response({}, headers={"X-Total": "2"})
+        p.update_state(resp, data=[{}, {}])  # full page, offset -> 2, total 2 -> stop
+        assert p.has_next_page is False
+
+    def test_continues_when_below_header_total(self) -> None:
+        p = OffsetPaginator(limit=2, total_path=None, total_header="X-Total")
+        resp = _make_response({}, headers={"X-Total": "5"})
+        p.update_state(resp, data=[{}, {}])  # offset -> 2, below 5 -> continue
+        assert p.has_next_page is True
