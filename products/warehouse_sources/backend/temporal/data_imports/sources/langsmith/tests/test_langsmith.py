@@ -276,6 +276,8 @@ class TestPaginationAbuseGuards:
     def test_runs_page_limit_checkpoints_and_raises(self):
         # A host returning an endless stream of full pages with fresh cursors must not monopolise a
         # worker: the attempt ends at the cap after checkpointing so the resume path continues it.
+        # Rows read before the cap but never large enough to fill a batch must be flushed before
+        # raising — the checkpoint points at the *next* page, so an unflushed partial batch is lost.
         manager = FakeManager()
         counter = {"n": 0}
 
@@ -283,25 +285,32 @@ class TestPaginationAbuseGuards:
             counter["n"] += 1
             return {"runs": [_run(f"r{counter['n']}")], "cursors": {"next": f"c{counter['n']}"}}
 
+        rows: list[dict[str, Any]] = []
         with mock.patch(_MAX_PAGES, 3), mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
             with pytest.raises(LangSmithPageLimitError):
-                _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
+                for table in get_rows("key", BASE_URL, "runs", logger, manager, 1):  # type: ignore[arg-type]
+                    rows.extend(table.to_pylist())
 
         assert manager.saved[-1].cursor is not None
+        assert [r["id"] for r in rows] == ["r1", "r2", "r3"]
 
     def test_offset_page_limit_checkpoints_and_raises(self):
         # Same guard on offset endpoints, where a host can return exactly page_size rows forever.
+        # The rows read before the cap must be flushed rather than dropped on the way out.
         manager = FakeManager()
         page_size = LANGSMITH_ENDPOINTS["projects"].page_size
 
         def fake_fetch(session, url, headers, log, json_body=None):
             return [{"id": f"x{i}"} for i in range(page_size)]
 
+        rows: list[dict[str, Any]] = []
         with mock.patch(_MAX_PAGES, 3), mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
             with pytest.raises(LangSmithPageLimitError):
-                _collect(get_rows("key", BASE_URL, "projects", logger, manager, 1))  # type: ignore[arg-type]
+                for table in get_rows("key", BASE_URL, "projects", logger, manager, 1):  # type: ignore[arg-type]
+                    rows.extend(table.to_pylist())
 
         assert manager.saved[-1].offset is not None
+        assert len(rows) == 3 * page_size
 
 
 class TestResponseSizeCap:

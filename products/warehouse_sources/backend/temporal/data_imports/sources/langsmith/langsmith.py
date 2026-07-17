@@ -406,6 +406,10 @@ def _get_runs_rows(
 
         pages += 1
         if pages >= MAX_PAGES_PER_RUN:
+            # Flush any batched-but-unyielded items from this page before checkpointing the next
+            # page — resuming from next_cursor skips this page, so an unflushed partial batch is lost.
+            if batcher.should_yield(include_incomplete_chunk=True):
+                yield batcher.get_table()
             # Checkpoint the next page and end this attempt; the resume path picks it up so a
             # legitimate oversized import continues without one attempt monopolising a worker.
             resumable_source_manager.save_state(LangSmithResumeConfig(cursor=next_cursor, window_start=window_start))
@@ -471,6 +475,10 @@ def _get_offset_rows(
 
         pages += 1
         if pages >= MAX_PAGES_PER_RUN:
+            # Flush any batched-but-unyielded items from this page before checkpointing the next
+            # offset — resuming skips this page, so an unflushed partial batch is lost.
+            if batcher.should_yield(include_incomplete_chunk=True):
+                yield batcher.get_table()
             # A host that returns a full page at every offset forever would page without end;
             # checkpoint the next offset and end this attempt so the resume path continues a real
             # oversized import without one attempt holding a worker until the activity timeout.
