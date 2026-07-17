@@ -342,10 +342,18 @@ export interface tracingDataLogicActions {
         errorObject?: any
     }
     fetchLatencyHeatmapSuccess: (
-        rawLatencyHeatmap: LatencyHeatmapRow[],
+        rawLatencyHeatmap: {
+            bucket_ns: number
+            count: number
+            time: string
+        }[],
         payload?: any
     ) => {
-        rawLatencyHeatmap: LatencyHeatmapRow[]
+        rawLatencyHeatmap: {
+            bucket_ns: number
+            count: number
+            time: string
+        }[]
         payload?: any
     }
     fetchMatchingCounts: () => any
@@ -446,10 +454,18 @@ export interface tracingDataLogicActions {
         errorObject?: any
     }
     fetchSparklineSuccess: (
-        rawSparklineData: SparklineRow[],
+        rawSparklineData: {
+            count: number
+            service: string
+            time: string
+        }[],
         payload?: any
     ) => {
-        rawSparklineData: SparklineRow[]
+        rawSparklineData: {
+            count: number
+            service: string
+            time: string
+        }[]
         payload?: any
     }
     handleFilterChange: (
@@ -577,7 +593,7 @@ export interface tracingDataLogicMeta {
         ) => number
         durationHistogramData: (rawDurationHistogram: DurationHistogramRow[]) => TracingDurationHistogramData
         latencyHeatmapData: (rawLatencyHeatmap: LatencyHeatmapRow[]) => TracingLatencyHeatmapData
-        showHeatmap: (filters: TracingFilters, compareActive: boolean, featureFlags: any) => boolean
+        showHeatmap: (filters: TracingFilters, compareActive: boolean, featureFlags: FeatureFlagsSet) => boolean
         listRows: (spans: Span[], filters: TracingFilters) => Span[]
         listRowDurations: (listRows: Span[]) => number[]
         isDurationMode: (filters: TracingFilters, compareActive: boolean) => boolean
