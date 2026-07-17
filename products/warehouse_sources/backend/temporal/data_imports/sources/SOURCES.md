@@ -248,6 +248,7 @@ the row lists both.
 | hyperspell                       | HTTP                        | requests                                                        | ✅                          |
 | imagga                           | HTTP                        | requests                                                        | ✅                          |
 | incident_io                      | HTTP                        | requests                                                        | ✅                          |
+| infisical                        | HTTP                        | requests                                                        | ✅                          |
 | inflowinventory                  | HTTP                        | requests                                                        | ✅                          |
 | inngest                          | HTTP                        | requests                                                        | ✅                          |
 | insightly                        | HTTP                        | requests                                                        | ✅                          |
@@ -715,7 +716,6 @@ doesn't conflict with concurrent PRs.
 - ikas
 - illumina_basespace
 - impact
-- infisical
 - infor_nexus
 - insightful
 - instagram
