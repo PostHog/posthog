@@ -73,7 +73,7 @@ export function resolveToolKey(
             try {
                 innerInput = JSON.parse(args)
             } catch {
-                // Leave malformed payloads renderable as generic tool calls.
+                return { resolvedKey: subTool, innerToolName: subTool }
             }
         }
         return { resolvedKey: subTool, innerToolName: subTool, innerInput }
