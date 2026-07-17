@@ -56,6 +56,8 @@ export interface dashboardSubscribeNudgeLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
     flagVariant: boolean | string | undefined
+    freeTierSubscriptionCount: number | null
+    freeTierSubscriptionCountLoading: boolean
     hasExistingSubscription: boolean | null
     hasExistingSubscriptionLoading: boolean
     hasSubscriptionsFeature: boolean
@@ -69,8 +71,6 @@ export interface dashboardSubscribeNudgeLogicValues {
     nudgeNotification: DashboardSubscribeNudgeResponseApi | null
     nudgeNotificationLoading: boolean
     showNudge: boolean
-    freeTierSubscriptionCount: number | null
-    freeTierSubscriptionCountLoading: boolean
     viewCount7d: number
 }
 
@@ -151,7 +151,7 @@ export interface dashboardSubscribeNudgeLogicMeta {
             placement: DashboardPlacement
         ) => boolean
         hasSubscriptionsFeature: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
         ) => boolean
         isCandidate: (
             isPastViewThreshold: boolean,
