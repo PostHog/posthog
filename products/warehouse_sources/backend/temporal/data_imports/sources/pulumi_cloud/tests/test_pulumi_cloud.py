@@ -325,6 +325,27 @@ class TestDeployments:
         rows = _run_rows("deployments", lambda *a, **k: {"deployments": []}, _FakeResumableManager())
         assert rows == []
 
+    def test_drops_environment_secrets_from_embedded_updates(self) -> None:
+        # A deployment embeds the updates it ran, and each update's `environment` can hold cloud
+        # credentials or PULUMI_CONFIG_PASSPHRASE; these rows skip `_flatten_update`, so the yield
+        # path must strip them before they reach a queryable warehouse row.
+        page = {
+            "deployments": [
+                {
+                    "id": "d1",
+                    "updates": [
+                        {"updateID": "u1", "environment": {"AWS_SECRET_ACCESS_KEY": "shh"}},
+                        {"updateID": "u2"},
+                    ],
+                }
+            ]
+        }
+        rows = _run_rows("deployments", lambda *a, **k: page, _FakeResumableManager())
+        assert len(rows) == 1
+        updates = rows[0]["updates"]
+        assert all("environment" not in update for update in updates)
+        assert [u["updateID"] for u in updates] == ["u1", "u2"]
+
 
 class TestAuditLogs:
     def _pages_fetch(self, captured: list[dict]) -> Any:

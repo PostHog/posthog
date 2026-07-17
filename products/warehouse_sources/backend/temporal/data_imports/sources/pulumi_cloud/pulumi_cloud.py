@@ -319,6 +319,21 @@ def _get_stack_update_rows(
         resumable_source_manager.save_state(PulumiCloudResumeConfig(completed_stack_keys=list(completed_stack_keys)))
 
 
+def _redact_deployment_environments(deployments: list[dict[str, Any]]) -> None:
+    """Strip per-update `environment` maps out of org deployment records in place.
+
+    A deployment embeds the updates it ran, and each update's `environment` holds the env vars
+    supplied to the operation — cloud credentials, CI tokens, or PULUMI_CONFIG_PASSPHRASE. These
+    rows skip `_flatten_update`, so redact them here just like stack-update rows before they land
+    in a queryable warehouse row.
+    """
+    for deployment in deployments:
+        if isinstance(deployment, dict):
+            for update in deployment.get("updates") or []:
+                if isinstance(update, dict):
+                    update.pop("environment", None)
+
+
 def _get_deployment_rows(
     session: requests.Session,
     headers: dict[str, str],
@@ -337,6 +352,7 @@ def _get_deployment_rows(
         deployments = data.get("deployments", [])
         if not deployments:
             return
+        _redact_deployment_environments(deployments)
         yield deployments
         if len(deployments) < PAGE_SIZE:
             return
