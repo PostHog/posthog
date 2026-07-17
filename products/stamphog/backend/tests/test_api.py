@@ -286,6 +286,8 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         mock_exchange.assert_called_once_with("oauth-code")
         mock_verify.assert_called_once_with("42", "user-token")
+        # The explicit-id path never discovers, so app_not_installed is always false there.
+        assert response.json()["app_not_installed"] is False
         synced = sorted(row["repository"] for row in response.json()["synced"])
         assert synced == ["PostHog/other", "PostHog/posthog"]
         bound = StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id, installation_id="42")
@@ -403,6 +405,73 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         # code is the ownership proof — the endpoint must require it.
         response = self.client.post(self.url, {"installation_id": "42", "state": self.state}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    @patch(f"{_VIEWS}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
+    @patch(f"{_VIEWS}.list_user_installations", return_value=[{"id": "42", "account_login": "PostHog"}])
+    @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
+    def test_discovery_without_installation_id_syncs_discovered_installation(
+        self, mock_exchange, mock_discover, mock_list
+    ) -> None:
+        # Authorize-first: the callback carries no installation_id. The backend discovers the caller's
+        # installations from the OAuth code (GitHub returns only installations of this App the user can
+        # reach) and syncs them, so the client never has to supply a forgeable id.
+        response = self.client.post(self.url, {"code": "oauth-code", "state": self.state}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        mock_discover.assert_called_once_with("user-token")
+        body = response.json()
+        assert [row["repository"] for row in body["synced"]] == ["PostHog/posthog"]
+        assert body["app_not_installed"] is False
+        bound = StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id, installation_id="42")
+        assert bound.count() == 1
+
+    @patch(f"{_VIEWS}.list_user_accessible_repositories")
+    @patch(
+        f"{_VIEWS}.list_user_installations",
+        return_value=[{"id": "100", "account_login": "AlphaOrg"}, {"id": "200", "account_login": "SharedOrg"}],
+    )
+    @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
+    def test_discovery_syncs_all_installations_and_aggregates(self, mock_exchange, mock_discover, mock_list) -> None:
+        # Two installations discovered from one code: repos from both are bound under the current team, and
+        # the synced/skipped tallies aggregate across installations. A repo another team already owns under
+        # its installation trips the cross-team unique constraint and is skipped, not fatal to the batch.
+        other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
+        StamphogRepoConfig.objects.unscoped().create(
+            team_id=other_team.id, repository="PostHog/shared", installation_id="200"
+        )
+        repos_by_installation = {"100": ["PostHog/alpha"], "200": ["PostHog/shared"]}
+        mock_list.side_effect = lambda installation_id, token: repos_by_installation[installation_id]
+
+        response = self.client.post(self.url, {"code": "oauth-code", "state": self.state}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert [row["repository"] for row in body["synced"]] == ["PostHog/alpha"]
+        assert body["skipped"] == ["PostHog/shared"]
+        assert StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id, installation_id="100").exists()
+        # The other team's shared repo is left untouched — not rebound under the syncing team.
+        assert (
+            not StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id, repository="PostHog/shared").exists()
+        )
+
+    @patch(f"{_VIEWS}.list_user_accessible_repositories")
+    @patch(f"{_VIEWS}.list_user_installations", return_value=[])
+    @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
+    def test_discovery_with_no_installations_reports_app_not_installed(
+        self, mock_exchange, mock_discover, mock_list
+    ) -> None:
+        # Discovery reached no installation the user can see: the App isn't installed anywhere for them.
+        # Not an error — return app_not_installed so the frontend routes them to the install page, binding
+        # nothing and never touching the repo-enumeration path.
+        response = self.client.post(self.url, {"code": "oauth-code", "state": self.state}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert body["app_not_installed"] is True
+        assert body["synced"] == []
+        assert body["skipped"] == []
+        mock_list.assert_not_called()
+        assert not StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id).exists()
 
 
 class TestDigestChannelAPI(StamphogTeamScopedTestMixin, APIBaseTest):

@@ -295,20 +295,24 @@ export interface PatchedStamphogRepoConfigApi {
 export interface StamphogInstallInfoApi {
     /** URL-friendly slug of the dedicated Stamphog GitHub App, or blank if unconfigured. */
     readonly app_slug: string
-    /** GitHub install URL (github.com/apps/<slug>/installations/new) the user opens to install the App, or blank if the App slug is unconfigured. */
+    /** GitHub install URL (github.com/apps/<slug>/installations/new) the user opens to install the App, or blank if the App slug is unconfigured. Used for the genuinely-not-installed case; the primary 'Connect' button uses authorize_url instead. */
     readonly install_url: string
+    /** GitHub authorize URL (github.com/login/oauth/authorize) the 'Connect' button opens. Authorize-first: an already-installed user is redirected straight back with an OAuth code (no installation_id), and sync_installation then discovers their installations server-side. Blank if the App client id is unconfigured. */
+    readonly authorize_url: string
 }
 
 /**
- * Request body for binding a completed GitHub App installation to the current team.
+ * Request body for binding a GitHub App installation to the current team.
  *
- * Requires both the ``installation_id`` and the user-to-server OAuth ``code`` from the post-install
- * redirect: the code proves the caller actually owns the installation, without which any caller could
- * bind another org's installation to their own team.
+ * Always requires the user-to-server OAuth ``code`` (the ownership proof) and the ``state`` token.
+ * ``installation_id`` is optional: when present (the fresh-install redirect) exactly that installation
+ * is verified and synced; when absent or blank (the authorize-first redirect) the caller's accessible
+ * installations are discovered server-side from the code, so the client never has to supply a
+ * forgeable id.
  */
 export interface StamphogSyncInstallationRequestApi {
-    /** GitHub App installation ID returned on the post-install Setup URL redirect. */
-    installation_id: string
+    /** GitHub App installation ID from the fresh-install Setup URL redirect. Optional: absent or blank means discover the caller's installations from the OAuth code instead (authorize-first flow). The id is not trusted on its own — ownership is always proven via the code. */
+    installation_id?: string
     /** GitHub user-to-server OAuth code from the post-install redirect (present when the App has 'Request user authorization during installation' enabled). Exchanged server-side to prove the caller owns the installation before its repos are bound. */
     code: string
     /** Signed state token minted by install_info and round-tripped through GitHub's install redirect. Binds the callback to the team and user that started the flow, so a stolen installation_id + code can't be replayed against another team's session. */
@@ -323,6 +327,8 @@ export interface StamphogSyncInstallationResponseApi {
     readonly synced: readonly StamphogRepoConfigApi[]
     /** Repository full names skipped because another team already owns them under this installation. */
     readonly skipped: readonly string[]
+    /** True only on the discovery path (no installation_id) when the caller can reach no installation of this App — it isn't installed anywhere they can see. The frontend should route the user to the GitHub install page (install_url). Always false on the explicit installation_id path. */
+    readonly app_not_installed: boolean
 }
 
 /**

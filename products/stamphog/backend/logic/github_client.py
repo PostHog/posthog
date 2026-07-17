@@ -203,15 +203,17 @@ def exchange_oauth_code_for_user_token(code: str) -> str | None:
     return str(access_token)
 
 
-def user_can_access_installation(installation_id: str, user_access_token: str) -> bool:
-    """Whether the OAuth'd user can reach the given App installation.
+def list_user_installations(user_access_token: str) -> list[dict[str, str]]:
+    """This App's installations the OAuth'd user can reach, as ``[{"id", "account_login"}, ...]``.
 
-    Lists the installations visible to the *user's* token (``GET /user/installations``) and checks the
-    submitted id is among them. Authenticated with the user token, so it is identity-blind on the egress
-    budget (no ``installation_id`` passed to the gate) — GitHub meters it against the user, not the
-    installation. Raises :class:`StamphogGitHubError` on an unexpected status so the caller fails closed
-    rather than silently treating an API hiccup as "no access".
+    Pages ``GET /user/installations`` with the *user's* token, which GitHub scopes to installations of
+    THIS App the user can access — the discovery primitive for the authorize-first connect flow, where
+    no installation_id rides in the callback. Authenticated with the user token, so it is identity-blind
+    on the egress budget (no ``installation_id`` passed to the gate) — GitHub meters it against the user,
+    not the installation. Raises :class:`StamphogGitHubError` on an unexpected status so the caller fails
+    closed rather than silently treating an API hiccup as "no installations".
     """
+    installations: list[dict[str, str]] = []
     for page in range(1, _MAX_PAGES + 1):
         response = github_request(
             "GET",
@@ -231,15 +233,33 @@ def user_can_access_installation(installation_id: str, user_access_token: str) -
             data = response.json()
         except ValueError as exc:
             raise StamphogGitHubError("Non-JSON response listing user installations") from exc
-        installations = data.get("installations") if isinstance(data, dict) else None
-        if not isinstance(installations, list):
+        page_installations = data.get("installations") if isinstance(data, dict) else None
+        if not isinstance(page_installations, list):
             raise StamphogGitHubError("Unexpected user installations payload")
-        for installation in installations:
-            if isinstance(installation, dict) and str(installation.get("id")) == str(installation_id):
-                return True
-        if len(installations) < _PER_PAGE:
+        for installation in page_installations:
+            if not isinstance(installation, dict) or installation.get("id") is None:
+                continue
+            installations.append(
+                {
+                    "id": str(installation.get("id")),
+                    "account_login": ((installation.get("account") or {}).get("login") or ""),
+                }
+            )
+        if len(page_installations) < _PER_PAGE:
             break
-    return False
+    return installations
+
+
+def user_can_access_installation(installation_id: str, user_access_token: str) -> bool:
+    """Whether the OAuth'd user can reach the given App installation.
+
+    Built on :func:`list_user_installations`: the submitted id must be among the installations visible to
+    the user's token. Raises :class:`StamphogGitHubError` on an unexpected status (via the underlying
+    call) so the caller fails closed rather than silently treating an API hiccup as "no access".
+    """
+    return any(
+        installation["id"] == str(installation_id) for installation in list_user_installations(user_access_token)
+    )
 
 
 def list_user_accessible_repositories(installation_id: str, user_access_token: str) -> list[str]:

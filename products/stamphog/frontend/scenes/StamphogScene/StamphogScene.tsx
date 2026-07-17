@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconGithub } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonSwitch, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -19,18 +19,19 @@ export const scene: SceneExport = {
 }
 
 function ConnectRepositoryButton(): JSX.Element {
-    const { installUrl, installInfoLoading } = useValues(stamphogSceneLogic)
+    // Authorize-first: the connect button opens the OAuth authorize URL. An already-installed user gets a
+    // silent instant redirect back, so it never dead-ends on GitHub's "update installation" screen.
+    const { authorizeUrl, installInfoLoading } = useValues(stamphogSceneLogic)
     return (
         <LemonButton
             type="primary"
             icon={<IconGithub />}
-            to={installUrl || undefined}
-            targetBlank
+            to={authorizeUrl || undefined}
             disableClientSideRouting
             disabledReason={
                 installInfoLoading
                     ? 'Loading install details'
-                    : installUrl
+                    : authorizeUrl
                       ? undefined
                       : 'GitHub App not configured yet'
             }
@@ -41,7 +42,28 @@ function ConnectRepositoryButton(): JSX.Element {
 }
 
 function SyncedBanner(): JSX.Element | null {
-    const { syncedRepos, skippedRepos } = useValues(stamphogSceneLogic)
+    const { syncedRepos, skippedRepos, appNotInstalled, installUrl } = useValues(stamphogSceneLogic)
+
+    // Discovery found no installation the user can reach: they authorized the App but never installed it
+    // on the org. Point them at the GitHub install page (install_url still carries a fresh state token).
+    if (appNotInstalled) {
+        return (
+            <LemonBanner type="warning">
+                <p className="font-medium">Stamphog isn't installed on GitHub yet</p>
+                <p>
+                    Install the Stamphog GitHub App on your organization to connect its repositories.
+                    {installUrl && (
+                        <>
+                            {' '}
+                            <Link to={installUrl} target="_blank" disableClientSideRouting>
+                                Install on GitHub
+                            </Link>
+                        </>
+                    )}
+                </p>
+            </LemonBanner>
+        )
+    }
 
     if (syncedRepos.length === 0 && skippedRepos.length === 0) {
         return null

@@ -16,6 +16,7 @@ import type {
     ReviewModeEnumApi,
     StamphogInstallInfoApi,
     StamphogRepoConfigApi,
+    StamphogSyncInstallationRequestApi,
     StamphogSyncInstallationResponseApi,
 } from '../../generated/api.schemas'
 import type { stamphogSceneLogicType } from './stamphogSceneLogicType'
@@ -34,6 +35,7 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         setTriggerLabel: (id: string, triggerLabel: string) => ({ id, triggerLabel }),
         repoUpdateDone: (id: string) => ({ id }),
         setRepoSearch: (search: string) => ({ search }),
+        redirectToAuthorize: true,
     }),
 
     loaders(({ values }) => ({
@@ -79,15 +81,17 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
                     code,
                     state,
                 }: {
-                    installationId: string
+                    // Optional: absent on the authorize-first redirect, where the backend discovers the
+                    // caller's installations from the code instead of trusting a supplied id.
+                    installationId?: string
                     code: string
                     state: string
                 }) => {
-                    return stamphogRepoConfigsSyncInstallationCreate(String(values.currentProjectId), {
-                        installation_id: installationId,
-                        code,
-                        state,
-                    })
+                    const body: StamphogSyncInstallationRequestApi = { code, state }
+                    if (installationId) {
+                        body.installation_id = installationId
+                    }
+                    return stamphogRepoConfigsSyncInstallationCreate(String(values.currentProjectId), body)
                 },
             },
         ],
@@ -113,6 +117,14 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         installUrl: [
             (s) => [s.installInfo],
             (installInfo: StamphogInstallInfoApi | null): string => installInfo?.install_url ?? '',
+        ],
+        authorizeUrl: [
+            (s) => [s.installInfo],
+            (installInfo: StamphogInstallInfoApi | null): string => installInfo?.authorize_url ?? '',
+        ],
+        appNotInstalled: [
+            (s) => [s.syncResult],
+            (syncResult: StamphogSyncInstallationResponseApi | null): boolean => syncResult?.app_not_installed ?? false,
         ],
         syncedRepos: [
             (s) => [s.syncResult],
@@ -181,10 +193,27 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
                 actions.repoUpdateDone(id)
             }
         },
-        syncInstallationSuccess: () => {
-            // Drop installation_id from the URL so a refresh doesn't re-sync,
+        redirectToAuthorize: async () => {
+            // The setup_action=update redirect carries no code (nothing to sync), so bounce the browser
+            // through the authorize URL for one silent hop — GitHub redirects straight back with a code
+            // and the discovery path takes over. Fetch install info directly rather than racing the loader,
+            // which may not have resolved yet when the callback fires.
+            const info = await stamphogRepoConfigsInstallInfoRetrieve(String(values.currentProjectId))
+            if (info.authorize_url) {
+                window.location.href = info.authorize_url
+            } else {
+                lemonToast.error('GitHub App is not configured, so it cannot be connected')
+            }
+        },
+        syncInstallationSuccess: ({ syncResult }) => {
+            // Drop the callback params from the URL so a refresh doesn't re-sync,
             // then refresh the list to show the newly bound repos.
             router.actions.replace(urls.stamphog())
+            if (syncResult?.app_not_installed) {
+                // Discovery found no installation the user can reach — they still need to install the App.
+                // The banner and connect button surface the install link.
+                lemonToast.info("Stamphog isn't installed on GitHub yet. Use the install link to add it.")
+            }
             actions.loadRepoConfigs()
         },
         syncInstallationFailure: () => {
@@ -194,18 +223,22 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
 
     urlToAction(({ actions }) => ({
         [urls.stamphogCallback()]: (_, searchParams) => {
-            // The GitHub setup redirect carries installation_id, a user OAuth code, and the state token
-            // we minted in install_info. The backend needs the code to prove installation ownership and
-            // the state to prove this callback belongs to the current team's own install flow.
+            // Two redirects land here, both carrying the state token we minted in install_info:
+            //   - authorize/fresh-install: a user OAuth code (+ installation_id on a fresh install). The
+            //     backend proves ownership from the code and discovers or verifies the installation.
+            //   - setup_action=update (app already installed): installation_id + state but NO code. The id
+            //     is user-editable and not trusted, so restart via authorize to obtain a real code.
             const installationId = searchParams.installation_id
             const code = searchParams.code
             const state = searchParams.state
-            if (installationId && code && state) {
+            if (code && state) {
                 actions.syncInstallation({
-                    installationId: String(installationId),
+                    installationId: installationId ? String(installationId) : undefined,
                     code: String(code),
                     state: String(state),
                 })
+            } else if (installationId && state) {
+                actions.redirectToAuthorize()
             }
         },
     })),

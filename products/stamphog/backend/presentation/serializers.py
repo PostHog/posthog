@@ -133,21 +133,40 @@ class StamphogInstallInfoSerializer(serializers.Serializer):
         read_only=True,
         help_text=(
             "GitHub install URL (github.com/apps/<slug>/installations/new) the user opens to install the "
-            "App, or blank if the App slug is unconfigured."
+            "App, or blank if the App slug is unconfigured. Used for the genuinely-not-installed case; the "
+            "primary 'Connect' button uses authorize_url instead."
+        ),
+    )
+    authorize_url = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "GitHub authorize URL (github.com/login/oauth/authorize) the 'Connect' button opens. "
+            "Authorize-first: an already-installed user is redirected straight back with an OAuth code (no "
+            "installation_id), and sync_installation then discovers their installations server-side. Blank "
+            "if the App client id is unconfigured."
         ),
     )
 
 
 class StamphogSyncInstallationRequestSerializer(serializers.Serializer):
-    """Request body for binding a completed GitHub App installation to the current team.
+    """Request body for binding a GitHub App installation to the current team.
 
-    Requires both the ``installation_id`` and the user-to-server OAuth ``code`` from the post-install
-    redirect: the code proves the caller actually owns the installation, without which any caller could
-    bind another org's installation to their own team.
+    Always requires the user-to-server OAuth ``code`` (the ownership proof) and the ``state`` token.
+    ``installation_id`` is optional: when present (the fresh-install redirect) exactly that installation
+    is verified and synced; when absent or blank (the authorize-first redirect) the caller's accessible
+    installations are discovered server-side from the code, so the client never has to supply a
+    forgeable id.
     """
 
     installation_id = serializers.CharField(
-        help_text="GitHub App installation ID returned on the post-install Setup URL redirect.",
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "GitHub App installation ID from the fresh-install Setup URL redirect. Optional: absent or "
+            "blank means discover the caller's installations from the OAuth code instead (authorize-first "
+            "flow). The id is not trusted on its own — ownership is always proven via the code."
+        ),
     )
     code = serializers.CharField(
         help_text=(
@@ -177,6 +196,14 @@ class StamphogSyncInstallationResponseSerializer(serializers.Serializer):
         child=serializers.CharField(),
         read_only=True,
         help_text="Repository full names skipped because another team already owns them under this installation.",
+    )
+    app_not_installed = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True only on the discovery path (no installation_id) when the caller can reach no installation "
+            "of this App — it isn't installed anywhere they can see. The frontend should route the user to "
+            "the GitHub install page (install_url). Always false on the explicit installation_id path."
+        ),
     )
 
 
