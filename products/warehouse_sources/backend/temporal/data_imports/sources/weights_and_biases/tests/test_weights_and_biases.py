@@ -54,6 +54,7 @@ def _ok_response(payload: dict[str, Any]) -> mock.MagicMock:
     resp = mock.MagicMock()
     resp.status_code = 200
     resp.ok = True
+    resp.headers = {}
     resp.raw.read.side_effect = [json.dumps(payload).encode(), b""]
     return resp
 
@@ -386,6 +387,7 @@ class TestErrors:
         oversized = mock.MagicMock()
         oversized.status_code = 200
         oversized.ok = True
+        oversized.headers = {}
         oversized.raw.read.return_value = b"x" * 17
         mock_session.return_value.post.return_value = oversized
 
@@ -402,6 +404,7 @@ class TestErrors:
         resp = mock.MagicMock()
         resp.status_code = 200
         resp.ok = True
+        resp.headers = {}
         resp.raw.read.side_effect = lambda *a, **k: (release.wait(timeout=5), b"")[1]
         resp.close.side_effect = release.set
         mock_session.return_value.post.return_value = resp
@@ -410,6 +413,32 @@ class TestErrors:
             list(get_rows("key", None, "acme", "projects", mock.MagicMock(), _make_manager()))
 
         assert resp.close.called
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_forced_content_encoding_is_rejected(self, mock_session):
+        # We request Accept-Encoding: identity and read the body undecoded; a host that compresses
+        # anyway (a decompression-bomb vector) must be rejected rather than decoded.
+        compressed = mock.MagicMock()
+        compressed.status_code = 200
+        compressed.ok = True
+        compressed.headers = {"Content-Encoding": "gzip"}
+        mock_session.return_value.post.return_value = compressed
+
+        with pytest.raises(WeightsAndBiasesGraphQLError, match="Content-Encoding"):
+            list(get_rows("key", None, "acme", "projects", mock.MagicMock(), _make_manager()))
+
+    @mock.patch(f"{_MODULE}.MAX_RETAINED_PROJECT_NAME_BYTES", 10)
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_oversized_fan_out_project_list_is_rejected(self, mock_session):
+        # A hostile host can page project names back indefinitely; the fan-out enumeration must
+        # stop buffering them before the retained list can exhaust a worker.
+        mock_session.return_value.post.side_effect = [
+            _projects_response(["p" * 4], has_next=True, end_cursor="c1"),
+            _projects_response(["q" * 8], has_next=False),
+        ]
+
+        with pytest.raises(WeightsAndBiasesGraphQLError, match="unreasonably large project list"):
+            list(get_rows("key", None, "acme", "runs", mock.MagicMock(), _make_manager()))
 
 
 class TestSourceResponse:

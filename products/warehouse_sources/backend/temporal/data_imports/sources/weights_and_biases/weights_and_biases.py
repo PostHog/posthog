@@ -31,6 +31,14 @@ MAX_RESPONSE_BYTES = 100 * 1024 * 1024
 # is 5M rows per connection — far beyond any real entity — so a legitimate sync never hits it,
 # while a runaway server can't loop indefinitely or grow the enumerated project list without end.
 MAX_PAGES_PER_CONNECTION = 100_000
+# Fan-out endpoints (runs/sweeps/reports/artifacts) enumerate every project name up front to
+# drive iteration and resume. That list is the one piece of state that grows with the response,
+# so bound it: a customer-controlled host could otherwise page back millions of large project
+# names (each page is capped, but the accumulated list is not) and exhaust a shared worker. The
+# caps sit far above any real entity's project count/name length, so a legitimate sync never
+# trips them.
+MAX_FAN_OUT_PROJECTS = 250_000
+MAX_RETAINED_PROJECT_NAME_BYTES = 16 * 1024 * 1024
 RESPONSE_READ_CHUNK_BYTES = 1024 * 1024
 # Wall-clock ceiling for consuming a single response body. The request timeout is a per-read
 # inactivity limit, so a host that drips a byte before each timeout could hold a worker for the
@@ -181,7 +189,12 @@ def _get_session(api_key: str) -> requests.Session:
     # `wandb login` writes to .netrc for the official SDK. Redirects are disabled as
     # defense-in-depth: the host is validated up front, and W&B's GraphQL API responds
     # directly, so pinning traffic to the validated host closes a redirect-based SSRF path.
-    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
+    # Accept-Encoding: identity so a compliant host returns uncompressed bytes; combined with
+    # reading the body undecoded (see _read_response_body) the size cap bounds true wire bytes,
+    # so a customer-controlled host can't ship a small gzip that expands to gigabytes in memory.
+    session = make_tracked_session(
+        headers={"Accept-Encoding": "identity"}, redact_values=(api_key,), allow_redirects=False
+    )
     session.auth = ("api", api_key)
     return session
 
@@ -242,7 +255,10 @@ def _read_response_body(response: requests.Response) -> bytes:
     def _drain() -> None:
         try:
             while True:
-                chunk = response.raw.read(RESPONSE_READ_CHUNK_BYTES, decode_content=True)
+                # decode_content=False: buffer the raw wire bytes without decompressing, so the
+                # cap below applies to what actually crossed the network. Decoding here would let
+                # a hostile host's gzip bomb balloon a single chunk past the cap before we check.
+                chunk = response.raw.read(RESPONSE_READ_CHUNK_BYTES, decode_content=False)
                 if not chunk:
                     return
                 buffer.extend(chunk)
@@ -281,6 +297,16 @@ def _execute(
     if response.status_code == 429 or response.status_code >= 500:
         response.close()
         raise WeightsAndBiasesRetryableError(f"Weights & Biases API error (retryable): status={response.status_code}")
+
+    # We requested Accept-Encoding: identity and read the body undecoded. A host that compresses
+    # anyway is either misbehaving or hostile (a decompression bomb), so reject it rather than
+    # decode an untrusted, potentially unbounded body.
+    content_encoding = response.headers.get("Content-Encoding")
+    if content_encoding and content_encoding.strip().lower() not in ("", "identity"):
+        response.close()
+        raise WeightsAndBiasesGraphQLError(
+            f"Weights & Biases API returned an unexpected Content-Encoding: {content_encoding}"
+        )
 
     raw = _read_response_body(response)
 
@@ -368,6 +394,27 @@ def _iter_all_project_names(
             node = edge.get("node")
             if node and node.get("name"):
                 yield node["name"]
+
+
+def _collect_fan_out_project_names(
+    execute: Callable[[str, dict[str, Any]], dict[str, Any]], entity: str, logger: FilteringBoundLogger
+) -> list[str]:
+    """Materialise every project name for a fan-out sync under a hard retained-state cap.
+
+    The host is customer-controlled, so refuse to buffer an unbounded list — abort once the
+    retained names exceed either cap rather than let a hostile host grow worker memory without
+    end. Both caps are far beyond any real entity, so a legitimate sync never hits them.
+    """
+    names: list[str] = []
+    retained_bytes = 0
+    for name in _iter_all_project_names(execute, entity, logger):
+        names.append(name)
+        retained_bytes += len(name.encode("utf-8"))
+        if len(names) > MAX_FAN_OUT_PROJECTS or retained_bytes > MAX_RETAINED_PROJECT_NAME_BYTES:
+            raise WeightsAndBiasesGraphQLError(
+                "Weights & Biases returned an unreasonably large project list; refusing to buffer it"
+            )
+    return names
 
 
 def _get_project_rows(
@@ -523,7 +570,7 @@ def get_rows(
     # Fan-out endpoints iterate every project in the entity. Resolve the saved project-name
     # bookmark to the slice still to process; if the bookmarked project no longer exists,
     # start over from the first project (merge dedupes re-pulled rows on the primary key).
-    project_names = list(_iter_all_project_names(execute, entity, logger))
+    project_names = _collect_fan_out_project_names(execute, entity, logger)
     remaining = project_names
     resume_cursor: str | None = None
     if resume is not None and resume.project is not None and resume.project in project_names:
