@@ -531,7 +531,7 @@ class FlakyTestItem:
     # Runs where an in-job pytest retry recovered the test after it failed. Only tests hand-marked
     # @pytest.mark.flaky(reruns=N) can reach this: Backend CI runs without --reruns so failures
     # reach Trunk raw.
-    same_commit_recovery_run_count: int
+    rerun_passed_run_count: int
     failed_run_count: int
     # Master/branch failures carry no PR number and don't count here.
     failed_pr_count: int
@@ -577,8 +577,8 @@ class TeamCIHealthItem:
     # Runs (not spans) where an owned test's recorded outcome was failed or error.
     failed_run_count: int
     failed_run_count_prior: int
-    same_commit_recovery_run_count: int
-    same_commit_recovery_run_count_prior: int
+    rerun_passed_run_count: int
+    rerun_passed_run_count_prior: int
     # Runs where an owned test failed while quarantined (xfail): already masked, still failing.
     quarantined_failed_run_count: int
     quarantined_failed_run_count_prior: int

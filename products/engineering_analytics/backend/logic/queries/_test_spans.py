@@ -63,8 +63,11 @@ def run_evidence(*, bounded: bool) -> str:
 
     Every consumer groups this, never the raw spans, so all of them count at the same grain and
     agree on what the signal means. See the module docstring for why the run is the grain.
+
+    ``bounded`` adds the upper time bound; some callers scan to now.
     """
-    return _RUN_EVIDENCE.replace("__SPAN_SCAN__", span_scan(bounded=bounded, with_run_id=True))
+    scan = _SCAN.replace("__DATE_TO__", " AND timestamp <= {date_to}" if bounded else "")
+    return _RUN_EVIDENCE.replace("__SPAN_SCAN__", scan)
 
 
 # Scans [scan_from, date_to?]; `is_current` splits rows at {date_from} so a caller scanning
@@ -77,28 +80,16 @@ _SCAN = """
         attributes['test.outcome'] AS outcome,
         coalesce(nullIf(attributes['test.owner_team'], ''), {unowned_team}) AS owner_team,
         resource_attributes['ci.pr_number'] AS pr_number,
-        resource_attributes['ci.branch'] AS branch,__RUN_COLUMNS__
+        resource_attributes['ci.branch'] AS branch,
+        resource_attributes['ci.run_id'] AS run_id,
         timestamp AS span_timestamp,
         timestamp >= {date_from} AS is_current
     FROM posthog.trace_spans
     WHERE service_name = {service_name}
+        AND attributes['test.outcome'] IN {signal_outcomes}
         AND lower(resource_attributes['ci.repository']) = lower({repository})
         AND timestamp >= {scan_from}__DATE_TO__
-        AND attributes['test.outcome'] IN {signal_outcomes}
 """
-
-_RUN_COLUMNS = """
-        resource_attributes['ci.run_id'] AS run_id,"""
-
-
-def span_scan(*, bounded: bool, with_run_id: bool = False) -> str:
-    """The scan SELECT, with or without the upper time bound (some callers scan to now).
-
-    ``with_run_id`` adds the ``run_id`` a caller needs to group at run grain.
-    """
-    return _SCAN.replace("__DATE_TO__", " AND timestamp <= {date_to}" if bounded else "").replace(
-        "__RUN_COLUMNS__", _RUN_COLUMNS if with_run_id else ""
-    )
 
 
 def scan_placeholders(

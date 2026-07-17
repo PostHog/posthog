@@ -193,7 +193,7 @@ export interface FlakyTestItemApi {
      * * `quarantined` - QUARANTINED */
     classification: FlakyTestItemClassificationEnumApi
     /** Runs where an in-job pytest retry recovered the test after it failed. Above zero is the only proof of flakiness this data carries, and it reaches only tests hand-marked @pytest.mark.flaky(reruns=N), since Backend CI runs without --reruns so failures reach Trunk raw. */
-    same_commit_recovery_run_count: number
+    rerun_passed_run_count: number
     /** Distinct CI runs whose recorded outcome was failed or error. A run counts once however many matrix legs it failed in. */
     failed_run_count: number
     /** Distinct pull requests among the failed runs. Failures on master or unattributed branches carry no PR number and are excluded here (still in failed_run_count). */
@@ -960,9 +960,9 @@ export interface TeamCIHealthItemApi {
     /** Same count over the prior window. */
     failed_run_count_prior: number
     /** Runs where an in-job pytest retry recovered an owned test after it failed. */
-    same_commit_recovery_run_count: number
+    rerun_passed_run_count: number
     /** Same count over the prior window. */
-    same_commit_recovery_run_count_prior: number
+    rerun_passed_run_count_prior: number
     /** Runs where an owned test failed while quarantined (xfail): masked in CI, still failing. */
     quarantined_failed_run_count: number
     /** Same count over the prior window. */

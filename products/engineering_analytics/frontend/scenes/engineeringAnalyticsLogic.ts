@@ -454,7 +454,7 @@ export interface FlakyTestRow {
     selector: string
     classification: FlakyTestClassification
     /** Runs where one commit both failed and passed. Above zero is the only proof of flakiness. */
-    sameCommitRecoveryRunCount: number
+    rerunPassedRunCount: number
     failedRunCount: number
     failedPrCount: number
     masterFailedRunCount: number
@@ -557,8 +557,8 @@ export interface QuarantineModalState {
 export function flakyEvidenceReason(row: FlakyTestRow, window: FlakyTestWindow): string {
     const windowLabel = { '-7d': '7 days', '-14d': '14 days', '-30d': '30 days' }[window]
     const parts: string[] = []
-    if (row.sameCommitRecoveryRunCount > 0) {
-        parts.push(`failed then passed on the same commit in ${pluralize(row.sameCommitRecoveryRunCount, 'run')}`)
+    if (row.rerunPassedRunCount > 0) {
+        parts.push(`recovered on retry in ${pluralize(row.rerunPassedRunCount, 'run')}`)
     }
     if (row.failedRunCount > 0) {
         parts.push(`failed in ${pluralize(row.failedRunCount, 'run')}`)
@@ -1156,7 +1156,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                     nodeid: it.nodeid,
                                     selector: it.selector,
                                     classification: it.classification,
-                                    sameCommitRecoveryRunCount: it.same_commit_recovery_run_count,
+                                    rerunPassedRunCount: it.rerun_passed_run_count,
                                     failedRunCount: it.failed_run_count,
                                     failedPrCount: it.failed_pr_count,
                                     masterFailedRunCount: it.master_failed_run_count,

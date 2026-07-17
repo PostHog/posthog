@@ -38,7 +38,7 @@ _SELECT = """
     SELECT
         nodeid,
         anyIf(selector, selector != '') AS selector,
-        countIf(recovered_in_run) AS same_commit_recovery_run_count,
+        countIf(recovered_in_run) AS rerun_passed_run_count,
         countIf(failed_in_run) AS failed_run_count,
         uniqIf(pr_number, failed_in_run AND pr_number != '') AS failed_pr_count,
         countIf(failed_in_run AND branch IN ('master', 'main')) AS master_failed_run_count,
@@ -46,12 +46,12 @@ _SELECT = """
         max(run_signal_at) AS last_signal_at,
         multiIf(
             quarantined_failed_run_count > 0, 'quarantined',
-            same_commit_recovery_run_count > 0, 'confirmed_flake',
+            rerun_passed_run_count > 0, 'confirmed_flake',
             'suspected_regression'
         ) AS classification
     FROM (__RUN_EVIDENCE__)
     GROUP BY nodeid
-    HAVING same_commit_recovery_run_count > 0
+    HAVING rerun_passed_run_count > 0
         OR quarantined_failed_run_count > 0
         OR master_failed_run_count > 0
         OR failed_pr_count >= {min_failed_prs}
@@ -100,7 +100,7 @@ def query_flaky_tests(
                 # Prefer the emitter's exact selector; reconstruct from the nodeid for older spans.
                 selector=selector or selector_from_nodeid(nodeid),
                 classification=FlakyTestClassification(classification),
-                same_commit_recovery_run_count=same_commit_recovery_run_count,
+                rerun_passed_run_count=rerun_passed_run_count,
                 failed_run_count=failed_run_count,
                 failed_pr_count=failed_pr_count,
                 master_failed_run_count=master_failed_run_count,
@@ -110,7 +110,7 @@ def query_flaky_tests(
             for (
                 nodeid,
                 selector,
-                same_commit_recovery_run_count,
+                rerun_passed_run_count,
                 failed_run_count,
                 failed_pr_count,
                 master_failed_run_count,

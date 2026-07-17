@@ -81,7 +81,7 @@ tools:
             are flaky": Trunk answers that, across every suite, and auto-quarantines. This data only sees Backend CI.
             Evidence is counted per CI run, never per span, because one run fans a test across matrix legs.
             classification is confirmed_flake only when an in-job pytest retry recovered the test in the same run
-            (same_commit_recovery_run_count > 0), which is the only proof of flakiness here and reaches only tests
+            (rerun_passed_run_count > 0), which is the only proof of flakiness here and reaches only tests
             hand-marked @pytest.mark.flaky(reruns=N). quarantined means the test fails while masked as xfail.
             suspected_regression means only failures were recorded, which is absence of proof, not proof of a real
             break: treat it as real and check Trunk before calling it flaky. A test qualifies on any recovery, any
@@ -190,7 +190,7 @@ tools:
             maximum 30 days). It reads the same per-run evidence as engineering-analytics-flaky-tests and means the same
             thing by flaky: flaky_test_count is owned tests one commit was seen both failing and passing (what a CI
             re-run proves), regression_test_count is owned tests that failed with no such proof and still hit
-            min_failed_prs distinct PRs or master, and failed_run_count / same_commit_recovery_run_count /
+            min_failed_prs distinct PRs or master, and failed_run_count / rerun_passed_run_count /
             quarantined_failed_run_count are run counts. Each has an equal-length previous-window twin (*_prior) for
             honest deltas. Use this for "which team owns the flakiest surfaces right now" and to route a flaky-test or
             CI Signal to its owning team. Ownership is stamped on the spans at CI emission time from the repo's

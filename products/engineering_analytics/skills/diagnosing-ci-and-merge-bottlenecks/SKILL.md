@@ -39,7 +39,7 @@ autonomous agents (e.g. PostHog Code) reasoning about their own PRs.
   "where is PR N stuck". `metric_quality` is `partial`.
 - **`engineering-analytics-flaky-tests`** — the active test-health queue from the per-test CI spans, over a
   window (`date_from` default `-7d`, max 30 days). Evidence is counted per CI run, never per span. `classification`
-  is `confirmed_flake` only where the evidence proves nondeterminism (`same_commit_recovery_run_count > 0`, an
+  is `confirmed_flake` only where the evidence proves nondeterminism (`rerun_passed_run_count > 0`, an
   in-job retry recovered it); `quarantined` means failing while masked as xfail; `suspected_regression` means only
   failures were recorded, which is absence of proof, not proof of a real break. A test qualifies on any recovery,
   an xfail, any master/main failure, or failures on ≥ `min_failed_prs` distinct PRs (`failed_pr_count`). Answers

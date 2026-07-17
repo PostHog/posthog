@@ -190,10 +190,10 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         assert legs["failed_run_count"] == 1
         assert legs["master_failed_run_count"] == 1
         # The passing leg must not read as a recovery.
-        assert legs["same_commit_recovery_run_count"] == 0
+        assert legs["rerun_passed_run_count"] == 0
 
         recovered = rows[T_IN_JOB_RETRY]
-        assert recovered["same_commit_recovery_run_count"] == 1
+        assert recovered["rerun_passed_run_count"] == 1
         assert recovered["selector"] == T_IN_JOB_SELECTOR
 
         three_prs = rows[T_THREE_PRS]

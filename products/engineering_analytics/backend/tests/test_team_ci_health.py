@@ -128,16 +128,16 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
     def test_roster_uses_the_same_flake_proof_as_the_queue(self):
         rows = {item["owner_team"]: item for item in self._get("team_ci_health")["items"]}
 
-        # Only the pass-on-retry test is proven flaky. The 3-PR test failed without ever being seen
-        # passing the same commit, so it is a regression here exactly as it is in the queue.
+        # Only the pass-on-retry test is proven flaky. The 3-PR test failed with no recovery, so it
+        # is a regression here exactly as it is in the queue.
         replay = rows["team-replay"]
         assert (replay["flaky_test_count"], replay["regression_test_count"]) == (1, 1)
         assert (replay["flaky_test_count_prior"], replay["regression_test_count_prior"]) == (1, 0)
         assert (replay["failed_run_count"], replay["failed_run_count_prior"]) == (3, 1)
-        assert (replay["same_commit_recovery_run_count"], replay["same_commit_recovery_run_count_prior"]) == (1, 2)
+        assert (replay["rerun_passed_run_count"], replay["rerun_passed_run_count_prior"]) == (1, 2)
         assert (replay["quarantined_failed_run_count"], replay["quarantined_failed_run_count_prior"]) == (1, 0)
 
-        assert (rows["unowned"]["flaky_test_count"], rows["unowned"]["same_commit_recovery_run_count"]) == (1, 1)
+        assert (rows["unowned"]["flaky_test_count"], rows["unowned"]["rerun_passed_run_count"]) == (1, 1)
 
         # An in-job retry recovered it, so it is current-window flaky; the prior window's 3
         # unrecovered PR failures are a regression, not a flake.

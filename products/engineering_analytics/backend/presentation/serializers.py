@@ -424,7 +424,7 @@ class FlakyTestItemSerializer(DataclassSerializer):
                 "only failures were recorded, which is absence of proof, not proof that it is a real break. "
                 "Trunk, not this queue, is the authority on which tests are flaky.",
             },
-            "same_commit_recovery_run_count": {
+            "rerun_passed_run_count": {
                 "help_text": "Runs where an in-job pytest retry recovered the test after it failed. Above zero is "
                 "the only proof of flakiness this data carries, and it reaches only tests hand-marked "
                 "@pytest.mark.flaky(reruns=N), since Backend CI runs without --reruns so failures reach Trunk raw.",
@@ -494,10 +494,10 @@ class TeamCIHealthItemSerializer(DataclassSerializer):
                 "An absolute count, not a rate: fast passing runs are not emitted.",
             },
             "failed_run_count_prior": {"help_text": "Same count over the prior window."},
-            "same_commit_recovery_run_count": {
+            "rerun_passed_run_count": {
                 "help_text": "Runs where an in-job pytest retry recovered an owned test after it failed.",
             },
-            "same_commit_recovery_run_count_prior": {"help_text": "Same count over the prior window."},
+            "rerun_passed_run_count_prior": {"help_text": "Same count over the prior window."},
             "quarantined_failed_run_count": {
                 "help_text": "Runs where an owned test failed while quarantined (xfail): masked in CI, still failing.",
             },

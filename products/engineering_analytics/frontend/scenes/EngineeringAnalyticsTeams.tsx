@@ -95,13 +95,13 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
         },
         {
             title: 'Recoveries',
-            key: 'sameCommitRecoveryRunCount',
+            key: 'rerunPassedRunCount',
             width: 130,
             align: 'right',
             tooltip: 'Runs where an in-job retry recovered an owned test after it failed. This is what proves a flake.',
-            sorter: (a, b) => a.sameCommitRecoveryRunCount - b.sameCommitRecoveryRunCount,
+            sorter: (a, b) => a.rerunPassedRunCount - b.rerunPassedRunCount,
             render: (_, row) => (
-                <CountWithDelta current={row.sameCommitRecoveryRunCount} prior={row.sameCommitRecoveryRunCountPrior} />
+                <CountWithDelta current={row.rerunPassedRunCount} prior={row.rerunPassedRunCountPrior} />
             ),
         },
     ]

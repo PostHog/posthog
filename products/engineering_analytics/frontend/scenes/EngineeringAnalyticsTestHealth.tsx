@@ -403,8 +403,8 @@ function ActiveTestHealthQueue(): JSX.Element {
                     {/* An xfail row has no recovery question to answer: it is masked, not racing. */}
                     {row.classification !== 'quarantined' && (
                         <span className="text-secondary">
-                            {row.sameCommitRecoveryRunCount > 0
-                                ? `Failed then passed on the same commit in ${pluralize(row.sameCommitRecoveryRunCount, 'run')}`
+                            {row.rerunPassedRunCount > 0
+                                ? `A retry recovered it in ${pluralize(row.rerunPassedRunCount, 'run')}`
                                 : 'No recovery recorded'}
                         </span>
                     )}

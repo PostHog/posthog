@@ -39,8 +39,8 @@ export interface TeamCIHealthRow {
     regressionTestCountPrior: number
     failedRunCount: number
     failedRunCountPrior: number
-    sameCommitRecoveryRunCount: number
-    sameCommitRecoveryRunCountPrior: number
+    rerunPassedRunCount: number
+    rerunPassedRunCountPrior: number
 }
 
 export interface TeamsData {
@@ -115,8 +115,8 @@ export const teamsLogic = kea<teamsLogicType>([
                                 regressionTestCountPrior: it.regression_test_count_prior,
                                 failedRunCount: it.failed_run_count,
                                 failedRunCountPrior: it.failed_run_count_prior,
-                                sameCommitRecoveryRunCount: it.same_commit_recovery_run_count,
-                                sameCommitRecoveryRunCountPrior: it.same_commit_recovery_run_count_prior,
+                                rerunPassedRunCount: it.rerun_passed_run_count,
+                                rerunPassedRunCountPrior: it.rerun_passed_run_count_prior,
                             })
                         ),
                         truncated: data.truncated,
