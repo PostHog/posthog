@@ -310,6 +310,46 @@ def is_constant_true(expr: ast.Expr) -> bool:
     return isinstance(expr, ast.Constant) and expr.value is True
 
 
+# The line every no-join insert template's sessions-side WHERE ends with; the
+# session-id-set variants splice their id filter right after it.
+_SESSIONS_SIDE_ANCHOR = "or(sessions.$pageview_count > 0, sessions.$screen_count > 0),"
+
+# Sessions-side id-set filter for FILTERED insert keys: restrict the sessions scan
+# to sessions with at least one event matching the key's filters — the same session
+# membership the join insert template produces (full filters; a session qualifies
+# via ANY matching event in the padded window). `build_direct_session_id_in_pushdown`
+# rewrites the IN below the per-session GROUP BY when the caller passes modifiers
+# with `sessionIdPushdown=True` to `ensure_precomputed`. No selectivity preflight
+# here: insert jobs are day-windowed, so the id set is bounded by one day of
+# matching sessions, and the OOM-pin machinery caps repeat offenders.
+_INSERT_SESSION_ID_SET_FILTER_SQL = """sessions.session_id_v7 IN (
+            SELECT DISTINCT events.$session_id_uuid
+            FROM events
+            WHERE and(
+                events.$session_id_uuid IS NOT NULL,
+                equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7),
+                {event_type_filter},
+                timestamp >= {time_window_min},
+                timestamp < ({time_window_max} + toIntervalMinute({pad_minutes})),
+                {user_filter},
+                {test_account_filter}
+            )
+        ),"""
+
+
+def with_insert_session_id_set_filter(no_join_template: str) -> str:
+    """Derive the filtered (session-id-set) variant of a no-join insert template.
+
+    Splices the id-set filter into the sessions-side WHERE, leaving the source
+    template untouched — the unfiltered variant must stay byte-identical so
+    existing unfiltered jobs keep their AST hash and are not re-keyed."""
+    assert no_join_template.count(_SESSIONS_SIDE_ANCHOR) == 1, "no-join template sessions-side anchor drifted"
+    return no_join_template.replace(
+        _SESSIONS_SIDE_ANCHOR,
+        _SESSIONS_SIDE_ANCHOR + "\n        " + _INSERT_SESSION_ID_SET_FILTER_SQL,
+    )
+
+
 def user_filter_expr(runner: LazyPrecomputeRunner) -> ast.Expr:
     """Build the AST expression that gets substituted into the INSERT's WHERE clause.
 

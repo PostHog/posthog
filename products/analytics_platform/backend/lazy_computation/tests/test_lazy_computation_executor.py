@@ -863,6 +863,50 @@ class TestBuildManualInsertSQL(BaseTest):
         assert "2024-01-01" in sql
         assert "2024-01-02" in sql
 
+    def test_uses_provided_modifiers_when_printing(self):
+        # Callers (web analytics session-id-set inserts) pass modifiers that change the
+        # execution plan the printer emits; dropping the pass-through would silently
+        # revert those inserts to the unoptimized shape while all results stay equal.
+        from posthog.schema import HogQLQueryModifiers, SessionTableVersion
+
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+        sessions_query = """
+            SELECT toStartOfHour(sessions.$start_timestamp) AS time_window_start,
+                   uniqState(sessions.session_id) AS uniq_sessions_state
+            FROM sessions
+            WHERE and(
+                sessions.$start_timestamp >= {time_window_min},
+                sessions.$start_timestamp < {time_window_max},
+                sessions.session_id_v7 IN (SELECT DISTINCT events.$session_id_uuid FROM events)
+            )
+            GROUP BY time_window_start
+        """
+        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2, sessionIdPushdown=True)
+
+        with_modifiers, _ = _build_manual_insert_sql(
+            team=self.team,
+            job=job,
+            insert_query=sessions_query,
+            table=LazyComputationTable.PREAGGREGATION_RESULTS,
+            modifiers=modifiers,
+        )
+        without_modifiers, _ = _build_manual_insert_sql(
+            team=self.team,
+            job=job,
+            insert_query=sessions_query,
+            table=LazyComputationTable.PREAGGREGATION_RESULTS,
+        )
+
+        assert "globalIn(raw_sessions.session_id_v7" in with_modifiers
+        assert "globalIn(raw_sessions.session_id_v7" not in without_modifiers
+
     def test_accepts_custom_placeholders(self):
         job = PreaggregationJob.objects.create(
             team=self.team,

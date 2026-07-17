@@ -945,3 +945,161 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         # no-compare sentinel, which would defeat the pruning entirely).
         expected_min = prev_start if compare else cur_start
         assert bounds == {"min": expected_min, "max": cur_end}
+
+
+@override_settings(IN_UNIT_TESTING=True)
+class TestWebStatsPathsSessionIdSetInsert(ClickhouseTestMixin, APIBaseTest):
+    """Filtered-insert chooser for the paths tile and the id-set insert's parity
+    with the join insert, per breakdown value."""
+
+    def _make_runner(self, **kwargs) -> WebStatsTableQueryRunner:
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-07"),
+            properties=kwargs.pop("properties", []),
+            breakdownBy=kwargs.pop("breakdown_by", WebStatsBreakdown.PAGE),
+            includeBounceRate=True,
+            useWebAnalyticsPrecompute=True,
+            **kwargs,
+        )
+        return WebStatsTableQueryRunner(team=self.team, query=query)
+
+    HOST_FILTER = [EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT)]
+
+    @parameterized.expand(
+        [
+            ("unfiltered_page", [], WebStatsBreakdown.PAGE, True, "no_join"),
+            ("filtered_page_allowlisted", HOST_FILTER, WebStatsBreakdown.PAGE, True, "session_id_set"),
+            ("filtered_page_not_allowlisted", HOST_FILTER, WebStatsBreakdown.PAGE, False, "join"),
+            ("filtered_initial_page", HOST_FILTER, WebStatsBreakdown.INITIAL_PAGE, True, "join"),
+        ]
+    )
+    def test_insert_template_chooser(self, _name, properties, breakdown_by, allowlisted, expected):
+        from datetime import UTC, datetime
+
+        from products.web_analytics.backend.hogql_queries import web_stats_paths_lazy_precompute as mod
+
+        captured: dict = {}
+
+        def capture(**kwargs):
+            captured.update(kwargs)
+            return LazyComputationResult(ready=True, job_ids=[], memory_exceeded=False)
+
+        with override_settings(
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk],
+            WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk] if allowlisted else [],
+        ):
+            runner = self._make_runner(properties=properties, breakdown_by=breakdown_by)
+            with patch.object(mod, "web_ensure_precomputed", side_effect=capture):
+                mod.ensure_web_stats_paths_precomputed(
+                    runner, datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 7, tzinfo=UTC)
+                )
+
+        template = captured["insert_query"]
+        modifiers = captured["modifiers"]
+        # Default sort is DESC visitors → the capped variants are selected.
+        if expected == "no_join":
+            assert template is mod.NO_JOIN_INSERT_QUERY_TEMPLATE_CAPPED
+            assert modifiers is None
+        elif expected == "session_id_set":
+            assert template is mod.SESSION_ID_SET_INSERT_QUERY_TEMPLATE_CAPPED
+            assert template.count("session_id_v7 IN") == 1
+            assert modifiers is not None and modifiers.sessionIdPushdown is True
+        else:
+            assert template is mod.INSERT_QUERY_TEMPLATE_CAPPED
+            assert modifiers is None
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_filtered_insert_matches_join_insert(self):
+        from datetime import UTC, datetime
+
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.modifiers import create_default_modifiers_for_team
+        from posthog.hogql.printer import prepare_and_print_ast
+
+        from posthog.clickhouse.client import sync_execute
+
+        from products.web_analytics.backend.hogql_queries import web_stats_paths_lazy_precompute as mod
+        from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+            SESSION_FORWARD_PAD_MINUTES,
+            host_filter_expr,
+            test_account_filter_expr,
+        )
+
+        # Two sessions on the filtered host (one bouncing), one on another host,
+        # one malformed session id. v7 ids embed the first-event timestamps.
+        s1, s2, s3 = (
+            str(uuid7("2024-01-02T10:00:00")),
+            str(uuid7("2024-01-02T11:00:00")),
+            str(uuid7("2024-01-03T09:00:00")),
+        )
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["p3"])
+        events = [
+            (s1, "p1", "2024-01-02T10:00:00Z", "example.com", "/a"),
+            (s1, "p1", "2024-01-02T10:05:00Z", "example.com", "/b"),
+            (s2, "p2", "2024-01-02T11:00:00Z", "example.com", "/a"),
+            (s3, "p3", "2024-01-03T09:00:00Z", "other.com", "/a"),
+        ]
+        for sid, did, ts, host, path in events:
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=did,
+                timestamp=ts,
+                properties={
+                    "$session_id": sid,
+                    "$host": host,
+                    "$pathname": path,
+                    "$current_url": f"https://{host}{path}",
+                },
+            )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2024-01-02T12:00:00Z",
+            properties={"$session_id": "legacy-session", "$host": "example.com", "$pathname": "/a"},
+        )
+
+        with override_settings(
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk],
+            WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk],
+        ):
+            runner = self._make_runner(properties=list(self.HOST_FILTER))
+            placeholders = {
+                "events_session_id": runner.events_session_property,
+                "breakdown_value_expr": mod._breakdown_value_expr(runner),
+                "entry_breakdown_value_expr": mod._entry_breakdown_value_expr(runner),
+                "entry_breakdown_value_sessions_expr": mod._entry_breakdown_value_sessions_expr(runner),
+                "event_type_filter": runner.event_type_expr,
+                "user_filter": host_filter_expr(runner.query.properties or [], team=runner.team),
+                "test_account_filter": test_account_filter_expr(
+                    test_account_filters=runner._test_account_filters, team=runner.team
+                ),
+                "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
+                "time_window_min": ast.Constant(value=datetime(2024, 1, 1, tzinfo=UTC)),
+                "time_window_max": ast.Constant(value=datetime(2024, 1, 7, tzinfo=UTC)),
+            }
+
+            def run_template(template: str, pushdown: bool, extra: dict | None = None):
+                modifiers = create_default_modifiers_for_team(self.team)
+                modifiers.sessionIdPushdown = pushdown
+                context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+                inner = parse_select(template, placeholders={**placeholders, **(extra or {})})
+                sql, _ = prepare_and_print_ast(inner, context=context, dialect="clickhouse")
+                merged = f"""
+                    SELECT breakdown_value,
+                           formatDateTime(time_window_start, '%%Y-%%m-%%d %%H:%%i:%%S') AS window_key,
+                           uniqMerge(uniq_users_state), sumMerge(sum_pageviews_state),
+                           round(avgMerge(avg_bounce_state), 4)
+                    FROM ({sql}) GROUP BY breakdown_value, window_key
+                    ORDER BY breakdown_value, window_key
+                """
+                return sync_execute(merged, context.values, team_id=self.team.pk)
+
+            join_rows = run_template(mod.INSERT_QUERY_TEMPLATE, pushdown=False)
+            id_set_rows = run_template(mod.SESSION_ID_SET_INSERT_QUERY_TEMPLATE, pushdown=True)
+
+        assert join_rows, "join insert produced no rows — fixture broken"
+        assert id_set_rows == join_rows

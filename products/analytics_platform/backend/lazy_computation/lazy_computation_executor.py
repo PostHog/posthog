@@ -18,6 +18,8 @@ import structlog
 from clickhouse_driver.errors import ServerException
 from prometheus_client import Counter
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
 from posthog.hogql.constants import (
     MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
@@ -1193,6 +1195,7 @@ def ensure_precomputed(
     spill_to_disk: bool = False,
     wait_timeout_seconds: float | None = None,
     stale_while_revalidate_seconds: float | None = None,
+    modifiers: HogQLQueryModifiers | None = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1246,6 +1249,11 @@ def ensure_precomputed(
                       background. Only for user-facing callers with a refresh
                       mechanism; background refreshers must leave this unset or they
                       would serve stale to themselves and never recompute.
+        modifiers: HogQL modifiers used when printing the INSERT's SELECT (defaults to
+                      the team's default modifiers). NOT part of job identity — the job
+                      hash covers only the substituted AST — so modifiers must never
+                      change what the query computes, only how it executes (e.g.
+                      `sessionIdPushdown`, which is semantics-preserving by design).
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -1313,6 +1321,7 @@ def ensure_precomputed(
             insert_query=insert_query,
             table=table,
             base_placeholders=base_placeholders,
+            modifiers=modifiers,
         )
         set_ch_query_started(job.id)
         tag_kwargs: dict = {
@@ -1364,6 +1373,7 @@ def _build_manual_insert_sql(
     insert_query: str | ast.SelectQuery,
     table: LazyComputationTable,
     base_placeholders: dict[str, ast.Expr] | None = None,
+    modifiers: HogQLQueryModifiers | None = None,
 ) -> tuple[str, dict]:
     """
     Build INSERT SQL for manual lazy computation.
@@ -1413,7 +1423,7 @@ def _build_manual_insert_sql(
         team=team,
         enable_select_queries=True,
         limit_top_select=False,
-        modifiers=create_default_modifiers_for_team(team),
+        modifiers=modifiers if modifiers is not None else create_default_modifiers_for_team(team),
         bypass_warehouse_access_control=True,
     )
     select_sql, _ = prepare_and_print_ast(

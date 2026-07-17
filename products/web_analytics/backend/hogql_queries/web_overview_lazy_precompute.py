@@ -5,7 +5,10 @@ from typing import TYPE_CHECKING, Optional
 import structlog
 from prometheus_client import Counter
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.web_overview_preaggregated_sql import (
@@ -30,6 +33,7 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     is_constant_true,
     test_account_filter_expr,
     user_filter_expr,
+    with_insert_session_id_set_filter,
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     handle_stale_served,
@@ -76,11 +80,13 @@ _check_lazy_precompute_eligible = check_common_eligible
 # sides): the events side derives the hour bucket from the v7-embedded timestamp,
 # which is garbage for v4/custom UUIDs — the join shape bucketed those via real
 # session timestamps, so excluding them symmetrically keeps both sides consistent.
-# Filtered cache keys (a `$host` user filter or applied test-account filters) keep the
-# join shape below: those filters constrain which sessions qualify and can only be
-# evaluated on the events side, so the two-scan template would cache wrong session
-# metrics for them. Unfiltered keys — the overwhelming majority — use the no-join
-# template: events self-attribute to the session-start hour via the UUIDv7 timestamp
+# Filtered cache keys take the two-scan shape too when their filters are
+# events-evaluable (allowlisted teams; see the chooser in
+# `ensure_web_overview_precomputed`): the sessions side is restricted to the
+# session-id set collected from the filtered events scan, pushed below the
+# per-session GROUP BY via the `sessionIdPushdown` modifier. Cohort/session
+# filters keep the join shape — they can't feed the id collection. Unfiltered
+# keys — the overwhelming majority — use the plain no-join template: events self-attribute to the session-start hour via the UUIDv7 timestamp
 # embedded in the session id, and duration/bounce come straight from the sessions
 # table (which also makes the forward-pad hack unnecessary on that side, since
 # raw_sessions already holds complete-session state).
@@ -164,6 +170,9 @@ LEFT JOIN (
 """
 
 
+SESSION_ID_SET_INSERT_QUERY_TEMPLATE = with_insert_session_id_set_filter(NO_JOIN_INSERT_QUERY_TEMPLATE)
+
+
 def ensure_web_overview_precomputed(
     runner: "WebOverviewQueryRunner",
     time_range_start: datetime,
@@ -179,15 +188,29 @@ def ensure_web_overview_precomputed(
 
     is_unfiltered = all(is_constant_true(placeholders[key]) for key in ("user_filter", "test_account_filter"))
 
+    # Filtered keys whose filters are events-evaluable (allowlisted teams, event
+    # property user filters, event/person test filters) take the two-scan shape
+    # with a session-id-set link; anything else keeps the join template.
+    modifiers: Optional[HogQLQueryModifiers] = None
+    if is_unfiltered:
+        insert_query = NO_JOIN_INSERT_QUERY_TEMPLATE
+    elif runner._session_id_set_common_eligibility():
+        insert_query = SESSION_ID_SET_INSERT_QUERY_TEMPLATE
+        modifiers = create_default_modifiers_for_team(runner.team)
+        modifiers.sessionIdPushdown = True
+    else:
+        insert_query = JOIN_INSERT_QUERY_TEMPLATE
+
     return web_ensure_precomputed(
         team=runner.team,
-        insert_query=NO_JOIN_INSERT_QUERY_TEMPLATE if is_unfiltered else JOIN_INSERT_QUERY_TEMPLATE,
+        insert_query=insert_query,
         time_range_start=time_range_start,
         time_range_end=time_range_end,
         ttl_seconds=LAZY_TTL_SECONDS,
         table=LazyComputationTable.WEB_OVERVIEW_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_overview_lazy_insert",
+        modifiers=modifiers,
     )
 
 
