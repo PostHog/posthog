@@ -22,10 +22,15 @@ import { KeyStore } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { ValueMatcher } from '~/types'
 
+import { createAdmitSessionStep } from './admit-session-step'
+import { createExtractConsoleLogsStep } from './extract-console-logs-step'
+import { createExtractSessionDataStep } from './extract-session-data-step'
 import { createLibVersionMonitorStep } from './lib-version-monitor-step'
 import { createParseMessageStep } from './parse-message-step'
 import { MessageContext } from './pipeline-types'
-import { createRecordSessionEventStep } from './record-session-event-step'
+import { createRecordSessionDataStep } from './record-session-data-step'
+import { createRecordSessionFeaturesStep } from './record-session-features-step'
+import { createRecordSessionLogsStep } from './record-session-logs-step'
 import { SessionBatchContext } from './session-batch-context'
 import { createMarkSeenStep } from './session-batch-mark-seen-step'
 import { createResolveRetentionStep } from './session-batch-resolve-retention-step'
@@ -89,7 +94,9 @@ export interface SessionReplayPipelineConfig {
  * 2. Team Filter - Validate team ownership and enrich with team context
  * 3. Parse - Parse Kafka messages into structured session recording data (inside teamAware for warning handling)
  * 4. Version Monitor - Check library version and emit warnings for old versions
- * 5. Record - Record parsed messages to the batch's recorder
+ * 5. Extract session data - Derive the per-message session block data (chunks, counts, session ref)
+ * 6. Extract console logs - Derive the per-message console log data
+ * 7. Record - Aggregate the extracted data into the batch's recorder
  */
 export function createSessionReplayPipeline(config: SessionReplayPipelineConfig): SessionReplayPipeline {
     const {
@@ -204,27 +211,48 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                                                     )
                                                     // Monitor library version and emit warnings for old versions
                                                     .pipe(createLibVersionMonitorStep())
+                                                    // Derive the per-message record data — the
+                                                    // session block chunks and the console logs —
+                                                    // here, so the record steps only aggregate.
+                                                    // Extraction does the per-message heavy lifting,
+                                                    // so the per-session cost metrics live on these
+                                                    // two steps.
                                                     .pipe(
-                                                        topHogWrapper(
-                                                            createRecordSessionEventStep({
-                                                                isDebugLoggingEnabled,
-                                                            }),
-                                                            [
-                                                                sum(
-                                                                    'message_size_by_session_id',
-                                                                    (input) => ({
-                                                                        token: input.parsedMessage.token ?? 'unknown',
-                                                                        session_id: input.parsedMessage.session_id,
-                                                                    }),
-                                                                    (input) => input.parsedMessage.metadata.rawSize
-                                                                ),
-                                                                timer('consume_time_ms_by_session_id', (input) => ({
+                                                        topHogWrapper(createExtractSessionDataStep(), [
+                                                            sum(
+                                                                'message_size_by_session_id',
+                                                                (input) => ({
                                                                     token: input.parsedMessage.token ?? 'unknown',
                                                                     session_id: input.parsedMessage.session_id,
-                                                                })),
-                                                            ]
-                                                        )
+                                                                }),
+                                                                (input) => input.parsedMessage.metadata.rawSize
+                                                            ),
+                                                            timer('extract_data_time_ms_by_session_id', (input) => ({
+                                                                token: input.parsedMessage.token ?? 'unknown',
+                                                                session_id: input.parsedMessage.session_id,
+                                                            })),
+                                                        ])
                                                     )
+                                                    .pipe(
+                                                        topHogWrapper(createExtractConsoleLogsStep(), [
+                                                            timer('extract_logs_time_ms_by_session_id', (input) => ({
+                                                                token: input.parsedMessage.token ?? 'unknown',
+                                                                session_id: input.parsedMessage.session_id,
+                                                            })),
+                                                        ])
+                                                    )
+                                                    // Admission gates the batch: rate-limited or
+                                                    // inconsistent messages drop here, so the
+                                                    // record steps below only fold admitted
+                                                    // messages and can run in any order.
+                                                    .pipe(
+                                                        createAdmitSessionStep({
+                                                            isDebugLoggingEnabled,
+                                                        })
+                                                    )
+                                                    .pipe(createRecordSessionDataStep())
+                                                    .pipe(createRecordSessionLogsStep())
+                                                    .pipe(createRecordSessionFeaturesStep())
                                             )
                                             .gather()
                                     )

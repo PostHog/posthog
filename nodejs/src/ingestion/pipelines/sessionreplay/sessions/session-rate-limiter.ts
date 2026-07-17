@@ -1,5 +1,3 @@
-import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
-
 import { SessionBatchMetrics } from './metrics'
 
 /**
@@ -17,21 +15,11 @@ export class SessionRateLimiter {
     }
 
     /**
-     * Handle a message for a session
-     * @returns true if message should be processed, false if rate limited
+     * Handle a message's events for a session
+     * @returns true if the message should be processed, false if rate limited
      */
-    public handleMessage(teamId: number, sessionId: string, message: ParsedMessageData): boolean {
+    public handleMessage(teamId: number, sessionId: string, eventCount: number): boolean {
         const key = SessionRateLimiter.key(teamId, sessionId)
-
-        // Count total events in the message across all windows
-        let eventCount = 0
-        if (message.preSerialized) {
-            eventCount = message.preSerialized.events.length
-        } else {
-            for (const events of Object.values(message.eventsByWindowId)) {
-                eventCount += events.length
-            }
-        }
 
         const newCount = (this.eventCounts.get(key) ?? 0) + eventCount
         this.eventCounts.set(key, newCount)

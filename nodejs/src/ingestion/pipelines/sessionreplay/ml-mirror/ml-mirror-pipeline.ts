@@ -11,10 +11,15 @@ import {
     SessionReplayPipelineInput,
     SessionReplayPipelineOutput,
 } from '~/ingestion/pipelines/sessionreplay'
+import { createAdmitSessionStep } from '~/ingestion/pipelines/sessionreplay/admit-session-step'
 import { createAiTrainingOptInFilterStep } from '~/ingestion/pipelines/sessionreplay/ai-training-optin-filter-step'
+import { createExtractConsoleLogsStep } from '~/ingestion/pipelines/sessionreplay/extract-console-logs-step'
+import { createExtractSessionDataStep } from '~/ingestion/pipelines/sessionreplay/extract-session-data-step'
 import { createParseAndAnonymizeMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
 import { MessageContext } from '~/ingestion/pipelines/sessionreplay/pipeline-types'
-import { createRecordSessionEventStep } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
+import { createRecordSessionDataStep } from '~/ingestion/pipelines/sessionreplay/record-session-data-step'
+import { createRecordSessionFeaturesStep } from '~/ingestion/pipelines/sessionreplay/record-session-features-step'
+import { createRecordSessionLogsStep } from '~/ingestion/pipelines/sessionreplay/record-session-logs-step'
 import { createMarkSeenStep } from '~/ingestion/pipelines/sessionreplay/session-batch-mark-seen-step'
 import { createResolveRetentionStep } from '~/ingestion/pipelines/sessionreplay/session-batch-resolve-retention-step'
 import { createTrackAndGateStep } from '~/ingestion/pipelines/sessionreplay/session-batch-track-and-gate-step'
@@ -122,26 +127,55 @@ export function createMlMirrorReplayPipeline(config: SessionReplayPipelineConfig
                                                         })),
                                                     ])
                                                 )
-                                                return parsed.pipe(
-                                                    topHogWrapper(
-                                                        createRecordSessionEventStep({
-                                                            isDebugLoggingEnabled,
-                                                        }),
-                                                        [
-                                                            sum(
-                                                                'message_size_by_session_id',
-                                                                (input) => ({
-                                                                    token: input.parsedMessage.token ?? 'unknown',
-                                                                    session_id: input.parsedMessage.session_id,
-                                                                }),
-                                                                (input) => input.parsedMessage.metadata.rawSize
-                                                            ),
-                                                            timer('consume_time_ms_by_session_id', (input) => ({
-                                                                token: input.parsedMessage.token ?? 'unknown',
-                                                                session_id: input.parsedMessage.session_id,
-                                                            })),
-                                                        ]
-                                                    )
+                                                // Derive the per-message record data — the session
+                                                // block chunks and the console logs — here, so the
+                                                // record steps only aggregate. Extraction does the
+                                                // per-message heavy lifting, so the per-session cost
+                                                // metrics live on these two steps.
+                                                return (
+                                                    parsed
+                                                        .pipe(
+                                                            topHogWrapper(createExtractSessionDataStep(), [
+                                                                sum(
+                                                                    'message_size_by_session_id',
+                                                                    (input) => ({
+                                                                        token: input.parsedMessage.token ?? 'unknown',
+                                                                        session_id: input.parsedMessage.session_id,
+                                                                    }),
+                                                                    (input) => input.parsedMessage.metadata.rawSize
+                                                                ),
+                                                                timer(
+                                                                    'extract_data_time_ms_by_session_id',
+                                                                    (input) => ({
+                                                                        token: input.parsedMessage.token ?? 'unknown',
+                                                                        session_id: input.parsedMessage.session_id,
+                                                                    })
+                                                                ),
+                                                            ])
+                                                        )
+                                                        .pipe(
+                                                            topHogWrapper(createExtractConsoleLogsStep(), [
+                                                                timer(
+                                                                    'extract_logs_time_ms_by_session_id',
+                                                                    (input) => ({
+                                                                        token: input.parsedMessage.token ?? 'unknown',
+                                                                        session_id: input.parsedMessage.session_id,
+                                                                    })
+                                                                ),
+                                                            ])
+                                                        )
+                                                        // Admission gates the batch: rate-limited or
+                                                        // inconsistent messages drop here, so the
+                                                        // record steps below only fold admitted
+                                                        // messages and can run in any order.
+                                                        .pipe(
+                                                            createAdmitSessionStep({
+                                                                isDebugLoggingEnabled,
+                                                            })
+                                                        )
+                                                        .pipe(createRecordSessionDataStep())
+                                                        .pipe(createRecordSessionLogsStep())
+                                                        .pipe(createRecordSessionFeaturesStep())
                                                 )
                                             })
                                             .gather()

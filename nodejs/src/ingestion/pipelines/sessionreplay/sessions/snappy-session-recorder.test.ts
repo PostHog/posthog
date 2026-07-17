@@ -1,11 +1,7 @@
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
-import { parseJSON } from '~/common/utils/json-parse'
-import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
-import { RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
-
-import { SnappySessionRecorder } from './snappy-session-recorder'
+import { SerializedSessionData, SnappySessionRecorder } from './snappy-session-recorder'
 
 describe('SnappySessionRecorder', () => {
     let recorder: SnappySessionRecorder
@@ -14,235 +10,181 @@ describe('SnappySessionRecorder', () => {
         recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id')
     })
 
-    const createMessage = (windowId: string, events: any[]): ParsedMessageData => ({
-        distinct_id: 'distinct_id',
-        session_id: 'session_id',
-        token: null,
-        eventsByWindowId: {
-            [windowId]: events,
-        },
-        eventsRange: {
-            start: DateTime.fromMillis(events[0]?.timestamp || 0),
-            end: DateTime.fromMillis(events[events.length - 1]?.timestamp || 0),
-        },
-        snapshot_source: null,
-        snapshot_library: null,
-        metadata: {
-            partition: 1,
-            topic: 'test',
-            offset: 0,
-            timestamp: 0,
-            rawSize: 0,
-        },
-    })
+    const chunk = (windowId: string, event: object): Buffer => Buffer.from(JSON.stringify([windowId, event]) + '\n')
+
+    // Per-message data as the extract-session-data step produces it; the recorder only aggregates.
+    const createData = (overrides: Partial<SerializedSessionData> = {}): SerializedSessionData => {
+        const chunks = overrides.chunks ?? [chunk('window1', { type: 3, timestamp: 1000 })]
+        return {
+            chunks,
+            rawBytes: chunks.reduce((sum, c) => sum + c.length, 0),
+            eventCount: chunks.length,
+            segmentationEvents: [],
+            urls: [],
+            clickCount: 0,
+            keypressCount: 0,
+            mouseActivityCount: 0,
+            eventsRange: {
+                start: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                end: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
+            },
+            distinctId: 'distinct_id',
+            snapshotSource: 'web',
+            snapshotLibrary: null,
+            ...overrides,
+        }
+    }
 
     const readSnappyBuffer = async (buffer: Buffer): Promise<string> => {
         const decompressed = await snappy.uncompress(buffer)
         return decompressed.toString()
     }
 
-    const parseSnappyBuffer = async (buffer: Buffer): Promise<any[]> => {
-        const decompressed = await snappy.uncompress(buffer)
-        return decompressed
-            .toString()
-            .trim()
-            .split('\n')
-            .map((line) => line.trim())
-            .filter(Boolean)
-            .map((line) => parseJSON(line))
-    }
-
-    describe('recordMessage', () => {
-        it('should record events in snappy-compressed JSONL format', async () => {
-            const events = [
-                {
-                    type: RRWebEventType.FullSnapshot,
-                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
-                    data: {
-                        source: 1,
-                        adds: [{ parentId: 1, nextId: 2, node: { tag: 'div', attrs: { class: 'test' } } }],
-                    },
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: new Date('2025-01-01T01:00:01Z').getTime(),
-                    data: { source: 2, texts: [{ id: 1, value: 'Updated text' }] },
-                },
+    describe('chunk aggregation', () => {
+        it('appends chunks across messages and compresses them in order', async () => {
+            const chunks1 = [
+                chunk('window1', { type: 2, timestamp: 1000 }),
+                chunk('window1', { type: 3, timestamp: 2000 }),
             ]
-            const message = createMessage('window1', events)
+            const chunks2 = [chunk('window2', { type: 3, timestamp: 3000 })]
 
-            const rawBytesWritten = recorder.recordMessage(message)
-            expect(rawBytesWritten).toBeGreaterThan(0)
+            const bytes1 = recorder.recordSessionData(createData({ chunks: chunks1 }))
+            const bytes2 = recorder.recordSessionData(createData({ chunks: chunks2 }))
+            const result = await recorder.end()
 
-            const { buffer, eventCount } = await recorder.end()
-            const lines = await parseSnappyBuffer(buffer)
-
-            expect(lines).toEqual([
-                ['window1', events[0]],
-                ['window1', events[1]],
-            ])
-            expect(eventCount).toBe(2)
+            expect(bytes1).toBe(chunks1[0].length + chunks1[1].length)
+            expect(bytes2).toBe(chunks2[0].length)
+            expect(await readSnappyBuffer(result.buffer)).toBe(Buffer.concat([...chunks1, ...chunks2]).toString())
+            expect(result.eventCount).toBe(3)
+            expect(result.messageCount).toBe(2)
+            expect(result.size).toBe(bytes1 + bytes2)
         })
 
-        it('should handle multiple windows with multiple events', async () => {
-            const events = {
-                window1: [
-                    {
-                        type: RRWebEventType.Meta,
-                        timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
-                        data: { href: 'https://example.com', width: 1024, height: 768 },
-                    },
-                    {
-                        type: RRWebEventType.FullSnapshot,
-                        timestamp: new Date('2025-01-01T01:00:01Z').getTime(),
-                        data: {
-                            source: 1,
-                            adds: [{ parentId: 1, nextId: null, node: { tag: 'h1', attrs: { id: 'title' } } }],
-                        },
-                    },
-                ],
-                window2: [
-                    {
-                        type: RRWebEventType.Custom,
-                        timestamp: new Date('2025-01-01T01:00:02Z').getTime(),
-                        data: { tag: 'user-interaction', payload: { type: 'click', target: '#submit-btn' } },
-                    },
-                    {
-                        type: RRWebEventType.IncrementalSnapshot,
-                        timestamp: new Date('2025-01-01T01:00:03Z').getTime(),
-                        data: { source: 3, mousemove: [{ x: 100, y: 200, id: 1 }] },
-                    },
-                ],
-            }
-            const message: ParsedMessageData = {
-                ...createMessage('', []),
-                eventsByWindowId: events,
-            }
+        it('sums the activity counts across messages', async () => {
+            recorder.recordSessionData(createData({ clickCount: 2, keypressCount: 1, mouseActivityCount: 3 }))
+            recorder.recordSessionData(createData({ clickCount: 1, keypressCount: 4, mouseActivityCount: 2 }))
 
-            recorder.recordMessage(message)
-            const { buffer, eventCount } = await recorder.end()
-            const lines = await parseSnappyBuffer(buffer)
+            const result = await recorder.end()
 
-            expect(lines).toEqual([
-                ['window1', events.window1[0]],
-                ['window1', events.window1[1]],
-                ['window2', events.window2[0]],
-                ['window2', events.window2[1]],
-            ])
-            expect(eventCount).toBe(4)
+            expect(result.clickCount).toBe(3)
+            expect(result.keypressCount).toBe(5)
+            expect(result.mouseActivityCount).toBe(5)
         })
 
-        it('should handle empty events array', async () => {
-            const message = createMessage('window1', [])
-            recorder.recordMessage(message)
+        it('computes active time from the accumulated segmentation events', async () => {
+            const t0 = DateTime.fromISO('2025-01-01T01:00:00Z').toMillis()
+            recorder.recordSessionData(
+                createData({
+                    segmentationEvents: [
+                        { timestamp: t0, isActive: true },
+                        { timestamp: t0 + 1000, isActive: true },
+                    ],
+                })
+            )
 
-            const { buffer, eventCount } = await recorder.end()
-            const lines = await parseSnappyBuffer(buffer)
+            const result = await recorder.end()
 
-            expect(lines).toEqual([])
-            expect(eventCount).toBe(0)
-        })
-
-        it('should handle large amounts of data', async () => {
-            const events = Array.from({ length: 10000 }, (_, i) => ({
-                type: RRWebEventType.Custom,
-                timestamp: new Date('2025-01-01T01:00:00Z').getTime() + i * 100,
-                data: { value: 'x'.repeat(1000) },
-            }))
-
-            // Split events into 100 messages of 100 events each
-            for (let i = 0; i < events.length; i += 100) {
-                const messageEvents = events.slice(i, i + 100)
-                const message = createMessage('window1', messageEvents)
-                recorder.recordMessage(message)
-            }
-
-            const { buffer, eventCount } = await recorder.end()
-            const lines = await parseSnappyBuffer(buffer)
-
-            expect(lines.length).toBe(10000)
-            expect(eventCount).toBe(10000)
-
-            // Verify first and last events
-            expect(lines[0]).toEqual(['window1', events[0]])
-            expect(lines[lines.length - 1]).toEqual(['window1', events[events.length - 1]])
-        })
-
-        it('should throw error when recording after end', async () => {
-            const message = createMessage('window1', [
-                { type: RRWebEventType.Custom, timestamp: new Date('2025-01-01T01:00:00Z').getTime(), data: {} },
-            ])
-            recorder.recordMessage(message)
-            await recorder.end()
-
-            expect(() => recorder.recordMessage(message)).toThrow('Cannot record message after end() has been called')
-        })
-
-        it('should throw error when calling end multiple times', async () => {
-            const message = createMessage('window1', [
-                { type: RRWebEventType.Custom, timestamp: new Date('2025-01-01T01:00:00Z').getTime(), data: {} },
-            ])
-            recorder.recordMessage(message)
-            await recorder.end()
-
-            await expect(recorder.end()).rejects.toThrow('end() has already been called')
+            expect(result.activeMilliseconds).toBe(1000)
         })
     })
 
     describe('timestamps', () => {
-        it('should track start and end timestamps from events range', async () => {
-            const events = [
-                {
-                    type: RRWebEventType.FullSnapshot,
-                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
-                    data: { source: 1 },
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: new Date('2025-01-01T01:00:01Z').getTime(),
-                    data: { source: 2 },
-                },
-            ]
-            const message = createMessage('window1', events)
+        it('tracks min and max timestamps across messages', async () => {
+            recorder.recordSessionData(
+                createData({
+                    eventsRange: {
+                        start: DateTime.fromISO('2025-01-01T01:00:01.000Z'),
+                        end: DateTime.fromISO('2025-01-01T01:00:02.000Z'),
+                    },
+                })
+            )
+            recorder.recordSessionData(
+                createData({
+                    eventsRange: {
+                        start: DateTime.fromISO('2025-01-01T01:00:00.000Z'),
+                        end: DateTime.fromISO('2025-01-01T01:00:03.000Z'),
+                    },
+                })
+            )
 
-            recorder.recordMessage(message)
             const result = await recorder.end()
 
-            expect(result.startDateTime).toEqual(DateTime.fromMillis(new Date('2025-01-01T01:00:00Z').getTime()))
-            expect(result.endDateTime).toEqual(DateTime.fromMillis(new Date('2025-01-01T01:00:01Z').getTime()))
-        })
-
-        it('should track min/max timestamps across multiple messages', async () => {
-            const messages = [
-                createMessage('window1', [
-                    { type: RRWebEventType.Meta, timestamp: new Date('2025-01-01T01:00:00Z').getTime() },
-                    { type: RRWebEventType.FullSnapshot, timestamp: new Date('2025-01-01T01:00:01Z').getTime() },
-                ]),
-                createMessage('window2', [
-                    { type: RRWebEventType.FullSnapshot, timestamp: new Date('2025-01-01T01:00:02Z').getTime() },
-                    { type: RRWebEventType.IncrementalSnapshot, timestamp: new Date('2025-01-01T01:00:03Z').getTime() },
-                ]),
-            ]
-
-            messages.forEach((message) => recorder.recordMessage(message))
-            const result = await recorder.end()
-
-            expect(result.startDateTime).toEqual(DateTime.fromMillis(new Date('2025-01-01T01:00:00Z').getTime())) // Min from all messages
-            expect(result.endDateTime).toEqual(DateTime.fromMillis(new Date('2025-01-01T01:00:03Z').getTime())) // Max from all messages
-        })
-
-        it('should handle empty events array', async () => {
-            const message = createMessage('window1', [])
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.startDateTime).toEqual(DateTime.fromMillis(new Date('1970-01-01T00:00:00Z').getTime()))
-            expect(result.endDateTime).toEqual(DateTime.fromMillis(new Date('1970-01-01T00:00:00Z').getTime()))
+            expect(result.startDateTime).toEqual(DateTime.fromISO('2025-01-01T01:00:00.000Z'))
+            expect(result.endDateTime).toEqual(DateTime.fromISO('2025-01-01T01:00:03.000Z'))
         })
     })
 
-    describe('metadata', () => {
-        it('should return empty metadata', async () => {
+    describe('first-writer-wins fields', () => {
+        it('keeps the first distinct id, snapshot source, and library', async () => {
+            recorder.recordSessionData(
+                createData({ distinctId: 'first_user', snapshotSource: 'web', snapshotLibrary: 'posthog-js' })
+            )
+            recorder.recordSessionData(
+                createData({ distinctId: 'other_user', snapshotSource: 'mobile', snapshotLibrary: 'posthog-android' })
+            )
+
+            const result = await recorder.end()
+
+            expect(recorder.distinctId).toBe('first_user')
+            expect(result.snapshotSource).toBe('web')
+            expect(result.snapshotLibrary).toBe('posthog-js')
+        })
+
+        it('throws when accessing distinctId before recording any data', () => {
+            expect(() => recorder.distinctId).toThrow('No distinct_id set. No messages recorded yet.')
+        })
+
+        it('maintains distinctId after end() is called', async () => {
+            recorder.recordSessionData(createData())
+            await recorder.end()
+
+            expect(recorder.distinctId).toBe('distinct_id')
+        })
+    })
+
+    describe('url aggregation', () => {
+        it('dedupes urls and keeps the first as firstUrl', async () => {
+            recorder.recordSessionData(createData({ urls: ['https://first.com', 'https://second.com'] }))
+            recorder.recordSessionData(createData({ urls: ['https://first.com', 'https://third.com'] }))
+
+            const result = await recorder.end()
+
+            expect(result.firstUrl).toBe('https://first.com')
+            expect(result.urls).toEqual(['https://first.com', 'https://second.com', 'https://third.com'])
+        })
+
+        it('truncates urls to 4KB', async () => {
+            const longUrl = 'https://example.com/' + 'a'.repeat(5000)
+            recorder.recordSessionData(createData({ urls: [longUrl] }))
+
+            const result = await recorder.end()
+
+            expect(result.firstUrl?.length).toBe(4096)
+            expect(result.urls?.[0].length).toBe(4096)
+        })
+
+        it('caps the number of urls at 25', async () => {
+            const urls = Array.from({ length: 30 }, (_, i) => `https://example${i}.com`)
+            recorder.recordSessionData(createData({ urls }))
+
+            const result = await recorder.end()
+
+            expect(result.urls?.length).toBe(25)
+            expect(result.firstUrl).toBe('https://example0.com')
+        })
+
+        it('reports no urls when none were recorded', async () => {
+            recorder.recordSessionData(createData())
+
+            const result = await recorder.end()
+
+            expect(result.firstUrl).toBeNull()
+            expect(result.urls).toEqual([])
+        })
+    })
+
+    describe('lifecycle', () => {
+        it('returns empty metadata when nothing was recorded', async () => {
             const result = await recorder.end()
 
             expect(result.firstUrl).toBeNull()
@@ -255,913 +197,30 @@ describe('SnappySessionRecorder', () => {
             expect(result.messageCount).toBe(0)
             expect(result.snapshotSource).toBeNull()
             expect(result.snapshotLibrary).toBeNull()
-        })
-    })
-
-    describe('distinctId', () => {
-        it('should throw error when accessing distinctId before recording any messages', () => {
-            expect(() => recorder.distinctId).toThrow('No distinct_id set. No messages recorded yet.')
+            expect(result.startDateTime).toEqual(DateTime.fromMillis(0))
+            expect(result.endDateTime).toEqual(DateTime.fromMillis(0))
         })
 
-        it('should store distinctId from first message', () => {
-            const message = createMessage('window1', [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
-                    data: {},
-                },
-            ])
-            recorder.recordMessage(message)
-
-            expect(recorder.distinctId).toBe('distinct_id')
-        })
-
-        it('should keep first message distinctId even if later messages have different distinctId', () => {
-            recorder.recordMessage(
-                createMessage('window1', [
-                    {
-                        type: RRWebEventType.Meta,
-                        timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
-                        data: {},
-                    },
-                ])
-            )
-
-            const message2 = {
-                ...createMessage('window1', [
-                    {
-                        type: RRWebEventType.Meta,
-                        timestamp: new Date('2025-01-01T01:00:01Z').getTime(),
-                        data: {},
-                    },
-                ]),
-                distinct_id: 'different_distinct_id',
-            }
-            recorder.recordMessage(message2)
-
-            expect(recorder.distinctId).toBe('distinct_id')
-        })
-
-        it('should maintain distinctId after end() is called', async () => {
-            const message = createMessage('window1', [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
-                    data: {},
-                },
-            ])
-            recorder.recordMessage(message)
+        it('throws when recording after end', async () => {
+            recorder.recordSessionData(createData())
             await recorder.end()
 
-            expect(recorder.distinctId).toBe('distinct_id')
-        })
-    })
-
-    describe('URL accumulation', () => {
-        it('should accumulate URLs from a single message', async () => {
-            const events = [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
-                    data: { href: 'https://example.com' },
-                },
-            ]
-            const message = createMessage('window1', events)
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.firstUrl).toBe('https://example.com')
-            expect(result.urls).toEqual(['https://example.com'])
-        })
-
-        it('should limit URL length to 4KB', async () => {
-            // Create a URL that exceeds the 4KB limit
-            const longUrl = 'https://example.com/' + 'a'.repeat(5000)
-
-            const events = [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
-                    data: { href: longUrl },
-                },
-            ]
-            const message = createMessage('window1', events)
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            // URL should be truncated to 4KB (4096 characters)
-            expect(result.firstUrl?.length).toBe(4096)
-            expect(result.urls?.[0].length).toBe(4096)
-        })
-
-        it('should limit the number of URLs to 25', async () => {
-            // Create 30 different URLs
-            const events = Array.from({ length: 30 }, (_, i) => ({
-                type: RRWebEventType.Meta,
-                timestamp: new Date('2025-01-01T01:00:00Z').getTime() + i * 100,
-                data: { href: `https://example${i}.com` },
-            }))
-
-            const message = createMessage('window1', events)
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            // Only the first 25 URLs should be stored
-            expect(result.urls?.length).toBe(25)
-            // First URL should be the first one in the events array
-            expect(result.firstUrl).toBe('https://example0.com')
-        })
-
-        it('should accumulate URLs from multiple messages', async () => {
-            const message1 = createMessage('window1', [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
-                    data: { href: 'https://example1.com' },
-                },
-            ])
-            const message2 = createMessage('window2', [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: new Date('2025-01-01T01:00:01Z').getTime(),
-                    data: { href: 'https://example2.com' },
-                },
-            ])
-
-            recorder.recordMessage(message1)
-            recorder.recordMessage(message2)
-            const result = await recorder.end()
-
-            expect(result.firstUrl).toBe('https://example1.com')
-            expect(result.urls).toEqual(['https://example1.com', 'https://example2.com'])
-        })
-
-        it('should not overwrite first URL with subsequent messages', async () => {
-            const message1 = createMessage('window1', [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
-                    data: { href: 'https://first-url.com' },
-                },
-            ])
-            const message2 = createMessage('window2', [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: new Date('2025-01-01T01:00:01Z').getTime(),
-                    data: { href: 'https://second-url.com' },
-                },
-            ])
-
-            recorder.recordMessage(message1)
-            recorder.recordMessage(message2)
-            const result = await recorder.end()
-
-            expect(result.firstUrl).toBe('https://first-url.com')
-            expect(result.urls).toEqual(['https://first-url.com', 'https://second-url.com'])
-        })
-
-        it('should handle a message without URLs followed by one with URLs', async () => {
-            const message1 = createMessage('window1', [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
-                    data: {},
-                },
-            ])
-            const message2 = createMessage('window2', [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: new Date('2025-01-01T01:00:01Z').getTime(),
-                    data: { href: 'https://example.com' },
-                },
-            ])
-
-            recorder.recordMessage(message1)
-            recorder.recordMessage(message2)
-            const result = await recorder.end()
-
-            expect(result.firstUrl).toBe('https://example.com')
-            expect(result.urls).toEqual(['https://example.com'])
-        })
-
-        it('should handle messages with no URLs at all', async () => {
-            const message = createMessage('window1', [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
-                    data: {},
-                },
-            ])
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.firstUrl).toBeNull()
-            expect(result.urls).toEqual([])
-        })
-
-        it('should accumulate URLs from multiple events within a single message', async () => {
-            const events = [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
-                    data: { href: 'https://example1.com' },
-                },
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: new Date('2025-01-01T01:00:01Z').getTime(),
-                    data: { href: 'https://example2.com' },
-                },
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: new Date('2025-01-01T01:00:02Z').getTime(),
-                    data: { href: 'https://example3.com' },
-                },
-            ]
-            const message = createMessage('window1', events)
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.firstUrl).toBe('https://example1.com')
-            expect(result.urls).toEqual(['https://example1.com', 'https://example2.com', 'https://example3.com'])
-        })
-    })
-
-    describe('Click counting', () => {
-        it('should count single click events', async () => {
-            const events = [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
-                    data: { source: 2, type: 2 }, // MouseInteraction, Click
-                },
-            ]
-            const message = createMessage('window1', events)
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.clickCount).toBe(1)
-        })
-
-        it('should count multiple click events in a single message', async () => {
-            const events = [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
-                    data: { source: 2, type: 2 }, // MouseInteraction, Click
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
-                    data: { source: 2, type: 4 }, // MouseInteraction, DblClick
-                },
-            ]
-            const message = createMessage('window1', events)
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.clickCount).toBe(2)
-        })
-
-        it('should count click events across multiple messages', async () => {
-            const message1 = createMessage('window1', [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: { source: 2, type: 2 }, // MouseInteraction, Click
-                },
-            ])
-            const message2 = createMessage('window2', [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
-                    data: { source: 2, type: 3 }, // MouseInteraction, ContextMenu
-                },
-            ])
-
-            recorder.recordMessage(message1)
-            recorder.recordMessage(message2)
-            const result = await recorder.end()
-
-            expect(result.clickCount).toBe(2)
-        })
-
-        it('should not count non-click events', async () => {
-            const events = [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: { source: 2, type: 0 }, // MouseInteraction, MouseUp
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
-                    data: { source: 2, type: 1 }, // MouseInteraction, MouseDown
-                },
-            ]
-            const message = createMessage('window1', events)
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.clickCount).toBe(0)
-        })
-
-        it('should handle mixed click and non-click events', async () => {
-            const events = [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: { source: 2, type: 2 }, // MouseInteraction, Click
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
-                    data: { source: 2, type: 0 }, // MouseInteraction, MouseUp
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:02Z').toMillis(),
-                    data: { source: 2, type: 4 }, // MouseInteraction, DblClick
-                },
-            ]
-            const message = createMessage('window1', events)
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.clickCount).toBe(2)
-        })
-    })
-
-    describe('Keypress counting', () => {
-        it('should count single keypress events', async () => {
-            const events = [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: { source: 5 }, // Input
-                },
-            ]
-            const message = createMessage('window1', events)
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.keypressCount).toBe(1)
-        })
-
-        it('should count multiple keypress events in a single message', async () => {
-            const events = [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: { source: 5 }, // Input
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
-                    data: { source: 5 }, // Input
-                },
-            ]
-            const message = createMessage('window1', events)
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.keypressCount).toBe(2)
-        })
-
-        it('should count keypress events across multiple messages', async () => {
-            const message1 = createMessage('window1', [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: { source: 5 }, // Input
-                },
-            ])
-            const message2 = createMessage('window2', [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
-                    data: { source: 5 }, // Input
-                },
-            ])
-
-            recorder.recordMessage(message1)
-            recorder.recordMessage(message2)
-            const result = await recorder.end()
-
-            expect(result.keypressCount).toBe(2)
-        })
-
-        it('should not count non-keypress events', async () => {
-            const events = [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: { source: 2 }, // MouseInteraction
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
-                    data: { source: 3 }, // Scroll
-                },
-            ]
-            const message = createMessage('window1', events)
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.keypressCount).toBe(0)
-        })
-
-        it('should handle mixed keypress and non-keypress events', async () => {
-            const events = [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: { source: 5 }, // Input
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
-                    data: { source: 2 }, // MouseInteraction
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:02Z').toMillis(),
-                    data: { source: 5 }, // Input
-                },
-            ]
-            const message = createMessage('window1', events)
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.keypressCount).toBe(2)
-        })
-    })
-
-    describe('Mouse activity counting', () => {
-        it('should count single mouse activity events', async () => {
-            const events = [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: { source: 1 }, // MouseMove
-                },
-            ]
-            const message = createMessage('window1', events)
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.mouseActivityCount).toBe(1)
-        })
-
-        it('should count multiple mouse activity events in a single message', async () => {
-            const events = [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: { source: 1 }, // MouseMove
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
-                    data: { source: 6 }, // TouchMove
-                },
-            ]
-            const message = createMessage('window1', events)
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.mouseActivityCount).toBe(2)
-        })
-
-        it('should count mouse activity events across multiple messages', async () => {
-            const message1 = createMessage('window1', [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: { source: 1 }, // MouseMove
-                },
-            ])
-            const message2 = createMessage('window2', [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
-                    data: { source: 6 }, // TouchMove
-                },
-            ])
-
-            recorder.recordMessage(message1)
-            recorder.recordMessage(message2)
-            const result = await recorder.end()
-
-            expect(result.mouseActivityCount).toBe(2)
-        })
-
-        it('should not count non-mouse activity events', async () => {
-            const events = [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: { source: 3 }, // Scroll - not mouse activity
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
-                    data: { source: 4 }, // ViewportResize - not mouse activity
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:02Z').toMillis(),
-                    data: { source: 5 }, // Input - not mouse activity
-                },
-            ]
-            const message = createMessage('window1', events)
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.mouseActivityCount).toBe(0)
-        })
-
-        it('should handle mixed mouse and non-mouse activity events', async () => {
-            const events = [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: { source: 1 }, // MouseMove - counts as mouse activity
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
-                    data: { source: 3 }, // Scroll - not mouse activity
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:02Z').toMillis(),
-                    data: { source: 6 }, // TouchMove - counts as mouse activity
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:03Z').toMillis(),
-                    data: { source: 4 }, // ViewportResize - not mouse activity
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:04Z').toMillis(),
-                    data: { source: 5 }, // Input - not mouse activity
-                },
-            ]
-            const message = createMessage('window1', events)
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            // Only MouseMove and TouchMove should be counted
-            expect(result.mouseActivityCount).toBe(2)
-        })
-    })
-
-    describe('Message counting', () => {
-        it('should count a single message', async () => {
-            const message = createMessage('window1', [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: {},
-                },
-            ])
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.messageCount).toBe(1)
-        })
-
-        it('should count multiple messages', async () => {
-            const message1 = createMessage('window1', [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: {},
-                },
-            ])
-            const message2 = createMessage('window2', [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
-                    data: {},
-                },
-            ])
-
-            recorder.recordMessage(message1)
-            recorder.recordMessage(message2)
-            const result = await recorder.end()
-
-            expect(result.messageCount).toBe(2)
-        })
-
-        it('should count zero messages when none are recorded', async () => {
-            const result = await recorder.end()
-
-            expect(result.messageCount).toBe(0)
-        })
-    })
-
-    describe('Snapshot source and library tracking', () => {
-        it('should set default values when no snapshot source or library is provided', async () => {
-            const message = createMessage('window1', [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: {},
-                },
-            ])
-
-            // Message already has null values for snapshot_source and snapshot_library
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.snapshotSource).toBe('web') // Default value for source
-            expect(result.snapshotLibrary).toBeNull() // Default value for library
-        })
-
-        it('should set snapshot source and library from message', async () => {
-            const message = createMessage('window1', [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: {},
-                },
-            ])
-
-            message.snapshot_source = 'mobile'
-            message.snapshot_library = 'posthog-android'
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.snapshotSource).toBe('mobile')
-            expect(result.snapshotLibrary).toBe('posthog-android')
-        })
-
-        it('should limit snapshot source and library fields to 1000 characters', async () => {
-            const message = createMessage('window1', [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: {},
-                },
-            ])
-
-            const longString = 'a'.repeat(2000)
-            message.snapshot_source = longString
-            message.snapshot_library = longString
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.snapshotSource).toBe('a'.repeat(1000))
-            expect(result.snapshotLibrary).toBe('a'.repeat(1000))
-        })
-
-        it('should use values from first message when multiple messages have different values', async () => {
-            const message1 = createMessage('window1', [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: {},
-                },
-            ])
-
-            const message2 = createMessage('window2', [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
-                    data: {},
-                },
-            ])
-
-            message1.snapshot_source = 'web'
-            message1.snapshot_library = 'posthog-js'
-
-            message2.snapshot_source = 'mobile'
-            message2.snapshot_library = 'posthog-android'
-
-            recorder.recordMessage(message1)
-            recorder.recordMessage(message2)
-            const result = await recorder.end()
-
-            expect(result.snapshotSource).toBe('web')
-            expect(result.snapshotLibrary).toBe('posthog-js')
-        })
-
-        it('should use "web" as default for snapshot source if not provided', async () => {
-            const message = createMessage('window1', [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: {},
-                },
-            ])
-
-            // Keep snapshot_source as null and set library
-            message.snapshot_library = 'posthog-js'
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.snapshotSource).toBe('web')
-            expect(result.snapshotLibrary).toBe('posthog-js')
-        })
-    })
-
-    describe('Buffer size reporting', () => {
-        it('should report the uncompressed buffer size', async () => {
-            // Create a message with a known event
-            const events = [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: { href: 'https://example.com' },
-                },
-            ]
-
-            const message = createMessage('window1', events)
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            const decompressedBuffer = await readSnappyBuffer(result.buffer)
-            expect(result.size).toBe(decompressedBuffer.length)
-        })
-    })
-
-    describe('Batch ID', () => {
-        it('should include batch ID in end result', async () => {
-            const batchId = 'test-batch-123'
-            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId)
-            const message = createMessage('window1', [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: {},
-                },
-            ])
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.batchId).toBe(batchId)
-        })
-
-        it('should maintain batch ID across multiple messages', async () => {
-            const batchId = 'test-batch-456'
-            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId)
-
-            const message1 = createMessage('window1', [
-                { type: RRWebEventType.Meta, timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(), data: {} },
-            ])
-            const message2 = createMessage('window2', [
-                { type: RRWebEventType.Meta, timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(), data: {} },
-            ])
-
-            recorder.recordMessage(message1)
-            recorder.recordMessage(message2)
-            const result = await recorder.end()
-
-            expect(result.batchId).toBe(batchId)
-        })
-
-        it('should include batch ID even with no messages', async () => {
-            const batchId = 'test-batch-789'
-            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId)
-            const result = await recorder.end()
-
-            expect(result.batchId).toBe(batchId)
-        })
-    })
-
-    describe('Active time calculation', () => {
-        it('should calculate active time from events', async () => {
-            // Create events with timestamps that would result in active time
-            const events = [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: { href: 'https://example.com' },
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
-                    data: { source: 1 }, // MouseMove - active event
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:02Z').toMillis(),
-                    data: { source: 2, type: 2 }, // MouseInteraction, Click - active event
-                },
-            ]
-            const message = createMessage('window1', events)
-
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.activeMilliseconds).toEqual(1000)
-        })
-
-        it('should handle multiple windows when calculating active time', async () => {
-            // Create events for first window
-            const message1 = createMessage('window1', [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
-                    data: { href: 'https://example.com' },
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
-                    data: { source: 1 }, // MouseMove - active event
-                },
-            ])
-
-            // Create events for second window
-            const message2 = createMessage('window2', [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:02Z').toMillis(),
-                    data: { source: 2, type: 2 }, // MouseInteraction, Click - active event
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: DateTime.fromISO('2025-01-01T01:00:03Z').toMillis(),
-                    data: { source: 5 }, // Input - active event
-                },
-            ])
-
-            recorder.recordMessage(message1)
-            recorder.recordMessage(message2)
-            const result = await recorder.end()
-
-            // The active time should be calculated based on events from both windows
-            expect(result.activeMilliseconds).toEqual(2000)
-        })
-    })
-
-    describe('Pre-serialized messages (native anonymizer fast path)', () => {
-        it('appends the block lines verbatim and derives counts from the per-event metadata', async () => {
-            // Flag bits mirror rust/replay-anonymizer-node `snapshot.rs`: 1=active 2=click 4=keypress 8=mouse.
-            const t0 = DateTime.fromISO('2025-01-01T01:00:00Z').toMillis()
-            const lines = Buffer.from(
-                `["w1",{"type":4,"timestamp":${t0},"data":{"href":"https://example.com/[redacted]"}}]\n` +
-                    `["w1",{"type":3,"timestamp":${t0 + 1000},"data":{"source":2,"type":2}}]\n` +
-                    `["w1",{"type":3,"timestamp":${t0 + 2000},"data":{"source":5,"text":"****"}}]\n`
+            expect(() => recorder.recordSessionData(createData())).toThrow(
+                'Cannot record message after end() has been called'
             )
-            const message: ParsedMessageData = {
-                ...createMessage('w1', []),
-                eventsByWindowId: {},
-                eventsRange: { start: DateTime.fromMillis(t0), end: DateTime.fromMillis(t0 + 2000) },
-                preSerialized: {
-                    lines,
-                    events: [
-                        { ts: t0, flags: 0, href: 'https://example.com/[redacted]' },
-                        { ts: t0 + 1000, flags: 1 | 2 | 8 }, // click: active + click + mouse
-                        { ts: t0 + 2000, flags: 1 | 4 }, // input: active + keypress
-                    ],
-                    consoleLogCount: 0,
-                    consoleWarnCount: 0,
-                    consoleErrorCount: 0,
-                },
-            }
+        })
 
-            const rawBytesWritten = recorder.recordMessage(message)
-            expect(rawBytesWritten).toBe(lines.length)
+        it('throws when calling end multiple times', async () => {
+            recorder.recordSessionData(createData())
+            await recorder.end()
 
+            await expect(recorder.end()).rejects.toThrow('end() has already been called')
+        })
+
+        it('includes the batch id in the end result', async () => {
             const result = await recorder.end()
-            expect(await readSnappyBuffer(result.buffer)).toBe(lines.toString())
-            expect(result.eventCount).toBe(3)
-            expect(result.clickCount).toBe(1)
-            expect(result.keypressCount).toBe(1)
-            expect(result.mouseActivityCount).toBe(1)
-            expect(result.firstUrl).toBe('https://example.com/[redacted]')
-            expect(result.urls).toEqual(['https://example.com/[redacted]'])
-            expect(result.size).toBe(lines.length)
-            // Two active events 1s apart, then activity times out: one 1000ms active segment.
-            expect(result.activeMilliseconds).toBe(1000)
-            expect(result.startDateTime.toMillis()).toBe(t0)
-            expect(result.endDateTime.toMillis()).toBe(t0 + 2000)
+
+            expect(result.batchId).toBe('test_batch_id')
         })
     })
 })

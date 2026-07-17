@@ -27,6 +27,8 @@ import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
 import { parseJSON } from '~/common/utils/json-parse'
+import { isOkResult } from '~/ingestion/framework/results'
+import { createExtractSessionDataStep } from '~/ingestion/pipelines/sessionreplay/extract-session-data-step'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import {
     SessionBatchFileStorage,
@@ -241,9 +243,24 @@ describe('session recording integration', () => {
             ]),
         ]
 
-        // Record all messages
+        // Record all messages, extracted through the real extract step
+        const extractDataStep = createExtractSessionDataStep()
         for (const message of messages) {
-            await recorder.record(message, '30d', createMockSessionKey())
+            const extracted = await extractDataStep({
+                team: message.team,
+                parsedMessage: message.message,
+                retentionPeriod: '30d',
+                sessionKey: createMockSessionKey(),
+            })
+            if (!isOkResult(extracted)) {
+                throw new Error('extract step returned a non-ok result')
+            }
+            const { session, data } = extracted.value
+            const admission = recorder.admit(session, data.eventCount)
+            if (!admission.admitted) {
+                throw new Error('message was not admitted')
+            }
+            admission.session.recordSessionData(data)
         }
 
         // Flush and get metadata

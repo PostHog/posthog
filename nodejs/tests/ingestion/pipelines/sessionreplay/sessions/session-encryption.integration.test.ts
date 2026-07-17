@@ -3,6 +3,9 @@ import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
 import { parseJSON } from '~/common/utils/json-parse'
+import { isOkResult } from '~/ingestion/framework/results'
+import { createExtractConsoleLogsStep } from '~/ingestion/pipelines/sessionreplay/extract-console-logs-step'
+import { createExtractSessionDataStep } from '~/ingestion/pipelines/sessionreplay/extract-session-data-step'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import {
     SessionBatchFileStorage,
@@ -90,8 +93,12 @@ describe('session recording encryption integration', () => {
     // the pre-record resolve-key step does in production.
     let seenSessions: Set<string>
 
-    // Resolves the session's key the way the pre-record step would (generate once, then get) and
-    // records it, since the recorder no longer resolves keys itself.
+    const extractDataStep = createExtractSessionDataStep()
+    const extractLogsStep = createExtractConsoleLogsStep()
+
+    // Resolves the session's key the way the pre-record step would (generate once, then get),
+    // extracts the message through the real extract steps, admits it, and records it the way the
+    // pipeline's record steps do; returns 0 when the message wasn't admitted.
     const recordMessage = async (
         message: MessageWithTeam,
         retentionPeriod: RetentionPeriod = '30d'
@@ -103,7 +110,25 @@ describe('session recording encryption integration', () => {
             ? await keyStore.getKey(sessionId, teamId)
             : await keyStore.generateKey(sessionId, teamId, RetentionPeriodToDaysMap[retentionPeriod])
         seenSessions.add(cacheKey)
-        return recorder.record(message, retentionPeriod, sessionKey)
+        const extracted = await extractDataStep({
+            team: message.team,
+            parsedMessage: message.message,
+            retentionPeriod,
+            sessionKey,
+        })
+        const extractedLogs = await extractLogsStep({ team: message.team, parsedMessage: message.message })
+        if (!isOkResult(extracted) || !isOkResult(extractedLogs)) {
+            throw new Error('extract steps returned a non-ok result')
+        }
+        const { session, data } = extracted.value
+        const admission = recorder.admit(session, data.eventCount)
+        if (!admission.admitted) {
+            return 0
+        }
+        const bytesWritten = admission.session.recordSessionData(data)
+        await admission.session.recordSessionLogs(extractedLogs.value.logs)
+        admission.session.recordSessionFeatures(message.message)
+        return bytesWritten
     }
 
     beforeAll(async () => {
