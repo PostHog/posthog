@@ -476,10 +476,12 @@ for each trigger's auth / scope / identity rules.
   reviews tend to finish last. It is genuinely parallel, but not balanced per-chunk. Fix: interleave the task
   list by chunk (`P1c1, P2c1, P3c1, P1c2, …`) so a chunk's perspectives co-schedule. (Raising
   `MAX_CONCURRENT_SANDBOXES` partly mitigates by leaving fewer tasks queued.)
-- **Per-stage failure policy (deliberate).** Chunking and dedup raise and fail the run (single-unit stages,
-  nothing to degrade to); the perspective wave and blind-spot sweep are best-effort under the 70% failure floor;
-  validation retries per chunk, and only the final attempt degrades to skipping the failing issue. Every
-  best-effort stage is floor-bounded and logs its losses.
+- **Per-stage failure policy (deliberate).** Chunking, selection, and dedup run under `_ONESHOT_RETRY`
+  (5 spaced, escalating attempts — provider-overload spells last minutes, so back-to-back retries all land inside
+  the same spell); chunking and dedup fail the run once retries exhaust (single-unit stages, nothing to degrade
+  to), while selection fails open to the dense product. The perspective wave and blind-spot sweep are best-effort
+  under the 70% failure floor; validation retries per chunk, and only the final attempt degrades to skipping the
+  failing issue. Every best-effort stage is floor-bounded and logs its losses.
 - **Resume identity residual — working-state cache is roster-blind.** The per-head `perspective_result` /
   `perspective_selection` rows resume on positional `(pass_number, chunk_id)` keys, so if a different acting user
   (different enabled-perspective roster) resumes a turn that persisted working state **without** stamping
