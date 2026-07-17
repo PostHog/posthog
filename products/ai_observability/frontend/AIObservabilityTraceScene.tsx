@@ -1618,6 +1618,11 @@ const EventContent = React.memo(
                                         <EvalResultBadges
                                             traceId={trace.id}
                                             generationEventId={isGenerationEvent ? event.id : undefined}
+                                            generationSpanId={
+                                                isGenerationEvent && typeof event.properties.$ai_span_id === 'string'
+                                                    ? event.properties.$ai_span_id
+                                                    : undefined
+                                            }
                                         />
                                     )}
                                 </div>

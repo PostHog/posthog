@@ -10,6 +10,8 @@ import type {
 import { LLMProvider } from '../settings/llmProviderKeysLogic'
 
 export type EvaluationType = 'llm_judge' | 'hog' | 'sentiment'
+export type EvaluationRuntime = EvaluationType | 'otel'
+export type EvaluationSource = 'online' | 'imported'
 export type EvaluationTarget = 'generation' | 'trace'
 export type EvaluationOutputType = 'boolean' | 'sentiment'
 export type EvaluationResultType = EvaluationOutputType | 'label' | 'number'
@@ -112,11 +114,14 @@ export interface EvaluationConditionSet {
 export interface EvaluationRun {
     id: string
     evaluation_id: string
+    evaluation_run_id?: string | null
     evaluation_name: string
     generation_id: string | null
+    target_span_id?: string | null
     trace_id: string
     timestamp: string
-    evaluation_type?: EvaluationType
+    evaluation_type?: EvaluationRuntime
+    evaluation_source?: EvaluationSource
     result_type?: EvaluationResultType
     result: boolean | string | number | null
     sentiment_label?: string | null

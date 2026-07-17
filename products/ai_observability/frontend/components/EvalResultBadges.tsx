@@ -38,12 +38,19 @@ export function getEvalBadgeProps(run: EvaluationRun): {
     return { type, icon, label }
 }
 
-// Trace-target runs carry no $ai_target_event_id, which HogQL returns as '' (not null),
-// so falsiness of generation_id is the discriminator between the two run kinds.
-export function scopeRunsToTarget(runs: EvaluationRun[], generationEventId?: string): EvaluationRun[] {
-    return generationEventId
-        ? runs.filter((run) => run.generation_id === generationEventId)
-        : runs.filter((run) => !run.generation_id)
+export function scopeRunsToTarget(
+    runs: EvaluationRun[],
+    generationEventId?: string,
+    generationSpanId?: string
+): EvaluationRun[] {
+    if (generationEventId || generationSpanId) {
+        return runs.filter(
+            (run) =>
+                (!!generationEventId && run.generation_id === generationEventId) ||
+                (!!generationSpanId && run.target_span_id === generationSpanId)
+        )
+    }
+    return runs.filter((run) => !run.generation_id && !run.target_span_id)
 }
 
 function EvalTooltipContent({ latestRun, runCount }: EvalSummary): JSX.Element {
@@ -62,10 +69,12 @@ function EvalTooltipContent({ latestRun, runCount }: EvalSummary): JSX.Element {
 export function EvalResultBadges({
     traceId,
     generationEventId,
+    generationSpanId,
 }: {
     traceId: string
     /** When set, show runs targeting this generation; otherwise show trace-target runs. */
     generationEventId?: string
+    generationSpanId?: string
 }): JSX.Element | null {
     const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(
         generationEvaluationRunsLogic({ traceId })
@@ -84,7 +93,7 @@ export function EvalResultBadges({
 
     // The trace-scoped fetch is capped at EVALUATION_SUMMARY_MAX_RUNS most-recent runs, so on a
     // trace with very heavy eval volume older runs for a given generation can fall out of view.
-    const summaries = getEvalSummaries(scopeRunsToTarget(generationEvaluationRuns, generationEventId))
+    const summaries = getEvalSummaries(scopeRunsToTarget(generationEvaluationRuns, generationEventId, generationSpanId))
 
     if (summaries.length === 0) {
         return null

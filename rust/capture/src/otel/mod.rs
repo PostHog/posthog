@@ -32,11 +32,11 @@ pub const OTEL_BODY_SIZE: usize = 4 * 1024 * 1024; // 4MB
 /// if this is exceeded, so callers must batch sensibly.
 const MAX_AI_EVENTS_PER_REQUEST: usize = 100;
 
-/// Maximum raw spans or log records accepted before filtering. Set well above
+/// Maximum raw spans accepted before filtering. Set well above
 /// MAX_AI_EVENTS_PER_REQUEST
 /// to accommodate mixed-content batches (e.g. Next.js sending HTTP + AI spans together)
 /// while still bounding the cost of attribute scanning.
-const MAX_RAW_OTEL_RECORDS_PER_REQUEST: usize = 1000;
+const MAX_RAW_OTEL_SPANS_PER_REQUEST: usize = 1000;
 
 fn count_spans(request: &ExportTraceServiceRequest) -> usize {
     request
@@ -162,9 +162,9 @@ pub async fn otel_handler(
     // Cap raw spans before doing any expensive attribute conversion. The body
     // size limit (4 MB) bounds the absolute maximum, but compact protobuf can
     // pack many spans into that budget.
-    if raw_span_count > MAX_RAW_OTEL_RECORDS_PER_REQUEST {
+    if raw_span_count > MAX_RAW_OTEL_SPANS_PER_REQUEST {
         let err = CaptureError::RequestParsingError(format!(
-            "Too many spans: {raw_span_count} exceeds limit of {MAX_RAW_OTEL_RECORDS_PER_REQUEST}"
+            "Too many spans: {raw_span_count} exceeds limit of {MAX_RAW_OTEL_SPANS_PER_REQUEST}"
         ));
         report_internal_error_metrics(err.to_metric_tag(), "otel_validation");
         return Err(err.into_response());
@@ -318,9 +318,10 @@ pub async fn logs_handler(
         counter!("capture_ai_otel_logs_requests_success").increment(1);
         return Ok(Json(json!({})));
     }
-    if raw_record_count > MAX_RAW_OTEL_RECORDS_PER_REQUEST {
+    let evaluation_record_count = logs::count_evaluation_records(&request);
+    if evaluation_record_count > MAX_AI_EVENTS_PER_REQUEST {
         let err = CaptureError::RequestParsingError(format!(
-            "Too many log records: {raw_record_count} exceeds limit of {MAX_RAW_OTEL_RECORDS_PER_REQUEST}"
+            "Too many evaluation records: {evaluation_record_count} exceeds limit of {MAX_AI_EVENTS_PER_REQUEST}"
         ));
         report_internal_error_metrics(err.to_metric_tag(), "otel_logs_validation");
         return Err(err.into_response());

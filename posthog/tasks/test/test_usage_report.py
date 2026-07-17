@@ -5958,7 +5958,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
                 "$ai_span_id": "unsponsored-span",
             },
         )
-        for _ in range(3):
+        for evaluation_run_id in ("evaluation-run-0", "evaluation-run-0", "evaluation-run-1"):
             _create_event(
                 event="$ai_evaluation",
                 team=self.team,
@@ -5968,15 +5968,16 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
                     "$ai_gateway_verified": True,
                     "$ai_gateway_relay": True,
                     "$ai_trace_id": trace_id,
-                    "$ai_evaluation_id": "evaluation-0",
+                    "$ai_evaluation_id": "imported-evaluator-0",
+                    "$ai_evaluation_run_id": evaluation_run_id,
                 },
             )
         flush_persons_and_events()
 
         self.assertEqual(
             ai_count(),
-            baseline_count + 7,
-            "one overage, two span replays, two evaluation replays, and one unmatched span stay billable",
+            baseline_count + 6,
+            "one overage, two span replays, one evaluation replay, and one unmatched span stay billable",
         )
 
     def test_gateway_sponsorship_allowance_is_shared_across_adjacent_periods(self) -> None:

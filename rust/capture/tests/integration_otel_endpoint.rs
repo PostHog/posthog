@@ -277,11 +277,20 @@ fn sign_gateway_body(
     body: &[u8],
     signed_at: &str,
 ) -> String {
-    sign_gateway_body_with_scope(secret, body, signed_at, "otel-v1")
+    sign_gateway_body_with_scope(
+        secret,
+        content_type,
+        content_encoding,
+        body,
+        signed_at,
+        "otel-v1",
+    )
 }
 
 fn sign_gateway_body_with_scope(
     secret: &str,
+    content_type: &str,
+    content_encoding: &str,
     body: &[u8],
     signed_at: &str,
     signature_scope: &str,
@@ -307,6 +316,34 @@ fn sign_gateway_body_with_scope(
 }
 
 fn make_evaluation_logs_request() -> ExportLogsServiceRequest {
+    make_logs_request(vec![make_evaluation_log_record(0)])
+}
+
+fn make_evaluation_log_record(index: u64) -> LogRecord {
+    LogRecord {
+        time_unix_nano: 1_704_067_200_000_000_000 + index,
+        trace_id: vec![1; 16],
+        span_id: index.to_be_bytes().to_vec(),
+        event_name: "gen_ai.evaluation.result".to_string(),
+        attributes: vec![
+            make_kv(
+                "gen_ai.evaluation.name",
+                any_value::Value::StringValue("correctness".to_string()),
+            ),
+            make_kv(
+                "gen_ai.evaluation.score.value",
+                any_value::Value::DoubleValue(0.9),
+            ),
+            make_kv(
+                "gen_ai.evaluation.score.label",
+                any_value::Value::StringValue("pass".to_string()),
+            ),
+        ],
+        ..Default::default()
+    }
+}
+
+fn make_logs_request(log_records: Vec<LogRecord>) -> ExportLogsServiceRequest {
     ExportLogsServiceRequest {
         resource_logs: vec![ResourceLogs {
             resource: Some(Resource {
@@ -318,27 +355,7 @@ fn make_evaluation_logs_request() -> ExportLogsServiceRequest {
             }),
             scope_logs: vec![ScopeLogs {
                 scope: None,
-                log_records: vec![LogRecord {
-                    time_unix_nano: 1_704_067_200_000_000_000,
-                    trace_id: vec![1; 16],
-                    span_id: vec![2; 8],
-                    event_name: "gen_ai.evaluation.result".to_string(),
-                    attributes: vec![
-                        make_kv(
-                            "gen_ai.evaluation.name",
-                            any_value::Value::StringValue("correctness".to_string()),
-                        ),
-                        make_kv(
-                            "gen_ai.evaluation.score.value",
-                            any_value::Value::DoubleValue(0.9),
-                        ),
-                        make_kv(
-                            "gen_ai.evaluation.score.label",
-                            any_value::Value::StringValue("pass".to_string()),
-                        ),
-                    ],
-                    ..Default::default()
-                }],
+                log_records,
                 schema_url: String::new(),
             }],
             schema_url: String::new(),
@@ -593,7 +610,14 @@ async fn test_verified_gateway_logs_batch_produces_evaluation() {
         },
     );
     let body = make_evaluation_logs_request().encode_to_vec();
-    let signature = sign_gateway_body_with_scope(SECRET, &body, DEFAULT_TEST_TIME, "otel-logs-v1");
+    let signature = sign_gateway_body_with_scope(
+        SECRET,
+        "application/x-protobuf",
+        "",
+        &body,
+        DEFAULT_TEST_TIME,
+        "otel-logs-v1",
+    );
 
     let response = client
         .post(LOGS_ENDPOINT)
@@ -613,7 +637,56 @@ async fn test_verified_gateway_logs_batch_produces_evaluation() {
     assert_eq!(data["properties"]["$ai_evaluation_name"], "correctness");
     assert_eq!(data["properties"]["$ai_evaluation_result"], "pass");
     assert_eq!(data["properties"]["$ai_evaluation_result_type"], "label");
+    assert_eq!(data["properties"]["$ai_evaluation_runtime"], "otel");
+    assert_eq!(data["properties"]["$ai_evaluation_type"], "imported");
+    assert_ne!(
+        data["properties"]["$ai_evaluation_id"],
+        data["properties"]["$ai_evaluation_run_id"]
+    );
     assert_eq!(data["properties"]["$ai_gateway_verified"], true);
+}
+
+#[tokio::test]
+async fn test_logs_batch_ignores_unrelated_records_when_enforcing_evaluation_limit() {
+    let sink = CapturingSink::new();
+    let client = make_test_client(&sink);
+    let mut log_records = (0..1001)
+        .map(|_| LogRecord {
+            event_name: "exception".to_string(),
+            ..Default::default()
+        })
+        .collect::<Vec<_>>();
+    log_records.push(make_evaluation_log_record(1));
+    let request = make_logs_request(log_records);
+
+    let response = client
+        .post(LOGS_ENDPOINT)
+        .header("Content-Type", "application/x-protobuf")
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .body(request.encode_to_vec())
+        .send()
+        .await;
+
+    assert_eq!(response.status().as_u16(), 200);
+    assert_eq!(sink.get_events().await.len(), 1);
+}
+
+#[tokio::test]
+async fn test_logs_batch_rejects_too_many_evaluation_records() {
+    let sink = CapturingSink::new();
+    let client = make_test_client(&sink);
+    let request = make_logs_request((0..101).map(make_evaluation_log_record).collect());
+
+    let response = client
+        .post(LOGS_ENDPOINT)
+        .header("Content-Type", "application/x-protobuf")
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .body(request.encode_to_vec())
+        .send()
+        .await;
+
+    assert_eq!(response.status().as_u16(), 400);
+    assert!(sink.get_events().await.is_empty());
 }
 
 #[tokio::test]
@@ -629,7 +702,13 @@ async fn test_logs_batch_does_not_trust_trace_signature_scope() {
         },
     );
     let body = make_evaluation_logs_request().encode_to_vec();
-    let signature = sign_gateway_body(SECRET, &body, DEFAULT_TEST_TIME);
+    let signature = sign_gateway_body(
+        SECRET,
+        "application/x-protobuf",
+        "",
+        &body,
+        DEFAULT_TEST_TIME,
+    );
 
     let response = client
         .post(LOGS_ENDPOINT)

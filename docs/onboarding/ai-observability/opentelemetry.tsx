@@ -261,7 +261,7 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
 
                     <Markdown>
                         {dedent`
-                            **Direct OTLP export.** If you run an OpenTelemetry Collector, or want to export from a language that isn't Python or Node.js, point any OTLP/HTTP exporter directly at PostHog's AI ingestion endpoint. PostHog accepts OTLP traces and logs over HTTP in both \`application/x-protobuf\` and \`application/json\`, authenticated with a \`Bearer\` token. Exporters append \`/v1/traces\` and \`/v1/logs\` to the base endpoint. Log EventRecords named \`gen_ai.evaluation.result\` become \`$ai_evaluation\` events.
+                            **Direct OTLP export.** If you run an OpenTelemetry Collector, or want to export from a language that isn't Python or Node.js, point any OTLP/HTTP exporter directly at PostHog's AI ingestion endpoint. PostHog accepts OTLP traces and logs over HTTP in both \`application/x-protobuf\` and \`application/json\`, authenticated with a \`Bearer\` token. Exporters append \`/v1/traces\` and \`/v1/logs\` to the base endpoint. Log EventRecords named \`gen_ai.evaluation.result\` become \`$ai_evaluation\` events. PostHog groups records with the same evaluation name as one imported evaluator while retaining a separate replay-stable identity for each record.
                         `}
                     </Markdown>
 

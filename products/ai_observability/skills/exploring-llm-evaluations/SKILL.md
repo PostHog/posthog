@@ -59,7 +59,8 @@ Every run of an evaluation emits an `$ai_evaluation` event. Key properties:
 
 | Property                     | Meaning                                                         |
 | ---------------------------- | --------------------------------------------------------------- |
-| `$ai_evaluation_id`          | Evaluation config UUID or deterministic imported record UUID    |
+| `$ai_evaluation_id`          | Evaluation config UUID or deterministic imported evaluator UUID |
+| `$ai_evaluation_run_id`      | Replay-stable identity for an imported evaluation record        |
 | `$ai_evaluation_name`        | Human-readable name                                             |
 | `$ai_target_event_id`        | UUID of the `$ai_generation` event being scored                 |
 | `$ai_target_span_id`         | OTel span ID targeted by an imported evaluation                 |
@@ -377,7 +378,7 @@ or wiring evaluations into a larger agent loop.
 ## Constructing UI links
 
 - **Evaluations list**: `https://app.posthog.com/ai-evals/evaluations`
-- **Single evaluation**: `https://app.posthog.com/ai-evals/evaluations/<evaluation_id>`
+- **Single native evaluation**: `https://app.posthog.com/ai-evals/evaluations/<evaluation_id>` (imported evaluators have no configuration page)
 - **Underlying generation/trace**: see the `exploring-llm-traces` skill's URL conventions
 
 Always surface the relevant link so the user can verify in the UI.

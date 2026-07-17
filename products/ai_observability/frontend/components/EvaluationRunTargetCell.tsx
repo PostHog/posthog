@@ -24,8 +24,13 @@ export function EvaluationRunTargetCell({ run }: { run: EvaluationRun }): JSX.El
         ...sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true }),
         tab: 'evals',
         ...(run.generation_id ? { event: run.generation_id } : {}),
+        ...(!run.generation_id && run.target_span_id ? { search: run.target_span_id } : {}),
     }).url
-    const label = run.generation_id ? `${run.generation_id.slice(0, 12)}...` : `trace ${run.trace_id.slice(0, 12)}...`
+    const label = run.generation_id
+        ? `${run.generation_id.slice(0, 12)}...`
+        : run.target_span_id
+          ? `${run.target_span_id.slice(0, 12)}...`
+          : `trace ${run.trace_id.slice(0, 12)}...`
 
     return (
         <div className="font-mono text-sm">

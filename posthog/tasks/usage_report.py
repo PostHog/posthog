@@ -1382,10 +1382,10 @@ def get_teams_with_ai_event_count_in_period(
         "properties",
         use_new_events_schema=use_new,
     )
-    evaluation_id_expr, _ = get_property_string_expr(
+    evaluation_run_id_expr, _ = get_property_string_expr(
         "events",
-        "$ai_evaluation_id",
-        "'$ai_evaluation_id'",
+        "$ai_evaluation_run_id",
+        "'$ai_evaluation_run_id'",
         "properties",
         use_new_events_schema=use_new,
     )
@@ -1503,7 +1503,7 @@ def get_teams_with_ai_event_count_in_period(
                                 if(verified AND relay, {trace_id_expr}, '') AS trace_id,
                                 if(
                                     verified AND relay,
-                                    if(event = '$ai_evaluation', {evaluation_id_expr}, {span_id_expr}),
+                                    if(event = '$ai_evaluation', {evaluation_run_id_expr}, {span_id_expr}),
                                     ''
                                 ) AS relay_id
                             FROM {events_read_table(use_new)}
