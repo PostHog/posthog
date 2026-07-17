@@ -79,6 +79,7 @@ the row lists both.
 | baseten                          | HTTP                        | requests                                                        | ✅                          |
 | beamer                           | HTTP                        | requests                                                        | ✅                          |
 | better_stack                     | HTTP                        | requests                                                        | ✅                          |
+| bettermode                       | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | bigmailer                        | HTTP                        | requests                                                        | ✅                          |
 | bigquery                         | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads                         | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
@@ -604,7 +605,6 @@ doesn't conflict with concurrent PRs.
 - babelforce
 - backblaze
 - basecamp
-- bettermode
 - bigcommerce
 - bitly
 - bitrise
