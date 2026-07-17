@@ -71,18 +71,31 @@ export class InstructionsFormatter {
     /** Build the compact `instructions` payload for single-exec clients (~2KB budget).
      *  The bulk of the system prompt lives on the exec tool's `command` parameter
      *  description (`buildExecCommandReference`) — this is just env + tool index. */
-    buildExecInstructions(ctx: InstructionsContext): string {
-        return this.compose([COMPACT_INSTRUCTIONS], ctx, { compact: true })
+    buildExecInstructions(ctx: InstructionsContext, opts: { skillsEnabled?: boolean } = {}): string {
+        const instructions = this.compose([COMPACT_INSTRUCTIONS], ctx, { compact: true })
+        if (!opts.skillsEnabled) {
+            return instructions
+        }
+        // Session-start reinforcement for clients that surface instructions — the
+        // description-level mandate alone doesn't reach agents that skim the tool list.
+        return `SKILLS FIRST: run \`learn -s "<task keywords>"\` on the posthog exec tool and load matching skills before any PostHog product or data work; never answer PostHog-behavior questions from cloned source or the web.\n\n${instructions}`
     }
 
     /** Build the top-level description of the `posthog:exec` tool. Lives in the
-     *  uncapped top-level `description`, so the skills line costs no schema budget. */
+     *  uncapped top-level `description`, so the skills text costs no schema budget.
+     *  The skills mandate LEADS the description: it is the only signal that reaches
+     *  an agent before its first tool call, and agents that answer PostHog-behavior
+     *  questions by cloning the public repo never make a call for the gate to catch. */
     buildExecToolDescription(opts: { skillsEnabled?: boolean } = {}): string {
         const blurb = EXEC_TOOL_BLURB.trim()
         if (!opts.skillsEnabled) {
             return blurb
         }
-        return `${blurb}\n\nThis server is the authoritative source of PostHog agent skills — discover and load them with the \`learn\` command before other work.`
+        const skillsFirst =
+            '**SKILLS FIRST — this server is the authoritative source of PostHog agent skills.** ' +
+            'Before answering any PostHog product or data question — including questions about PostHog\'s own behavior, warnings, thresholds, or internals — run `learn -s "<task keywords>"` here and load the matching skills. ' +
+            'Never answer such questions by cloning, grepping, or web-searching PostHog source or docs: they may not match this instance, and un-learned product calls are rejected.'
+        return `${skillsFirst}\n\n${blurb}`
     }
 
     /**
