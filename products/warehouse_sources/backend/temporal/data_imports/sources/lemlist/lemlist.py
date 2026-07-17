@@ -1,29 +1,25 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode
-
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.settings import (
-    LEMLIST_ENDPOINTS,
-    LemlistEndpointConfig,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    OffsetPaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.settings import LEMLIST_ENDPOINTS
 
 LEMLIST_BASE_URL = "https://api.lemlist.com/api"
 # lemlist caps list pages at 100 rows and rate-limits to 20 requests / 2s per API key.
 PAGE_SIZE = 100
-REQUEST_TIMEOUT_SECONDS = 60
-
-
-class LemlistRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -63,138 +59,87 @@ def _clamp_future_value_to_now(value: Any) -> Any:
     return value
 
 
-def _build_params(
-    config: LemlistEndpointConfig,
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-) -> dict[str, Any]:
-    params: dict[str, Any] = {}
-
-    if config.requires_version_v2:
-        params["version"] = "v2"
-
-    if config.request_sort_by:
-        params["sortBy"] = config.request_sort_by
-    if config.request_sort_order:
-        params["sortOrder"] = config.request_sort_order
-
-    if config.supports_incremental and should_use_incremental_field:
-        floor = db_incremental_field_last_value
-        if floor is None and config.default_lookback_days:
-            floor = datetime.now(UTC) - timedelta(days=config.default_lookback_days)
-        if floor is not None:
-            params["minDate"] = _format_incremental_value(_clamp_future_value_to_now(floor))
-
-    return params
-
-
-def _build_url(path: str, params: dict[str, Any]) -> str:
-    url = f"{LEMLIST_BASE_URL}{path}"
-    if not params:
-        return url
-    return f"{url}?{urlencode(params)}"
-
-
-@retry(
-    retry=retry_if_exception_type((LemlistRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch(
-    session: requests.Session, url: str, api_key: str, logger: FilteringBoundLogger
-) -> list[dict[str, Any]] | dict[str, Any]:
-    # lemlist uses HTTP Basic auth with an empty username and the API key as the password.
-    response = session.get(url, auth=("", api_key), timeout=REQUEST_TIMEOUT_SECONDS)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise LemlistRetryableError(f"lemlist API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"lemlist API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
-
-
-def validate_credentials(api_key: str) -> bool:
-    # `/team` is the cheapest authenticated probe — no pagination, single object.
-    url = _build_url(LEMLIST_ENDPOINTS["team"].path, {})
-    try:
-        response = make_tracked_session(redact_values=(api_key,)).get(
-            url, auth=("", api_key), timeout=REQUEST_TIMEOUT_SECONDS
-        )
-        return response.status_code == 200
-    except Exception:
-        return False
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[LemlistResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = LEMLIST_ENDPOINTS[endpoint]
-    # One session reused across pages so urllib3 keeps the connection alive.
-    session = make_tracked_session(redact_values=(api_key,))
-    base_params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value)
-
-    if not config.paginate:
-        data = _fetch(session, _build_url(config.path, base_params), api_key, logger)
-        # `/team` returns a single object; the other non-paginated endpoints return an array.
-        if config.single_object:
-            if isinstance(data, dict):
-                yield [data]
-        elif isinstance(data, list) and data:
-            yield data
-        return
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    offset = resume.offset if resume is not None else 0
-
-    while True:
-        params = {**base_params, "limit": PAGE_SIZE, "offset": offset}
-        page = _fetch(session, _build_url(config.path, params), api_key, logger)
-
-        # Paginated endpoints always return a JSON array; guard against an unexpected object.
-        if not isinstance(page, list) or not page:
-            break
-
-        yield page
-
-        # A short page means we've reached the end — lemlist has no explicit "next" signal.
-        if len(page) < PAGE_SIZE:
-            break
-
-        offset += PAGE_SIZE
-        # Save AFTER yielding (and only when more pages remain) so a crash re-yields the last page
-        # rather than skipping it — merge dedupes on the primary key.
-        resumable_source_manager.save_state(LemlistResumeConfig(offset=offset))
-
-
 def lemlist_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[LemlistResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = LEMLIST_ENDPOINTS[endpoint]
 
+    params: dict[str, Any] = {}
+    if config.requires_version_v2:
+        params["version"] = "v2"
+    if config.request_sort_by:
+        params["sortBy"] = config.request_sort_by
+    if config.request_sort_order:
+        params["sortOrder"] = config.request_sort_order
+
+    # lemlist has no top-level `total`; the OffsetPaginator terminates on a short/empty page.
+    # Non-paginated endpoints (team, team/senders) return their whole result in one response.
+    endpoint_config: dict[str, Any] = {
+        "path": config.path,
+        "params": params,
+        "paginator": OffsetPaginator(limit=PAGE_SIZE, total_path=None) if config.paginate else SinglePagePaginator(),
+    }
+
+    use_incremental = config.supports_incremental and should_use_incremental_field
+    if use_incremental:
+        # Only /activities honours the server-side minDate filter. Without a stored watermark yet,
+        # bound the first sync by the configured lookback rather than pulling the whole history.
+        initial_value: Optional[datetime] = None
+        if config.default_lookback_days:
+            initial_value = datetime.now(UTC) - timedelta(days=config.default_lookback_days)
+        endpoint_config["incremental"] = {
+            "start_param": "minDate",
+            "cursor_path": "createdAt",
+            "initial_value": initial_value,
+            # Clamp a future watermark to now and render it in the Z-suffixed format lemlist expects.
+            "convert": lambda value: _format_incremental_value(_clamp_future_value_to_now(value)),
+        }
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": LEMLIST_BASE_URL,
+            # lemlist uses HTTP Basic auth with an empty username and the API key as the password.
+            # Supplied via the framework auth config so the key is redacted from logs and errors.
+            "auth": {"type": "http_basic", "username": "", "password": api_key},
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": endpoint_config,
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if config.paginate and resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"offset": resume.offset}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes) rather than skipping it.
+        if state and state.get("offset") is not None:
+            resumable_source_manager.save_state(LemlistResumeConfig(offset=int(state["offset"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value if use_incremental else None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -203,3 +148,13 @@ def lemlist_source(
         partition_keys=[config.partition_key] if config.partition_key else None,
         sort_mode=config.sort_mode,
     )
+
+
+def validate_credentials(api_key: str) -> bool:
+    # `/team` is the cheapest authenticated probe — no pagination, single object.
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{LEMLIST_BASE_URL}/team",
+        auth=HttpBasicAuth(username="", password=api_key),
+    )
+    return ok
