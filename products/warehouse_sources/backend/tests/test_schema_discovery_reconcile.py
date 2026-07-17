@@ -326,14 +326,14 @@ class TestAutoEnableNewSchemas(BaseTest):
 
         with patch(_SCHEDULE_FN, side_effect=Exception("temporal unavailable")):
             assert auto_enable_new_schemas(source, ["raw_events"], source_schemas) == []
-        row.refresh_from_db()
-        assert row.should_sync is False
-        assert row.sync_type is None
+        after_failure = ExternalDataSchema.objects.get(id=row.id)
+        assert after_failure.should_sync is False
+        assert after_failure.sync_type is None
 
         # Temporal recovered: the rolled-back row is still an eligible candidate, so it enables now.
         with patch(_SCHEDULE_FN) as mock_schedule:
             assert auto_enable_new_schemas(source, ["raw_events"], source_schemas) == ["raw_events"]
-        row.refresh_from_db()
-        assert row.should_sync is True
-        assert row.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+        after_retry = ExternalDataSchema.objects.get(id=row.id)
+        assert after_retry.should_sync is True
+        assert after_retry.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
         mock_schedule.assert_called_once()
