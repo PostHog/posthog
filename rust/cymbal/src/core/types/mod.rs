@@ -1,5 +1,5 @@
 //! Shared exception/stacktrace domain types used by both run modes. The
-//! processing event model (`RawErrProps`, `OutputErrProps`, the pipeline
+//! processing event model (`RawExceptionProperties`, `ProcessedExceptionProperties`, the pipeline
 //! `Batch`/`Operator` types) lives in `crate::modes::processing::types`.
 
 use serde::{Deserialize, Serialize};
