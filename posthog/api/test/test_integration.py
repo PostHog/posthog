@@ -1996,6 +1996,21 @@ class TestIntegrationAPIKeyAccess:
         assert results[0]["kind"] == "twilio"
 
 
+class TestGithubAccountTypeHelper:
+    @parameterized.expand(
+        [
+            ("organization", "Organization", "organization"),
+            ("user", "User", "personal"),
+            ("missing", None, None),
+            ("unknown", "Bot", None),
+        ]
+    )
+    def test_github_account_type(self, _name, owner_type, expected):
+        from posthog.api.integration import _github_account_type
+
+        assert _github_account_type(owner_type) == expected
+
+
 class TestGitHubIntegrationStateValidation:
     @pytest.fixture(autouse=True)
     def setup_environment(self, db):
@@ -2161,13 +2176,6 @@ class TestGitHubIntegrationStateValidation:
         assert cache.get(f"github_authorize:{state_token}") is None
         assert cache.get(f"github_authorize_pending:{self.user.id}") is None
 
-    @parameterized.expand(
-        [
-            ("organization", "Organization", "organization"),
-            ("user", "User", "personal"),
-            ("missing", None, None),
-        ]
-    )
     @patch("posthog.api.integration.report_user_action")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
@@ -2175,9 +2183,6 @@ class TestGitHubIntegrationStateValidation:
     @patch("posthog.models.user_integration.user_github_integration_from_installation")
     def test_create_github_integration_reports_account_type(
         self,
-        _name,
-        owner_type,
-        expected_account_type,
         mock_user_integration,
         mock_from_install,
         mock_from_code,
@@ -2188,7 +2193,7 @@ class TestGitHubIntegrationStateValidation:
         from posthog.models.integration import GitHubUserAuthorization
 
         client.force_login(self.user)
-        state_token = f"account-type-token-{_name}"
+        state_token = "account-type-token"
         store_unified_authorize_state(
             GitHubAuthorizeState(
                 token=state_token,
@@ -2211,7 +2216,7 @@ class TestGitHubIntegrationStateValidation:
             team=self.team,
             kind="github",
             integration_id="12345",
-            config={"installation_id": "12345", "account": {"type": owner_type, "name": "acme"}},
+            config={"installation_id": "12345", "account": {"type": "Organization", "name": "acme"}},
             sensitive_config={"access_token": "ghs_test"},
         )
 
@@ -2225,8 +2230,8 @@ class TestGitHubIntegrationStateValidation:
         mock_report.assert_called_once()
         props = mock_report.call_args.args[2]
         assert props["integration_kind"] == "github"
-        assert props["repo_owner_type"] == owner_type
-        assert props["account_type"] == expected_account_type
+        assert props["repo_owner_type"] == "Organization"
+        assert props["account_type"] == "organization"
 
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
