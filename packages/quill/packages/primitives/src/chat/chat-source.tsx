@@ -10,12 +10,12 @@ import { ChatGlobe } from './chat-globe'
 
 /**
  * A page an agent found and read — the rows a web search discloses. Vendored from the aicss
- * web-search pattern and renamed `ChatSource`. Drop a `ChatSourceList` into a `ChatToolCallContent`.
+ * web-search pattern and renamed `ChatSource`. Drop a `ChatSourceList` into a `ChatMarker`'s `body`.
  *
  * `status` walks a row through the fetch: `pending` (found, not opened) shows a dashed ring,
  * `loading` swaps in a sweeping {@link ./chat-globe#ChatGlobe}, `done` lands on a check. The app owns
- * when each row moves — same contract as `ChatReasoning`, since only the app knows what the agent is
- * actually doing.
+ * when each row moves — same contract as the rest of the family, since only the app knows what the
+ * agent is actually doing.
  *
  * Give a row an `href` and it becomes a link with an out-arrow; without one it's static text.
  */
@@ -53,7 +53,7 @@ function ChatSource({
                 className: cn('quill-chat-source', className),
                 children: (
                     <>
-                        <span data-slot="source-bullet" className="quill-chat-bullet">
+                        <span data-slot="source-bullet" data-status={status} className="quill-chat-bullet">
                             {/* Keyed so a status change mounts a fresh icon, which replays the reveal. */}
                             <React.Fragment key={status}>{STATUS_ICON[status]}</React.Fragment>
                         </span>

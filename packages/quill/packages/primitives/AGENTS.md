@@ -769,64 +769,66 @@ A feed-style message row — Slack-like channel surfaces where every message ali
 </ThreadItemGroup>
 ```
 
-### Chat disclosures — picking between Marker, Reasoning, ToolCall, and TaskList
+### Chat disclosures — Marker and TaskList
 
-Four primitives share a row, a rail, a chevron, and a shimmer (`chat/lib/disclosure.css`), plus a status bullet (`chat/lib/status.css`), so they look like a family. Pick by **what happened**, not by how it looks:
+Two primitives share a row, a rail, a chevron, and a shimmer (`chat/lib/disclosure.css`), plus a status bullet (`chat/lib/status.css`):
 
-| Primitive       | Use when                                                           | Not for                               |
-| --------------- | ------------------------------------------------------------------ | ------------------------------------- |
-| `ChatMarker`    | A settled status note or separator — "Explored 4 files"            | Anything with a live/running state    |
-| `ChatReasoning` | The model thinking — no tool ran; prose streams in                 | A tool invocation — use ChatToolCall  |
-| `ChatToolCall`  | What the agent did — a summary row, disclosing the calls behind it | Model thinking; a multi-step plan     |
-| `ChatTaskList`  | A plan worked through — many steps, each with its own outcome      | A single tool call — use ChatToolCall |
+| Primitive      | Use when                                                                          |
+| -------------- | --------------------------------------------------------------------------------- |
+| `ChatMarker`   | Anything an agent did — a note, one tool call, or a group of them                 |
+| `ChatTaskList` | A plan worked through — many steps, an aggregate count, each with its own outcome |
 
-Two shared classes carry the family's state vocabulary, and both already handle `prefers-reduced-motion`:
+Two shared classes carry the state vocabulary, and both handle `prefers-reduced-motion`:
 
-- `quill-chat-shimmer` — "this row is live". Put it on text that should sweep while work is in flight (`ChatReasoningLabel`, `ChatToolCallLabel`, and an active `ChatTask` apply it themselves from `status`). It clips a gradient to the glyphs, so it becomes the text's only color; the reduced-motion fallback hands the color back rather than just stopping. **Never set `color` on a shimmering element from a more specific selector** — the shimmer is a single class, so anything like `.block[data-status='active'] .block__label` outranks it and paints opaque text over the sweep. It fails silently: the animation still runs and nothing moves.
-- `quill-chat-shimmer-icon` — the shimmer's icon counterpart, for the icon beside shimmering text (`ChatReasoning`'s brain). `background-clip: text` only reaches glyphs, so an icon can't use the text rule; this sweeps an alpha mask on the same 2s cadence so the pair reads as one live row.
-- `quill-chat-bullet` — the leading status icon on `ChatSource` and `ChatTask`. Put `data-status` on the row **or on the bullet itself** and the class on the bullet; `done` tints `--success-foreground` and `failed`/`error` tint `--destructive-foreground`. Each component supplies its own icons — only the middle of the walk differs (globe vs arrow); the ends are always "not started" and "settled".
-- `quill-chat-swap` — the leading slot: a state icon at rest, a chevron on hover/focus (`ChatReasoning`, `ChatTaskList`). Compose `quill-chat-swap` > `quill-chat-swap__icon` + `quill-chat-swap__chevron`; the row supplies `quill-chat-row--interactive` for the hover scope. Cross-fades rather than `display`-swapping, so an icon carrying the bullet's reveal animation doesn't replay it on every hover-out.
-
-**Base UI triggers are never natively `disabled`** — an inert trigger gets `aria-disabled="true"` and keeps its tab stop, so it stays reachable by screen readers. CSS must gate on `:not([aria-disabled='true'])`, never `:not(:disabled)`, which matches everything and silently does nothing.
+- `quill-shimmer` — "this is live". A cross-cutting utility, not a chat class; see Utilities below. `ChatMarkerContent` applies it from `status`, and an active `ChatTask` applies it too.
+- `quill-chat-bullet` — the leading status icon on `ChatSource` and `ChatTask`. Put `data-status` **on the bullet itself**; `done` tints `--success-foreground`, `failed`/`error` tint `--destructive-foreground`.
+- `quill-chat-swap` — a leading slot showing a state icon at rest and a chevron on hover/focus (`ChatTaskList`'s header). Compose `quill-chat-swap` > `quill-chat-swap__icon` + `quill-chat-swap__chevron`; the row supplies `quill-chat-row--interactive` for the hover scope. Cross-fades rather than `display`-swapping, so an icon carrying the bullet's reveal animation doesn't replay it on every hover-out.
 
 **Status tokens are fill/ink pairs, not shades.** `--success`/`--destructive` are backgrounds; the ink that reads on a surface is the `-foreground` half. Tinting an icon `--success` gives you pale-green-on-white.
 
-### Chat tool call (what the agent did)
+**Never style a chat row's descendants from the row.** These nest — a group's body holds markers, sources, whole lists — so `.block[data-status] .thing` and `.block a` reach straight into children that own their own state. This has caused real bugs: an errored group painted its succeeded rows' bullets red, and the marker's bare `svg` rule outranked `ChatSource`'s smaller out-arrow. Scope to the row's own slots (`__content`, `__icon`) or put the attribute on the element being styled.
 
-The row is the joined-up summary — "Read 2 files · Edited 1 file · Ran 1 command" — and discloses the individual calls beneath it. It shimmers while `status="running"`. Unlike reasoning, the panel is never force-open — a reader may want the detail while it arrives or long after — so `defaultOpen`/`open`/`onOpenChange` always apply. The chevron sits at the end of the row and stays hidden until hover/focus or open, like `ChatMarker`'s: a transcript of these shouldn't read as a wall of controls.
+**Base UI triggers are never natively `disabled`** — an inert trigger gets `aria-disabled="true"` and keeps its tab stop, so it stays reachable by screen readers. CSS must gate on `:not([aria-disabled='true'])`, never `:not(:disabled)`, which matches everything and silently does nothing.
 
-**The summary takes no icon.** It stands for several calls at once, and no single icon is honest about that. Icons go on the rows inside, where each names one tool — use `ChatMarker` for those (icon + text is exactly what it is).
+### Chat marker (everything an agent did)
+
+One row at three fill levels. Resist splitting them apart again — they were separate primitives once and the seams cost more than they bought.
+
+- A **note** is the flat row: icon + text, nothing to open.
+- A **tool call** adds `status` (`running` shimmers the content, `error` turns the row destructive, `done` keeps the value) and usually a `ChatMarkerValue` for the argument it acted on. The value is quoted by CSS, so it can't ship without its quotes.
+- A **group** passes `body` and drops the icon: the row is the joined-up summary, and the calls behind it are markers of their own inside. No single icon is honest about several tools at once, which is why the icon is a slot you fill rather than a fixture.
+
+With a body the row becomes a Collapsible trigger — the chevron hugs the end of the text and only shows on hover/focus or when open, so a transcript of these doesn't read as a wall of controls. `defaultOpen` is the app's grouping decision; `open`/`onOpenChange` are there for the rare case the app drives it.
+
+**A group's status is its own, not its children's.** An errored group tints only its row; the rows inside keep their outcomes, so the call that succeeded still reads as a success.
 
 ```tsx
-<ChatToolCall status="done" defaultOpen>
-  <ChatToolCallTrigger>
-    <ChatToolCallLabel>Read 2 files · Edited 1 file · Ran 1 command</ChatToolCallLabel>
-  </ChatToolCallTrigger>
-  <ChatToolCallContent>
-    <ChatMarker>
-      <ChatMarkerIcon>
-        <FileIcon />
-      </ChatMarkerIcon>
-      <ChatMarkerContent>Read auth/middleware.ts</ChatMarkerContent>
-    </ChatMarker>
-    {/* …one marker per call */}
-  </ChatToolCallContent>
-</ChatToolCall>
+<ChatMarker
+  status="done"
+  defaultOpen
+  body={
+    <>
+      <ChatMarker>
+        <ChatMarkerIcon>
+          <FileIcon />
+        </ChatMarkerIcon>
+        <ChatMarkerContent>Read auth/middleware.ts</ChatMarkerContent>
+      </ChatMarker>
+      {/* …one marker per call */}
+    </>
+  }
+>
+  <ChatMarkerContent>Read 2 files · Edited 1 file · Ran 1 command</ChatMarkerContent>
+</ChatMarker>
 ```
 
-`ChatToolCallValue` is the argument (query, path, command): it's quoted by CSS, and goes foreground once the call settles, because that's the fact worth keeping. Verb and value truncate together as one line, so a long query clips instead of wrapping the row.
-
-When the tool returned pages, fill the content with `ChatSourceList` > `ChatSource` instead of markers. `status` walks a row through the fetch — `pending` (dashed ring) → `loading` (`ChatGlobe`) → `done` (green check). The app owns when each row moves; the primitive never infers it. An `href` makes the row a link with a hover out-arrow; without one it's static text.
+When the tool returned pages, fill the body with `ChatSourceList` > `ChatSource` instead of markers. `status` walks a row through the fetch — `pending` (dashed ring) → `loading` (`ChatGlobe`) → `done` (green check). The app owns when each row moves. An `href` makes the row a link with a hover out-arrow; without one it's static text.
 
 ```tsx
-<ChatToolCall status={running ? 'running' : 'done'} defaultOpen>
-  <ChatToolCallTrigger>
-    <ChatToolCallLabel>
-      {running ? 'Searching' : `Searched ${sites.length} sources`}
-      <ChatToolCallValue>{query}</ChatToolCallValue>
-    </ChatToolCallLabel>
-  </ChatToolCallTrigger>
-  <ChatToolCallContent>
+<ChatMarker
+  status={running ? 'running' : 'done'}
+  defaultOpen
+  body={
     <ChatSourceList>
       {sites.map((site) => (
         <ChatSource key={site.url} status={site.status} href={`https://${site.url}`}>
@@ -835,15 +837,22 @@ When the tool returned pages, fill the content with `ChatSourceList` > `ChatSour
         </ChatSource>
       ))}
     </ChatSourceList>
-  </ChatToolCallContent>
-</ChatToolCall>
+  }
+>
+  <ChatMarkerContent>
+    {running ? 'Searching' : `Searched ${sites.length} sources`}
+    <ChatMarkerValue>{query}</ChatMarkerValue>
+  </ChatMarkerContent>
+</ChatMarker>
 ```
 
-`status="error"` is a call that came back wrong: the shimmer stops, the icon and label go destructive, and the results stay readable — a failing tool's partial output is usually the whole story.
+`ChatGlobe` is exported on its own: a globe whose meridians sweep, for when you can say _what_ is loading rather than only that something is (`Spinner` covers the rest). It sizes and tints from its container like any icon. It animates with SMIL, which **CSS cannot disable** — it reads `useReducedMotion()` and renders a still globe instead. Reach for that hook only where a media query can't reach; CSS is the right place for everything else.
 
 ### Chat task list (a plan, worked through)
 
-The checklist an agent is following. The header shows where it's up to at a glance — a list icon before anything starts, a ring that fills as steps land, a check once they all have — beside a `2/5` count whose digits roll. `ChatTask` carries its own `status`: `pending` (dashed), `active` (arrow, label shimmers), `done` (green check), `failed` (red X, destructive label). `ChatTaskDetail` is what the step produced — a duration, an exit code, the line explaining a failure.
+The checklist an agent is following. The header shows where it's up to at a glance — a list icon before anything starts, a ring that fills as steps land, a check once they all have — beside a `2/5` count whose digits roll. It doubles as the disclosure affordance: hovering swaps it for a chevron. `ChatTask` carries its own `status`: `pending` (dashed), `active` (arrow, label shimmers), `done` (green check), `failed` (red X, destructive label). `ChatTaskDetail` is what the step produced — a duration, an exit code, the line explaining a failure.
+
+Steps **wrap** by default: a step's text is the point of the row, so clipping it is the caller's call, not the primitive's. Pass `truncate` to clamp one to a single line — the label and its detail clip together, so the ellipsis lands wherever the room runs out. Either way the bullet stays on the first line rather than floating into the middle of a wrapped paragraph.
 
 The list holds no state: `value`/`total` are the app's count, and nothing is inferred from the children, because only the app knows which step is running or why one broke. The header can't drift from the count beside it — both read the same context.
 
@@ -868,25 +877,6 @@ The list holds no state: `value`/`total` are the app's count, and nothing is inf
     <ChatTask status="pending">Run migrations</ChatTask>
   </ChatTaskListContent>
 </ChatTaskList>
-```
-
-`ChatGlobe` is exported on its own: a globe whose meridians sweep, for when you can say _what_ is loading rather than only that something is (`Spinner` covers the rest). It sizes and tints from its container like any icon, so `<ChatMarkerIcon><ChatGlobe /></ChatMarkerIcon>` works. It animates with SMIL, which **CSS cannot disable** — it reads `useReducedMotion()` and renders a still globe instead. Reach for that hook only where a media query can't reach; CSS is the right place for everything else.
-
-### Chat reasoning (agent thinking stream)
-
-The reasoning a turn produced — a shimmering "Thinking…" row while the model works, collapsing to a "Thought for Ns" summary the reader can reopen. The row leads with a brain that swaps to a chevron on hover/focus once there's something to toggle; the trigger renders it, so there's no icon slot to fill. `status` drives everything: `thinking` force-opens the panel, makes the trigger inert (nothing to toggle, no hover fill, no pointer, and no chevron), shimmers the `ChatReasoningLabel` and the brain beside it, animates each new `ChatReasoningStep` in, and keeps the viewport pinned to the newest step so older ones fade off the top. `done` unlocks the toggle and honours `defaultOpen`/`open`/`onOpenChange` (collapsed by default; expanding resets the scroll to the top). The app owns the timing and the label copy — appending steps and flipping `status` — while the primitive owns the reveal, the `11.25rem` height cap, the edge fade masks, and the collapse. Override the cap per surface with `--quill-chat-reasoning-max-height`. Use `ChatMarker` instead for a tool call or a status note; reasoning is prose, not a row.
-
-```tsx
-<ChatReasoning status={done ? 'done' : 'thinking'}>
-  <ChatReasoningTrigger>
-    <ChatReasoningLabel>{done ? `Thought for ${seconds}s` : 'Thinking…'}</ChatReasoningLabel>
-  </ChatReasoningTrigger>
-  <ChatReasoningContent>
-    {steps.map((step) => (
-      <ChatReasoningStep key={step.id}>{step.text}</ChatReasoningStep>
-    ))}
-  </ChatReasoningContent>
-</ChatReasoning>
 ```
 
 ### Keyboard Shortcuts
@@ -1098,6 +1088,27 @@ Sanctioned escape hatches (the only padding overrides the stories use):
 - Fixed sidebars/navs: explicit width (`w-[200px]`-ish), content area `flex-1`.
 - `flex flex-col` is the default layout; reach for `grid` only for genuinely two-dimensional layouts.
 - Tailwind utilities only — no inline styles; semantic tokens (`bg-muted`, `text-muted-foreground`) — never raw colors.
+
+---
+
+## Utilities
+
+Cross-cutting classes that aren't any component's. They ship with the package (`styles/utilities.css`, loaded from `index.ts`), so they're available to any element in a quill app.
+
+### `quill-shimmer`
+
+Live text: a highlight sweeping a line to say work is still in flight. Put it on any text — a `Text`, a bare `<span>`, a component's label.
+
+```tsx
+<Text size="sm" className="quill-shimmer">
+  Deploying…
+</Text>
+```
+
+- **It owns `color`.** The gradient is clipped to the glyphs, so the text must be transparent for the sweep to show. That's also why the rule is **unlayered** — inside `@layer components` any `text-*` utility beat it and silently painted over the animation. Unlayered beats every layer, so it now composes with utility colors; don't reintroduce a `color` on the same element expecting it to win.
+- **Text only.** `background-clip: text` can't reach an SVG stroke, so an icon needs its own treatment.
+- **Retune** with `--quill-shimmer-base` / `--quill-shimmer-highlight`; defaults read as muted brightening to full.
+- Reduced motion hands the color back rather than just stopping — otherwise the text would stay invisible.
 
 ---
 

@@ -24,7 +24,7 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 const TODOS = [
-    'Scaffold the project structure',
+    'Scaffold the project structure, Scaffold the project structure and some more for longer text',
     'Build the component registry',
     'Implement entitlement gating',
     'Wire up Stripe checkout',
@@ -53,7 +53,7 @@ function TodoList({ current }: { current: number }): React.ReactElement {
             </ChatTaskListTrigger>
             <ChatTaskListContent>
                 {TODOS.map((label, index) => (
-                    <ChatTask key={label} status={statuses[index]}>
+                    <ChatTask key={label} status={statuses[index]}  className="whitespace-normal">
                         {label}
                     </ChatTask>
                 ))}
@@ -128,6 +128,37 @@ export const TaskStates: Story = {
                     <ChatTask status="failed">
                         Failed — it broke
                         <ChatTaskDetail>exit 1</ChatTaskDetail>
+                    </ChatTask>
+                </ChatTaskListContent>
+            </ChatTaskList>
+        </div>
+    ),
+}
+
+const LONG = 'Pin the algorithm to HS256 and validate the issuer and audience claims on every incoming request'
+
+/**
+ * A step that outgrows its row wraps, and its bullet stays on the first line rather than floating
+ * into the middle of the paragraph. Pass `truncate` to clamp it to one line instead — the label and
+ * its detail clip together, so the ellipsis lands wherever the room runs out.
+ */
+export const LongLabels: Story = {
+    render: () => (
+        <div className="w-[320px]">
+            <ChatTaskList value={1} total={3} defaultOpen>
+                <ChatTaskListTrigger>
+                    <ChatTaskListProgress />
+                    <ChatTaskListLabel>Wrapping vs truncating</ChatTaskListLabel>
+                    <ChatTaskListCount />
+                </ChatTaskListTrigger>
+                <ChatTaskListContent>
+                    <ChatTask status="done">{LONG}</ChatTask>
+                    <ChatTask status="active" truncate>
+                        {LONG}
+                    </ChatTask>
+                    <ChatTask status="failed">
+                        {LONG}
+                        <ChatTaskDetail>exit 1: port 8000 already in use</ChatTaskDetail>
                     </ChatTask>
                 </ChatTaskListContent>
             </ChatTaskList>

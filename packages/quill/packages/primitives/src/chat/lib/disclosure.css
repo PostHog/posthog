@@ -1,10 +1,10 @@
 @layer components {
     /*
-     * The shell every chat disclosure shares: a dense status row that can act as a trigger, a rail
-     * that indents whatever it discloses, and the shimmer that marks a row as live.
+     * The shell every chat disclosure shares: a dense status row that can act as a trigger, and a rail
+     * that indents whatever it discloses. Live text uses the `quill-shimmer` utility (styles/).
      *
-     * These are the parts `ChatMarker`, `ChatReasoning`, and `ChatToolCall` had each grown their own
-     * copy of. They're composed onto the component's own BEM block rather than @extend-ed, so a
+     * These are the parts `ChatMarker` and `ChatTaskList` would otherwise each grow their own copy of.
+     * They're composed onto the component's own BEM block rather than @extend-ed, so a
      * component reads `cn('quill-chat-row', 'quill-chat-marker')` and keeps its own hook for
      * consumer overrides. Anything specific to one component stays in that component's CSS.
      */
@@ -48,11 +48,14 @@
         box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 50%, transparent);
     }
 
+    /*
+     * Hugs the end of the text it toggles rather than parking at the row's far edge — stranded across
+     * a wide row a chevron reads as unrelated to the thing it opens.
+     */
     .quill-chat-chevron {
         flex-shrink: 0;
         width: 0.875rem;
         height: 0.875rem;
-        margin-inline-start: auto;
         color: var(--muted-foreground);
         transition: rotate 150ms ease;
     }
@@ -103,12 +106,8 @@
         transition: opacity 150ms ease;
     }
 
-    /*
-     * The chevron sits in the leading slot, so it drops the auto margin it carries for rows that park
-     * it at the far end. Rotate is restated because `.quill-chat-chevron` has equal specificity.
-     */
+    /* Rotate is restated because `.quill-chat-chevron` has equal specificity and could land later. */
     .quill-chat-swap__chevron {
-        margin-inline-start: 0;
         opacity: 0;
         transition:
             opacity 150ms ease,
@@ -160,73 +159,6 @@
         height: var(--collapsible-panel-height);
     }
 
-    /*
-     * Live text. Sweeps between muted and foreground so a row reads as still working. The gradient
-     * is clipped to the glyphs, which means it becomes the text's only color — the reduced-motion
-     * fallback below has to hand the color back, not just stop the animation.
-     *
-     * So: never set `color` on a shimmering element from a more specific selector. This rule is a
-     * single class (0,1,0); something like `.block[data-status='active'] .block__label` (0,3,0) wins
-     * and paints opaque text over the sweep. It fails silently — the animation still runs, the
-     * gradient is still there, and nothing moves. Let the shimmer own the color; it already resolves
-     * to `--foreground` when motion is off.
-     */
-    .quill-chat-shimmer {
-        color: transparent;
-        background-image: linear-gradient(
-            90deg,
-            var(--muted-foreground) 0%,
-            var(--muted-foreground) 30%,
-            var(--foreground) 50%,
-            var(--muted-foreground) 70%,
-            var(--muted-foreground) 100%
-        );
-        background-clip: text;
-        background-size: 200% 100%;
-        animation: quill-chat__shimmer 2s linear infinite;
-    }
-
-    /*
-     * The shimmer's icon counterpart. `background-clip: text` only reaches glyphs, so an icon can't
-     * use the rule above — it sweeps an alpha mask instead. Same gradient shape, same 2s linear
-     * cadence, so an icon and the label beside it read as one live row rather than two animations.
-     * The icon holds `--foreground` and the mask dims it to roughly muted at the trough, which is
-     * the same journey the text shimmer makes in color.
-     */
-    .quill-chat-shimmer-icon {
-        color: var(--foreground);
-        mask-image: linear-gradient(
-            90deg,
-            rgb(0 0 0 / 40%) 0%,
-            rgb(0 0 0 / 40%) 30%,
-            rgb(0 0 0 / 100%) 50%,
-            rgb(0 0 0 / 40%) 70%,
-            rgb(0 0 0 / 40%) 100%
-        );
-        mask-size: 200% 100%;
-        animation: quill-chat__shimmer-icon 2s linear infinite;
-    }
-
-    @keyframes quill-chat__shimmer {
-        from {
-            background-position: 100% 0;
-        }
-
-        to {
-            background-position: -100% 0;
-        }
-    }
-
-    @keyframes quill-chat__shimmer-icon {
-        from {
-            mask-position: 100% 0;
-        }
-
-        to {
-            mask-position: -100% 0;
-        }
-    }
-
     @media (prefers-reduced-motion: reduce) {
         .quill-chat-chevron,
         .quill-chat-chevron--reveal,
@@ -234,18 +166,6 @@
         .quill-chat-swap__icon,
         .quill-chat-swap__chevron {
             transition: none;
-        }
-
-        .quill-chat-shimmer {
-            color: var(--foreground);
-            background-image: none;
-            animation: none;
-        }
-
-        /* Drop the mask too, or the icon freezes at whatever alpha the sweep stopped on. */
-        .quill-chat-shimmer-icon {
-            mask-image: none;
-            animation: none;
         }
     }
 }

@@ -1,6 +1,7 @@
 @layer components {
     /*
-     * Inline status / system-note / separator row, plus the quill collapsible extension.
+     * Note, tool call, and tool group — one row at three fill levels, plus the quill collapsible
+     * extension.
      *
      * The row, trigger affordance, chevron, and rail come from `lib/disclosure.css` — this file only
      * holds what's the marker's own. A flat marker is `quill-chat-row` + this block. A collapsible
@@ -17,17 +18,24 @@
         width: 100%;
     }
 
-    .quill-chat-marker svg:not([class*='size-']) {
+    /*
+     * Scoped to the row's own slots, never `.quill-chat-marker *`. A marker's body holds other
+     * components now — nested markers, a `ChatSourceList` — and a descendant rule reaches straight
+     * into them: the bare `svg` rule outranked `ChatSource`'s smaller out-arrow (0,1,1 beats 0,1,0)
+     * and the bare `a` rule underlined every source link.
+     */
+    .quill-chat-marker__icon svg:not([class*='size-']),
+    .quill-chat-marker__content svg:not([class*='size-']) {
         width: 0.875rem;
         height: 0.875rem;
     }
 
-    .quill-chat-marker a {
+    .quill-chat-marker__content a {
         text-decoration: underline;
         text-underline-offset: 3px;
     }
 
-    .quill-chat-marker a:hover {
+    .quill-chat-marker__content a:hover {
         color: var(--foreground);
     }
 
@@ -69,6 +77,47 @@
     .quill-chat-marker--separator .quill-chat-marker__content {
         flex: none;
         text-align: center;
+    }
+
+    /*
+     * The argument the call acted on. Quoted here rather than in the markup so a value can't ship
+     * without its quotes, and so they disappear with it.
+     */
+    .quill-chat-marker__value::before {
+        content: '\201C';
+    }
+
+    .quill-chat-marker__value::after {
+        content: '\201D';
+    }
+
+    .quill-chat-marker__value {
+        margin-inline-start: 0.25rem;
+    }
+
+    /*
+     * Settled: the verb stays muted, the value it acted on reads as the fact worth keeping. Routed
+     * through `__content` so a group's status can't reach a nested marker's value — the body lives in
+     * `__panel`, never in `__content`, so this can't cross into a child row.
+     */
+    .quill-chat-marker[data-status='done'] > .quill-chat-marker__content .quill-chat-marker__value,
+    .quill-chat-marker[data-status='done']
+        > .quill-chat-marker__trigger
+        > .quill-chat-marker__content
+        .quill-chat-marker__value {
+        color: var(--foreground);
+    }
+
+    /*
+     * Failed: the whole row goes destructive, verb included — "Searched" is no longer true, so it
+     * shouldn't read as neutral history. Scoped to this marker's own row: `__content` and `__icon`
+     * belong to it, while a nested marker in the body carries its own status and tints itself.
+     */
+    .quill-chat-marker[data-status='error'] > .quill-chat-marker__icon,
+    .quill-chat-marker[data-status='error'] > .quill-chat-marker__content,
+    .quill-chat-marker[data-status='error'] > .quill-chat-marker__trigger > .quill-chat-marker__icon,
+    .quill-chat-marker[data-status='error'] > .quill-chat-marker__trigger > .quill-chat-marker__content {
+        color: var(--destructive-foreground);
     }
 
     /* Collapsible panel: stack the disclosed children. */

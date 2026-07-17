@@ -28,17 +28,15 @@
      * `--success`/`--destructive` are fill tokens; the ink that reads on a surface is the
      * `-foreground` half of each pair.
      *
-     * Each tint is matched two ways: `data-status` on an ancestor row (a source, a task) and on the
-     * bullet itself (a header that is its own status). A descendant selector alone silently skips
-     * the second case — an element is not its own descendant.
+     * The status must sit on the bullet itself — never matched from an ancestor. A row's status is
+     * not its children's: a descendant selector let an errored group paint every bullet in its body
+     * red, including the ones that had succeeded. Nesting is normal here (a group discloses rows,
+     * each with its own outcome), so the tint has to key off the element it describes.
      */
-    [data-status='done'] .quill-chat-bullet,
     .quill-chat-bullet[data-status='done'] {
         color: var(--success-foreground);
     }
 
-    [data-status='failed'] .quill-chat-bullet,
-    [data-status='error'] .quill-chat-bullet,
     .quill-chat-bullet[data-status='failed'],
     .quill-chat-bullet[data-status='error'] {
         color: var(--destructive-foreground);

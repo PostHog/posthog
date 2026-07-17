@@ -1,3 +1,7 @@
+import './chat-task-list.css'
+import './lib/disclosure.css'
+import './lib/status.css'
+
 import { Collapsible as CollapsiblePrimitive } from '@base-ui/react/collapsible'
 import {
     ChevronRightIcon,
@@ -9,17 +13,14 @@ import {
 } from 'lucide-react'
 import * as React from 'react'
 
-import './chat-task-list.css'
-import './lib/disclosure.css'
-import './lib/status.css'
-import { cn } from '../lib/utils'
 import { useReducedMotion } from '../lib/use-reduced-motion'
+import { cn } from '../lib/utils'
 
 /**
  * The plan an agent is working through — a checklist that fills in as steps land. Adapted from the
- * aicss to-do list pattern. Sibling of {@link ./chat-tool-call#ChatToolCall} (one tool, its results)
- * and {@link ./chat-reasoning#ChatReasoning} (thinking, no tool): this is the *plan*, many steps,
- * each with its own outcome.
+ * aicss to-do list pattern. Sibling of {@link ./chat-marker#ChatMarker}, which covers what the agent
+ * *did* — a note, a call, a group of them. This is the *plan*: many steps, an aggregate count, and
+ * each step carrying its own outcome.
  *
  * The list holds no state. `value`/`total` are the app's count of finished steps, and every `ChatTask`
  * carries its own `status` — nothing is inferred from the children, because only the app knows which
@@ -27,6 +28,8 @@ import { useReducedMotion } from '../lib/use-reduced-motion'
  *
  * It's the same primitive whether the steps are to-dos or a sandbox booting; only the copy and the
  * statuses differ. There's no `variant` — a checklist is a checklist.
+ *
+ * Steps wrap by default; pass `truncate` to a `ChatTask` to clamp it to one line instead.
  */
 type ChatTaskStatus = 'pending' | 'active' | 'done' | 'failed'
 
@@ -117,10 +120,7 @@ function ChatTaskListProgress({ className, ...props }: React.ComponentProps<'spa
             >
                 {value <= 0 ? <ListIcon /> : done ? <CircleCheckIcon /> : <ProgressRing value={value} total={total} />}
             </span>
-            <ChevronRightIcon
-                aria-hidden="true"
-                className={cn('quill-chat-chevron', 'quill-chat-swap__chevron')}
-            />
+            <ChevronRightIcon aria-hidden="true" className={cn('quill-chat-chevron', 'quill-chat-swap__chevron')} />
         </span>
     )
 }
@@ -235,19 +235,32 @@ function ChatTaskListContent({ className, children, ...props }: React.ComponentP
 
 type ChatTaskProps = React.ComponentProps<'li'> & {
     status?: ChatTaskStatus
+    /** Clamp the label to one line with an ellipsis. Off by default — a long step wraps. */
+    truncate?: boolean
 }
 
-function ChatTask({ status = 'pending', className, children, ...props }: ChatTaskProps): React.ReactElement {
+function ChatTask({
+    status = 'pending',
+    truncate = false,
+    className,
+    children,
+    ...props
+}: ChatTaskProps): React.ReactElement {
     return (
-        <li data-slot="task" data-status={status} className={cn('quill-chat-task', className)} {...props}>
-            <span className="quill-chat-bullet">
+        <li
+            data-slot="task"
+            data-status={status}
+            className={cn('quill-chat-task', truncate && 'quill-chat-task--truncate', className)}
+            {...props}
+        >
+            <span data-status={status} className="quill-chat-bullet">
                 {/* Keyed so a status change mounts a fresh icon, which replays the reveal. */}
                 <React.Fragment key={status}>{TASK_ICON[status]}</React.Fragment>
             </span>
             {/* The running step is live work, so it shimmers like every other live row in the family. */}
             <span
                 data-slot="task-label"
-                className={cn('quill-chat-task__label', status === 'active' && 'quill-chat-shimmer')}
+                className={cn('quill-chat-task__label', status === 'active' && 'quill-shimmer')}
             >
                 {children}
             </span>
