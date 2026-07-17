@@ -62,7 +62,7 @@ The long-term goal is to merge PostHog Code (github.com/posthog/code) into this 
 - [x] Landing page (`website/`) for `posthogondesktop.com`: static `index.html` + screenshot, download buttons wired to the stable latest-release links, deploys on Cloudflare Pages
 - [x] Tab-awareness conversion playbook: the `making-scenes-tab-aware` skill (restored with the tab scaffolding) plus the scene-by-scene tracker in [TAB_AWARENESS.md](./TAB_AWARENESS.md)
 - [ ] Windows signing; release hardening (packaged-app smoke test, checksums — PostHog Code's `code-release.yml` is the model)
-- [ ] Auto-update via `electron-updater` with GitHub Releases
+- [x] Auto-update via `electron-updater` with GitHub Releases: a generic feed over `releases/latest/download` (works with the `desktop-v*` tag scheme, no tokens), `latest-mac.yml`/`latest.yml` + a macOS zip target published by `desktop-release.yml`, version-less artifact names from `electron-builder.yml`. The app checks shortly after launch and every 4h, downloads in the background, installs on quit (`autoInstallOnAppQuit`) with a one-time "Restart now?" prompt, plus Help → "Check for updates…" (`src/main/updates.ts`); packaged builds only, `POSTHOG_DESKTOP_DISABLE_UPDATES=1` is the kill switch
 - [ ] `posthog://` deep links (protocol registration, second-instance/open-url handling)
 
 ### Merging PostHog Code

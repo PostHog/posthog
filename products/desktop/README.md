@@ -81,6 +81,13 @@ Fork setup (one-time): enable Actions on the fork, enable the two workflows (sch
 
 Each release publishes its assets under stable, version-less names (`PostHog-Desktop-macos-arm64.dmg`, `PostHog-Desktop-windows-x64-setup.exe`) so `https://github.com/mariusandra/posthog/releases/latest/download/<name>` always points at the newest build.
 
+## Auto-updates
+
+Installed apps update themselves via `electron-updater` (`src/main/updates.ts`).
+The feed is the latest release's assets: the `publish` config in `electron-builder.yml` points at `releases/latest/download` as a generic provider (electron-updater's github provider only understands `v<version>` tags, not `desktop-v<version>`), and `desktop-release.yml` uploads `latest-mac.yml` / `latest.yml`, the macOS update zip (Squirrel.Mac cannot update from a dmg), and the blockmaps alongside the installers.
+The app checks shortly after launch and every four hours, downloads in the background, and installs on quit; a downloaded update also offers a one-time "Restart now" prompt, and Help → "Check for updates…" runs a check on demand.
+Updates only run in the packaged app (dev builds have no `app-update.yml`, and macOS requires the running app and the update to be Developer ID signed); set `POSTHOG_DESKTOP_DISABLE_UPDATES=1` to turn them off in a packaged build.
+
 ## Landing page
 
 [`website/`](./website) is the static landing page for `posthogondesktop.com` — a single `index.html` plus a screenshot and icon, no build step. Its download buttons use the stable latest-release links above. See [website/README.md](./website/README.md) for the Cloudflare Pages setup (output directory `products/desktop/website`).

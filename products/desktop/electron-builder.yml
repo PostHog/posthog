@@ -21,11 +21,29 @@ extraResources:
 # Everything the app runs is bundled by esbuild into dist/, so there are no
 # production node_modules to rebuild or package
 npmRebuild: false
+# Auto-update feed. `releases/latest/download/<asset>` always serves the newest
+# release's assets, so a generic provider over it works with the fork's
+# `desktop-v<version>` tags (electron-updater's github provider only understands
+# `v<version>` tags) and needs no API tokens. This config makes electron-builder
+# embed app-update.yml into the app's resources and emit latest-mac.yml /
+# latest.yml next to the artifacts; desktop-release.yml uploads those to the
+# release. Artifact names are version-less on purpose: the updater reads
+# versions from the yml files, and the landing page's
+# /releases/latest/download/<name> links stay stable across releases.
+publish:
+    provider: generic
+    url: https://github.com/mariusandra/posthog/releases/latest/download
 mac:
     category: public.app-category.developer-tools
     icon: build/icon.png
+    artifactName: PostHog-Desktop-macos-${arch}.${ext}
+    # electron-updater on macOS updates from the zip (Squirrel.Mac cannot use a
+    # dmg); the dmg stays the human-download format
     target:
         - target: dmg
+          arch:
+              - arm64
+        - target: zip
           arch:
               - arm64
     # Signing is driven by env: with CSC_LINK/CSC_KEY_PASSWORD set (CI master
@@ -40,6 +58,7 @@ mac:
 win:
     # electron-builder generates the .ico from this 512x512 png
     icon: build/icon.png
+    artifactName: PostHog-Desktop-windows-${arch}-setup.${ext}
     target:
         - target: nsis
           arch:

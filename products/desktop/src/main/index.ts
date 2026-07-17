@@ -16,6 +16,7 @@ import { OAuthBrowserFlow } from './oauth.ts'
 import { isFrontendBuilt, type LocalBackend, startLocalBackend } from './server/backend.ts'
 import { type DesktopSettings, DEFAULT_SETTINGS, JsonStore } from './settings.ts'
 import { AppState } from './state.ts'
+import { AppUpdater } from './updates.ts'
 import { createMainWindow, isAllowedExternalUrl } from './window.ts'
 
 const isDev = !app.isPackaged
@@ -155,6 +156,9 @@ async function main(): Promise<void> {
         return win
     }
 
+    const updater = new AppUpdater()
+    updater.start()
+
     registerIpcHandlers(state, oauthFlow, { showShell, showApp })
     buildAppMenu({
         showShell,
@@ -163,6 +167,7 @@ async function main(): Promise<void> {
                 openAppWindow(`${backend.origin}/`)
             }
         },
+        checkForUpdates: () => updater.checkInteractively(),
     })
 
     app.on('second-instance', () => {

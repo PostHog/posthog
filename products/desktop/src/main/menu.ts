@@ -4,6 +4,7 @@ export interface MenuActions {
     showShell: () => void
     /** Opens a new PostHog window when signed in; no-op otherwise */
     newWindow: () => void
+    checkForUpdates: () => void
 }
 
 export function buildAppMenu(actions: MenuActions): void {
@@ -51,6 +52,11 @@ export function buildAppMenu(actions: MenuActions): void {
                 {
                     label: 'PostHog docs',
                     click: () => void shell.openExternal('https://posthog.com/docs'),
+                },
+                { type: 'separator' },
+                {
+                    label: 'Check for updates…',
+                    click: () => actions.checkForUpdates(),
                 },
                 {
                     label: `Version ${app.getVersion()}`,

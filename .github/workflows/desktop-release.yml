@@ -124,11 +124,17 @@ jobs:
                   APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
               run: pnpm --filter=@posthog/desktop package
 
-            - name: Upload DMG
+            # The zip + latest-mac.yml are the electron-updater feed (Squirrel.Mac
+            # updates from the zip, not the dmg); blockmaps enable differential updates
+            - name: Upload DMG, update zip, and updater metadata
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: release-macos
-                  path: products/desktop/release/*.dmg
+                  path: |
+                      products/desktop/release/*.dmg
+                      products/desktop/release/*.zip
+                      products/desktop/release/*.blockmap
+                      products/desktop/release/latest-mac.yml
                   if-no-files-found: error
                   compression-level: 0
                   retention-days: 1
@@ -167,11 +173,14 @@ jobs:
             - name: Package desktop app
               run: pnpm --filter=@posthog/desktop package
 
-            - name: Upload installer
+            - name: Upload installer and updater metadata
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: release-windows
-                  path: products/desktop/release/*.exe
+                  path: |
+                      products/desktop/release/*.exe
+                      products/desktop/release/*.blockmap
+                      products/desktop/release/latest.yml
                   if-no-files-found: error
                   compression-level: 0
                   retention-days: 1
@@ -197,13 +206,13 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
                   VERSION: ${{ needs.check-version.outputs.version }}
               run: |
-                  # Version-less asset names keep the landing page's
-                  # /releases/latest/download/<name> links stable across releases
-                  mv dist/*.dmg dist/PostHog-Desktop-macos-arm64.dmg
-                  mv dist/*.exe dist/PostHog-Desktop-windows-x64-setup.exe
+                  # Asset names are version-less via artifactName in electron-builder.yml,
+                  # keeping the landing page's /releases/latest/download/<name> links and
+                  # the auto-update feed (latest-mac.yml / latest.yml + artifacts, served
+                  # from the same base URL) stable across releases.
                   gh release create "desktop-v$VERSION" \
                       --repo "$GITHUB_REPOSITORY" \
                       --target "$GITHUB_SHA" \
                       --title "PostHog Desktop $VERSION" \
-                      --notes "PostHog Desktop $VERSION. macOS build is signed and notarized; the Windows installer is unsigned (SmartScreen: \"More info\" > \"Run anyway\")." \
-                      dist/PostHog-Desktop-macos-arm64.dmg dist/PostHog-Desktop-windows-x64-setup.exe
+                      --notes "PostHog Desktop $VERSION. macOS build is signed and notarized; the Windows installer is unsigned (SmartScreen: \"More info\" > \"Run anyway\"). Installed apps update automatically from this release feed." \
+                      dist/*
