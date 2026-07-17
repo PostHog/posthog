@@ -23,6 +23,10 @@ ROWS_PER_YIELD = 500
 # Cap the per-package existence probes at source-create so a huge pasted list can't stall the request.
 MAX_VALIDATED_PACKAGES = 20
 
+# Hard cap on the configured package count. Each package costs one or more requests per enabled
+# stream on every sync, so bound the config to keep a single source from tying up a resumable worker.
+MAX_PACKAGES = 500
+
 # Preference order per service-index resource; the index lists several versioned variants of each.
 # RegistrationsBaseUrl/3.6.0 is the gzipped SemVer 2.0.0 view, which includes every package.
 _SEARCH_TYPES = ("SearchQueryService/3.5.0", "SearchQueryService")
@@ -61,6 +65,8 @@ def parse_package_ids(raw: str) -> list[str]:
         if package_id and package_id.lower() not in seen:
             seen.add(package_id.lower())
             ids.append(package_id)
+            if len(ids) > MAX_PACKAGES:
+                raise ValueError(f"Too many NuGet package IDs: at most {MAX_PACKAGES} are allowed per source.")
     if not ids:
         raise ValueError("Enter at least one NuGet package ID (comma-separated).")
     return ids

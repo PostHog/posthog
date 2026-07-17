@@ -9,6 +9,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.nuget import nuget
 from products.warehouse_sources.backend.temporal.data_imports.sources.nuget.nuget import (
+    MAX_PACKAGES,
     MAX_VALIDATED_PACKAGES,
     NugetPackageNotFoundError,
     NugetResumeConfig,
@@ -112,6 +113,13 @@ class TestParsePackageIds:
     def test_empty_raises(self, _name: str, raw: str) -> None:
         with pytest.raises(ValueError):
             parse_package_ids(raw)
+
+    def test_too_many_raises(self) -> None:
+        with pytest.raises(ValueError):
+            parse_package_ids(",".join(f"pkg{i}" for i in range(MAX_PACKAGES + 1)))
+
+    def test_at_limit_ok(self) -> None:
+        assert len(parse_package_ids(",".join(f"pkg{i}" for i in range(MAX_PACKAGES)))) == MAX_PACKAGES
 
 
 class TestResolveResource:
