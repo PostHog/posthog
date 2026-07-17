@@ -114,6 +114,10 @@ describe('EvalResultBadges', () => {
             ])
         })
 
+        it('scoped to a non-generation span, returns only runs targeting that span', () => {
+            expect(scopeRunsToTarget(allRuns, undefined, 'span-1').map((r) => r.id)).toEqual(['imported-gen-run'])
+        })
+
         it('without a generation, returns only trace-target runs (empty string and null)', () => {
             expect(scopeRunsToTarget(allRuns).map((r) => r.id)).toEqual(['trace-run-empty', 'trace-run-null'])
         })

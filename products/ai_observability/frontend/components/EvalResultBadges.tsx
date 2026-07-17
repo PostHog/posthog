@@ -38,16 +38,12 @@ export function getEvalBadgeProps(run: EvaluationRun): {
     return { type, icon, label }
 }
 
-export function scopeRunsToTarget(
-    runs: EvaluationRun[],
-    generationEventId?: string,
-    generationSpanId?: string
-): EvaluationRun[] {
-    if (generationEventId || generationSpanId) {
+export function scopeRunsToTarget(runs: EvaluationRun[], generationEventId?: string, spanId?: string): EvaluationRun[] {
+    if (generationEventId || spanId) {
         return runs.filter(
             (run) =>
                 (!!generationEventId && run.generation_id === generationEventId) ||
-                (!!generationSpanId && run.target_span_id === generationSpanId)
+                (!!spanId && run.target_span_id === spanId)
         )
     }
     return runs.filter((run) => !run.generation_id && !run.target_span_id)
@@ -69,12 +65,12 @@ function EvalTooltipContent({ latestRun, runCount }: EvalSummary): JSX.Element {
 export function EvalResultBadges({
     traceId,
     generationEventId,
-    generationSpanId,
+    spanId,
 }: {
     traceId: string
-    /** When set, show runs targeting this generation; otherwise show trace-target runs. */
+    /** When set, show runs targeting this event or span; otherwise show trace-target runs. */
     generationEventId?: string
-    generationSpanId?: string
+    spanId?: string
 }): JSX.Element | null {
     const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(
         generationEvaluationRunsLogic({ traceId })
@@ -93,7 +89,7 @@ export function EvalResultBadges({
 
     // The trace-scoped fetch is capped at EVALUATION_SUMMARY_MAX_RUNS most-recent runs, so on a
     // trace with very heavy eval volume older runs for a given generation can fall out of view.
-    const summaries = getEvalSummaries(scopeRunsToTarget(generationEvaluationRuns, generationEventId, generationSpanId))
+    const summaries = getEvalSummaries(scopeRunsToTarget(generationEvaluationRuns, generationEventId, spanId))
 
     if (summaries.length === 0) {
         return null
