@@ -52,6 +52,7 @@ export function FindingsPanel(): JSX.Element {
         emissionsLoadFailed,
         emissionsLoading,
         scoutReportsLoading,
+        scoutReportsLoadFailed,
     } = useValues(findingsLogic)
     const { setSearchText, setScoutFilter, setSeverityFilter, setSortKey, loadEmissions, loadScoutReports } =
         useActions(findingsLogic)
@@ -146,6 +147,21 @@ export function FindingsPanel(): JSX.Element {
                     {hasReports && (
                         <div className="flex flex-col gap-2">
                             <span className="text-xs font-medium text-default uppercase tracking-wide">Reports</span>
+                            {scoutReportsLoadFailed &&
+                                reportRows.length > 0 && (
+                                    // A later refresh failed while a previously resolved set is still on
+                                    // screen — the cards may be stale or missing newly touched reports.
+                                    <LemonBanner
+                                        type="warning"
+                                        action={{
+                                            children: 'Retry',
+                                            onClick: () => loadScoutReports(),
+                                            loading: scoutReportsLoading,
+                                        }}
+                                    >
+                                        Some reports couldn't be refreshed, so this list may be stale or incomplete.
+                                    </LemonBanner>
+                                )}
                             {scoutReportsLoading && reportRows.length === 0 ? (
                                 <LemonSkeleton className="h-12 w-full rounded" />
                             ) : reportRows.length === 0 ? (

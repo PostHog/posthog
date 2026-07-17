@@ -13,7 +13,12 @@ import {
     SignalScoutEmissionReportLink,
     SignalScoutRunSummary,
 } from '../types'
-import { mostRecentEmittedRuns, prettifyScoutSkillName, runTouchedReports } from '../utils/scoutRunsWindow'
+import {
+    isSettledRun,
+    mostRecentEmittedRuns,
+    prettifyScoutSkillName,
+    runTouchedReports,
+} from '../utils/scoutRunsWindow'
 import { ScoutEmissionRow, ScoutReportAction } from './scoutDetailLogic'
 import { scoutFleetLogic } from './scoutFleetLogic'
 
@@ -29,11 +34,14 @@ const RUNS_REFETCH_INTERVAL_MS = 60_000
 // selector — keeping the most recently touched — so every consumer describes the same set.
 const MAX_FLEET_TOUCHED_REPORTS = 50
 
-/** A report the fleet touched via the report channel, joined with how and by which scout. */
+/** A report the fleet touched via the report channel, joined with how and by which scout(s). */
 export interface FleetScoutReportRow {
     report: SignalReport
     action: ScoutReportAction
+    /** Primary attribution for the card: the authoring scout, else the most recent editor. */
     skillName: string
+    /** Every scout that touched the report in the window — what the scout filter matches against. */
+    skillNames: string[]
 }
 
 export type FindingsSortKey = 'newest' | 'oldest' | 'severity' | 'confidence'
@@ -89,6 +97,7 @@ export interface findingsLogicValues {
         id: string
         latestRunId: string
         skillName: string
+        skillNames: string[]
     }[]
     touchedReportsKey: string
 }
@@ -164,6 +173,7 @@ export interface findingsLogicMeta {
             id: string
             latestRunId: string
             skillName: string
+            skillNames: string[]
         }[]
         touchedReportsKey: (
             touchedReports: {
@@ -197,7 +207,12 @@ export interface findingsLogicMeta {
         ) => ScoutEmissionRow[]
         availableScouts: (
             rows: ScoutEmissionRow[],
-            reportRows: FleetScoutReportRow[]
+            touchedReports: {
+                action: ScoutReportAction
+                id: string
+                latestRunId: string
+                skillName: string
+            }[]
         ) => {
             count: number
             label: string
@@ -324,9 +339,10 @@ export const findingsLogic = kea<findingsLogicType>([
         // The reports the fleet authored/edited directly via the report channel. Unlike findings, the
         // run already carries the report id (no async grouping), so each report is fetched straight by
         // id to resolve its title + live status. The `touchedReports` selector already caps the set.
-        // A partially failed fan-out surfaces the reports that did load (a deleted/inaccessible report
-        // drops out), but when *every* fetch fails while touched ids exist, throw — an outage must show
-        // the Reports section's error/retry state, not a false "no reports".
+        // On a partially failed fan-out, a still-touched report that resolved on a *previous* round is
+        // kept (possibly stale) rather than dropped — otherwise retries would oscillate between
+        // subsets as different requests fail. When *every* fetch fails while touched ids exist, throw —
+        // an outage must show the Reports section's error/retry state, not a false "no reports".
         scoutReports: [
             [] as SignalReport[],
             {
@@ -336,13 +352,22 @@ export const findingsLogic = kea<findingsLogicType>([
                         return []
                     }
                     const settled = await Promise.allSettled(touched.map(({ id }) => api.signalReports.get(id)))
-                    const fulfilled = settled.filter(
-                        (result): result is PromiseFulfilledResult<SignalReport> => result.status === 'fulfilled'
-                    )
-                    if (fulfilled.length === 0) {
+                    const byId = new Map<string, SignalReport>()
+                    for (const result of settled) {
+                        if (result.status === 'fulfilled') {
+                            byId.set(result.value.id, result.value)
+                        }
+                    }
+                    if (byId.size === 0) {
                         throw new Error('Failed to load the reports scouts touched')
                     }
-                    return fulfilled.map((result) => result.value)
+                    const touchedIds = new Set(touched.map(({ id }) => id))
+                    for (const previous of values.scoutReports) {
+                        if (!byId.has(previous.id) && touchedIds.has(previous.id)) {
+                            byId.set(previous.id, previous)
+                        }
+                    }
+                    return [...byId.values()]
                 },
             },
         ],
@@ -406,14 +431,28 @@ export const findingsLogic = kea<findingsLogicType>([
             (s) => [s.emittedRuns],
             (
                 emittedRuns: SignalScoutRunSummary[]
-            ): { id: string; action: ScoutReportAction; skillName: string; latestRunId: string }[] => {
+            ): {
+                id: string
+                action: ScoutReportAction
+                skillName: string
+                skillNames: string[]
+                latestRunId: string
+            }[] => {
                 // Newest run touching each report, on either channel — drives both the recency cap
-                // order and the refetch key (a later run re-editing a report must refetch it).
+                // order and the refetch key (a later run re-editing a report must refetch it). Also
+                // collects *every* touching scout, so a report scout B edited stays findable under
+                // B's filter even when scout A's authoring wins the card attribution.
                 const latestRunById = new Map<string, string>()
+                const skillNamesById = new Map<string, string[]>()
                 for (const run of emittedRuns) {
                     for (const id of [...(run.edited_report_ids ?? []), ...(run.emitted_report_ids ?? [])]) {
                         if (!latestRunById.has(id)) {
                             latestRunById.set(id, run.run_id)
+                        }
+                        const skills = skillNamesById.get(id) ?? []
+                        if (!skills.includes(run.skill_name)) {
+                            skills.push(run.skill_name)
+                            skillNamesById.set(id, skills)
                         }
                     }
                 }
@@ -433,9 +472,12 @@ export const findingsLogic = kea<findingsLogicType>([
                     }
                 }
                 // latestRunById's insertion order is newest-touch-first, so slicing keeps recency.
-                return [...latestRunById.entries()]
-                    .slice(0, MAX_FLEET_TOUCHED_REPORTS)
-                    .map(([id, latestRunId]) => ({ id, ...byId.get(id)!, latestRunId }))
+                return [...latestRunById.entries()].slice(0, MAX_FLEET_TOUCHED_REPORTS).map(([id, latestRunId]) => ({
+                    id,
+                    ...byId.get(id)!,
+                    skillNames: skillNamesById.get(id) ?? [],
+                    latestRunId,
+                }))
             },
         ],
         // Stable key over the touched report set — refetch the reports only when the set actually
@@ -458,15 +500,25 @@ export const findingsLogic = kea<findingsLogicType>([
             (s) => [s.scoutReports, s.touchedReports],
             (
                 scoutReports: SignalReport[],
-                touchedReports: { id: string; action: ScoutReportAction; skillName: string }[]
+                touchedReports: {
+                    id: string
+                    action: ScoutReportAction
+                    skillName: string
+                    skillNames: string[]
+                }[]
             ): FleetScoutReportRow[] => {
-                const touchedById = new Map(
-                    touchedReports.map(({ id, action, skillName }) => [id, { action, skillName }])
-                )
+                const touchedById = new Map(touchedReports.map((touched) => [touched.id, touched]))
                 return scoutReports
                     .map((report) => {
                         const touched = touchedById.get(report.id)
-                        return touched ? { report, action: touched.action, skillName: touched.skillName } : null
+                        return touched
+                            ? {
+                                  report,
+                                  action: touched.action,
+                                  skillName: touched.skillName,
+                                  skillNames: touched.skillNames,
+                              }
+                            : null
                     })
                     .filter((row): row is FleetScoutReportRow => row !== null)
                     .sort((a, b) => (b.report.updated_at ?? '').localeCompare(a.report.updated_at ?? ''))
@@ -487,16 +539,19 @@ export const findingsLogic = kea<findingsLogicType>([
             ): FleetScoutReportRow[] => {
                 const needle = searchText.trim().toLowerCase()
                 const filtered = reportRows.filter((row) => {
-                    if (scoutFilter !== FINDINGS_SCOUT_FILTER_ALL && row.skillName !== scoutFilter) {
+                    // Match any touching scout, not just the card's primary attribution — a report
+                    // scout B edited must surface under B's filter even when scout A authored it.
+                    if (scoutFilter !== FINDINGS_SCOUT_FILTER_ALL && !row.skillNames.includes(scoutFilter)) {
                         return false
                     }
                     if (severityFilter !== FINDINGS_SEVERITY_FILTER_ALL && row.report.priority !== severityFilter) {
                         return false
                     }
                     if (needle) {
-                        const haystack = `${row.report.title ?? ''} ${prettifyScoutSkillName(
-                            row.skillName
-                        )}`.toLowerCase()
+                        // Title + summary (matching the backend report search) + touching scout names.
+                        const haystack = `${row.report.title ?? ''} ${row.report.summary ?? ''} ${row.skillNames
+                            .map(prettifyScoutSkillName)
+                            .join(' ')}`.toLowerCase()
                         if (!haystack.includes(needle)) {
                             return false
                         }
@@ -544,19 +599,29 @@ export const findingsLogic = kea<findingsLogicType>([
             },
         ],
         // Distinct scouts present in the loaded findings and touched reports, with a per-scout row
-        // count (findings + reports), for the scout filter.
+        // count (findings + reports), for the scout filter. Report-side scouts come from the touched
+        // set — not the resolved rows — so a failed report fetch can't contradict the header tallies
+        // ("1 report authored · 0 scouts") or drop the scout from the filter; every touching scout
+        // counts, not just the card's primary attribution.
         availableScouts: [
-            (s) => [s.rows, s.reportRows],
+            (s) => [s.rows, s.touchedReports],
             (
                 rows: ScoutEmissionRow[],
-                reportRows: FleetScoutReportRow[]
+                touchedReports: {
+                    id: string
+                    action: ScoutReportAction
+                    skillName: string
+                    skillNames: string[]
+                }[]
             ): { skillName: string; label: string; count: number }[] => {
                 const counts = new Map<string, number>()
                 for (const row of rows) {
                     counts.set(row.run.skill_name, (counts.get(row.run.skill_name) ?? 0) + 1)
                 }
-                for (const row of reportRows) {
-                    counts.set(row.skillName, (counts.get(row.skillName) ?? 0) + 1)
+                for (const touched of touchedReports) {
+                    for (const skillName of touched.skillNames) {
+                        counts.set(skillName, (counts.get(skillName) ?? 0) + 1)
+                    }
                 }
                 return [...counts.entries()]
                     .map(([skillName, count]) => ({ skillName, label: prettifyScoutSkillName(skillName), count }))
@@ -711,23 +776,28 @@ export const findingsLogic = kea<findingsLogicType>([
             if (hasRecentUnlinked) {
                 actions.loadEmissionReports()
             }
-            // Same ride for touched reports whose per-report fetch failed transiently: the
-            // `touchedReportsKey` subscription won't refire for an unchanged set, so without this a
-            // dropped report stays missing until remount. Bounded to recently-touched ids (same
-            // window as above) so a permanently deleted report stops triggering refetches once its
-            // touch ages out.
+            // Same ride for touched reports: the `touchedReportsKey` subscription won't refire for an
+            // unchanged set, so without this (a) a report whose fetch failed transiently stays missing
+            // until remount, and (b) a live run editing the same report repeatedly (dedup keeps
+            // `edited_report_ids` unchanged after the first edit) serves a stale card until the run
+            // settles. Refetch while any touched report is unresolved-but-recently-touched (a deleted
+            // report stops retriggering once its touch ages out) or its latest touching run is still
+            // live (self-bounding — runs settle).
             if (!values.scoutReportsLoading && values.touchedReports.length > 0) {
                 const resolvedIds = new Set(values.scoutReports.map((report) => report.id))
                 const runsById = new Map(values.emittedRuns.map((run) => [run.run_id, run]))
-                const hasRecentUnresolved = values.touchedReports.some(({ id, latestRunId }) => {
+                const needsRefetch = values.touchedReports.some(({ id, latestRunId }) => {
+                    const run = runsById.get(latestRunId)
+                    if (run && !isSettledRun(run)) {
+                        return true
+                    }
                     if (resolvedIds.has(id)) {
                         return false
                     }
-                    const run = runsById.get(latestRunId)
                     const touchedAt = run?.completed_at ?? run?.created_at
                     return Boolean(touchedAt && dayjs(touchedAt).isAfter(cutoff))
                 })
-                if (hasRecentUnresolved) {
+                if (needsRefetch) {
                     actions.loadScoutReports()
                 }
             }
