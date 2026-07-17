@@ -164,6 +164,7 @@ the row lists both.
 | cursor                           | HTTP                        | requests                                                        | ✅                          |
 | customer_io                      | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | customerly                       | HTTP                        | requests                                                        | ✅                          |
+| dagster_cloud                    | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | datadog                          | HTTP                        | requests                                                        | ✅                          |
 | datahub                          | HTTP                        | requests                                                        | ✅                          |
 | dbt                              | HTTP                        | requests                                                        | ✅                          |
@@ -359,7 +360,9 @@ the row lists both.
 | northflank                       | HTTP                        | requests                                                        | ✅                          |
 | northpass_lms                    | HTTP                        | requests                                                        | ✅                          |
 | notion                           | HTTP                        | requests                                                        | ✅                          |
+| nuget                            | HTTP                        | requests                                                        | ✅                          |
 | omnisend                         | HTTP                        | requests                                                        | ✅                          |
+| octopus_deploy                   | HTTP                        | requests                                                        | ✅                          |
 | oncehub                          | HTTP                        | requests                                                        | ✅                          |
 | onepagecrm                       | HTTP                        | requests                                                        | ✅                          |
 | onepassword                      | HTTP (cursor pagination)    | requests                                                        | ✅                          |
@@ -490,6 +493,7 @@ the row lists both.
 | statuspage                       | HTTP                        | requests                                                        | ✅                          |
 | stigg                            | HTTP                        | requests                                                        | ✅                          |
 | stripe                           | HTTP (vendor SDK) + Webhook | stripe (StripeClient + RequestsClient) + `WebhookSourceManager` | ✅ (pull) / ➖ (webhook)    |
+| stytch                           | HTTP                        | requests                                                        | ✅                          |
 | sumo_logic                       | HTTP                        | requests                                                        | ✅                          |
 | supabase                         | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
 | surveymonkey                     | HTTP                        | requests                                                        | ✅                          |
@@ -526,6 +530,7 @@ the row lists both.
 | unstructured                     | HTTP                        | requests                                                        | ✅                          |
 | upstash                          | HTTP                        | requests                                                        | ✅                          |
 | uptimerobot                      | HTTP                        | requests                                                        | ✅                          |
+| usersnap                         | HTTP                        | requests + PyJWT                                                | ✅                          |
 | uservoice                        | HTTP                        | requests                                                        | ✅                          |
 | vantage                          | HTTP                        | requests                                                        | ✅                          |
 | vapi                             | HTTP                        | requests                                                        | ✅                          |
@@ -659,7 +664,6 @@ doesn't conflict with concurrent PRs.
 - couchbase
 - criteo
 - curve
-- dagster_cloud
 - databricks
 - datascope
 - datorama
@@ -812,11 +816,9 @@ doesn't conflict with concurrent PRs.
 - ninjaone_rmm
 - nocrm
 - northpass_lms
-- nuget
 - nutshell
 - nylas
 - octolens
-- octopus_deploy
 - onedrive
 - onehundredms
 - onesignal
@@ -933,7 +935,6 @@ doesn't conflict with concurrent PRs.
 - strava
 - streamelements
 - streamlabs
-- stytch
 - sumsub
 - superwall
 - surveymonkey
@@ -967,7 +968,6 @@ doesn't conflict with concurrent PRs.
 - uppromote
 - uptick
 - us_census
-- usersnap
 - uservoice
 - veeqo
 - vespa
