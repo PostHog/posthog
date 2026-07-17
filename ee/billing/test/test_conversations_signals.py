@@ -563,6 +563,33 @@ class TestConversationsSlackSignalsDatabase(BaseTest):
 
         assert result[self.org_id].last_customer_message_at == expected
 
+    def test_last_customer_message_at_stays_scoped_per_org_within_a_batch(self):
+        # Both orgs' teams land in the same batch-wide comment query, so attribution
+        # must key on the ticket (item_id), not the team set — a regression here would
+        # hand one org the other's newer timestamp.
+        own_time = dt.datetime(2026, 6, 29, 10, 0, tzinfo=dt.UTC)
+        own_ticket = self._create_slack_ticket(channel_id="C_OWN", activity_at=own_time)
+        self._create_ticket_comment(own_ticket, "customer", own_time)
+
+        other_org, other_user = self._create_member_of_other_org(f"other-{uuid.uuid4()}@posthog.com")
+        other_team = Team.objects.create(organization=other_org, name="other")
+        other_time = dt.datetime(2026, 6, 30, 12, 0, tzinfo=dt.UTC)
+        other_ticket = self._create_slack_ticket(
+            org_id=str(other_org.id),
+            channel_id="C_OTHER",
+            activity_at=other_time,
+            distinct_id=other_user.distinct_id,
+            team=other_team,
+        )
+        self._create_ticket_comment(other_ticket, "customer", other_time)
+
+        result = aggregate_conversations_slack_signals_for_orgs(
+            [self.org_id, str(other_org.id)], include_slack_user_count=False
+        )
+
+        assert result[self.org_id].last_customer_message_at == own_time
+        assert result[str(other_org.id)].last_customer_message_at == other_time
+
     def test_last_customer_message_at_is_none_without_customer_comments(self):
         ticket = self._create_slack_ticket(
             channel_id="C123", activity_at=dt.datetime(2026, 6, 30, 10, 0, tzinfo=dt.UTC)
