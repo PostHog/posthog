@@ -10,14 +10,76 @@ interface Capturable {
     capture: (event: string, properties?: Record<string, unknown>) => void
 }
 
-export function shouldCaptureDetachedElements(currentCount: number, previousCount: number | null): boolean {
+export interface DetachedElementTrackingState {
+    currentPath: string | null
+    previousPath: string | null
+    previousDetachedCount: number | null
+    routeBaselineDetachedCount: number | null
+    routeFirstObservedAt: number | null
+}
+
+interface DetachedElementTrackingContext {
+    detachedElementsDelta: number | null
+    nextState: DetachedElementTrackingState
+    pathChanged: boolean
+    previousPath: string | null
+    routeAgeMs: number
+    routeBaselineDetachedElements: number
+    routeDetachedElementsDelta: number
+}
+
+export function createDetachedElementTrackingState(): DetachedElementTrackingState {
+    return {
+        currentPath: null,
+        previousPath: null,
+        previousDetachedCount: null,
+        routeBaselineDetachedCount: null,
+        routeFirstObservedAt: null,
+    }
+}
+
+export function getDetachedElementTrackingContext(
+    state: DetachedElementTrackingState,
+    currentCount: number,
+    currentPath: string,
+    observedAt: number
+): DetachedElementTrackingContext {
+    const pathChanged = state.currentPath !== currentPath
+    const routeBaselineDetachedElements = pathChanged
+        ? (state.previousDetachedCount ?? currentCount)
+        : (state.routeBaselineDetachedCount ?? currentCount)
+    const routeFirstObservedAt = pathChanged ? observedAt : (state.routeFirstObservedAt ?? observedAt)
+    const previousPath = pathChanged ? state.currentPath : state.previousPath
+
+    return {
+        detachedElementsDelta: state.previousDetachedCount === null ? null : currentCount - state.previousDetachedCount,
+        pathChanged,
+        previousPath,
+        routeAgeMs: observedAt - routeFirstObservedAt,
+        routeBaselineDetachedElements,
+        routeDetachedElementsDelta: currentCount - routeBaselineDetachedElements,
+        nextState: {
+            currentPath,
+            previousPath,
+            previousDetachedCount: currentCount,
+            routeBaselineDetachedCount: routeBaselineDetachedElements,
+            routeFirstObservedAt,
+        },
+    }
+}
+
+export function shouldCaptureDetachedElements(
+    currentCount: number,
+    previousCount: number | null,
+    pathChanged: boolean = false
+): boolean {
     if (currentCount === 0) {
         return false
     }
     if (previousCount === null) {
         return true
     }
-    return currentCount !== previousCount
+    return pathChanged || currentCount !== previousCount
 }
 
 export function mapToTopN(map: Map<string, number>, limit: number): Record<string, number> {
@@ -63,22 +125,42 @@ export function startDetachedElementTracking(posthog: Capturable): void {
                 trackEventListenerLeaks: false,
             })
 
-            let previousDetachedCount: number | null = null
+            let trackingState = createDetachedElementTrackingState()
 
             scan.subscribe((result) => {
-                if (!shouldCaptureDetachedElements(result.totalDetachedElements, previousDetachedCount)) {
-                    previousDetachedCount = result.totalDetachedElements
+                const currentPath = window.location.pathname
+                const trackingContext = getDetachedElementTrackingContext(
+                    trackingState,
+                    result.totalDetachedElements,
+                    currentPath,
+                    Date.now()
+                )
+
+                if (
+                    !shouldCaptureDetachedElements(
+                        result.totalDetachedElements,
+                        trackingState.previousDetachedCount,
+                        trackingContext.pathChanged
+                    )
+                ) {
+                    trackingState = trackingContext.nextState
                     return
                 }
-                previousDetachedCount = result.totalDetachedElements
+                trackingState = trackingContext.nextState
 
                 posthog.capture('detached_elements', {
                     total_elements: result.totalElements,
                     detached_elements: result.totalDetachedElements,
+                    detached_elements_delta: trackingContext.detachedElementsDelta,
                     detached_components: mapToTopN(result.detachedComponentToFiberNodeCount, TOP_N),
                     all_components: mapToTopN(result.componentToFiberNodeCount, TOP_N),
                     scan_duration_ms: Math.round(result.end - result.start),
-                    current_path: window.location.pathname,
+                    current_path: currentPath,
+                    previous_path: trackingContext.previousPath,
+                    route_changed: trackingContext.pathChanged,
+                    route_age_ms: trackingContext.routeAgeMs,
+                    route_baseline_detached_elements: trackingContext.routeBaselineDetachedElements,
+                    route_detached_elements_delta: trackingContext.routeDetachedElementsDelta,
                 })
             })
 
@@ -86,7 +168,7 @@ export function startDetachedElementTracking(posthog: Capturable): void {
                 if (document.hidden) {
                     scan.stop()
                 } else {
-                    previousDetachedCount = null
+                    trackingState = createDetachedElementTrackingState()
                     scan.start()
                 }
             }

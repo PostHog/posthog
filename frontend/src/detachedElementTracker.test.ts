@@ -1,4 +1,9 @@
-import { mapToTopN, shouldCaptureDetachedElements } from './detachedElementTracker'
+import {
+    createDetachedElementTrackingState,
+    getDetachedElementTrackingContext,
+    mapToTopN,
+    shouldCaptureDetachedElements,
+} from './detachedElementTracker'
 
 describe('mapToTopN', () => {
     it.each([
@@ -110,5 +115,45 @@ describe('shouldCaptureDetachedElements', () => {
         },
     ])('$label', ({ currentCount, previousCount, expected }) => {
         expect(shouldCaptureDetachedElements(currentCount, previousCount)).toBe(expected)
+    })
+
+    it('captures when the route changes with the same count', () => {
+        expect(shouldCaptureDetachedElements(3, 3, true)).toBe(true)
+    })
+})
+
+describe('getDetachedElementTrackingContext', () => {
+    it('resets the route baseline when the path changes', () => {
+        const firstScan = getDetachedElementTrackingContext(createDetachedElementTrackingState(), 100, '/groups', 1_000)
+        const sameRouteScan = getDetachedElementTrackingContext(firstScan.nextState, 130, '/groups', 4_000)
+        const nextRouteScan = getDetachedElementTrackingContext(
+            sameRouteScan.nextState,
+            150,
+            '/pipeline/new/source',
+            5_000
+        )
+
+        expect(firstScan).toMatchObject({
+            detachedElementsDelta: null,
+            previousPath: null,
+            routeAgeMs: 0,
+            routeBaselineDetachedElements: 100,
+            routeDetachedElementsDelta: 0,
+        })
+        expect(sameRouteScan).toMatchObject({
+            detachedElementsDelta: 30,
+            previousPath: null,
+            routeAgeMs: 3_000,
+            routeBaselineDetachedElements: 100,
+            routeDetachedElementsDelta: 30,
+        })
+        expect(nextRouteScan).toMatchObject({
+            detachedElementsDelta: 20,
+            pathChanged: true,
+            previousPath: '/groups',
+            routeAgeMs: 0,
+            routeBaselineDetachedElements: 130,
+            routeDetachedElementsDelta: 20,
+        })
     })
 })
