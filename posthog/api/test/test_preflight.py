@@ -445,10 +445,11 @@ class TestAnonymousPreflightCache(SimpleTestCase):
 
     def test_expired_local_copy_serves_stale_and_refreshes_off_thread(self):
         posthog.views.preflight_check(self._get_request(), allow_cached=True)
-        _, payload = posthog.views._anonymous_preflight_local
+        local = posthog.views._anonymous_preflight_local
+        assert local is not None
         # Backdate past the local TTL (but under the staleness cap) with a marker value
         # a rebuild would never produce, so serving it proves the stale-copy path ran.
-        stale = {**payload, "django": "stale-marker"}
+        stale = {**local[1], "django": "stale-marker"}
         posthog.views._anonymous_preflight_local = (
             time.monotonic() - posthog.views.ANONYMOUS_PREFLIGHT_LOCAL_TTL_SECONDS - 1,
             stale,
@@ -462,5 +463,7 @@ class TestAnonymousPreflightCache(SimpleTestCase):
         # payload in — acquiring it is the deterministic "refresh finished" signal.
         assert posthog.views._anonymous_preflight_refresh_lock.acquire(timeout=10)
         posthog.views._anonymous_preflight_refresh_lock.release()
-        assert posthog.views._anonymous_preflight_local[1]["django"] is True
+        refreshed = posthog.views._anonymous_preflight_local
+        assert refreshed is not None
+        assert refreshed[1]["django"] is True
         assert self.probes["is_redis_alive"].called
