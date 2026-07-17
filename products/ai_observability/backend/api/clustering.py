@@ -156,7 +156,7 @@ class ClusteringRunRequestSerializer(serializers.Serializer):
 class AIObservabilityClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """ViewSet for triggering and managing clustering workflow runs."""
 
-    scope_object = "llm_analytics"
+    scope_object = "llm_clusters"
     permission_classes = [IsAuthenticated, AccessControlPermission]
     serializer_class = ClusteringRunRequestSerializer
 

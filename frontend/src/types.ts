@@ -5722,6 +5722,7 @@ export const API_SCOPE_OBJECTS = [
     'link',
     'live_debugger',
     'llm_analytics',
+    'llm_clusters',
     'llm_gateway',
     'llm_prompt',
     'llm_provider_key',

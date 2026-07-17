@@ -742,6 +742,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             ("evaluations", "evaluation"),
             ("datasets", "dataset"),
             ("llm_analytics/provider_keys", "provider_key"),
+            ("llm_analytics/clustering_jobs", "clustering_job"),
         ]
     )
     def test_llm_analytics_viewer_can_list_child_resources(self, endpoint, _attr):
@@ -756,6 +757,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             ("evaluations", "evaluation"),
             ("datasets", "dataset"),
             ("llm_analytics/provider_keys", "provider_key"),
+            ("llm_analytics/clustering_jobs", "clustering_job"),
         ]
     )
     def test_llm_analytics_none_blocks_child_resource_list(self, endpoint, _attr):

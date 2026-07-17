@@ -115,6 +115,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'link', objectName: 'Link', objectPlural: 'links' },
     { key: 'live_debugger', objectName: 'Live debugger', objectPlural: 'live debugger' },
     { key: 'llm_analytics', objectName: 'AI observability', objectPlural: 'AI observability' },
+    { key: 'llm_clusters', objectName: 'Cluster', objectPlural: 'clusters' },
     {
         key: 'llm_gateway',
         objectName: 'LLM gateway',

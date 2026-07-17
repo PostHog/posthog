@@ -81,7 +81,7 @@ class ClusteringJobSerializer(serializers.ModelSerializer):
 class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """CRUD for clustering job configurations (max 10 per team)."""
 
-    scope_object = "llm_analytics"
+    scope_object = "llm_clusters"
     permission_classes = [IsAuthenticated, AccessControlPermission]
     serializer_class = ClusteringJobSerializer
     queryset = ClusteringJob.objects.all()
