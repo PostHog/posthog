@@ -8,6 +8,7 @@ The managed migrations support tools let PostHog staff triage customer batch imp
 Both are read-only.
 Mutations (resume, pause, in-flight part reset) remain Django admin actions for now.
 Credential values (`secrets`) are never returned by any of these surfaces, and every staff read is audit-logged.
+Detail reads additionally write a `support_viewed` entry to the team's activity log, so the access is visible and queryable in-app, not only in centralized logs.
 
 ## Who can use this
 

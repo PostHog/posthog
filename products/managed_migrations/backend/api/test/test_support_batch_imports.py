@@ -9,6 +9,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -40,6 +41,14 @@ class TestRedactPartKey(SimpleTestCase):
             ("fragment_stripped", "https://example.com/d.jsonl#frag", "https://example.com/d.jsonl"),
             ("non_string_passthrough", None, None),
             (
+                # No netloc means it isn't a remote URL that could carry usable
+                # credentials - it must pass through untouched, not get mangled
+                # (query stripped) by the redaction path.
+                "scheme_without_netloc_passthrough",
+                "file:///2024/01/events.jsonl?checksum=abc",
+                "file:///2024/01/events.jsonl?checksum=abc",
+            ),
+            (
                 "unparseable_url_fails_closed",
                 "https://example.com:99999999999/d.jsonl?token=x",
                 "[unparseable-url-redacted]",
@@ -64,6 +73,11 @@ class TestRedactPartKey(SimpleTestCase):
                 "multiple_urls",
                 "Failed https://a.com/x?t=1 then https://u:p@b.com/y",
                 "Failed https://a.com/x then https://b.com/y",
+            ),
+            (
+                "trailing_punctuation_stays_outside_url",
+                "Failed https://u:p@a.com/x?t=1, then https://b.com/y?s=2.",
+                "Failed https://a.com/x, then https://b.com/y.",
             ),
         ]
     )
@@ -209,13 +223,20 @@ class TestBatchImportSupportAPI(APIBaseTest):
     def test_audit_log_never_contains_credentials(self):
         # The audit log must allowlist query params so credential-bearing params
         # (e.g. `personal_api_key`, which the base auth class reads from the query
-        # string) can never reach centralized logs.
+        # string) can never reach centralized logs. `search` is allowlisted but matches
+        # the unredacted status_message column, so a search for a full status message
+        # can quote a credential-bearing URL - it must be logged redacted.
         token = self._create_pat(scopes=["batch_import_support:read"])
         self.client.logout()
 
         with structlog.testing.capture_logs() as logs:
             response = self.client.get(
-                "/api/managed_migrations_support/?status=paused&unexpected_param=sensitive",
+                "/api/managed_migrations_support/",
+                {
+                    "status": "paused",
+                    "unexpected_param": "sensitive",
+                    "search": "Parsing data in file 'https://u:p@a.com/x?sig=verysecret' failed",
+                },
                 headers={"authorization": f"Bearer {token}"},
             )
 
@@ -223,7 +244,30 @@ class TestBatchImportSupportAPI(APIBaseTest):
         audit_logs = [log for log in logs if log.get("event") == "batch_import_support_api_request"]
         self.assertEqual(len(audit_logs), 1)
         self.assertNotIn(token, str(audit_logs[0]))
-        self.assertEqual(audit_logs[0]["query_params"], {"status": "paused"})
+        self.assertNotIn("verysecret", str(audit_logs[0]))
+        self.assertEqual(
+            audit_logs[0]["query_params"],
+            {"status": "paused", "search": "Parsing data in file 'https://a.com/x' failed"},
+        )
+
+    def test_detail_read_writes_activity_log_entry(self):
+        # Staff detail reads of another team's job must leave a durable, queryable
+        # trail in that team's activity log - guards against the audit write being
+        # dropped from `retrieve`.
+        batch_import = self._create_import(
+            import_config={"source": {"type": "mixpanel"}, "data_format": {"content": {"type": "mixpanel"}}}
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.get(f"/api/managed_migrations_support/{batch_import.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        entry = ActivityLog.objects.get(scope="BatchImport", activity="support_viewed")
+        self.assertEqual(entry.item_id, str(batch_import.id))
+        self.assertEqual(entry.team_id, self.team.id)
+        self.assertEqual(entry.organization_id, self.organization.id)
+        self.assertEqual(entry.user_id, self.user.id)
+        self.assertEqual(entry.detail["name"], "mixpanel (mixpanel)")
 
     def test_secret_values_never_appear_in_responses(self):
         # Structural guarantee first: neither serializer declares the field at all

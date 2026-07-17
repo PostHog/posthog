@@ -5,8 +5,10 @@ from urllib.parse import urlsplit, urlunsplit
 from posthog.models.user import User
 
 # Matches scheme://... up to whitespace or a quote - the delimiters the worker uses
-# when interpolating part keys/URLs into error messages.
-_URL_IN_TEXT_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s'\"]+")
+# when interpolating part keys/URLs into error messages. The match must end on a
+# non-punctuation character so sentence punctuation after a URL ("<url>, retrying")
+# stays in the surrounding text instead of being swallowed with the redacted query.
+_URL_IN_TEXT_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s'\"]*[^\s'\".,;:!?)\]}>]")
 
 
 def redact_part_key(key: object) -> object:
