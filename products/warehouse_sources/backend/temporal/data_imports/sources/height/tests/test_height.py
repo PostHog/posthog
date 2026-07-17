@@ -1,164 +1,116 @@
+import json
 from typing import Any
 
 import pytest
 from unittest import mock
-from unittest.mock import MagicMock
 
-import requests
 from parameterized import parameterized
+from requests import PreparedRequest, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.height import height
 from products.warehouse_sources.backend.temporal.data_imports.sources.height.height import (
-    HeightRetryableError,
-    check_access,
-    get_rows,
+    HeightAPIKeyAuth,
     height_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.height.settings import ENDPOINTS, HEIGHT_ENDPOINTS
 
-# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
-_fetch_list_unwrapped = height._fetch_list.__wrapped__  # type: ignore[attr-defined]
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the height module.
+HEIGHT_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.height.height.make_tracked_session"
+)
 
 
-class TestGetRows:
-    @staticmethod
-    def _collect(monkeypatch: Any, rows: list[dict], endpoint: str = "users") -> list[dict]:
-        def fake_fetch(session: Any, path: str, logger: Any) -> list[dict]:
-            return rows
+def _response(body: Any) -> Response:
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(body).encode()
+    return resp
 
-        monkeypatch.setattr(height, "_fetch_list", fake_fetch)
-        monkeypatch.setattr(height, "make_tracked_session", lambda **kwargs: MagicMock())
 
-        collected: list[dict] = []
-        for batch in get_rows(api_key="secret_key", endpoint=endpoint, logger=MagicMock()):
-            collected.extend(batch)
-        return collected
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[str]:
+    """Wire a mock session; capture each request's URL AT SEND TIME.
 
-    def test_yields_single_batch(self, monkeypatch: Any) -> None:
-        rows = self._collect(monkeypatch, [{"id": "a"}, {"id": "b"}])
+    The request object is mutated in place, so snapshot the URL when each request is prepared.
+    """
+    session.headers = {}
+    url_snapshots: list[str] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        url_snapshots.append(request.url)
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return url_snapshots
+
+
+def _rows(source_response: Any) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+class TestHeightAuth:
+    def test_authorization_header_uses_api_key_scheme(self) -> None:
+        auth = HeightAPIKeyAuth("secret_abc")
+        request = PreparedRequest()
+        request.prepare(method="GET", url="https://api.height.app/users")
+        auth(request)
+        # Height's scheme is the literal word `api-key` followed by the secret, not a Bearer token.
+        assert request.headers["Authorization"] == "api-key secret_abc"
+
+    def test_redacts_both_composite_and_raw_key(self) -> None:
+        # Both the header value and the raw key on its own are scrubbed from logged errors.
+        auth = HeightAPIKeyAuth("secret_abc")
+        assert set(auth.secret_values()) == {"api-key secret_abc", "secret_abc"}
+
+
+class TestHeightSourceRows:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_yields_rows_from_list_key(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"list": [{"id": "a"}, {"id": "b"}]})])
+
+        rows = _rows(height_source(api_key="secret_key", endpoint="users", team_id=1, job_id="j"))
         assert rows == [{"id": "a"}, {"id": "b"}]
+        # Height list endpoints are single-shot; exactly one request pulls the whole collection.
+        assert session.send.call_count == 1
 
-    def test_empty_list_yields_nothing(self, monkeypatch: Any) -> None:
-        assert self._collect(monkeypatch, []) == []
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_list_yields_nothing(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"list": []})])
+
+        rows = _rows(height_source(api_key="secret_key", endpoint="users", team_id=1, job_id="j"))
+        assert rows == []
 
     @parameterized.expand([(e,) for e in ENDPOINTS])
-    def test_every_endpoint_fetches_its_path(self, endpoint: str) -> None:
-        captured: dict[str, str] = {}
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_every_endpoint_targets_its_path(self, endpoint: str, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        urls = _wire(session, [_response({"list": []})])
 
-        def fake_fetch(session: Any, path: str, logger: Any) -> list[dict]:
-            captured["path"] = path
-            return []
-
-        # Patch on the module so get_rows uses the fake, bypassing the network.
-        with mock.patch.object(height, "_fetch_list", fake_fetch):
-            list(get_rows(api_key="secret_key", endpoint=endpoint, logger=MagicMock()))
-
-        assert captured["path"] == HEIGHT_ENDPOINTS[endpoint].path
-
-
-class TestFetchList:
-    def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body if body is not None else {"list": []}
-        response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
-        )
-        session = MagicMock()
-        session.get.return_value = response
-        return session
-
-    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(HeightRetryableError):
-            _fetch_list_unwrapped(session, "/users", MagicMock())
-
-    @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(requests.HTTPError):
-            _fetch_list_unwrapped(session, "/users", MagicMock())
-
-    def test_success_returns_list_key(self) -> None:
-        session = self._session_returning(200, {"list": [{"id": "x"}]})
-        result = _fetch_list_unwrapped(session, "/users", MagicMock())
-        assert result == [{"id": "x"}]
-
-    @parameterized.expand([("bare_array", [{"id": 1}]), ("missing_list_key", {"data": []}), ("null_body", None)])
-    def test_unexpected_payload_is_retryable(self, _name: str, body: Any) -> None:
-        # `None` maps to a body without a `list` key via the fixture default.
-        session = self._session_returning(200, body if body is not None else {"data": []})
-        with pytest.raises(HeightRetryableError):
-            _fetch_list_unwrapped(session, "/users", MagicMock())
-
-    def test_request_targets_base_url_and_path(self) -> None:
-        session = self._session_returning(200, {"list": []})
-        _fetch_list_unwrapped(session, "/lists", MagicMock())
-        args, _ = session.get.call_args
-        assert args[0] == "https://api.height.app/lists"
-
-
-class TestCheckAccess:
-    def _patch_session(self, monkeypatch: Any, response: Any) -> MagicMock:
-        session = MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
-        else:
-            session.get.return_value = response
-        monkeypatch.setattr(height, "make_tracked_session", lambda **kwargs: session)
-        return session
+        _rows(height_source(api_key="secret_key", endpoint=endpoint, team_id=1, job_id="j"))
+        assert urls[0] == f"https://api.height.app{HEIGHT_ENDPOINTS[endpoint].path}"
 
     @parameterized.expand(
         [
-            (200, True, 200, None),
-            (401, False, 401, None),
-            (403, False, 403, None),
-            (500, False, 500, "Height returned HTTP 500"),
+            ("bare_array", [{"id": 1}]),
+            ("missing_list_key", {"data": []}),
+            ("null_body", None),
         ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.height.height.make_tracked_session")
-    def test_status_mapping(
-        self,
-        status: int,
-        ok: bool,
-        expected_status: int,
-        expected_message: str | None,
-        mock_make_session: mock.MagicMock,
-    ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = ok
-        session = MagicMock()
-        session.get.return_value = response
-        mock_make_session.return_value = session
-        assert check_access("secret_key") == (expected_status, expected_message)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unexpected_payload_fails_loud(self, _name: str, body: Any, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(body)])
 
-    def test_authorization_header_uses_api_key_scheme(self, monkeypatch: Any) -> None:
-        captured: dict[str, Any] = {}
+        # A 200 body without a `list` key means the response shape changed — fail loud, not 0 rows.
+        with pytest.raises(ValueError, match="matched nothing"):
+            _rows(height_source(api_key="secret_key", endpoint="users", team_id=1, job_id="j"))
 
-        def fake_make_session(headers: dict[str, str], redact_values: Any) -> MagicMock:
-            captured["headers"] = headers
-            response = MagicMock()
-            response.status_code = 200
-            response.ok = True
-            session = MagicMock()
-            session.get.return_value = response
-            return session
 
-        monkeypatch.setattr(height, "make_tracked_session", fake_make_session)
-        check_access("secret_abc")
-        assert captured["headers"]["Authorization"] == "api-key secret_abc"
-
-    def test_connection_error_maps_to_zero(self, monkeypatch: Any) -> None:
-        self._patch_session(monkeypatch, requests.ConnectionError("boom"))
-        status, message = check_access("secret_key")
-        assert status == 0
-        assert message is not None and "boom" in message
-
+class TestValidateCredentials:
     @parameterized.expand(
         [
             (200, True, None),
@@ -167,27 +119,28 @@ class TestCheckAccess:
             (500, False, "Height returned HTTP 500"),
         ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.height.height.make_tracked_session")
-    def test_validate_credentials(
+    @mock.patch(HEIGHT_SESSION_PATCH)
+    def test_status_mapping(
         self,
         status: int,
         expected_valid: bool,
         expected_message: str | None,
         mock_make_session: mock.MagicMock,
     ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = status < 400
-        session = MagicMock()
-        session.get.return_value = response
-        mock_make_session.return_value = session
+        mock_make_session.return_value.get.return_value = mock.MagicMock(status_code=status)
         assert validate_credentials("secret_key") == (expected_valid, expected_message)
+
+    @mock.patch(HEIGHT_SESSION_PATCH)
+    def test_connection_error_is_not_validated(self, mock_make_session: mock.MagicMock) -> None:
+        mock_make_session.return_value.get.side_effect = Exception("boom")
+        assert validate_credentials("secret_key") == (False, "Could not validate Height API key")
 
 
 class TestHeightSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = height_source(api_key="secret_key", endpoint=endpoint, logger=MagicMock())
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_shape(self, endpoint: str, _MockSession: mock.MagicMock) -> None:
+        response = height_source(api_key="secret_key", endpoint=endpoint, team_id=1, job_id="j")
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         # No stable creation timestamp is guaranteed across every object, so we don't partition.
