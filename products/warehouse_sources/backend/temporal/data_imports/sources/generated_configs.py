@@ -3365,7 +3365,8 @@ class PromptingCompanySourceConfig(config.Config):
 
 @config.config
 class PulumiCloudSourceConfig(config.Config):
-    pass
+    access_token: str
+    organization: str
 
 
 @config.config
