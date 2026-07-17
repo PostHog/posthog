@@ -525,21 +525,27 @@ def record_scout_run_task_artefact(*, team_id: int, report_id: str, run: SignalS
     if task_id is None:
         return
     try:
-        # The `task_id` column mirrors the content's task id on every signals-pipeline `task_run`
-        # artefact (they're attributed to the task they record), so it doubles as the dedupe key.
-        if SignalReportArtefact.objects.filter(
-            team_id=team_id,
-            report_id=report_id,
-            type=SignalReportArtefact.ArtefactType.TASK_RUN,
-            task_id=task_id,
-        ).exists():
-            return
-        SignalReportArtefact.add_log(
-            team_id=team_id,
-            report_id=report_id,
-            content=_scout_task_run_content(run, task_id),
-            attribution=ArtefactAttribution.from_task(task_id),
-        )
+        with transaction.atomic():
+            # The artefact log has no uniqueness constraint, so serialize the check-then-append under
+            # the report row lock — concurrent edits from the same run would otherwise both pass the
+            # exists() check and double-write the association.
+            if not SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first():
+                return
+            # The `task_id` column mirrors the content's task id on every signals-pipeline `task_run`
+            # artefact (they're attributed to the task they record), so it doubles as the dedupe key.
+            if SignalReportArtefact.objects.filter(
+                team_id=team_id,
+                report_id=report_id,
+                type=SignalReportArtefact.ArtefactType.TASK_RUN,
+                task_id=task_id,
+            ).exists():
+                return
+            SignalReportArtefact.add_log(
+                team_id=team_id,
+                report_id=report_id,
+                content=_scout_task_run_content(run, task_id),
+                attribution=ArtefactAttribution.from_task(task_id),
+            )
     except Exception:
         logger.exception(
             "signals_scout.edit_report: failed to record scout task_run artefact",
