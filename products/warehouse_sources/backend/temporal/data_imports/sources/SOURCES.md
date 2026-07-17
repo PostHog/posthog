@@ -527,6 +527,7 @@ the row lists both.
 | unstructured                     | HTTP                        | requests                                                        | ✅                          |
 | upstash                          | HTTP                        | requests                                                        | ✅                          |
 | uptimerobot                      | HTTP                        | requests                                                        | ✅                          |
+| usersnap                         | HTTP                        | requests + PyJWT                                                | ✅                          |
 | uservoice                        | HTTP                        | requests                                                        | ✅                          |
 | vantage                          | HTTP                        | requests                                                        | ✅                          |
 | vapi                             | HTTP                        | requests                                                        | ✅                          |
@@ -967,7 +968,6 @@ doesn't conflict with concurrent PRs.
 - uppromote
 - uptick
 - us_census
-- usersnap
 - uservoice
 - veeqo
 - vespa
