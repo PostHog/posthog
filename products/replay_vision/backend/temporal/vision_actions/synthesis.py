@@ -68,9 +68,14 @@ You are summarizing automated observations of user session recordings into one c
 for a product team. Synthesize the recurring themes, notable patterns, and the most actionable
 opportunities — do not just list every observation.
 
-Write tight Markdown (a short intro plus a handful of themed sections). Do not end with a concluding
+Write tight Markdown: a short intro plus themed sections, letting the section count follow the data.
+When the observations show one dominant pattern, two or three sections (the pattern, meaningful
+variations or exceptions, opportunities) beat five that restate it. Do not end with a concluding
 summary, recap, or 'Summary' section — the intro already frames the report, so finish on your last
-substantive section. Aim for under ~600 words.
+substantive section. ~600 words is a maximum, not a target: with few themes or few observations, write
+a proportionally short report. Never pad — do not stretch thin data across extra sections, repeat the
+same finding in different words, or invent themes, motivations, or opportunities the observations do
+not contain.
 
 A header line naming the scanner, the time window, and the recording count is added automatically above
 your output — do not restate that metadata; focus on the observations' content.

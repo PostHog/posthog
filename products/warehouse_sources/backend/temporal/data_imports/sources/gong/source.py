@@ -58,6 +58,9 @@ Grant the following read scopes so the connected endpoints can sync:
 - `api:users:read`
 - `api:settings:scorecards:read`
 - `api:workspaces:read`
+
+To also sync the `calls_extensive` table (call participants and CRM associations), additionally grant:
+- `api:calls:read:extensive`
 """,
             iconPath="/static/services/gong.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gong",

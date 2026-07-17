@@ -12,13 +12,13 @@ export const makeExperimentSessionContextItem = (
     variant: 'test',
     variants_seen: ['test'],
     multiple_variants: false,
-    first_flag_evaluation_timestamp: '2023-05-01T14:46:24.000000Z',
+    first_exposure_timestamp: '2023-05-01T14:46:24.000000Z',
     experiment_start_date: '2023-04-01T00:00:00Z',
     experiment_end_date: null,
     ...overrides,
 })
 
-/** One of each interesting state: single variant, multi-variant warning, carried-over assignment. */
+/** One of each interesting state: single variant, multi-variant warning, no in-session exposure event. */
 export const experimentSessionContextResponse: ExperimentSessionContextResponseApi = {
     session_id: 'experiment-context-session',
     results: [
@@ -35,7 +35,7 @@ export const experimentSessionContextResponse: ExperimentSessionContextResponseA
             experiment_id: 103,
             experiment_name: 'Onboarding checklist',
             flag_key: 'onboarding-checklist',
-            first_flag_evaluation_timestamp: null,
+            first_exposure_timestamp: null,
         }),
     ],
 }
