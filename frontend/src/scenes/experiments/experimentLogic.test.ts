@@ -433,6 +433,70 @@ describe('experimentLogic', () => {
             )
         })
     })
+    describe('optimistic concurrency', () => {
+        beforeEach(() => {
+            jest.spyOn(api, 'update')
+            api.update.mockClear()
+        })
+
+        it('sends version and original_experiment from the unmodified snapshot on update', async () => {
+            const snapshot = { ...experiment, version: 3 } as Experiment
+            logic.actions.setUnmodifiedExperiment(snapshot)
+            logic.actions.setExperiment(snapshot)
+            api.update.mockResolvedValue(snapshot)
+
+            await expectLogic(logic, () => {
+                logic.actions.updateExperiment({ description: 'updated' })
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({
+                    description: 'updated',
+                    version: 3,
+                    original_experiment: expect.objectContaining({
+                        name: snapshot.name,
+                        metrics: snapshot.metrics,
+                    }),
+                })
+            )
+        })
+
+        it('includes the concurrency payload on the raw shared-metric write path', async () => {
+            const snapshot = { ...experiment, version: 2, saved_metrics: [], metrics_secondary: [] } as Experiment
+            logic.actions.setUnmodifiedExperiment(snapshot)
+            logic.actions.setExperiment(snapshot)
+            api.update.mockResolvedValue(snapshot)
+
+            await expectLogic(logic, () => {
+                logic.actions.removeSharedMetricFromExperiment(12345)
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({
+                    version: 2,
+                    original_experiment: expect.objectContaining({ name: snapshot.name }),
+                })
+            )
+        })
+
+        it('reloads the experiment and shows an error toast on a version conflict', async () => {
+            const snapshot = { ...experiment, version: 1 } as Experiment
+            logic.actions.setUnmodifiedExperiment(snapshot)
+            logic.actions.setExperiment(snapshot)
+            api.update.mockRejectedValue({
+                status: 409,
+                data: { detail: 'The experiment was changed since you loaded it.', current_version: 5 },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.updateExperiment({ description: 'stale write' })
+            }).toDispatchActions(['loadExperiment'])
+
+            expect(lemonToast.error).toHaveBeenCalledWith('The experiment was changed since you loaded it.')
+        })
+    })
     describe('saveMetricsReorder', () => {
         const primaryMetric = {
             kind: 'ExperimentMetric',

@@ -369,6 +369,29 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "conditions)."
         ),
     )
+    version = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optimistic-concurrency token. Reads return the experiment's current version, bumped on "
+            "every update. Send the version you last read with an update to detect concurrent edits: "
+            "the update fails with HTTP 409 if the experiment changed since (metric changes made by "
+            "others are merged in where safe when `original_experiment` is also sent). Omit to skip "
+            "the check."
+        ),
+    )
+    original_experiment = serializers.DictField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text=(
+            "The experiment state the client last read, used together with `version` to resolve "
+            "concurrent edits: metric changes made by other users are merged per metric uuid where "
+            "safe instead of failing. Keys mirror the update payload (metrics, metrics_secondary, "
+            "saved_metrics_ids, plus scalar fields like name and description); unknown keys are "
+            "ignored. Without it, any version mismatch fails with HTTP 409."
+        ),
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     flag_cleanup_task_id = serializers.UUIDField(
         read_only=True,
@@ -420,6 +443,8 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "secondary_metrics_ordered_uuids",
             "only_count_matured_users",
             "update_feature_flag_params",
+            "version",
+            "original_experiment",
             "status",
             "is_legacy",
             "can_freeze_exposure",
@@ -719,6 +744,9 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
         # Pop fields not needed for DTO but needed for validation
         validated_data.pop("update_feature_flag_params", None)
+        # Concurrency keys are update-only; ignore them on create so clients can share payload builders
+        validated_data.pop("version", None)
+        validated_data.pop("original_experiment", None)
 
         # Check for unexpected fields
         expected_fields = {

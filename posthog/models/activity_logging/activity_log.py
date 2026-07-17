@@ -470,6 +470,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "holdout",
         "saved_metrics",
         "experimenttosavedmetric_set",
+        # Optimistic-concurrency counter, not a user-meaningful change.
+        "version",
     ],
     "ExperimentSavedMetric": [
         "experiments",

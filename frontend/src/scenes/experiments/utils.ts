@@ -142,7 +142,7 @@ export function ensureIsPercent(value: string | number | undefined): number {
 
 export function percentageDistribution(variantCount: number): number[] {
     const basePercentage = Math.floor(100 / variantCount)
-    const percentages = new Array(variantCount).fill(basePercentage)
+    const percentages = Array.from({ length: variantCount }).fill(basePercentage)
     let remaining = 100 - basePercentage * variantCount
     for (let i = 0; remaining > 0; i++, remaining--) {
         // try to equally distribute `remaining` across variants
@@ -1109,6 +1109,49 @@ export type ExperimentWritePayload<T> = Omit<T, 'feature_flag' | 'feature_flag_c
 export type ExperimentUpdatePayload = Omit<Partial<Experiment>, 'feature_flag'> & {
     feature_flag?: ExperimentFeatureFlagInputApi | Experiment['feature_flag']
     update_feature_flag_params?: boolean
+    original_experiment?: Record<string, any>
+}
+
+/** Concurrency context for experiment PATCHes: the version last read plus the state that version
+ * belongs to, so the server can merge concurrent metric edits safely and reject everything else
+ * with a 409 instead of letting a stale write clobber it. */
+export function toConcurrencyPayload(
+    unmodified: Experiment | null
+): Pick<ExperimentUpdatePayload, 'version' | 'original_experiment'> {
+    if (!unmodified || typeof unmodified.id !== 'number') {
+        return {}
+    }
+    return {
+        version: unmodified.version ?? 0,
+        original_experiment: {
+            name: unmodified.name,
+            description: unmodified.description,
+            type: unmodified.type,
+            start_date: unmodified.start_date,
+            end_date: unmodified.end_date,
+            archived: unmodified.archived,
+            conclusion: unmodified.conclusion,
+            conclusion_comment: unmodified.conclusion_comment,
+            holdout_id: unmodified.holdout_id,
+            exposure_criteria: unmodified.exposure_criteria,
+            stats_config: unmodified.stats_config,
+            running_time_calculation: unmodified.running_time_calculation,
+            excluded_variants: unmodified.excluded_variants,
+            only_count_matured_users: unmodified.only_count_matured_users,
+            metrics: unmodified.metrics,
+            metrics_secondary: unmodified.metrics_secondary,
+            saved_metrics_ids: (unmodified.saved_metrics || []).map((sharedMetric) => ({
+                id: sharedMetric.saved_metric,
+                metadata: sharedMetric.metadata,
+            })),
+        },
+    }
+}
+
+/** Whether an API error is the experiment concurrency conflict (as opposed to any other 409,
+ * e.g. an approval-required response, which carries no `current_version`). */
+export function isExperimentConflictError(error: any): boolean {
+    return error?.status === 409 && error?.data?.current_version !== undefined
 }
 
 /** Maps UI variants to the flag's write shape, dropping null names the generated type disallows. */

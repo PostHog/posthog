@@ -24103,6 +24103,12 @@ export namespace Schemas {
     } as const;
 
     /**
+     * The experiment state the client last read, used together with `version` to resolve concurrent edits: metric changes made by other users are merged per metric uuid where safe instead of failing. Keys mirror the update payload (metrics, metrics_secondary, saved_metrics_ids, plus scalar fields like name and description); unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+     * @nullable
+     */
+    export type ExperimentOriginalExperiment = { [key: string]: unknown } | null;
+
+    /**
      * * `cohort` - cohort
      * * `person` - person
      * * `group` - group
@@ -24762,6 +24768,16 @@ export namespace Schemas {
       only_count_matured_users?: boolean;
       /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
+      /**
+         * Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: the update fails with HTTP 409 if the experiment changed since (metric changes made by others are merged in where safe when `original_experiment` is also sent). Omit to skip the check.
+         * @nullable
+         */
+      version?: number | null;
+      /**
+         * The experiment state the client last read, used together with `version` to resolve concurrent edits: metric changes made by other users are merged per metric uuid where safe instead of failing. Keys mirror the update payload (metrics, metrics_secondary, saved_metrics_ids, plus scalar fields like name and description); unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+         * @nullable
+         */
+      original_experiment?: ExperimentOriginalExperiment;
       /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended). */
       readonly status: ExperimentStatusEnum;
       /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
@@ -25360,6 +25376,12 @@ export namespace Schemas {
     }
 
     /**
+     * The experiment state the client last read, used together with `version` to resolve concurrent edits: metric changes made by other users are merged per metric uuid where safe instead of failing. Keys mirror the update payload (metrics, metrics_secondary, saved_metrics_ids, plus scalar fields like name and description); unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+     * @nullable
+     */
+    export type ExperimentWriteOriginalExperiment = { [key: string]: unknown } | null;
+
+    /**
      * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
      */
     export interface ExperimentWrite {
@@ -25455,6 +25477,16 @@ export namespace Schemas {
       only_count_matured_users?: boolean;
       /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
+      /**
+         * Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: the update fails with HTTP 409 if the experiment changed since (metric changes made by others are merged in where safe when `original_experiment` is also sent). Omit to skip the check.
+         * @nullable
+         */
+      version?: number | null;
+      /**
+         * The experiment state the client last read, used together with `version` to resolve concurrent edits: metric changes made by other users are merged per metric uuid where safe instead of failing. Keys mirror the update payload (metrics, metrics_secondary, saved_metrics_ids, plus scalar fields like name and description); unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+         * @nullable
+         */
+      original_experiment?: ExperimentWriteOriginalExperiment;
       /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended). */
       readonly status: ExperimentStatusEnum;
       /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
@@ -44013,6 +44045,12 @@ export namespace Schemas {
     }
 
     /**
+     * The experiment state the client last read, used together with `version` to resolve concurrent edits: metric changes made by other users are merged per metric uuid where safe instead of failing. Keys mirror the update payload (metrics, metrics_secondary, saved_metrics_ids, plus scalar fields like name and description); unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+     * @nullable
+     */
+    export type PatchedExperimentWriteOriginalExperiment = { [key: string]: unknown } | null;
+
+    /**
      * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
      */
     export interface PatchedExperimentWrite {
@@ -44108,6 +44146,16 @@ export namespace Schemas {
       only_count_matured_users?: boolean;
       /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
+      /**
+         * Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: the update fails with HTTP 409 if the experiment changed since (metric changes made by others are merged in where safe when `original_experiment` is also sent). Omit to skip the check.
+         * @nullable
+         */
+      version?: number | null;
+      /**
+         * The experiment state the client last read, used together with `version` to resolve concurrent edits: metric changes made by other users are merged per metric uuid where safe instead of failing. Keys mirror the update payload (metrics, metrics_secondary, saved_metrics_ids, plus scalar fields like name and description); unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+         * @nullable
+         */
+      original_experiment?: PatchedExperimentWriteOriginalExperiment;
       /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended). */
       readonly status?: ExperimentStatusEnum;
       /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */

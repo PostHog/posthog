@@ -139,7 +139,9 @@ import {
     getExperimentVariants,
     getOrderedMetricsWithResults,
     initializeMetricOrdering,
+    isExperimentConflictError,
     isLegacyExperiment,
+    toConcurrencyPayload,
     toExperimentWritePayload,
     toFlagVariantsInput,
 } from './utils'
@@ -332,7 +334,7 @@ const loadMetrics = async ({
     onSetErrors,
 }: MetricLoadingConfig): Promise<MetricLoadingSummary> => {
     const results: CachedNewExperimentQueryResponse[] = []
-    const currentErrors = new Array(metrics.length).fill(null)
+    const currentErrors = Array.from({ length: metrics.length }).fill(null)
 
     let successfulCount = 0
     let erroredCount = 0
@@ -2778,10 +2780,22 @@ export const experimentLogic = kea<experimentLogicType>([
             })
             const combinedMetricsIds = [...existingMetricsIds, ...newMetricsIds]
 
-            await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                saved_metrics_ids: combinedMetricsIds,
-                update_feature_flag_params: false,
-            })
+            try {
+                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
+                    ...toConcurrencyPayload(values.unmodifiedExperiment),
+                    saved_metrics_ids: combinedMetricsIds,
+                    update_feature_flag_params: false,
+                })
+            } catch (error: any) {
+                if (isExperimentConflictError(error)) {
+                    lemonToast.error(
+                        error.data?.detail ||
+                            'This experiment was changed while you were editing it. Review the latest changes and try again.'
+                    )
+                } else {
+                    throw error
+                }
+            }
 
             actions.loadExperiment({ triggeredBy: 'config_change' })
         },
@@ -2801,12 +2815,24 @@ export const experimentLogic = kea<experimentLogicType>([
                 (m) => !('isSharedMetric' in m && m.isSharedMetric && m.sharedMetricId === sharedMetricId)
             )
 
-            await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                saved_metrics_ids: sharedMetricsIds,
-                metrics: cleanedMetrics,
-                metrics_secondary: cleanedMetricsSecondary,
-                update_feature_flag_params: false,
-            })
+            try {
+                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
+                    ...toConcurrencyPayload(values.unmodifiedExperiment),
+                    saved_metrics_ids: sharedMetricsIds,
+                    metrics: cleanedMetrics,
+                    metrics_secondary: cleanedMetricsSecondary,
+                    update_feature_flag_params: false,
+                })
+            } catch (error: any) {
+                if (isExperimentConflictError(error)) {
+                    lemonToast.error(
+                        error.data?.detail ||
+                            'This experiment was changed while you were editing it. Review the latest changes and try again.'
+                    )
+                } else {
+                    throw error
+                }
+            }
 
             actions.loadExperiment({ triggeredBy: 'config_change' })
         },
@@ -3472,16 +3498,28 @@ export const experimentLogic = kea<experimentLogicType>([
             null as Experiment | null,
             {
                 updateExperiment: async (update: ExperimentUpdatePayload) => {
-                    const response: Experiment = await api.update(
-                        `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
-                        update
-                    )
-                    const responseWithMetricsOrdering = initializeMetricOrdering(response)
-                    refreshTreeItem('experiment', String(values.experimentId))
-                    actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
-                    // Also update the main experiment state
-                    actions.setExperiment(responseWithMetricsOrdering)
-                    return responseWithMetricsOrdering
+                    try {
+                        const response: Experiment = await api.update(
+                            `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
+                            { ...toConcurrencyPayload(values.unmodifiedExperiment), ...update }
+                        )
+                        const responseWithMetricsOrdering = initializeMetricOrdering(response)
+                        refreshTreeItem('experiment', String(values.experimentId))
+                        actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
+                        // Also update the main experiment state
+                        actions.setExperiment(responseWithMetricsOrdering)
+                        return responseWithMetricsOrdering
+                    } catch (error: any) {
+                        if (isExperimentConflictError(error)) {
+                            lemonToast.error(
+                                error.data?.detail ||
+                                    'This experiment was changed while you were editing it. Review the latest changes and try again.'
+                            )
+                            // Reload so the next save carries the current version and base state
+                            actions.loadExperiment()
+                        }
+                        throw error
+                    }
                 },
             },
         ],

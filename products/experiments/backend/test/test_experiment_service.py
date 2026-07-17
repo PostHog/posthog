@@ -39,6 +39,8 @@ from products.experiments.backend.experiment_service import (
     ExperimentService,
     _deprecated_fields_in_request,
     _deprecated_parameters_keys_in_request,
+    _merge_metric_arrays,
+    _merge_saved_metric_links,
 )
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
@@ -6924,3 +6926,81 @@ class TestDeprecatedParametersKeysInRequest(SimpleTestCase):
         request = MagicMock()
         type(request).data = PropertyMock(side_effect=RuntimeError("stream consumed"))
         assert _deprecated_parameters_keys_in_request(request) == []
+
+
+class TestConcurrentMetricMerge(SimpleTestCase):
+    """Branch pins for the pure three-way merge helpers behind experiment optimistic concurrency.
+    The end-to-end behavior is covered in test_presentation_api.py::TestExperimentConcurrency;
+    these lock the merge decisions that are awkward to reach through the API (identical edits on
+    both sides, double deletes, fingerprint-only churn)."""
+
+    @staticmethod
+    def _metric(uuid: str, event: str, fingerprint: str | None = None) -> dict:
+        metric = {"uuid": uuid, "kind": "ExperimentMetric", "source": {"kind": "EventsNode", "event": event}}
+        if fingerprint is not None:
+            metric["fingerprint"] = fingerprint
+        return metric
+
+    @parameterized.expand(
+        [
+            (
+                "identical_edit_on_both_sides_is_not_a_conflict",
+                [("m1", "old", None)],
+                [("m1", "new", None)],
+                [("m1", "new", None)],
+                {"new"},
+                [],
+            ),
+            (
+                "both_delete_the_same_metric",
+                [("m1", "e1", None), ("m2", "e2", None)],
+                [("m2", "e2", None)],
+                [("m2", "e2", None)],
+                {"e2"},
+                [],
+            ),
+            (
+                "fingerprint_only_churn_is_not_a_concurrent_edit",
+                [("m1", "e1", "old-fp"), ("m2", "e2", "old-fp")],
+                [("m1", "e1", "new-fp"), ("m2", "e2", "new-fp")],
+                [("m2", "e2", "old-fp")],
+                {"e2"},
+                [],
+            ),
+            (
+                "edit_vs_delete_conflicts",
+                [("m1", "e1", None)],
+                [("m1", "edited", None)],
+                [],
+                {"edited"},
+                ["m1"],
+            ),
+        ]
+    )
+    def test_merge_metric_arrays(
+        self,
+        _name: str,
+        base: list,
+        theirs: list,
+        mine: list,
+        expected_events: set[str],
+        expected_conflicts: list[str],
+    ) -> None:
+        merged, conflicts = _merge_metric_arrays(
+            [self._metric(*m) for m in base],
+            [self._metric(*m) for m in theirs],
+            [self._metric(*m) for m in mine],
+        )
+
+        self.assertEqual(conflicts, expected_conflicts)
+        if not expected_conflicts:
+            self.assertEqual({m["source"]["event"] for m in merged}, expected_events)
+
+    def test_merge_saved_metric_links_identical_metadata_edit_is_not_a_conflict(self) -> None:
+        base = [{"id": 1, "metadata": {"type": "primary"}}]
+        both_edited = [{"id": 1, "metadata": {"type": "secondary"}}]
+
+        merged, conflicts = _merge_saved_metric_links(base, both_edited, both_edited)
+
+        self.assertEqual(conflicts, [])
+        self.assertEqual(merged, [{"id": 1, "metadata": {"type": "secondary"}}])
