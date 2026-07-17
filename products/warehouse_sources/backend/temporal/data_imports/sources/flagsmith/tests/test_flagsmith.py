@@ -28,6 +28,7 @@ SESSION_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.flagsmith.make_tracked_session"
 )
 BUDGET_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.flagsmith.MAX_PAGES_PER_SYNC"
+PARENTS_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.flagsmith.MAX_FANOUT_PARENTS"
 
 
 def _make_manager(resume_state: FlagsmithResumeConfig | None = None) -> mock.MagicMock:
@@ -363,6 +364,23 @@ class TestGetRowsFanout:
 
         # 1 projects fetch + 4 feature fetches = the whole 5-page budget, not 5 per parent.
         assert mock_session.return_value.get.call_count == 5
+
+    @mock.patch(PARENTS_PATH, 2)
+    @mock.patch(SESSION_PATH)
+    def test_fan_out_parent_count_is_capped(self, mock_session):
+        # A hostile host can return a huge parent list in one page; enumeration must stop at the
+        # cap so the retained parent list can't exhaust worker memory (only capped parents fan out).
+        def _get(url, **kwargs):
+            if url.endswith("/projects/"):
+                return _resp([{"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}])
+            return _resp(_page([{"id": 100}], None))
+
+        mock_session.return_value.get.side_effect = _get
+
+        list(get_rows("key", None, "features", mock.MagicMock(), _make_manager()))
+
+        child_urls = [c.args[0] for c in mock_session.return_value.get.call_args_list if "/features/" in c.args[0]]
+        assert len(child_urls) == 2  # only the first 2 of 4 projects enumerated
 
 
 class TestErrors:

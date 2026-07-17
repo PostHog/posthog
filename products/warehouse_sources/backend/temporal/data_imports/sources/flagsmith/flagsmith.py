@@ -33,6 +33,13 @@ MAX_RETRY_WAIT_SECONDS = 60
 # Generous enough not to truncate real data.
 MAX_PAGES_PER_SYNC = 10_000
 
+# Cap on how many fan-out parents (organisation ids, project ids, or environment api_keys) a single
+# sync enumerates and holds in memory before child processing begins. Even within the page budget a
+# hostile host could return enough parents to balloon this list and exhaust a warehouse worker; the
+# keys are short identifiers, so a count cap bounds the retained bytes too. Generous enough to cover
+# any real org.
+MAX_FANOUT_PARENTS = 50_000
+
 
 class _PageBudget:
     """Mutable page allowance drawn down across a whole sync (all parents and child listings)."""
@@ -304,6 +311,21 @@ def _iter_pages(
             yield rows
 
 
+def _extend_capped(
+    keys: list[str], listing: Iterator[list[dict[str, Any]]], field: str, logger: FilteringBoundLogger
+) -> bool:
+    """Append ``row[field]`` from each row of a parent listing into ``keys``, stopping once the
+    retained list hits MAX_FANOUT_PARENTS so a hostile host can't balloon it and exhaust worker
+    memory. Returns True if the cap was reached (the caller should stop enumerating)."""
+    for rows in listing:
+        for row in rows:
+            keys.append(str(row[field]))
+            if len(keys) >= MAX_FANOUT_PARENTS:
+                logger.warning(f"Flagsmith: fan-out parent cap ({MAX_FANOUT_PARENTS}) reached, truncating enumeration")
+                return True
+    return False
+
+
 def _fetch_parent_keys(
     session: requests.Session,
     base: str,
@@ -314,10 +336,13 @@ def _fetch_parent_keys(
 ) -> list[str]:
     if parent == "organisation":
         listing = _iter_pages(session, base, _initial_url(base, "/organisations/", {}), headers, logger, budget)
-        return [str(row["id"]) for rows in listing for row in rows]
+        org_ids: list[str] = []
+        _extend_capped(org_ids, listing, "id", logger)
+        return org_ids
 
     project_listing = _iter_pages(session, base, _initial_url(base, "/projects/", {}), headers, logger, budget)
-    project_ids = [str(row["id"]) for rows in project_listing for row in rows]
+    project_ids: list[str] = []
+    _extend_capped(project_ids, project_listing, "id", logger)
     if parent == "project":
         return project_ids
 
@@ -328,7 +353,8 @@ def _fetch_parent_keys(
         env_listing = _iter_pages(
             session, base, _initial_url(base, f"/environments/?project={project_id}", {}), headers, logger, budget
         )
-        keys.extend(str(row["api_key"]) for rows in env_listing for row in rows)
+        if _extend_capped(keys, env_listing, "api_key", logger):
+            break
     return keys
 
 
