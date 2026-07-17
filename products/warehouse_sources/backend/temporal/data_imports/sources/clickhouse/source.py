@@ -184,7 +184,9 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # on that path — typically a tunnel/proxy pointing at the wrong
             # service or an offline endpoint. A real ClickHouse server never
             # answers queries with 404, so retrying can't recover. We match only
-            # 404, not transient gateway codes (502/503/504), which stay retryable.
+            # 404, not transient gateway codes (502/503/504) or rate-limit 429s,
+            # which stay retryable (a 429 means the upstream is throttling us — the
+            # window clears and a later attempt succeeds, so it must not stop the sync).
             "returned response code 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
             # MEMORY_LIMIT_EXCEEDED — the source ClickHouse server (per-query
             # `max_memory_usage` budget or a server-wide OvercommitTracker kill)
