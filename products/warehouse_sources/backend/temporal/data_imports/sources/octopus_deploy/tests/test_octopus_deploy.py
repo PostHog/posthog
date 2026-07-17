@@ -445,6 +445,33 @@ class TestReadCappedBody:
         response.close.assert_called_once()
 
 
+class TestFetchPageErrorLogging:
+    def test_error_body_is_truncated_in_log(self):
+        # A customer-controlled host can return a large-but-under-cap 4xx body; the log line must
+        # carry only a bounded preview plus the byte count, never the whole body.
+        import requests
+
+        body = b"x" * (octopus_deploy_module.LOG_BODY_PREVIEW_BYTES * 4)
+        response = mock.MagicMock()
+        response.status_code = 400
+        response.ok = False
+        response.is_redirect = False
+        response.is_permanent_redirect = False
+        response.iter_content.return_value = [body]
+        response.raise_for_status.side_effect = requests.HTTPError("bad request")
+
+        session = mock.MagicMock()
+        session.get.return_value = response
+        logger = mock.MagicMock()
+
+        with pytest.raises(requests.HTTPError):
+            octopus_deploy_module._fetch_page(session, "https://my-org.octopus.app/api/spaces", {}, logger)
+
+        logged = logger.error.call_args.args[0]
+        assert f"body_bytes={len(body)}" in logged
+        assert logged.count("x") <= octopus_deploy_module.LOG_BODY_PREVIEW_BYTES
+
+
 class TestRetryAfter:
     @pytest.mark.parametrize(
         "headers, expected",

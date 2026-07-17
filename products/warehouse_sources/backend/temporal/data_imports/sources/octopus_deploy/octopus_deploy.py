@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -31,6 +32,10 @@ SPACES_PAGE_SIZE = 100
 # read into memory — far larger than any real listing page, anything past it is refused.
 MAX_RESPONSE_BYTES = 256 * 1024 * 1024
 RESPONSE_CHUNK_BYTES = 256 * 1024
+# Error bodies are customer-controlled and capped only by MAX_RESPONSE_BYTES, so never interpolate a
+# whole body into a log event — a large-but-under-cap 4xx would balloon the log line and hammer the
+# logging pipeline. Log a small fixed-size preview plus the true byte count instead.
+LOG_BODY_PREVIEW_BYTES = 8 * 1024
 # Wall-clock budget for downloading one page's body. requests' timeout only bounds each individual
 # socket read, so a host that dribbles the body slowly could hold the connection (and a shared
 # worker) open far longer than any read timeout while staying under MAX_RESPONSE_BYTES. This caps
@@ -213,8 +218,9 @@ def _fetch_page(
     body = _read_capped_body(response)
 
     if not response.ok:
+        preview = body[:LOG_BODY_PREVIEW_BYTES].decode(errors="replace")
         logger.error(
-            f"Octopus Deploy API error: status={response.status_code}, body={body.decode(errors='replace')}, url={url}"
+            f"Octopus Deploy API error: status={response.status_code}, body_bytes={len(body)}, body_preview={preview}, url={url}"
         )
         response.raise_for_status()
 
@@ -313,8 +319,10 @@ def get_rows(
     # One session reused across every page (and space) so urllib3 keeps the connection alive
     # instead of re-handshaking per request. `redact_values` masks the API key from logged
     # URLs and captured HTTP samples (the X-Octopus-ApiKey header isn't in the sampler's
-    # generic denylist).
-    session = make_tracked_session(redact_values=(api_key,))
+    # generic denylist). `retry=Retry(total=0)` disables the adapter's default retries so
+    # `_fetch_page`'s tenacity policy is the only retry budget — otherwise the two nest and a
+    # stalling host could hold a worker for far longer than either policy alone intends.
+    session = make_tracked_session(retry=Retry(total=0), redact_values=(api_key,))
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
@@ -396,8 +404,9 @@ def validate_credentials(
     try:
         # Don't follow redirects: the validated host could 3xx to an internal address, defeating
         # the host check above (SSRF). stream=True so a customer-controlled host can't force us to
-        # buffer an unbounded probe body — see _read_capped_body.
-        response = make_tracked_session(redact_values=(api_key,)).get(
+        # buffer an unbounded probe body — see _read_capped_body. retry=Retry(total=0) keeps a
+        # stalling host from being retried three times behind this single validation probe.
+        response = make_tracked_session(retry=Retry(total=0), redact_values=(api_key,)).get(
             url, headers=_get_headers(api_key), timeout=10, allow_redirects=False, stream=True
         )
     except requests.exceptions.RequestException as e:
