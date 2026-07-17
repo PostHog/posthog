@@ -104,9 +104,11 @@ class SquadcastClient:
         self._logger = logger
         # Sessions are reused across requests so urllib3 keeps the connection alive. The refresh
         # token is masked in logs/samples, and redirects are disabled so credentialed headers
-        # can't be replayed to a redirect target. The token exchange gets its own session
-        # excluded from HTTP sample capture — its response body carries the minted tokens.
-        self._session = make_tracked_session(redact_values=(refresh_token,), allow_redirects=False)
+        # can't be replayed to a redirect target. Both sessions set `capture=False`: the token
+        # exchange response carries the minted tokens, and the API responses carry arbitrary
+        # customer-authored operational data (incident descriptions, logs, postmortems, runbook
+        # steps) the name-based scrubbers can't recognise, so neither belongs in HTTP samples.
+        self._session = make_tracked_session(redact_values=(refresh_token,), allow_redirects=False, capture=False)
         self._auth_session = make_tracked_session(redact_values=(refresh_token,), allow_redirects=False, capture=False)
         self._access_token: Optional[str] = None
         self._token_expires_at: float = 0

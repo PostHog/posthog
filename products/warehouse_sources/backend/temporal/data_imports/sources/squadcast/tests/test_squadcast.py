@@ -192,9 +192,10 @@ class TestCredentialHardening:
         for call in factory.call_args_list:
             assert call.kwargs["redact_values"] == ("refresh_tok",)
             assert call.kwargs["allow_redirects"] is False
-        # The token exchange session is excluded from sample capture — its response body
-        # carries the minted tokens.
-        assert any(call.kwargs.get("capture") is False for call in factory.call_args_list)
+            # Every session is excluded from sample capture: the token exchange response carries
+            # the minted tokens, and the API responses carry arbitrary customer-authored
+            # operational data (incidents, postmortems, runbooks) the scrubbers can't recognise.
+            assert call.kwargs["capture"] is False
 
     def test_sync_sessions_are_hardened(self) -> None:
         session = FakeSession(
