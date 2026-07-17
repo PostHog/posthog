@@ -94,6 +94,15 @@ class HubspotCustomPropertiesConfig(config.Config):
 
 
 @config.config
+class JamfProAuthMethodConfig(config.Config):
+    selection: Literal["client_credentials", "basic"] = "client_credentials"
+    client_id: str | None = None
+    client_secret: str | None = None
+    username: str | None = None
+    password: str | None = None
+
+
+@config.config
 class MetabaseAuthMethodConfig(config.Config):
     selection: Literal["api_key", "session"] = "api_key"
     api_key: str | None = None
@@ -2210,7 +2219,8 @@ class IterableSourceConfig(config.Config):
 
 @config.config
 class JamfProSourceConfig(config.Config):
-    pass
+    instance_url: str
+    auth_method: JamfProAuthMethodConfig
 
 
 @config.config
