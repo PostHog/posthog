@@ -322,6 +322,83 @@ export function getViewRecordingFilters(
     return filters
 }
 
+/**
+ * Event names whose session-linkability must be checked before building "View recordings" links:
+ * the exposure event plus every plain-event metric step across primary, secondary and shared
+ * metrics, mirroring how `getViewRecordingFilters` enumerates them. Action and data warehouse
+ * steps pass through unchecked (same as the replay playlist's own check), as do "all events"
+ * steps, which have no event name.
+ */
+export function getSessionLinkabilityEventNames(experiment: Experiment): string[] {
+    const eventNames = new Set<string>()
+
+    const exposureConfig = experiment.exposure_criteria?.exposure_config
+    if (exposureConfig && !(isEventExposureConfig(exposureConfig) && exposureConfig.event === EXPOSURE_DEFAULT_EVENT)) {
+        if (isEventExposureConfig(exposureConfig) && exposureConfig.event) {
+            eventNames.add(exposureConfig.event)
+        }
+    } else {
+        eventNames.add(EXPOSURE_DEFAULT_EVENT)
+    }
+
+    const metrics = [
+        ...(experiment.metrics || []),
+        ...(experiment.metrics_secondary || []),
+        ...(experiment.saved_metrics || []).map((savedMetric: { query?: ExperimentMetric }) => savedMetric?.query),
+    ].filter((metric): metric is ExperimentMetric => metric?.kind === NodeKind.ExperimentMetric)
+
+    for (const metric of metrics) {
+        const sources: (ExperimentMetricSource | ExperimentFunnelMetricStep)[] = isExperimentMeanMetric(metric)
+            ? [metric.source]
+            : isExperimentFunnelMetric(metric)
+              ? metric.series
+              : isExperimentRatioMetric(metric)
+                ? [metric.numerator, metric.denominator]
+                : []
+        for (const source of sources) {
+            if (source.kind === NodeKind.EventsNode && source.event) {
+                eventNames.add(source.event)
+            }
+        }
+    }
+
+    return Array.from(eventNames)
+}
+
+/**
+ * Post-filters `getViewRecordingFilters` output. Recordings are matched through events carrying
+ * a `$session_id`, so an event filter the project has never seen with that property (e.g. one
+ * captured server-side) would zero out the whole AND-combined recordings query. The exposure
+ * filter is always first; when it is itself unlinkable there are no recordings to show at all.
+ */
+export function applySessionLinkability(
+    filters: UniversalFiltersGroupValue[],
+    unlinkableEventNames: Set<string>
+): { filters: UniversalFiltersGroupValue[]; droppedMetricEventCount: number; exposureUnlinkable: boolean } {
+    const isUnlinkable = (filter: UniversalFiltersGroupValue): boolean =>
+        'type' in filter &&
+        filter.type === 'events' &&
+        'name' in filter &&
+        typeof filter.name === 'string' &&
+        unlinkableEventNames.has(filter.name)
+
+    if (filters.length === 0) {
+        return { filters: [], droppedMetricEventCount: 0, exposureUnlinkable: false }
+    }
+
+    const [exposureFilter, ...metricFilters] = filters
+    if (isUnlinkable(exposureFilter)) {
+        return { filters: [], droppedMetricEventCount: 0, exposureUnlinkable: true }
+    }
+
+    const keptMetricFilters = metricFilters.filter((filter) => !isUnlinkable(filter))
+    return {
+        filters: [exposureFilter, ...keptMetricFilters],
+        droppedMetricEventCount: metricFilters.length - keptMetricFilters.length,
+        exposureUnlinkable: false,
+    }
+}
+
 export function getViewRecordingFiltersLegacy(
     metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
     featureFlagKey: string,

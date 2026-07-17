@@ -10,6 +10,7 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { Link } from 'lib/lemon-ui/Link'
 import { HeatmapAdvancedSettings } from 'scenes/heatmaps/components/HeatmapAdvancedSettings'
 import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
+import { HeatmapsForbiddenURL } from 'scenes/heatmaps/components/HeatmapsForbiddenURL'
 import { HeatmapsInvalidURL } from 'scenes/heatmaps/components/HeatmapsInvalidURL'
 import { urls } from 'scenes/urls'
 
@@ -89,6 +90,9 @@ export function HeatmapNewScene(): JSX.Element {
                         <HeatmapsInvalidURL />
                     )
                 ) : null}
+                {displayUrl && isDisplayUrlValid && dataUrl && !isBrowserUrlAuthorized ? (
+                    <HeatmapsForbiddenURL />
+                ) : null}
                 {!displayUrl && noPageviews && !topUrlsLoading ? (
                     <div className="text-xs text-muted mt-1">No pageview events have been received yet.</div>
                 ) : null}
@@ -125,7 +129,6 @@ export function HeatmapNewScene(): JSX.Element {
                 dataUrlPlaceholderFallback="https://www.example.com/*"
                 dataUrlHelp="Defaults to the page URL. Add * for wildcards to aggregate data from multiple pages — e.g. https://www.example.com/users/* aggregates all pages under /users/."
                 consentHelp="Ask the browser to close cookie/consent popups before capturing the screenshot. This can slow down or fail the render on some sites, so it's off by default."
-                showForbiddenUrl
             />
             <SceneDivider />
             <div className="flex gap-2">
@@ -136,11 +139,13 @@ export function HeatmapNewScene(): JSX.Element {
                     onClick={createHeatmap}
                     loading={false}
                     disabledReason={
-                        !isDisplayUrlValid || (!!dataUrl && !isBrowserUrlAuthorized)
-                            ? 'Invalid URL or forbidden URL'
-                            : !displayUrl
-                              ? 'URL is required'
-                              : null
+                        !displayUrl
+                            ? 'URL is required'
+                            : !isDisplayUrlValid
+                              ? 'Enter a valid URL'
+                              : !!dataUrl && !isBrowserUrlAuthorized
+                                ? 'Authorize the URL first'
+                                : null
                     }
                 >
                     Save
