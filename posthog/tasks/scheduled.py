@@ -36,7 +36,6 @@ from posthog.tasks.tasks import (
     calculate_decide_usage,
     capture_task_run_state_metrics,
     check_async_migration_health,
-    check_flags_to_rollback,
     clean_stale_partials,
     clear_clickhouse_deleted_person,
     clear_expired_sessions,
@@ -647,12 +646,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
                 clickhouse_materialize_columns.s(),
                 name="clickhouse materialize columns",
             )
-
-        sender.add_periodic_task(
-            crontab(minute="0", hour="*"),
-            check_flags_to_rollback.s(),
-            name="check feature flags that should be rolled back",
-        )
 
         sender.add_periodic_task(
             crontab(minute="10", hour="*/12"),

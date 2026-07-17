@@ -23442,11 +23442,11 @@ export namespace Schemas {
     }
 
     export interface EvaluationReportCitation {
-      /** Generation UUID referenced by this citation. */
+      /** Optional generation UUID for generation-target report citations. */
       generation_id?: string;
-      /** Trace identifier containing the referenced generation. */
+      /** Identifier of the trace cited by this report. */
       trace_id?: string;
-      /** Short explanation of why the generation is cited. */
+      /** Short explanation of why this example is cited. */
       reason?: string;
     }
 
@@ -23520,11 +23520,16 @@ export namespace Schemas {
     }
 
     export interface EvaluationReportRunContent {
+      /** Evaluation target analyzed by this report run. Legacy runs without this field targeted generations.
+       *
+       * * `generation` - Generation
+       * * `trace` - Trace */
+      evaluation_target?: EvaluationTargetEnum;
       /** Agent-generated report headline. */
       title?: string;
       /** Ordered narrative sections in the report. */
       sections?: EvaluationReportSection[];
-      /** Trace references grounding findings in the report. */
+      /** References grounding findings in the report. */
       citations?: EvaluationReportCitation[];
       /** Structured metrics computed for the report period. */
       metrics?: EvaluationReportMetrics | null;
@@ -25187,17 +25192,17 @@ export namespace Schemas {
       experiment_name: string;
       /** Key of the experiment's feature flag. */
       flag_key: string;
-      /** Variant the session saw. Taken from the earliest $feature_flag_called event in the session when one exists, otherwise from the $feature/<key> property stamped on the session's events. */
+      /** Variant the session saw. Taken from the earliest event matching the experiment's exposure criteria when one exists, otherwise from the earliest flag evaluation in the session, otherwise from the $feature/<key> property stamped on the session's events. */
       variant: string;
       /** All distinct variant values observed for this flag during the session, sorted alphabetically. Only the flag's defined variant keys count; non-enrollment responses (false) are ignored. More than one value means the session saw multiple variants — a signal of multi-exposure bias. */
       variants_seen: string[];
       /** True when the session saw more than one variant of this flag. */
       multiple_variants: boolean;
       /**
-         * Timestamp of the first $feature_flag_called event for this flag in the session — the moment the flag was evaluated to the variant. Null when the variant is only known from stamped $feature/<key> properties (e.g. the assignment carried over from an earlier session). For experiments with custom exposure criteria this is not the experiment's exposure moment.
+         * Timestamp of the first event in the session matching the experiment's exposure criteria — the default exposure event ($feature_flag_called), or the configured custom event/action. Null when no event in the session matched the criteria; the variant is then known from flag evaluations or stamped $feature/<key> properties. Session-scoped: the experiment analysis counts exposure per person across the whole run window, so the person's counted first exposure may lie in an earlier session.
          * @nullable
          */
-      first_flag_evaluation_timestamp: string | null;
+      first_exposure_timestamp: string | null;
       /**
          * When the experiment was launched.
          * @nullable
@@ -27732,9 +27737,6 @@ export namespace Schemas {
       readonly experiment_set_metadata: readonly FeatureFlagExperimentSetMetadata[];
       readonly surveys: FeatureFlagSurveys;
       readonly features: FeatureFlagFeatures;
-      rollback_conditions?: unknown;
-      /** @nullable */
-      performed_rollback?: boolean | null;
       readonly can_edit: boolean;
       tags?: unknown[];
       evaluation_contexts?: unknown[];
@@ -27988,9 +27990,6 @@ export namespace Schemas {
          * @nullable
          */
       version?: number | null;
-      rollback_conditions?: unknown;
-      /** @nullable */
-      performed_rollback?: boolean | null;
       /** @nullable */
       ensure_experience_continuity?: boolean | null;
       /** @nullable */
@@ -33095,6 +33094,13 @@ export namespace Schemas {
          * @maxLength 4096
          */
       description: string;
+      /** Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response. */
+      readonly body_total_length: number;
+      /**
+         * When body_length paging stops before the end of the body, the character offset to request next (pass as body_offset). Null when the returned body reaches the end.
+         * @nullable
+         */
+      readonly body_next_offset: number | null;
       /** The SKILL.md instruction content (markdown). */
       body: string;
       /**
@@ -33163,6 +33169,13 @@ export namespace Schemas {
          * @maxLength 4096
          */
       description: string;
+      /** Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response. */
+      readonly body_total_length: number;
+      /**
+         * When body_length paging stops before the end of the body, the character offset to request next (pass as body_offset). Null when the returned body reaches the end.
+         * @nullable
+         */
+      readonly body_next_offset: number | null;
       /** The SKILL.md instruction content (markdown). */
       body: string;
       /**
@@ -46876,6 +46889,8 @@ export namespace Schemas {
        * * `should_fix` - Should Fix
        * * `must_fix` - Must Fix */
       urgency_threshold?: UrgencyThresholdEnum;
+      /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
+      readonly can_trigger_reviews?: boolean;
     }
 
     export interface PatchedReviewValidatorConfigSelect {
@@ -54991,6 +55006,23 @@ export namespace Schemas {
       stale: number;
     }
 
+    export interface ReviewTriggerError {
+      /** Human-readable explanation of why the trigger was rejected. */
+      error: string;
+    }
+
+    export interface ReviewTriggerRequest {
+      /** GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. The repository must be accessible to the project's GitHub App installation. */
+      pr_url: string;
+    }
+
+    export interface ReviewTriggerResponse {
+      /** Temporal workflow id for the started review run; empty when no run was started. */
+      workflow_id: string;
+      /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review (no new run starts). */
+      status: string;
+    }
+
     export interface ReviewUserSettings {
       /** Automatically review pull requests opened by PostHog agents from the user's Inbox. Stored but not consumed yet — the Inbox auto-review trigger is not built. */
       review_inbox_prs?: boolean;
@@ -55002,6 +55034,8 @@ export namespace Schemas {
        * * `should_fix` - Should Fix
        * * `must_fix` - Must Fix */
       urgency_threshold?: UrgencyThresholdEnum;
+      /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
+      readonly can_trigger_reviews: boolean;
     }
 
     export interface ReviewValidatorConfig {
@@ -67873,6 +67907,16 @@ export namespace Schemas {
 
     export type EnvironmentsLlmSkillsNameRetrieveParams = {
     /**
+     * Maximum number of characters of the body to return starting at body_offset. Omit to return the whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.
+     * @minimum 1
+     */
+    body_length?: number;
+    /**
+     * Zero-based character offset to start the returned body from. Use with body_length to page through a large body that a client would otherwise truncate. Compare the returned body length against body_total_length to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of body).
+     * @minimum 0
+     */
+    body_offset?: number;
+    /**
      * Specific skill version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
@@ -69250,7 +69294,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -69328,7 +69372,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -69363,7 +69407,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -69398,7 +69442,7 @@ export namespace Schemas {
      */
     recent_days?: number;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -75506,6 +75550,16 @@ export namespace Schemas {
 
     export type LlmSkillsNameRetrieveParams = {
     /**
+     * Maximum number of characters of the body to return starting at body_offset. Omit to return the whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.
+     * @minimum 1
+     */
+    body_length?: number;
+    /**
+     * Zero-based character offset to start the returned body from. Use with body_length to page through a large body that a client would otherwise truncate. Compare the returned body length against body_total_length to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of body).
+     * @minimum 0
+     */
+    body_offset?: number;
+    /**
      * Specific skill version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
@@ -77992,7 +78046,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -78070,7 +78124,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -78105,7 +78159,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -78140,7 +78194,7 @@ export namespace Schemas {
      */
     recent_days?: number;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**

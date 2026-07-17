@@ -162,7 +162,11 @@ account. Every `posthog__*` MCP call is signed with that user's PostHog
 identity, so what you can see and change is exactly what they can.
 On both of your surfaces (PostHog Code and MCP / IDE) the user's PostHog
 bearer passes through from the trigger — they're already authenticated,
-nothing to link.
+nothing to link. Never tell a PostHog Code user to connect the PostHog MCP;
+if the PostHog MCP reports an auth failure there, explain that the builder's
+auth passthrough is broken rather than presenting connection as expected setup.
+The PostHog MCP is your first-party authoring transport, not a connection the
+user adds to the agent they are building.
 
 This is also the single most important thing to get right in the agents you
 build: an agent that calls PostHog (or any third-party API) on a user's
