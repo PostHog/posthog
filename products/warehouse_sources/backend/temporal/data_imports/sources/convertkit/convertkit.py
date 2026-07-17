@@ -1,16 +1,18 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.convertkit.settings import (
     CONVERTKIT_ENDPOINTS,
     ConvertKitEndpointConfig,
@@ -22,20 +24,15 @@ PAGE_SIZE = 1000  # v4 max per_page
 REQUEST_TIMEOUT = 60
 
 
-class ConvertKitRetryableError(Exception):
-    pass
-
-
 @dataclasses.dataclass
 class ConvertKitResumeConfig:
-    after: Optional[str]
+    after: Optional[str] = None
 
 
-def _get_headers(api_key: str) -> dict[str, str]:
-    return {
-        "X-Kit-Api-Key": api_key,
-        "Accept": "application/json",
-    }
+def _get_headers() -> dict[str, str]:
+    # Auth (the X-Kit-Api-Key header) is supplied via the framework auth config so its value is
+    # redacted from logs; only the non-secret Accept header is set here.
+    return {"Accept": "application/json"}
 
 
 def _format_incremental_value(value: Any) -> str:
@@ -52,13 +49,64 @@ def _format_incremental_value(value: Any) -> str:
     return str(value)
 
 
-def build_initial_params(
+class ConvertKitPaginator(BasePaginator):
+    """Kit v4 Relay-style cursor pagination.
+
+    The response body carries ``{"pagination": {"has_next_page": bool, "end_cursor": str}}``; the next
+    page is fetched with ``after=<end_cursor>``. Kit can return an ``end_cursor`` even on the last page,
+    so ``has_next_page`` is the authoritative stop signal — mirror the hand-rolled loop exactly and stop
+    when either ``has_next_page`` is falsy or ``end_cursor`` is empty.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._next_cursor: Optional[str] = None
+
+    def init_request(self, request: Request) -> None:
+        # Honour a seeded resume cursor on the first request.
+        if self._next_cursor is not None:
+            if request.params is None:
+                request.params = {}
+            request.params["after"] = self._next_cursor
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        self._next_cursor = None
+        try:
+            pagination = response.json().get("pagination", {})
+        except Exception:
+            pagination = {}
+
+        end_cursor = pagination.get("end_cursor")
+        if pagination.get("has_next_page") and end_cursor:
+            self._next_cursor = end_cursor
+            self._has_next_page = True
+        else:
+            self._has_next_page = False
+
+    def update_request(self, request: Request) -> None:
+        if self._next_cursor is not None:
+            if request.params is None:
+                request.params = {}
+            request.params["after"] = self._next_cursor
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        if self._has_next_page and self._next_cursor is not None:
+            return {"after": self._next_cursor}
+        return None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        after = state.get("after")
+        if after is not None:
+            self._next_cursor = str(after)
+            self._has_next_page = True
+
+
+def _build_params(
     config: ConvertKitEndpointConfig,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> dict[str, Any]:
-    """Build the query params for the first page request (excluding the pagination cursor)."""
     params: dict[str, Any] = {"per_page": PAGE_SIZE}
     params.update(config.extra_params)
 
@@ -70,9 +118,85 @@ def build_initial_params(
     ):
         filter_param = config.incremental_param_map.get(incremental_field)
         if filter_param:
-            params[filter_param] = _format_incremental_value(db_incremental_field_last_value)
+            # The framework applies `convert` to db_incremental_field_last_value and injects it under
+            # `filter_param` (e.g. created_after) — same server-side filter the hand-rolled source sent.
+            params[filter_param] = {
+                "type": "incremental",
+                "cursor_path": incremental_field,
+                "convert": _format_incremental_value,
+            }
 
     return params
+
+
+def convertkit_source(
+    api_key: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[ConvertKitResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Optional[Any] = None,
+    incremental_field: str | None = None,
+) -> SourceResponse:
+    config = CONVERTKIT_ENDPOINTS[endpoint]
+
+    params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value, incremental_field)
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": CONVERTKIT_BASE_URL,
+            "headers": _get_headers(),
+            "auth": {"type": "api_key", "api_key": api_key, "name": "X-Kit-Api-Key", "location": "header"},
+            "paginator": ConvertKitPaginator(),
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    "data_selector": config.data_key,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.after:
+            initial_paginator_state = {"after": resume.after}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-fetches
+        # from here (merge dedupes on primary key) rather than skipping the last page.
+        if state and state.get("after"):
+            resumable_source_manager.save_state(ConvertKitResumeConfig(after=str(state["after"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value if should_use_incremental_field else None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
+        # The API does not guarantee ascending order; the merge cursor still advances to the
+        # max incremental value across all pages, which we read in full each sync.
+        sort_mode="asc",
+    )
 
 
 def validate_credentials(api_key: str, endpoint: str | None = None) -> tuple[bool, str | None]:
@@ -84,119 +208,21 @@ def validate_credentials(api_key: str, endpoint: str | None = None) -> tuple[boo
     if endpoint and endpoint not in CONVERTKIT_ENDPOINTS:
         return False, f"Unknown Kit endpoint: {endpoint}"
     config = CONVERTKIT_ENDPOINTS[endpoint] if endpoint else CONVERTKIT_ENDPOINTS["subscribers"]
-    url = f"{CONVERTKIT_BASE_URL}{config.path}?{urlencode({'per_page': 1})}"
-    try:
-        response = make_tracked_session(redact_values=(api_key,)).get(
-            url, headers=_get_headers(api_key), timeout=REQUEST_TIMEOUT
-        )
-    except Exception:
+    url = f"{CONVERTKIT_BASE_URL}{config.path}?per_page=1"
+
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        url,
+        headers={"X-Kit-Api-Key": api_key, **_get_headers()},
+        timeout=REQUEST_TIMEOUT,
+    )
+
+    if ok:
+        return True, None
+    if status is None:
         return False, "Could not reach the Kit API. Please try again."
-
-    if response.status_code == 200:
+    if status == 403 and endpoint is None:
         return True, None
-    if response.status_code == 403 and endpoint is None:
-        return True, None
-    if response.status_code in (401, 403):
+    if status in (401, 403):
         return False, "Invalid or insufficiently scoped Kit API key"
-    return False, f"Kit API returned status {response.status_code}"
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[ConvertKitResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = CONVERTKIT_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
-    base_params = build_initial_params(
-        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
-    )
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    cursor = resume_config.after if resume_config else None
-    if cursor:
-        logger.debug(f"ConvertKit: resuming {endpoint} from cursor: {cursor}")
-
-    # One tracked session for the whole sync — keeps urllib3's TLS connection warm across pages.
-    session = make_tracked_session(redact_values=(api_key,))
-
-    @retry(
-        retry=retry_if_exception_type((ConvertKitRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(5),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
-    )
-    def fetch_page(page_cursor: str | None) -> dict[str, Any]:
-        params = dict(base_params)
-        if page_cursor:
-            params["after"] = page_cursor
-        url = f"{CONVERTKIT_BASE_URL}{config.path}?{urlencode(params)}"
-
-        response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise ConvertKitRetryableError(
-                f"ConvertKit API error (retryable): status={response.status_code}, endpoint={endpoint}"
-            )
-        if not response.ok:
-            logger.error(f"ConvertKit API error: status={response.status_code}, body={response.text}")
-            response.raise_for_status()
-
-        return response.json()
-
-    while True:
-        data = fetch_page(cursor)
-
-        items = data.get(config.data_key, [])
-        if items:
-            yield items
-
-        pagination = data.get("pagination", {})
-        if not pagination.get("has_next_page"):
-            break
-
-        next_cursor = pagination.get("end_cursor")
-        if not next_cursor:
-            break
-
-        cursor = next_cursor
-        # Save AFTER yielding the page so a crash re-fetches from here (merge dedupes on primary key).
-        resumable_source_manager.save_state(ConvertKitResumeConfig(after=cursor))
-
-
-def convertkit_source(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[ConvertKitResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Optional[Any] = None,
-    incremental_field: str | None = None,
-) -> SourceResponse:
-    config = CONVERTKIT_ENDPOINTS[endpoint]
-
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
-        primary_keys=config.primary_keys,
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="month" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
-        # The API does not guarantee ascending order; the merge cursor still advances to the
-        # max incremental value across all pages, which we read in full each sync.
-        sort_mode="asc",
-    )
+    return False, f"Kit API returned status {status}"
