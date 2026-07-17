@@ -76,7 +76,10 @@ class TestFreshchatSource:
         # The domain is where the stored token is sent; editing it must re-require the secret.
         assert self.source.connection_host_fields == ["domain"]
 
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error: Forbidden for url"])
+    @pytest.mark.parametrize(
+        "expected_key",
+        ["401 Client Error", "403 Client Error: Forbidden for url", "Freshchat domain is not allowed"],
+    )
     def test_non_retryable_errors(self, expected_key: str) -> None:
         assert expected_key in self.source.get_non_retryable_errors()
 
@@ -114,25 +117,35 @@ class TestFreshchatSource:
         assert set(descriptions.keys()) == set(ENDPOINTS)
 
     @pytest.mark.parametrize(
-        "domain, status, schema_name, expected_valid",
+        "domain, status, schema_name, expected_valid, expect_probe",
         [
-            ("acme.freshchat.com", 200, None, True),
-            ("acme.freshchat.com", 403, None, True),  # missing scope at source-create is accepted
-            ("acme.freshchat.com", 403, "agents", False),  # missing scope for a specific schema fails
-            ("acme.freshchat.com", 401, None, False),
-            ("acme.freshchat.com", None, None, False),  # connection error
-            ("not a domain!", 200, None, False),  # domain regex rejects before probing
+            ("acme.freshchat.com", 200, None, True, True),
+            ("acme.freshchat.com", 403, None, True, True),  # missing scope at source-create is accepted
+            ("acme.freshchat.com", 403, "agents", False, True),  # missing scope for a specific schema fails
+            ("acme.freshchat.com", 401, None, False, True),
+            ("acme.freshchat.com", None, None, False, True),  # connection error
+            ("not a domain!", 200, None, False, False),  # domain regex rejects before probing
+            # Non-Freshworks hosts are refused before probing — the stored token must never be
+            # sent to a customer-chosen internal host (SSRF).
+            ("metadata.google.internal", 200, None, False, False),
+            ("api.default.svc.cluster.local", 200, None, False, False),
+            ("evilfreshchat.com", 200, None, False, False),  # suffix match must not accept lookalikes
         ],
     )
     def test_validate_credentials(
-        self, domain: str, status: Optional[int], schema_name: Optional[str], expected_valid: bool
+        self,
+        domain: str,
+        status: Optional[int],
+        schema_name: Optional[str],
+        expected_valid: bool,
+        expect_probe: bool,
     ) -> None:
         config = FreshchatSourceConfig(domain=domain, api_key="key")
         with mock.patch(PATCH_VALIDATE, return_value=status) as mock_validate:
             is_valid, _ = self.source.validate_credentials(config, self.team_id, schema_name)
 
         assert is_valid is expected_valid
-        if "!" in domain or " " in domain:
+        if not expect_probe:
             mock_validate.assert_not_called()
 
     def test_get_resumable_source_manager_binds_data_class(self) -> None:

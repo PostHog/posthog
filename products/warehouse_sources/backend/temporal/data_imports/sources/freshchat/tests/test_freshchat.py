@@ -8,12 +8,14 @@ import requests
 import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.freshchat import (
+    FreshchatHostNotAllowedError,
     FreshchatResumeConfig,
     _has_next_page,
     _parse_retry_after,
     build_base_params,
     extract_items,
     get_rows,
+    is_allowed_host,
     normalize_domain,
     validate_credentials,
 )
@@ -43,6 +45,8 @@ class FakeResponse:
         self.ok = 200 <= status_code < 400
         self.text = text
         self.headers = headers or {}
+        self.is_redirect = status_code in (301, 302, 303, 307, 308) and "Location" in self.headers
+        self.is_permanent_redirect = status_code in (301, 308) and "Location" in self.headers
 
     def json(self) -> Any:
         return self._json
@@ -92,6 +96,25 @@ class TestNormalizeDomain:
     )
     def test_normalize_domain(self, raw: str, expected: str) -> None:
         assert normalize_domain(raw) == expected
+
+
+class TestIsAllowedHost:
+    @pytest.mark.parametrize(
+        "host, allowed",
+        [
+            ("acme.freshchat.com", True),
+            ("api.eu.freshchat.com", True),
+            ("acme.myfreshworks.com", True),
+            # The domain is customer-controlled; non-Freshworks hosts must be refused (SSRF).
+            ("metadata.google.internal", False),
+            ("api.default.svc.cluster.local", False),
+            ("service.internal", False),
+            ("evilfreshchat.com", False),  # suffix match must not accept lookalikes
+            ("freshchat.com.evil.com", False),
+        ],
+    )
+    def test_is_allowed_host(self, host: str, allowed: bool) -> None:
+        assert is_allowed_host(host) is allowed
 
 
 class TestParseRetryAfter:
@@ -256,6 +279,31 @@ class TestGetRows:
         with mock.patch(PATCH_SESSION, return_value=session):
             with pytest.raises(requests.HTTPError):
                 list(get_rows("key", "acme.freshchat.com", "agents", logger, manager))  # type: ignore[arg-type]
+
+    def test_disallowed_host_raises_before_any_request(self) -> None:
+        # A saved-then-edited domain must never receive the stored token at sync time (SSRF).
+        manager = FakeResumableManager()
+        session = mock.MagicMock()
+
+        with mock.patch(PATCH_SESSION, return_value=session):
+            with pytest.raises(FreshchatHostNotAllowedError):
+                list(get_rows("key", "metadata.google.internal", "agents", logger, manager))  # type: ignore[arg-type]
+
+        session.get.assert_not_called()
+
+    def test_redirect_response_raises_and_is_not_followed(self) -> None:
+        # A 3xx from the allowed host could point anywhere; following it would defeat the host
+        # allowlist, so it must surface as a hard error instead.
+        manager = FakeResumableManager()
+        session = mock.MagicMock()
+        redirect = FakeResponse(status_code=302, headers={"Location": "http://169.254.169.254/"})
+        session.get.side_effect = [redirect]
+
+        with mock.patch(PATCH_SESSION, return_value=session):
+            with pytest.raises(FreshchatHostNotAllowedError):
+                list(get_rows("key", "acme.freshchat.com", "agents", logger, manager))  # type: ignore[arg-type]
+
+        assert session.get.call_args.kwargs.get("allow_redirects") is False
 
 
 class TestValidateCredentials:
