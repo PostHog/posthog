@@ -5,6 +5,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import F
 from django.utils import timezone
 
 from posthog.models.utils import UUIDModel
@@ -996,11 +997,15 @@ def auto_approve_pending_requests(
     human-readable line per request for the caller to log.
     """
     log = on_event or (lambda _message: None)
+    # Least-recently-measured first, never-measured before that. A request the sweep can't approve —
+    # over the limit, range still open, predicate that won't compile — stays pending and stays a
+    # candidate forever, so ordering by age would park it at the front of every tick and starve the
+    # requests behind it. Ordering by the measurement instead means taking a slot costs you your place.
     candidates = DataDeletionRequest.objects.filter(
         status=RequestStatus.PENDING,
         request_type=RequestType.EVENT_REMOVAL,
         requires_approval=False,
-    ).order_by("created_at")[:max_requests]
+    ).order_by(F("stats_calculated_at").asc(nulls_first=True), "created_at")[:max_requests]
 
     approved = skipped = errored = 0
     for request in candidates:

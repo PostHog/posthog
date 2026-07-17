@@ -7,6 +7,8 @@ from uuid import uuid4
 import pytest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 import dagster
 from clickhouse_driver import Client
 from dagster import build_op_context
@@ -35,7 +37,13 @@ from posthog.dags.data_deletion_requests import (
     process_property_removal_shard,
     verify_property_removal,
 )
-from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
+from posthog.models.data_deletion_request import (
+    DataDeletionRequest,
+    ExecutionMode,
+    RequestStatus,
+    RequestType,
+    auto_approve_pending_requests,
+)
 from posthog.test.persons import create_person
 
 TEAM_ID = 99999
@@ -692,6 +700,34 @@ def test_auto_approve_job_skips_a_request_it_cannot_measure(cluster: ClickhouseC
     healthy.refresh_from_db()
     assert broken.status == RequestStatus.PENDING
     assert healthy.status == RequestStatus.APPROVED
+
+    cluster.any_host(_truncate_writable_events).result()
+
+
+@pytest.mark.django_db
+def test_auto_approve_sweep_does_not_let_stuck_requests_starve_new_ones(cluster: ClickhouseCluster):
+    # A request the sweep can never approve stays PENDING with requires_approval False, so it is a
+    # candidate on every tick, forever. Ordered by created_at it holds the front of the queue and a
+    # newer request behind it is never even measured.
+    cluster.any_host(_truncate_writable_events).result()
+    now = datetime.now()
+    events = [(AUTO_APPROVE_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i + 1)) for i in range(3)]
+    cluster.any_host(partial(_insert_events, events)).result()
+
+    stuck = _pending_event_removal()
+    newer = _pending_event_removal()
+    DataDeletionRequest.objects.filter(pk=stuck.pk).update(created_at=timezone.now() - timedelta(days=1))
+
+    # One slot per tick, and a limit that keeps `stuck` permanently over it.
+    with patch("posthog.models.data_deletion_request.AUTO_APPROVE_MAX_EVENTS", 2):
+        auto_approve_pending_requests(max_requests=1)
+    # Second tick: the slot must go to the request that has never been looked at.
+    auto_approve_pending_requests(max_requests=1)
+
+    stuck.refresh_from_db()
+    newer.refresh_from_db()
+    assert stuck.status == RequestStatus.PENDING
+    assert newer.status == RequestStatus.APPROVED
 
     cluster.any_host(_truncate_writable_events).result()
 

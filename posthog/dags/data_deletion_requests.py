@@ -1478,6 +1478,7 @@ def verify_queued_deletion_requests_job():
 class AutoApproveConfig(dagster.Config):
     max_requests: int = pydantic.Field(
         default=50,
+        ge=1,
         description="Most requests to evaluate in one tick. Each one costs a pair of ClickHouse "
         "queries, so this bounds what a backlog can spend before the next tick.",
     )
