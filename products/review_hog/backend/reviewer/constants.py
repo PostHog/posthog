@@ -50,7 +50,7 @@ VALIDATION_MAX_ATTEMPTS = 2
 _PRIORITY_RANK = {IssuePriority.CONSIDER: 0, IssuePriority.SHOULD_FIX: 1, IssuePriority.MUST_FIX: 2}
 
 # The threshold applied when no per-user setting is available (matches `ReviewUserSettings`' default).
-DEFAULT_URGENCY_THRESHOLD = IssuePriority.SHOULD_FIX
+DEFAULT_URGENCY_THRESHOLD = IssuePriority.CONSIDER
 
 
 def published_priorities_for(threshold: IssuePriority) -> set[IssuePriority]:

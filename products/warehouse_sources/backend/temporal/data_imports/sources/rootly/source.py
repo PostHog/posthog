@@ -35,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RootlySource(ResumableSource[RootlySourceConfig, RootlyResumeConfig]):
+    api_docs_url = "https://docs.rootly.com/api-reference"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ROOTLY

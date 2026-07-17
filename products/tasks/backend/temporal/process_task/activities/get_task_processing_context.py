@@ -12,6 +12,7 @@ from posthog.temporal.common.utils import asyncify, close_db_connections
 
 from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
+    CONTINUE_AS_NEW_FEATURE_FLAG,
     MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
@@ -93,6 +94,9 @@ class TaskProcessingContext:
     # The kill-switch flag wins over everything; otherwise a per-run state override
     # (the user's toggle) applies. Captured at workflow start so it's stable across retries.
     rtk_enabled: bool = True
+    # Captured at workflow start so the continue_as_new trigger is deterministic across replay.
+    continue_as_new_enabled: bool = False
+    continue_as_new_history_threshold: int = 0
 
     @property
     def mode(self) -> str:
@@ -524,6 +528,36 @@ def _is_modal_directory_resume_snapshots_enabled(
     return enabled
 
 
+def _is_continue_as_new_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+) -> bool:
+    # The env setting force-enables (local E2E / emergency on); otherwise the org-level flag
+    # decides, so it can be toggled without a deploy. Captured at workflow start, so the
+    # continue_as_new trigger stays deterministic across replay. Fails closed.
+    if settings.TASKS_CONTINUE_AS_NEW_ENABLED:
+        return True
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                CONTINUE_AS_NEW_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("continue_as_new_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context("continue_as_new_flag_checked", run_id=run_id, continue_as_new_enabled=enabled)
+    return enabled
+
+
 @activity.defn
 @asyncify
 @close_db_connections
@@ -808,4 +842,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         agent_proxy_keep_stream_open=agent_proxy_keep_stream_open,
         custom_image_name=custom_image_name,
         rtk_enabled=rtk_enabled,
+        continue_as_new_enabled=_is_continue_as_new_enabled(
+            distinct_id=distinct_id,
+            organization_id=organization_id,
+            run_id=run_id,
+        ),
+        continue_as_new_history_threshold=settings.TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD,
     )
