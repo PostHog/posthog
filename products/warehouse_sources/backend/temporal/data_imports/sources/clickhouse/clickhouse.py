@@ -129,6 +129,20 @@ def _is_transient_connect_drop(error_message: str) -> bool:
     return any(substring in error_message for substring in _TRANSIENT_CONNECT_DROP_SUBSTRINGS)
 
 
+# clickhouse-connect surfaces an upstream rate-limit as a full HTTP response
+# ("HTTPDriver for <url> returned response code 429"), not a dropped connection:
+# the request reached the server (or a proxy in front of it) and it told us to
+# slow down. A 429 is explicitly "retry later", so a brief backed-off re-attempt
+# often clears a short rate-limit burst; if it doesn't, the failing Temporal
+# activity stays retryable and recovers later. We match only 429 — other 4xx
+# response codes are deterministic (e.g. 404 stays non-retryable).
+_TRANSIENT_RATE_LIMIT_SUBSTRING = "returned response code 429"
+
+
+def _is_retryable_connect_error(error_message: str) -> bool:
+    return _is_transient_connect_drop(error_message) or _TRANSIENT_RATE_LIMIT_SUBSTRING in error_message
+
+
 def _get_client(
     *,
     host: str,
@@ -173,9 +187,9 @@ def _get_client(
             # the request.
             attempt += 1
             message = str(e)
-            if attempt < _MAX_CONNECT_ATTEMPTS and _is_transient_connect_drop(message):
+            if attempt < _MAX_CONNECT_ATTEMPTS and _is_retryable_connect_error(message):
                 structlog.get_logger().warning(
-                    "Transient ClickHouse connection drop during connect; retrying",
+                    "Transient ClickHouse connect error; retrying",
                     attempt=attempt,
                     max_attempts=_MAX_CONNECT_ATTEMPTS,
                     exc_info=e,
