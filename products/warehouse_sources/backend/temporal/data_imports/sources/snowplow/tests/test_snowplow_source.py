@@ -60,6 +60,11 @@ class TestSnowplowSource:
         assert not config.unreleasedSource
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/snowplow"
 
+    def test_connection_host_fields_cover_organization(self) -> None:
+        # organization_id decides which org the stored API key reaches, so the update serializer
+        # must force the key to be re-entered when it changes.
+        assert self.source.connection_host_fields == ["organization_id"]
+
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static, no-I/O catalog, so the public docs table list must render.
         assert self.source.lists_tables_without_credentials is True

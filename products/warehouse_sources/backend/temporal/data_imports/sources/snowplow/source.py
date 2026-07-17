@@ -45,6 +45,12 @@ class SnowplowSource(ResumableSource[SnowplowSourceConfig, SnowplowResumeConfig]
         return ExternalDataSourceType.SNOWPLOW
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # `organization_id` selects the org path the stored API key is sent to; a multi-org key
+        # could otherwise be retargeted at another org's data without re-entering the secret.
+        return ["organization_id"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SNOWPLOW,
