@@ -286,31 +286,12 @@ export const LemonDialog = LemonDialogComponent as typeof LemonDialogComponent &
 
 LemonDialog.open = (props: LemonDialogProps) => {
     const { root, onDestroy } = createAndInsertRoot()
-    // Chain the caller's onAfterClose before unmounting, rather than dropping it — callers rely on
-    // it to run cleanup on every close path (confirm, cancel, Esc, backdrop).
-    root.render(
-        <LemonDialog
-            {...props}
-            onAfterClose={() => {
-                props.onAfterClose?.()
-                onDestroy()
-            }}
-        />
-    )
+    root.render(<LemonDialog {...props} onAfterClose={onDestroy} />)
 }
 
 LemonDialog.openForm = (props: LemonFormDialogProps) => {
     const { root, onDestroy } = createAndInsertRoot()
     // Each dialog gets a unique key so nested dialogs don't share the same
     // lemonDialogLogic instance and corrupt each other's form state.
-    root.render(
-        <LemonFormDialog
-            {...props}
-            dialogKey={uuid()}
-            onAfterClose={() => {
-                props.onAfterClose?.()
-                onDestroy()
-            }}
-        />
-    )
+    root.render(<LemonFormDialog {...props} dialogKey={uuid()} onAfterClose={onDestroy} />)
 }

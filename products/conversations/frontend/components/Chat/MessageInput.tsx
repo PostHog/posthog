@@ -58,7 +58,6 @@ export function MessageInput({
     const [isUploading, setIsUploading] = useState(false)
     const [localIsPrivate, setLocalIsPrivate] = useState(false)
     const editorRef = useRef<RichContentEditorType | null>(null)
-    const confirmOpenRef = useRef(false)
 
     useEffect(() => {
         setIsEmpty(!draftContent)
@@ -93,21 +92,11 @@ export function MessageInput({
             }
             // Private notes are never sent externally, so they skip the draft-mode confirmation.
             if (draftMode && !isPrivate && sendConfirmationMessage) {
-                // A rapid second Cmd+Enter would otherwise stack a duplicate dialog, since
-                // messageSending only flips once Send is confirmed inside doSend.
-                if (confirmOpenRef.current) {
-                    return
-                }
-                confirmOpenRef.current = true
                 LemonDialog.open({
                     title: 'Ready to send?',
                     description: sendConfirmationMessage,
                     primaryButton: { children: 'Send', type: 'primary', onClick: doSend },
                     secondaryButton: { children: 'Cancel' },
-                    // Reset on every close path (confirm, cancel, Esc, backdrop) so the next send isn't blocked.
-                    onAfterClose: () => {
-                        confirmOpenRef.current = false
-                    },
                 })
             } else {
                 doSend()
