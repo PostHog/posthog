@@ -78,6 +78,7 @@ def _task_to_input(task: Task) -> tuple[TaskInput, Optional[str]]:
             branch=run.branch if run else None,
             base_branch=state.pr_base_branch,
             cloud_pr_url=cloud_pr_url,
+            cloud_pr_merged=bool(run and run.output and run.output.get("pr_merged") is True),
             folder_path=None,
             quick_action=state.home_quick_action,
         ),

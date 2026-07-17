@@ -10,13 +10,15 @@ from django.utils import timezone
 
 from posthog.models import Organization, Team, User
 
-from products.tasks.backend.models import CodePrSnapshot, Task, TaskRun
+from products.tasks.backend.models import CodePrSnapshot, CodeWorkstream, Task, TaskRun
 from products.tasks.backend.temporal.code_workstreams.activities import rebuild_workstreams
 from products.tasks.backend.temporal.code_workstreams.activities.rebuild_workstreams import (
+    RebuildTeamWorkstreamsInput,
     _branch_resolution_pref,
     _build_pr_input,
     _repo_from_pr_url,
     _select_recent_task_ids,
+    rebuild_team_workstreams,
 )
 from products.tasks.backend.temporal.code_workstreams.constants import ACTIVITY_WINDOW
 from products.tasks.backend.temporal.process_task.utils import parse_run_state
@@ -243,3 +245,23 @@ def test_select_recent_task_ids_ignores_tasks_that_cannot_form_workstreams():
     assert branch_task.id in selected
     assert pr_task.id in selected
     assert selected.isdisjoint({t.id for t in junk})
+
+
+@pytest.mark.django_db
+@freeze_time("2026-06-01")
+def test_rebuild_omits_run_with_merged_pr_without_snapshot():
+    org = _org()
+    team = _team(org)
+    user = _user(org)
+    _task_with_run_at(
+        team,
+        user,
+        timezone.now() - timedelta(days=10),
+        branch=None,
+        output={"pr_url": "https://github.com/org/repo/pull/1", "pr_merged": True},
+    )
+
+    result = rebuild_team_workstreams(RebuildTeamWorkstreamsInput(team_id=team.id))
+
+    assert result.workstreams == 0
+    assert not CodeWorkstream.objects.for_team(team.id).filter(user=user).exists()
