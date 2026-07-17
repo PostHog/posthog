@@ -29,8 +29,8 @@ import {
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/editAlertModal/AlertAdvancedOptionsSection'
 import { AlertDefinitionSection } from 'products/alerts/frontend/components/editAlertModal/AlertDefinitionSection'
 import { AlertIntervalRow } from 'products/alerts/frontend/components/editAlertModal/AlertIntervalRow'
-import { AlertNotificationSection } from 'products/alerts/frontend/components/editAlertModal/AlertNotificationSection'
 import { isSubDailyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import { InsightAlertNotificationSection } from 'products/alerts/frontend/views/InsightAlertNotificationSection'
 
 import { SnoozeButton } from '../components/SnoozeButton'
 import { alertFormLogic, canCheckOngoingInterval, insightAlertKindForQuery } from '../logic/alertFormLogic'
@@ -337,7 +337,7 @@ export function EditAlertModal({
                                 </span>
                             </div>
 
-                            <AlertNotificationSection
+                            <InsightAlertNotificationSection
                                 alertForm={alertForm}
                                 alertId={alertId}
                                 insightShortId={insightShortId}

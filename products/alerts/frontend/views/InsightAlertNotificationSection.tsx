@@ -8,7 +8,7 @@ import { AlertType } from 'products/alerts/frontend/types'
 import { AlertDestinationSelector } from 'products/alerts/frontend/views/AlertDestinationSelector'
 import { InlineAlertNotifications } from 'products/alerts/frontend/views/InlineAlertNotifications'
 
-export interface AlertNotificationSectionProps {
+export interface InsightAlertNotificationSectionProps {
     alertForm: AlertFormType
     alertId: AlertType['id'] | undefined
     insightShortId: InsightShortId
@@ -16,13 +16,13 @@ export interface AlertNotificationSectionProps {
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
 }
 
-export function AlertNotificationSection({
+export function InsightAlertNotificationSection({
     alertForm,
     alertId,
     insightShortId,
     inlineNotificationsEnabled,
     onSetAlertFormValue,
-}: AlertNotificationSectionProps): JSX.Element {
+}: InsightAlertNotificationSectionProps): JSX.Element {
     let destinations: JSX.Element
     if (inlineNotificationsEnabled) {
         destinations = <InlineAlertNotifications alertId={alertId} />
