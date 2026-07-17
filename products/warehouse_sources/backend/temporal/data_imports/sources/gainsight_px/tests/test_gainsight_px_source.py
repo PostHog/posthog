@@ -127,7 +127,8 @@ class TestGainsightPxSource:
             api_key="key",
             region="us",
             endpoint="users",
-            logger=logger,
+            team_id=self.team_id,
+            job_id="job-1",
             resumable_source_manager=manager,
         )
         assert response is mock_gainsight_source.return_value
