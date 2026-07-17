@@ -328,6 +328,10 @@ export const isEmailAction = (action: HogFlowAction): action is Extract<HogFlowA
     return ['function_email'].includes(action.type)
 }
 
+export const isPushAction = (action: HogFlowAction): action is Extract<HogFlowAction, { type: 'function_push' }> => {
+    return ['function_push'].includes(action.type)
+}
+
 export const isFunctionAction = (
     action: HogFlowAction
 ): action is Extract<HogFlowAction, { type: 'function' | 'function_sms' | 'function_email' | 'function_push' }> => {
