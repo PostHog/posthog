@@ -152,7 +152,7 @@ export interface TaskUserBasicInfoApi {
 /**
  * @nullable
  */
-export type TaskDetailDTOApiJsonSchema = { [key: string]: unknown } | null
+export type ConversationTaskApiJsonSchema = { [key: string]: unknown } | null
 
 /**
  * Conversation envelope variant: ``latest_run`` is just the latest run's id, not the nested
@@ -162,7 +162,7 @@ export type TaskDetailDTOApiJsonSchema = { [key: string]: unknown } | null
  * Read access here follows the conversation (the share-by-link unit), not per-creator task
  * visibility — write/send stays creator-gated. See ``tasks_facade.get_conversation_task_dtos``.
  */
-export interface TaskDetailDTOApi {
+export interface ConversationTaskApi {
     id: string
     /** @nullable */
     task_number: number | null
@@ -185,7 +185,7 @@ export interface TaskDetailDTOApi {
     /** @nullable */
     signal_report: string | null
     /** @nullable */
-    json_schema: TaskDetailDTOApiJsonSchema
+    json_schema: ConversationTaskApiJsonSchema
     internal: boolean
     archived: boolean
     /** @nullable */
@@ -245,7 +245,7 @@ export interface ConversationMinimalApi {
      * @nullable
      */
     readonly slack_workspace_domain: string | null
-    readonly task: TaskDetailDTOApi | null
+    readonly task: ConversationTaskApi | null
 }
 
 export interface PaginatedConversationMinimalListApi {
@@ -383,7 +383,7 @@ export interface ConversationApi {
      * Combines metadata from conversation.approval_decisions with payload from checkpoint
      * interrupts (single source of truth for payload data). */
     readonly pending_approvals: readonly ConversationApiPendingApprovalsItem[]
-    readonly task: TaskDetailDTOApi | null
+    readonly task: ConversationTaskApi | null
 }
 
 /**
@@ -454,7 +454,7 @@ export interface PatchedConversationApi {
      * Combines metadata from conversation.approval_decisions with payload from checkpoint
      * interrupts (single source of truth for payload data). */
     readonly pending_approvals?: readonly PatchedConversationApiPendingApprovalsItem[]
-    readonly task?: TaskDetailDTOApi | null
+    readonly task?: ConversationTaskApi | null
 }
 
 /**
@@ -483,6 +483,10 @@ export const SandboxAttachedContextItemTypeEnumApi = {
 
 /**
  * One typed attachment carried by a sandbox message.
+ *
+ * DEPRECATED PATH — do not extend. This structured `attached_context` (and its server-side wrap in
+ * `context_wrapper.py`) exists only for the legacy Max conversations bridge and is removed with it;
+ * the live path wraps context client-side (`products/posthog_ai/frontend/utils/posthogContextBlock.ts`).
  */
 export interface SandboxAttachedContextItemApi {
     /** Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.

@@ -159,9 +159,9 @@ class TestLinearIntegrationModel(BaseTest):
                 {"data": {"attachmentCreate": {"success": True}}},
             ],
         ) as mock_query:
+            attachment_url = f'https://us.posthog.com/project/{self.team.id}/error_tracking/issue-id" }} mutation {{'
             result = linear.create_issue(
-                str(self.team.id),
-                'issue-id" } mutation {',
+                attachment_url,
                 {
                     "team_id": 'team-id" } mutation {',
                     "title": 'Title "quoted"',
@@ -2854,6 +2854,54 @@ class TestS3CompatibleIntegrationModel(BaseTest):
         )
         with pytest.raises(S3CredentialIntegrationError, match="missing required field: 'endpoint_url'"):
             S3CompatibleIntegration(integration)
+
+
+class TestPinterestAdsIntegrationDisplayName(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "business",
+                {"id": "1", "username": "13x6ppss87fecv1q790xh1orhyp9th", "business_name": "Posthog Inc"},
+                "Posthog Inc",
+            ),
+            ("personal", {"id": "1", "username": "javierposthog", "business_name": ""}, "javierposthog"),
+            # Older connections predate business_name being stored.
+            ("legacy", {"id": "1", "username": "javierposthog"}, "javierposthog"),
+        ]
+    )
+    def test_display_name_prefers_business_name(self, _name: str, config: dict, expected: str) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="pinterest-ads",
+            config=config,
+            integration_id=config["id"],
+        )
+        assert integration.display_name == expected
+
+
+class TestTikTokAdsIntegrationDisplayName(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "email_wins_over_display_name",
+                {
+                    "advertiser_ids": ["7554133187111469074"],
+                    "user_email": "e***g@posthog.com",
+                    "user_display_name": "user1140434302514",
+                },
+                "e***g@posthog.com",
+            ),
+            ("neither_fetched_falls_back_to_id", {"advertiser_ids": ["7554133187111469074"]}, "7554133187111469074"),
+        ]
+    )
+    def test_display_name_prefers_user_email(self, _name: str, config: dict, expected: str) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="tiktok-ads",
+            config=config,
+            integration_id=",".join(config["advertiser_ids"]),
+        )
+        assert integration.display_name == expected
 
 
 @override_settings(REDDIT_ADS_CLIENT_ID="reddit-client-id", REDDIT_ADS_CLIENT_SECRET="reddit-client-secret")

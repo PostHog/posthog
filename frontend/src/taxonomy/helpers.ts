@@ -1,7 +1,7 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
 
-import { CoreFilterDefinition } from '~/types'
+import { CoreFilterDefinition, PropertyDefinition, PropertyType } from '~/types'
 
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinitionsGroup } from './taxonomy'
 
@@ -113,6 +113,49 @@ export function getCoreFilterDefinition(
                 label: `Feature Interaction: ${featureFlagKey}`,
                 description: `Whether the user has interacted with "${featureFlagKey}".`,
                 examples: ['true', 'false'],
+            }
+        }
+    }
+    return null
+}
+
+/** Prefix of the synthetic ids the property definitions API gives virtual (query-time computed) properties. */
+export const VIRTUAL_PROPERTY_DEFINITION_ID_PREFIX = '$builtin_'
+
+const VIRTUAL_PROPERTY_DEFINITION_GROUPS = [
+    TaxonomicFilterGroupType.EventProperties,
+    TaxonomicFilterGroupType.PersonProperties,
+    TaxonomicFilterGroupType.GroupsPrefix,
+]
+
+export interface VirtualPropertyDefinitionMatch {
+    definition: PropertyDefinition
+    /** The taxonomy group the definition was resolved from; use it for label/description lookups so they can't disagree. */
+    group: TaxonomicFilterGroupType
+}
+
+/** Virtual properties have no database row, so their definition is built from the taxonomy. */
+export function getVirtualPropertyDefinition(id: string): VirtualPropertyDefinitionMatch | null {
+    if (!id.startsWith(VIRTUAL_PROPERTY_DEFINITION_ID_PREFIX)) {
+        return null
+    }
+    const name = id.slice(VIRTUAL_PROPERTY_DEFINITION_ID_PREFIX.length)
+    for (const group of VIRTUAL_PROPERTY_DEFINITION_GROUPS) {
+        const coreDefinition = getCoreFilterDefinition(name, group)
+        if (coreDefinition?.virtual) {
+            return {
+                definition: {
+                    id,
+                    name,
+                    description:
+                        typeof coreDefinition.description === 'string' ? coreDefinition.description : undefined,
+                    is_numerical: coreDefinition.type === PropertyType.Numeric,
+                    property_type: coreDefinition.type,
+                    verified: false,
+                    hidden: false,
+                    virtual: true,
+                },
+                group,
             }
         }
     }
