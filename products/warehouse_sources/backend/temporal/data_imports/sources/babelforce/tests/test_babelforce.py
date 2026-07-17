@@ -148,6 +148,28 @@ class TestValidateCredentials:
         assert validate_credentials("services", "id", "token") is False
 
 
+class TestSessionHardening:
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.babelforce.babelforce.make_tracked_session"
+    )
+    def test_sessions_redact_credentials_and_disable_redirects_and_capture(self, mock_session):
+        # The token rides a custom header the sampler's denylist doesn't know and that
+        # requests would forward on a cross-host redirect; dropping any of these would
+        # leak a usable credential into HTTP samples or to a redirect target.
+        response = mock.MagicMock(status_code=200, ok=True)
+        response.json.return_value = _page([], current=1, pages=1)
+        mock_session.return_value.get.return_value = response
+
+        validate_credentials("services", "id", "token")
+        list(get_rows("services", "id", "token", "agents", mock.MagicMock(), _make_manager()))
+
+        assert len(mock_session.call_args_list) >= 2
+        for call in mock_session.call_args_list:
+            assert call.kwargs["redact_values"] == ("id", "token")
+            assert call.kwargs["allow_redirects"] is False
+            assert call.kwargs["capture"] is False
+
+
 class TestGetRows:
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.babelforce.babelforce.make_tracked_session"

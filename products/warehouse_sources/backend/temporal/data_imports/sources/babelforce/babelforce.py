@@ -58,6 +58,19 @@ def _get_headers(access_id: str, access_token: str) -> dict[str, str]:
     }
 
 
+def _make_session(access_id: str, access_token: str) -> requests.Session:
+    # The credentials ride custom `X-Auth-Access-*` headers, which the sampler's name-based
+    # auth-header denylist doesn't cover and which requests would forward on a cross-host
+    # redirect (it only strips `Authorization`), so redact them by value and pin redirects
+    # off. Responses carry customer communications (SMS bodies, phone numbers, recording
+    # URLs) the generic scrubber can't safely clean, so keep them out of sample capture.
+    return make_tracked_session(
+        redact_values=(access_id, access_token),
+        allow_redirects=False,
+        capture=False,
+    )
+
+
 def _to_epoch(value: Any) -> Optional[int]:
     """Coerce an incremental cursor value to unix seconds for the `dateCreated.start` filter.
 
@@ -114,7 +127,7 @@ def _build_params(
 def validate_credentials(environment: str, access_id: str, access_token: str) -> bool:
     """Confirm the access ID/token pair is valid with a one-row agents listing."""
     try:
-        response = make_tracked_session().get(
+        response = _make_session(access_id, access_token).get(
             _build_url(environment, "/agents", {"max": 1}),
             headers=_get_headers(access_id, access_token),
             timeout=10,
@@ -157,7 +170,9 @@ def get_rows(
         reraise=True,
     )
     def fetch_page(page_url: str) -> dict[str, Any]:
-        response = make_tracked_session().get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+        response = _make_session(access_id, access_token).get(
+            page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS
+        )
 
         # Rate limits aren't documented publicly; back off on 429s and transient 5xx.
         if response.status_code == 429 or response.status_code >= 500:
