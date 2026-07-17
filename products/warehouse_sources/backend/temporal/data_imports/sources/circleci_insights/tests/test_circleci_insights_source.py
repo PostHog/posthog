@@ -61,6 +61,11 @@ class TestCircleciInsightsSource:
         assert isinstance(window_field, SourceFieldSelectConfig)
         assert window_field.defaultValue == "last-90-days"
 
+    def test_connection_host_fields_includes_project_slugs(self):
+        # The token is sent to circleci.com scoped to <project_slugs>, so retargeting the
+        # project slugs must force re-entry of the token.
+        assert self.source.connection_host_fields == ["project_slugs"]
+
     def test_get_schemas_returns_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
