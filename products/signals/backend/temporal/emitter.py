@@ -23,13 +23,12 @@ class SignalEmitterWorkflow:
     Ephemeral per-signal workflow that submits a signal to the buffer workflow
     via update. The update blocks if the buffer is full, providing backpressure.
 
-    emit_signal() uses a unique ID by default or a deterministic ID for idempotent observations.
+    emit_signal() starts this fire-and-forget with a unique ID per signal.
     """
 
     @staticmethod
-    def workflow_id_for(team_id: int, idempotency_key: str | None = None) -> str:
-        suffix = uuid.uuid5(uuid.NAMESPACE_URL, idempotency_key) if idempotency_key else uuid.uuid4()
-        return f"signal-emitter-{team_id}-{suffix}"
+    def workflow_id_for(team_id: int) -> str:
+        return f"signal-emitter-{team_id}-{uuid.uuid4()}"
 
     @temporalio.workflow.run
     async def run(self, input: SignalEmitterInput) -> None:
