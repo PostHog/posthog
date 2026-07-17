@@ -485,6 +485,7 @@ the row lists both.
 | solarwinds_service_desk          | HTTP                        | requests                                                        | ✅                          |
 | sonar_cloud                      | HTTP                        | requests                                                        | ✅                          |
 | sonarqube                        | HTTP                        | requests                                                        | ✅                          |
+| sonatype_nexus                   | HTTP                        | requests                                                        | ✅                          |
 | spacelift                        | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | sparkpost                        | HTTP                        | requests                                                        | ✅                          |
 | split_io                         | HTTP                        | requests                                                        | ✅                          |
@@ -925,6 +926,7 @@ doesn't conflict with concurrent PRs.
 - smartengage
 - smartwaiver
 - solarwinds_service_desk
+- sonar_cloud
 - sonatype_nexus
 - sourcegraph
 - spacelift
