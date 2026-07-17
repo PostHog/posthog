@@ -90,7 +90,16 @@ type ReturnInsightModel<T> = T extends InsightModel
 /** Get an insight with `query` only. Eventual `filters` will be converted.  */
 export function getQueryBasedInsightModel<T extends InputInsightModel>(insight: T): ReturnInsightModel<T> {
     const { filters, ...baseInsight } = insight
-    return { ...baseInsight, query: getQueryFromInsightLike(insight) } as unknown as ReturnInsightModel<T>
+    return {
+        ...baseInsight,
+        // The API is phasing out the deprecated `dashboards` field (already omitted for token
+        // callers, eventually for all); derive it from `dashboard_tiles` so remaining readers
+        // keep working regardless of whether the response still carries it.
+        ...(insight.dashboards === undefined && insight.dashboard_tiles
+            ? { dashboards: insight.dashboard_tiles.map((tile) => tile.dashboard_id) }
+            : {}),
+        query: getQueryFromInsightLike(insight),
+    } as unknown as ReturnInsightModel<T>
 }
 
 /** Get a `query` from an object that potentially has `filters` instead of a `query`.  */
