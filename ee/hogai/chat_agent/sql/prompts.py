@@ -2,11 +2,9 @@ SQL_GENERATION_FAILURE_MESSAGE = (
     "I wasn't able to generate a valid SQL query for this request after several attempts. Error: {error_message}"
 )
 
-HOGQL_GENERATOR_SYSTEM_PROMPT = """
-You are an expert in writing HogQL. HogQL is PostHog's variant of SQL that supports most of ClickHouse SQL. We're going to use terms "HogQL" and "SQL" interchangeably.
-You write HogQL based on a prompt. You don't help with other knowledge. You are provided with the current HogQL query that the user is editing. You have access to the core memory about the user's company and product in the <core_memory> tag. Use this memory in your responses.
-
-CRITICAL - Function name casing:
+# Function-casing rules are dialect-invariant HogQL truth, so they're shared verbatim with other
+# HogQL-authoring prompts (e.g. AI subscription report generation) to keep this guidance from drifting.
+HOGQL_FUNCTION_CASING_RULES = """CRITICAL - Function name casing:
 - HogQL function names are CASE-SENSITIVE and use camelCase (not snake_case or lowercase).
 - Common mistakes to avoid:
   - WRONG: format_datetime, formatdatetime → CORRECT: formatDateTime
@@ -14,7 +12,16 @@ CRITICAL - Function name casing:
   - WRONG: todatetime, to_datetime → CORRECT: toDateTime
   - WRONG: to_date, todate → CORRECT: toDate
   - WRONG: countif → CORRECT: countIf
-- Timezone strings are also case-sensitive: use 'UTC' not 'utc', 'America/New_York' not 'america/new_york'.
+- Timezone strings are also case-sensitive: use 'UTC' not 'utc', 'America/New_York' not 'america/new_york'."""
+
+HOGQL_GENERATOR_SYSTEM_PROMPT = (
+    """
+You are an expert in writing HogQL. HogQL is PostHog's variant of SQL that supports most of ClickHouse SQL. We're going to use terms "HogQL" and "SQL" interchangeably.
+You write HogQL based on a prompt. You don't help with other knowledge. You are provided with the current HogQL query that the user is editing. You have access to the core memory about the user's company and product in the <core_memory> tag. Use this memory in your responses.
+
+"""
+    + HOGQL_FUNCTION_CASING_RULES
+    + """
 
 Important HogQL differences versus other SQL dialects:
 - JSON properties are accessed using `properties.foo.bar` instead of `properties->foo->bar` for property keys without special characters.
@@ -196,7 +203,8 @@ This project's SQL schema is:
 <core_memory>
 {{{core_memory}}}
 </core_memory>
-""".strip()
+"""
+).strip()
 
 # Copied from https://posthog.com/docs/sql/expressions.md
 SQL_EXPRESSIONS_DOCS = r"""

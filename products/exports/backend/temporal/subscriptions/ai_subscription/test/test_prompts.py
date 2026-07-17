@@ -2,9 +2,24 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import resolve_prompt
+from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
+    HOGQL_FIX_PROMPT,
+    PLAN_GENERATION_PROMPT,
+    resolve_prompt,
+)
+
+from ee.hogai.chat_agent.sql.prompts import HOGQL_FUNCTION_CASING_RULES
 
 _P = "products.exports.backend.temporal.subscriptions.ai_subscription.prompts"
+
+
+@parameterized.expand([("planner", PLAN_GENERATION_PROMPT), ("hogql_fix", HOGQL_FIX_PROMPT)])
+def test_prompt_embeds_shared_hogql_casing_rules(_name: str, prompt: str) -> None:
+    # The casing rules are shared verbatim from the SQL assistant skill; if the import breaks or the
+    # placeholder stops resolving, the fixer/planner silently lose the guidance that catches wrong-case
+    # function names (a top cause of generated-HogQL failures).
+    assert HOGQL_FUNCTION_CASING_RULES in prompt
+    assert "{{{hogql_casing_rules}}}" not in prompt
 
 
 @patch(f"{_P}.ph_scoped_capture")
