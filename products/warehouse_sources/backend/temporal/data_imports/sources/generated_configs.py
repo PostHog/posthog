@@ -1044,7 +1044,13 @@ class ConfluenceSourceConfig(config.Config):
 
 @config.config
 class ConfluentCloudSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
+    kafka_cluster_ids: str | None = None
+    connector_ids: str | None = None
+    ksqldb_cluster_ids: str | None = None
+    schema_registry_ids: str | None = None
+    compute_pool_ids: str | None = None
 
 
 @config.config
