@@ -1,4 +1,4 @@
-import time
+import threading
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -158,26 +158,49 @@ def _fetch(
 
 
 def _read_body_capped(response: requests.Response, url: str) -> None:
-    """Buffer the streamed body up to MAX_RESPONSE_BYTES, then cache it so `.json()` still works.
+    """Buffer the streamed body under a size + wall-clock cap, then cache it so `.json()` still works.
 
-    A response over the cap raises (non-retryable — it won't shrink on retry) instead of being read
-    into memory in full.
+    `requests`' timeout only bounds an idle socket, and `raw.read(n)` blocks until it has `n` bytes,
+    so a hostile host can trickle one byte before each read timeout to keep a read blocked forever
+    while staying under the byte cap — a between-chunks deadline check would never run. A watchdog
+    closes the response at the wall-clock deadline, which unblocks the read; we surface that as a
+    non-retryable error. Both caps are non-retryable — the condition won't clear on retry.
     """
-    deadline = time.monotonic() + MAX_DOWNLOAD_SECONDS
-    buffer = bytearray()
-    for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_BYTES):
-        if not chunk:
-            continue
-        buffer += chunk
-        if len(buffer) > MAX_RESPONSE_BYTES:
-            response.close()
-            raise ValueError(f"Jenkins response exceeded the {MAX_RESPONSE_BYTES}-byte limit: url={url}")
-        if time.monotonic() > deadline:
-            response.close()
+    timed_out = threading.Event()
+
+    def _abort_on_deadline() -> None:
+        timed_out.set()
+        response.close()
+
+    watchdog = threading.Timer(MAX_DOWNLOAD_SECONDS, _abort_on_deadline)
+    watchdog.start()
+    try:
+        buffer = bytearray()
+        while True:
+            try:
+                chunk = response.raw.read(RESPONSE_CHUNK_BYTES, decode_content=True)
+            except Exception:
+                # The watchdog closing the socket surfaces here as a read error; report the deadline.
+                if timed_out.is_set():
+                    raise ValueError(
+                        f"Jenkins response exceeded the {MAX_DOWNLOAD_SECONDS}s download deadline: url={url}"
+                    )
+                raise
+            if not chunk:
+                break
+            buffer += chunk
+            if len(buffer) > MAX_RESPONSE_BYTES:
+                raise ValueError(f"Jenkins response exceeded the {MAX_RESPONSE_BYTES}-byte limit: url={url}")
+        # The read can also finish (e.g. at EOF) right as the deadline fires; treat that as a timeout.
+        if timed_out.is_set():
             raise ValueError(f"Jenkins response exceeded the {MAX_DOWNLOAD_SECONDS}s download deadline: url={url}")
-    # Cache the decoded body so downstream `.json()` reads from memory rather than re-reading the
-    # (now consumed) stream.
-    response._content = bytes(buffer)
+        # Cache the decoded body so downstream `.json()` reads from memory rather than the consumed stream.
+        response._content = bytes(buffer)
+    except Exception:
+        response.close()
+        raise
+    finally:
+        watchdog.cancel()
 
 
 def validate_credentials(

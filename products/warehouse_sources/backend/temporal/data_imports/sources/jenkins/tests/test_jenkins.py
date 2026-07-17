@@ -1,3 +1,4 @@
+import threading
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -248,34 +249,74 @@ class TestDiscoverJobs:
         assert fetch.call_count == 3
 
 
+class _FakeRaw:
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+        self._pos = 0
+
+    def read(self, amt: int, decode_content: bool = False) -> bytes:
+        chunk = self._data[self._pos : self._pos + amt]
+        self._pos += len(chunk)
+        return chunk
+
+    def close(self) -> None:
+        pass
+
+
+class _BlockingRaw:
+    """A raw stream that blocks on read until the response is closed, then raises.
+
+    Mimics a hostile host that keeps a socket read blocked (under the byte cap and idle socket
+    timeout) until the download watchdog closes the connection.
+    """
+
+    def __init__(self) -> None:
+        self._closed = threading.Event()
+
+    def read(self, amt: int, decode_content: bool = False) -> bytes:
+        if self._closed.wait(timeout=5):
+            raise OSError("connection closed")
+        return b""
+
+    def close(self) -> None:
+        self._closed.set()
+
+
+class _FakeResponse:
+    def __init__(self, data: bytes = b"", raw: Any = None) -> None:
+        self.raw = raw if raw is not None else _FakeRaw(data)
+        self.closed = False
+        self._content: bytes | None = None
+
+    def close(self) -> None:
+        self.closed = True
+        self.raw.close()
+
+
 class TestReadBodyCapped:
     def test_rejects_response_over_cap(self) -> None:
         # A hostile/misconfigured host returning a body past the cap must raise (and release the
         # connection) instead of buffering the whole thing into worker memory.
-        response = MagicMock()
-        response.iter_content.return_value = iter([b"x" * jenkins.RESPONSE_CHUNK_BYTES] * 5)
-        with mock.patch.object(jenkins, "MAX_RESPONSE_BYTES", jenkins.RESPONSE_CHUNK_BYTES * 2):
+        response = _FakeResponse(b"y" * 50)
+        with mock.patch.object(jenkins, "MAX_RESPONSE_BYTES", 10):
             with pytest.raises(ValueError):
                 jenkins._read_body_capped(response, "https://j/")
-        response.close.assert_called_once()
+        assert response.closed
 
     def test_caches_body_under_cap(self) -> None:
         # Under the cap the decoded body is cached so downstream `.json()` reads from memory.
-        response = MagicMock()
-        response.iter_content.return_value = iter([b'{"ok":', b" true}"])
+        response = _FakeResponse(b'{"ok": true}')
         jenkins._read_body_capped(response, "https://j/")
         assert response._content == b'{"ok": true}'
 
     def test_aborts_on_download_deadline(self) -> None:
-        # A slow drip that stays under the per-read socket timeout must still be cut off by the hard
-        # wall-clock deadline instead of holding the worker open indefinitely.
-        response = MagicMock()
-        response.iter_content.return_value = iter([b"x", b"y", b"z"])
-        with mock.patch.object(jenkins, "MAX_DOWNLOAD_SECONDS", 10):
-            with mock.patch.object(jenkins.time, "monotonic", side_effect=[0, 100, 200]):
-                with pytest.raises(ValueError):
-                    jenkins._read_body_capped(response, "https://j/")
-        response.close.assert_called_once()
+        # A read kept blocked below the socket idle timeout must be cut off by the watchdog closing
+        # the response, surfaced as a non-retryable deadline error, rather than holding the worker.
+        response = _FakeResponse(raw=_BlockingRaw())
+        with mock.patch.object(jenkins, "MAX_DOWNLOAD_SECONDS", 0.05):
+            with pytest.raises(ValueError, match="download deadline"):
+                jenkins._read_body_capped(response, "https://j/")
+        assert response.closed
 
 
 def _fake_manager(state: JenkinsResumeConfig | None) -> MagicMock:
