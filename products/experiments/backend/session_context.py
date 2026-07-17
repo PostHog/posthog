@@ -386,11 +386,9 @@ def _query_exposure_event_branches(
         return {}
 
     query = ast.SelectSetQuery.create_from_queries(branches, "UNION ALL")
-    # Deliberately no set-level LIMIT: with two or more branches the printer emits it right
-    # after the last branch's own LIMIT, which ClickHouse rejects as a syntax error (one broken
-    # query took the whole endpoint down). The per-branch limits above are the backstop; a
-    # single branch needs no set-level cap either, since create_from_queries collapses it to a
-    # plain SelectQuery that already carries its limit.
+    # No set-level LIMIT here: the printer emits it directly after the last branch's own
+    # LIMIT, which ClickHouse rejects as a syntax error. The per-branch limits above are
+    # the backstop; total output is already bounded by each flag's defined variants.
     response = execute_hogql_query(query, team=team, user=user)
 
     exposures: dict[int, list[tuple[str, datetime]]] = {}
