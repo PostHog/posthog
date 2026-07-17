@@ -468,6 +468,7 @@ the row lists both.
 | snowplow                         | HTTP                        | requests                                                        | ✅                          |
 | snyk                             | HTTP                        | requests                                                        | ✅                          |
 | solarwinds_service_desk          | HTTP                        | requests                                                        | ✅                          |
+| sonar_cloud                      | HTTP                        | requests                                                        | ✅                          |
 | sonarqube                        | HTTP                        | requests                                                        | ✅                          |
 | spacelift                        | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | sparkpost                        | HTTP                        | requests                                                        | ✅                          |
@@ -918,7 +919,6 @@ doesn't conflict with concurrent PRs.
 - smartengage
 - smartwaiver
 - solarwinds_service_desk
-- sonar_cloud
 - sonatype_nexus
 - sourcegraph
 - spacelift
