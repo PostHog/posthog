@@ -129,18 +129,20 @@ class TestKustomerSource:
         assert kwargs["resumable_source_manager"] is manager
 
     @pytest.mark.parametrize("pinned_version", [None, "v1", "v2"])
+    @pytest.mark.parametrize("endpoint", ENDPOINTS)
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.kustomer.make_tracked_session"
     )
-    def test_source_requests_v1_rest_paths_for_every_version(self, mock_session, pinned_version):
-        # These list resources are served at /v1/ for every vendor version; the v2
-        # default must not switch to /v2/, which would 404 every stream.
+    def test_source_requests_v1_rest_paths_for_every_version(self, mock_session, endpoint, pinned_version):
+        # Every list resource is served at /v1/ for both vendor versions; the v2
+        # default must not switch to /v2/, which would 404 the stream. Covering all
+        # six also guards against a per-resource /v2/ typo in the endpoint catalog.
         page = mock.MagicMock(status_code=200, ok=True)
         page.json.return_value = {"data": [], "links": {}}
         mock_session.return_value.get.return_value = page
 
         inputs = mock.MagicMock()
-        inputs.schema_name = "customers"
+        inputs.schema_name = endpoint
         inputs.api_version = pinned_version
         manager = mock.MagicMock()
         manager.can_resume.return_value = False
@@ -149,4 +151,4 @@ class TestKustomerSource:
         list(response.items())
 
         url = mock_session.return_value.get.call_args.args[0]
-        assert urlparse(url).path == "/v1/customers"
+        assert urlparse(url).path == f"/v1/{endpoint}"
