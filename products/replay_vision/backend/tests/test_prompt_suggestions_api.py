@@ -26,9 +26,7 @@ from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 class TestPromptSuggestions(_VisionAPITestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.scanner = self._create_scanner(
-            scanner_config={"prompt": "did the user check out?", "allow_inconclusive": False}
-        )
+        self.scanner = self._create_scanner(scanner_config={"prompt": "did the user check out?"})
         self.canned: dict[str, Any] = {
             "suggested_prompt": "Did the user place an order? Only answer yes on an order confirmation.",
             "allow_inconclusive": True,
@@ -202,6 +200,9 @@ class TestPromptSuggestions(_VisionAPITestCase):
         self.assertEqual(suggestion.status, SuggestionStatus.APPLIED)
 
     def test_generate_marks_no_change_when_model_returns_current_prompt(self) -> None:
+        # self.scanner's config has no allow_inconclusive key, so to_config_patch injects a defaulted one.
+        # A true no-op response (current prompt, allow_inconclusive=False) must still land as no_change even
+        # though suggested_config is no longer dict-equal to base_config.
         self._create_rated_observation("sess-1", True)
         self.canned = {
             "suggested_prompt": "did the user check out?",

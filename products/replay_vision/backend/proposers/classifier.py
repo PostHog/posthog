@@ -64,18 +64,31 @@ class ClassifierProposer:
         self, base_config: dict[str, Any], suggested_config: dict[str, Any], llm_output: dict[str, Any]
     ) -> list[ConfigChange]:
         rationale = str(llm_output.get("rationale", "")).strip()
+        # The suggested prompt is already stripped in to_config_patch. Strip the base too so a whitespace-only
+        # difference in the stored prompt is not treated as a change.
         changes = set_change(
-            "prompt", "prompt", base_config.get("prompt", ""), suggested_config.get("prompt", ""), rationale
+            "prompt", "prompt", (base_config.get("prompt") or "").strip(), suggested_config.get("prompt", ""), rationale
         )
+        # Emit a change only for an op that actually alters the vocabulary, walking a working copy exactly as
+        # _apply_tag_ops does, so a no-op op (adding a present tag, removing or renaming an absent one) does
+        # not mark an unchanged config as pending.
+        working = list(base_config.get("tags", []))
         for op in llm_output.get("tag_ops", []):
+            kind, tag, to = str(op["op"]), op["tag"], op.get("to")
+            if kind == "add" and tag not in working:
+                working.append(tag)
+                after = tag
+            elif kind == "remove" and tag in working:
+                working.remove(tag)
+                after = None
+            elif kind == "rename" and tag in working and to:
+                working[working.index(tag)] = to
+                after = to
+            else:
+                continue
             changes.append(
                 ConfigChange(
-                    field="tags",
-                    kind="tags",
-                    op=str(op["op"]),
-                    before=op["tag"],
-                    after=op.get("to") if op["op"] == "rename" else (op["tag"] if op["op"] == "add" else None),
-                    rationale=str(op.get("rationale", "")),
+                    field="tags", kind="tags", op=kind, before=tag, after=after, rationale=str(op.get("rationale", ""))
                 )
             )
         return changes

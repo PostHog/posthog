@@ -41,15 +41,20 @@ class MonitorProposer:
     def to_config_patch(self, llm_output: dict[str, Any], base_config: dict[str, Any]) -> dict[str, Any]:
         config = dict(base_config)
         config["prompt"] = str(llm_output["suggested_prompt"]).strip()
-        config["allow_inconclusive"] = bool(llm_output["allow_inconclusive"])
+        # A schema-noncompliant response may omit the key. Fall back to the stored value rather than raising.
+        config["allow_inconclusive"] = bool(
+            llm_output.get("allow_inconclusive", base_config.get("allow_inconclusive", False))
+        )
         return config
 
     def to_changes(
         self, base_config: dict[str, Any], suggested_config: dict[str, Any], llm_output: dict[str, Any]
     ) -> list[ConfigChange]:
         rationale = str(llm_output.get("rationale", "")).strip()
+        # The suggested prompt is already stripped in to_config_patch. Strip the base too so a whitespace-only
+        # difference in the stored prompt is not treated as a change.
         changes = set_change(
-            "prompt", "prompt", base_config.get("prompt", ""), suggested_config.get("prompt", ""), rationale
+            "prompt", "prompt", (base_config.get("prompt") or "").strip(), suggested_config.get("prompt", ""), rationale
         )
         changes += set_change(
             "allow_inconclusive",

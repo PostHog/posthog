@@ -88,6 +88,8 @@ def test_classifier_patch_ignores_ops_that_dont_apply(op: dict[str, Any]) -> Non
     suggested = proposer.to_config_patch(llm, base)
 
     assert suggested["tags"] == ["checkout"]
+    # A no-op op must not emit a change, or an unchanged config would wrongly be marked pending.
+    assert proposer.to_changes(base, suggested, llm) == []
 
 
 class TestClassifierGrounding(_VisionAPITestCase):

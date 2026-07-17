@@ -612,7 +612,9 @@ def generate_prompt_suggestion(
         )
     suggested_config = proposer.to_config_patch(llm_output, base_config)
     changes = proposer.to_changes(base_config, suggested_config, llm_output)
-    status = SuggestionStatus.NO_CHANGE if suggested_config == base_config else SuggestionStatus.PENDING
+    # The change list is the source of truth for "did anything meaningful change": dict equality trips on
+    # keys a proposer always injects (e.g. a defaulted allow_inconclusive) that the stored config never had.
+    status = SuggestionStatus.NO_CHANGE if not changes else SuggestionStatus.PENDING
     up = len([o for o in observations if _label(o).is_correct])
     with transaction.atomic():
         # Serialize per scanner: a manual generate racing the sweep refresh must not leave two pending rows.
