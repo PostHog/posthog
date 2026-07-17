@@ -87,7 +87,6 @@ from products.data_warehouse.backend.facade.api import (
     is_cdc_enabled_for_team,
     is_custom_source_ai_builder_enabled_for_team,
     is_multi_schema_capable_sql_source,
-    is_xmin_enabled_for_team,
     reconcile_github_repositories,
     reconcile_mysql_schemas,
     reconcile_postgres_schemas,
@@ -721,6 +720,15 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
             "(cdc-only history table). `null` for non-CDC syncs. Read from `schema_snapshot`."
         ),
     )
+    billable = serializers.BooleanField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Whether the rows synced by this job count toward billing. `false` for system-initiated "
+            "runs the customer isn't charged for (e.g. rebuilding a table after an internal issue). "
+            "`null` on legacy rows and means billable."
+        ),
+    )
 
     class Meta:
         model = ExternalDataJob
@@ -735,6 +743,7 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
             "latest_error",
             "workflow_run_id",
             "cdc_write_mode",
+            "billable",
         ]
         read_only_fields = [
             "id",
@@ -747,6 +756,7 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
             "latest_error",
             "workflow_run_id",
             "cdc_write_mode",
+            "billable",
         ]
 
     def get_cdc_write_mode(self, instance: ExternalDataJob) -> str | None:
@@ -3161,7 +3171,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # which makes a network round-trip per call. With large schema lists (e.g. Slack workspaces with
         # thousands of channels) the per-iteration call inflated the response loop past the 120s gateway.
         cdc_enabled = is_cdc_enabled_for_team(self.team)
-        xmin_enabled = is_xmin_enabled_for_team(self.team)
         # xmin is Postgres-only — gate on the source type so the capability never leaks to another SQL source.
         is_postgres = source_type_model == ExternalDataSourceType.POSTGRES
         data = [
@@ -3173,7 +3182,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "incremental_available": schema.supports_incremental,
                 "append_available": schema.supports_append,
                 "cdc_available": schema.supports_cdc if cdc_enabled else None,
-                "xmin_available": schema.supports_xmin if (is_postgres and xmin_enabled) else None,
+                "xmin_available": schema.supports_xmin if is_postgres else None,
                 "incremental_field": schema.incremental_fields[0]["field"]
                 if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
                 else None,
@@ -4262,9 +4271,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # select_related joins the full ExternalDataSchema row; defer its large JSON/text
         # columns so the serializer only pulls the fields SimpleExternalDataSchemaSerializer
         # actually reads (sync_type_config + latest_error can each be sizeable).
+        # Non-billable jobs are included on purpose: the UI shows them tagged so a sync the
+        # customer wasn't charged for is still visible in the history.
         jobs = (
-            instance.jobs.filter(billable=True)
-            .select_related("schema")
+            instance.jobs.select_related("schema")
             .defer("schema__sync_type_config", "schema__latest_error")
             .order_by("-created_at")
         )

@@ -459,12 +459,42 @@
         },
         "feature_flag": "agent-platform"
     },
+    "agent-applications-invoke": {
+        "description": "Start a new session on the agent's LIVE (promoted) revision and return its `session_id`. Requires the agent to have a live revision and a `chat` trigger. Your PAT is forwarded so the session runs as you. Drive the conversation with `agent-applications-send` and read progress with `agent-applications-listen`. For a non-live / draft revision use `agent-applications-preview-proxy` instead.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Invoke a live agent (start a session)",
+        "title": "Invoke a live agent (start a session)",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform"
+    },
     "agent-applications-list": {
         "description": "List every agent application in the project. Returns id, slug, name, description, live_revision, archived state. Use the slug to drive subsequent calls — it's stable and human-readable. Playbook: read the `reading-an-agent` playbook via `agent-resolve-resource` for how to inspect and summarize an agent.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "List agent applications",
         "title": "List agent applications",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform"
+    },
+    "agent-applications-listen": {
+        "description": "Read a live session as a single JSON digest (non-streaming): last assistant text, a one-line tool-activity summary, and state / usage. Pass the returned `next_cursor` back as `cursor` to summarize only what's new, and stop when `done` is true. Use this instead of the SSE `/listen` stream from an MCP client.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Poll a live session's progress",
+        "title": "Poll a live session's progress",
         "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
@@ -861,6 +891,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform"
+    },
+    "agent-applications-send": {
+        "description": "Append a message to an existing live session (from `agent-applications-invoke`) and re-queue it for another turn. `session_id` must belong to this agent. A `completed` session is still open — send re-queues it for another turn; only truly-terminal sessions (failed / cancelled / closed) fail cleanly with a 410.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Send a message to a live session",
+        "title": "Send a message to a live session",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "agent-platform"
     },
@@ -8306,7 +8351,7 @@
         }
     },
     "skill-get": {
-        "description": "Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows the Agent Skills specification (agentskills.io). To link a user to this skill in the PostHog app, build the URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.",
+        "description": "Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows the Agent Skills specification (agentskills.io). The response always includes body_total_length (the full body length in characters) — if the body you received is shorter than that, it was truncated in transit, so page through it with body_offset and body_length and continue from body_next_offset until it is null. To link a user to this skill in the PostHog app, build the URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.",
         "category": "Skills",
         "feature": "skills",
         "summary": "Get skill",
