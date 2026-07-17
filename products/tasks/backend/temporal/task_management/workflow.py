@@ -60,9 +60,12 @@ from products.tasks.backend.temporal.task_management.activities.ensure_execute_s
     ensure_execute_sandbox_started,
 )
 from products.tasks.backend.temporal.task_management.activities.pending_followups import (
+    TASK_RUN_NOT_FOUND_ERROR_TYPE,
     PersistPendingFollowupsInput,
+    PersistPendingFollowupsV2Input,
     ReadPendingFollowupsInput,
     persist_pending_followups,
+    persist_pending_followups_v2,
     read_pending_followups,
 )
 
@@ -77,6 +80,8 @@ _PATCH_ID_BOUNDED_SANDBOX_REPLACEMENT_RECOVERY = "tasks-task-management-bounded-
 _PATCH_ID_PERSIST_REPLACEMENT_BUDGET = "tasks-task-management-persist-replacement-budget"
 _PATCH_ID_ACCEPTED_ACK_RESETS_REPLACEMENT_BUDGET = "tasks-task-management-accepted-ack-resets-replacement-budget"
 _PATCH_ID_DURABLE_REPLACEMENT_BUDGET_PERSISTENCE = "tasks-task-management-durable-replacement-budget-persistence"
+_PATCH_ID_TERMINAL_PENDING_FOLLOWUP_BARRIER = "tasks-task-management-terminal-pending-followup-barrier"
+_PATCH_ID_GENERATION_SAFE_PENDING_FOLLOWUPS = "tasks-task-management-generation-safe-pending-followups"
 _CHILD_SIGNAL_TERMINAL_ERROR_TYPES = {
     "ExternalWorkflowExecutionNotFound",
     "NamespaceNotFound",
@@ -229,6 +234,8 @@ class TaskManagementWorkflow(PostHogWorkflow):
         # can skip the DB roundtrip when nothing changed (e.g., draining an
         # already-empty queue still triggers a persist call).
         self._last_persisted_followups: list[dict[str, Any]] = []
+        self._last_persistence_generation: int = 0
+        self._persist_pending_followups_on_exit: bool = False
 
         # Sandbox-side state.
         self._sandbox_workflow_id: Optional[str] = None
@@ -474,8 +481,13 @@ class TaskManagementWorkflow(PostHogWorkflow):
             )
 
         finally:
-            if self._slack_thread_context and self._context:
-                await self._post_slack_update(sandbox_cleaned=not self._sandbox_alive)
+            try:
+                if self._slack_thread_context and self._context:
+                    await self._post_slack_update(sandbox_cleaned=not self._sandbox_alive)
+            finally:
+                if self._persist_pending_followups_on_exit:
+                    await workflow.wait_condition(workflow.all_handlers_finished)
+                    await self._persist_pending_followups_until_stable()
 
     # ------------------------------------------------------------------
     # Event-wait loop
@@ -695,7 +707,10 @@ class TaskManagementWorkflow(PostHogWorkflow):
         failures = self._consecutive_sandbox_replacement_failures
         if failures >= MAX_CONSECUTIVE_SANDBOX_REPLACEMENT_FAILURES:
             if _patch_enabled(_PATCH_ID_DURABLE_REPLACEMENT_BUDGET_PERSISTENCE):
-                await self._persist_pending_followups_until_stable()
+                if _patch_enabled(_PATCH_ID_TERMINAL_PENDING_FOLLOWUP_BARRIER):
+                    self._persist_pending_followups_on_exit = True
+                else:
+                    await self._persist_pending_followups_until_stable()
                 raise RuntimeError(
                     f"Sandbox replacement failed {failures} consecutive times before acknowledging a follow-up"
                 )
@@ -895,12 +910,24 @@ class TaskManagementWorkflow(PostHogWorkflow):
         if payload == self._last_persisted_followups:
             return True
         try:
-            await workflow.execute_activity(
-                persist_pending_followups,
-                PersistPendingFollowupsInput(run_id=self._run_id, followups=payload),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
+            if _patch_enabled(_PATCH_ID_GENERATION_SAFE_PENDING_FOLLOWUPS):
+                await workflow.execute_activity(
+                    persist_pending_followups_v2,
+                    PersistPendingFollowupsV2Input(
+                        run_id=self._run_id,
+                        followups=payload,
+                        generation=self._new_persistence_generation(),
+                    ),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+            else:
+                await workflow.execute_activity(
+                    persist_pending_followups,
+                    PersistPendingFollowupsInput(run_id=self._run_id, followups=payload),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
             self._last_persisted_followups = payload
             return True
         except Exception as e:
@@ -916,23 +943,47 @@ class TaskManagementWorkflow(PostHogWorkflow):
 
         Signals can append follow-ups while the persistence activity is
         running. Keep writing snapshots until the completed write still
-        matches the in-memory queue. Unlimited activity retries keep storage
-        recovery server-side without provisioning more sandboxes or adding a
-        workflow timer for every failed attempt.
+        matches the in-memory queue. The schedule-to-close deadline bounds
+        permanent storage failures without provisioning more sandboxes.
         """
         if self._run_id is None:
             raise RuntimeError("Cannot persist pending follow-ups without a run id")
         while True:
             payload = [asdict(followup) for followup in self._pending_external_followups]
-            await workflow.execute_activity(
-                persist_pending_followups,
-                PersistPendingFollowupsInput(run_id=self._run_id, followups=payload),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=0),
-            )
+            if _patch_enabled(_PATCH_ID_GENERATION_SAFE_PENDING_FOLLOWUPS):
+                await workflow.execute_activity(
+                    persist_pending_followups_v2,
+                    PersistPendingFollowupsV2Input(
+                        run_id=self._run_id,
+                        followups=payload,
+                        generation=self._new_persistence_generation(),
+                    ),
+                    schedule_to_close_timeout=timedelta(minutes=5),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(
+                        maximum_attempts=0,
+                        non_retryable_error_types=[TASK_RUN_NOT_FOUND_ERROR_TYPE],
+                    ),
+                )
+            else:
+                await workflow.execute_activity(
+                    persist_pending_followups,
+                    PersistPendingFollowupsInput(run_id=self._run_id, followups=payload),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=0),
+                )
             self._last_persisted_followups = payload
             if payload == [asdict(followup) for followup in self._pending_external_followups]:
                 return
+
+    def _new_persistence_generation(self) -> int:
+        now = workflow.now() if workflow.in_workflow() else datetime.now()
+        timestamp_generation = int(now.timestamp() * 1_000_000)
+        self._last_persistence_generation = max(
+            self._last_persistence_generation + 1,
+            timestamp_generation,
+        )
+        return self._last_persistence_generation
 
     # ------------------------------------------------------------------
     # Sandbox workflow management

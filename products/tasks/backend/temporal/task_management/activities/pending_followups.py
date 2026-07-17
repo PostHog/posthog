@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.utils import asyncify
 
@@ -25,6 +26,8 @@ from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.observability import log_activity_execution
 
 PENDING_FOLLOWUPS_STATE_KEY = "pending_external_followups"
+PENDING_FOLLOWUPS_GENERATION_STATE_KEY = "pending_external_followups_generation"
+TASK_RUN_NOT_FOUND_ERROR_TYPE = "PendingFollowupsTaskRunNotFound"
 
 
 @dataclass
@@ -34,6 +37,13 @@ class PersistPendingFollowupsInput:
     # serializes its `PendingExternalFollowup` dataclasses here so the
     # activity doesn't need to import workflow-side types.
     followups: list[dict[str, Any]]
+
+
+@dataclass
+class PersistPendingFollowupsV2Input:
+    run_id: str
+    followups: list[dict[str, Any]]
+    generation: int
 
 
 @dataclass
@@ -62,10 +72,47 @@ def persist_pending_followups(input: PersistPendingFollowupsInput) -> None:
         run_id=input.run_id,
         count=len(input.followups),
     ):
+
+        def _persist_if_unversioned(state: dict[str, Any]) -> None:
+            if isinstance(state.get(PENDING_FOLLOWUPS_GENERATION_STATE_KEY), int):
+                return
+            if input.followups:
+                state[PENDING_FOLLOWUPS_STATE_KEY] = input.followups
+            else:
+                state.pop(PENDING_FOLLOWUPS_STATE_KEY, None)
+
+        TaskRun.mutate_state_atomic(input.run_id, _persist_if_unversioned)
+
+
+@activity.defn
+@asyncify
+def persist_pending_followups_v2(input: PersistPendingFollowupsV2Input) -> None:
+    """Persist a queue snapshot unless a newer generation already won."""
+
+    def _persist_if_newer(state: dict[str, Any]) -> None:
+        current_generation = state.get(PENDING_FOLLOWUPS_GENERATION_STATE_KEY)
+        if isinstance(current_generation, int) and current_generation >= input.generation:
+            return
+        state[PENDING_FOLLOWUPS_GENERATION_STATE_KEY] = input.generation
         if input.followups:
-            TaskRun.update_state_atomic(input.run_id, updates={PENDING_FOLLOWUPS_STATE_KEY: input.followups})
+            state[PENDING_FOLLOWUPS_STATE_KEY] = input.followups
         else:
-            TaskRun.update_state_atomic(input.run_id, remove_keys=[PENDING_FOLLOWUPS_STATE_KEY])
+            state.pop(PENDING_FOLLOWUPS_STATE_KEY, None)
+
+    with log_activity_execution(
+        "persist_pending_followups_v2",
+        run_id=input.run_id,
+        count=len(input.followups),
+        generation=input.generation,
+    ):
+        try:
+            TaskRun.mutate_state_atomic(input.run_id, _persist_if_newer)
+        except TaskRun.DoesNotExist as error:
+            raise ApplicationError(
+                f"Task run {input.run_id} no longer exists",
+                type=TASK_RUN_NOT_FOUND_ERROR_TYPE,
+                non_retryable=True,
+            ) from error
 
 
 @activity.defn

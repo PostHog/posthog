@@ -1,6 +1,6 @@
 # Cloud steering implementation and hardening report
 
-Date: 2026-07-16
+Date: 2026-07-17
 
 ## Status
 
@@ -11,7 +11,7 @@ The implementation is split across:
 - PostHog backend branch: `posthog-code/cloud-run-steering`
 - PostHog Code branch: `posthog-code/cloud-run-steering-agent`
 
-The latest fixes durably park every admitted follow-up at replacement-budget exhaustion, stop provisioning replacement sandboxes while persistence is unavailable, and reconcile promptless resumed tails within the current leaf using the actual overlap position.
+The latest fixes place the terminal persistence barrier after cleanup, reject stale queue snapshots with a monotonic generation, bound permanent persistence failures, and preserve ambiguous promptless live tails without repeatedly scanning full hydrated transcripts.
 
 ## What the feature does
 
@@ -624,6 +624,81 @@ Verified:
 - After a cold renderer reload, the chain hydrated to 172 entries with a leaf-local cursor of 53.
 - The semantic transcript contained all A, B, and C prompts and responses, two restored-sandbox boundaries, ten conversation items, no pending prompt, and a complete final turn.
 - Database state confirmed all three distinct runs reached `completed`.
+
+## Terminal persistence and ambiguous-tail hardening
+
+### Terminal persistence is the final workflow barrier
+
+When replacement recovery exhausts its deterministic budget, new workflow histories defer persistence until every other terminal cleanup step has finished. The final barrier waits for admitted signal handlers, persists until the written queue snapshot still matches the in-memory queue, and performs no workflow await afterward.
+
+Existing histories retain their recorded command order through Temporal patches. A cleanup failure still reaches the terminal barrier through the nested `finally` path.
+
+### Stale persistence attempts cannot overwrite newer queues
+
+The versioned persistence activity carries a monotonically increasing queue generation. It updates the run state atomically and ignores any generation that is not newer than the stored generation.
+
+This makes a synchronous activity that completes after its Temporal timeout harmless: a late `[A]` write cannot replace an already persisted `[A, B]` snapshot. The legacy persistence activity also leaves generation-managed state untouched.
+
+Terminal persistence has a five-minute schedule-to-close budget. A missing `TaskRun` is classified as a non-retryable application error, so permanent storage failures do not retry forever or restart sandbox provisioning after the replacement budget is exhausted.
+
+### Ambiguous promptless live tails are preserved
+
+PostHog Code no longer removes a promptless live response by matching identical content across an unmatched newer prompt. A live tail may cross that prompt only when every tail event is strictly older than the prompt; equal or newer events remain attached to the current leaf.
+
+Promptless overlap candidates use one shared structural hash index and still verify exact message equality. This avoids rebuilding a serialized event map for every hydrated turn while preserving the post-tool message-position offset used by authoritative overlap matches.
+
+The regression covers hydrated `prompt A → Done → completion → prompt B` followed by a live promptless `Done → completion` and verifies that both current-turn events remain present.
+
+## Validation for the 2026-07-17 fixes
+
+### Automated validation
+
+Backend:
+
+- Task-management workflow suite: 77 passed.
+- Pending-followup activity suite: 14 passed.
+- Legacy process-task and execute-sandbox workflow suites: 110 passed.
+- Ruff, Python compilation, and diff checks passed.
+
+PostHog Code:
+
+- Focused hydration regressions: 3 passed.
+- Core suite: 2,228 passed across 207 files.
+- Session host suite: 143 passed.
+- UI suite: 1,524 passed across 172 files.
+- Core and UI TypeScript checks, Biome, and diff checks passed.
+
+### Active steering verification
+
+- Task: `c6944a1f-8602-4360-bf3e-4eba6a00a21a`
+- Initial run: `0ded3dfb-d24d-4a55-9c39-a80a8fa24f76`
+- Excluded retry run: `4dfce516-f319-4208-a4a4-4756ad3df403`
+
+Verified on a real 60-second Codex terminal command:
+
+- The fallback prompt containing `FALLBACK717C` appeared once and produced no assistant response.
+- `LIVE717C` was submitted while the run remained busy and appeared once as the accepted steer prompt.
+- The active turn returned `ANSWER717C` once after the tool boundary and did not terminalize the workflow.
+- The run had no terminal error and reached `completed` after explicit terminalization.
+
+The first resume attempt for this heavily exercised run restored 283 parent entries and passed the sandbox and agent-server health checks, but stalled after Codex reported `ACP session created`, before `run_started` or the pending prompt was emitted. Both configured tunnels remained reachable, and the sandbox had already fetched its resume state through the backend tunnel. The run was terminalized and excluded from resume/hydration evidence.
+
+### Minimal resume and cold-hydration verification
+
+- Task: `c0cbe2b3-208c-4640-b4cd-6d1603e5427a`
+- Initial run: `3620c477-468d-4d37-8ac1-e3e3a700aa8f`
+- Resumed run: `4a491fa2-54d5-4d35-b039-44cc168fc93d`
+
+Verified:
+
+- The fresh turn rendered one `MINBASE717` prompt and one response.
+- The initial workflow was explicitly completed before the next message was sent.
+- The resumed run linked to the exact parent through `state.resume_from_run_id` and rendered one `MINRESUME717` prompt and one response.
+- After a full Electron process restart and direct task reopen, both prompt/response pairs remained present exactly once, `Restored sandbox` appeared once, and the session had no pending prompt or semantic error.
+- A post-restart live follow-up rendered one `POSTCOLD717` prompt and one `POSTCOLDOK717` response without a cursor gap or transcript replacement.
+- Read-only database validation confirmed both runs reached `completed` with no error message.
+
+The active `.env` tunnel endpoints returned HTTP 302 for the sandbox API root and HTTP 200 for the LLM gateway root throughout validation. No tunnel restart was required.
 
 ### Earlier Codex and Claude steering coverage
 

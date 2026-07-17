@@ -530,7 +530,11 @@ class TestDrainExternalSignals:
                 persist_patch_enabled
                 if patch_id == task_management_workflow_module._PATCH_ID_PERSIST_REPLACEMENT_BUDGET
                 else False
-                if patch_id == task_management_workflow_module._PATCH_ID_DURABLE_REPLACEMENT_BUDGET_PERSISTENCE
+                if patch_id
+                in {
+                    task_management_workflow_module._PATCH_ID_DURABLE_REPLACEMENT_BUDGET_PERSISTENCE,
+                    task_management_workflow_module._PATCH_ID_TERMINAL_PENDING_FOLLOWUP_BARRIER,
+                }
                 else True
             ),
         )
@@ -556,10 +560,10 @@ class TestDrainExternalSignals:
             PendingExternalFollowup(message="keep trying", artifact_ids=[], source="user")
         )
 
-        retry_policies = []
+        persistence_options = []
 
         async def fail_persistence(_activity, _input, **kwargs):
-            retry_policies.append(kwargs["retry_policy"])
+            persistence_options.append(kwargs)
             raise RuntimeError("storage unavailable")
 
         sleep_mock = AsyncMock()
@@ -571,13 +575,37 @@ class TestDrainExternalSignals:
         monkeypatch.setattr(workflow, "_signal_child_followup", signal_mock)
 
         with pytest.raises(RuntimeError, match="storage unavailable"):
-            await workflow._drain_external_signals()
+            await workflow._persist_pending_followups_until_stable()
 
-        assert len(retry_policies) == 1
-        assert retry_policies[0].maximum_attempts == 0
+        assert len(persistence_options) == 1
+        assert persistence_options[0]["schedule_to_close_timeout"] == timedelta(minutes=5)
+        assert persistence_options[0]["retry_policy"].maximum_attempts == 0
+        assert persistence_options[0]["retry_policy"].non_retryable_error_types == [
+            task_management_workflow_module.TASK_RUN_NOT_FOUND_ERROR_TYPE
+        ]
         sleep_mock.assert_not_awaited()
         bootstrap_mock.assert_not_awaited()
         signal_mock.assert_not_awaited()
+
+    async def test_existing_history_persists_before_replacement_budget_failure(
+        self, monkeypatch, silent_workflow_logger
+    ):
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._consecutive_sandbox_replacement_failures = MAX_CONSECUTIVE_SANDBOX_REPLACEMENT_FAILURES
+        persist_mock = AsyncMock()
+        monkeypatch.setattr(workflow, "_persist_pending_followups_until_stable", persist_mock)
+        monkeypatch.setattr(
+            task_management_workflow_module,
+            "_patch_enabled",
+            lambda patch_id: patch_id != task_management_workflow_module._PATCH_ID_TERMINAL_PENDING_FOLLOWUP_BARRIER,
+        )
+
+        with pytest.raises(RuntimeError, match="before acknowledging a follow-up"):
+            await workflow._wait_before_replacement_sandbox()
+
+        persist_mock.assert_awaited_once()
+        assert workflow._persist_pending_followups_on_exit is False
 
     async def test_replacement_budget_persists_followups_arriving_during_terminal_snapshot(
         self, monkeypatch, silent_workflow_logger
@@ -606,8 +634,7 @@ class TestDrainExternalSignals:
         monkeypatch.setattr(task_management_workflow_module.workflow, "execute_activity", capture_persistence)
         monkeypatch.setattr(workflow, "_ensure_sandbox_workflow_started", bootstrap_mock)
 
-        with pytest.raises(RuntimeError, match="before acknowledging a follow-up"):
-            await workflow._drain_external_signals()
+        await workflow._persist_pending_followups_until_stable()
 
         assert persisted_payloads == [
             [
@@ -637,6 +664,62 @@ class TestDrainExternalSignals:
             ],
         ]
         bootstrap_mock.assert_not_awaited()
+
+    async def test_replacement_budget_persists_after_terminal_cleanup(self, monkeypatch, silent_workflow_logger):
+        workflow = TaskManagementWorkflow()
+        workflow._consecutive_sandbox_replacement_failures = MAX_CONSECUTIVE_SANDBOX_REPLACEMENT_FAILURES
+        context = _build_context()
+        order: list[str] = []
+        slack_calls = 0
+
+        async def get_context():
+            return context
+
+        async def track_event(*_args, **_kwargs):
+            order.append("telemetry")
+
+        async def post_slack_update(*_args, **_kwargs):
+            nonlocal slack_calls
+            slack_calls += 1
+            order.append("initial-slack" if slack_calls == 1 else "final-slack")
+            if slack_calls == 2:
+                await workflow.send_followup_message("arrived during cleanup")
+
+        async def fail_at_budget():
+            await workflow._wait_before_replacement_sandbox()
+            raise AssertionError("replacement budget should raise")
+
+        async def wait_condition(predicate, **_kwargs):
+            assert predicate is task_management_workflow_module.workflow.all_handlers_finished
+            order.append("handlers-drained")
+
+        async def persist_until_stable():
+            order.append("persist")
+            assert workflow._pending_external_followups == [
+                PendingExternalFollowup(
+                    message="arrived during cleanup",
+                    artifact_ids=[],
+                    source="user",
+                )
+            ]
+
+        monkeypatch.setattr(task_management_workflow_module.workflow, "info", lambda: Mock(workflow_id="wf-id"))
+        monkeypatch.setattr(task_management_workflow_module.workflow, "wait_condition", wait_condition)
+        monkeypatch.setattr(workflow, "_get_task_processing_context", get_context)
+        monkeypatch.setattr(workflow, "_track_workflow_event", track_event)
+        monkeypatch.setattr(workflow, "_post_slack_update", post_slack_update)
+        monkeypatch.setattr(workflow, "_restore_pending_followups", AsyncMock())
+        monkeypatch.setattr(workflow, "_ensure_sandbox_workflow_started", AsyncMock())
+        monkeypatch.setattr(workflow, "_wait_for_event", fail_at_budget)
+        monkeypatch.setattr(
+            workflow, "_update_task_run_status", AsyncMock(side_effect=lambda *_args, **_kwargs: order.append("status"))
+        )
+        monkeypatch.setattr(workflow, "_persist_pending_followups_until_stable", persist_until_stable)
+
+        result = await workflow.run(TaskRunManagementInput(run_id="run-id", slack_thread_context={"channel": "C1"}))
+
+        assert result.success is False
+        assert order[-4:] == ["status", "final-slack", "handlers-drained", "persist"]
 
     async def test_closed_child_clears_all_steers_and_rebootstraps_in_order(
         self, monkeypatch, fixed_now, silent_workflow_logger
@@ -1681,7 +1764,7 @@ class TestPendingFollowupPersistence:
 
     async def test_persist_writes_current_queue(self, monkeypatch):
         from products.tasks.backend.temporal.task_management.activities.pending_followups import (
-            persist_pending_followups,
+            persist_pending_followups_v2,
         )
 
         workflow = TaskManagementWorkflow()
@@ -1693,7 +1776,7 @@ class TestPendingFollowupPersistence:
         captured: dict = {}
 
         async def fake_execute_activity(activity_fn, input_arg, *args, **kwargs):
-            assert activity_fn is persist_pending_followups
+            assert activity_fn is persist_pending_followups_v2
             captured["input"] = input_arg
             return None
 
@@ -1705,3 +1788,4 @@ class TestPendingFollowupPersistence:
         assert captured["input"].followups == [
             {"message": "persist-me", "artifact_ids": ["a1"], "source": "user", "steer": False, "sequence": 0}
         ]
+        assert captured["input"].generation > 0
