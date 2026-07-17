@@ -150,6 +150,7 @@ the row lists both.
 | convertkit                       | HTTP                        | requests                                                        | ✅                          |
 | convex                           | HTTP                        | requests                                                        | ✅                          |
 | copper                           | HTTP                        | requests                                                        | ✅                          |
+| coralogix                        | HTTP                        | requests                                                        | ✅                          |
 | coupa                            | HTTP                        | requests                                                        | ✅                          |
 | coveralls                        | HTTP                        | requests                                                        | ✅                          |
 | crates_io                        | HTTP                        | requests                                                        | ✅                          |
@@ -645,7 +646,6 @@ doesn't conflict with concurrent PRs.
 - codecov
 - constant_contact
 - copper
-- coralogix
 - cosmosdb
 - couchbase
 - criteo

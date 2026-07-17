@@ -1079,7 +1079,17 @@ class CopperSourceConfig(config.Config):
 
 @config.config
 class CoralogixSourceConfig(config.Config):
-    pass
+    api_key: str
+    domain: Literal[
+        "coralogix.us",
+        "cx498.coralogix.com",
+        "coralogix.com",
+        "eu2.coralogix.com",
+        "coralogix.in",
+        "coralogixsg.com",
+        "ap3.coralogix.com",
+    ] = config.value(default="coralogix.us")
+    tier: Literal["frequent_search", "archive"] = config.value(default="frequent_search")
 
 
 @config.config
