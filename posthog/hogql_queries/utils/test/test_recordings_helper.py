@@ -1,3 +1,5 @@
+from typing import Any
+
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
@@ -17,7 +19,7 @@ class TestRecordingsHelper(TestCase):
 
         # Each query echoes back the IDs it was asked about, so we can assert the union is complete
         # and that no single query received more than one batch of IDs.
-        def fake_execute(query, placeholders, team, user):  # type: ignore[no-untyped-def]
+        def fake_execute(query: str, placeholders: dict[str, Any], team: Any, user: Any) -> MagicMock:
             in_array = placeholders["where_predicates"].right
             returned_ids = [const.value for const in in_array.exprs]
             assert len(returned_ids) <= SESSION_ID_BATCH_SIZE
