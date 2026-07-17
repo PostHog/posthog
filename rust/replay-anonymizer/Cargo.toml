@@ -1,6 +1,6 @@
 [package]
 name = "posthog-replay-anonymizer"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "PII scrubber for rrweb session-replay events: text/URL redaction, native image blur, and canvas/cv neutralization"
 license = "MIT"
@@ -9,6 +9,12 @@ repository = "https://github.com/PostHog/posthog"
 
 [lints]
 workspace = true
+
+[features]
+default = ["typed-parse"]
+# Typed rrweb parse output (the `typed` module) for offline consumers. The Node addon builds with
+# `default-features = false` so the AST types stay out of the ingestion cdylib entirely.
+typed-parse = []
 
 [dependencies]
 ahash = { workspace = true }
