@@ -7,6 +7,9 @@ import { PropertyFilterList, type PropertyFilter } from './PropertyFilterList'
 // Matches SUPER_CONDITION_INDEX in rust/feature-flags/src/api/types.rs: the early-access
 // enrollment super condition has no position among the zero-based release conditions.
 export const SUPER_CONDITION_INDEX = -1
+// Matches HOLDOUT_CONDITION_INDEX in rust/feature-flags/src/api/types.rs: the holdout has no
+// position among the zero-based release conditions either.
+export const HOLDOUT_CONDITION_INDEX = -2
 
 export interface ConditionAnalysis {
     index: number
@@ -148,15 +151,18 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                                 <span className="text-sm font-medium">
                                                     {condition.index === SUPER_CONDITION_INDEX
                                                         ? 'Early access enrollment:'
-                                                        : `Condition #${condition.index + 1}:`}
+                                                        : condition.index === HOLDOUT_CONDITION_INDEX
+                                                          ? 'Holdout:'
+                                                          : `Condition #${condition.index + 1}:`}
                                                 </span>
                                                 <Badge variant={condition.matched ? 'success' : 'destructive'}>
                                                     {condition.matched ? 'Matched' : 'No match'}
                                                 </Badge>
-                                                {/* enrollment super condition has no rollout */}
-                                                {condition.index !== SUPER_CONDITION_INDEX && (
-                                                    <Badge>{condition.rollout_percentage}% rollout</Badge>
-                                                )}
+                                                {/* enrollment and holdout entries have no release rollout */}
+                                                {condition.index !== SUPER_CONDITION_INDEX &&
+                                                    condition.index !== HOLDOUT_CONDITION_INDEX && (
+                                                        <Badge>{condition.rollout_percentage}% rollout</Badge>
+                                                    )}
                                                 {condition.variant && <Badge variant="info">{condition.variant}</Badge>}
                                             </div>
                                             {(condition.explanation || condition.reason) && (

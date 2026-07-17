@@ -18,6 +18,9 @@ import { featureFlagTestingLogic } from './featureFlagTestingLogic'
 // Matches SUPER_CONDITION_INDEX in rust/feature-flags/src/api/types.rs: the early-access
 // enrollment super condition has no position among the zero-based release conditions.
 const SUPER_CONDITION_INDEX = -1
+// Matches HOLDOUT_CONDITION_INDEX in rust/feature-flags/src/api/types.rs: the holdout has no
+// position among the zero-based release conditions either.
+const HOLDOUT_CONDITION_INDEX = -2
 
 const CONDITION_DISPLAY_STYLES = {
     success: {
@@ -422,7 +425,9 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                                                     <h6 className="font-medium text-sm">
                                                                         {condition.index === SUPER_CONDITION_INDEX
                                                                             ? 'Early access enrollment'
-                                                                            : `Condition #${condition.index + 1}`}
+                                                                            : condition.index === HOLDOUT_CONDITION_INDEX
+                                                                              ? 'Holdout'
+                                                                              : `Condition #${condition.index + 1}`}
                                                                     </h6>
                                                                     {condition.display.label && (
                                                                         <span

@@ -5,6 +5,7 @@ import {
     type ConditionAnalysis,
     type FeatureFlagTestingData,
     FeatureFlagTestingView,
+    HOLDOUT_CONDITION_INDEX,
     SUPER_CONDITION_INDEX,
 } from './FeatureFlagTestingView'
 
@@ -51,9 +52,14 @@ describe('FeatureFlagTestingView', () => {
             expectedLabel: 'Early access enrollment',
         },
         // The matcher sets condition_index: None for a holdout win, which is why the guard also
-        // has to check flag.reason directly, not just condition_index !== null. Holdout has no
-        // per-condition entry yet, so its label still comes from flag.reason.
-        { reason: 'holdout_condition_value', condition_index: null, conditions: [], expectedLabel: 'Holdout' },
+        // has to check flag.reason directly, not just condition_index !== null. The label reads
+        // flag.reason since the matched entry sits at the holdout sentinel, not the enrollment one.
+        {
+            reason: 'holdout_condition_value',
+            condition_index: null,
+            conditions: [{ index: HOLDOUT_CONDITION_INDEX, matched: true, rollout_percentage: 100 }],
+            expectedLabel: 'Holdout',
+        },
         { reason: 'condition_match', condition_index: 2, conditions: [], expectedLabel: '#3' },
     ]
 
@@ -82,6 +88,24 @@ describe('FeatureFlagTestingView', () => {
         )
 
         expect(screen.getByText('Early access enrollment')).toBeTruthy()
+    })
+
+    it('labels the holdout entry in the condition breakdown, not "Condition #-1"', () => {
+        // A holdout win now carries a synthetic entry at the holdout sentinel index; the breakdown
+        // must render it as "Holdout:" rather than deriving "Condition #<sentinel+1>" from the index.
+        render(
+            <FeatureFlagTestingView
+                flag={{
+                    ...baseFlag,
+                    reason: 'holdout_condition_value',
+                    condition_index: null,
+                    conditions: [{ index: HOLDOUT_CONDITION_INDEX, matched: true, rollout_percentage: 100 }],
+                }}
+            />
+        )
+
+        expect(screen.getByText('Holdout:')).toBeTruthy()
+        expect(screen.queryByText(`Condition #${HOLDOUT_CONDITION_INDEX + 1}:`)).toBeNull()
     })
 
     it('hides the matched-condition line when there is no condition index and no holdout', () => {
