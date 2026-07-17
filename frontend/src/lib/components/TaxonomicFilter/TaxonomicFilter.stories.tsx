@@ -550,7 +550,10 @@ const RENAMED_SERIES_ARGS: TaxonomicFilterProps = {
 }
 
 const RENAMED_SERIES_PARAMETERS = {
-    testOptions: { waitForSelector: '.taxonomic-infinite-list' },
+    // Wait on the promoted renamed row itself: the picker also mounts hidden, empty
+    // Recent/Pinned lists ahead of the active Events list, and the test runner waits on
+    // the FIRST `.taxonomic-infinite-list` match — which never becomes visible.
+    testOptions: { waitForSelector: '.taxonomic-list-row .EntityFilterInfo' },
 }
 
 export const RenamedSeriesSelected: Story = {
