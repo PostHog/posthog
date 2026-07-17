@@ -73,12 +73,15 @@ export function Exporter(props: ExportedData): JSX.Element {
 
     // A metric insight sizes to a square card rather than filling the viewport, so drop the 100vh floor
     // that would otherwise leave empty space below it (see Exporter.scss and ExportedInsight.scss).
+    // Applies to both saved insights and ad-hoc query exports — the image exporter narrows
+    // the screenshot viewport for both.
+    const metricQuery = insight?.query ?? query
     const metric =
-        insight &&
-        isInsightVizNode(insight.query) &&
-        isTrendsQuery(insight.query.source) &&
-        insight.query.source.trendsFilter?.display === ChartDisplayType.Metric
-            ? insight
+        metricQuery &&
+        isInsightVizNode(metricQuery) &&
+        isTrendsQuery(metricQuery.source) &&
+        metricQuery.source.trendsFilter?.display === ChartDisplayType.Metric
+            ? metricQuery
             : undefined
 
     const { currentTeam } = useValues(teamLogic)
@@ -199,7 +202,12 @@ export function Exporter(props: ExportedData): JSX.Element {
                     </Suspense>
                 ) : query ? (
                     <Suspense fallback={<ExportedSceneSkeleton />}>
-                        <LazyQueryScene query={query} queryResults={queryResults} themes={themes!} />
+                        <LazyQueryScene
+                            query={query}
+                            queryResults={queryResults}
+                            themes={themes!}
+                            exportOptions={exportOptions}
+                        />
                     </Suspense>
                 ) : dashboard ? (
                     <Suspense fallback={<ExportedSceneSkeleton />}>

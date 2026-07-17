@@ -2,10 +2,30 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.exports.backend.facade.api import _enable_legend_for_multi_series
+from products.exports.backend.facade.api import _validate_adhoc_export_context
+from products.exports.backend.tasks.image_exporter import _insight_query_wants_legend
 
 
-class TestEnableLegendForMultiSeries(SimpleTestCase):
+class TestValidateAdhocExportContext(SimpleTestCase):
+    def test_accepts_insight_viz_wrapped_source(self):
+        _validate_adhoc_export_context(
+            {"source": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"event": "a"}]}}}
+        )
+
+    @parameterized.expand(
+        [
+            ("bare_trends_query", {"source": {"kind": "TrendsQuery", "series": [{"event": "a"}]}}),
+            ("data_table", {"source": {"kind": "DataTableNode"}}),
+            ("non_dict_source", {"source": "SELECT 1"}),
+            ("missing_source", {}),
+        ]
+    )
+    def test_rejects_unwrapped_sources(self, _name, export_context):
+        with self.assertRaises(ValueError):
+            _validate_adhoc_export_context(export_context)
+
+
+class TestInsightQueryWantsLegend(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -29,9 +49,9 @@ class TestEnableLegendForMultiSeries(SimpleTestCase):
                 True,
             ),
             (
-                "single_series_untouched",
+                "single_series_skipped",
                 {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"event": "a"}]}},
-                None,
+                False,
             ),
             (
                 "explicit_false_respected",
@@ -45,12 +65,8 @@ class TestEnableLegendForMultiSeries(SimpleTestCase):
                 },
                 False,
             ),
+            ("non_insight_kind", {"kind": "DataTableNode"}, False),
         ]
     )
-    def test_legend_defaulting(self, _name, query, expected_show_legend):
-        _enable_legend_for_multi_series(query)
-        self.assertEqual(query["source"].get("trendsFilter", {}).get("showLegend"), expected_show_legend)
-
-    @parameterized.expand([("non_dict", "SELECT 1"), ("non_insight_kind", {"kind": "DataTableNode"}), ("none", None)])
-    def test_ignores_non_insight_shapes(self, _name, query):
-        _enable_legend_for_multi_series(query)
+    def test_legend_defaulting(self, _name, query, expected):
+        self.assertEqual(_insight_query_wants_legend(query), expected)
