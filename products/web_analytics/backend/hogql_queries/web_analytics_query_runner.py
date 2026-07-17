@@ -257,23 +257,31 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
 
     @cached_property
     def _session_id_set_flag_enabled(self) -> bool:
-        """Evaluate the rollout flag locally — fails closed on flag-service errors."""
-        return bool(
-            posthoganalytics.feature_enabled(
-                SESSION_ID_SET_FEATURE_FLAG_KEY,
-                str(self.team.uuid),
-                groups={
-                    "organization": str(self.team.organization_id),
-                    "project": str(self.team.id),
-                },
-                group_properties={
-                    "organization": {"id": str(self.team.organization_id)},
-                    "project": {"id": str(self.team.id)},
-                },
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
+        """Evaluate the rollout flag locally — fails closed on flag-service errors.
+
+        A raised exception here must never fail the query: the fast path is an
+        optimization, so any flag-evaluation failure degrades to the join path.
+        """
+        try:
+            return bool(
+                posthoganalytics.feature_enabled(
+                    SESSION_ID_SET_FEATURE_FLAG_KEY,
+                    str(self.team.uuid),
+                    groups={
+                        "organization": str(self.team.organization_id),
+                        "project": str(self.team.id),
+                    },
+                    group_properties={
+                        "organization": {"id": str(self.team.organization_id)},
+                        "project": {"id": str(self.team.id)},
+                    },
+                    only_evaluate_locally=True,
+                    send_feature_flag_events=False,
+                )
             )
-        )
+        except Exception as e:
+            logger.warning("web_analytics_session_id_set_flag_evaluation_failed", error=e, team_id=self.team.pk)
+            return False
 
     def _session_id_set_common_eligibility(self) -> bool:
         """Shared gates for the session-id-set fast paths (filtered two-scan shape).
