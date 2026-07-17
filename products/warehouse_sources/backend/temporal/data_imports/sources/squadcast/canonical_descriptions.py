@@ -75,7 +75,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "email": "Email address that creates incidents on this service.",
             "escalation_policy_id": "ID of the escalation policy attached to the service.",
             "organization_id": "ID of the organization the service belongs to.",
-            "api_key": "API key used by alert sources to send events to this service.",
             "description": "Description of the service.",
             "depends": "IDs of services this service depends on.",
             "owner": "Owner (typically a team) of the service.",

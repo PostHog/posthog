@@ -25,6 +25,9 @@ class SquadcastEndpointConfig:
     primary_key: str = "id"
     partition_key: Optional[str] = None  # Stable datetime field used to partition (never a mutable field)
     incremental_fields: list[IncrementalField] = field(default_factory=list)
+    # Credential-bearing row fields dropped before rows are yielded, so live keys never
+    # land in warehouse tables readable by any PostHog user.
+    sensitive_fields: tuple[str, ...] = ()
 
 
 _CREATED_AT_INCREMENTAL: list[IncrementalField] = [
@@ -59,6 +62,8 @@ SQUADCAST_ENDPOINTS: dict[str, SquadcastEndpointConfig] = {
     "services": SquadcastEndpointConfig(
         path="/v3/services",
         team_param="owner_id",
+        # `api_key` is the live key alert sources use to send events to the service.
+        sensitive_fields=("api_key",),
     ),
     "escalation_policies": SquadcastEndpointConfig(
         # The endpoint documents optional `page_number`/`page_size` params, but their base

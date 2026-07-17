@@ -102,15 +102,19 @@ class SquadcastClient:
         self._auth_host, self.api_host = _hosts_for_region(region)
         self._refresh_token = refresh_token
         self._logger = logger
-        # One session reused across every request so urllib3 keeps the connection alive.
-        self._session = make_tracked_session()
+        # Sessions are reused across requests so urllib3 keeps the connection alive. The refresh
+        # token is masked in logs/samples, and redirects are disabled so credentialed headers
+        # can't be replayed to a redirect target. The token exchange gets its own session
+        # excluded from HTTP sample capture — its response body carries the minted tokens.
+        self._session = make_tracked_session(redact_values=(refresh_token,), allow_redirects=False)
+        self._auth_session = make_tracked_session(redact_values=(refresh_token,), allow_redirects=False, capture=False)
         self._access_token: Optional[str] = None
         self._token_expires_at: float = 0
 
     def _get_access_token(self) -> str:
         now = time.time()
         if self._access_token is None or now >= self._token_expires_at - TOKEN_REFRESH_LEEWAY_SECONDS:
-            response = self._session.get(
+            response = self._auth_session.get(
                 f"{self._auth_host}/oauth/access-token",
                 headers={"X-Refresh-Token": self._refresh_token},
                 timeout=REQUEST_TIMEOUT_SECONDS,
@@ -172,10 +176,17 @@ def _extract_rows(data: Any, envelope: tuple[str, ...]) -> list[dict[str, Any]]:
     return current if isinstance(current, list) else []
 
 
-def _with_team(rows: list[dict[str, Any]], team_id: str) -> list[dict[str, Any]]:
-    """Stamp the owning team onto fan-out rows — most Squadcast payloads don't carry it."""
+def _prepare_rows(
+    rows: list[dict[str, Any]], config: SquadcastEndpointConfig, team_id: str | None = None
+) -> list[dict[str, Any]]:
+    """Drop credential-bearing fields (live keys must never land in warehouse tables) and stamp
+    the owning team onto fan-out rows — most Squadcast payloads don't carry it."""
     for row in rows:
-        if isinstance(row, dict) and "team_id" not in row:
+        if not isinstance(row, dict):
+            continue
+        for sensitive_field in config.sensitive_fields:
+            row.pop(sensitive_field, None)
+        if team_id is not None and "team_id" not in row:
             row["team_id"] = team_id
     return rows
 
@@ -195,7 +206,7 @@ def _iter_offset_pages(
         if not rows:
             break
 
-        yield _with_team(rows, team_id)
+        yield _prepare_rows(rows, config, team_id)
 
         if len(rows) < PAGE_SIZE:
             break
@@ -224,7 +235,7 @@ def _iter_cursor_pages(
         next_cursor = page_info.get("nextCursor") if page_info.get("hasNext") else None
 
         if rows:
-            yield _with_team(rows, team_id)
+            yield _prepare_rows(rows, config, team_id)
 
         if not next_cursor:
             break
@@ -269,7 +280,7 @@ def _iter_incident_export_windows(
             rows = _extract_rows(data, ("data",)) or _extract_rows(data, ("incidents",))
 
         if rows:
-            yield _with_team(rows, team_id)
+            yield _prepare_rows(rows, config, team_id)
 
         window_start = window_end
         if window_start < now:
@@ -318,7 +329,7 @@ def _get_postmortem_rows(
         )
 
     if rows:
-        yield _with_team(rows, team_id)
+        yield _prepare_rows(rows, config, team_id)
 
 
 def _iter_team_rows(
@@ -356,7 +367,7 @@ def _iter_team_rows(
                 )
 
         if rows:
-            yield _with_team(rows, team_id)
+            yield _prepare_rows(rows, config, team_id)
 
 
 def get_rows(
@@ -376,7 +387,7 @@ def get_rows(
         data = client.get(config.path)
         rows = _extract_rows(data, config.envelope)
         if rows:
-            yield rows
+            yield _prepare_rows(rows, config)
         return
 
     team_ids = [str(team["id"]) for team in _extract_rows(client.get("/v3/teams"), ("data",)) if team.get("id")]
@@ -460,10 +471,13 @@ def validate_credentials(
     The caller decides how to treat 403 (valid token, missing access for the probed endpoint).
     """
     auth_host, api_host = _hosts_for_region(region)
-    session = make_tracked_session()
+    # Same credential hardening as SquadcastClient: mask the refresh token, never follow
+    # redirects with credentialed headers, and keep the token exchange out of sample capture.
+    session = make_tracked_session(redact_values=(refresh_token,), allow_redirects=False)
+    auth_session = make_tracked_session(redact_values=(refresh_token,), allow_redirects=False, capture=False)
 
     try:
-        auth_response = session.get(
+        auth_response = auth_session.get(
             f"{auth_host}/oauth/access-token",
             headers={"X-Refresh-Token": refresh_token},
             timeout=10,

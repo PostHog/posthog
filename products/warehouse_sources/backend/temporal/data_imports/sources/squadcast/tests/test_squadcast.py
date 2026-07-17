@@ -184,6 +184,44 @@ class TestAuth:
         assert urls[1].startswith("https://api.eu.squadcast.com/")
 
 
+class TestCredentialHardening:
+    # The refresh token is long-lived: dropping redaction would persist it via HTTP sample
+    # capture, and following redirects would replay credentialed headers to the target.
+    def _assert_hardened(self, factory: MagicMock) -> None:
+        assert factory.call_args_list
+        for call in factory.call_args_list:
+            assert call.kwargs["redact_values"] == ("refresh_tok",)
+            assert call.kwargs["allow_redirects"] is False
+        # The token exchange session is excluded from sample capture — its response body
+        # carries the minted tokens.
+        assert any(call.kwargs.get("capture") is False for call in factory.call_args_list)
+
+    def test_sync_sessions_are_hardened(self) -> None:
+        session = FakeSession(
+            _standard_handler(
+                teams=[],
+                endpoint_responses={"/v3/users": lambda url: _mock_response(200, body={"data": [{"id": "u1"}]})},
+            )
+        )
+        with patch(f"{SQUADCAST_MODULE}.make_tracked_session", return_value=session) as factory:
+            list(get_rows("refresh_tok", "us", "users", MagicMock(), FakeResumableManager()))  # type: ignore[arg-type]
+
+        self._assert_hardened(factory)
+
+    def test_validate_credentials_sessions_are_hardened(self) -> None:
+        session = FakeSession(
+            lambda url, headers: (
+                _mock_response(200, body=_auth_body())
+                if "/oauth/access-token" in url
+                else _mock_response(200, body={"data": []})
+            )
+        )
+        with patch(f"{SQUADCAST_MODULE}.make_tracked_session", return_value=session) as factory:
+            validate_credentials("refresh_tok", "us")
+
+        self._assert_hardened(factory)
+
+
 class TestTeamFanOut:
     def test_rows_fetched_per_team_and_stamped_with_team_id(self) -> None:
         def services(url: str) -> MagicMock:
@@ -199,6 +237,17 @@ class TestTeamFanOut:
             [{"id": "svc_t1", "team_id": "t1"}],
             [{"id": "svc_t2", "team_id": "t2"}],
         ]
+
+    def test_services_api_key_never_reaches_yielded_rows(self) -> None:
+        # The services payload carries the live key alert sources use to send events;
+        # syncing it would expose it to anyone who can read the warehouse table.
+        def services(url: str) -> MagicMock:
+            return _mock_response(200, body={"data": [{"id": "svc_1", "api_key": "sq_live_key", "name": "checkout"}]})
+
+        session = FakeSession(_standard_handler(teams=[{"id": "t1"}], endpoint_responses={"/v3/services": services}))
+        batches = _run_get_rows(session, "services")
+
+        assert batches == [[{"id": "svc_1", "name": "checkout", "team_id": "t1"}]]
 
     def test_team_without_access_is_skipped(self) -> None:
         def services(url: str) -> MagicMock:
