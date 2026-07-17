@@ -214,6 +214,34 @@ ORDER BY week
 Name it "open to first review", not "time in review": there is no ready-for-review timestamp, so draft time is fused in, same caveat as `open_to_merge_seconds`.
 The reviewer handle is `ifNull(JSONExtractString(user, 'login'), '')` when needed (e.g. to exclude self-reviews by comparing against `author_handle`) — but never build per-reviewer leaderboards.
 
+## Recipe: a team's weekly merge time (team_members table)
+
+`<prefix>github_team_members` maps PR authors to GitHub org teams (every column lands Nullable; drop empty logins — they would match deleted-account authors).
+Attribute PRs to a team with a membership **semi-join**, the shape the product's own team merge trend uses — a plain JOIN would double-count authors who belong to several teams:
+
+```sql
+WITH prs AS (<PR base>),
+members AS (
+    SELECT ifNull(login, '') AS member_handle
+    FROM github_team_members
+    WHERE ifNull(team_slug, '') = 'my-team'
+      AND ifNull(login, '') != ''
+)
+SELECT
+    toStartOfWeek(merged_at) AS week,
+    median(open_to_merge_seconds) / 3600 AS p50_hours,
+    count() AS merged_prs
+FROM prs
+WHERE merged_at >= now() - INTERVAL 90 DAY
+  AND NOT is_bot
+  AND author_handle IN (SELECT member_handle FROM members)
+GROUP BY week
+ORDER BY week
+```
+
+Only team-level aggregates leave the query — no per-member figures, no cross-team rankings.
+Note the namespace: these are GitHub org team slugs, while the `engineering-analytics-team-ci-health` tool groups by the repo's ownership map (`products/*/product.yaml` + CODEOWNERS); a team whose slugs differ across the two won't line up between such insights and that tool.
+
 ## Recipe: distinct CI failures per day (ci_failures view)
 
 ```sql

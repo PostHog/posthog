@@ -22,7 +22,8 @@ and the endpoints cannot themselves be saved as insights or subscribed to.
 The data, however, is queryable directly, through two substrates:
 
 - **Raw warehouse tables** — `<prefix>github_pull_requests`, `<prefix>github_workflow_runs`,
-  `<prefix>github_workflow_jobs`, and `<prefix>github_reviews` — ordinary team-scoped tables you query with HogQL.
+  `<prefix>github_workflow_jobs`, `<prefix>github_reviews`, and `<prefix>github_teams` /
+  `<prefix>github_team_members` (org team membership — the author→team map) — ordinary team-scoped tables you query with HogQL.
 - **Three curated warehouse views** with fixed names — `engineering_analytics_job_costs`,
   `engineering_analytics_ci_job_history`, `engineering_analytics_ci_failures` — provisioned per team from the
   connected GitHub source(s).
@@ -38,6 +39,7 @@ re-derive in SQL what the three views already encode.
 | --------------------------------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------- |
 | PR list, merge times, CI status, workflow health    | Data warehouse tables `<prefix>github_pull_requests`, `<prefix>github_workflow_runs`  | **Yes** (SQL insight over the tables)          |
 | Reviews and approvals                               | `<prefix>github_reviews`                                                              | **Yes**                                        |
+| Team-level PR metrics (author→team attribution)     | `<prefix>github_team_members` semi-joined against the PR authors                      | **Yes** (team aggregates only)                 |
 | Job durations, queue times, runner tiers            | `<prefix>github_workflow_jobs`                                                        | **Yes**                                        |
 | CI cost (runner-tier price ladder)                  | `engineering_analytics_job_costs` view                                                | **Yes** (query the view, never recompute cost) |
 | Per-job CI history with commit attribution          | `engineering_analytics_ci_job_history` view                                           | **Yes**                                        |
@@ -53,7 +55,7 @@ everything computed by product logic at request time stays on the MCP tools, del
 
 Warehouse table names carry a user-chosen prefix, so never hardcode them.
 Call the `engineering-analytics-sources` MCP tool: each connected GitHub source returns its `id`, `repo`, and `prefix`.
-The tables are `<prefix>github_pull_requests`, `<prefix>github_workflow_runs`, `<prefix>github_workflow_jobs`, and `<prefix>github_reviews`;
+The tables are `<prefix>github_pull_requests`, `<prefix>github_workflow_runs`, `<prefix>github_workflow_jobs`, `<prefix>github_reviews`, and `<prefix>github_teams` / `<prefix>github_team_members`;
 an empty prefix means the plain `github_*` names.
 With multiple sources, ask which repo the user means; each source is one repo.
 
@@ -75,6 +77,7 @@ Copy the base subqueries from [references/hogql-recipes.md](references/hogql-rec
 - **Honest names.** `merged_at - created_at` is `open_to_merge_seconds` (it fuses draft and review time); never label an insight "cycle time" or "review time".
 - **Conclusions can be stale.** The runs sync watermarks on `created_at`; a run that completes late can show a stale conclusion. Compute rates over `status = 'completed'` rows only.
 - **Reviews join by `pr_number`.** In `github_reviews`, `state` is `APPROVED` / `CHANGES_REQUESTED` / `COMMENTED` / `DISMISSED` (pending drafts are dropped at sync), and the injected `pr_number` joins to the PR table's `number`.
+- **Author→team attribution is a membership semi-join.** Filter `author_handle IN (SELECT member_handle FROM …)` against `github_team_members` (see the team recipe) — the shape the product's own team merge trend uses. A person can belong to several GitHub teams, so a plain JOIN would double-count their PRs across teams; and only team-level aggregates leave the query, never per-member figures.
 
 Test the query with the `execute-sql` MCP tool (or the SQL editor) before saving anything.
 
@@ -127,3 +130,4 @@ CI conclusions can lag until the run's webhook settles;
 `ci_failures` is pytest-only and failure-only, so its counts are absolute signal, never rates;
 bots and drafts are excluded (or not: say which).
 And never build per-author leaderboards or cross-author rankings; per-developer surveillance is an explicit product non-goal.
+When a team-level split is wanted, group through the `github_team_members` membership semi-join instead.
