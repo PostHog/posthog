@@ -53,6 +53,7 @@ function getGroupEventsQuery(groupTypeIndex: number, groupKey: string): DataTabl
 export type GroupLogicProps = {
     groupTypeIndex: number
     groupKey: string
+    tabId?: string
 }
 
 export interface GroupBackNavigation {
@@ -245,7 +246,7 @@ export type groupLogicType = MakeLogicType<groupLogicValues, groupLogicActions, 
 
 export const groupLogic = kea<groupLogicType>([
     props({} as GroupLogicProps),
-    key(({ groupKey, groupTypeIndex }) => `${groupTypeIndex}-${groupKey}`),
+    key(({ groupKey, groupTypeIndex, tabId }) => `${groupTypeIndex}-${groupKey}-${tabId}`),
     path((key) => ['scenes', 'groups', 'groupLogic', key]),
     connect(() => ({
         actions: [groupsModel, ['createDetailDashboard']],

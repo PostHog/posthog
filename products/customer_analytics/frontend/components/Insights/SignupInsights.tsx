@@ -7,7 +7,7 @@ import {
 } from 'products/customer_analytics/frontend/customerAnalyticsSceneLogic'
 
 export function SignupInsights(): JSX.Element {
-    const { signupInsights } = useValues(customerAnalyticsSceneLogic)
+    const { signupInsights, tabId } = useValues(customerAnalyticsSceneLogic)
 
     return (
         <div className="space-y-2">
@@ -16,17 +16,23 @@ export function SignupInsights(): JSX.Element {
             </div>
             <div className="grid grid-cols-[1fr_1fr_2fr] gap-2">
                 {signupInsights.slice(0, 3).map((insight, index) => {
-                    return <CustomerAnalyticsQueryCard key={index} insight={insight as InsightDefinition} />
+                    return (
+                        <CustomerAnalyticsQueryCard key={index} insight={insight as InsightDefinition} tabId={tabId} />
+                    )
                 })}
             </div>
             <div className="grid grid-cols-3 gap-2">
                 {signupInsights.slice(3, 6).map((insight, index) => {
-                    return <CustomerAnalyticsQueryCard key={index} insight={insight as InsightDefinition} />
+                    return (
+                        <CustomerAnalyticsQueryCard key={index} insight={insight as InsightDefinition} tabId={tabId} />
+                    )
                 })}
             </div>
             <div className="grid grid-cols-2 gap-2">
                 {signupInsights.slice(6).map((insight, index) => {
-                    return <CustomerAnalyticsQueryCard key={index} insight={insight as InsightDefinition} />
+                    return (
+                        <CustomerAnalyticsQueryCard key={index} insight={insight as InsightDefinition} tabId={tabId} />
+                    )
                 })}
             </div>
         </div>

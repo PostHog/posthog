@@ -43,6 +43,10 @@ import { customerAnalyticsConfigLogic } from './customerAnalyticsConfigLogic'
 
 export type BusinessType = 'b2c' | 'b2b'
 
+export interface CustomerAnalyticsSceneLogicProps {
+    tabId: string
+}
+
 export interface InsightDefinition {
     name: string
     description?: string
@@ -324,6 +328,10 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
     })),
     selectors({
+        tabId: [
+            () => [(_, props: CustomerAnalyticsSceneLogicProps) => props.tabId],
+            (tabIdProp: string): string => tabIdProp,
+        ],
         activeTab: [
             (s) => [s.sceneKey],
             (sceneKey: string | null): 'dashboard' | 'journeys' | 'accounts' | 'notes' => {

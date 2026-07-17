@@ -16,17 +16,18 @@ import { CustomerProfileMenu } from './CustomerProfileMenu'
 
 interface GroupProfileCanvasProps {
     group: Group
+    tabId: string
     attachTo: BuiltLogic | LogicWrapper
 }
 
-export const GroupProfileCanvas = ({ group, attachTo }: GroupProfileCanvasProps): JSX.Element => {
+export const GroupProfileCanvas = ({ group, tabId, attachTo }: GroupProfileCanvasProps): JSX.Element => {
     const { aggregationLabel } = useValues(groupsModel)
     const { reportGroupProfileViewed } = useActions(eventUsageLogic)
 
     const groupKey = group.group_key
     const groupTypeIndex = group.group_type_index
     const mode = 'canvas'
-    const shortId = `${mode}-${groupKey}`
+    const shortId = `${mode}-${groupKey}-${tabId}`
     const attrs = useMemo(
         () => ({
             groupKey,
@@ -37,7 +38,7 @@ export const GroupProfileCanvas = ({ group, attachTo }: GroupProfileCanvasProps)
     const customerProfileLogicProps = {
         attrs,
         scope: CustomerProfileScope[`GROUP_${groupTypeIndex}`],
-        key: `customer-profile-${groupKey}`,
+        key: `customer-profile-${groupKey}-${tabId}`,
         canvasShortId: shortId,
     }
     const { content } = useValues(customerProfileLogic(customerProfileLogicProps))
@@ -65,7 +66,7 @@ export const GroupProfileCanvas = ({ group, attachTo }: GroupProfileCanvasProps)
 
     return (
         <BindLogic logic={notebookLogic} props={notebookLogicProps}>
-            <BindLogic logic={groupLogic} props={{ groupKey, groupTypeIndex }}>
+            <BindLogic logic={groupLogic} props={{ groupKey, groupTypeIndex, tabId }}>
                 <BindLogic logic={customerProfileLogic} props={customerProfileLogicProps}>
                     <CustomerProfileMenu />
                     <Notebook
