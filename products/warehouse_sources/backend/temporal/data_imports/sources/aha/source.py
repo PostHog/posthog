@@ -109,9 +109,10 @@ Create an API key under **Settings → Personal → Developer → API keys** in 
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        # `supports_incremental`/`supports_append` derive from the endpoint having incremental
-        # fields, which matches the per-endpoint `supports_incremental` flag in settings.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # `build_endpoint_schemas` treats any endpoint present in the mapping as incremental, so
+        # drop the full-refresh endpoints (empty `incremental_fields`) to keep them full refresh.
+        incremental_fields = {name: fields for name, fields in INCREMENTAL_FIELDS.items() if fields}
+        return build_endpoint_schemas(ENDPOINTS, incremental_fields, names)
 
     def validate_credentials(
         self, config: AhaSourceConfig, team_id: int, schema_name: Optional[str] = None

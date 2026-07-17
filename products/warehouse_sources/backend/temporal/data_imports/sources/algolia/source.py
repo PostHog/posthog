@@ -21,7 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.al
 from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.settings import (
     ALGOLIA_ENDPOINTS,
     ENDPOINTS,
-    INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -125,10 +124,11 @@ The API key needs the ACLs for the data you want to sync:
     ) -> list[SourceSchema]:
         # No Algolia endpoint exposes a server-side "updated since" filter, so every table is
         # full refresh (no incremental fields); the cursor/page tokens still make each one
-        # resumable.
+        # resumable. An empty mapping keeps every endpoint full refresh, since
+        # `build_endpoint_schemas` treats any present entry as incremental.
         return build_endpoint_schemas(
             ENDPOINTS,
-            INCREMENTAL_FIELDS,
+            {},
             names,
             descriptions=_ENDPOINT_DESCRIPTIONS,
             should_sync_default={name: cfg.should_sync_default for name, cfg in ALGOLIA_ENDPOINTS.items()},
