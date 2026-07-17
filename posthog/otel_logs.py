@@ -157,6 +157,7 @@ def otel_log_mirror_processor(
 
             from opentelemetry.sdk._logs import LogRecord  # noqa: PLC0415
             from opentelemetry.sdk.resources import Resource  # noqa: PLC0415
+            from opentelemetry.trace import TraceFlags  # noqa: PLC0415
 
             if resource[0] is None:
                 # Pin the resource: a record built without it defaults to the pod's OTEL_SERVICE_NAME,
@@ -168,10 +169,15 @@ def otel_log_mirror_processor(
             attributes = _scalar_attributes(event_dict, allowlist)
             attributes.update(_exception_type(event_dict))
             timestamp = time.time_ns()
+            # These logs carry no trace context. Set the invalid (zero) trace/span ids explicitly:
+            # the OTLP proto encoder serializes them as bytes and crashes on the default None.
             provider.get_logger(service_name, version="1").emit(
                 LogRecord(
                     timestamp=timestamp,
                     observed_timestamp=timestamp,
+                    trace_id=0,
+                    span_id=0,
+                    trace_flags=TraceFlags(TraceFlags.DEFAULT),
                     severity_text=severity_text,
                     severity_number=severity_number,
                     body=str(event_dict.get("event", "")),
