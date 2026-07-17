@@ -20,6 +20,7 @@ import {
 } from '@/tools/render-ui'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 
+import { trackSkillInvoked } from './analytics'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import { getEffectiveMCPClientContext } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
@@ -145,7 +146,8 @@ export class InstructionsBuilder {
                           ? undefined
                           : 'This connection is missing the llm_skill:read scope. Reconnect with that scope to read project skills.',
                   }
-                : undefined
+                : undefined,
+            (invocation) => void trackSkillInvoked(state, invocation)
         )
     }
 

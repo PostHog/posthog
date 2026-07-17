@@ -53,13 +53,22 @@ interface ExecLearnSkillSources {
     projectUnavailableReason?: string
 }
 
+/** A successful skill content read — the consumption signal behind `llma skill invoked`. */
+export interface SkillInvocation {
+    source: SkillSource
+    skill: string
+    path?: string
+    readKind: 'skill' | 'file' | 'file_search' | 'file_lines'
+}
+
 /** Combines small bundled guides with PostHog and current-project skills. */
 export class ExecLearnCatalog {
     private readonly guidesById: Map<string, ExecLearnGuide>
 
     constructor(
         guides: readonly ExecLearnGuide[],
-        private readonly skillSources?: ExecLearnSkillSources
+        private readonly skillSources?: ExecLearnSkillSources,
+        private readonly onSkillInvoked?: (invocation: SkillInvocation) => void
     ) {
         this.guidesById = new Map()
         for (const guide of guides) {
@@ -326,24 +335,39 @@ export class ExecLearnCatalog {
     }
 
     private async readSkill(skill: QualifiedSkill, path?: string): Promise<string> {
-        if (skill.source === 'posthog') {
-            return this.requirePostHogSkills().read(skill.name, path, skill.identifier)
-        }
-        return await this.requireProjectSkills().read(skill.name, path)
+        const content =
+            skill.source === 'posthog'
+                ? this.requirePostHogSkills().read(skill.name, path, skill.identifier)
+                : await this.requireProjectSkills().read(skill.name, path)
+        this.reportInvocation({ source: skill.source, skill: skill.name, path, readKind: path ? 'file' : 'skill' })
+        return content
     }
 
     private async searchSkillFile(skill: QualifiedSkill, path: string, query: string): Promise<string> {
-        if (skill.source === 'posthog') {
-            return this.requirePostHogSkills().searchFile(skill.name, path, query, skill.identifier)
-        }
-        return await this.requireProjectSkills().searchFile(skill.name, path, query)
+        const content =
+            skill.source === 'posthog'
+                ? this.requirePostHogSkills().searchFile(skill.name, path, query, skill.identifier)
+                : await this.requireProjectSkills().searchFile(skill.name, path, query)
+        this.reportInvocation({ source: skill.source, skill: skill.name, path, readKind: 'file_search' })
+        return content
     }
 
     private async readSkillLines(skill: QualifiedSkill, path: string, start: number, end: number): Promise<string> {
-        if (skill.source === 'posthog') {
-            return this.requirePostHogSkills().readLines(skill.name, path, start, end, skill.identifier)
+        const content =
+            skill.source === 'posthog'
+                ? this.requirePostHogSkills().readLines(skill.name, path, start, end, skill.identifier)
+                : await this.requireProjectSkills().readLines(skill.name, path, start, end)
+        this.reportInvocation({ source: skill.source, skill: skill.name, path, readKind: 'file_lines' })
+        return content
+    }
+
+    /** Fires only after a successful read; a listener failure never breaks `learn`. */
+    private reportInvocation(invocation: SkillInvocation): void {
+        try {
+            this.onSkillInvoked?.(invocation)
+        } catch {
+            // analytics must never break skill delivery
         }
-        return await this.requireProjectSkills().readLines(skill.name, path, start, end)
     }
 
     private validateSearchQuery(query: string): void {
