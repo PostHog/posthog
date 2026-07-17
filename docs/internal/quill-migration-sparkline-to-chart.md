@@ -69,6 +69,29 @@ Each is an independent, self-contained component swap — no shared flag needed 
 
 After 1–6, the wrapper's advanced props (`onSelectionChange`, `highlightedRange`, `incompleteBars`, `referenceLines`, `withXScale`/`withYScale`) have no callers left — drop them from `Sparkline.tsx`, collapsing it to the genuine-sparkline surface, and fold the cleanup into the sparkline doc's final step.
 
+## Effort assessment (verified against master, 2026-07-17) — start here
+
+The quill capabilities these need already exist: step 1 shipped the `HighlightedRange` overlay and per-bar `hatch`, and the base package already has `onDateRangeZoom`, `config.tooltip` (`hideZeroRows`/`sortedByValue`/`valueFormatter`/`labelFormatter`), `config.xAxis`, `config.legend`, and `ReferenceLine`.
+So **none of these six need new quill package work** — they're all app-side rewires. Effort is driven purely by how many features each consumer stacks.
+
+| Surface | Target | Effort | Why |
+| --- | --- | --- | --- |
+| `MetricsSeriesChart` | `TimeSeriesLineChart` | **Easy** | Multi-series lines + time axis + tooltip label; no interactions. Delete `MetricsChartLegend.tsx` in favor of `config.legend` and repoint its two type importers. |
+| `LogsSamplingForm` | `TimeSeriesBarChart` + `ReferenceLine` | **Easy** | No `withXScale`, no drag-select — just stacked bars + one rate-limit line + a bytes tooltip formatter + loading. Only nuance: use `config.goalLines` so the y-axis stretches to include the threshold when it's above the peak. |
+| `InvocationsSparkline` | `TimeSeriesBarChart` | **Easy–medium** | `onSelectionChange`→`onDateRangeZoom` is a 1:1 swap (both give `{startIndex,endIndex}`, same `dates[i]`/`dates[i+1]` math); `hideZerosInTooltip`/`sortTooltipByCount`→`config.tooltip.hideZeroRows`/`sortedByValue`. |
+| `OperationHistogram` | `BarChart` | **Medium** | Small and self-contained; categorical drag-select (confirmed working) + `HighlightedRange` fed by bucket labels (direct to the overlay's label API). |
+| `TracingSparkline` | `TimeSeriesBarChart` / `BarChart` | **Medium–hard** | Dual mode = two chart types behind the `durationMode` fork, each with its own `HighlightedRange`, plus the absolutely-positioned `SparklineCompareOverlay` must keep working over the new chart. See the dual-mode open question below. |
+| `LogsViewerSparkline` | `TimeSeriesBarChart` | **Hard** | Union of every feature, and its `highlightedRange` is continuous **ms timestamps** (not indices/labels) mirroring the virtualized visible-row window — needs a ms→label/index mapping onto the overlay. Do last, behind a flag, side-by-side. |
+
+Two findings that shrink the work vs. what the sparkline doc feared:
+
+- **Tooltip filtering is not a quill gap** — `config.tooltip`/`DefaultTooltip` already covers `hideZerosInTooltip`, `sortTooltipByCount`, `renderTooltipValue`, `renderLabel`. Only `tooltipRowCutoff` is dropped (quill scrolls past ~10 rows), which is cosmetic.
+- **The `withXScale` timeUnit/tickFormat ladders mostly evaporate** — quill's time axis is interval-aware by default; `config.xAxis` (+ an optional `tickFormatter` for custom cases) replaces those `useCallback` blocks in Invocations/Metrics/Tracing/LogsViewer.
+
+Behavioral deltas to verify in review (not blockers): quill bar tooltips hit-test filled segments (hovering empty space above a short bar shows nothing — accepted app-wide in step 2), and the `ReferenceLine` axis-headroom (#2) and ms-based highlight (#6) are the only spots needing thought.
+
+**Next step: ship the easy trio (1–3) — one PR each, no flag needed.** Start with Metrics (deletes the hand-rolled legend). 4 is a comfortable follow-up; 5 and 6 are the real work and each gets its own flagged PR with side-by-side verification.
+
 ## Testing
 
 Use `@posthog/quill-charts/testing` (`getHogChart`, tooltip accessors) per surface: drag-select index reporting, reference-line placement, highlighted-range coverage, histogram bucket rendering.
