@@ -343,6 +343,13 @@ DEPRECATED_DASHBOARDS_FIELD_USED_COUNTER = Counter(
 )
 
 
+# Access methods that are our own surfaces (web app, shared/exporter frontend) rather than
+# external integrations. Unresolved auth ("no_authenticator") comes from the web app too. These
+# keep receiving the deprecated `dashboards` field until the frontend fully migrates to
+# dashboard_tiles, regardless of opt-in enforcement.
+_FIRST_PARTY_ACCESS_METHODS = frozenset({"no_authenticator", "session", "sharing_token"})
+
+
 def _dashboards_field_access_method(request: Request | None) -> str:
     authenticator = getattr(request, "successful_authenticator", None)
     # An unresolved authenticator (no DRF auth ran) is treated as session below: it's not a
@@ -351,6 +358,8 @@ def _dashboards_field_access_method(request: Request | None) -> str:
         return "no_authenticator"
     if isinstance(authenticator, SessionAuthentication):
         return "session"
+    if isinstance(authenticator, SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication):
+        return "sharing_token"
     if isinstance(authenticator, PersonalAPIKeyAuthentication):
         return "personal_api_key"
     return type(authenticator).__name__
@@ -362,15 +371,8 @@ def _is_internal_serialization_context(context: dict) -> bool:
     return context.get("request") is None
 
 
-def _is_first_party_request(request: Request) -> bool:
-    authenticator = getattr(request, "successful_authenticator", None)
-    # Session (and unresolved-auth) requests come from the web app; sharing-token requests render
-    # PostHog's own shared/exporter frontend. Both are our surfaces, not external integrations,
-    # so they keep the field until the frontend fully migrates to dashboard_tiles.
-    return authenticator is None or isinstance(
-        authenticator,
-        SessionAuthentication | SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
-    )
+def _is_first_party_request(request: Request | None) -> bool:
+    return _dashboards_field_access_method(request) in _FIRST_PARTY_ACCESS_METHODS
 
 
 def should_serve_deprecated_dashboards_field(context: dict) -> bool:
@@ -448,7 +450,12 @@ class InsightBasicSerializer(
 
     @extend_schema_field(serializers.ListField(child=serializers.IntegerField()))
     def get_dashboards(self, instance: Insight) -> list[int]:
-        return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
+        # `to_representation` below always recomputes this field when serving it, so this only
+        # backs schema generation and any other caller of the method field directly. Excludes
+        # soft-deleted tiles to match that recomputation — filtered in Python, not with
+        # .exclude(), since a chained queryset bypasses the dashboard_tiles prefetch cache and
+        # reintroduces a per-insight query.
+        return [tile.dashboard_id for tile in instance.dashboard_tiles.all() if not tile.deleted]
 
     @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_last_viewed_at(self, instance: Insight):

@@ -2115,10 +2115,12 @@ class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
             ),
         ],
     ),
-    # Dashboards nest insight payloads, so the deprecated-`dashboards`-field opt-in applies to
-    # `tiles[].insight` here too.
+    # Dashboards nest insight payloads via `tiles[].insight`, so the deprecated-`dashboards`-field
+    # opt-in applies here too — on every action whose response uses DashboardSerializer.
+    create=extend_schema(parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
     retrieve=extend_schema(parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
-    partial_update=extend_schema(request=PatchedDashboardOpenApiSerializer),
+    update=extend_schema(parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
+    partial_update=extend_schema(request=PatchedDashboardOpenApiSerializer, parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
 )
 class DashboardsViewSet(
     TeamAndOrgViewSetMixin,
