@@ -135,16 +135,14 @@ function InputGroupNumberInput({
 }: InputGroupNumberInputProps): React.ReactElement {
     return (
         <NumberField.Root {...rootProps}>
-            <NumberField.ScrubArea data-slot="input-group-scrub-area" className="cursor-ew-resize">
-                <NumberField.Input
-                    ref={inputRef}
-                    data-slot="input-group-control"
-                    className={cn(
-                        'quill-input-group__control h-8 w-full min-w-0 px-2 py-0.5 text-xs tabular-nums text-center outline-none placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
-                        className
-                    )}
-                />
-            </NumberField.ScrubArea>
+            <NumberField.Input
+                ref={inputRef}
+                data-slot="input-group-control"
+                className={cn(
+                    'quill-input-group__control h-8 w-full min-w-0 px-2 py-0.5 text-xs tabular-nums text-center outline-none placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
+                    className
+                )}
+            />
         </NumberField.Root>
     )
 }
