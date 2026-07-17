@@ -36,6 +36,12 @@ const FUNNEL_QUERY = {
     },
 }
 
+// Metrics insights persist their query as a bare MetricsQuery node — no InsightVizNode wrapper.
+const METRICS_QUERY = {
+    kind: NodeKind.MetricsQuery,
+    clauses: [{ name: 'a', metricName: 'queue.depth', aggregation: 'avg' }],
+}
+
 describe('insightAlertsLogic', () => {
     let listSpy: jest.SpyInstance
 
@@ -250,6 +256,11 @@ describe('areAlertsSupportedForInsight', () => {
         expect(areAlertsSupportedForInsight(FUNNEL_QUERY)).toBe(false)
     })
 
+    it('supports bare metrics query nodes only when metricsAlertsEnabled', () => {
+        expect(areAlertsSupportedForInsight(METRICS_QUERY, { metricsAlertsEnabled: true })).toBe(true)
+        expect(areAlertsSupportedForInsight(METRICS_QUERY)).toBe(false)
+    })
+
     it('returns true for funnel insight viz when funnelAlertsEnabled', () => {
         expect(areAlertsSupportedForInsight(FUNNEL_QUERY, { funnelAlertsEnabled: true })).toBe(true)
     })
@@ -285,10 +296,16 @@ describe('areAlertsSupportedForInsight', () => {
 
 describe('alertsUnsupportedReason', () => {
     it.each([
-        ['only trends (no flags)', {}, ['trends'], ['SQL', 'funnel']],
-        ['trends + SQL', { hogqlAlertsEnabled: true }, ['trends', 'SQL'], ['funnel']],
-        ['trends + funnel', { funnelAlertsEnabled: true }, ['trends', 'funnel'], ['SQL']],
-        ['all three', { hogqlAlertsEnabled: true, funnelAlertsEnabled: true }, ['trends', 'SQL', 'funnel'], []],
+        ['only trends (no flags)', {}, ['trends'], ['SQL', 'funnel', 'metrics']],
+        ['trends + SQL', { hogqlAlertsEnabled: true }, ['trends', 'SQL'], ['funnel', 'metrics']],
+        ['trends + funnel', { funnelAlertsEnabled: true }, ['trends', 'funnel'], ['SQL', 'metrics']],
+        ['trends + metrics', { metricsAlertsEnabled: true }, ['trends', 'metrics'], ['SQL', 'funnel']],
+        [
+            'all four',
+            { hogqlAlertsEnabled: true, funnelAlertsEnabled: true, metricsAlertsEnabled: true },
+            ['trends', 'SQL', 'funnel', 'metrics'],
+            [],
+        ],
     ])('lists only enabled types: %s', (_name, options, included, excluded) => {
         const reason = alertsUnsupportedReason(options)
         expect(included.every((type) => reason.includes(type))).toBe(true)

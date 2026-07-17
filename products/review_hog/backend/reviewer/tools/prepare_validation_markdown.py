@@ -128,13 +128,15 @@ def _render_review_body(
         chunk_type = chunk.chunk_type.replace("_", " ").capitalize() if chunk.chunk_type else "Changes"
         lines.extend([f"## {chunk_type}", ""])
 
-        if chunk.files:
-            file_list = ", ".join(f"`{f.filename}`" for f in chunk.files)
-            lines.extend([f"**Files:** {file_list}", ""])
-
         if issue_count > 0:
             issues_label = "issue" if issue_count == 1 else "issues"
             lines.extend([f"**Issues:** {issue_count} {issues_label}", ""])
+
+        if chunk.files:
+            lines.extend(["<details>", f"<summary>Files ({len(chunk.files)})</summary>", "<br>", ""])
+            for f in chunk.files:
+                lines.append(f"- `{f.filename}`")
+            lines.extend(["", "</details>", ""])
 
         if chunk.key_changes:
             lines.extend(["<details>", "<summary>What were the main changes</summary>", "<br>", ""])
@@ -167,7 +169,13 @@ def _render_off_diff_section(findings: list[tuple[Issue, IssueValidation]]) -> l
                 "",
                 " | ".join(meta),
                 "",
+                "<details>",
+                "<summary><strong>Issue description</strong></summary>",
+                "<br>",
+                "",
                 issue.issue,
+                "",
+                "</details>",
                 "",
                 "<details>",
                 "<summary><strong>Suggested fix</strong></summary>",

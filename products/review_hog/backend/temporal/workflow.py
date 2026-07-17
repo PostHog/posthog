@@ -386,9 +386,10 @@ class ReviewPRWorkflow:
             )
             return report_id
 
-        # Resolve the acting user whose enabled perspectives apply (PR author, or the explicit
-        # override the CLI and inbox triggers set). Gate here, before any sandbox spend: a non-PostHog
-        # author has no perspectives, so skip the review.
+        # Resolve the acting user whose enabled perspectives apply: the PR author, or the explicit
+        # override the CLI and inbox triggers set. The label trigger falls back to the default run
+        # user on an unmapped author (someone explicitly asked for this review); other triggers keep
+        # the author-only contract, so an unmapped author still skips there. Gate before sandbox spend.
         acting = await workflow.execute_activity(
             resolve_acting_user_activity,
             ResolveActingUserInput(
@@ -396,6 +397,8 @@ class ReviewPRWorkflow:
                 author_login=meta.author_login,
                 override_user_id=inputs.acting_user_id,
                 report_id=report_id,
+                trigger_source=inputs.trigger_source,
+                default_user_id=inputs.user_id,
             ),
             start_to_close_timeout=_QUICK_TIMEOUT,
             retry_policy=_RETRY,

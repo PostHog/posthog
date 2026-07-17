@@ -25,6 +25,8 @@ def make_context(
     end_user_id: str | None = None,
     plan_key: str | None = "posthog-code-200-20260301",
     seat_created_at: str | None = None,
+    seat_missing: bool = False,
+    code_usage_billed: bool = False,
     billing_period_start: str | None = None,
 ) -> ThrottleContext:
     user = user or make_user()
@@ -36,6 +38,8 @@ def make_context(
         end_user_id=end_user_id,
         plan_key=plan_key,
         seat_created_at=seat_created_at,
+        seat_missing=seat_missing,
+        code_usage_billed=code_usage_billed,
         billing_period_start=billing_period_start,
     )
 
@@ -1275,24 +1279,24 @@ class TestRateLimitPoisoningPrevention:
 
 class TestPlanAwareThrottling:
     @pytest.mark.asyncio
-    async def test_free_user_gets_limit_of_75(self) -> None:
+    async def test_free_user_gets_limit_of_20(self) -> None:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
         context = make_context(product="posthog_code", plan_key=None, seat_created_at="2026-01-01T00:00:00+00:00")
 
-        await throttle.record_cost(context, 75.0)
+        await throttle.record_cost(context, 20.0)
         result = await throttle.allow_request(context)
         assert result.allowed is False
 
     @pytest.mark.asyncio
-    async def test_free_user_gets_sustained_limit_of_75(self) -> None:
+    async def test_free_user_gets_sustained_limit_of_20(self) -> None:
         from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
 
         throttle = UserCostSustainedThrottle(redis=None)
         context = make_context(product="posthog_code", plan_key=None, seat_created_at="2026-01-01T00:00:00+00:00")
 
-        await throttle.record_cost(context, 75.0)
+        await throttle.record_cost(context, 20.0)
         result = await throttle.allow_request(context)
         assert result.allowed is False
 
@@ -1314,7 +1318,7 @@ class TestPlanAwareThrottling:
         throttle = UserCostSustainedThrottle(redis=None)
         context = make_context(product="posthog_code", plan_key=None, seat_created_at="2025-01-01T00:00:00+00:00")
 
-        await throttle.record_cost(context, 49.0)
+        await throttle.record_cost(context, 19.0)
         result = await throttle.allow_request(context)
         assert result.allowed is True
 
@@ -1376,6 +1380,83 @@ class TestPlanAwareThrottling:
         await throttle.record_cost(context, 4.0)
         result = await throttle.allow_request(context)
         assert result.allowed is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("seat_missing", "expected_allowed"),
+        [
+            # Confirmed no seat (404) → free cap: $80 spent exceeds the $20 limit.
+            (True, False),
+            # Plan resolution failed → default limits ($500/day): fail loose so an
+            # outage never clamps paying users whose plan couldn't be resolved.
+            (False, True),
+        ],
+    )
+    async def test_seatless_user_limit_depends_on_seat_missing(
+        self, seat_missing: bool, expected_allowed: bool
+    ) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+        context = make_context(
+            product="posthog_code",
+            plan_key=None,
+            seat_created_at=None,
+            seat_missing=seat_missing,
+        )
+
+        await throttle.record_cost(context, 80.0)
+        result = await throttle.allow_request(context)
+        assert result.allowed is expected_allowed
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("seat_missing", "code_usage_billed", "expected_allowed"),
+        [
+            # Seatless + org-billed Code usage: bills to the org - no per-user cap.
+            # $600 spent clears both the $20 free cap and the $500/day default.
+            (True, True, True),
+            # Seatless + not billed: the free cap holds (this pair pins that the
+            # bypass never leaks to orgs that would get the usage for free).
+            (True, False, False),
+            # Seat still exists (pre-retirement): org billing doesn't lift the cap -
+            # seat-covered usage stays bounded until the seat is deleted.
+            (False, True, False),
+        ],
+    )
+    async def test_code_usage_billing_gates_seatless_cap_bypass(
+        self, seat_missing: bool, code_usage_billed: bool, expected_allowed: bool
+    ) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+        context = make_context(
+            product="posthog_code",
+            plan_key=None if seat_missing else "posthog-code-free-20260301",
+            seat_created_at=None if seat_missing else "2026-01-01T00:00:00+00:00",
+            seat_missing=seat_missing,
+            code_usage_billed=code_usage_billed,
+        )
+
+        await throttle.record_cost(context, 600.0)
+        result = await throttle.allow_request(context)
+        assert result.allowed is expected_allowed
+
+    @pytest.mark.asyncio
+    async def test_org_billed_seatless_status_reports_unlimited(self) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+        context = make_context(
+            product="posthog_code", plan_key=None, seat_created_at=None, seat_missing=True, code_usage_billed=True
+        )
+
+        await throttle.record_cost(context, 600.0)
+        status = await throttle.get_status(context)
+        # The usage endpoint renders this - it must agree with enforcement (never
+        # show a paying user as rate limited when nothing would block them).
+        assert status.exceeded is False
+        assert status.limit_usd == float("inf")
 
     @pytest.mark.asyncio
     async def test_non_code_product_ignores_plan(self) -> None:

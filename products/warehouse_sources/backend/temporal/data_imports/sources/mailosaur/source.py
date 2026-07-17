@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class MailosaurSource(ResumableSource[MailosaurSourceConfig, MailosaurResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://mailosaur.com/docs/api/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -49,7 +50,6 @@ class MailosaurSource(ResumableSource[MailosaurSourceConfig, MailosaurResumeConf
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Mailosaur",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Mailosaur API key to sync your email and SMS testing data into the PostHog Data warehouse.
 
 You can find your API key in your [Mailosaur account settings](https://mailosaur.com/app/keys).

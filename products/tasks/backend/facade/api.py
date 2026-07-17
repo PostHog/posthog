@@ -146,6 +146,7 @@ __all__ = [
     "fail_task_run",
     "finalize_task_run_artifact_uploads",
     "finalize_task_staged_artifacts",
+    "get_active_wizard_cloud_run",
     "get_code_home",
     "get_code_workflow_config",
     "get_conversation_task_dtos",
@@ -625,6 +626,51 @@ def get_latest_run_by_task(task_ids: Iterable[str | UUID]) -> dict[str, contract
     return {str(run.task_id): _task_run_to_dto(run) for run in runs}
 
 
+def get_active_wizard_cloud_run(team_id: int) -> contracts.WizardCloudRunDTO | None:
+    """The team's active onboarding wizard cloud run, for rehydrating the setup FAB.
+
+    The drop flow starts the wizard cloud run server-side (``create_wizard_cloud_run``),
+    so a freshly-signed-in user has no client-side handle. Returns the most recent run
+    across the team's onboarding (``ORIGIN_PRODUCT == ONBOARDING``) tasks that's still
+    running, or completed within the last day (so we can show "PostHog is wired up" +
+    the PR); otherwise ``None``. Team-scoped.
+    """
+    onboarding_task_ids = Task.objects.filter(
+        team_id=team_id, origin_product=Task.OriginProduct.ONBOARDING, archived=False
+    ).values_list("id", flat=True)
+    fresh_after = django_timezone.now() - timedelta(days=1)
+    # Scan runs newest-first and surface the first that qualifies: picking the newest task up front
+    # would let a newer onboarding task with no live run hide an older task's still-running one.
+    # Both the task set and the run are scoped by team_id so a mismatched/legacy run row can't leak
+    # another team's handle back to the requester.
+    #
+    # ``origin_product == ONBOARDING`` is caller-settable, so it alone can't tell a genuine
+    # server-started wizard run from one a project member planted through the normal task APIs.
+    # Also require the immutable markers ``create_wizard_cloud_run`` stamps: a cloud environment
+    # and the ``wizard_config`` state key (a protected key callers cannot set, see the run PATCH
+    # allowlist), so we never hand a provisioned user someone else's attacker-controlled handle.
+    runs = TaskRun.objects.filter(
+        task_id__in=onboarding_task_ids,
+        team_id=team_id,
+        environment=TaskRun.Environment.CLOUD,
+        state__has_key="wizard_config",
+    ).order_by("-created_at", "-id")
+    for run in runs:
+        # Non-terminal runs always surface; terminal ones only while the result is still
+        # fresh enough to be worth showing on first landing.
+        if run.is_terminal:
+            anchor = run.updated_at or run.created_at
+            if anchor is None or anchor < fresh_after:
+                continue
+        return contracts.WizardCloudRunDTO(
+            task_id=run.task_id,
+            run_id=run.id,
+            status=run.status,
+            started_at=run.created_at,
+        )
+    return None
+
+
 def get_stale_queued_task_run_ids(
     older_than: timedelta,
     limit: int,
@@ -881,6 +927,20 @@ def update_task_run_state(
 ) -> dict:
     """Atomically merge state updates into a run's ``state`` and return the new state."""
     return TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
+
+
+def set_task_run_created_at_for_seeding(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, created_at: datetime
+) -> None:
+    """Backdate a run's ``created_at`` — DEBUG-only escape hatch for dev seeding.
+
+    Signals' billing/refund seeding needs runs whose billable moment falls on an earlier UTC
+    day; ``created_at`` is deliberately not writable through the PATCH surface, so the hatch
+    lives here rather than callers reaching into the ORM.
+    """
+    if not settings.DEBUG:
+        raise RuntimeError("set_task_run_created_at_for_seeding is DEBUG-only")
+    TaskRun.objects.filter(pk=run_id, task_id=task_id, team_id=team_id).update(created_at=created_at)
 
 
 def fail_task_run(run_id: str | UUID, error: str, error_type: str | None = None) -> bool:
@@ -2826,6 +2886,8 @@ def bootstrap_task_run(
     github_user_token = validated_data.get("github_user_token")
     initial_permission_mode = validated_data.get("initial_permission_mode")
     home_quick_action = validated_data.get("home_quick_action")
+    imported_mcp_servers = validated_data.get("imported_mcp_servers")
+    relayed_mcp_servers = validated_data.get("relayed_mcp_servers")
     if run_source == RunSource.SIGNAL_REPORT:
         pr_authorship_mode = PrAuthorshipMode.BOT
 
@@ -2923,6 +2985,17 @@ def bootstrap_task_run(
         "Creating task run for task %s with mode=%s, branch=%s, environment=%s", task.id, mode, branch, environment
     )
     run = task.create_run(environment=environment, mode=mode, branch=branch, extra_state=extra_state)
+
+    if imported_mcp_servers or relayed_mcp_servers:
+        update_fields = ["updated_at"]
+        if imported_mcp_servers:
+            # Kept out of `state` (a plain JSONField) because header values carry credentials.
+            run.imported_mcp_servers = imported_mcp_servers
+            update_fields.append("imported_mcp_servers")
+        if relayed_mcp_servers:
+            run.relayed_mcp_servers = relayed_mcp_servers
+            update_fields.append("relayed_mcp_servers")
+        run.save(update_fields=update_fields)
 
     if github_user_token and pr_authorship_mode == PrAuthorshipMode.USER:
         cache_github_user_token(str(run.id), github_user_token)
@@ -3252,9 +3325,11 @@ async def select_repository_for_message(team_id: int, user_id: int, message: str
     )
 
 
-def _list_tasks_queryset(team_id: int, user_id: int | None, *, filters: dict) -> QuerySet[Task]:
+def _list_tasks_queryset(
+    team_id: int, user_id: int | None, *, filters: dict, bypass_visibility: bool = False
+) -> QuerySet[Task]:
     latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
-    qs = _visible_task_qs(team_id, user_id).order_by("-created_at", "-id")
+    qs = _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility).order_by("-created_at", "-id")
 
     origin_product = filters.get("origin_product")
     if origin_product:
@@ -3432,7 +3507,7 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     from posthog.models import Team  # noqa: PLC0415
 
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
-        record_implementation_task,
+        record_report_task,
     )
     from products.tasks.backend.logic.services.title_generator import generate_task_title  # noqa: PLC0415
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
@@ -3511,9 +3586,9 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
             )
             return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
 
-    # Only IMPLEMENTATION is accepted; pop it so it isn't forwarded to the model. The link itself
-    # is recorded by record_implementation_task below.
-    validated_data.pop("signal_report_task_relationship", None)
+    # The relationship the client asserted (validated by the serializer, which rejects `research`).
+    # Popped so it isn't forwarded to the model; the link itself is recorded by record_report_task below.
+    signal_report_task_relationship = validated_data.pop("signal_report_task_relationship", None)
 
     if not validated_data.get("github_integration"):
         default_integration = Integration.objects.filter(team=team, kind="github").first()
@@ -3547,12 +3622,14 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     with transaction.atomic():
         task = Task.objects.create(**validated_data)
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
-            # Dual-write the implementation gate row + task_run work-log artefact (see
-            # record_implementation_task) so a manually-started task matches autostarted ones.
-            record_implementation_task(
+            # Record the task↔report association + work-log artefact for the asserted relationship
+            # (defaults to implementation, which also writes the auto-start spend gate row) so a
+            # manually-started task matches autostarted ones.
+            record_report_task(
                 team_id=task.team_id,
                 report_id=str(task.signal_report_id),
                 task_id=str(task.id),
+                relationship=signal_report_task_relationship,
             )
 
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
@@ -4049,6 +4126,8 @@ def run_task(
     reasoning_effort = validated_data.get("reasoning_effort")
     github_user_token = validated_data.get("github_user_token")
     initial_permission_mode = validated_data.get("initial_permission_mode")
+    imported_mcp_servers = validated_data.get("imported_mcp_servers")
+    relayed_mcp_servers = validated_data.get("relayed_mcp_servers")
     if run_source == RunSource.SIGNAL_REPORT:
         pr_authorship_mode = PrAuthorshipMode.BOT
 
@@ -4224,6 +4303,17 @@ def run_task(
 
     logger.info("Creating task run for task %s with mode=%s, branch=%s", task.id, mode, branch)
     task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
+
+    if imported_mcp_servers or relayed_mcp_servers:
+        update_fields = ["updated_at"]
+        if imported_mcp_servers:
+            # Kept out of `state` (a plain JSONField) because header values carry credentials.
+            task_run.imported_mcp_servers = imported_mcp_servers
+            update_fields.append("imported_mcp_servers")
+        if relayed_mcp_servers:
+            task_run.relayed_mcp_servers = relayed_mcp_servers
+            update_fields.append("relayed_mcp_servers")
+        task_run.save(update_fields=update_fields)
 
     if pending_user_artifact_ids:
         _attach_staged_artifacts_to_run(

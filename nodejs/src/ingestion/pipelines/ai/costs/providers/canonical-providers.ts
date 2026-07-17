@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-07-14 10:32:05 UTC
+// Generated at: 2026-07-16 10:38:12 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -30,6 +30,7 @@ export type CanonicalProvider =
     | 'baidu-fp4'
     | 'baidu-fp8'
     | 'baseten-fp4'
+    | 'baseten-fp8'
     | 'cerebras-fp16'
     | 'chutes-fp4'
     | 'chutes-fp8'
@@ -47,6 +48,7 @@ export type CanonicalProvider =
     | 'deepinfra-fp8'
     | 'deepinfra-turbo'
     | 'deepseek'
+    | 'dekallm'
     | 'dekallm-bf16'
     | 'dekallm-fp8'
     | 'digitalocean'
@@ -76,7 +78,6 @@ export type CanonicalProvider =
     | 'inceptron-fp4'
     | 'inceptron-fp8'
     | 'inceptron-int4'
-    | 'infermatic-bf16'
     | 'inflection'
     | 'io-net-fp8'
     | 'ionstream-fp8'
@@ -94,7 +95,6 @@ export type CanonicalProvider =
     | 'nebius-base'
     | 'nebius-fp4'
     | 'nebius-fp8'
-    | 'nebius-int4'
     | 'nex-agi-fp8'
     | 'nextbit-bf16'
     | 'nextbit-fp8'
@@ -107,7 +107,6 @@ export type CanonicalProvider =
     | 'novita-int4'
     | 'nvidia'
     | 'nvidia-bf16'
-    | 'open-inference-bf16'
     | 'open-inference-int8'
     | 'openai'
     | 'openai-default'

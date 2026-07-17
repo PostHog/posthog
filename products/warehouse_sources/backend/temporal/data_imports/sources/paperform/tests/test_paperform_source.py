@@ -27,8 +27,6 @@ class TestPaperformSource:
         assert config.name.value == "Paperform"
         assert config.label == "Paperform"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # The source is still landing across PRs, so it stays hidden until released.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/paperform"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

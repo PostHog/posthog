@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PexelsSource(ResumableSource[PexelsSourceConfig, PexelsResumeConfig]):
+    api_docs_url = "https://www.pexels.com/api/documentation/"
+
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
     # publish to public docs without credentials.
     lists_tables_without_credentials = True
@@ -58,7 +60,6 @@ Generate an API key from your [Pexels API dashboard](https://www.pexels.com/api/
 Attribution to Pexels and to the photographer/videographer is required when you use Pexels content — see the [Pexels API guidelines](https://www.pexels.com/api/documentation/#guidelines).""",
             iconPath="/static/services/pexels.png",
             docsUrl="https://posthog.com/docs/cdp/sources/pexels",
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

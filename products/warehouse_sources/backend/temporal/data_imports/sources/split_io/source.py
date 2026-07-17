@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SplitIoSource(ResumableSource[SplitIoSourceConfig, SplitIoResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.split.io/reference/introduction"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -68,7 +69,6 @@ You can create an Admin API key in Split under **Admin settings → API keys** �
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

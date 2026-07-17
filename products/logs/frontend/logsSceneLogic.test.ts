@@ -78,6 +78,32 @@ describe('logsSceneLogic', () => {
         })
 
         it.each([
+            ['a valid lens', 'patterns', 'patterns'],
+            ['an unrecognised lens falls back to the default', 'nonsense', 'logs'],
+        ])('applies viewMode from the URL: %s', async (_, urlValue, expected) => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { viewMode: urlValue })
+            }).toFinishAllListeners()
+
+            expect(logic.values.viewMode).toEqual(expected)
+        })
+
+        it('syncs lens switches back to the URL, dropping the param for the default lens', async () => {
+            // The round-trip contract for shareable lens links: switching to Patterns writes
+            // ?viewMode=patterns, and returning to Logs (the default) removes the param
+            // instead of pinning viewMode=logs into every copied URL.
+            await expectLogic(logic, () => {
+                logic.actions.setViewMode('patterns')
+            }).toFinishAllListeners()
+            expect(router.values.searchParams.viewMode).toEqual('patterns')
+
+            await expectLogic(logic, () => {
+                logic.actions.setViewMode('logs')
+            }).toFinishAllListeners()
+            expect(router.values.searchParams.viewMode).toBeUndefined()
+        })
+
+        it.each([
             ['completely invalid value', '["invalid-level"]', []],
             ['typo in valid level', '["debug123"]', []],
             ['mix of valid and invalid', '["error","not-a-level","warn"]', ['error', 'warn']],
@@ -88,6 +114,27 @@ describe('logsSceneLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.filters.severityLevels).toEqual(expected)
+        })
+
+        it('parses a stringified filterGroup from the URL (e.g. a cross-product session link)', async () => {
+            const filterGroup = {
+                type: 'AND',
+                values: [{ type: 'OR', values: [{ key: 'posthogSessionId', value: ['sess-1'], operator: 'exact' }] }],
+            }
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { filterGroup: JSON.stringify(filterGroup) })
+            }).toFinishAllListeners()
+
+            expect(logic.values.filters.filterGroup).toEqual(filterGroup)
+        })
+
+        it('ignores a malformed filterGroup in the URL', async () => {
+            const before = logic.values.filters.filterGroup
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { filterGroup: '{not valid json' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.filters.filterGroup).toEqual(before)
         })
     })
 

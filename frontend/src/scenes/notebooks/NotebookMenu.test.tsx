@@ -5,8 +5,6 @@ import { expectLogic } from 'kea-test-utils'
 import { type ReactNode } from 'react'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
@@ -59,9 +57,6 @@ describe('NotebookMenu', () => {
         localStorage.clear()
         initKeaTests()
         jest.spyOn(api.notebooks, 'collabStream').mockResolvedValue(undefined as any)
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MARKDOWN_NOTEBOOKS], {
-            [FEATURE_FLAGS.MARKDOWN_NOTEBOOKS]: true,
-        })
 
         logic = notebookLogic({ shortId: SHORT_ID, cachedNotebook: legacyNotebook })
         logic.mount()

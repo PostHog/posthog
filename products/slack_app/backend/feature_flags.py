@@ -33,7 +33,9 @@ SLACK_APP_HOME_FLAG = "slack-app-home"
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_ASSISTANT_FLAG = "slack-app-assistant"
 SLACK_APP_BOT_PRS_FLAG = "slack-app-bot-prs"
+SLACK_APP_LIVING_ARTIFACTS_FLAG = "slack-app-living-artifacts"
 SLACK_APP_CANVAS_FILE_ARTIFACTS_FLAG = "slack-app-canvas-file-artifacts"
+SLACK_APP_QUEUE_WORKFLOW_FLAG = "slack-app-queue-workflow"
 UNTAGGED_THREAD_FOLLOWUPS_FLAG = "posthog-slack-app-untagged-thread-followups"
 
 
@@ -138,6 +140,31 @@ def is_slack_app_canvas_file_artifacts_enabled(integration: Integration) -> bool
         return False
 
 
+def is_slack_app_living_artifacts_enabled(integration: Integration) -> bool:
+    """Gate for creating, editing, and delivering living artifacts from Slack runs.
+
+    Keyed on the Slack workspace + PostHog org. This is the umbrella artifact gate;
+    canvas and file adapters additionally require their scope rollout flag.
+    """
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                SLACK_APP_LIVING_ARTIFACTS_FLAG,
+                f"slack_workspace:{integration.integration_id}",
+                groups={"organization": str(integration.team.organization_id)},
+                person_properties=_region_properties(),
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception(
+            "slack_app_living_artifacts_feature_flag_check_failed",
+            integration_id=integration.id,
+        )
+        return False
+
+
 def is_slack_app_untagged_thread_followups_enabled(integration: Integration, slack_team_id: str) -> bool:
     """Gate for the untagged-thread followup path: when on, every message in a
     tagged thread is eligible for classification + forward instead of requiring
@@ -156,6 +183,31 @@ def is_slack_app_untagged_thread_followups_enabled(integration: Integration, sla
     except Exception:
         logger.exception(
             "slack_app_thread_message_feature_flag_check_failed",
+            slack_team_id=slack_team_id,
+            integration_id=integration.id,
+        )
+        return False
+
+
+def is_slack_app_queue_workflow_enabled(integration: Integration, slack_team_id: str) -> bool:
+    """Gate for the per-conversation queue workflow: when on, mention/followup/DM
+    dispatch signal-with-starts one ``SlackAppMentionWorkflow`` per thread that
+    processes messages serially, instead of one workflow per message. Keyed on
+    the Slack workspace + PostHog org."""
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                SLACK_APP_QUEUE_WORKFLOW_FLAG,
+                f"slack_workspace:{slack_team_id}",
+                groups={"organization": str(integration.team.organization_id)},
+                person_properties=_region_properties(),
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception(
+            "slack_app_queue_workflow_flag_check_failed",
             slack_team_id=slack_team_id,
             integration_id=integration.id,
         )

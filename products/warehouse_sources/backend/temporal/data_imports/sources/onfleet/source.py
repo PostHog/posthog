@@ -36,6 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OnfleetSource(ResumableSource[OnfleetSourceConfig, OnfleetResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://docs.onfleet.com/reference"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -54,7 +58,6 @@ You can create an API key in your [Onfleet dashboard](https://onfleet.com/dashbo
             iconPath="/static/services/onfleet.png",
             docsUrl="https://posthog.com/docs/cdp/sources/onfleet",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

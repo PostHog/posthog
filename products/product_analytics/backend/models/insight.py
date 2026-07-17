@@ -414,9 +414,13 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
         from posthog.schema import NodeKind  # noqa: PLC0415
 
         kind = self._unwrapped_query_kind()
-        return (
-            NodeKind(kind) if kind in (NodeKind.TRENDS_QUERY, NodeKind.HOG_QL_QUERY, NodeKind.FUNNELS_QUERY) else None
+        alertable_kinds = (
+            NodeKind.TRENDS_QUERY,
+            NodeKind.HOG_QL_QUERY,
+            NodeKind.FUNNELS_QUERY,
+            NodeKind.METRICS_QUERY,
         )
+        return NodeKind(kind) if kind in alertable_kinds else None
 
     def generate_query_metadata(self):
         from posthog.hogql_queries.query_metadata import extract_query_metadata

@@ -18,7 +18,7 @@ from playwright.sync_api import (
 )
 from prometheus_client import Counter, Histogram
 
-from posthog.schema import FunnelLayout, NodeKind
+from posthog.schema import ChartDisplayType, FunnelLayout, NodeKind
 
 from posthog.api.services.query import process_query_dict
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -131,7 +131,7 @@ MEASURE_CONTENT_WIDTH_JS = f"""
             return null;
         """
 
-ScreenWidth = Literal[800, 1920, 1400, 4000]
+ScreenWidth = Literal[600, 800, 1920, 1400, 4000]
 CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", ".heatmap-exporter"]
 
 
@@ -148,7 +148,21 @@ def _insight_query_screenshot_width(query: dict) -> ScreenWidth:
     funnels_filter = source.get("funnelsFilter") or {}
     funnel_layout = funnels_filter.get("layout")
     is_left_to_right_funnel = is_funnel and (funnel_layout is None or funnel_layout == FunnelLayout.VERTICAL)
-    return 4000 if is_left_to_right_funnel else 800
+    if is_left_to_right_funnel:
+        return 4000
+    # A metric renders as a square card whose height derives from the viewport width, so a
+    # narrower viewport keeps it at dashboard-tile size instead of an 800px-tall square.
+    # Mirrors the frontend's check (InsightVizNode wrapper required), which gates the square
+    # metric CSS — a bare TrendsQuery gets neither, so it must keep the default viewport.
+    trends_filter = source.get("trendsFilter") or {}
+    is_metric = (
+        query.get("kind") == NodeKind.INSIGHT_VIZ_NODE
+        and source.get("kind") == NodeKind.TRENDS_QUERY
+        and trends_filter.get("display") == ChartDisplayType.METRIC
+    )
+    if is_metric:
+        return 600
+    return 800
 
 
 def _export_to_png(

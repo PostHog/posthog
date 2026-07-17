@@ -89,6 +89,19 @@ MAX_IN_FLIGHT_APPLIES_PER_TEAM = 300
 COUNT_IN_FLIGHT_APPLIES_TIMEOUT = dt.timedelta(seconds=30)
 
 
+def in_flight_headroom(scanner_in_flight: int, team_in_flight: int) -> int:
+    """Dispatch headroom for a sweep tick: the tighter of the per-scanner and per-team caps.
+
+    The sweep workflow throttles on this and the count activity records the throttled
+    metric from it, so the decision and the metric can't drift apart. Pure, so it is safe
+    inside deterministic workflow code.
+    """
+    return min(
+        MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight,
+        MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight,
+    )
+
+
 ESTIMATES_WORKFLOW_NAME = "replay-vision-refresh-scanner-estimates"
 ESTIMATES_WORKFLOW_ID = "replay-vision-estimate-refresher"
 ESTIMATES_SCHEDULE_ID = "replay-vision-estimate-refresher-schedule"

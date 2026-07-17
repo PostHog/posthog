@@ -123,7 +123,7 @@ class TestImageExporter(APIBaseTest):
 
         call_args, call_kwargs = mock_process_query.call_args
         assert call_args == (self.team, source)
-        assert call_kwargs["execution_mode"] == ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+        assert call_kwargs["execution_mode"] == ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
         assert call_kwargs["user"] == self.user
 
         url_to_render = mock_screenshot_asset.call_args[0][1]
