@@ -23,7 +23,15 @@ from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_message_body
 from posthog.helpers.two_factor_session import CODE_TTL_SECONDS
-from posthog.models import Organization, OrganizationInvite, OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models import (
+    Organization,
+    OrganizationInvite,
+    OrganizationMembership,
+    PersonalAPIKey,
+    ProjectSecretAPIKey,
+    Team,
+    User,
+)
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url
@@ -114,6 +122,12 @@ def get_members_to_notify_for_pipeline_error(
         for member in members_to_notify
         if should_send_pipeline_error_notification(member.user, failure_rate, pipeline_id)
     ]
+
+
+def get_project_api_key_admins_to_notify(team: Team) -> list[OrganizationMembership]:
+    memberships_to_email = get_members_to_notify(team, NotificationSetting.PROJECT_API_KEY_EXPOSED.value)
+    # Filter to admins since they can manage keys
+    return [m for m in memberships_to_email if m.level >= OrganizationMembership.Level.ADMIN]
 
 
 _DIGEST_PROJECT_SETTING_KEYS: dict[str, str] = {
@@ -1703,26 +1717,20 @@ def send_personal_api_key_exposed(user_id: int, personal_api_key_id: str, old_ma
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
-def send_project_secret_api_key_exposed(team_id: int, mask_value: str, more_info: str) -> None:
+def send_feature_flags_secure_api_key_exposed(team_id: int, mask_value: str, more_info: str) -> None:
     if not is_email_available(with_absolute_urls=True):
         return
 
     team = Team.objects.select_related("organization").get(pk=team_id)
-    memberships_to_email = get_members_to_notify(team, NotificationSetting.PROJECT_API_KEY_EXPOSED.value)
-
-    # Filter to admins since they can rotate keys
-    memberships_to_email = [m for m in memberships_to_email if m.level >= OrganizationMembership.Level.ADMIN]
-
+    memberships_to_email = get_project_api_key_admins_to_notify(team)
     if not memberships_to_email:
         return
 
     message = EmailMessage(
         use_http=True,
-        campaign_key=f"project-secret-api-key-exposed-{team.uuid}-{timezone.now().timestamp()}",
-        # TODO rename when Project Secret API Keys are launched
-        # subject=f"Project secret API key has been exposed for {team.name}",
+        campaign_key=f"feature-flags-secure-api-key-exposed-{team.uuid}-{timezone.now().timestamp()}",
         subject=f"Feature Flags Secure API key has been exposed for {team.name}",
-        template_name="project_secret_api_key_exposed",
+        template_name="feature_flags_secure_api_key_exposed",
         template_context={
             # "preheader": "Project secret API key has been exposed",
             "preheader": "Feature Flags Secure API key has been exposed",
@@ -1730,6 +1738,39 @@ def send_project_secret_api_key_exposed(team_id: int, mask_value: str, more_info
             "more_info": more_info,
             "mask_value": mask_value,
             "url": f"{settings.SITE_URL}/project/{team.pk}/settings/project-feature-flags",
+        },
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_project_secret_api_key_exposed(
+    team_id: int, project_secret_api_key_id: str, old_mask_value: str, more_info: str
+) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    team = Team.objects.select_related("organization").get(pk=team_id)
+    project_secret_api_key = ProjectSecretAPIKey.objects.get(id=project_secret_api_key_id, team_id=team_id)
+    memberships_to_email = get_project_api_key_admins_to_notify(team)
+    if not memberships_to_email:
+        return
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"project-secret-api-key-exposed-{team.uuid}-{timezone.now().timestamp()}",
+        subject=f"Project secret API key has been deactivated for {team.name}",
+        template_name="project_secret_api_key_exposed",
+        template_context={
+            "preheader": "Project secret API key has been deactivated",
+            "project_name": team.name,
+            "label": project_secret_api_key.label,
+            "more_info": more_info,
+            "mask_value": old_mask_value,
+            "url": f"{settings.SITE_URL}/project/{team.pk}/settings/environment-secret-api-keys",
         },
     )
     for membership in memberships_to_email:
