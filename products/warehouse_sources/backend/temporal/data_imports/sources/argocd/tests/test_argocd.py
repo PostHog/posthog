@@ -246,6 +246,22 @@ class TestGetRows:
         with pytest.raises(ArgocdHostNotAllowedError, match="redirect"):
             self._run("applications", _response(status_code=302))
 
+    def test_session_opts_out_of_sample_capture_and_redacts_token(self):
+        # Raw cluster/repository responses carry credential fields the name-based sample
+        # scrubbers can't recognise, so the session must be excluded from HTTP sample capture.
+        with _patch_session(_response(json_data={"items": None})) as patched:
+            list(
+                get_rows(
+                    host="https://argocd.example.com",
+                    api_token="tok",
+                    endpoint="clusters",
+                    team_id=1,
+                    logger=mock.MagicMock(),
+                )
+            )
+        assert patched.call_args.kwargs["capture"] is False
+        assert "tok" in patched.call_args.kwargs["redact_values"]
+
 
 class TestValidateCredentials:
     def test_success(self):
@@ -335,6 +351,12 @@ class TestValidateCredentials:
             valid, msg = validate_credentials("https://argocd.example.com", "tok")
             assert valid is False
             assert "boom" in (msg or "")
+
+    def test_session_opts_out_of_sample_capture_and_redacts_token(self):
+        with _patch_session(_response(json_data={"items": None})) as patched:
+            validate_credentials("https://argocd.example.com", "tok")
+        assert patched.call_args.kwargs["capture"] is False
+        assert "tok" in patched.call_args.kwargs["redact_values"]
 
 
 class TestArgocdSourceResponse:

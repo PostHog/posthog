@@ -211,7 +211,10 @@ def get_rows(
     if not host_ok:
         raise ArgocdHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
 
-    session = make_tracked_session()
+    # `capture=False`: raw cluster/repository responses carry credential fields the name-based
+    # sample scrubbers can't recognise (camelCase `bearerToken`, `sshPrivateKey`, ...) — they are
+    # stripped at row level, but must never reach HTTP sample capture either.
+    session = make_tracked_session(redact_values=(api_token,), capture=False)
     url = _build_url(host, config.path, _list_params(endpoint, project))
     data = _fetch(session, url, _get_headers(api_token), logger)
     items = _items(data)
@@ -268,7 +271,9 @@ def validate_credentials(
         params = {**params, "name": "posthog-connectivity-probe"}
 
     try:
-        response = make_tracked_session().get(
+        # `capture=False` for the same reason as in `get_rows`: probe responses can carry
+        # credential fields the name-based sample scrubbers can't recognise.
+        response = make_tracked_session(redact_values=(api_token,), capture=False).get(
             _build_url(normalized, ARGOCD_ENDPOINTS[endpoint].path, params),
             headers=_get_headers(api_token),
             timeout=30,
