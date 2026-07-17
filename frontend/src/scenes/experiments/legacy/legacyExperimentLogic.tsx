@@ -23,6 +23,7 @@ import { modalsLogic } from '../modalsLogic'
 
 export interface LegacyExperimentLogicProps {
     experiment: Experiment
+    tabId: string
 }
 
 export type LegacyExperimentTriggeredBy = 'page_load' | 'manual' | 'auto_refresh' | 'config_change'
@@ -434,7 +435,7 @@ export const legacyExperimentLogic = kea<legacyExperimentLogicType>([
     props({} as LegacyExperimentLogicProps),
     key((props) => {
         const baseKey = props.experiment.id ?? 'new'
-        return `${baseKey}-legacy`
+        return `${baseKey}${props.tabId ? `-${props.tabId}` : ''}-legacy`
     }),
     path((key) => ['scenes', 'experiments', 'legacy', 'legacyExperimentLogic', key]),
     connect(() => ({

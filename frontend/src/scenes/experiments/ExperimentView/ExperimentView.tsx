@@ -19,6 +19,7 @@ import { SummarizeSessionReplaysButton } from '../components/SummarizeSessionRep
 import { EmptyMetricsPanel } from '../ExperimentForm/MetricsPanel/EmptyMetricsPanel'
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
+import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
 import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
@@ -132,7 +133,7 @@ const VariantsTab = (): JSX.Element => {
     )
 }
 
-export function ExperimentView(): JSX.Element {
+export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
     const { experimentLoading, experimentId, experiment, isExperimentDraft, exposureCriteria, showDebugPanel } =
         useValues(experimentLogic)
     const {
@@ -145,15 +146,19 @@ export function ExperimentView(): JSX.Element {
         removeMetric,
     } = useActions(experimentLogic)
 
-    const { activeTabKey } = useValues(experimentSceneLogic)
-    const { setActiveTabKey } = useActions(experimentSceneLogic)
+    if (!tabId) {
+        throw new Error('<ExperimentView /> must receive a tabId prop')
+    }
+
+    const { activeTabKey } = useValues(experimentSceneLogic({ tabId }))
+    const { setActiveTabKey } = useActions(experimentSceneLogic({ tabId }))
 
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
 
     // Branch to legacy view for legacy experiments
     if (!experimentLoading && isLegacyExperiment(experiment)) {
-        return <LegacyExperimentView />
+        return <LegacyExperimentView tabId={tabId} />
     }
 
     return (
@@ -178,7 +183,7 @@ export function ExperimentView(): JSX.Element {
                             context="experiment"
                         />
                     )}
-                    <Info />
+                    <Info tabId={tabId} />
                     <ExperimentHeader />
                     <LemonTabs
                         activeKey={activeTabKey}

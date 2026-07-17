@@ -47,7 +47,21 @@ jest.mock('./experimentLogic', () => {
     }
 })
 
+jest.mock('scenes/sceneLogic', () => ({
+    sceneLogic: {
+        values: {
+            activeTabId: 'test-tab',
+            tabs: [],
+        },
+        actions: {
+            setTabs: jest.fn(),
+        },
+        isMounted: jest.fn(() => true),
+    },
+}))
+
 const mockModule = require('./experimentLogic') as ExperimentLogicMock
+const tabId = 'test-tab'
 
 describe('experimentSceneLogic', () => {
     beforeEach(() => {
@@ -58,7 +72,7 @@ describe('experimentSceneLogic', () => {
     })
 
     it('mounts experiment logic on scene state change', async () => {
-        const logic = experimentSceneLogic({ experimentId: 'new', formMode: FORM_MODES.create })
+        const logic = experimentSceneLogic({ tabId, experimentId: 'new', formMode: FORM_MODES.create })
         logic.mount()
 
         mockModule.experimentLogic.build.mockClear()
@@ -75,7 +89,7 @@ describe('experimentSceneLogic', () => {
     })
 
     it('does not rebuild logic when experiment id and mode stay the same', async () => {
-        const logic = experimentSceneLogic({ experimentId: 456 as any, formMode: FORM_MODES.update })
+        const logic = experimentSceneLogic({ tabId, experimentId: 456 as any, formMode: FORM_MODES.update })
         logic.mount()
 
         const initialBuildCount = mockModule.experimentLogic.build.mock.calls.length
@@ -99,7 +113,7 @@ describe('experimentSceneLogic', () => {
     })
 
     it('loads experiment data when scene state changes', async () => {
-        const logic = experimentSceneLogic({ experimentId: 789 as any, formMode: FORM_MODES.update })
+        const logic = experimentSceneLogic({ tabId, experimentId: 789 as any, formMode: FORM_MODES.update })
         logic.mount()
 
         mockModule.experimentLogic.__logic.actions.loadExperiment.mockClear()

@@ -17,8 +17,6 @@ describe('ExperimentForm Integration', () => {
     beforeEach(() => {
         // Clear localStorage to prevent persisted state from affecting tests
         localStorage.clear()
-        // Drafts persist in sessionStorage; clear so one test's draft can't leak into the next
-        sessionStorage.clear()
 
         useMocks({
             post: {

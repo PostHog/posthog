@@ -35,6 +35,7 @@ import {
 
 export interface RunningTimeLogicProps {
     experiment: Experiment
+    tabId?: string
 }
 
 export interface RunningTimeConfig {
@@ -256,13 +257,13 @@ export type runningTimeLogicType = MakeLogicType<
 export const runningTimeLogic = kea<runningTimeLogicType>([
     path(['scenes', 'experiments', 'RunningTimeCalculator', 'runningTimeLogic']),
     props({} as RunningTimeLogicProps),
-    key((props) => `${props.experiment.id}`),
+    key((props) => `${props.experiment.id}-${props.tabId}`),
 
     connect((props: RunningTimeLogicProps) => {
         const experimentId = props.experiment.id
         return {
             values: [
-                experimentLogic({ experimentId }),
+                experimentLogic({ experimentId, tabId: props.tabId }),
                 ['experiment', 'orderedPrimaryMetricsWithResults', 'primaryMetricsResultsLoading', 'currentProjectId'],
                 // On the recalculation flow, metric results live in experimentMetricsLogic, not experimentLogic.
                 experimentMetricsLogic({ experiment: props.experiment }),
@@ -278,7 +279,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 ['featureFlags'],
             ],
             actions: [
-                experimentLogic({ experimentId }),
+                experimentLogic({ experimentId, tabId: props.tabId }),
                 ['setExperiment'],
                 modalsLogic,
                 ['closeRunningTimeConfigModal'],

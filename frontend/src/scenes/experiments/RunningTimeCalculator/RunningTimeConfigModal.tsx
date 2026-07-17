@@ -14,6 +14,7 @@ import { runningTimeLogic } from './runningTimeLogic'
 
 export interface RunningTimeConfigModalProps {
     experiment: Experiment
+    tabId?: string
 }
 
 const METRIC_TYPE_OPTIONS: { value: ManualCalculatorMetricType; label: string }[] = [
@@ -44,7 +45,10 @@ function getBaselineHelp(metricType: ManualCalculatorMetricType): string {
     }
 }
 
-export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTimeConfigModalProps): JSX.Element {
+export function RunningTimeConfigModal({
+    experiment: experimentProp,
+    tabId,
+}: RunningTimeConfigModalProps): JSX.Element {
     const {
         config,
         manualFormPreview,
@@ -55,8 +59,8 @@ export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTi
         isRunningTimeConfigModalOpen,
         experiment,
         isSaving,
-    } = useValues(runningTimeLogic({ experiment: experimentProp }))
-    const { setConfig, save, cancel } = useActions(runningTimeLogic({ experiment: experimentProp }))
+    } = useValues(runningTimeLogic({ experiment: experimentProp, tabId }))
+    const { setConfig, save, cancel } = useActions(runningTimeLogic({ experiment: experimentProp, tabId }))
 
     const hasAutomaticData = remainingDays !== null
     const isPreLaunch = !isLaunched(experiment)

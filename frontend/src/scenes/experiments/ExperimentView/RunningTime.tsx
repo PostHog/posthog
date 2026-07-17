@@ -13,10 +13,12 @@ import { runningTimeLogic } from '../RunningTimeCalculator/runningTimeLogic'
 
 export const RunningTime = ({
     experiment,
+    tabId,
     onClick,
     isExperimentDraft,
 }: {
     experiment: Experiment
+    tabId: string
     onClick: () => void
     isExperimentDraft: boolean
 }): JSX.Element => {
@@ -27,7 +29,7 @@ export const RunningTime = ({
         isComplete,
         isManualMode,
         primaryMetricsResultsLoading,
-    } = useValues(runningTimeLogic({ experiment }))
+    } = useValues(runningTimeLogic({ experiment, tabId }))
 
     const showProgress = currentExposures !== null && targetSampleSize !== null
 
@@ -80,7 +82,7 @@ export const RunningTime = ({
                     />
                 </div>
             </div>
-            <RunningTimeConfigModal experiment={experiment} />
+            <RunningTimeConfigModal experiment={experiment} tabId={tabId} />
         </>
     )
 }
