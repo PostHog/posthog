@@ -23,6 +23,7 @@ import ENV_CONTEXT from '@/templates/sections/env-context.md'
 import EXAMPLES from '@/templates/sections/examples.md'
 import EXEC_LEARN from '@/templates/sections/exec-learn.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
+import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
@@ -39,6 +40,10 @@ export interface InstructionsContext {
      *  an MCP Apps host). Gates the CLI rendering section so it never reaches clients —
      *  like Claude Code — that can't mount the iframe. */
     renderUiEnabled?: boolean | undefined
+    /** Whether the governed-metrics catalog (`system.information_schema.metrics`) exists
+     *  for this org. Gates the metric-discovery section so flag-off renders never steer
+     *  the model at a table it can't query — and stay byte-identical. */
+    dataCatalogEnabled?: boolean | undefined
 }
 
 /**
@@ -56,6 +61,7 @@ export class InstructionsFormatter {
                 TOOL_SEARCH,
                 RETRIEVING_DATA,
                 SCHEMA_WORKFLOW,
+                ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
                 ENV_CONTEXT,
                 URL_PATTERNS,
                 AGENT_FEEDBACK,
@@ -89,8 +95,14 @@ export class InstructionsFormatter {
                 id: 'analytics',
                 kind: 'guide',
                 title: 'Analytics',
-                description: 'Query or analyze PostHog data, metrics, and events.',
-                content: this.compose([RETRIEVING_DATA, SCHEMA_WORKFLOW, EXAMPLES], ctx, { compact: false }),
+                description: ctx.dataCatalogEnabled
+                    ? 'Query or analyze PostHog data, events, and governed metrics (including "what metrics do we have?").'
+                    : 'Query or analyze PostHog data, metrics, and events.',
+                content: this.compose(
+                    [RETRIEVING_DATA, SCHEMA_WORKFLOW, ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []), EXAMPLES],
+                    ctx,
+                    { compact: false }
+                ),
             },
         ]
 
@@ -185,6 +197,7 @@ export class InstructionsFormatter {
             TOOL_SEARCH,
             RETRIEVING_DATA,
             SCHEMA_WORKFLOW,
+            ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
             ENV_CONTEXT,
             URL_PATTERNS,
             AGENT_FEEDBACK,
