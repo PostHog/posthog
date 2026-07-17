@@ -1137,6 +1137,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         if self._webhook_only_check_applies():
             self._is_webhook_only_schema_cached(instance)
 
+    def seed_webhook_only_check(self, webhook_only: bool) -> None:
+        """Pre-fill the webhook-only cache when the caller already discovered this table (e.g.
+        bulk sync-defaults filling), so warm_webhook_only_check doesn't re-probe the source."""
+        self.__dict__["_webhook_only_result"] = webhook_only
+
     def _webhook_only_check_applies(self) -> bool:
         # Single source of truth for when the webhook-only check runs, so update() and the
         # pre-transaction warm step can't drift apart and push the network call back into the
