@@ -229,7 +229,7 @@ An earlier iteration also surfaced the problem/fix inline and un-collapsed two s
 
 Grilled with the user 2026-07-17 (vocabulary in `CONTEXT.md`). Problem: published findings are meaningful but read as prose blobs.
 Constraint: zero quality loss for the validator and for anything reading validator output downstream.
-Key facts driving the design: the finding body is dual-audience (rendered verbatim on GitHub AND consumed by the validator's `ISSUE` payload, dedup's fresh/prior payloads, and future turns' covered-findings block), while the validator's `argumentation` is presentation-only for _valid_ findings (its sole pipeline consumer is dedup's `prior_ruling`, dismissed findings only) — and no consumer ever sees the argumentation without the body beside it.
+Key facts driving the design: the finding body is dual-audience (rendered verbatim on GitHub AND consumed by the validator's `ISSUE` payload, dedup's fresh/prior payloads, and future turns' covered-findings block), while the validator's `argumentation` is presentation-only for _valid_ findings (its sole pipeline consumer is dedup's `prior_ruling`, dismissed findings only) — and the full body always travels with the argumentation, in the same comment or payload.
 So the risk is **compression** (dropping information), not **structure** (same facts as labeled bullets); restructuring the validator's output is safe without an e2e round.
 
 What shipped (all prompt/template-level, reversible — no ADR):
