@@ -13,11 +13,7 @@ from __future__ import annotations
 import time
 from datetime import datetime, timedelta
 
-from django.db import (
-    Error as DatabaseError,
-    router,
-    transaction,
-)
+from django.db import InterfaceError, OperationalError, router, transaction
 from django.utils import timezone
 
 import structlog
@@ -165,7 +161,9 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
                 summary=summary.to_dict(),
             )
             break
-        except DatabaseError:
+        except (OperationalError, InterfaceError):
+            # Only the transient connectivity classes: retrying an IntegrityError/ProgrammingError
+            # burns the attempts on a deterministic failure and delays the real traceback.
             if attempt == _PROOF_OF_POST_WRITE_ATTEMPTS - 1:
                 raise
             time.sleep(_PROOF_OF_POST_WRITE_RETRY_SECONDS)

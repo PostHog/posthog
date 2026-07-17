@@ -63,7 +63,9 @@ def _is_own_bot_actor(user: dict, expected_login: str | None, *, allow_any_bot: 
     if user.get("type") != "Bot":
         return False
     if expected_login is not None:
-        return (user.get("login") or "") == expected_login
+        # Case-insensitive like every GitHub login comparison (and the reactor-bot exclusion): a raw
+        # == would silently no-op the sweeps and adopt if GitHub ever cases the login differently.
+        return (user.get("login") or "").lower() == expected_login.lower()
     return allow_any_bot
 
 
@@ -627,7 +629,7 @@ class StamphogGitHubClient:
         Returns the raw GitHub review objects (``user``, ``state``, ``commit_id``, ``body``,
         ``author_association``, ...). The reviewer engine needs these to honor an active
         ``CHANGES_REQUESTED`` review — without them the hosted path would run review-blind and could
-        approve over a maintainer's block. Stops at ``_MAX_PAGES`` for the same bound as the other lists.
+        approve over a maintainer's block. Fails closed past ``_MAX_PAGES`` — the orphan sweeps ride this list, and a silently truncated tail could hide an approval they must dismiss.
         """
         reviews: list[dict] = []
         for page in range(1, _MAX_PAGES + 1):
@@ -647,8 +649,13 @@ class StamphogGitHubClient:
                 raise StamphogGitHubError(f"Unexpected PR reviews payload for {repo}#{number}")
             reviews.extend(review for review in page_reviews if isinstance(review, dict))
             if len(page_reviews) < _PER_PAGE:
-                break
-        return reviews
+                return reviews
+        # Past the cap the tail is invisible — and list_own_active_approvals rides this list for the
+        # orphan sweeps, where a silently missing approval defeats the guarantee. Fail closed like
+        # the thread fetch rather than pretending the truncated list is complete.
+        raise StamphogGitHubError(
+            f"PR reviews on {repo}#{number} exceed {_MAX_PAGES} pages; refusing to act on a truncated list"
+        )
 
     def list_own_active_approvals(self, repo: str, number: int) -> list[dict]:
         """Active APPROVE reviews on the PR authored by THIS App, as raw GitHub review dicts.

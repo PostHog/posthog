@@ -368,11 +368,15 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
             // through the authorize URL for one silent hop — GitHub redirects straight back with a code
             // and the discovery path takes over. Fetch install info directly rather than racing the loader,
             // which may not have resolved yet when the callback fires.
-            const info = await stamphogRepoConfigsInstallInfoRetrieve(String(values.currentProjectId))
-            if (info.authorize_url) {
-                window.location.href = info.authorize_url
-            } else {
-                lemonToast.error('GitHub App is not configured, so it cannot be connected')
+            try {
+                const info = await stamphogRepoConfigsInstallInfoRetrieve(String(values.currentProjectId))
+                if (info.authorize_url) {
+                    window.location.href = info.authorize_url
+                } else {
+                    lemonToast.error('GitHub App is not configured, so it cannot be connected')
+                }
+            } catch {
+                lemonToast.error('Could not load GitHub connection details. Try again.')
             }
         },
         syncInstallationSuccess: ({ syncResult }) => {
@@ -398,6 +402,18 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
             //     backend proves ownership from the code and discovers or verifies the installation.
             //   - setup_action=update (app already installed): installation_id + state but NO code. The id
             //     is user-editable and not trusted, so restart via authorize to obtain a real code.
+            // GitHub sends the user back with ?error=access_denied when they hit Cancel on the
+            // authorize screen — a normal action on the primary connect flow, not a failure. Land
+            // them back on the plain page instead of a silent dead-end on the callback URL.
+            if (searchParams.error) {
+                router.actions.replace(urls.stamphog())
+                if (searchParams.error === 'access_denied') {
+                    lemonToast.info('GitHub authorization was cancelled.')
+                } else {
+                    lemonToast.error('GitHub authorization failed. Try again.')
+                }
+                return
+            }
             // A stashed pick (from the multi-installation chooser) fills in for the missing
             // installation_id on the authorize redirect; an explicit URL param wins.
             const stashedInstallationId = sessionStorage.getItem(PENDING_INSTALLATION_STORAGE_KEY)

@@ -7,10 +7,7 @@ import pytest
 from freezegun import freeze_time
 from unittest.mock import MagicMock, patch
 
-from django.db import (
-    Error as DatabaseError,
-    transaction,
-)
+from django.db import OperationalError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -152,7 +149,7 @@ def test_proof_of_post_write_retries_transient_db_error(team, fail_times: int, e
         if is_proof:
             attempts["n"] += 1
             if attempts["n"] <= fail_times:
-                raise DatabaseError("transient db blip")
+                raise OperationalError("transient db blip")
         return real_update(self, **kwargs)
 
     post = MagicMock(return_value="1234.5")
@@ -164,7 +161,7 @@ def test_proof_of_post_write_retries_transient_db_error(team, fail_times: int, e
         patch.object(QuerySet, "update", flaky_update),
     ):
         if expect_raise:
-            with pytest.raises(DatabaseError):
+            with pytest.raises(OperationalError):
                 send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
         else:
             send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
