@@ -382,6 +382,7 @@ export interface sourceWizardLogicValues {
         | 'Select tables to query'
         | 'Set up webhook'
         | 'Tables ready to query'
+    nextButtonDisabledReason: string | null
     nextButtonText: string
     requiredTables: any
     returnConfig: {
@@ -1671,6 +1672,13 @@ export interface sourceWizardLogicMeta {
             isDirectQueryMode: boolean,
             webhookStepComplete: boolean
         ) => boolean
+        nextButtonDisabledReason: (
+            currentStep: number,
+            isManualLinkingSelected: boolean,
+            databaseSchema: ExternalDataSourceSyncSchema[],
+            isDirectQueryMode: boolean,
+            webhookStepComplete: boolean
+        ) => string | null
         showSkipButton: (currentStep: number) => boolean
         nextButtonText: (
             currentStep: number,
@@ -2301,6 +2309,39 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
 
                 return true
+            },
+        ],
+        nextButtonDisabledReason: [
+            (s) => [
+                s.currentStep,
+                s.isManualLinkingSelected,
+                s.databaseSchema,
+                s.isDirectQueryMode,
+                s.webhookStepComplete,
+            ],
+            (
+                currentStep: number,
+                isManualLinkingSelected: boolean,
+                databaseSchema: ExternalDataSourceSyncSchema[],
+                isDirectQueryMode: boolean,
+                webhookStepComplete: boolean
+            ): string | null => {
+                if (!isManualLinkingSelected && currentStep === 3) {
+                    const tablesToSync = databaseSchema.filter((n) => n.should_sync)
+                    if (tablesToSync.length === 0) {
+                        return 'Select at least one table to sync'
+                    }
+
+                    if (!isDirectQueryMode && tablesToSync.some((n) => !n.sync_type)) {
+                        return 'Choose a sync method for each table you want to sync'
+                    }
+                }
+
+                if (currentStep === 4 && !webhookStepComplete) {
+                    return 'Finish setting up the webhook to continue'
+                }
+
+                return null
             },
         ],
         showSkipButton: [
