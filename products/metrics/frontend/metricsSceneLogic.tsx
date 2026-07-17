@@ -3,6 +3,7 @@ import { router, urlToAction } from 'kea-router'
 
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
@@ -33,6 +34,7 @@ export type metricsSceneLogicType = MakeLogicType<metricsSceneLogicValues, metri
 
 export const metricsSceneLogic = kea<metricsSceneLogicType>([
     path(['products', 'metrics', 'frontend', 'metricsSceneLogic']),
+    tabAwareScene(),
     actions({
         setActiveTab: (activeTab: MetricsSceneActiveTab) => ({ activeTab }),
         keepSqlEditorMounted: (editorTabId: string) => ({ editorTabId }),

@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 
 import { router, urlToAction } from 'kea-router'
 
 import { FunnelLayout } from 'lib/constants'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { getDefaultInterval } from 'lib/utils/dateFilters'
 import { capitalizeFirstLetter, wordPluralize } from 'lib/utils/strings'
@@ -259,6 +260,7 @@ export type customerAnalyticsSceneLogicType = MakeLogicType<
 
 export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>([
     path(['scenes', 'customerAnalytics', 'customerAnalyticsScene']),
+    tabAwareScene(),
     connect(() => ({
         values: [
             customerAnalyticsConfigLogic,

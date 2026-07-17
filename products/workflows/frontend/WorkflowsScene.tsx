@@ -12,6 +12,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
@@ -72,6 +73,7 @@ export type workflowsSceneLogicType = MakeLogicType<
 export const workflowsSceneLogic = kea<workflowsSceneLogicType>([
     props({} as WorkflowsSceneProps),
     path(() => ['scenes', 'workflows', 'workflowsSceneLogic']),
+    tabAwareScene(),
     actions({
         setCurrentTab: (tab: WorkflowsSceneTab) => ({ tab }),
     }),

@@ -5,6 +5,7 @@ import { urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -81,6 +82,7 @@ export type personsSceneLogicType = MakeLogicType<
 
 export const personsSceneLogic = kea<personsSceneLogicType>([
     path(['scenes', 'persons', 'personsSceneLogic']),
+    tabAwareScene(),
 
     connect({ values: [teamLogic, ['currentTeam']] }),
 
