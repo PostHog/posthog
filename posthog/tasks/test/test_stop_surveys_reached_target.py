@@ -11,6 +11,7 @@ from django.utils.timezone import now
 from dateutil.relativedelta import relativedelta
 
 from posthog.models import Organization, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.tasks.stop_surveys_reached_target import stop_surveys_reached_target
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -251,3 +252,28 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
         survey.refresh_from_db()
         assert survey.end_date is not None
         assert survey.responses_limit is None
+
+    def test_stop_survey_on_responses_limit_is_logged_as_system_activity(self) -> None:
+        survey = Survey.objects.create(
+            name="1",
+            team=self.team1,
+            created_by=self.user,
+            linked_flag=self.flag,
+            responses_limit=1,
+            created_at=now(),
+        )
+        self._create_event_for_survey(survey)
+        flush_persons_and_events()
+
+        stop_surveys_reached_target()
+
+        log = ActivityLog.objects.get(scope="Survey", item_id=str(survey.id), activity="updated")
+        # No user: the scheduler closed it, so the activity log shows it as a system action.
+        assert log.is_system
+        assert log.user is None
+        # end_date going None -> value is what the frontend renders as "stopped".
+        change = log.detail["changes"][0]
+        assert change["field"] == "end_date"
+        assert change["action"] == "created"
+        assert change["after"] is not None
+        assert log.detail["trigger"]["payload"]["reason"] == "responses_limit_reached"
