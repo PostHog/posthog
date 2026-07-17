@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.settings import (
     CLOUDBEDS_ENDPOINTS,
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -28,7 +29,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CloudbedsSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -107,21 +111,9 @@ If your account manages multiple properties, enter the ID of the property you wa
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only for now - see the note in settings.py about the
-        # unverified `modifiedSince` filter on getReservations.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # Every endpoint is full refresh only for now (INCREMENTAL_FIELDS is empty) - see the note in
+        # settings.py about the unverified `modifiedSince` filter on getReservations.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self, config: CloudbedsSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -145,7 +137,9 @@ If your account manages multiple properties, enter the ID of the property you wa
         return cloudbeds_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             property_id=config.property_id,
+            db_incremental_field_last_value=None,  # every Cloudbeds endpoint is full refresh
         )

@@ -1,20 +1,16 @@
+import json
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
-import requests
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds import cloudbeds
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.cloudbeds import (
     PAGE_SIZE,
-    CloudbedsApiError,
     CloudbedsResumeConfig,
-    CloudbedsRetryableError,
-    check_access,
     cloudbeds_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.settings import (
@@ -22,238 +18,245 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.
     ENDPOINTS,
 )
 
-# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
-_fetch_page_unwrapped = cloudbeds._fetch_page.__wrapped__  # type: ignore[attr-defined]
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the cloudbeds module.
+CLOUDBEDS_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.cloudbeds.make_tracked_session"
+)
 
 
-class _FakeResumableManager:
-    def __init__(self, state: CloudbedsResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[CloudbedsResumeConfig] = []
+def _response(
+    rows: list[dict[str, Any]] | None,
+    *,
+    status: int = 200,
+    drop_data: bool = False,
+    body: dict[str, Any] | None = None,
+    url: str = "https://api.cloudbeds.com/api/v1.2/getReservations",
+    reason: str = "OK",
+) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp.url = url
+    resp.reason = reason
+    if body is not None:
+        payload: Any = body
+    elif drop_data:
+        # A 200 body without `data` — a `success: false` error envelope or a changed shape.
+        payload = {"success": True}
+    else:
+        items = rows or []
+        payload = {"success": True, "data": items, "count": len(items), "total": len(items)}
+    resp._content = json.dumps(payload).encode()
+    return resp
 
-    def can_resume(self) -> bool:
-        return self._state is not None
 
-    def load_state(self) -> CloudbedsResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: CloudbedsResumeConfig) -> None:
-        self.saved.append(data)
+def _make_manager(resume_state: CloudbedsResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
 
-def _full_page(start_id: int) -> list[dict]:
-    return [{"reservationID": str(start_id + i)} for i in range(PAGE_SIZE)]
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's params AT SEND TIME.
+
+    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
+    shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
 
 
-class TestGetRows:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager,
-        monkeypatch: Any,
-        pages: dict[tuple[str, Any], list[Any]],
-        endpoint: str = "reservations",
-        property_id: str | None = None,
-    ) -> tuple[list[dict], list[dict[str, Any]]]:
-        calls: list[dict[str, Any]] = []
+def _source(
+    endpoint: str = "reservations",
+    *,
+    manager: mock.MagicMock | None = None,
+    property_id: str | None = None,
+) -> Any:
+    return cloudbeds_source(
+        api_key="cbat_key",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager if manager is not None else _make_manager(),
+        property_id=property_id,
+    )
 
-        def fake_fetch(session: Any, path: str, params: dict[str, Any], logger: Any) -> list[dict]:
-            calls.append(params)
-            return pages[(path, params.get("pageNumber"))]
 
-        monkeypatch.setattr(cloudbeds, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(cloudbeds, "make_tracked_session", lambda **kwargs: MagicMock())
+def _rows(source_response: Any) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
-        rows: list[dict] = []
-        for batch in get_rows(
-            api_key="cbat_key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-            property_id=property_id,
-        ):
-            rows.extend(batch)
-        return rows, calls
 
-    def test_short_page_yields_and_stops(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows, _ = self._collect(
-            manager, monkeypatch, {("/getReservations", 1): [{"reservationID": "1"}, {"reservationID": "2"}]}
-        )
-        assert rows == [{"reservationID": "1"}, {"reservationID": "2"}]
-        # The page was short, so we stop without persisting resume state.
-        assert manager.saved == []
+class TestPagination:
+    def _full_page(self, start: int) -> list[dict[str, Any]]:
+        return [{"reservationID": str(start + i)} for i in range(PAGE_SIZE)]
 
-    def test_follows_page_number_pagination_until_short_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = {
-            ("/getReservations", 1): _full_page(0),
-            ("/getReservations", 2): [{"reservationID": "999"}],
-        }
-        rows, _ = self._collect(manager, monkeypatch, pages)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_by_page_number_and_checkpoints_after_full_page(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response(self._full_page(0)), _response([{"reservationID": "999"}])])
+
+        manager = _make_manager()
+        rows = _rows(_source(manager=manager))
+
         assert len(rows) == PAGE_SIZE + 1
-        # State is saved after the first page (advancing to page 2), then we stop on the short page.
-        assert [s.page for s in manager.saved] == [2]
+        assert params[0]["pageNumber"] == 1
+        assert params[0]["pageSize"] == PAGE_SIZE
+        assert params[1]["pageNumber"] == 2
+        # Checkpoint saved after the first full page (points at page 2); the short page then ends it.
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == CloudbedsResumeConfig(page=2)
 
-    def test_resumes_from_saved_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(CloudbedsResumeConfig(page=3))
-        # Page 1 must never be fetched on resume.
-        rows, calls = self._collect(manager, monkeypatch, {("/getReservations", 3): [{"reservationID": "5"}]})
-        assert rows == [{"reservationID": "5"}]
-        assert [c["pageNumber"] for c in calls] == [3]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"reservationID": "1"}, {"reservationID": "2"}])])
 
-    def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows, _ = self._collect(manager, monkeypatch, {("/getReservations", 1): []})
+        manager = _make_manager()
+        rows = _rows(_source(manager=manager))
+
+        assert [r["reservationID"] for r in rows] == ["1", "2"]
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_first_page_yields_nothing(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([])])
+
+        manager = _make_manager()
+        rows = _rows(_source(manager=manager))
+
         assert rows == []
-        assert manager.saved == []
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
 
-    def test_property_id_is_sent_on_every_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = {
-            ("/getReservations", 1): _full_page(0),
-            ("/getReservations", 2): [],
-        }
-        _, calls = self._collect(manager, monkeypatch, pages, property_id="12345")
-        assert all(c["propertyID"] == "12345" for c in calls)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_page(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"reservationID": "5"}])])
 
-    def test_non_paginated_endpoint_fetches_once_and_never_saves_state(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = {("/getHotels", None): [{"propertyID": "1"}, {"propertyID": "2"}]}
-        rows, calls = self._collect(manager, monkeypatch, pages, endpoint="hotels")
+        rows = _rows(_source(manager=_make_manager(CloudbedsResumeConfig(page=3))))
+
+        assert rows == [{"reservationID": "5"}]
+        # Page 1 and 2 must never be fetched on resume.
+        assert [p["pageNumber"] for p in params] == [3]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_property_id_is_sent_on_every_page(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response(self._full_page(0)), _response([])])
+
+        _rows(_source(manager=_make_manager(), property_id="12345"))
+
+        assert all(p["propertyID"] == "12345" for p in params)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_paginated_endpoint_fetches_once_without_page_params(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"propertyID": "1"}, {"propertyID": "2"}])])
+
+        manager = _make_manager()
+        rows = _rows(_source("hotels", manager=manager))
+
         assert rows == [{"propertyID": "1"}, {"propertyID": "2"}]
-        assert len(calls) == 1
-        assert "pageNumber" not in calls[0]
-        assert manager.saved == []
+        assert session.send.call_count == 1
+        assert "pageNumber" not in params[0]
+        assert "pageSize" not in params[0]
+        manager.save_state.assert_not_called()
 
-    def test_rooms_are_flattened_with_property_id(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = {
-            ("/getRooms", None): [
-                {
-                    "propertyID": "1",
-                    "propertyName": "Hotel One",
-                    "rooms": [{"roomID": "r1", "roomName": "101"}, {"roomID": "r2", "roomName": "102"}],
-                },
-                {"propertyID": "2", "propertyName": "Hotel Two", "rooms": []},
-            ]
-        }
-        rows, _ = self._collect(manager, monkeypatch, pages, endpoint="rooms")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rooms_are_flattened_with_property_id(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response(
+                    [
+                        {
+                            "propertyID": "1",
+                            "propertyName": "Hotel One",
+                            "rooms": [{"roomID": "r1", "roomName": "101"}, {"roomID": "r2", "roomName": "102"}],
+                        },
+                        {"propertyID": "2", "propertyName": "Hotel Two", "rooms": []},
+                    ]
+                )
+            ],
+        )
+
+        rows = _rows(_source("rooms", manager=_make_manager()))
+
+        # Each nested room becomes its own row with the parent propertyID copied in; the parent with
+        # an empty `rooms` list contributes nothing.
         assert rows == [
             {"roomID": "r1", "roomName": "101", "propertyID": "1"},
             {"roomID": "r2", "roomName": "102", "propertyID": "1"},
         ]
 
 
-class TestFetchPage:
-    def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body if body is not None else {"success": True, "data": []}
-        response.text = ""
-        response.reason = "Unauthorized"
-        response.url = "https://api.cloudbeds.com/api/v1.2/getReservations?propertyID=1"
-        session = MagicMock()
-        session.get.return_value = response
-        return session
+class TestFailLoud:
+    @parameterized.expand(
+        [("missing_data_key", {"success": True}), ("success_false", {"success": False, "message": "Access denied"})]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_missing_data_fails_loud(self, _name: str, body: dict[str, Any], MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(None, body=body)])
 
-    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(CloudbedsRetryableError):
-            _fetch_page_unwrapped(session, "/getReservations", {}, MagicMock())
-
-    @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_sanitized_http_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(requests.HTTPError) as exc_info:
-            _fetch_page_unwrapped(session, "/getReservations", {}, MagicMock())
-        message = str(exc_info.value)
-        # Keeps the prefix get_non_retryable_errors() matches on, but drops the query string so a
-        # future credential-bearing URL can never leak into persisted error state.
-        assert message.startswith(f"{status} Client Error:")
-        assert "for url: https://api.cloudbeds.com/api/v1.2/getReservations" in message
-        assert "?" not in message
-
-    def test_success_returns_data_rows(self) -> None:
-        body = {"success": True, "data": [{"reservationID": "1"}], "count": 1, "total": 1}
-        session = self._session_returning(200, body)
-        rows = _fetch_page_unwrapped(session, "/getReservations", {}, MagicMock())
-        assert rows == [{"reservationID": "1"}]
-
-    def test_success_false_raises_api_error_not_retryable(self) -> None:
-        # Cloudbeds signals bad params / missing scopes as HTTP 200 + success=false; retrying would
-        # loop forever, so it must surface as a distinct non-retryable error.
-        body = {"success": False, "message": "Access denied for this endpoint"}
-        session = self._session_returning(200, body)
-        with pytest.raises(CloudbedsApiError, match="Access denied"):
-            _fetch_page_unwrapped(session, "/getReservations", {}, MagicMock())
+        # A 200 body without `data` (a `success: false` envelope or a changed shape) must fail loud,
+        # not silently sync 0 rows.
+        with pytest.raises(ValueError, match="matched nothing"):
+            _rows(_source(manager=_make_manager()))
 
     @parameterized.expand(
         [
-            ("non_dict_body", [{"reservationID": "1"}]),
-            ("missing_data_key", {"success": True}),
-            ("non_list_data", {"success": True, "data": {"reservationID": "1"}}),
+            ("unauthorized", 401, "Unauthorized"),
+            ("forbidden", 403, "Forbidden"),
         ]
     )
-    def test_unexpected_payloads_are_retryable(self, _name: str, body: Any) -> None:
-        session = self._session_returning(200, body)
-        with pytest.raises(CloudbedsRetryableError):
-            _fetch_page_unwrapped(session, "/getReservations", {}, MagicMock())
-
-
-class TestCheckAccess:
-    @staticmethod
-    def _session(response: Any) -> MagicMock:
-        session = MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
-        else:
-            session.get.return_value = response
-        return session
-
-    @parameterized.expand(
-        [
-            ("ok", 200, True, 200, None),
-            ("unauthorized", 401, False, 401, None),
-            ("forbidden", 403, False, 403, None),
-            ("server_error", 500, False, 500, "Cloudbeds returned HTTP 500"),
-        ]
-    )
-    @patch(f"{cloudbeds.__name__}.make_tracked_session")
-    def test_status_mapping(
-        self,
-        _name: str,
-        status: int,
-        ok: bool,
-        expected_status: int,
-        expected_message: str | None,
-        mock_session: MagicMock,
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_auth_failure_raises_matchable_error(
+        self, _name: str, status: int, reason: str, MockSession: mock.MagicMock
     ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = ok
-        mock_session.return_value = self._session(response)
-        assert check_access("cbat_key") == (expected_status, expected_message)
+        from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.source import CloudbedsSource
 
-    @patch(f"{cloudbeds.__name__}.make_tracked_session")
-    def test_connection_error_maps_to_zero(self, mock_session: MagicMock) -> None:
-        mock_session.return_value = self._session(requests.ConnectionError("boom"))
-        status, message = check_access("cbat_key")
-        assert status == 0
-        assert message is not None and "boom" in message
+        session = MockSession.return_value
+        url = f"https://api.cloudbeds.com/api/v1.2/getReservations?pageNumber=1&pageSize={PAGE_SIZE}"
+        _wire(session, [_response(None, status=status, url=url, reason=reason)])
 
-    @patch(f"{cloudbeds.__name__}.make_tracked_session")
-    def test_probe_scopes_to_property_when_configured(self, mock_session: MagicMock) -> None:
-        response = MagicMock()
-        response.status_code = 200
-        response.ok = True
-        session = self._session(response)
-        mock_session.return_value = session
-        check_access("cbat_key", property_id="12345")
-        _, kwargs = session.get.call_args
-        assert kwargs["params"] == {"propertyID": "12345"}
+        with pytest.raises(Exception) as exc_info:
+            _rows(_source(manager=_make_manager()))
 
+        message = str(exc_info.value)
+        # The stable "<status> Client Error: <reason> for url: https://api.cloudbeds.com" prefix is
+        # what get_non_retryable_errors matches on to surface an actionable message.
+        assert message.startswith(f"{status} Client Error: {reason} for url: https://api.cloudbeds.com")
+        assert any(key in message for key in CloudbedsSource().get_non_retryable_errors())
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_api_key_is_never_leaked_into_error(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        # Even if a future credential rides in the query string, the framework redacts the configured
+        # secret value out of every raised error message.
+        url = "https://api.cloudbeds.com/api/v1.2/getReservations?api_key=cbat_key&pageNumber=1"
+        _wire(session, [_response(None, status=401, url=url, reason="Unauthorized")])
+
+        with pytest.raises(Exception) as exc_info:
+            _rows(_source(manager=_make_manager()))
+
+        assert "cbat_key" not in str(exc_info.value)
+
+
+class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
@@ -262,31 +265,35 @@ class TestCheckAccess:
             ("server_error", 500, False, "Cloudbeds returned HTTP 500"),
         ]
     )
-    @patch(f"{cloudbeds.__name__}.make_tracked_session")
-    def test_validate_credentials(
+    @mock.patch(CLOUDBEDS_SESSION_PATCH)
+    def test_status_mapping(
         self,
         _name: str,
         status: int,
         expected_valid: bool,
         expected_message: str | None,
-        mock_session: MagicMock,
+        mock_session: mock.MagicMock,
     ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = status < 400
-        mock_session.return_value = self._session(response)
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
         assert validate_credentials("cbat_key") == (expected_valid, expected_message)
+
+    @mock.patch(CLOUDBEDS_SESSION_PATCH)
+    def test_connection_error_is_not_valid(self, mock_session: mock.MagicMock) -> None:
+        mock_session.return_value.get.side_effect = Exception("boom")
+        assert validate_credentials("cbat_key") == (False, "Could not connect to Cloudbeds")
+
+    @mock.patch(CLOUDBEDS_SESSION_PATCH)
+    def test_probe_scopes_to_property_when_configured(self, mock_session: mock.MagicMock) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        validate_credentials("cbat_key", property_id="12345")
+        called_url = mock_session.return_value.get.call_args.args[0]
+        assert "propertyID=12345" in called_url
 
 
 class TestCloudbedsSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = cloudbeds_source(
-            api_key="cbat_key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        response = _source(endpoint, manager=_make_manager())
         assert response.name == endpoint
         assert response.primary_keys == CLOUDBEDS_ENDPOINTS[endpoint].primary_keys
         # No creation timestamp is verified stable across every object, so we don't partition.
