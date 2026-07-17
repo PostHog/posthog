@@ -141,8 +141,9 @@ impl GlobalRateLimiter {
         enable_dynamic_source: bool,
     ) -> anyhow::Result<Self> {
         // Seed the (swappable) custom-key map from the static CSV overrides. When a
-        // dynamic source is enabled, the common refresh loop replaces this map from
-        // Redis; until then (and if Redis is unreachable) the CSV seed applies.
+        // dynamic source is enabled, the common refresh loop replaces this map only
+        // from an explicit Redis blob; an absent key or an unreachable Redis is
+        // fail-static, so the CSV seed keeps applying until a blob is written.
         let seed = Self::format_custom_keys(custom_keys_csv);
 
         // Build the dynamic source when enabled and its Redis key + URL are set.

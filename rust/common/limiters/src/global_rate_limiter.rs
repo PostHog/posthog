@@ -688,10 +688,13 @@ impl GlobalRateLimiterImpl {
 
     /// Fetch custom-key thresholds once and atomically swap them into the config.
     ///
-    /// Redis is authoritative when reachable: `Ok(Some)` replaces the map,
-    /// `Ok(None)` (absent key) clears it. On `Err` the current map is kept
-    /// (fail-static) — the source handles its own reconnect, so the next tick
-    /// retries.
+    /// Only an explicit Redis blob is authoritative: `Ok(Some)` replaces the map
+    /// (an empty blob — `{}` — is the deliberate clear signal). An absent key
+    /// (`Ok(None)`) is ambiguous — fresh rollout before the writer runs, an
+    /// eviction, or an accidental delete — so it is treated as fail-static, the
+    /// same as `Err`: the current map is kept rather than silently wiping the
+    /// (fail-open) hot overrides. The source handles its own reconnect, so the
+    /// next tick retries.
     async fn refresh_custom_keys_once(
         config: &GlobalRateLimiterConfig,
         source: &dyn CustomKeyThresholdSource,
@@ -706,10 +709,10 @@ impl GlobalRateLimiterImpl {
                     .set(Utc::now().timestamp() as f64);
             }
             Ok(None) => {
-                config.custom_keys.store(Arc::new(HashMap::new()));
-                metrics::gauge!(CUSTOM_THRESHOLDS_LOADED_GAUGE, "scope" => scope).set(0.0);
-                metrics::gauge!(CUSTOM_THRESHOLDS_LAST_REFRESH_GAUGE, "scope" => scope)
-                    .set(Utc::now().timestamp() as f64);
+                // Absent key: keep the current map (fail-static). A deliberate
+                // clear arrives as an explicit empty blob via the `Ok(Some)` arm;
+                // the `not_found` counter is already emitted by the source's
+                // fetch(), so we neither touch the map nor stomp the gauges here.
             }
             Err(e) => {
                 error!(
@@ -2129,14 +2132,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_refresh_once_absent_key_clears_thresholds() {
+    async fn test_refresh_once_absent_key_is_fail_static() {
         let config = test_config();
         set_custom_keys(&config, &[("seed", 1)]);
 
         let source = MockCustomKeyThresholdSource::with_thresholds(None);
         GlobalRateLimiterImpl::refresh_custom_keys_once(&config, &source, "test").await;
 
-        // Absent key means "no custom thresholds": the map is cleared.
+        // Absent key is ambiguous (fresh rollout / eviction / accidental delete),
+        // not an authoritative clear: the current thresholds must survive.
+        assert_eq!(config.resolve_custom("seed"), Some(1));
+    }
+
+    #[tokio::test]
+    async fn test_refresh_once_empty_blob_clears_thresholds() {
+        let config = test_config();
+        set_custom_keys(&config, &[("seed", 1)]);
+
+        // An explicit empty blob (`{}` in Redis) is the deliberate clear signal,
+        // distinct from an absent key: it replaces the map with an empty one.
+        let source = MockCustomKeyThresholdSource::with_thresholds(Some(HashMap::new()));
+        GlobalRateLimiterImpl::refresh_custom_keys_once(&config, &source, "test").await;
+
         assert_eq!(config.resolve_custom("seed"), None);
     }
 
