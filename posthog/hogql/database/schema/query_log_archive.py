@@ -137,7 +137,12 @@ class QueryLogArchiveTable(LazyTable):
             elif name == "created_by":
                 return ast.Alias(alias=name, expr=ast.Field(chain=[table_name, "lc_user_id"]))
             elif name == "status":
-                return ast.Alias(alias=name, expr=ast.Field(chain=[table_name, "type"]))
+                # `type` is an Enum8 without a `= 0` member; rows with the implicit 0 default make
+                # clickhouse-driver's enum decoder raise KeyError: 0. Serialize as text so the driver
+                # never decodes the enum, which also matches the declared StringDatabaseField.
+                return ast.Alias(
+                    alias=name, expr=ast.Call(name="toString", args=[ast.Field(chain=[table_name, "type"])])
+                )
             elif name == "is_personal_api_key_request":
                 cmp_expr = ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
