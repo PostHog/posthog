@@ -44,6 +44,11 @@ MAX_RESPONSE_BYTES = 256 * 1024 * 1024
 # How much of an error-response body to keep for the log line (bounded for the same reason).
 MAX_ERROR_BODY_BYTES = 8 * 1024
 
+# Encoded bytes read per streamed chunk while enforcing MAX_RESPONSE_BYTES. Kept small so a single
+# decompressed chunk can't inflate far past the cap before we notice — a hostile host could otherwise
+# hand back a small gzip bomb that a one-shot decoded read would expand into memory all at once.
+READ_CHUNK_BYTES = 64 * 1024
+
 # A real pagination cursor is a short opaque token. A host handing back anything larger is broken or
 # hostile — reject it rather than echo it back in the next request body or hold it in memory.
 MAX_CURSOR_BYTES = 8 * 1024
@@ -87,14 +92,18 @@ class LangSmithRepeatedCursorError(Exception):
 def _read_capped_body(response: requests.Response, cap: int = MAX_RESPONSE_BYTES) -> bytes:
     """Read at most `cap` decoded bytes from a streamed response, refusing an oversized body.
 
-    Requests are made with `stream=True` so the body isn't materialised until this read. We read one
-    byte past the cap to detect an oversized body without buffering the whole thing — a hostile host
-    could otherwise return an unbounded 2xx body and OOM a shared worker.
+    Requests are made with `stream=True` so the body isn't materialised until this read. We stream the
+    decompressed body in small chunks and stop the moment the running decoded total exceeds the cap.
+    Reading the whole body in one shot with `decode_content=True` only bounds the encoded bytes: a
+    hostile host could return a small gzip bomb that inflates past the cap in memory before we ever
+    check its size. Streaming keeps the peak bounded to roughly one chunk's worth of inflation.
     """
-    raw = response.raw.read(cap + 1, decode_content=True)
-    if len(raw) > cap:
-        raise LangSmithResponseTooLargeError(f"LangSmith API returned an oversized response (> {cap} bytes)")
-    return raw
+    buffer = bytearray()
+    for chunk in response.iter_content(chunk_size=READ_CHUNK_BYTES):
+        buffer.extend(chunk)
+        if len(buffer) > cap:
+            raise LangSmithResponseTooLargeError(f"LangSmith API returned an oversized response (> {cap} bytes)")
+    return bytes(buffer)
 
 
 @dataclasses.dataclass
@@ -121,7 +130,20 @@ def normalize_base_url(raw: str) -> str:
     parsed = urlparse(raw)
     scheme = parsed.scheme.lower()
     scheme = scheme if scheme in ("http", "https") else "https"
-    return f"{scheme}://{parsed.netloc}"
+    # Rebuild the authority from the parsed hostname/port only — never the raw `netloc`. Keeping
+    # `netloc` verbatim lets a value like `https://127.0.0.1\@evil.com` pass the hostname allowlist as
+    # `evil.com` (what `urlparse` sees) while `requests` connects to `127.0.0.1` (what its WHATWG-style
+    # parser sees): a parser-mismatch SSRF. It also drops any `user:pass@` userinfo, which we never use
+    # (auth is the X-API-Key header). Rebuilding guarantees the host we validate is the host we hit.
+    host = parsed.hostname or ""
+    if ":" in host:  # IPv6 literal — hostname strips the brackets that the URL form needs back
+        host = f"[{host}]"
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    authority = host if port is None else f"{host}:{port}"
+    return f"{scheme}://{authority}"
 
 
 def _host_from_url(base_url: str) -> str:

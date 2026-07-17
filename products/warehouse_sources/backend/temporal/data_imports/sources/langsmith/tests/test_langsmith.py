@@ -77,6 +77,14 @@ class TestNormalizeBaseUrl:
             # Self-hosted instances may run plaintext on a private network; the scheme is preserved
             # (and separately blocked on cloud by _is_scheme_safe).
             ("http://langsmith.internal:1984", "http://langsmith.internal:1984"),
+            ("https://api.smith.langchain.com:8443", "https://api.smith.langchain.com:8443"),
+            ("https://[::1]:8080", "https://[::1]:8080"),
+            # Authority is rebuilt from the parsed hostname/port only — never the raw netloc — so a
+            # backslash or userinfo can't make the validated host differ from the connected one. Keeping
+            # netloc verbatim would let `https://127.0.0.1\@evil.com` pass the allowlist as `evil.com`
+            # while requests connects to `127.0.0.1` (a parser-mismatch SSRF).
+            ("https://127.0.0.1\\@evil.com", "https://evil.com"),
+            ("https://user:pass@127.0.0.1@evil.com", "https://evil.com"),
         ],
     )
     def test_reduces_to_clean_origin(self, raw, expected):
@@ -297,15 +305,29 @@ class TestPaginationAbuseGuards:
 
 
 class TestResponseSizeCap:
-    def test_read_capped_body_rejects_oversized(self):
+    def test_read_capped_body_aborts_before_consuming_whole_body(self):
+        # The body is streamed and rejected the moment the running total passes the cap, so a hostile
+        # host can't inflate a small gzip bomb into memory before we notice. A one-shot decoded read
+        # would pull (and decompress) everything first, so this asserts we stop mid-stream.
+        consumed: list[int] = []
+
+        def chunks():
+            consumed.append(1)
+            yield b"x" * 6
+            consumed.append(2)
+            yield b"x" * 6
+            consumed.append(3)  # must never run — the cap is already blown after the second chunk
+            yield b"x" * 6
+
         response = mock.MagicMock()
-        response.raw.read.return_value = b"x" * 11
+        response.iter_content.return_value = chunks()
         with pytest.raises(LangSmithResponseTooLargeError):
             _read_capped_body(response, cap=10)
+        assert consumed == [1, 2]
 
     def test_read_capped_body_returns_body_within_cap(self):
         response = mock.MagicMock()
-        response.raw.read.return_value = b'{"ok": true}'
+        response.iter_content.return_value = [b'{"ok":', b" true}"]
         assert _read_capped_body(response, cap=1024) == b'{"ok": true}'
 
     def test_fetch_page_streams_and_parses_body(self):
@@ -316,7 +338,7 @@ class TestResponseSizeCap:
         response.ok = True
         response.__enter__.return_value = response
         response.__exit__.return_value = False
-        response.raw.read.return_value = b'{"runs": [{"id": "a"}]}'
+        response.iter_content.return_value = [b'{"runs": [{"id": "a"}]}']
         session = mock.MagicMock()
         session.post.return_value = response
 
