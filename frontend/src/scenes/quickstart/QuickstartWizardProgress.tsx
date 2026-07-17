@@ -3,6 +3,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { activeCloudRunLogic, CloudRunHandle } from 'scenes/onboarding/shared/wizard-sync/activeCloudRunLogic'
 import { finishedLocalRunLogic } from 'scenes/onboarding/shared/wizard-sync/finishedLocalRunLogic'
 import { currentTaskLabel, stepCounts, syncHeadline } from 'scenes/onboarding/shared/wizard-sync/helpers'
@@ -81,29 +82,43 @@ export function QuickstartInstallationProgress({ progress }: { progress: Install
     const { openDialog } = useActions(wizardSyncUiLogic)
     const task = currentTaskLabel(progress)
     const { completed, total } = stepCounts(progress.steps)
+    const progressPercent = total > 0 ? (completed / total) * 100 : 0
 
     return (
         <div
-            className="flex items-center gap-2 rounded border bg-fill-highlight-50 px-2 py-1"
+            className="basis-full max-w-2xl rounded-lg border bg-surface-primary px-4 py-3"
             role="status"
             aria-live="polite"
             data-attr="quickstart-installation-progress"
         >
-            <StatusGlyph progress={progress} />
-            <div className="flex flex-col min-w-0 leading-tight">
-                <span className="text-xs font-semibold">{syncHeadline(progress)}</span>
-                <span className="text-xs text-secondary truncate max-w-72" title={task ?? undefined}>
-                    {task}
-                </span>
+            <div className="flex items-start gap-3">
+                <StatusGlyph progress={progress} />
+                <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm font-semibold">{syncHeadline(progress)}</span>
+                        {total > 0 && (
+                            <span className="text-xs text-muted tabular-nums shrink-0">
+                                {completed} of {total} steps
+                            </span>
+                        )}
+                    </div>
+                    <div className="mt-1">
+                        <span className="text-xs text-muted">Current task</span>
+                        <div className="text-sm text-secondary truncate" title={task ?? undefined}>
+                            {task}
+                        </div>
+                    </div>
+                </div>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={openDialog}
+                    data-attr="quickstart-installation-status"
+                >
+                    View details
+                </LemonButton>
             </div>
-            {total > 0 && (
-                <span className="text-xs text-muted tabular-nums shrink-0">
-                    {completed}/{total}
-                </span>
-            )}
-            <LemonButton size="xsmall" onClick={openDialog} data-attr="quickstart-installation-status">
-                Details
-            </LemonButton>
+            {total > 0 && <LemonProgress percent={progressPercent} className="mt-3" />}
         </div>
     )
 }

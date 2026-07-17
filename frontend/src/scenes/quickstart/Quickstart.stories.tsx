@@ -265,7 +265,7 @@ export const InstallationNotStarted: Story = {
     decorators: [installationStateDecorator('not_started'), mswDecorator(scenarioMocks({}))],
 }
 
-/** Fresh account with a wizard run: progress moves into the header and the global FAB stays hidden. */
+/** Fresh account with a wizard run: progress gets its own row below the token and the global FAB stays hidden. */
 export const InstallationRunning: Story = {
     decorators: [installationStateDecorator('running'), mswDecorator(scenarioMocks({}))],
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
