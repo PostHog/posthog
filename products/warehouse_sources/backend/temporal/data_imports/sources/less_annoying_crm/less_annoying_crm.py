@@ -1,14 +1,18 @@
 import dataclasses
-from collections.abc import Iterator
-from typing import Any
+from typing import Any, Optional
 
-import requests
-import structlog
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    SinglePagePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.less_annoying_crm.settings import (
     LESS_ANNOYING_CRM_ENDPOINTS,
@@ -26,17 +30,23 @@ PAGE_SIZE = 500
 
 REQUEST_TIMEOUT_SECONDS = 60
 
-logger = structlog.get_logger(__name__)
-
-
-class LessAnnoyingCRMRetryableError(Exception):
-    """Raised for transient failures (429 / 5xx / connection) that are worth retrying."""
-
-
-class LessAnnoyingCRMError(Exception):
-    """Raised for terminal API errors. Carries the API's ErrorDescription so credential/permission
-    failures surface a friendly, matchable message (LACRM returns these as HTTP 400 with a JSON body,
-    not 401/403)."""
+# Errors (including invalid credentials) come back as an envelope carrying ErrorCode / ErrorDescription
+# — as an HTTP 400 body for bad requests, and defensively matched on any status. The 400 + "Invalid
+# credentials" case surfaces a message the source's non-retryable map matches to disable the sync with
+# actionable copy; any other error envelope fails loud rather than silently syncing 0 rows.
+LESS_ANNOYING_CRM_RESPONSE_ACTIONS = [
+    {
+        "status_code": 400,
+        "content": "Invalid credentials",
+        "action": "raise",
+        "message": "Less Annoying CRM API error: Invalid credentials.",
+    },
+    {
+        "content": '"ErrorCode"',
+        "action": "raise",
+        "message": "Less Annoying CRM API returned an error response.",
+    },
+]
 
 
 @dataclasses.dataclass
@@ -46,84 +56,68 @@ class LessAnnoyingCRMResumeConfig:
     page: int = 1
 
 
-def _get_headers(api_key: str) -> dict[str, str]:
-    # LACRM sends the raw API key as the Authorization header value — no Bearer prefix, no OAuth.
-    return {"Authorization": api_key, "Content-Type": "application/json"}
+class LessAnnoyingCRMPaginator(BasePaginator):
+    """Page paginator for LACRM's RPC API.
+
+    LACRM pages via ``Page`` nested inside the request body's ``Parameters`` object (not a query
+    param), and signals more pages with a body-level ``HasMoreResults`` boolean, falling back to a
+    short-page heuristic when the flag is absent. No built-in paginator writes into a nested body key
+    or reads a boolean has-more flag, so this small subclass carries both plus resume on the page.
+    """
+
+    def __init__(self, page_size: int, page: int = 1) -> None:
+        super().__init__()
+        self.page_size = page_size
+        self.page = page
+
+    def _inject_page(self, request: Request) -> None:
+        if request.json is None:
+            request.json = {}
+        parameters = request.json.setdefault("Parameters", {})
+        parameters["Page"] = self.page
+
+    def init_request(self, request: Request) -> None:
+        self._inject_page(request)
+
+    def update_request(self, request: Request) -> None:
+        self._inject_page(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        records = data or []
+        try:
+            body = response.json()
+        except Exception:
+            body = None
+        # LACRM signals more pages via HasMoreResults. Fall back to a short-page heuristic if the flag
+        # is absent so we never loop forever on an endpoint that omits it.
+        has_more = body.get("HasMoreResults") if isinstance(body, dict) else None
+        if has_more is None:
+            has_more = len(records) >= self.page_size
+        if not has_more or not records:
+            self._has_next_page = False
+            return
+        self.page += 1
+        self._has_next_page = True
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        # self.page already points at the next page to fetch (update_state incremented it).
+        return {"page": self.page} if self._has_next_page else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        page = state.get("page")
+        if page is not None:
+            self.page = int(page)
+            self._has_next_page = True
+
+    def __str__(self) -> str:
+        return f"LessAnnoyingCRMPaginator(page={self.page})"
 
 
-def _extract_records(data: Any, result_path: list[str]) -> list[dict[str, Any]]:
-    """Walk ``result_path`` to the record collection and normalize it to a list of dicts.
-
-    LACRM returns list endpoints under ``Results`` (or a bare array for users/teams). GetTasks nests
-    its results as an object keyed by id, so a dict at the leaf is expanded to its values."""
-    node = data
-    for key in result_path:
-        if not isinstance(node, dict):
-            return []
-        node = node.get(key)
-    if isinstance(node, dict):
-        return [v for v in node.values() if isinstance(v, dict)]
-    if isinstance(node, list):
-        return [item for item in node if isinstance(item, dict)]
-    return []
-
-
-def _is_error_body(data: Any) -> bool:
-    return isinstance(data, dict) and ("ErrorCode" in data or "ErrorDescription" in data)
-
-
-@retry(
-    retry=retry_if_exception_type(
-        (
-            LessAnnoyingCRMRetryableError,
-            requests.ReadTimeout,
-            requests.ConnectionError,
-            requests.exceptions.ChunkedEncodingError,
-        )
-    ),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _call_function(
-    session: requests.Session,
-    api_key: str,
-    function: str,
-    parameters: dict[str, Any],
-    logger: FilteringBoundLogger,
-) -> Any:
-    response = session.post(
-        LESS_ANNOYING_CRM_BASE_URL,
-        headers=_get_headers(api_key),
-        json={"Function": function, "Parameters": parameters},
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise LessAnnoyingCRMRetryableError(
-            f"Less Annoying CRM API error (retryable): status={response.status_code}, function={function}"
-        )
-
-    # Errors (including invalid credentials) come back as HTTP 400 with a JSON body carrying
-    # ErrorCode / ErrorDescription. Surface the description so it can be matched as non-retryable.
-    try:
-        data = response.json()
-    except ValueError:
-        data = None
-
-    if not response.ok or _is_error_body(data):
-        description = data.get("ErrorDescription") if isinstance(data, dict) else None
-        message = description or f"HTTP {response.status_code}"
-        logger.error(f"Less Annoying CRM API error: function={function}, status={response.status_code}, body={message}")
-        raise LessAnnoyingCRMError(f"Less Annoying CRM API error for {function}: {message}")
-
-    return data
-
-
-def _build_parameters(config: LessAnnoyingCRMEndpointConfig, page: int) -> dict[str, Any]:
+def _build_parameters(config: LessAnnoyingCRMEndpointConfig) -> dict[str, Any]:
+    """Build the static ``Parameters`` body for an endpoint. ``Page`` is injected per request by the
+    paginator; everything here is constant for the whole sync."""
     parameters: dict[str, Any] = {}
     if config.paginated:
-        parameters["Page"] = page
         parameters["MaxNumberOfResults"] = PAGE_SIZE
     if config.date_window_params:
         start_param, end_param = config.date_window_params
@@ -140,76 +134,90 @@ def validate_credentials(api_key: str) -> bool:
     """Confirm the API key is genuine with the cheapest possible probe.
 
     ``GetUser`` takes no parameters and always returns the authenticated user, so it validates the
-    key without touching any specific resource's read permissions."""
+    key without touching any specific resource's read permissions. A bad key comes back as HTTP 400
+    with an ErrorCode / ErrorDescription envelope."""
     try:
         session = make_tracked_session(redact_values=(api_key,))
-        data = _call_function(session, api_key, "GetUser", {}, logger=logger)
-        return not _is_error_body(data)
+        response = session.post(
+            LESS_ANNOYING_CRM_BASE_URL,
+            headers={"Authorization": api_key, "Content-Type": "application/json"},
+            json={"Function": "GetUser", "Parameters": {}},
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+        if response.status_code != 200:
+            return False
+        data = response.json()
+        return not (isinstance(data, dict) and ("ErrorCode" in data or "ErrorDescription" in data))
     except Exception:
         return False
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[LessAnnoyingCRMResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = LESS_ANNOYING_CRM_ENDPOINTS[endpoint]
-    # Redact the key so it can never land in tracked HTTP request/response samples.
-    session = make_tracked_session(redact_values=(api_key,))
-
-    # Non-paginated reference tables (users, teams) are a single call.
-    if not config.paginated:
-        data = _call_function(session, api_key, config.function, _build_parameters(config, page=1), logger)
-        records = _extract_records(data, config.result_path)
-        if records:
-            yield records
-        return
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume.page if resume else 1
-
-    while True:
-        data = _call_function(session, api_key, config.function, _build_parameters(config, page), logger)
-        records = _extract_records(data, config.result_path)
-
-        if records:
-            yield records
-
-        # LACRM signals more pages via HasMoreResults. Fall back to a short-page heuristic if the flag
-        # is absent so we never loop forever on an endpoint that omits it.
-        has_more = data.get("HasMoreResults") if isinstance(data, dict) else None
-        if has_more is None:
-            has_more = len(records) >= PAGE_SIZE
-        if not has_more or not records:
-            break
-
-        page += 1
-        # Save AFTER yielding so a crash re-yields the last page rather than skipping it.
-        resumable_source_manager.save_state(LessAnnoyingCRMResumeConfig(page=page))
 
 
 def less_annoying_crm_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[LessAnnoyingCRMResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = LESS_ANNOYING_CRM_ENDPOINTS[endpoint]
 
+    paginator: BasePaginator = (
+        LessAnnoyingCRMPaginator(page_size=PAGE_SIZE) if config.paginated else SinglePagePaginator()
+    )
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": LESS_ANNOYING_CRM_BASE_URL,
+            # LACRM sends the raw API key as the Authorization header value (no Bearer prefix). Framework
+            # auth redacts it from logs and error messages; only the non-secret content-type is set here.
+            "headers": {"Content-Type": "application/json"},
+            "auth": {"type": "api_key", "api_key": api_key, "name": "Authorization", "location": "header"},
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": "",
+                    "method": "POST",
+                    "json": {"Function": config.function, "Parameters": _build_parameters(config)},
+                    "data_selector": config.data_selector,
+                    "paginator": paginator,
+                    "response_actions": LESS_ANNOYING_CRM_RESPONSE_ACTIONS,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if config.paginated and resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"page": resume.page}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields the
+        # last page (merge dedupes) rather than skipping it.
+        if state and state.get("page") is not None:
+            resumable_source_manager.save_state(LessAnnoyingCRMResumeConfig(page=int(state["page"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
     )

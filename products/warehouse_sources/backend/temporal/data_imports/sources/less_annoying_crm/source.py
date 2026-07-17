@@ -137,6 +137,8 @@ API keys can't be retrieved after creation, so store the key somewhere safe when
         return less_annoying_crm_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every LACRM endpoint is full refresh
         )
