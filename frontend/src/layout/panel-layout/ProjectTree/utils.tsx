@@ -32,7 +32,7 @@ export function getCategoryOrder(category: string | undefined): number {
 }
 
 // Define the order of categories in the data management panel
-const DATA_MANAGEMENT_PANEL_ORDER: Record<string, number> = {
+export const DATA_MANAGEMENT_PANEL_ORDER: Record<string, number> = {
     Pipeline: 1,
     Schema: 2,
     Tools: 3,

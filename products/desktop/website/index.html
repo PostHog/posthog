@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>PostHog on Desktop — the PostHog app, native, with tabs</title>
+        <meta
+            name="description"
+            content="A desktop build of PostHog. The full analytics app in a native window, with tabs, kept in sync with upstream automatically by an AI agent. Download for macOS and Windows."
+        />
+        <link rel="icon" type="image/png" href="icon.png" />
+        <link rel="apple-touch-icon" href="icon.png" />
+
+        <meta property="og:type" content="website" />
+        <meta property="og:title" content="PostHog on Desktop" />
+        <meta
+            property="og:description"
+            content="The full PostHog app in a native window — with tabs — synced with upstream every day by an AI agent. Free download for macOS and Windows."
+        />
+        <meta property="og:url" content="https://posthogondesktop.com" />
+        <meta property="og:image" content="screenshot1.png" />
+        <meta name="twitter:card" content="summary_large_image" />
+
+        <style>
+            :root {
+                --bg: #f3f3ee;
+                --surface: #ffffff;
+                --text: #1d1f27;
+                --muted: #5f6672;
+                --border: #e4e2da;
+                --accent: #1d4aff;
+                --accent-ink: #ffffff;
+                --brand-yellow: #f9bd2b;
+                --brand-red: #f54e00;
+                --shadow: 0 24px 60px -24px rgba(29, 31, 39, 0.35);
+                --radius: 16px;
+            }
+            @media (prefers-color-scheme: dark) {
+                :root {
+                    --bg: #16181d;
+                    --surface: #1e2128;
+                    --text: #f2f3f5;
+                    --muted: #a2a9b4;
+                    --border: #2c313a;
+                    --accent: #5b7bff;
+                    --shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.7);
+                }
+            }
+
+            * {
+                box-sizing: border-box;
+            }
+            html {
+                scroll-behavior: smooth;
+            }
+            body {
+                margin: 0;
+                background: var(--bg);
+                color: var(--text);
+                font-family:
+                    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                line-height: 1.5;
+                -webkit-font-smoothing: antialiased;
+            }
+            a {
+                color: inherit;
+            }
+            .wrap {
+                width: 100%;
+                max-width: 1040px;
+                margin: 0 auto;
+                padding: 0 24px;
+            }
+
+            header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 22px 0;
+            }
+            .logo {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                font-weight: 700;
+                font-size: 17px;
+            }
+            .logo img {
+                width: 30px;
+                height: 30px;
+                border-radius: 7px;
+            }
+            .ghlink {
+                color: var(--muted);
+                text-decoration: none;
+                font-size: 15px;
+                font-weight: 500;
+            }
+            .ghlink:hover {
+                color: var(--text);
+            }
+
+            .hero {
+                text-align: center;
+                padding: 40px 0 8px;
+            }
+            .tag {
+                display: inline-block;
+                font-size: 13px;
+                font-weight: 600;
+                letter-spacing: 0.02em;
+                color: var(--accent);
+                background: color-mix(in srgb, var(--accent) 12%, transparent);
+                padding: 6px 14px;
+                border-radius: 999px;
+                margin-bottom: 22px;
+            }
+            h1 {
+                font-size: clamp(34px, 6vw, 56px);
+                line-height: 1.05;
+                letter-spacing: -0.02em;
+                margin: 0 0 18px;
+                font-weight: 800;
+            }
+            .lead {
+                font-size: clamp(17px, 2.4vw, 21px);
+                color: var(--muted);
+                max-width: 620px;
+                margin: 0 auto 32px;
+            }
+
+            .downloads {
+                display: flex;
+                gap: 14px;
+                justify-content: center;
+                flex-wrap: wrap;
+            }
+            .btn {
+                display: inline-flex;
+                align-items: center;
+                gap: 11px;
+                padding: 15px 24px;
+                border-radius: 12px;
+                text-decoration: none;
+                font-weight: 600;
+                font-size: 16px;
+                border: 1px solid transparent;
+                transition:
+                    transform 0.12s ease,
+                    box-shadow 0.12s ease;
+            }
+            .btn:hover {
+                transform: translateY(-2px);
+            }
+            .btn svg {
+                width: 20px;
+                height: 20px;
+                flex: none;
+            }
+            .btn-primary {
+                background: var(--accent);
+                color: var(--accent-ink);
+                box-shadow: 0 10px 24px -12px var(--accent);
+            }
+            .btn-secondary {
+                background: var(--surface);
+                color: var(--text);
+                border-color: var(--border);
+            }
+            .btn small {
+                font-weight: 400;
+                opacity: 0.7;
+                font-size: 12px;
+            }
+            .dl-note {
+                margin: 18px auto 0;
+                font-size: 13px;
+                color: var(--muted);
+                max-width: 520px;
+            }
+
+            /* The screenshots ship with their own window chrome + baked shadow
+               on a transparent margin, so no card frame — let them sit on the page. */
+            .shot {
+                margin: 44px auto 0;
+                max-width: 1120px;
+                line-height: 0;
+            }
+            .shot img {
+                width: 100%;
+                height: auto;
+                display: block;
+            }
+
+            section.features {
+                padding: 84px 0 24px;
+            }
+            .features-grid {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 22px;
+            }
+            @media (max-width: 720px) {
+                .features-grid {
+                    grid-template-columns: 1fr;
+                }
+            }
+            .card {
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: var(--radius);
+                padding: 26px;
+            }
+            .card .ic {
+                width: 40px;
+                height: 40px;
+                border-radius: 10px;
+                display: grid;
+                place-items: center;
+                margin-bottom: 16px;
+                font-size: 20px;
+            }
+            .card h3 {
+                margin: 0 0 8px;
+                font-size: 18px;
+                letter-spacing: -0.01em;
+            }
+            .card p {
+                margin: 0;
+                color: var(--muted);
+                font-size: 15px;
+            }
+
+            .how {
+                padding: 60px 0 20px;
+                text-align: center;
+            }
+            .how h2 {
+                font-size: clamp(24px, 4vw, 32px);
+                letter-spacing: -0.02em;
+                margin: 0 0 14px;
+            }
+            .how p {
+                color: var(--muted);
+                max-width: 640px;
+                margin: 0 auto;
+                font-size: 16px;
+            }
+
+            footer {
+                margin-top: 80px;
+                border-top: 1px solid var(--border);
+                padding: 32px 0 48px;
+                color: var(--muted);
+                font-size: 13px;
+                text-align: center;
+            }
+            footer a {
+                color: var(--muted);
+                text-decoration: underline;
+                text-underline-offset: 2px;
+            }
+            footer .disc {
+                max-width: 640px;
+                margin: 0 auto 12px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="wrap">
+            <header>
+                <span class="logo"><img src="icon.png" alt="" /> PostHog on Desktop</span>
+                <a class="ghlink" href="https://github.com/mariusandra/posthog/tree/desktop">View on GitHub →</a>
+            </header>
+
+            <main>
+                <div class="hero">
+                    <span class="tag">A community fork of PostHog, rebuilt for the desktop</span>
+                    <h1>The whole PostHog app,<br />native — with tabs.</h1>
+                    <p class="lead">
+                        A desktop build of PostHog that runs the real app in its own window. Open several
+                        things side by side in tabs, and stay current: an AI agent merges every upstream
+                        change, every day.
+                    </p>
+
+                    <div class="downloads">
+                        <a
+                            class="btn btn-primary"
+                            id="dl-mac"
+                            href="https://github.com/mariusandra/posthog/releases/latest/download/PostHog-Desktop-macos-arm64.dmg"
+                        >
+                            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                <path
+                                    d="M16.365 1.43c0 1.14-.42 2.2-1.12 3-.76.86-2 1.53-3.02 1.45-.13-1.1.42-2.27 1.09-3.01.76-.85 2.08-1.48 3.05-1.44zM20.9 17.13c-.55 1.27-.82 1.83-1.53 2.95-.99 1.57-2.39 3.53-4.12 3.54-1.54.02-1.94-1-4.03-.99-2.09.01-2.53 1.01-4.07.99-1.73-.02-3.06-1.78-4.05-3.35C-.02 16.9-.3 12.03 1.4 9.44c1.2-1.83 3.1-2.9 4.88-2.9 1.82 0 2.96 1 4.47 1 1.46 0 2.35-1 4.46-1 1.6 0 3.29.87 4.5 2.37-3.96 2.17-3.32 7.82.79 8.22z"
+                                />
+                            </svg>
+                            <span>Download for Mac<br /><small>Apple Silicon · signed &amp; notarized</small></span>
+                        </a>
+                        <a
+                            class="btn btn-secondary"
+                            id="dl-win"
+                            href="https://github.com/mariusandra/posthog/releases/latest/download/PostHog-Desktop-windows-x64-setup.exe"
+                        >
+                            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                <path d="M3 5.1 10.4 4v7.3H3V5.1zm0 13.8 7.4 1.1v-7.2H3v6.1zM11.3 3.9 21 2.5v8.8h-9.7V3.9zm0 8.3H21v8.8l-9.7-1.4v-7.4z" />
+                            </svg>
+                            <span>Download for Windows<br /><small>x64 installer · unsigned</small></span>
+                        </a>
+                    </div>
+                    <p class="dl-note">
+                        Free and open source. macOS opens with no quarantine warning. On Windows,
+                        SmartScreen may warn on first run — click "More info", then "Run anyway".
+                    </p>
+
+                    <div class="shot">
+                        <picture>
+                            <source srcset="screenshot2.png" media="(prefers-color-scheme: dark)" />
+                            <img
+                                src="screenshot1.png"
+                                alt="The PostHog desktop app with three open tabs — Feature flags, a notebook, and Search — above the sidebar and the feature flags list"
+                                width="1529"
+                                height="995"
+                            />
+                        </picture>
+                    </div>
+                </div>
+
+                <section class="features">
+                    <div class="features-grid">
+                        <div class="card">
+                            <div class="ic" style="background: color-mix(in srgb, var(--accent) 14%, transparent)">🖥️</div>
+                            <h3>The real app, natively</h3>
+                            <p>
+                                Not a wrapper around a website — it runs the full PostHog frontend in a
+                                native window, talking to PostHog Cloud (US or EU) or your own instance.
+                            </p>
+                        </div>
+                        <div class="card">
+                            <div class="ic" style="background: color-mix(in srgb, var(--brand-yellow) 22%, transparent)">🗂️</div>
+                            <h3>Built around tabs</h3>
+                            <p>
+                                Keep an insight, a dashboard, and a query open at once and switch between
+                                them. Background tabs stay alive, so nothing reloads when you come back.
+                            </p>
+                        </div>
+                        <div class="card">
+                            <div class="ic" style="background: color-mix(in srgb, var(--brand-red) 18%, transparent)">🔄</div>
+                            <h3>Synced every day, by AI</h3>
+                            <p>
+                                An AI coding agent merges the latest changes from upstream PostHog into
+                                this fork daily, resolves the conflicts, and cuts a fresh signed release.
+                            </p>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="how">
+                    <h2>How it stays current</h2>
+                    <p>
+                        This is a fork of <a href="https://github.com/PostHog/posthog">PostHog/posthog</a>.
+                        Every day, an automated agent merges upstream master into the desktop branch,
+                        fixes anything the merge breaks, and — when the version changes — builds and
+                        publishes new macOS and Windows installers. You always get a recent PostHog.
+                    </p>
+                </section>
+            </main>
+
+            <footer>
+                <p class="disc">
+                    An independent, community-built desktop packaging of the open-source PostHog app. Not
+                    an official product of, nor affiliated with or endorsed by, PostHog Inc. "PostHog" and
+                    the PostHog logo belong to PostHog Inc.
+                </p>
+                <p>
+                    <a href="https://github.com/mariusandra/posthog/tree/desktop">Source</a> ·
+                    <a href="https://github.com/mariusandra/posthog/releases">All releases</a> ·
+                    <a href="https://posthog.com">PostHog.com</a>
+                </p>
+            </footer>
+        </div>
+
+        <script>
+            // Put the visitor's likely platform first; both buttons stay visible.
+            const p = (navigator.userAgentData?.platform || navigator.platform || '').toLowerCase()
+            if (p.includes('win')) {
+                const win = document.getElementById('dl-win')
+                win.classList.remove('btn-secondary')
+                win.classList.add('btn-primary')
+                const mac = document.getElementById('dl-mac')
+                mac.classList.remove('btn-primary')
+                mac.classList.add('btn-secondary')
+                win.parentNode.insertBefore(win, mac)
+            }
+        </script>
+    </body>
+</html>

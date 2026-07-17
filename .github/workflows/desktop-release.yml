@@ -1,0 +1,209 @@
+name: Desktop Release
+
+# Fork-only (mariusandra/posthog): when `version` in products/desktop/package.json
+# has no matching `desktop-v<version>` release yet, build the signed + notarized
+# macOS DMG and the Windows installer and publish them as a GitHub release on
+# the fork. Inert in PostHog/posthog. Mirrors build-desktop-app.yml but on
+# GitHub-hosted runners (the fork has no Depot) — keep the packaging steps in
+# the two files aligned when editing either.
+#
+# Fork secrets: APPLE_CODESIGN_CERT_BASE64, APPLE_CODESIGN_CERT_PASSWORD,
+# APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID.
+
+on:
+    push:
+        branches:
+            - desktop
+        paths:
+            - 'products/desktop/**'
+            - '.github/workflows/desktop-release.yml'
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}
+    cancel-in-progress: false
+
+jobs:
+    check-version:
+        name: Check for unreleased version
+        if: github.repository == 'mariusandra/posthog'
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        outputs:
+            version: ${{ steps.check.outputs.version }}
+            should_release: ${{ steps.check.outputs.should_release }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: products/desktop
+
+            - name: Compare version against existing releases
+              id: check
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  VERSION=$(jq -r .version products/desktop/package.json)
+                  echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+                  if gh release view "desktop-v$VERSION" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+                      echo "desktop-v$VERSION already released"
+                      echo "should_release=false" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "desktop-v$VERSION not released yet"
+                      echo "should_release=true" >> "$GITHUB_OUTPUT"
+                  fi
+
+    build-frontend:
+        name: Build frontend bundle
+        needs: check-version
+        if: needs.check-version.outputs.should_release == 'true'
+        runs-on: ubuntu-latest
+        timeout-minutes: 60
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install dependencies
+              uses: ./.github/actions/pnpm-install
+
+            - name: Build workspace dependencies
+              run: bin/turbo --filter=@posthog/frontend prepare
+
+            - name: Build frontend
+              run: |
+                  pnpm --filter=@posthog/frontend build:products
+                  pnpm --filter=@posthog/frontend build
+
+            - name: Upload frontend bundle
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: frontend-dist
+                  path: |
+                      frontend/dist/**
+                      !frontend/dist/**/*.map
+                      !frontend/dist/**/*.map.gz
+                      !frontend/dist/**/*.map.br
+                  if-no-files-found: error
+                  compression-level: 1
+                  retention-days: 1
+
+    package-macos:
+        name: Package macOS DMG (arm64, signed)
+        needs: [check-version, build-frontend]
+        if: needs.check-version.outputs.should_release == 'true'
+        runs-on: macos-14
+        timeout-minutes: 60
+        env:
+            HAS_MACOS_SIGNING_CERT: ${{ secrets.APPLE_CODESIGN_CERT_BASE64 != '' }}
+        steps:
+            # Releases must be signed — fail loudly instead of shipping unsigned
+            - name: Require signing secrets
+              run: |
+                  if [ "$HAS_MACOS_SIGNING_CERT" != "true" ]; then
+                      echo "::error::APPLE_CODESIGN_CERT_BASE64 is not configured; refusing to release an unsigned DMG"
+                      exit 1
+                  fi
+
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install desktop dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --filter=@posthog/desktop
+
+            - name: Download frontend bundle
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: frontend-dist
+                  path: frontend/dist
+
+            - name: Package desktop app (signed + notarized)
+              env:
+                  CSC_LINK: ${{ secrets.APPLE_CODESIGN_CERT_BASE64 }}
+                  CSC_KEY_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
+                  APPLE_ID: ${{ secrets.APPLE_ID }}
+                  APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+                  APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+              run: pnpm --filter=@posthog/desktop package
+
+            - name: Upload DMG
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: release-macos
+                  path: products/desktop/release/*.dmg
+                  if-no-files-found: error
+                  compression-level: 0
+                  retention-days: 1
+
+    package-windows:
+        name: Package Windows installer (x64)
+        needs: [check-version, build-frontend]
+        if: needs.check-version.outputs.should_release == 'true'
+        runs-on: windows-latest
+        timeout-minutes: 30
+        steps:
+            # See build-desktop-app.yml: reserved device names (aux.hcl) break a
+            # full checkout on Windows; sparse keeps them out of the working tree
+            - name: Allow reserved-name paths in the git index
+              run: git config --global core.protectNTFS false
+
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/actions
+                      patches
+                      products/desktop
+
+            - name: Install desktop dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --filter=@posthog/desktop
+
+            - name: Download frontend bundle
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: frontend-dist
+                  path: frontend/dist
+
+            # Unsigned: no Windows code-signing cert; SmartScreen warns on first run
+            - name: Package desktop app
+              run: pnpm --filter=@posthog/desktop package
+
+            - name: Upload installer
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: release-windows
+                  path: products/desktop/release/*.exe
+                  if-no-files-found: error
+                  compression-level: 0
+                  retention-days: 1
+
+    release:
+        name: Publish GitHub release
+        needs: [check-version, package-macos, package-windows]
+        if: needs.check-version.outputs.should_release == 'true'
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        permissions:
+            contents: write
+        steps:
+            - name: Download artifacts
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  pattern: release-*
+                  path: dist
+                  merge-multiple: true
+
+            - name: Create release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  VERSION: ${{ needs.check-version.outputs.version }}
+              run: |
+                  # Version-less asset names keep the landing page's
+                  # /releases/latest/download/<name> links stable across releases
+                  mv dist/*.dmg dist/PostHog-Desktop-macos-arm64.dmg
+                  mv dist/*.exe dist/PostHog-Desktop-windows-x64-setup.exe
+                  gh release create "desktop-v$VERSION" \
+                      --repo "$GITHUB_REPOSITORY" \
+                      --target "$GITHUB_SHA" \
+                      --title "PostHog Desktop $VERSION" \
+                      --notes "PostHog Desktop $VERSION. macOS build is signed and notarized; the Windows installer is unsigned (SmartScreen: \"More info\" > \"Run anyway\")." \
+                      dist/PostHog-Desktop-macos-arm64.dmg dist/PostHog-Desktop-windows-x64-setup.exe

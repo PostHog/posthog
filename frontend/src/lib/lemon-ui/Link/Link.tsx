@@ -8,7 +8,9 @@ import { IconExternal, IconSend } from '@posthog/icons'
 import { ButtonPrimitiveProps, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { isDesktopApp } from 'lib/utils/isDesktopApp'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { isExternalLink } from 'lib/utils/url'
 import { urlToResource } from 'scenes/urls'
 
@@ -155,6 +157,12 @@ export const LinkPrimitive: React.FC<LinkPrimitiveProps & React.RefAttributes<HT
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {
                 event.stopPropagation()
+                // In the desktop app, cmd/ctrl+click on an internal link opens a scene tab
+                // (like a browser's "open in new tab") instead of a new window
+                if (isDesktopApp() && typeof to === 'string' && !externalLink && !disableClientSideRouting) {
+                    event.preventDefault()
+                    newInternalTab(to, { title: event.currentTarget.textContent?.trim() || undefined })
+                }
                 return
             }
 

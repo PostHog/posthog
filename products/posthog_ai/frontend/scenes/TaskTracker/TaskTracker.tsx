@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { AllowTrainingCallout } from 'lib/components/AllowTrainingCallout/AllowTrainingCallout'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { isDesktopApp } from 'lib/utils/isDesktopApp'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -107,9 +108,12 @@ export function TaskTracker({ taskId }: TaskTrackerProps): JSX.Element {
         <SceneContent className="h-full">
             <AllowTrainingCallout featureName="Tasks" />
             <div className="flex flex-1 min-h-0 gap-4">
-                <div className="w-72 shrink-0 pl-0 flex flex-col min-h-0 border-r border-primary">
-                    <TasksListColumn selectedTaskId={selectedTaskId} />
-                </div>
+                {/* The desktop app's Code sidepanel already lists tasks, so skip the in-scene column there */}
+                {!isDesktopApp() && (
+                    <div className="w-72 shrink-0 pl-0 flex flex-col min-h-0 border-r border-primary">
+                        <TasksListColumn selectedTaskId={selectedTaskId} />
+                    </div>
+                )}
                 <div className="flex-1 min-w-0 flex flex-col min-h-0">{rightPane}</div>
             </div>
         </SceneContent>

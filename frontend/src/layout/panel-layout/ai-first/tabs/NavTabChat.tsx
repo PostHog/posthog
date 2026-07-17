@@ -154,7 +154,9 @@ export function NavTabChat({
                                             key={`${group.value}-${!!inputValue}`}
                                             defaultOpen={
                                                 !!inputValue ||
-                                                group.value === 'Today' ||
+                                                // The newest group present always starts expanded (it's not
+                                                // necessarily "Today" — e.g. "Yesterday" after a quiet day)
+                                                group.value === conversationGroups[0]?.value ||
                                                 conversationGroups.length === 1
                                             }
                                         >

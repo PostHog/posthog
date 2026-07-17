@@ -250,6 +250,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Inbox',
         description: 'Actionable reports automatically generated from user session analysis and other signals.',
     },
+    [Scene.Code]: {
+        projectBased: true,
+        name: 'Code',
+        description: 'PostHog Code: agents, skills, and coding tasks (desktop app demo).',
+    },
     [Scene.Heatmap]: {
         projectBased: true,
         name: 'Heatmap',
@@ -941,6 +946,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.health()]: [Scene.Health, 'health'],
     [urls.inbox()]: [Scene.Inbox, 'inbox'],
     [urls.inbox(':tab')]: [Scene.Inbox, 'inbox'],
+    [urls.code()]: [Scene.Code, 'code'],
+    [urls.code(':section')]: [Scene.Code, 'code'],
     // Static memory route, registered before `:skillName` so it isn't read as a scout name.
     [urls.inboxScratchpad()]: [Scene.Inbox, 'inbox'],
     // Registered before the generic report route: both are two-segment `/inbox/x/y` shapes.

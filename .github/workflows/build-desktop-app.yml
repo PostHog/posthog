@@ -1,0 +1,170 @@
+name: Build Desktop App
+
+on:
+    pull_request:
+        paths:
+            - 'products/desktop/**'
+            - '.github/workflows/build-desktop-app.yml'
+    push:
+        branches:
+            - master
+        paths:
+            - 'products/desktop/**'
+            - '.github/workflows/build-desktop-app.yml'
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    # The frontend build only runs on Linux (bash-isms throughout the build
+    # scripts), so build it once here and share the bundle with the per-OS
+    # packaging jobs — which also keeps the heavy build off the mac runner.
+    build-frontend:
+        name: Build frontend bundle
+        runs-on: depot-ubuntu-latest-8
+        timeout-minutes: 30
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install dependencies
+              uses: ./.github/actions/pnpm-install
+
+            - name: Build workspace dependencies
+              run: bin/turbo --filter=@posthog/frontend prepare
+
+            - name: Build frontend
+              run: |
+                  pnpm --filter=@posthog/frontend build:products
+                  pnpm --filter=@posthog/frontend build
+
+            # Sourcemaps are excluded up front: electron-builder strips them at
+            # package time anyway (see products/desktop/electron-builder.yml)
+            - name: Upload frontend bundle
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: frontend-dist
+                  path: |
+                      frontend/dist/**
+                      !frontend/dist/**/*.map
+                      !frontend/dist/**/*.map.gz
+                      !frontend/dist/**/*.map.br
+                  if-no-files-found: error
+                  # Much of dist ships precompressed (.gz/.br); don't recompress hard
+                  compression-level: 1
+                  retention-days: 1
+
+    package-macos:
+        name: Package macOS DMG (arm64)
+        needs: build-frontend
+        # Depot macOS is a fixed FIFO pool (Startup+ plan); if it's unavailable,
+        # swap runs-on for `macos-14`.
+        runs-on: depot-macos-latest
+        timeout-minutes: 60
+        env:
+            # `secrets` isn't usable in step-level `if:`, so surface presence here.
+            # These are the same org secrets PostHog Code releases with
+            # (Developer ID: PostHog Inc.), granted to this repo via
+            # posthog-cloud-infra's github org secrets config.
+            HAS_MACOS_SIGNING_CERT: ${{ secrets.APPLE_CODESIGN_CERT_BASE64 != '' }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            # The desktop app has no workspace deps: a filtered install is all
+            # packaging needs, the frontend arrives prebuilt below
+            - name: Install desktop dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --filter=@posthog/desktop
+
+            - name: Download frontend bundle
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: frontend-dist
+                  path: frontend/dist
+
+            # PR builds stay unsigned (ad-hoc signature from after-pack.cjs):
+            # signing secrets must never be reachable from PR-modified workflow
+            # code, and fork PRs don't get them anyway. Master pushes and manual
+            # dispatches produce the signed + notarized DMG. If the signing
+            # secrets aren't configured, non-PR builds degrade to unsigned
+            # instead of failing.
+            - name: Package desktop app (unsigned)
+              if: github.event_name == 'pull_request' || env.HAS_MACOS_SIGNING_CERT != 'true'
+              env:
+                  CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+              run: pnpm --filter=@posthog/desktop package
+
+            - name: Package desktop app (signed + notarized)
+              if: github.event_name != 'pull_request' && env.HAS_MACOS_SIGNING_CERT == 'true'
+              env:
+                  # Base64-encoded Developer ID Application .p12 + its password;
+                  # electron-builder accepts base64 data directly in CSC_LINK
+                  CSC_LINK: ${{ secrets.APPLE_CODESIGN_CERT_BASE64 }}
+                  CSC_KEY_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
+                  # Notarization via Apple ID + app-specific password
+                  APPLE_ID: ${{ secrets.APPLE_ID }}
+                  APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+                  APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+              run: pnpm --filter=@posthog/desktop package
+
+            - name: Upload DMG
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: posthog-desktop-macos-arm64
+                  path: products/desktop/release/*.dmg
+                  if-no-files-found: error
+                  # The DMG is already compressed; recompressing ~500 MB is pure waste
+                  compression-level: 0
+                  retention-days: 14
+
+    package-windows:
+        name: Package Windows installer (x64)
+        needs: build-frontend
+        # GitHub-hosted is fine here: packaging is light (esbuild + NSIS), the
+        # heavy frontend build happened on Linux above
+        runs-on: windows-latest
+        timeout-minutes: 30
+        steps:
+            # The repo contains paths whose basename is a reserved Windows device
+            # name (posthog/clickhouse/hcl/golden/local-multi/aux.hcl); git
+            # rejects those even as index entries unless protectNTFS is off.
+            # The sparse checkout below keeps them off disk entirely.
+            - name: Allow reserved-name paths in the git index
+              run: git config --global core.protectNTFS false
+
+            # Sparse: only what packaging needs; cone mode keeps all root-level
+            # files (package.json, lockfile, etc.)
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/actions
+                      patches
+                      products/desktop
+
+            - name: Install desktop dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --filter=@posthog/desktop
+
+            - name: Download frontend bundle
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: frontend-dist
+                  path: frontend/dist
+
+            # Unsigned: no Windows code-signing cert is configured yet, so
+            # SmartScreen warns on first run ("More info" → "Run anyway")
+            - name: Package desktop app
+              run: pnpm --filter=@posthog/desktop package
+
+            - name: Upload installer
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: posthog-desktop-windows-x64
+                  path: products/desktop/release/*.exe
+                  if-no-files-found: error
+                  # The NSIS installer is already compressed
+                  compression-level: 0
+                  retention-days: 14

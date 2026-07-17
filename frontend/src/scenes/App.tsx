@@ -6,6 +6,7 @@ import { Slide, ToastContainer } from 'react-toastify'
 
 import { PostHogProvider } from '@posthog/react'
 
+import { DesktopLinkContextMenu } from 'lib/components/DesktopLinkContextMenu/DesktopLinkContextMenu'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
@@ -14,6 +15,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { autofillReleaseLogic } from 'lib/memory/autofillReleaseLogic'
 import { OAuthCallback } from 'lib/oauth/OAuthCallback'
 import { oauthLogic } from 'lib/oauth/oauthLogic'
+import { isDesktopApp } from 'lib/utils/isDesktopApp'
 import { retryImport } from 'lib/utils/retryImport'
 import { appLogic } from 'scenes/appLogic'
 import { appScenes } from 'scenes/appScenes'
@@ -102,6 +104,7 @@ export function App(): JSX.Element | null {
                     {showApp ? (
                         <>
                             <AppScene />
+                            {isDesktopApp() ? <DesktopLinkContextMenu /> : null}
                             {showingDevTools ? <KeaDevtoolsLoader /> : null}
                         </>
                     ) : (

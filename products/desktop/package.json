@@ -1,0 +1,23 @@
+{
+    "name": "@posthog/desktop",
+    "version": "0.1.0",
+    "private": true,
+    "description": "PostHog desktop app: an Electron shell that serves the locally built PostHog frontend and proxies API calls to PostHog Cloud (US or EU)",
+    "type": "module",
+    "main": "dist/main.cjs",
+    "scripts": {
+        "build": "node build.mjs",
+        "typecheck": "tsc --noEmit",
+        "test": "node --test \"src/**/*.test.ts\"",
+        "start": "node scripts/prepare-electron.mjs && node build.mjs && electron .",
+        "start:no-build": "electron .",
+        "package": "node build.mjs && node scripts/check-frontend-dist.mjs && electron-builder --publish never"
+    },
+    "devDependencies": {
+        "@types/node": "catalog:",
+        "electron": "^42.3.0",
+        "electron-builder": "^26.0.12",
+        "esbuild": "^0.25.11",
+        "typescript": "catalog:"
+    }
+}

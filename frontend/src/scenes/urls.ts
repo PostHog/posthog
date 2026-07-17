@@ -310,6 +310,8 @@ export const urls = {
         presetKinds && presetKinds.length > 0
             ? `/health/alerts?preset_kinds=${encodeURIComponent(presetKinds.join(','))}`
             : '/health/alerts',
+    // PostHog Code demo surface in the desktop app: /code, /code/<section>.
+    code: (section?: string | ':section'): string => `/code${section ? `/${section}` : ''}`,
     // Inbox 2.0 tab-first routing: /inbox, /inbox/<tab>, /inbox/<tab>/<reportId>.
     inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
     inboxReport: (tab: InboxTabKey | ':tab', reportId: string | ':reportId'): string => `/inbox/${tab}/${reportId}`,

@@ -1,6 +1,16 @@
 import { getOAuthContextIds, isOAuthMode } from 'lib/oauth/oauthClient'
+import { isDesktopApp } from 'lib/utils/isDesktopApp'
 
 import { AppContext, OrganizationType, PathType, TeamType, UserType } from '~/types'
+
+/**
+ * OAuth mode and the desktop app (products/desktop) both bootstrap from a remote region with no
+ * server-rendered POSTHOG_APP_CONTEXT — userLogic seeds the context ids from the loaded user
+ * instead (via setOAuthContextIds), and the synchronous getters below fall back to them.
+ */
+function usesRemoteContextIds(): boolean {
+    return isOAuthMode() || isDesktopApp()
+}
 
 declare global {
     export interface Window {
@@ -47,7 +57,8 @@ export function getDefaultEventLabel(): string {
 // NOTE: Any changes to the teamId trigger a full page load so we don't use the logic
 // This helps avoid circular imports
 export function getCurrentTeamId(): TeamType['id'] {
-    const maybeTeamId = getAppContext()?.current_team?.id ?? (isOAuthMode() ? getOAuthContextIds()?.teamId : undefined)
+    const maybeTeamId =
+        getAppContext()?.current_team?.id ?? (usesRemoteContextIds() ? getOAuthContextIds()?.teamId : undefined)
     if (!maybeTeamId) {
         throw new Error(`Project ID is not known.${getAppContext()?.anonymous ? ' User is anonymous.' : ''}`)
     }
@@ -55,14 +66,14 @@ export function getCurrentTeamId(): TeamType['id'] {
 }
 
 export function getCurrentTeamIdOrNone(): TeamType['id'] | null {
-    return getAppContext()?.current_team?.id ?? (isOAuthMode() ? (getOAuthContextIds()?.teamId ?? null) : null)
+    return getAppContext()?.current_team?.id ?? (usesRemoteContextIds() ? (getOAuthContextIds()?.teamId ?? null) : null)
 }
 
 // NOTE: Any changes to the userId trigger a full page load so we don't use the logic
 // This helps avoid circular imports
 export function getCurrentUserId(): UserType['uuid'] {
     const maybeUserId =
-        getAppContext()?.current_user?.uuid ?? (isOAuthMode() ? getOAuthContextIds()?.userId : undefined)
+        getAppContext()?.current_user?.uuid ?? (usesRemoteContextIds() ? getOAuthContextIds()?.userId : undefined)
     if (!maybeUserId) {
         throw new Error(`User ID is not known.${getAppContext()?.anonymous ? ' User is anonymous.' : ''}`)
     }
@@ -70,7 +81,9 @@ export function getCurrentUserId(): UserType['uuid'] {
 }
 
 export function getCurrentUserIdOrNone(): UserType['uuid'] | null {
-    return getAppContext()?.current_user?.uuid ?? (isOAuthMode() ? (getOAuthContextIds()?.userId ?? null) : null)
+    return (
+        getAppContext()?.current_user?.uuid ?? (usesRemoteContextIds() ? (getOAuthContextIds()?.userId ?? null) : null)
+    )
 }
 
 // NOTE: Any changes to the organizationId trigger a full page load so we don't use the logic
@@ -78,7 +91,7 @@ export function getCurrentUserIdOrNone(): UserType['uuid'] | null {
 export function getCurrentOrganizationId(): OrganizationType['id'] {
     const maybeOrgId =
         getAppContext()?.current_team?.organization ??
-        (isOAuthMode() ? getOAuthContextIds()?.organizationId : undefined)
+        (usesRemoteContextIds() ? getOAuthContextIds()?.organizationId : undefined)
     if (!maybeOrgId) {
         throw new Error(`Organization ID is not known.${getAppContext()?.anonymous ? ' User is anonymous.' : ''}`)
     }

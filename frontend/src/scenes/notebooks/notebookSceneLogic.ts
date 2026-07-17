@@ -139,8 +139,10 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
         ],
     })),
 
-    afterMount(({ actions, props }) => {
-        if (props.shortId !== 'new') {
+    afterMount(({ actions, props, values }) => {
+        // Skip the fetch when the underlying notebookLogic is already mounted with content —
+        // e.g. kept alive by a desktop scene tab, or open in the notebook side panel
+        if (props.shortId !== 'new' && !values.notebook && !values.notebookLoading) {
             actions.loadNotebook()
         }
     }),

@@ -737,6 +737,49 @@
             margin-right: 0;
         }
     }
+
+    /* Desktop app (products/desktop): an extra grid row hosts the scene tab strip */
+    &.app-layout--desktop-tabs {
+        grid-template:
+            'left top' var(--scene-layout-header-height)
+            'left content' 1fr / var(--left-nav-width) minmax(0, 1fr);
+
+        &.app-layout--mobile {
+            grid-template:
+                'top' var(--scene-layout-header-height)
+                'content' 1fr / minmax(0, 1fr);
+        }
+    }
+
+    /* Desktop app on macOS: the window has no title bar, so the top chrome doubles as
+       the window drag region. Interactive elements opt back out. */
+    &.app-layout--desktop-mac {
+        .top-nav {
+            -webkit-app-region: drag;
+
+            a,
+            button,
+            input,
+            [data-tab-id] {
+                -webkit-app-region: no-drag;
+            }
+        }
+    }
+}
+
+/* Area reserved for the macOS traffic lights in the frameless desktop window; doubles as
+   the window drag region. Interactive children (e.g. the compact search) opt back out. */
+.desktop-traffic-lights-spacer {
+    -webkit-app-region: drag;
+
+    a,
+    button {
+        -webkit-app-region: no-drag;
+    }
+}
+
+.top-nav {
+    grid-area: top;
 }
 
 .left-nav {

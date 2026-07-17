@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>PostHog</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <style>
+            :root {
+                --bg: #1d1f27;
+                --surface: #2c2e3a;
+                --surface-hover: #35374a;
+                --border: #4b4d58;
+                --text: #f5f5f0;
+                --muted: #b8b8b3;
+                --accent: #f54e00;
+                --accent-hover: #ff6b2b;
+                --danger: #f75a5a;
+                --success: #6bcf7f;
+            }
+            * {
+                box-sizing: border-box;
+            }
+            /* The window has no title bar (macOS hiddenInset), so the top strip doubles as the drag region */
+            body::before {
+                content: '';
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 40px;
+                -webkit-app-region: drag;
+            }
+            html,
+            body {
+                height: 100%;
+                margin: 0;
+            }
+            body {
+                background: var(--bg);
+                color: var(--text);
+                font-family:
+                    Inter,
+                    -apple-system,
+                    BlinkMacSystemFont,
+                    'Segoe UI',
+                    Roboto,
+                    'Helvetica Neue',
+                    Arial,
+                    sans-serif;
+                font-size: 14px;
+                line-height: 1.5;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 32px;
+            }
+            .Shell {
+                width: 100%;
+                max-width: 460px;
+            }
+            .Shell__logo {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                margin-bottom: 8px;
+                font-size: 22px;
+                font-weight: 700;
+            }
+            .Shell__logo svg {
+                width: 44px;
+            }
+            .Shell__subtitle {
+                color: var(--muted);
+                margin: 0 0 24px;
+            }
+            .Shell__card {
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 10px;
+                padding: 20px;
+                margin-bottom: 16px;
+            }
+            .Shell__label {
+                display: block;
+                font-weight: 600;
+                margin-bottom: 8px;
+            }
+            .Shell__regions {
+                display: flex;
+                gap: 8px;
+                margin-bottom: 16px;
+            }
+            .Shell__region {
+                flex: 1;
+                background: var(--bg);
+                border: 1px solid var(--border);
+                border-radius: 8px;
+                color: var(--text);
+                padding: 10px 8px;
+                font: inherit;
+                cursor: pointer;
+                text-align: center;
+            }
+            .Shell__region--active {
+                border-color: var(--accent);
+                outline: 1px solid var(--accent);
+            }
+            .Shell__region small {
+                display: block;
+                color: var(--muted);
+                font-size: 11px;
+            }
+            .Shell__input {
+                width: 100%;
+                background: var(--bg);
+                border: 1px solid var(--border);
+                border-radius: 8px;
+                color: var(--text);
+                font: inherit;
+                padding: 10px 12px;
+                margin-bottom: 16px;
+            }
+            .Shell__input:focus {
+                outline: 1px solid var(--accent);
+                border-color: var(--accent);
+            }
+            .Shell__hint {
+                color: var(--muted);
+                font-size: 12px;
+                margin: -8px 0 16px;
+            }
+            .Shell__hint--toggle {
+                margin: 12px 0 4px;
+                text-align: center;
+            }
+            .Shell__hint button {
+                background: none;
+                border: 0;
+                color: var(--accent-hover);
+                font: inherit;
+                font-size: 12px;
+                cursor: pointer;
+                padding: 0;
+                text-decoration: underline;
+            }
+            .Shell__button {
+                width: 100%;
+                background: var(--accent);
+                border: 0;
+                border-radius: 8px;
+                color: #fff;
+                font: inherit;
+                font-weight: 600;
+                padding: 12px;
+                cursor: pointer;
+            }
+            .Shell__button:hover:not(:disabled) {
+                background: var(--accent-hover);
+            }
+            .Shell__button:disabled {
+                opacity: 0.6;
+                cursor: not-allowed;
+            }
+            .Shell__button--secondary {
+                background: var(--surface-hover);
+                margin-top: 8px;
+            }
+            .Shell__error {
+                color: var(--danger);
+                margin: 12px 0 0;
+                display: none;
+            }
+            .Shell__error--visible {
+                display: block;
+            }
+            .Shell__status {
+                color: var(--muted);
+                font-size: 12px;
+                text-align: center;
+            }
+            .Shell__signedin {
+                display: none;
+            }
+            .Shell__account {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin-bottom: 16px;
+                color: var(--muted);
+            }
+            .Shell__account strong {
+                color: var(--text);
+            }
+            .Shell__dot {
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: var(--success);
+            }
+            .Shell__warning {
+                background: rgb(245 78 0 / 12%);
+                border: 1px solid var(--accent);
+                border-radius: 8px;
+                color: var(--text);
+                padding: 12px;
+                margin-bottom: 16px;
+                font-size: 13px;
+                display: none;
+            }
+            .Shell__warning--visible {
+                display: block;
+            }
+            .Shell__warning code {
+                display: block;
+                margin-top: 6px;
+                color: var(--accent-hover);
+                font-size: 12px;
+            }
+            .Shell--hidden {
+                display: none;
+            }
+        </style>
+    </head>
+    <body>
+        <main class="Shell">
+            <div class="Shell__logo">
+                <svg viewBox="0 0 52 28" xmlns="http://www.w3.org/2000/svg">
+                    <g>
+                        <path
+                            fill="#0054ff"
+                            d="M.87 19.13a.5.5 0 0 0-.87.34v5.94a2.6 2.6 0 0 0 2.59 2.58H7.8a.5.5 0 0 0 .37-.84zM.86 8.4c-.3-.32-.86-.1-.86.36v6.73q0 .2.13.34l8.81 9.68 1.8 2.06v-8.82zM4.59.82A2.67 2.67 0 0 0 0 2.68v1.93q0 .4.27.69l10.47 10.95v-9.1z"
+                        />
+                        <path
+                            fill="#ff5506"
+                            d="M11.36 28h7.08a.5.5 0 0 0 .36-.85l-8.05-8.4v8.8l.23.28q.16.17.38.17m-.61-11.76 8.84 9.25 2.1 2.33q.1.11.27.14V18.7L10.75 7.15zm0-13.7v1.41a2 2 0 0 0 .55 1.28L21.96 16.2V7.65L15.32.8a2.67 2.67 0 0 0-4.57 1.71z"
+                        />
+                        <path
+                            fill="#ffb70f"
+                            d="M22.06 28h7.76a.5.5 0 0 0 .36-.86l-8.22-8.45v9.27l.09.02zM31 25.49l1.13 1.14c.32.31.85.09.85-.35v-7.3l-.49-.51-10.53-10.83v8.55zM22.52 5.73l9.62 9.89c.3.32.86.1.86-.35V7.46L26.56.82a2.67 2.67 0 0 0-4.59 1.84v1.7c0 .51.2 1 .57 1.37z"
+                        />
+                        <path
+                            fill="#f5f5f0"
+                            d="m50 23.34-.35-.05A4.5 4.5 0 0 1 47 21.97L35.56 10.1c-.3-.33-.86-.1-.86.35V27.5c0 .27.22.5.5.5h13.78c1.48 0 2.67-1.2 2.67-2.67v-.1a1.9 1.9 0 0 0-1.67-1.89zm-10.81.2a1.8 1.8 0 1 1 0-3.58 1.8 1.8 0 0 1 0 3.58"
+                        />
+                    </g>
+                </svg>
+                PostHog
+            </div>
+            <p class="Shell__subtitle">The desktop app for PostHog Cloud</p>
+
+            <div class="Shell__warning" id="frontend-warning">
+                The PostHog frontend has not been built yet, so the app itself cannot load.
+                <code>pnpm turbo build --filter=@posthog/frontend</code>
+            </div>
+
+            <section class="Shell__card" id="signin-card">
+                <span class="Shell__label">Region</span>
+                <div class="Shell__regions" id="regions">
+                    <button class="Shell__region" data-region="us" type="button">US Cloud<small>us.posthog.com</small></button>
+                    <button class="Shell__region" data-region="eu" type="button">EU Cloud<small>eu.posthog.com</small></button>
+                    <button class="Shell__region" data-region="custom" type="button">Custom<small>self-hosted or dev</small></button>
+                </div>
+                <input
+                    class="Shell__input Shell--hidden"
+                    id="custom-host"
+                    type="url"
+                    placeholder="https://posthog.example.com"
+                    autocomplete="off"
+                    spellcheck="false"
+                />
+                <button class="Shell__button" id="browser-sign-in" type="button">Sign in with browser</button>
+                <p class="Shell__hint Shell__hint--toggle">
+                    <button id="toggle-api-key" type="button">Use a personal API key instead</button>
+                </p>
+                <div id="api-key-form" class="Shell--hidden">
+                    <label class="Shell__label" for="api-key">Personal API key</label>
+                    <input class="Shell__input" id="api-key" type="password" placeholder="phx_..." autocomplete="off" />
+                    <p class="Shell__hint">
+                        Create one with all scopes under
+                        <button id="open-key-settings" type="button">Settings &rsaquo; Personal API keys</button>
+                        in PostHog.
+                    </p>
+                    <button class="Shell__button" id="sign-in" type="button">Sign in</button>
+                </div>
+                <p class="Shell__error" id="error"></p>
+            </section>
+
+            <section class="Shell__card Shell__signedin" id="signedin-card">
+                <div class="Shell__account">
+                    <span class="Shell__dot"></span>
+                    <span>Signed in as <strong id="account-email"></strong> <span id="account-host"></span></span>
+                </div>
+                <button class="Shell__button" id="open-app" type="button">Open PostHog</button>
+                <button class="Shell__button Shell__button--secondary" id="sign-out" type="button">Sign out</button>
+            </section>
+
+            <p class="Shell__status" id="status"></p>
+        </main>
+        <script src="./shell.js"></script>
+    </body>
+</html>

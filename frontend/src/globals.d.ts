@@ -37,6 +37,8 @@ declare global {
         JS_POSTHOG_IDENTITY_HASH?: string
         JS_CAPTURE_TIME_TO_SEE_DATA?: boolean
         posthog?: posthog
+        /** Set by the PostHog desktop app's local server (products/desktop) when the frontend runs inside Electron */
+        __POSTHOG_DESKTOP__?: { version: string; platform?: string }
         ESBUILD_LOAD_SCRIPT: (name) => void
         ESBUILD_LOAD_CHUNKS: (name) => void
         ESBUILD_LOADED_CHUNKS: Set<string>

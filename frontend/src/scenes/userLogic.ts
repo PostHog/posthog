@@ -11,6 +11,7 @@ import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/s
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { clearSession, isOAuthMode, setOAuthContextIds } from 'lib/oauth/oauthClient'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { isDesktopApp } from 'lib/utils/isDesktopApp'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -644,13 +645,14 @@ export const userLogic = kea<userLogicType>([
         },
         loadUserSuccess: ({ user }) => {
             if (user && user.uuid) {
-                // OAuth mode has no server-rendered app context, so seed the current ids from the
-                // freshly loaded remote user. This makes them available synchronously before the first
-                // project-scoped URL is built, avoiding "Project ID is not known." (and the sibling
-                // user/org id errors) on bootstrap. The API layer reads default project/team-id params
-                // from ApiConfig; getAppContext's synchronous getters read the pushed ids (it stays a
-                // leaf module — importing ApiConfig there would create a module-init cycle).
-                if (isOAuthMode()) {
+                // OAuth mode and the desktop app have no server-rendered app context, so seed the
+                // current ids from the freshly loaded remote user. This makes them available
+                // synchronously before the first project-scoped URL is built, avoiding "Project ID is
+                // not known." (and the sibling user/org id errors) on bootstrap. The API layer reads
+                // default project/team-id params from ApiConfig; getAppContext's synchronous getters
+                // read the pushed ids (it stays a leaf module — importing ApiConfig there would create
+                // a module-init cycle).
+                if (isOAuthMode() || isDesktopApp()) {
                     if (user.team) {
                         ApiConfig.setCurrentTeamId(user.team.id)
                         ApiConfig.setCurrentProjectId(user.team.project_id)

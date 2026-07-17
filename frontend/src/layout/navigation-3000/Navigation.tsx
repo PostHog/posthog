@@ -7,6 +7,7 @@ import { mcpHintLogic } from 'lib/components/MCPHint/mcpHintLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
+import { isDesktopApp, isDesktopAppMac } from 'lib/utils/isDesktopApp'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -21,6 +22,7 @@ import { ProjectNotice } from '../navigation/ProjectNotice'
 import { SceneTitlePanelButton } from '../scenes/components/SceneTitleSection'
 import { SceneLayout } from '../scenes/SceneLayout'
 import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
+import { SceneTabs } from '../scenes/SceneTabs'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
@@ -137,6 +139,8 @@ export function Navigation({
             <div
                 className={cn('app-layout bg-surface-tertiary', {
                     'app-layout--mobile': mobileLayout,
+                    'app-layout--desktop-tabs': isDesktopApp(),
+                    'app-layout--desktop-mac': isDesktopAppMac(),
                 })}
                 style={
                     {
@@ -165,10 +169,17 @@ export function Navigation({
                 <ProjectDragAndDropProvider>
                     <PanelLayout className="left-nav" />
 
+                    {isDesktopApp() && (
+                        <div className="top-nav h-[var(--scene-layout-header-height)] sticky top-0 z-[var(--z-main-nav)] flex justify-center items-start mt-px">
+                            <SceneTabs />
+                        </div>
+                    )}
+
                     <div
                         className={cn(
-                            '@container/main-content-container main-content-container flex overflow-hidden lg:rounded border-t lg:border border-primary relative lg:mr-1 lg:mb-1 lg:mt-1',
+                            '@container/main-content-container main-content-container flex overflow-hidden lg:rounded border-t lg:border border-primary relative lg:mr-1 lg:mb-1',
                             {
+                                'lg:mt-1': !isDesktopApp(),
                                 'rounded-r-none': sidePanelOpen,
                             }
                         )}
