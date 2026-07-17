@@ -24,6 +24,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHIPSTATION_DEFAULT_VERSION,
+    SHIPSTATION_SUPPORTED_VERSIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.shipstation import (
     ShipStationResumeConfig,
@@ -36,6 +38,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ShipStationSource(ResumableSource[ShipStationSourceConfig, ShipStationResumeConfig]):
     api_docs_url = "https://www.shipstation.com/docs/api/"
+
+    supported_versions = SHIPSTATION_SUPPORTED_VERSIONS
+    default_version = SHIPSTATION_DEFAULT_VERSION
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -54,6 +59,8 @@ class ShipStationSource(ResumableSource[ShipStationSourceConfig, ShipStationResu
         return {
             "401 Client Error: Unauthorized for url: https://ssapi.shipstation.com": "ShipStation authentication failed. Please check your API key and API secret.",
             "403 Client Error: Forbidden for url: https://ssapi.shipstation.com": "ShipStation denied access. Please check that your plan includes API access.",
+            "401 Client Error: Unauthorized for url: https://api.shipstation.com/v2": "ShipStation authentication failed. Please check your API key.",
+            "403 Client Error: Forbidden for url: https://api.shipstation.com/v2": "ShipStation denied access. Please check that your plan includes API access.",
         }
 
     @property
@@ -118,7 +125,9 @@ You can find your API key and API secret in [ShipStation](https://ship.shipstati
     def validate_credentials(
         self, config: ShipStationSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        if validate_shipstation_credentials(config.api_key, config.api_secret):
+        # Validation runs before the source is pinned, so probe the host of the version a
+        # new source will be created on (the default).
+        if validate_shipstation_credentials(config.api_key, config.api_secret, self.resolve_api_version(None)):
             return True, None
 
         return False, "Invalid ShipStation API credentials"
@@ -143,4 +152,5 @@ You can find your API key and API secret in [ShipStation](https://ship.shipstati
             if inputs.should_use_incremental_field
             else None,
             incremental_field=inputs.incremental_field,
+            api_version=self.resolve_api_version(inputs.api_version),
         )

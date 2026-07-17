@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Iterator
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
@@ -13,11 +13,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.settings import (
+    SHIPSTATION_API_VERSION_V1,
+    SHIPSTATION_API_VERSION_V2,
     SHIPSTATION_ENDPOINTS,
     ShipStationEndpointConfig,
 )
 
-SHIPSTATION_BASE_URL = "https://ssapi.shipstation.com"
 # ShipStation list pages cap at 500 items.
 PAGE_SIZE = 500
 REQUEST_TIMEOUT_SECONDS = 60
@@ -27,6 +28,47 @@ MAX_RETRY_ATTEMPTS = 5
 
 # All ShipStation v1 DateTime values are US Pacific time, not UTC.
 SHIPSTATION_TZ = ZoneInfo("America/Los_Angeles")
+
+
+@dataclasses.dataclass(frozen=True)
+class ShipStationDialect:
+    """Per-version transport differences. The endpoint catalog and pagination loop are
+    shared; only the host, auth scheme, page-size param spelling, date-filter format, and
+    credential probe differ between the two active vendor API versions."""
+
+    base_url: str
+    # Query param name for the page size (v1 spells it camelCase, v2 snake_case).
+    page_size_param: str
+    # v1 stores/filters DateTime in US Pacific; v2 (ShipEngine) uses ISO 8601 UTC.
+    uses_pacific_time: bool
+    # v1 authenticates with HTTP basic auth (key + secret); v2 with an API-Key header.
+    uses_api_key_header: bool
+    # Cheap, always-present list endpoint used as a credential/permission probe.
+    credentials_probe_path: str
+
+
+SHIPSTATION_DIALECTS: dict[str, ShipStationDialect] = {
+    SHIPSTATION_API_VERSION_V1: ShipStationDialect(
+        base_url="https://ssapi.shipstation.com",
+        page_size_param="pageSize",
+        uses_pacific_time=True,
+        uses_api_key_header=False,
+        credentials_probe_path="/stores",
+    ),
+    SHIPSTATION_API_VERSION_V2: ShipStationDialect(
+        base_url="https://api.shipstation.com/v2",
+        page_size_param="page_size",
+        uses_pacific_time=False,
+        uses_api_key_header=True,
+        credentials_probe_path="/carriers",
+    ),
+}
+
+
+def _dialect(api_version: str) -> ShipStationDialect:
+    # An unknown pin is honored verbatim by the source's resolve_api_version; fall back to
+    # the original v1 transport rather than guessing a newer scheme.
+    return SHIPSTATION_DIALECTS.get(api_version, SHIPSTATION_DIALECTS[SHIPSTATION_API_VERSION_V1])
 
 
 class ShipStationRetryableError(Exception):
@@ -40,18 +82,27 @@ class ShipStationResumeConfig:
     page: int
 
 
-def _get_session(api_key: str, api_secret: str) -> requests.Session:
+def _get_session(
+    api_key: str, api_secret: str, dialect: ShipStationDialect = SHIPSTATION_DIALECTS[SHIPSTATION_API_VERSION_V1]
+) -> requests.Session:
     session = make_tracked_session(redact_values=(api_key, api_secret))
-    session.auth = (api_key, api_secret)
+    if dialect.uses_api_key_header:
+        session.headers["API-Key"] = api_key
+    else:
+        session.auth = (api_key, api_secret)
     return session
 
 
-def _format_date_filter(value: Any) -> str:
+def _format_date_filter(
+    value: Any, dialect: ShipStationDialect = SHIPSTATION_DIALECTS[SHIPSTATION_API_VERSION_V1]
+) -> str:
     """Format an incremental cursor for ShipStation's date filters.
 
-    The API both stores and filters in US Pacific time ('yyyy-mm-dd hh:mm:ss').
-    Naive values are assumed to already be Pacific (they come from API rows);
-    aware values are converted."""
+    v1 both stores and filters in US Pacific time ('yyyy-mm-dd hh:mm:ss'); naive values
+    are assumed to already be Pacific (they come from API rows) and aware values are
+    converted. v2 (ShipEngine) filters in ISO 8601 UTC ('2024-01-02T03:04:05Z')."""
+    if not dialect.uses_pacific_time:
+        return _format_utc_date_filter(value)
     if isinstance(value, datetime):
         dt = value if value.tzinfo is None else value.astimezone(SHIPSTATION_TZ)
         return dt.strftime("%Y-%m-%d %H:%M:%S")
@@ -63,17 +114,28 @@ def _format_date_filter(value: Any) -> str:
     return text.split(".")[0]
 
 
+def _format_utc_date_filter(value: Any) -> str:
+    if isinstance(value, datetime):
+        dt = value.astimezone(UTC) if value.tzinfo is not None else value.replace(tzinfo=UTC)
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    if isinstance(value, date):
+        return value.strftime("%Y-%m-%dT00:00:00Z")
+    # v2 row values are already ISO 8601 UTC; pass them through unchanged.
+    return str(value)
+
+
 def _build_params(
     config: ShipStationEndpointConfig,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
     page: int,
+    dialect: ShipStationDialect = SHIPSTATION_DIALECTS[SHIPSTATION_API_VERSION_V1],
 ) -> dict[str, Any]:
     params: dict[str, Any] = {}
 
     if config.paginated:
-        params["pageSize"] = PAGE_SIZE
+        params[dialect.page_size_param] = PAGE_SIZE
         params["page"] = page
 
     if not config.incremental_params:
@@ -84,7 +146,7 @@ def _build_params(
     if should_use_incremental_field and db_incremental_field_last_value is not None:
         filter_param = config.incremental_params.get(cursor_field)
         if filter_param is not None:
-            params[filter_param] = _format_date_filter(db_incremental_field_last_value)
+            params[filter_param] = _format_date_filter(db_incremental_field_last_value, dialect)
 
     # Ascending sort on the cursor field (when the endpoint documents one) keeps
     # page boundaries stable and advances the incremental watermark monotonically.
@@ -96,10 +158,10 @@ def _build_params(
     return params
 
 
-def _build_url(path: str, params: dict[str, Any]) -> str:
+def _build_url(path: str, params: dict[str, Any], base_url: str) -> str:
     if not params:
-        return f"{SHIPSTATION_BASE_URL}{path}"
-    return f"{SHIPSTATION_BASE_URL}{path}?{urlencode(params)}"
+        return f"{base_url}{path}"
+    return f"{base_url}{path}?{urlencode(params)}"
 
 
 def _extract_items(data: Any, data_key: Optional[str]) -> list[dict[str, Any]]:
@@ -111,11 +173,12 @@ def _extract_items(data: Any, data_key: Optional[str]) -> list[dict[str, Any]]:
     return items if isinstance(items, list) else []
 
 
-def validate_credentials(api_key: str, api_secret: str) -> bool:
-    """Confirm the key pair is valid with a cheap one-store listing probe."""
+def validate_credentials(api_key: str, api_secret: str, api_version: str = SHIPSTATION_API_VERSION_V1) -> bool:
+    """Confirm the credentials are valid with a cheap list probe on the version's host."""
+    dialect = _dialect(api_version)
     try:
-        response = _get_session(api_key, api_secret).get(
-            f"{SHIPSTATION_BASE_URL}/stores",
+        response = _get_session(api_key, api_secret, dialect).get(
+            f"{dialect.base_url}{dialect.credentials_probe_path}",
             timeout=10,
         )
         return response.status_code == 200
@@ -132,9 +195,11 @@ def get_rows(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
     incremental_field: str | None = None,
+    api_version: str = SHIPSTATION_API_VERSION_V1,
 ) -> Iterator[list[dict[str, Any]]]:
     config = SHIPSTATION_ENDPOINTS[endpoint]
-    session = _get_session(api_key, api_secret)
+    dialect = _dialect(api_version)
+    session = _get_session(api_key, api_secret, dialect)
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     page = resume_config.page if resume_config is not None else 1
@@ -165,8 +230,9 @@ def get_rows(
         url = _build_url(
             config.path,
             _build_params(
-                config, should_use_incremental_field, db_incremental_field_last_value, incremental_field, page
+                config, should_use_incremental_field, db_incremental_field_last_value, incremental_field, page, dialect
             ),
+            dialect.base_url,
         )
         data = fetch_page(url)
         items = _extract_items(data, config.data_key)
@@ -202,6 +268,7 @@ def shipstation_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
+    api_version: str = SHIPSTATION_API_VERSION_V1,
 ) -> SourceResponse:
     config = SHIPSTATION_ENDPOINTS[endpoint]
 
@@ -216,6 +283,7 @@ def shipstation_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
             incremental_field=incremental_field,
+            api_version=api_version,
         ),
         primary_keys=[config.primary_key],
         partition_count=1,

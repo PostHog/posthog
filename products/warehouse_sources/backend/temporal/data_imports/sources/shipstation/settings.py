@@ -122,3 +122,11 @@ ENDPOINTS = tuple(SHIPSTATION_ENDPOINTS.keys())
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in SHIPSTATION_ENDPOINTS.items() if config.incremental_fields
 }
+
+# Vendor API versions. v1 is the original ssapi.shipstation.com API (HTTP basic auth,
+# US Pacific DateTimes); v2 is the newer, ShipEngine-based api.shipstation.com/v2 API
+# (API-Key header, ISO 8601 UTC). Both are actively supported by the vendor.
+SHIPSTATION_API_VERSION_V1 = "v1"
+SHIPSTATION_API_VERSION_V2 = "v2"
+SHIPSTATION_SUPPORTED_VERSIONS = (SHIPSTATION_API_VERSION_V1, SHIPSTATION_API_VERSION_V2)
+SHIPSTATION_DEFAULT_VERSION = SHIPSTATION_API_VERSION_V2

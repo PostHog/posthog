@@ -11,14 +11,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shipstatio
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.shipstation import (
     PAGE_SIZE,
+    SHIPSTATION_DIALECTS,
     ShipStationResumeConfig,
     _build_params,
+    _dialect,
     _extract_items,
     _format_date_filter,
+    _get_session,
     get_rows,
     shipstation_source,
     validate_credentials,
 )
+
+V2_DIALECT = SHIPSTATION_DIALECTS["v2"]
 
 
 def _make_manager(resume_state: ShipStationResumeConfig | None = None) -> mock.MagicMock:
@@ -51,6 +56,19 @@ class TestFormatDateFilter:
     )
     def test_format_values(self, value, expected):
         assert _format_date_filter(value) == expected
+
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            # v2 (ShipEngine) filters in ISO 8601 UTC, not Pacific.
+            (datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC), "2024-01-02T03:04:05Z"),
+            (datetime(2024, 1, 2, 3, 4, 5), "2024-01-02T03:04:05Z"),
+            (date(2024, 1, 2), "2024-01-02T00:00:00Z"),
+            ("2024-01-02T03:04:05.657Z", "2024-01-02T03:04:05.657Z"),
+        ],
+    )
+    def test_format_values_v2_uses_iso_utc(self, value, expected):
+        assert _format_date_filter(value, V2_DIALECT) == expected
 
 
 class TestBuildParams:
@@ -258,6 +276,60 @@ class TestGetRows:
 
         assert len(batches) == 1
         assert mock_session.return_value.get.call_count == 1
+
+
+class TestVersionDispatch:
+    @pytest.mark.parametrize(
+        "api_version, expected_host, expected_page_size_param",
+        [
+            ("v1", "ssapi.shipstation.com", "pageSize"),
+            ("v2", "api.shipstation.com", "page_size"),
+        ],
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.shipstation.make_tracked_session"
+    )
+    def test_get_rows_targets_version_host_and_pagination(
+        self, mock_session, api_version, expected_host, expected_page_size_param
+    ):
+        mock_session.return_value.get.return_value = _response({"orders": [{"orderId": 1}], "page": 1, "pages": 1})
+
+        list(get_rows("key", "secret", "orders", mock.MagicMock(), _make_manager(), api_version=api_version))
+
+        parsed = urlparse(mock_session.return_value.get.call_args.args[0])
+        assert parsed.netloc == expected_host
+        assert expected_page_size_param in parse_qs(parsed.query)
+
+    @pytest.mark.parametrize(
+        "api_version, uses_header",
+        [
+            ("v1", False),
+            ("v2", True),
+        ],
+    )
+    def test_session_auth_scheme_per_version(self, api_version, uses_header):
+        session = _get_session("key", "secret", _dialect(api_version))
+
+        if uses_header:
+            assert session.headers["API-Key"] == "key"
+            assert session.auth is None
+        else:
+            assert session.auth == ("key", "secret")
+            assert "API-Key" not in session.headers
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.shipstation.make_tracked_session"
+    )
+    def test_validate_credentials_probes_version_host(self, mock_session):
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+
+        assert validate_credentials("key", "secret", "v2") is True
+        assert mock_session.return_value.get.call_args.args[0] == "https://api.shipstation.com/v2/carriers"
+
+    def test_unknown_version_falls_back_to_v1_transport(self):
+        # A pin the source no longer declares is honored verbatim upstream; the transport
+        # must not silently promote it to a newer host/auth scheme.
+        assert _dialect("2099.experimental") is SHIPSTATION_DIALECTS["v1"]
 
 
 class TestShipStationSourceResponse:
