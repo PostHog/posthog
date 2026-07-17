@@ -2,7 +2,8 @@
 
 These base subqueries mirror the product's curated builders
 (`products/engineering_analytics/backend/logic/views/`), so an insight built on them matches what the dashboard and MCP tools report.
-Replace `github_pull_requests` / `github_workflow_runs` with the team's real table names from `engineering-analytics-sources` (`prefix` + `github_<endpoint>`).
+Replace `github_pull_requests` / `github_workflow_runs` / `github_reviews` with the team's real table names from `engineering-analytics-sources` (`prefix` + `github_<endpoint>`).
+The `engineering_analytics_*` views used below have fixed names — no prefix, no discovery.
 
 ## The PR base
 
@@ -165,4 +166,70 @@ A `pending`-heavy result can be sync staleness, not real in-flight CI; treat pen
 
 `<prefix>github_workflow_jobs` may not be synced; check `engineering-analytics-sources` output or probe with a `LIMIT 1`.
 Durations and queue times are honest SQL (`started_at - created_at` is queue wait, `completed_at - started_at` is run time; all string timestamps, parse them).
-**Do not** recompute dollar cost from labels: the runner-tier price ladder lives in product code and drifts; use the `engineering-analytics-pr-cost` / `engineering-analytics-workflow-runner-costs` MCP tools for cost figures.
+**Do not** recompute dollar cost from labels: the runner-tier price ladder lives in product code and drifts; query the `engineering_analytics_job_costs` view instead (below), which renders that model into SQL and is parity-tested against it.
+
+## Recipe: weekly CI cost by workflow (job_costs view)
+
+```sql
+SELECT
+    toStartOfWeek(created_at) AS week,
+    workflow_name,
+    round(sum(estimated_cost_usd), 2) AS estimated_cost_usd
+FROM engineering_analytics_job_costs
+WHERE created_at >= now() - INTERVAL 60 DAY
+GROUP BY week, workflow_name
+ORDER BY week, estimated_cost_usd DESC
+```
+
+Grain is one row per job attempt, so `sum` is correct across retries.
+`estimated_cost_usd` is NULL (skipped by `sum`) for non-billable jobs (github-hosted, non-Linux, unclassifiable labels) and for jobs still running; disambiguate a NULL via `provider` (non-billable) vs `completed_at` (unsettled).
+Add `WHERE pr_number = <n>` for one PR's cost — it matches `engineering-analytics-pr-cost`, since the tool reads the same rendered cost SELECT.
+With several connected sources, filter `repo_owner` / `repo_name`.
+
+## Review recipes (optional table)
+
+`<prefix>github_reviews` is webhook-fed with no history backfill: rows start when the source was connected with reviews enabled, so clamp windows to the earliest `submitted_at` present.
+Pending drafts are dropped at sync; `state` is `APPROVED` / `CHANGES_REQUESTED` / `COMMENTED` / `DISMISSED`, and the injected `pr_number` joins to the PR base's `number`.
+
+Weekly time to first review:
+
+```sql
+WITH prs AS (<PR base>),
+first_review AS (
+    SELECT pr_number, min(parseDateTimeBestEffort(submitted_at)) AS first_review_at
+    FROM github_reviews
+    GROUP BY pr_number
+)
+SELECT
+    toStartOfWeek(prs.created_at) AS week,
+    median(dateDiff('second', prs.created_at, fr.first_review_at)) / 3600 AS p50_hours,
+    quantile(0.95)(dateDiff('second', prs.created_at, fr.first_review_at)) / 3600 AS p95_hours,
+    count() AS reviewed_prs
+FROM prs
+INNER JOIN first_review fr ON prs.number = fr.pr_number
+WHERE prs.created_at >= now() - INTERVAL 90 DAY
+  AND NOT prs.is_bot
+GROUP BY week
+ORDER BY week
+```
+
+Name it "open to first review", not "time in review": there is no ready-for-review timestamp, so draft time is fused in, same caveat as `open_to_merge_seconds`.
+The reviewer handle is `ifNull(JSONExtractString(user, 'login'), '')` when needed (e.g. to exclude self-reviews by comparing against `author_handle`) — but never build per-reviewer leaderboards.
+
+## Recipe: distinct CI failures per day (ci_failures view)
+
+```sql
+SELECT
+    toStartOfDay(timestamp) AS day,
+    uniq(fingerprint) AS distinct_failures,
+    count() AS failed_test_lines
+FROM engineering_analytics_ci_failures
+WHERE timestamp >= now() - INTERVAL 14 DAY
+GROUP BY day
+ORDER BY day
+```
+
+The view reads the Logs product, so its reach is bounded by the short logs retention — fine for a recent-window tile, wrong for long trends.
+Fingerprinting is pytest-only, and the data is failure-only (passing runs are absent), so report absolute counts, never rates.
+To chase a specific failure to a culprit, hand off to the `investigating-ci-failures` skill, which works from this view plus `engineering_analytics_ci_job_history`.
+When windowing `engineering_analytics_ci_job_history`, pair the precise `created_at >= …` filter with a coarse raw floor (`created_at_raw >= '<YYYY-MM-DD>'`, a day below the window) so the parquet scan can prune; a computed-column predicate alone forces a full scan.
