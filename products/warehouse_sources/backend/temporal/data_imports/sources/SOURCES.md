@@ -484,6 +484,7 @@ the row lists both.
 | vitally                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | vultr                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | webflow                          | HTTP                        | requests                                                        | ✅                          |
+| weights_and_biases               | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | windmill                         | HTTP                        | requests                                                        | ✅                          |
 | woocommerce                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | wordpress                        | HTTP                        | requests                                                        | ✅                          |
@@ -966,7 +967,6 @@ doesn't conflict with concurrent PRs.
 - waiteraid
 - wasabi
 - watchmode
-- weights_and_biases
 - when_i_work
 - wikipedia_pageviews
 - workday
