@@ -55,6 +55,15 @@ describe('compactTrace', () => {
         expect(JSON.stringify(result).length).toBeLessThanOrEqual(MAX_TRACE_CHARS)
     })
 
+    it('caps an event carrying an oversized property name, not just an oversized value', () => {
+        // The value is tiny; the key is ~900K. Per-value truncation never looks at
+        // keys, so the budget accounting must charge the key or it slips past the cap.
+        const bigKey = 'k'.repeat(900_000)
+        const result = compactTrace({ id: 'trace-1', events: [{ id: 'e1', properties: { [bigKey]: 'v' } }] })
+
+        expect(JSON.stringify(result).length).toBeLessThanOrEqual(MAX_TRACE_CHARS)
+    })
+
     it('caps oversized trace-level state even when there are no events', () => {
         const bigState = Array.from({ length: 300 }, () => 'w'.repeat(PER_VALUE_CHAR_LIMIT - 1_000))
         const result = compactTrace({ id: 'trace-1', inputState: bigState, events: [] })

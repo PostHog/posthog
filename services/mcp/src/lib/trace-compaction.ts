@@ -123,12 +123,17 @@ function compactValue(value: unknown, budget: number): Compacted {
         let i = 0
         for (; i < entries.length; i++) {
             const [key, val] = entries[i]!
-            if (budget - cost < MIN_ITEM_BUDGET) {
+            // The key itself is unbounded input (arbitrary parsed JSON), so charge
+            // its serialized size against the budget before admitting the member —
+            // otherwise a single ~1MB property name slips past the cap even after
+            // its value is compacted to nothing.
+            const keyCost = key.length + 3 // "key":
+            if (budget - cost - keyCost < MIN_ITEM_BUDGET) {
                 break
             }
-            const child = compactValue(val, budget - cost - key.length - META_RESERVE)
+            const child = compactValue(val, budget - cost - keyCost - META_RESERVE)
             assignKey(out, key, child.value)
-            cost += key.length + 3 + child.cost + 1 // "key":value,
+            cost += keyCost + child.cost + 1 // "key":value,
         }
         if (i < entries.length) {
             assignKey(out, '_omittedKeys', entries.length - i)
