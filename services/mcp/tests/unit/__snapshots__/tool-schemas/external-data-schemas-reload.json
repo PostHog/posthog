@@ -11,7 +11,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version, unless the schema is not available on it — then it syncs on its declared fallback version. Must be one of the versions this schema is available on. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
+            "description": "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
         },
         "cdc_table_mode": {
             "anyOf": [
