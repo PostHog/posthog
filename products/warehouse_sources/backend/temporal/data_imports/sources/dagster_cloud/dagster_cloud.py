@@ -48,11 +48,18 @@ def build_graphql_url(organization: str, deployment: str) -> str:
     return f"https://{org}.dagster.cloud/{deploy}/graphql"
 
 
-def _headers(api_token: str) -> dict[str, str]:
-    return {
-        "Dagster-Cloud-Api-Token": api_token,
-        "Content-Type": "application/json",
-    }
+def _make_session(api_token: str) -> requests.Session:
+    # `Dagster-Cloud-Api-Token` is a custom header the sample-capture scrubber doesn't know, so the
+    # token must be redacted by value; redirects stay off because `requests` only strips the standard
+    # `Authorization` header on a cross-host redirect — a 30x would forward this header to its target.
+    return make_tracked_session(
+        headers={
+            "Dagster-Cloud-Api-Token": api_token,
+            "Content-Type": "application/json",
+        },
+        redact_values=(api_token,),
+        allow_redirects=False,
+    )
 
 
 def _epoch_to_iso(value: Any) -> Any:
@@ -126,7 +133,7 @@ def _make_paginated_request(
         raise ValueError(f"Unknown Dagster Cloud endpoint: {endpoint_name}")
 
     url = build_graphql_url(organization, deployment)
-    sess = make_tracked_session(headers=_headers(api_token))
+    sess = _make_session(api_token)
 
     @retry(
         retry=retry_if_exception_type(DagsterCloudRetryableError),
@@ -146,6 +153,10 @@ def _make_paginated_request(
             raise DagsterCloudRetryableError(f"Dagster Cloud: server error {response.status_code}")
         if response.status_code == 429:
             raise DagsterCloudRetryableError("Dagster Cloud: rate limited (429)")
+        # Redirects are pinned off (see _make_session), so a 30x is terminal — following it would
+        # hand the token header to whatever host the Location points at.
+        if 300 <= response.status_code < 400:
+            raise Exception(f"Dagster Cloud: unexpected redirect ({response.status_code}) for url: {url}")
 
         try:
             payload = response.json()
@@ -269,10 +280,12 @@ def validate_credentials(organization: str, deployment: str, api_token: str) -> 
         return False, str(e)
 
     try:
-        sess = make_tracked_session(headers=_headers(api_token))
+        sess = _make_session(api_token)
         response = sess.post(url, json={"query": VALIDATION_QUERY}, timeout=10)
         if response.status_code in (401, 403):
             return False, "Invalid Dagster+ API token, or the token cannot access this deployment."
+        if 300 <= response.status_code < 400:
+            return False, "Dagster+ responded with an unexpected redirect. Check the organization and deployment names."
         response.raise_for_status()
         data = response.json()
         if "errors" in data:

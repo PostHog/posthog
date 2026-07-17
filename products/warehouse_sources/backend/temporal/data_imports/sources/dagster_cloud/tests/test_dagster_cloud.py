@@ -136,6 +136,25 @@ class TestPagination:
         # Only the non-final page checkpoints, pointing at the next page's cursor.
         manager.save_state.assert_called_once_with(DagsterCloudResumeConfig(cursor="r2"))
         assert session.post.call_count == 2
+        # The token rides a custom header the sample scrubber doesn't know, so it must be redacted
+        # by value, and redirects must stay off so a 30x can't forward the header cross-host.
+        session_kwargs = mock_session_cls.call_args.kwargs
+        assert session_kwargs["redact_values"] == ("tok",)
+        assert session_kwargs["allow_redirects"] is False
+
+    @patch(f"{MODULE}.make_tracked_session")
+    def test_redirect_raises_without_retry(self, mock_session_cls: MagicMock) -> None:
+        # Redirects are pinned off; a 30x must fail fast (not spin through the retry budget).
+        session = MagicMock()
+        response = MagicMock()
+        response.status_code = 301
+        session.post.return_value = response
+        mock_session_cls.return_value = session
+
+        with pytest.raises(Exception, match="unexpected redirect"):
+            list(_make_paginated_request("org", "prod", "tok", "runs", MagicMock(), _manager()))
+
+        assert session.post.call_count == 1
 
     @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 2)
     @patch(f"{MODULE}.make_tracked_session")
@@ -275,6 +294,22 @@ class TestValidateCredentials:
         mock_session_cls.return_value = session
 
         assert validate_credentials("org", "prod", "tok") == (True, None)
+        # Validation sends the same credentialed header — same redaction/no-redirect posture.
+        session_kwargs = mock_session_cls.call_args.kwargs
+        assert session_kwargs["redact_values"] == ("tok",)
+        assert session_kwargs["allow_redirects"] is False
+
+    @patch(f"{MODULE}.make_tracked_session")
+    def test_redirect_fails_validation(self, mock_session_cls: MagicMock) -> None:
+        session = MagicMock()
+        response = MagicMock()
+        response.status_code = 302
+        session.post.return_value = response
+        mock_session_cls.return_value = session
+
+        ok, error = validate_credentials("org", "prod", "tok")
+        assert ok is False
+        assert error is not None and "redirect" in error
 
     def test_invalid_slug_fails_before_request(self) -> None:
         ok, error = validate_credentials("bad host", "prod", "tok")
