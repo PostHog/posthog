@@ -12,6 +12,7 @@ import { LLMProvider } from '../settings/llmProviderKeysLogic'
 export type EvaluationType = 'llm_judge' | 'hog' | 'sentiment'
 export type EvaluationTarget = 'generation' | 'trace'
 export type EvaluationOutputType = 'boolean' | 'sentiment'
+export type EvaluationResultType = EvaluationOutputType | 'label' | 'number'
 export type EvaluationStatus = 'active' | 'paused' | 'error'
 export type EvaluationStatusReason =
     | 'provider_key_required'
@@ -118,12 +119,10 @@ export interface EvaluationRun {
     trace_id: string
     timestamp: string
     evaluation_type?: EvaluationType
-    result_type?: EvaluationOutputType
-    result: boolean | null
+    result_type?: EvaluationResultType
+    result: boolean | string | number | null
     sentiment_label?: string | null
     sentiment_score?: number | null
-    score_label?: string | null
-    score_value?: number | null
     applicable?: boolean
     reasoning: string
     status: 'completed' | 'failed' | 'running'

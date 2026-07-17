@@ -486,7 +486,8 @@ async fn test_verified_gateway_logs_batch_produces_evaluation() {
     let data = parse_event_data(&events[0]);
     assert_eq!(events[0].event.event, "$ai_evaluation");
     assert_eq!(data["properties"]["$ai_evaluation_name"], "correctness");
-    assert_eq!(data["properties"]["$ai_evaluation_score_label"], "pass");
+    assert_eq!(data["properties"]["$ai_evaluation_result"], "pass");
+    assert_eq!(data["properties"]["$ai_evaluation_result_type"], "label");
     assert_eq!(data["properties"]["$ai_gateway_verified"], true);
 }
 
