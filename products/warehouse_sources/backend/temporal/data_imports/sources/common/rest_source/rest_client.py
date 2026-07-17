@@ -10,6 +10,7 @@ from requests import Request, Response, Session
 from requests.auth import AuthBase
 from requests.exceptions import (
     ChunkedEncodingError,
+    HTTPError,
     JSONDecodeError as RequestsJSONDecodeError,
 )
 from tenacity import RetryCallState, retry, retry_if_exception_type
@@ -129,18 +130,26 @@ class RESTClient:
             if base_host:
                 hosts.add(base_host.lower())
             self._allowed_hosts = hosts
+        # The auth's credential values, kept for value-based redaction. They feed both the
+        # tracked session's log redaction AND ``_redact`` below, which scrubs them from raised
+        # exception messages — an API that carries its key in a query param would otherwise leak
+        # it via the request URL embedded in ``raise_for_status`` / ``HTTP {status} for {url}``.
+        self._redact_values = tuple(value for value in auth_secret_values(auth) if value)
         # Default to the tracked session so every source built on top of
         # `RESTClient` participates in HTTP logging, metrics, and sample
         # capture. Callers can pass a pre-built `Session` for tests or
         # specialized auth (it should still be a tracked one in prod).
-        # The auth's credential values are registered for value-based redaction
-        # so a key injected into a query param/custom header can't leak into logs.
-        self.session = session or make_tracked_session(redact_values=auth_secret_values(auth))
+        self.session = session or make_tracked_session(redact_values=self._redact_values)
         if self.headers:
             self.session.headers.update(self.headers)
 
     def _join_url(self, path: str) -> str:
         return resolve_request_url(self.base_url, path)
+
+    def _redact(self, text: str) -> str:
+        for secret in self._redact_values:
+            text = text.replace(secret, "***")
+        return text
 
     def _check_allowed_host(self, url: Optional[str]) -> None:
         if self._allowed_hosts is None or not url:
@@ -148,9 +157,11 @@ class RESTClient:
         host = urlsplit(url).hostname
         if host is None or host.lower() not in self._allowed_hosts:
             raise ValueError(
-                f"Refusing to send request to disallowed host {host!r} (url {url!r}); "
-                f"allowed hosts: {sorted(self._allowed_hosts)}. A pagination or resume URL "
-                "pointing off the expected API host is rejected to prevent credential exfiltration."
+                self._redact(
+                    f"Refusing to send request to disallowed host {host!r} (url {url!r}); "
+                    f"allowed hosts: {sorted(self._allowed_hosts)}. A pagination or resume URL "
+                    "pointing off the expected API host is rejected to prevent credential exfiltration."
+                )
             )
 
     def paginate(
@@ -224,20 +235,22 @@ class RESTClient:
         try:
             response = self.session.send(prepared, allow_redirects=self._allow_redirects)
         except ChunkedEncodingError as e:
-            raise RESTClientRetryableError(f"Connection broken while reading response: {e}") from e
+            raise RESTClientRetryableError(self._redact(f"Connection broken while reading response: {e}")) from e
 
         # With redirects disabled, a 3xx is not an error to `raise_for_status` and would fall
         # through to JSON parsing; reject it explicitly so a redirect can't smuggle the request
         # (and credentials) to another origin.
         if not self._allow_redirects and response.is_redirect:
             raise ValueError(
-                f"Unexpected redirect ({response.status_code}) to "
-                f"{response.headers.get('Location')!r} from {prepared.url}; refusing to follow."
+                self._redact(
+                    f"Unexpected redirect ({response.status_code}) to "
+                    f"{response.headers.get('Location')!r} from {prepared.url}; refusing to follow."
+                )
             )
 
         if response.status_code == 429 or response.status_code >= 500:
             raise RESTClientRetryableError(
-                f"HTTP {response.status_code} for {response.url}",
+                self._redact(f"HTTP {response.status_code} for {response.url}"),
                 retry_after=_parse_retry_after(response),
             )
 
@@ -246,7 +259,12 @@ class RESTClient:
             for hook in response_hooks:
                 hook(response, request=request)
         else:
-            response.raise_for_status()
+            # Redact any secret the URL carries (e.g. an api_key query param) out of the raised
+            # HTTPError message before it propagates into a user-visible ``latest_error``.
+            try:
+                response.raise_for_status()
+            except HTTPError as e:
+                raise HTTPError(self._redact(str(e)), response=e.response, request=e.request) from None
 
         # Parse inside the retry so a truncated/partial body is reissued like a 429/5xx
         # instead of bubbling up uncaught and failing the import.
@@ -260,7 +278,7 @@ class RESTClient:
             # read, which stays retryable.
             if not response.content or not response.content.strip():
                 return response, None
-            raise RESTClientRetryableError(f"Malformed JSON response from {response.url}: {e}") from e
+            raise RESTClientRetryableError(self._redact(f"Malformed JSON response from {response.url}: {e}")) from e
 
         return response, body
 
