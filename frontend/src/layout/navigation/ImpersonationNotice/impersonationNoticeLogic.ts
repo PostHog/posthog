@@ -55,9 +55,8 @@ export interface impersonationNoticeLogicValues {
     isImpersonationUpgradeInProgress: boolean // userLogic
     user: UserType | null // userLogic
     adminLoginUrls: AdminLoginUrl[]
-    orderedMembers: OrganizationMemberType[]
-    hasOtherMembers: boolean
     expiredSessionInfo: ExpiredSessionInfo | null
+    hasOtherMembers: boolean
     isChangingUser: boolean
     isImpersonated: boolean
     isMinimized: boolean
@@ -65,6 +64,7 @@ export interface impersonationNoticeLogicValues {
     isReadOnly: boolean
     isSessionExpired: boolean
     isUpgradeModalOpen: boolean
+    orderedMembers: OrganizationMemberType[]
     pageHiddenAt: number | null
     ticketContext: ImpersonationTicketContext | null
 }
