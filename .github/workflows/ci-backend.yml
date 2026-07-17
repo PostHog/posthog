@@ -1743,7 +1743,10 @@ jobs:
               run: |
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate info --source rust/persons_migrations/
-                  python manage.py makemigrations --check --dry-run
+                  # --noinput forces the non-interactive questioner so a missing migration for a
+                  # non-null field is reported cleanly instead of crashing with EOFError when Django
+                  # tries to prompt for a default value in CI (no TTY).
+                  python manage.py makemigrations --check --dry-run --noinput
 
             - name: Check CH migrations
               run: |
