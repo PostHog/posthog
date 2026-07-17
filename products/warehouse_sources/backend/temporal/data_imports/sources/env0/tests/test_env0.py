@@ -33,9 +33,7 @@ def _response(payload: Any, status_code: int = 200) -> mock.MagicMock:
     resp.ok = status_code < 400
     resp.json.return_value = payload
     if status_code >= 400:
-        error = requests.HTTPError(f"{status_code} Client Error")
-        error.response = resp
-        resp.raise_for_status.side_effect = error
+        resp.raise_for_status.side_effect = requests.HTTPError(f"{status_code} Client Error", response=resp)
     return resp
 
 
