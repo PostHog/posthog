@@ -27,9 +27,6 @@
                     {
                         "type": "posthog",
                         "audience": "organization"
-                    },
-                    {
-                        "type": "posthog_internal"
                     }
                 ]
             }

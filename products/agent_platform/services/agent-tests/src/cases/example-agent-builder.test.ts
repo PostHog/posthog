@@ -19,9 +19,12 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import request from 'supertest'
 
 import { AgentSpecSchema } from '@posthog/agent-shared'
 import { listNativeTools } from '@posthog/agent-tools'
+
+import { buildCluster, closeSharedPool, Cluster, fakeAuthProvider } from '../harness'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const BUNDLE_ROOT = resolve(__dirname, '../examples/agent-builder')
@@ -125,7 +128,7 @@ describe('example: agent-builder bundle', () => {
         ])
     })
 
-    it('requires the user PostHog bearer for chat instead of silently losing MCP credentials', async () => {
+    it('requires the user PostHog bearer on both entrypoints', async () => {
         const { spec } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
         const modesFor = (type: string): string[] => {
@@ -133,7 +136,61 @@ describe('example: agent-builder bundle', () => {
             return t && 'auth' in t && t.auth ? (t.auth.modes?.map((m) => m.type) ?? []) : []
         }
         expect(modesFor('chat')).toEqual(['posthog'])
-        expect(modesFor('mcp')).toEqual(['posthog', 'posthog_internal'])
+        expect(modesFor('mcp')).toEqual(['posthog'])
+    })
+
+    describe('entrypoint auth behavior', () => {
+        const userBearer = 'phx_builder_user'
+        const internalSecret = 'builder-internal-secret'
+        let cluster: Cluster
+
+        beforeEach(async () => {
+            cluster = await buildCluster({
+                authProvider: fakeAuthProvider({ posthog: userBearer, internal: internalSecret }),
+            })
+        })
+
+        afterEach(async () => {
+            if (cluster) {
+                await cluster.teardown()
+            }
+        })
+
+        afterAll(async () => {
+            await closeSharedPool()
+        })
+
+        it('rejects service-only auth and accepts the user bearer', async () => {
+            const { spec, files } = await loadBundle()
+            await cluster.deployAgent({ slug: 'agent-builder-auth', spec, files })
+
+            const internalChat = await request(cluster.ingress)
+                .post('/agents/agent-builder-auth/run')
+                .set('x-posthog-internal', internalSecret)
+                .send({ message: 'create an agent' })
+            expect(internalChat.status).toBe(401)
+
+            const userChat = await request(cluster.ingress)
+                .post('/agents/agent-builder-auth/run')
+                .set('authorization', `Bearer ${userBearer}`)
+                .send({ message: 'create an agent' })
+            expect(userChat.status).toBe(200)
+            expect(userChat.body.principal.kind).toBe('posthog')
+
+            const internalMcp = await request(cluster.ingress)
+                .post('/agents/agent-builder-auth/mcp')
+                .set('x-posthog-internal', internalSecret)
+                .send({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
+            expect(internalMcp.body.error?.code).toBe(-32001)
+
+            const userMcp = await request(cluster.ingress)
+                .post('/agents/agent-builder-auth/mcp')
+                .set('authorization', `Bearer ${userBearer}`)
+                .send({ jsonrpc: '2.0', id: 2, method: 'tools/list' })
+            expect(userMcp.body.result?.tools).toEqual(
+                expect.arrayContaining([expect.objectContaining({ name: 'ask' })])
+            )
+        })
     })
 
     it('enables resume so multi-step flows can span days', async () => {
