@@ -1,10 +1,16 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from rest_framework.status import HTTP_200_OK, HTTP_403_FORBIDDEN
 
+from posthog.api.debug_ch_queries import _cache_table_stats
+from posthog.clickhouse.preaggregation.experiment_exposures_sql import SHARDED_EXPERIMENT_EXPOSURES_TABLE
+from posthog.clickhouse.preaggregation.experiment_metric_events_sql import SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.settings.data_stores import CLICKHOUSE_AUX_CLUSTER, CLICKHOUSE_CLUSTER
 
 
 class TestDebugCHQuery(APIBaseTest):
@@ -92,3 +98,29 @@ class TestDebugCHQuery(APIBaseTest):
             headers={"authorization": f"Bearer {token}"},
         )
         self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+
+
+class TestCacheTableStats(SimpleTestCase):
+    def test_reads_each_table_from_its_own_cluster(self):
+        # The metric-events sharded table lives on the aux cluster; reading system.parts only on
+        # the main cluster silently reported it as empty in prod. This fails if the per-cluster
+        # dispatch is reverted to a single main-cluster query.
+        def fake_sync_execute(_query, params):
+            parts_by_cluster = {
+                CLICKHOUSE_CLUSTER: [(SHARDED_EXPERIMENT_EXPOSURES_TABLE(), "20260801", 10, 100, 1)],
+                CLICKHOUSE_AUX_CLUSTER: [(SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE(), "20260802", 20, 200, 2)],
+            }
+            return [row for row in parts_by_cluster[params["cluster"]] if row[0] in params["tables"]]
+
+        with patch("posthog.api.debug_ch_queries.sync_execute", side_effect=fake_sync_execute):
+            stats = {entry["table"]: entry for entry in _cache_table_stats()}
+
+        exposures = stats["experiment_exposures_preaggregated"]
+        metric_events = stats["experiment_metric_events_preaggregated"]
+        self.assertEqual(exposures["total_rows"], 10)
+        self.assertEqual(exposures["newest_partition"], "20260801")
+        self.assertEqual(metric_events["total_rows"], 20)
+        self.assertEqual(metric_events["active_parts"], 2)
+        self.assertEqual(
+            metric_events["partitions"], [{"partition": "20260802", "rows": 20, "bytes_on_disk": 200, "parts": 2}]
+        )
