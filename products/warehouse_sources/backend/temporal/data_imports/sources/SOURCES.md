@@ -217,6 +217,7 @@ the row lists both.
 | fireworks_ai                     | HTTP                        | requests                                                        | ✅                          |
 | fleetio                          | HTTP                        | requests                                                        | ✅                          |
 | firehydrant                      | HTTP                        | requests                                                        | ✅                          |
+| flagsmith                        | HTTP                        | requests                                                        | ✅                          |
 | flexmail                         | HTTP                        | requests                                                        | ✅                          |
 | float_app                        | HTTP                        | requests                                                        | ✅                          |
 | flowlu                           | HTTP                        | requests                                                        | ✅                          |
