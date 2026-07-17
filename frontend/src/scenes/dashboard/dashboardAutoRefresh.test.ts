@@ -88,7 +88,7 @@ describe('dashboard auto-refresh eligibility', () => {
         const dashboard = {
             ...dashboardWithRange('-90d'),
             persisted_filters: { date_from: '-90d', properties: [{ key: '$browser', value: 'Chrome' }] },
-        }
+        } as DashboardType<QueryBasedInsightModel>
 
         expect(getLast7DaysDashboardFilters(dashboard)).toEqual({
             date_from: '-7d',

@@ -38,7 +38,7 @@ export function DashboardAutoRefreshRestrictionNotice({
     dashboard: DashboardType<QueryBasedInsightModel>
     restriction: DashboardAutoRefreshRestriction
     canEdit: boolean
-}): JSX.Element {
+}): JSX.Element | null {
     const { triggerDashboardUpdate } = useActions(
         dashboardLogic({ id: dashboard.id, dashboard, placement: DashboardPlacement.Dashboard })
     )
