@@ -646,6 +646,9 @@ class TestClickHouseSourceNonRetryableErrors:
             "HTTPDriver for https://host:8443 received ClickHouse error code 50\n Code: 50. "
             "DB::Exception: The type 'AggregateFunction(uniq, String)' of a column 'profile_id' "
             "is not supported for conversion into Arrow data format: While executing Arrow. (UNKNOWN_TYPE)",
+            # SSH tunnel to the customer's bastion couldn't be brought up — the import path only
+            # checks this per-source dict, so the entry must be here to stop it retrying forever.
+            "Could not establish session to SSH gateway",
         ],
     )
     def test_permanent_errors_are_non_retryable(self, source, error_msg):
