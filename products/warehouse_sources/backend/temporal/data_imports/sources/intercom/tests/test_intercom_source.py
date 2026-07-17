@@ -20,6 +20,44 @@ class TestIntercomSource:
     def test_source_type(self):
         assert self.source.source_type == ExternalDataSourceType.INTERCOM
 
+    def test_default_version_is_latest(self):
+        # New sources are stamped with the default; keep it on the newest supported version.
+        assert self.source.default_version == "2.15"
+        assert self.source.default_version in self.source.supported_versions
+
+    @pytest.mark.parametrize(
+        "pinned,expected",
+        [
+            (None, "2.15"),
+            ("", "2.15"),
+            ("2.13", "2.13"),
+            ("2.15", "2.15"),
+        ],
+    )
+    def test_resolve_api_version(self, pinned, expected):
+        # A present pin is honored verbatim; missing/empty falls back to the default.
+        assert self.source.resolve_api_version(pinned) == expected
+
+    @pytest.mark.parametrize("pinned,expected", [(None, "2.15"), ("2.13", "2.13"), ("2.15", "2.15")])
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.intercom_source")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
+    )
+    def test_source_for_pipeline_resolves_version(self, mock_get_integration, mock_intercom_source, pinned, expected):
+        mock_get_integration.return_value = mock.MagicMock(access_token="token")
+
+        inputs = mock.MagicMock()
+        inputs.team_id = self.team_id
+        inputs.job_id = "job-1"
+        inputs.schema_name = "contacts"
+        inputs.api_version = pinned
+        inputs.should_use_incremental_field = False
+
+        self.source.source_for_pipeline(self.config, inputs)
+
+        _, kwargs = mock_intercom_source.call_args
+        assert kwargs["api_version"] == expected
+
     def test_get_source_config(self):
         config = self.source.get_source_config
 
@@ -130,6 +168,7 @@ class TestIntercomSource:
         inputs.team_id = self.team_id
         inputs.job_id = "job-1"
         inputs.schema_name = "contacts"
+        inputs.api_version = "2.13"
         inputs.should_use_incremental_field = True
         inputs.incremental_field = "updated_at"
         inputs.db_incremental_field_last_value = "1700000000"
@@ -142,6 +181,7 @@ class TestIntercomSource:
             endpoint="contacts",
             team_id=self.team_id,
             job_id="job-1",
+            api_version="2.13",
             should_use_incremental_field=True,
             incremental_field="updated_at",
             db_incremental_field_last_value="1700000000",

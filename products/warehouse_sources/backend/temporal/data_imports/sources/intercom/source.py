@@ -34,8 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("2.13",)
-    default_version = "2.13"
+    supported_versions = ("2.13", "2.15")
+    default_version = "2.15"
     api_docs_url = "https://developers.intercom.com/docs/references/rest-api"
 
     @property
@@ -133,6 +133,7 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
