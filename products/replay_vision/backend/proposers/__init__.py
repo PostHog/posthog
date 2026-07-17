@@ -2,11 +2,13 @@ from products.replay_vision.backend.proposers.base import ConfigChange, ConfigPr
 from products.replay_vision.backend.proposers.classifier import ClassifierProposer
 from products.replay_vision.backend.proposers.monitor import MonitorProposer
 from products.replay_vision.backend.proposers.scorer import ScorerProposer
+from products.replay_vision.backend.proposers.summarizer import SummarizerProposer
 
 _PROPOSERS: dict[str, ConfigProposer] = {
     MonitorProposer.scanner_type: MonitorProposer(),
     ClassifierProposer.scanner_type: ClassifierProposer(),
     ScorerProposer.scanner_type: ScorerProposer(),
+    SummarizerProposer.scanner_type: SummarizerProposer(),
 }
 
 

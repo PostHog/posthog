@@ -17,9 +17,13 @@ def test_registry_returns_scorer() -> None:
     assert get_proposer("scorer").scanner_type == "scorer"
 
 
+def test_registry_returns_summarizer() -> None:
+    assert get_proposer("summarizer").scanner_type == "summarizer"
+
+
 def test_registry_rejects_unknown_type() -> None:
     with pytest.raises(KeyError):
-        get_proposer("summarizer")  # summarizer proposer is not registered yet
+        get_proposer("bogus")
 
 
 def test_config_change_to_dict_roundtrip() -> None:
@@ -136,6 +140,36 @@ def test_classifier_patch_ignores_ops_that_dont_apply(op: dict[str, Any]) -> Non
     assert suggested["tags"] == ["checkout"]
     # A no-op op must not emit a change, or an unchanged config would wrongly be marked pending.
     assert proposer.to_changes(base, suggested, llm) == []
+
+
+def test_summarizer_patch_and_changes() -> None:
+    proposer = get_proposer("summarizer")
+    base = {"prompt": "summarize the session", "length": "medium"}
+    llm = {"suggested_prompt": "summarize, focus on friction", "length": "long", "rationale": "more detail"}
+    suggested = proposer.to_config_patch(llm, base)
+    assert suggested["length"] == "long"
+    kinds = {(c.kind, c.field) for c in proposer.to_changes(base, suggested, llm)}
+    assert ("prompt", "prompt") in kinds
+    assert ("length", "length") in kinds
+
+
+def test_summarizer_no_length_change_when_equal() -> None:
+    proposer = get_proposer("summarizer")
+    base = {"prompt": "p", "length": "short"}
+    llm = {"suggested_prompt": "p2", "length": "short", "rationale": "r"}
+    suggested = proposer.to_config_patch(llm, base)
+    assert all(c.field != "length" for c in proposer.to_changes(base, suggested, llm))
+
+
+def test_summarizer_patch_defends_against_missing_or_invalid_length() -> None:
+    # A schema-noncompliant response must fall back to the base length, not persist junk.
+    proposer = get_proposer("summarizer")
+    base = {"prompt": "p", "length": "long"}
+    assert proposer.to_config_patch({"suggested_prompt": "p2", "rationale": "r"}, base)["length"] == "long"
+    assert (
+        proposer.to_config_patch({"suggested_prompt": "p2", "length": "epic", "rationale": "r"}, base)["length"]
+        == "long"
+    )
 
 
 class TestClassifierGrounding(_VisionAPITestCase):
