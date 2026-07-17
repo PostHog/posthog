@@ -3,6 +3,7 @@
 //! ISIZE footer), plus the zstd leg that re-emits `cv` payloads.
 
 use std::cell::RefCell;
+use std::io::Read;
 
 use anyhow::{anyhow, bail, Result};
 use libdeflater::{CompressionLvl, Compressor, Decompressor};
@@ -10,6 +11,12 @@ use libdeflater::{CompressionLvl, Compressor, Decompressor};
 /// Compression-bomb cap: ~6x the 10.3 MB largest payload in a 1000-message production sample.
 /// Exceeding it fails closed as a classified DLQ instead of an unclassifiable OOM crash-loop.
 pub const MAX_DECOMPRESSED_BYTES: usize = 64 * 1024 * 1024;
+
+/// Leading magic of a gzip member (RFC 1952).
+pub const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
+
+/// Leading magic of a zstd frame (RFC 8878).
+pub const ZSTD_MAGIC: [u8; 4] = [0x28, 0xb5, 0x2f, 0xfd];
 
 /// zstd level for re-emitted cv payloads. Counterintuitively negative: raw codec ratio is 20%
 /// worse than level 1 (0.145 vs 0.121 on the real cv corpus), but these bytes are stored
@@ -29,6 +36,8 @@ thread_local! {
     static ZSTD_COMPRESSOR: RefCell<zstd::bulk::Compressor<'static>> = RefCell::new(
         zstd::bulk::Compressor::new(CV_ZSTD_LEVEL).expect("static zstd level is valid"),
     );
+    static ZSTD_DECOMPRESSOR: RefCell<zstd::bulk::Decompressor<'static>> =
+        RefCell::new(zstd::bulk::Decompressor::new().expect("default zstd decompressor is valid"));
 }
 
 /// Gunzip a single-member stream. The output buffer is sized exactly from the stream's ISIZE
@@ -63,6 +72,36 @@ pub fn gzip(payload: &[u8]) -> Result<Vec<u8>> {
         out.truncate(n);
         Ok(out)
     })
+}
+
+/// Decompress a single zstd frame. Unlike gzip there is no ISIZE trailer: when the frame header
+/// declares its content size the output buffer is sized from it (a declaration past
+/// [`MAX_DECOMPRESSED_BYTES`] is rejected before allocating), and a frame without one falls back to
+/// a streaming decode capped at the same limit.
+pub fn unzstd(raw: &[u8]) -> Result<Vec<u8>> {
+    match zstd::zstd_safe::get_frame_content_size(raw) {
+        Ok(Some(size)) => {
+            if size > MAX_DECOMPRESSED_BYTES as u64 {
+                bail!("zstd declared content size exceeds limit");
+            }
+            ZSTD_DECOMPRESSOR
+                .with(|d| d.borrow_mut().decompress(raw, size as usize))
+                .map_err(|e| anyhow!("unzstd: {e}"))
+        }
+        Ok(None) => {
+            let mut out = Vec::new();
+            let decoder = zstd::stream::read::Decoder::new(raw)?;
+            decoder
+                .take(MAX_DECOMPRESSED_BYTES as u64 + 1)
+                .read_to_end(&mut out)
+                .map_err(|e| anyhow!("unzstd (streaming): {e}"))?;
+            if out.len() > MAX_DECOMPRESSED_BYTES {
+                bail!("zstd uncompressed size exceeds limit");
+            }
+            Ok(out)
+        }
+        Err(e) => bail!("zstd frame header: {e}"),
+    }
 }
 
 /// Re-compress a cv payload as zstd. The consumer distinguishes formats by magic bytes alone
@@ -121,6 +160,37 @@ mod tests {
     fn rejects_truncated_and_empty_streams() {
         assert!(gunzip(b"").is_err());
         assert!(gunzip(&[0x1f, 0x8b, 0x08]).is_err());
+    }
+
+    #[test]
+    fn unzstd_round_trips_bulk_and_streaming_frames() {
+        let payload = b"zstd zstd zstd payload".repeat(100);
+        // Bulk frame with a declared content size — what `compress_cv` emits.
+        let bulk = compress_cv(&payload).unwrap();
+        assert_eq!(unzstd(&bulk).unwrap(), payload);
+        // A streaming encoder omits the content size, exercising the capped streaming leg.
+        let mut enc = zstd::stream::write::Encoder::new(Vec::new(), 1).unwrap();
+        std::io::Write::write_all(&mut enc, &payload).unwrap();
+        let streamed = enc.finish().unwrap();
+        assert_eq!(
+            zstd::zstd_safe::get_frame_content_size(&streamed).unwrap(),
+            None,
+            "fixture must omit the declared content size"
+        );
+        assert_eq!(unzstd(&streamed).unwrap(), payload);
+    }
+
+    #[test]
+    fn unzstd_rejects_a_declared_size_over_the_cap() {
+        let frame = compress_cv(&vec![0u8; MAX_DECOMPRESSED_BYTES + 1]).unwrap();
+        let err = unzstd(&frame).unwrap_err().to_string();
+        assert!(err.contains("exceeds limit"), "got: {err}");
+    }
+
+    #[test]
+    fn unzstd_rejects_garbage() {
+        assert!(unzstd(b"").is_err());
+        assert!(unzstd(&[0x28, 0xb5, 0x2f, 0xfd, 0x00]).is_err());
     }
 
     #[test]
