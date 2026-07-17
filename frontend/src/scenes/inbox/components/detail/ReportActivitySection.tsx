@@ -12,9 +12,9 @@ import { DetailSection } from './DetailSection'
  * The report's chronological work-log: every artefact (judgments, findings, code references, diffs,
  * commits, task runs, notes, reviewers) rendered as a timeline entry. Reads the artefacts the detail
  * logic already loads (and polls while the report is active), so it stays in sync with the rest of
- * the detail view. Hidden entirely until at least one artefact exists. While the run is still live
- * it opens expanded so you can watch findings land in real time; once finished it collapses. Mirrors
- * desktop `ReportActivitySection`.
+ * the detail view. Hidden entirely until at least one artefact exists. While the run is still live it
+ * opens expanded so you can follow along; once finished it collapses. Mirrors desktop
+ * `ReportActivitySection`.
  */
 export function ReportActivitySection({ report }: { report: SignalReport }): JSX.Element | null {
     const { reportArtefacts, reportTasks } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))

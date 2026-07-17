@@ -7,6 +7,7 @@ import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -416,10 +417,13 @@ function ArtefactRow({
     reportId,
     artefact,
     knownTasks,
+    durationSec,
 }: {
     reportId: string
     artefact: SignalReportArtefact
     knownTasks?: Map<string, Task>
+    /** Observed time this step took (gap to the next event); omitted for the final/ongoing step. */
+    durationSec?: number
 }): JSX.Element {
     const { isDev } = useValues(preflightLogic)
     const [showRaw, setShowRaw] = useState(false)
@@ -442,6 +446,13 @@ function ArtefactRow({
                         >
                             {'{ }'}
                         </button>
+                    ) : null}
+                    {durationSec !== undefined ? (
+                        <Tooltip title="Time until the next step">
+                            <span className="shrink-0 tabular-nums text-tertiary text-[11px]">
+                                {humanFriendlyDuration(durationSec, { maxUnits: 2 })}
+                            </span>
+                        </Tooltip>
                     ) : null}
                     <TZLabel time={artefact.created_at} className="text-tertiary text-[11px]" />
                 </div>
@@ -474,11 +485,32 @@ export function ArtefactLogList({
     if (artefacts.length === 0) {
         return null
     }
-    const ordered = [...artefacts].sort((a, b) => a.created_at.localeCompare(b.created_at))
+    // Artefacts only carry a timestamp, so derive each step's observed duration from the gap to the next
+    // event in time. Then order by that duration, longest first, to surface where the run spent its time.
+    // The final step has no successor (still running, or the run's last act) — it has no measured duration
+    // and sorts to the bottom.
+    const chronological = [...artefacts].sort((a, b) => a.created_at.localeCompare(b.created_at))
+    const durationSecById = new Map<string, number>()
+    for (let i = 0; i < chronological.length - 1; i++) {
+        const startMs = Date.parse(chronological[i].created_at)
+        const endMs = Date.parse(chronological[i + 1].created_at)
+        if (!Number.isNaN(startMs) && !Number.isNaN(endMs) && endMs > startMs) {
+            durationSecById.set(chronological[i].id, Math.round((endMs - startMs) / 1000))
+        }
+    }
+    const ordered = [...artefacts].sort(
+        (a, b) => (durationSecById.get(b.id) ?? -1) - (durationSecById.get(a.id) ?? -1)
+    )
     return (
         <div className="flex flex-col gap-2">
             {ordered.map((artefact) => (
-                <ArtefactRow key={artefact.id} reportId={reportId} artefact={artefact} knownTasks={knownTasks} />
+                <ArtefactRow
+                    key={artefact.id}
+                    reportId={reportId}
+                    artefact={artefact}
+                    knownTasks={knownTasks}
+                    durationSec={durationSecById.get(artefact.id)}
+                />
             ))}
         </div>
     )
