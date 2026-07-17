@@ -18,6 +18,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
 from products.tasks.backend.temporal.process_task.activities.relay_sandbox_events import (
     RelaySandboxEventsInput,
     TaskRunRedisStream,
+    _flush_pending_text,
     _is_active_agent_update,
     _is_end_of_turn,
     _is_keepalive_event,
@@ -26,7 +27,6 @@ from products.tasks.backend.temporal.process_task.activities.relay_sandbox_event
     _relay_loop,
     relay_sandbox_events,
 )
-from products.tasks.backend.temporal.process_task.activities.start_agent_server import StartAgentServerOutput
 from products.tasks.backend.temporal.process_task.workflow import (
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
     ProcessTaskWorkflow,
@@ -555,7 +555,9 @@ class TestRelaySandboxEventsErrorHandling:
             "type": "notification",
             "notification": {"method": "_posthog/task_complete"},
         }
-        task_run = SimpleNamespace(id="run-id")
+        # mode="interactive" keeps the turn-complete thread-update path out of
+        # this test, which only cares about permission dispatch.
+        task_run = SimpleNamespace(id="run-id", mode="interactive")
         dispatch_mock = MagicMock()
 
         class SuccessfulEventSource:
@@ -635,6 +637,40 @@ class TestRelaySandboxEventsErrorHandling:
 
         assert marked_complete is True
         redis_stream_mock.mark_complete.assert_awaited_once()
+        redis_stream_mock.mark_error.assert_not_awaited()
+
+    async def test_deferred_relay_leaves_terminal_stream_completion_to_workflow(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        redis_stream_mock = SimpleNamespace(mark_complete=AsyncMock(), mark_error=AsyncMock())
+        redis_stream = cast(TaskRunRedisStream, redis_stream_mock)
+
+        class StubTaskRunQuerySet:
+            def only(self, *_fields: str) -> "StubTaskRunQuerySet":
+                return self
+
+            async def aget(self, id: str) -> SimpleNamespace:
+                return SimpleNamespace(status="cancelled")
+
+        monkeypatch.setattr(
+            relay_sandbox_events_module,
+            "TaskRunModel",
+            SimpleNamespace(
+                Status=SimpleNamespace(COMPLETED="completed", FAILED="failed", CANCELLED="cancelled"),
+                DoesNotExist=Exception,
+                objects=StubTaskRunQuerySet(),
+            ),
+        )
+
+        marked_complete = await _mark_error_unless_run_is_terminal(
+            redis_stream,
+            "run-id",
+            "late relay error",
+            finalize_stream=False,
+        )
+
+        assert marked_complete is True
+        redis_stream_mock.mark_complete.assert_not_awaited()
         redis_stream_mock.mark_error.assert_not_awaited()
 
     async def test_normal_stream_close_marks_stream_complete(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -836,10 +872,44 @@ class TestRelaySandboxEventsWorkflowOptions:
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity_mock)
 
         await workflow._relay_sandbox_events(
-            StartAgentServerOutput(sandbox_url="https://sandbox.example", connect_token="connect-token"),
+            "https://sandbox.example",
+            "connect-token",
             sandbox_id="sandbox-123",
         )
 
         assert execute_activity_mock.await_args is not None
-        _, kwargs = execute_activity_mock.await_args
+        args, kwargs = execute_activity_mock.await_args
+        assert args[0] is relay_sandbox_events_module.relay_sandbox_events_deferred_completion
         assert kwargs["start_to_close_timeout"] == RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT
+
+
+class TestFlushPendingText:
+    """Coalescing many chunks into one agent_text_delta signal keeps the parent workflow's
+    history small enough to replay under the 2s deadlock budget."""
+
+    async def test_coalesces_buffered_parts_into_one_signal(self) -> None:
+        handle = AsyncMock()
+        parts = ["Hel", "lo, ", "world"]
+        last_flush = [0.0]
+
+        await _flush_pending_text(handle, parts, last_flush)
+
+        # One signal carrying the joined prose; buffer drained; flush time advanced.
+        handle.signal.assert_awaited_once_with("agent_text_delta", arg="Hello, world")
+        assert parts == []
+        assert last_flush[0] > 0.0
+
+    async def test_empty_buffer_sends_no_signal_but_records_flush(self) -> None:
+        handle = AsyncMock()
+        last_flush = [0.0]
+
+        await _flush_pending_text(handle, [], last_flush)
+
+        # Recording the flush time even on an empty buffer keeps the interval honest.
+        assert last_flush[0] > 0.0
+        handle.signal.assert_not_awaited()
+
+    async def test_no_handle_still_clears_buffer(self) -> None:
+        parts = ["dropped"]
+        await _flush_pending_text(None, parts, [0.0])
+        assert parts == []

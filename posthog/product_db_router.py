@@ -3,11 +3,10 @@ from __future__ import annotations
 from functools import lru_cache
 
 from django.conf import settings
-from django.core.checks import CheckMessage, Error, Warning, register
+from django.core.checks import Error, register
 
 from posthog.product_db_config import ProductDBRoute, load_product_db_routes
 from posthog.settings.base_variables import TEST
-from posthog.settings.utils import DEPLOYED_CLOUD_DEPLOYMENTS
 
 
 @lru_cache(maxsize=1)
@@ -86,46 +85,3 @@ def check_product_db_routes(app_configs, **kwargs):
         app_label_to_database[route.app_label] = route.database
 
     return errors
-
-
-def product_db_routes_configured_errors(routes: tuple[ProductDBRoute, ...]) -> list[CheckMessage]:
-    # Only enforced on deployed cloud environments, where charts always injects
-    # the PRODUCT_DB_* env vars. E2E (local cloud-features dev) and self-hosted
-    # (no CLOUD_DEPLOYMENT) intentionally run product models on the default
-    # database instead. DEBUG needs no guard: settings import rejects DEBUG on
-    # deployed cloud (assert_debug_not_in_production, same deployment tuple).
-    if settings.TEST:
-        return []
-    if (settings.CLOUD_DEPLOYMENT or "").upper() not in DEPLOYED_CLOUD_DEPLOYMENTS:
-        return []
-
-    messages: list[CheckMessage] = []
-    for route in routes:
-        configured = f"{route.database}_db_writer" in settings.DATABASES
-        if route.optional and configured:
-            messages.append(
-                Warning(
-                    f"Product database '{route.database}' (app '{route.app_label}') is configured but "
-                    f"still marked 'optional: true' in {route.source}.",
-                    hint="Once the database is provisioned in every environment, remove the 'optional' "
-                    "flag so a missing connection fails deploys instead of silently falling back.",
-                    id="posthog.W001",
-                )
-            )
-        elif not route.optional and not configured:
-            env_var = f"PRODUCT_DB_{route.database.upper()}_WRITER_URL"
-            messages.append(
-                Error(
-                    f"Product database '{route.database}' (app '{route.app_label}') has no connection configured, "
-                    "so its models would silently fall back to the default database.",
-                    hint=f"Set {env_var} in the deployment, or mark the route 'optional: true' in {route.source} "
-                    "while the database is still being provisioned.",
-                    id="posthog.E005",
-                )
-            )
-    return messages
-
-
-@register()
-def check_product_db_routes_configured(app_configs, **kwargs):
-    return product_db_routes_configured_errors(get_product_db_routes())

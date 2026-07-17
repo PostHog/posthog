@@ -38,7 +38,7 @@ LEASE_TTL_SECONDS = 300
 
 # Partition pruning hint: only scan partitions within this window.
 # Set to 2x the retention period so the planner can skip dropped
-# partitions. Not a correctness filter — older partitions are already
+# partitions. Not a correctness filter -- older partitions are already
 # gone by the time this matters.
 PARTITION_PRUNING_INTERVAL = "14 days"
 
@@ -375,7 +375,7 @@ class ActiveRunRef:
     workflow_run_id: str | None
     pending_batches: int
     total_batches: int
-    latest_activity_at: datetime | None
+    latest_activity_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -1059,7 +1059,7 @@ class BatchQueue:
         an operator can still act on. ``only_pending=False`` is for direct
         ``run_uuid`` lookups where a fully-terminal run should still be visible.
         """
-        scope_sql, params = _scope_filters(team_id=team_id, schema_ids=schema_ids, run_uuid=run_uuid)
+        scope_sql, params = scope_filters(team_id=team_id, schema_ids=schema_ids, run_uuid=run_uuid)
         having = f"HAVING COUNT(*) FILTER (WHERE {pending_batch_predicate('s')}) > 0"
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
@@ -1101,7 +1101,7 @@ class BatchQueue:
         Each row carries the oldest ``created_at`` in its state so the caller
         can derive freshness signals (e.g. age of the oldest unclaimed batch).
         """
-        scope_sql, params = _scope_filters(team_id=team_id, schema_ids=schema_ids)
+        scope_sql, params = scope_filters(team_id=team_id, schema_ids=schema_ids)
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 f"""
@@ -1128,7 +1128,7 @@ class BatchQueue:
         schema_ids: list[str] | None = None,
     ) -> list[GroupLease]:
         """Group leases within the scope, with computed liveness."""
-        scope_sql, params = _scope_filters(team_id=team_id, schema_ids=schema_ids, alias="l")
+        scope_sql, params = scope_filters(team_id=team_id, schema_ids=schema_ids, alias="l")
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 f"""
@@ -1182,7 +1182,7 @@ class BatchQueue:
         schema_ids: list[str] | None = None,
     ) -> list[PendingBatch]:
         """Sync, scope-filtered twin of ``get_stale_executing`` for ops inspection."""
-        scope_sql, params = _scope_filters(team_id=team_id, schema_ids=schema_ids)
+        scope_sql, params = scope_filters(team_id=team_id, schema_ids=schema_ids)
         params["grace"] = grace_seconds
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(_stale_executing_sql(scope_sql), params)
@@ -1190,7 +1190,7 @@ class BatchQueue:
         return [PendingBatch(**row) for row in rows]
 
 
-def _scope_filters(
+def scope_filters(
     *,
     team_id: int | None = None,
     schema_ids: list[str] | None = None,

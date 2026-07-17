@@ -31,8 +31,6 @@ class TestSourceConfig:
         config = MailosaurSource().get_source_config
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Ships hidden while it's an unreleased alpha connector.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/mailosaur"
 
     def test_api_key_field_is_required_secret(self) -> None:

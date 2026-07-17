@@ -35,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RootlySource(ResumableSource[RootlySourceConfig, RootlyResumeConfig]):
+    api_docs_url = "https://docs.rootly.com/api-reference"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ROOTLY
@@ -46,7 +48,6 @@ class RootlySource(ResumableSource[RootlySourceConfig, RootlyResumeConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Rootly",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Rootly API key to automatically pull your Rootly incident-management data into the PostHog Data warehouse.
 
 You can create an API key in your [Rootly account settings](https://rootly.com/account/api_keys). A Global-scope key can read every resource; Team- and User-scope keys only see the resources they are granted.""",

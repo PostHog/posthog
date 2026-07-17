@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class TestrailSource(ResumableSource[TestrailSourceConfig, TestrailResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://support.testrail.com/hc/en-us/articles/7077083596436-Introduction-to-the-TestRail-API"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -89,7 +92,6 @@ Generate an API key under **My Settings → API keys** in TestRail, and make sur
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

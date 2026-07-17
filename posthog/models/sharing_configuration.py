@@ -149,9 +149,7 @@ class SharingConfiguration(models.Model):
     def _lock_resource_for_rotation(self) -> None:
         # Resolve each parent model from its own FK instead of importing it. This keeps the module
         # free of product imports (``user_interviews`` only exposes its webhooks via tach's
-        # ``[[interfaces]]``) and avoids cycling through ``posthog.models.team`` during ``Team``
-        # initialization, since this module is loaded mid-init via product_analytics'
-        # insight_caching_state.
+        # ``[[interfaces]]``).
         for field_name in ("dashboard", "insight", "notebook", "recording", "interviewee_context"):
             fk_value = getattr(self, f"{field_name}_id")
             if not fk_value:

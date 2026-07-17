@@ -16,7 +16,7 @@ logger = structlog.get_logger(__name__)
 
 # Keep enough live history for users who open an in-progress run late while
 # still bounding Redis growth to the sandbox lifetime.
-TASK_RUN_STREAM_MAX_LENGTH = 20_000
+TASK_RUN_STREAM_MAX_LENGTH = 5_000
 TASK_RUN_STREAM_TIMEOUT = SANDBOX_TTL_SECONDS
 TASK_RUN_STREAM_SEQUENCE_TIMEOUT = int(SANDBOX_EVENT_INGEST_TOKEN_TTL.total_seconds())
 TASK_RUN_STREAM_PREFIX = "task-run-stream:"
@@ -576,7 +576,7 @@ def publish_task_run_stream_event(run_id: str, event: dict, use_dedicated: bool 
         return None
 
 
-def publish_task_run_stream_complete(run_id: str, use_dedicated: bool = False) -> None:
+def publish_task_run_stream_complete(run_id: str, use_dedicated: bool = False) -> bool:
     """Synchronously publish a completion sentinel for a task-run stream."""
     stream_key = get_task_run_stream_key(run_id)
     completed_key = get_task_run_stream_completed_key(stream_key)
@@ -588,11 +588,11 @@ def publish_task_run_stream_complete(run_id: str, use_dedicated: bool = False) -
             # fakeredis doesn't support WATCH/MULTI; the sequencing race the
             # transaction guards against can't happen under the test harness.
             if client.exists(completed_key):
-                return
+                return True
             client.xadd(stream_key, {DATA_KEY: raw}, maxlen=TASK_RUN_STREAM_MAX_LENGTH, approximate=True)
             client.expire(stream_key, TASK_RUN_STREAM_TIMEOUT)
             client.set(completed_key, "1", ex=TASK_RUN_STREAM_SEQUENCE_TIMEOUT)
-            return
+            return True
 
         with client.pipeline(transaction=True) as pipe:
             while True:
@@ -600,15 +600,16 @@ def publish_task_run_stream_complete(run_id: str, use_dedicated: bool = False) -
                     pipe.watch(completed_key)
                     if pipe.exists(completed_key):
                         pipe.reset()
-                        return
+                        return True
                     pipe.multi()
                     pipe.xadd(stream_key, {DATA_KEY: raw}, maxlen=TASK_RUN_STREAM_MAX_LENGTH, approximate=True)
                     pipe.expire(stream_key, TASK_RUN_STREAM_TIMEOUT)
                     pipe.set(completed_key, "1", ex=TASK_RUN_STREAM_SEQUENCE_TIMEOUT)
                     pipe.execute()
-                    return
+                    return True
                 except redis_exceptions.WatchError:
                     logger.debug("task_run_stream_complete_watch_retry", run_id=run_id)
                     continue
     except Exception:
         logger.exception("task_run_stream_complete_publish_failed", run_id=run_id)
+        return False

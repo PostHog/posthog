@@ -121,6 +121,15 @@ export type IngestionConsumerConfig = {
     // (idle worker capacity) or the worker rejects with HTTP 503.
     INGESTION_WORKER_CONCURRENT_BATCHES: number
 
+    // Feed-order sentinel (ingestion API server only): checks that each
+    // routing key's messages enter the pipeline in Kafka offset order. The
+    // Rust consumer's sentinels have their own flag
+    // (CONSUMER_ORDER_SENTINEL_ENABLED).
+    INGESTION_API_FEED_ORDER_SENTINEL_ENABLED: boolean
+    // LRU capacity of the sentinel's per-key state; at capacity the
+    // least-recently-seen key is dropped and rebaselines unchecked.
+    INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS: number
+
     // Person batch writing config
     PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode
     PERSON_BATCH_WRITING_USE_BATCH_UPDATES: boolean
@@ -143,6 +152,9 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_ASYNC_ENABLED: boolean
     PERSON_MERGE_SYNC_BATCH_SIZE: number
     // Kill switch for emitting person_merge_events to the cohort-stream-processor.
+    // Enable ordering: (1) create the topic, (2) set INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC
+    // (startup topic verification is then fatal by design), (3) flip this on. Flipping this on before
+    // the topic env is set is a no-op — see effectivePersonMergeEventsEnabled.
     PERSON_MERGE_EVENTS_ENABLED: boolean
     // Must equal the person_merge_events topic partition count and the Rust COHORT_PARTITION_COUNT.
     PERSON_MERGE_EVENTS_PARTITION_COUNT: number
@@ -152,9 +164,11 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: string
 
     // Group batch writing config
+    GROUP_BATCH_WRITING_USE_BATCH_UPDATES: boolean
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
+    GROUPS_PREFETCH_ENABLED: boolean
 
     // Event overflow config
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
@@ -238,6 +252,8 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: '',
         INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
         INGESTION_WORKER_CONCURRENT_BATCHES: 1,
+        INGESTION_API_FEED_ORDER_SENTINEL_ENABLED: true,
+        INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS: 200_000,
 
         // Person batch writing config
         PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT',
@@ -265,9 +281,11 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',
 
         // Group batch writing config
+        GROUP_BATCH_WRITING_USE_BATCH_UPDATES: false,
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
+        GROUPS_PREFETCH_ENABLED: false,
 
         // Event overflow config
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,

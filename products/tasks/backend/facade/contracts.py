@@ -42,6 +42,21 @@ class TaskDTO:
 
 
 @dataclass(frozen=True)
+class WizardCloudRunDTO:
+    """A team's active onboarding wizard cloud run.
+
+    Lets the frontend rehydrate the setup-progress FAB from the server when the drop
+    flow started the run server-side (so no client-side localStorage handle exists).
+    Carries only what the FAB's cloud stream needs to reconnect.
+    """
+
+    task_id: UUID
+    run_id: UUID
+    status: str
+    started_at: datetime | None = None
+
+
+@dataclass(frozen=True)
 class TaskRunDTO:
     """A single execution of a task.
 
@@ -119,6 +134,7 @@ class TaskDetailDTO:
     title_manually_set: bool
     description: str
     origin_product: str
+    runtime: str
     repository: str | None
     github_integration: int | None
     github_user_integration: UUID | None
@@ -153,11 +169,28 @@ class TaskThreadMessageDTO:
 
     id: UUID
     task: UUID
+    author_kind: str
+    event: str
+    payload: dict
     content: str
     created_at: datetime
     author: "TaskUserBasicInfo | None" = None
     forwarded_to_agent_at: datetime | None = None
     forwarded_by: "TaskUserBasicInfo | None" = None
+
+
+@dataclass(frozen=True)
+class ChannelFeedMessageDTO:
+    """The HTTP representation of one system announcement in a channel's feed."""
+
+    id: UUID
+    channel: UUID
+    author_kind: str
+    event: str
+    payload: dict
+    content: str
+    created_at: datetime
+    author: "TaskUserBasicInfo | None" = None
 
 
 @dataclass(frozen=True)

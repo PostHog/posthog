@@ -48,12 +48,6 @@ class PostHogConfig(AppConfig):
         # shell) would lose them. They live in dedicated import-light modules — never wire
         # ready() through an API module, even one that looks light today.
         import posthog.storage.checks  # noqa: F401, PLC0415
-
-        # Product-DB route checks must register even when no PRODUCT_DB_* env
-        # vars are set — the unconfigured case is exactly what
-        # check_product_db_routes_configured guards — and Django only imports
-        # the router module when at least one route is configured.
-        import posthog.product_db_router  # noqa: F401, PLC0415
         import posthog.caching.organization_serializer_cache  # noqa: F401, PLC0415
         import posthog.models.activity_logging.signal_handlers  # noqa: F401, PLC0415
 

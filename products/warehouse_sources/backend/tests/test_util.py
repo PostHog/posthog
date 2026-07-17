@@ -1,10 +1,38 @@
 from posthog.test.base import BaseTest
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
+from products.warehouse_sources.backend.models.util import get_view_or_table_by_name, reconstruct_ordered_columns
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+
+class TestReconstructOrderedColumns(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # (name, columns, column_order, expected_order)
+            # Legacy rows have no recorded order: fall back to the stored jsonb key order.
+            ("legacy_null", {"b": 1, "a": 2}, None, ["b", "a"]),
+            ("legacy_empty", {"b": 1, "a": 2}, [], ["b", "a"]),
+            # Recorded order is honored even when the jsonb key order differs.
+            ("exact", {"a": 1, "z": 2, "m": 3}, ["z", "m", "a"], ["z", "m", "a"]),
+            # A recorded name no longer present in columns (dropped column) is skipped.
+            ("removed_skipped", {"a": 1, "m": 3}, ["z", "m", "a"], ["m", "a"]),
+            # A column absent from the recorded order (newly discovered) is appended after the rest.
+            ("appended_at_end", {"z": 1, "a": 2, "new": 3}, ["z", "a"], ["z", "a", "new"]),
+            # Duplicate recorded names do not duplicate the column.
+            ("dedup_recorded", {"a": 1, "b": 2}, ["a", "a", "b"], ["a", "b"]),
+        ]
+    )
+    def test_reconstruct_ordered_columns(self, _name, columns, column_order, expected_order):
+        result = reconstruct_ordered_columns(columns, column_order)
+        assert [name for name, _value in result] == expected_order
+        # values stay paired with their names
+        assert dict(result) == columns
 
 
 class TestGetViewOrTableByName(BaseTest):

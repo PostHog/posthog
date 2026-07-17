@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
@@ -29,8 +29,9 @@ export interface LogsDisplayBarProps {
  *    the filters toggle, the Logs⇄Patterns⇄Group switch, and a lens-aware count indicator.
  *  - lens configuration: the group-by key picker, shown only in Group mode (the mode lives
  *    in the segmented bar; the key is that mode's setting, like Patterns owns its mining).
- *  - contextual-right: the Logs-only presentation tools (sort, wrap, timezone, export,
- *    shortcuts), hidden in Patterns/Group modes where none of them apply.
+ *  - contextual-right: each lens's own tools. Logs mode gets the presentation tools (sort,
+ *    wrap, timezone, export, shortcuts); Patterns mode gets the compare controls; Group
+ *    mode has none.
  *
  * Sits below the sparkline, next to the table it affects.
  */
@@ -40,7 +41,7 @@ export const LogsDisplayBar = ({
     totalLogsCount,
 }: LogsDisplayBarProps): JSX.Element => {
     const { facetRailCollapsed, viewMode, groupBy } = useValues(logsViewerConfigLogic)
-    const { setFacetRailCollapsed, setViewMode, setGroupBy, openPatternsComparison } = useActions(logsViewerConfigLogic)
+    const { setFacetRailCollapsed, setViewMode, setGroupBy } = useActions(logsViewerConfigLogic)
     const showPatternsView = useFeatureFlag('LOGS_PATTERNS_VIEW')
     const showGroupBy = useFeatureFlag('LOGS_GROUP_BY')
 
@@ -124,18 +125,52 @@ export const LogsDisplayBar = ({
                         <span className="text-muted text-xs">{humanFriendlyNumber(totalLogsCount)} logs</span>
                     )
                 )}
-                {showPatternsView && !inPatternsMode && !inGroupByMode && (
-                    <LemonButton
-                        size="small"
-                        onClick={() => openPatternsComparison('preceding')}
-                        tooltip="Mine this window's log patterns and compare them against the period just before it — new and shifted message templates first. Drag-select a spike on the chart first to explain exactly that range."
-                        data-attr="logs-explain-changes"
-                    >
-                        Explain changes
-                    </LemonButton>
-                )}
             </div>
-            {!inPatternsMode && !inGroupByMode && <LogsViewerToolbar totalLogsCount={totalLogsCount} />}
+            {inPatternsMode ? (
+                <PatternsCompareControls id={id} />
+            ) : (
+                !inGroupByMode && <LogsViewerToolbar totalLogsCount={totalLogsCount} />
+            )}
+        </div>
+    )
+}
+
+/**
+ * Patterns mode's contextual-right tools: the Compare toggle and its baseline picker. Lives in
+ * the display bar's right slot (like the Logs toolbar) rather than inside the results region,
+ * and in its own component so `logsPatternsLogic` only mounts while Patterns is active.
+ */
+const PatternsCompareControls = ({ id }: { id: string }): JSX.Element => {
+    const { compareEnabled, baselineMode, diffResponseLoading, patternsResponseLoading } = useValues(
+        logsPatternsLogic({ id })
+    )
+    const { setCompareEnabled, setBaselineMode } = useActions(logsPatternsLogic({ id }))
+
+    return (
+        <div className="flex items-center gap-2">
+            {compareEnabled && (
+                <LemonSelect
+                    size="small"
+                    loading={diffResponseLoading}
+                    value={baselineMode}
+                    onChange={setBaselineMode}
+                    options={[
+                        { value: 'lastWeek' as const, label: 'vs. same time last week' },
+                        { value: 'preceding' as const, label: 'vs. preceding period' },
+                    ]}
+                    data-attr="logs-patterns-baseline-mode"
+                />
+            )}
+            <LemonSwitch
+                checked={compareEnabled}
+                onChange={setCompareEnabled}
+                // Toggling swaps which loader runs, so a toggle mid-flight is a double submission.
+                loading={diffResponseLoading || patternsResponseLoading}
+                label="Compare"
+                bordered
+                size="small"
+                data-attr="logs-patterns-compare-toggle"
+            />
         </div>
     )
 }

@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class CalComSource(ResumableSource[CalComSourceConfig, CalComResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://cal.com/docs/api-reference/v2/introduction"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -69,7 +72,6 @@ You can create an API key under **Settings → Security → API keys** in [Cal.c
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

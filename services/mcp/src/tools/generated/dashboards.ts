@@ -6,6 +6,7 @@ import {
     DashboardsCopyTileCreateBody,
     DashboardsCopyTileCreateParams,
     DashboardsCreateBody,
+    DashboardsCreateQueryParams,
     DashboardsCreateTextTileCreateBody,
     DashboardsCreateTextTileCreateParams,
     DashboardsDeleteTileBody,
@@ -16,6 +17,7 @@ import {
     DashboardsMoveTilePartialUpdateParams,
     DashboardsPartialUpdateBody,
     DashboardsPartialUpdateParams,
+    DashboardsPartialUpdateQueryParams,
     DashboardsReorderTilesCreateBody,
     DashboardsReorderTilesCreateParams,
     DashboardsRetrieveParams,
@@ -35,7 +37,7 @@ import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const DashboardCreateSchema = DashboardsCreateBody
+const DashboardCreateSchema = DashboardsCreateQueryParams.omit({ format: true }).extend(DashboardsCreateBody.shape)
 
 const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, WithPostHogUrl<Schemas.Dashboard>> => ({
     name: 'dashboard-create',
@@ -80,6 +82,9 @@ const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, WithPostHogUr
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/`,
             body,
+            query: {
+                include_dashboards: params.include_dashboards,
+            },
         })
         const filtered = omitResponseFields(result, [
             'effective_restriction_level',
@@ -223,6 +228,7 @@ const dashboardGet = (): ToolBase<typeof DashboardGetSchema, WithPostHogUrl<Sche
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/`,
             query: {
                 filters_override: params.filters_override,
+                include_dashboards: params.include_dashboards,
                 variables_override: params.variables_override,
             },
         })
@@ -358,6 +364,7 @@ const dashboardTileCopy = (): ToolBase<typeof DashboardTileCopySchema, WithPostH
 })
 
 const DashboardUpdateSchema = DashboardsPartialUpdateParams.omit({ project_id: true })
+    .extend(DashboardsPartialUpdateQueryParams.omit({ format: true }).shape)
     .extend(DashboardsPartialUpdateBody.shape)
     .extend({ id: z.preprocess(castStringToInt, DashboardsPartialUpdateParams.shape['id']) })
 
@@ -410,6 +417,9 @@ const dashboardUpdate = (): ToolBase<typeof DashboardUpdateSchema, WithPostHogUr
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/`,
             body,
+            query: {
+                include_dashboards: params.include_dashboards,
+            },
         })
         const filtered = omitResponseFields(result, [
             'effective_restriction_level',

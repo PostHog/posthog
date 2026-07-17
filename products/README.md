@@ -230,9 +230,7 @@ This automatically:
 - Runs migrations via `bin/migrate` (calls `migrate_product_databases` management command)
 - Creates the database in local Docker via the Postgres init script
 
-Locally (`DEBUG=1`), it auto-connects to `posthog_visual_review` on localhost. Self-hosted and local setups skip a route silently if its env var is absent — the product's models just run on the default database.
-
-On PostHog Cloud (`CLOUD_DEPLOYMENT` set to a deployed environment), that silent fallback is dangerous: a misconfigured deploy would misroute writes without anyone noticing. There, a missing connection for a non-optional route fails Django's system checks, which blocks the deploy's `migrate` step. New routes are scaffolded with `optional: true` for exactly this reason — it's a staged rollout escape hatch for when code lands before infra has provisioned the database. Remove the flag once the database is up, so a missing connection fails loudly from then on — a system-check warning nags about routes that are configured but still marked optional.
+Locally (`DEBUG=1`), it auto-connects to `posthog_visual_review` on localhost. In prod, the infrastructure handles env vars and connections automatically. If the env var is absent, the route is silently skipped.
 
 ### Adding a new product database
 

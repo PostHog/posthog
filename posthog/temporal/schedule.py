@@ -20,6 +20,10 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
+from posthog.temporal.ai.checkpoint_compaction.schedule import (
+    create_checkpoint_compaction_schedule,
+    should_register_checkpoint_compaction_schedule,
+)
 from posthog.temporal.ai_observability.eval_reports.schedule import (
     create_count_trigger_schedule,
     create_eval_reports_schedule,
@@ -838,6 +842,8 @@ if settings.CLOUD_DEPLOYMENT:
     schedules.append(create_replay_vision_gemini_cleanup_sweep_schedule)
     schedules.append(create_run_usage_reports_schedule)
     schedules.append(create_finalize_usage_reports_schedule)
+    if should_register_checkpoint_compaction_schedule():
+        schedules.append(create_checkpoint_compaction_schedule)
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)

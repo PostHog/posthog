@@ -38,6 +38,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FinancialModellingSource(ResumableSource[FinancialModellingSourceConfig, FinancialModellingResumeConfig]):
+    supported_versions = ("stable",)
+    default_version = "stable"
+    api_docs_url = "https://site.financialmodelingprep.com/developer/docs/stable"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -51,7 +55,6 @@ class FinancialModellingSource(ResumableSource[FinancialModellingSourceConfig, F
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Financial Modeling Prep",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Financial Modeling Prep API key to pull market and company financial data into the PostHog Data warehouse.
 
 You can find your API key in your [Financial Modeling Prep dashboard](https://site.financialmodelingprep.com/developer/docs/dashboard).

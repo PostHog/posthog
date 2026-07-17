@@ -7,17 +7,12 @@ from django.core.exceptions import ImproperlyConfigured
 from posthog.utils import str_to_bool
 
 __all__ = [
-    "DEPLOYED_CLOUD_DEPLOYMENTS",
     "assert_debug_not_in_production",
     "generate_rsa_private_key_pem",
     "get_from_env",
     "get_list",
     "str_to_bool",
 ]
-
-# Deployed, charts-managed cloud environments. E2E is cloud-like (is_cloud()
-# includes it) but only runs locally and in automated tests, so it's not listed.
-DEPLOYED_CLOUD_DEPLOYMENTS: tuple[str, ...] = ("US", "EU", "DEV")
 
 
 def assert_debug_not_in_production(*, debug: bool, cloud_deployment: Optional[str], test: bool) -> None:
@@ -28,7 +23,7 @@ def assert_debug_not_in_production(*, debug: bool, cloud_deployment: Optional[st
     TEST is excluded because the suite runs with DEBUG=1 (see posthog/settings/overrides.py). E2E is
     not listed: it runs only in automated tests and never sets DEBUG, so the guard can't fire there.
     """
-    if debug and not test and (cloud_deployment or "").upper() in DEPLOYED_CLOUD_DEPLOYMENTS:
+    if debug and not test and (cloud_deployment or "").upper() in ("US", "EU", "DEV"):
         raise ImproperlyConfigured(
             f"DEBUG must not be enabled on deployed cloud environments (CLOUD_DEPLOYMENT={cloud_deployment!r}). "
             "Unset DEBUG. Developing cloud-only features locally? Use CLOUD_DEPLOYMENT=E2E instead — "
