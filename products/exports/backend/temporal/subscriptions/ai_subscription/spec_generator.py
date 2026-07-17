@@ -9,6 +9,7 @@ from django.db.models import F, Q
 
 import structlog
 import posthoganalytics
+from langchain_core.runnables import RunnableConfig
 from posthoganalytics.ai.langchain import CallbackHandler
 from pydantic import ValidationError
 
@@ -43,7 +44,7 @@ logger = structlog.get_logger(__name__)
 
 def generation_callback_config(
     *, user: User, team: Team, stage: str, trace_correlation_id: Optional[Union[int, str]]
-) -> dict:
+) -> RunnableConfig:
     """Attach a PostHog CallbackHandler so the report pipeline's LLM calls surface as `$ai_generation`
     events (feature=ai_subscription) in AI observability. Without an attached handler these generations
     are never captured, so they can't be monitored, evaluated, or billed. Per-call `feature`/`stage`
