@@ -2,7 +2,7 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
-from products.workflows.backend.api.action_redirects import compute_action_redirects
+from products.workflows.backend.api.action_redirects import MAX_ACTION_REDIRECTS, compute_action_redirects
 
 
 def _actions(*ids: str) -> list[dict]:
@@ -126,3 +126,15 @@ class TestComputeActionRedirects(TestCase):
             _actions("t", "b", "c", "x"), edges_after_edit_2, _actions("t", "c", "x"), after_edit_2
         )
         assert after_edit_3 == {"a": "c", "b": "c"}
+
+    def test_map_is_capped_keeping_the_newest_entries(self):
+        # Churning uniquely-named steps can't grow the map without bound: over the cap, the oldest
+        # entries (prior edits) drop first and runs parked on them take the graceful exit.
+        existing = {f"old_{i}": "x" for i in range(MAX_ACTION_REDIRECTS)}
+        result = compute_action_redirects(
+            _actions("t", "a", "x"), [_edge("t", "a"), _edge("a", "x")], _actions("t", "x"), existing
+        )
+        assert result is not None
+        assert len(result) == MAX_ACTION_REDIRECTS
+        assert result["a"] == "x"  # this edit's entry survives
+        assert "old_0" not in result  # the oldest prior entry is the one dropped

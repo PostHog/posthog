@@ -414,6 +414,11 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
+    "HogFlow": [
+        # System-maintained skip-forward map for deleted steps, refreshed as a side effect of graph
+        # writes — bookkeeping, not a user edit, so keep it out of change diffs.
+        "action_redirects",
+    ],
     "Metric": [
         # Derived/throttled fields, not user-meaningful change diffs.
         "last_run_at",

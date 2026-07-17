@@ -1670,9 +1670,10 @@ class HogFlowViewSet(
         # to land, while both the old graph (`old`, the locked pre-write row) and the new actions are in
         # hand. Must run before serializer.save() so the map persists in the same write, transaction,
         # and worker reload as the graph it describes. Flag-gated with the rest of the revisions cycle.
-        # Only active flows need it: they alone have runs parked mid-flow (a disabled flow's parked runs
-        # are cancelled as they wake), so pre-launch editing churn never pollutes the map.
-        if new_actions is None or old.status != HogFlow.State.ACTIVE or not use_workflows_revisions(self.team):
+        # No status gate: disabling a flow doesn't purge its parked runs (the worker only cancels them
+        # if they wake while the flow is still disabled), so a step deleted during a disable/re-enable
+        # window needs its redirect recorded just like one deleted live.
+        if new_actions is None or not use_workflows_revisions(self.team):
             return
         target.action_redirects = compute_action_redirects(
             old.actions or [], old.edges or [], new_actions, old.action_redirects

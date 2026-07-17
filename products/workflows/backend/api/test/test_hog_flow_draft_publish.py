@@ -452,6 +452,19 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert flow.action_redirects == ({"action_1": "action_2"} if flag_on else None)
 
     @patch(FLAG_PATH, return_value=True)
+    def test_edit_while_disabled_still_persists_its_redirect(self, _flag):
+        # Disabling a flow doesn't purge its parked runs — a step deleted during a disable/re-enable
+        # window must still get a redirect, or those runs strand on re-activation.
+        flow_id = self._create_active_three_step_flow()
+        disable = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "draft"})
+        assert disable.status_code == 200, disable.json()
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", self._DELETE_ACTION_1_PAYLOAD)
+        assert response.status_code == 200, response.json()
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.action_redirects == {"action_1": "action_2"}
+
+    @patch(FLAG_PATH, return_value=True)
     def test_graph_remove_action_persists_its_redirect(self, _flag):
         flow_id = self._create_active_three_step_flow()
         response = self.client.patch(

@@ -11,6 +11,12 @@
 # from graph_operations.remove_action's edit-time reroute (first outgoer of any edge type): that
 # patches the stored graph's shape; this decides where a *person* goes.
 
+# The map self-prunes on re-adds, but entries whose targets stay live persist — so an editor churning
+# uniquely-named steps could grow it without bound. Cap it well above any real flow's step count;
+# on overflow keep the newest entries (dict order: prior-edit entries first, this edit's last), and
+# runs parked on a dropped one take the pre-existing graceful exit.
+MAX_ACTION_REDIRECTS = 512
+
 
 def compute_action_redirects(
     old_actions: list[dict],
@@ -62,5 +68,8 @@ def compute_action_redirects(
         # else: target deleted with no survivor — drop the entry; those runs exit gracefully.
     # Fresh entries win over stale ones: they're computed from the graph as it is right now.
     merged.update(fresh)
+
+    if len(merged) > MAX_ACTION_REDIRECTS:
+        merged = dict(list(merged.items())[-MAX_ACTION_REDIRECTS:])
 
     return merged or None
