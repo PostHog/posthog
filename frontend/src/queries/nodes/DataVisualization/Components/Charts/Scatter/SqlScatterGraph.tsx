@@ -113,6 +113,8 @@ export function SqlScatterGraph({ className }: { className?: string }): JSX.Elem
                         hoverBackgroundColor: series.color,
                         pointRadius: 3,
                         pointHoverRadius: 5,
+                        // Forgiving hover/click target: near a dot counts, not just its 3px core.
+                        pointHitRadius: 8,
                     })),
                 },
                 options: {
