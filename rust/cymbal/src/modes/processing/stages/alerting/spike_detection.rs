@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, SecondsFormat, Utc};
-use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEventEvent};
-use common_kafka::kafka_producer::send_iter_to_kafka;
 use common_redis::Client;
 use std::collections::HashMap;
 use tracing::warn;
@@ -10,11 +8,11 @@ use uuid::Uuid;
 
 use crate::app_context::AppContext;
 use crate::error::UnhandledError;
-use crate::issue_resolution::Issue;
+use crate::issue_resolution::{send_issue_spiking_notification, Issue};
 use crate::metric_consts::{
-    SPIKE_ACQUIRE_LOCKS_TIME, SPIKE_EMIT_EVENTS_TIME, SPIKE_GET_SPIKING_ISSUES_TIME,
-    SPIKE_INCREMENT_ISSUE_BUCKETS_TIME, SPIKE_INCREMENT_TEAM_BUCKETS_TIME,
-    SPIKE_ISSUES_BLOCKED_BY_COOLDOWN, SPIKE_ISSUES_CHECKED, SPIKE_ISSUES_SPIKING,
+    SPIKE_ACQUIRE_LOCKS_TIME, SPIKE_GET_SPIKING_ISSUES_TIME, SPIKE_INCREMENT_ISSUE_BUCKETS_TIME,
+    SPIKE_INCREMENT_TEAM_BUCKETS_TIME, SPIKE_ISSUES_BLOCKED_BY_COOLDOWN, SPIKE_ISSUES_CHECKED,
+    SPIKE_ISSUES_SPIKING,
 };
 use crate::modes::processing::rules::spike::SpikeDetectionConfig;
 use crate::types::OutputErrProps;
@@ -23,7 +21,6 @@ const ISSUE_BUCKET_TTL_SECONDS: usize = 60 * 60;
 const ISSUE_BUCKET_INTERVAL_MINUTES: i64 = 5;
 const NUM_BUCKETS: usize = 12;
 
-const ISSUE_SPIKING_EVENT: &str = "$error_tracking_issue_spiking";
 const MIN_HISTORICAL_BUCKETS_FOR_ISSUE_BASELINE: usize = 1;
 
 fn issue_bucket_key(issue_id: &Uuid, timestamp: &str) -> String {
@@ -302,84 +299,22 @@ async fn emit_spiking_events(
         return;
     }
 
-    // Persist spike events to Postgres and emit a signal
+    // Publish spike side effects out of the processing hot path.
+    let mut failed_keys = Vec::new();
     for spike in &acquired_locks {
-        let id = Uuid::now_v7();
-        let now = Utc::now();
-        if let Err(e) = sqlx::query(
-            r#"INSERT INTO posthog_errortrackingspikeevent
-               (id, team_id, issue_id, detected_at, computed_baseline, current_bucket_value)
-               VALUES ($1, $2, $3, $4, $5, $6)"#,
-        )
-        .bind(id)
-        .bind(spike.issue.team_id)
-        .bind(spike.issue.id)
-        .bind(now)
-        .bind(spike.computed_baseline)
-        .bind(spike.current_bucket_value as i32)
-        .execute(&context.posthog_pool)
-        .await
-        {
-            warn!("Failed to persist spike event: {e}");
-        }
-
-        context.signal_client.emit_issue_spiking(
+        if let Err(e) = send_issue_spiking_notification(
+            context,
             &spike.issue,
-            &spike.props,
+            spike.props.clone(),
             spike.computed_baseline,
             spike.current_bucket_value as f64,
-        );
+        )
+        .await
+        {
+            warn!("Failed to publish spike notification: {e}");
+            failed_keys.push(cooldown_key(&spike.issue.id));
+        }
     }
-
-    let emit_timer = common_metrics::timing_guard(SPIKE_EMIT_EVENTS_TIME, &[]);
-    let events: Vec<(Uuid, InternalEvent)> = acquired_locks
-        .iter()
-        .map(|spike| {
-            let mut event =
-                InternalEventEvent::new(ISSUE_SPIKING_EVENT, spike.issue.id, Utc::now(), None);
-            event
-                .insert_prop("name", spike.issue.name.clone())
-                .expect("insert_prop for name should never fail");
-            event
-                .insert_prop("description", spike.issue.description.clone())
-                .expect("insert_prop for description should never fail");
-            event
-                .insert_prop("computed_baseline", spike.computed_baseline)
-                .expect("insert_prop for computed_baseline should never fail");
-            event
-                .insert_prop("current_bucket_value", spike.current_bucket_value)
-                .expect("insert_prop for current_bucket_value should never fail");
-            (
-                spike.issue.id,
-                InternalEvent {
-                    team_id: spike.issue.team_id,
-                    event,
-                    person: None,
-                },
-            )
-        })
-        .collect();
-
-    let kafka_events: Vec<&InternalEvent> = events.iter().map(|(_, e)| e).collect();
-    let results = send_iter_to_kafka(
-        &context.cyclotron_producer,
-        &context.config.internal_events_topic,
-        &kafka_events,
-    )
-    .await;
-
-    let failed_keys: Vec<String> = results
-        .into_iter()
-        .enumerate()
-        .filter_map(|(i, result)| {
-            if let Err(e) = result {
-                warn!("Failed to emit spiking event: {e}");
-                Some(cooldown_key(&events[i].0))
-            } else {
-                None
-            }
-        })
-        .collect();
 
     if !failed_keys.is_empty() {
         if let Err(e) = context
@@ -390,7 +325,6 @@ async fn emit_spiking_events(
             warn!("Failed to release cooldown locks after Kafka failure: {e}");
         }
     }
-    emit_timer.fin();
 }
 
 fn get_bucket_timestamps() -> Vec<String> {

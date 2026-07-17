@@ -9,8 +9,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.modeling import (
+from products.data_modeling.backend.facade.modeling import (
     DEFAULT_RESOLUTION_DEADLINE_SECONDS,
     DEFAULT_RESOLUTION_MAX_VIEW_DEPTH,
     BoundedResolver,
@@ -21,8 +20,9 @@ from products.data_modeling.backend.models.modeling import (
     ResolutionTimeoutError,
     get_parents_from_model_query,
 )
-from products.warehouse_sources.backend.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 GET_PARENTS_TEST_CASES = [
     ("select events.*, persons.* from events, persons", {"events", "persons"}),
@@ -729,7 +729,7 @@ class TestResolverFactoryInjection(BaseTest):
         Without a shared anchor, each resolver would get its own deadline_seconds budget
         and prepare_ast_for_printing's multi-pass resolution would compound the bound.
         """
-        from products.data_modeling.backend.models.modeling import bounded_resolver_factory_for_view
+        from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 
         factory = bounded_resolver_factory_for_view("caller", deadline_seconds=10.0)
         context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
@@ -752,7 +752,7 @@ class TestResolverFactoryInjection(BaseTest):
         """
         from posthog.hogql.printer import prepare_ast_for_printing
 
-        from products.data_modeling.backend.models.modeling import bounded_resolver_factory_for_view
+        from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 
         # Use the shared factory helper so the deadline is end-to-end across passes
         factory = bounded_resolver_factory_for_view("caller", max_view_depth=DEFAULT_RESOLUTION_MAX_VIEW_DEPTH)

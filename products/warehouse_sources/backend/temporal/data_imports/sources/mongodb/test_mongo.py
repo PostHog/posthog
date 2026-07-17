@@ -12,13 +12,20 @@ from parameterized import parameterized
 from pymongo.errors import ServerSelectionTimeoutError
 from pymongo.server_description import ServerDescription
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
+    MONGO_MAX_CHUNK_ROWS,
+    MONGO_MIN_CHUNK_ROWS,
+    _adaptive_chunk_size,
+    _build_query,
     _get_rows_to_sync,
+    _list_importable_collection_names,
     _make_safe_server_selector,
     _process_doc_with_field_logging,
     _process_nested_value,
     get_leading_index_keys,
 )
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 class TestSafeServerSelector(SimpleTestCase):
@@ -322,6 +329,27 @@ class TestGetLeadingIndexKeys(SimpleTestCase):
         assert get_leading_index_keys(coll) == set()
 
 
+class TestBuildQuery(SimpleTestCase):
+    """`_id` is offered as an ObjectID incremental cursor, but MongoDB `_id` values aren't
+    always ObjectIds — a non-ObjectId cursor must not crash query construction."""
+
+    _OID_HEX = "507f1f77bcf86cd799439011"
+    _UUID = "fffdb62e-4704-4671-984c-ffcff3a8dd52"
+
+    @parameterized.expand(
+        [
+            # A valid 24-char hex cursor stays an ObjectId so native ordered comparison is preserved.
+            ("objectid_cursor_is_wrapped", _OID_HEX, ObjectId(_OID_HEX)),
+            # Regression: a UUID-string `_id` previously raised bson.errors.InvalidId here,
+            # permanently breaking every incremental sync for collections that key on UUIDs.
+            ("uuid_cursor_compares_as_string", _UUID, _UUID),
+        ]
+    )
+    def test_cursor_coercion(self, _name: str, cursor: str, expected_gt):
+        query = _build_query(True, "_id", IncrementalFieldType.ObjectID, cursor)
+        assert query == {"_id": {"$gt": expected_gt, "$exists": True}}
+
+
 class TestMongoDBNonRetryableErrors(SimpleTestCase):
     """The non-retryable match is case-sensitive substring matching, so the patterns
     must match the exact casing pymongo produces."""
@@ -464,3 +492,35 @@ class TestGetRowsToSync(SimpleTestCase):
         ) as capture:
             assert _get_rows_to_sync(coll, {}, MagicMock()) == 0
             capture.assert_called_once()
+
+
+class TestListImportableCollectionNames(SimpleTestCase):
+    def test_excludes_reserved_system_collections(self):
+        db = MagicMock()
+        db.list_collection_names.return_value = ["users", "system.keys", "orders", "system.views"]
+
+        assert _list_importable_collection_names(db) == ["users", "orders"]
+
+    def test_keeps_collections_that_merely_contain_system(self):
+        db = MagicMock()
+        db.list_collection_names.return_value = ["system_events", "billing.system", "systematic"]
+
+        assert _list_importable_collection_names(db) == ["system_events", "billing.system", "systematic"]
+
+
+class TestAdaptiveChunkSize(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("unknown_size", None, DEFAULT_CHUNK_SIZE),
+            ("zero_size", 0, DEFAULT_CHUNK_SIZE),
+            ("negative_size", -10, DEFAULT_CHUNK_SIZE),
+            # 5 MiB docs -> 100MiB/5MiB = 20 rows, clamped up to the floor so we don't thrash on tiny chunks
+            ("huge_docs_clamped_to_min", 5 * 1024 * 1024, MONGO_MIN_CHUNK_ROWS),
+            # 1 KiB docs -> 100k rows, clamped down to the ceiling (the OOM guard for large collections)
+            ("tiny_docs_clamped_to_max", 1024, MONGO_MAX_CHUNK_ROWS),
+            # 256 KiB docs -> 100MiB/256KiB = 400 rows, between the floor and ceiling
+            ("mid_size_computed", 256 * 1024, 400),
+        ]
+    )
+    def test_adaptive_chunk_size(self, _name, avg_obj_size, expected):
+        assert _adaptive_chunk_size(avg_obj_size) == expected

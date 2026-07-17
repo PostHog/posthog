@@ -14,6 +14,25 @@ import { type TracingDurationHistogramData, type VisibleDurationRange, snapDurat
 import { SparklineCompareOverlay } from './SparklineCompareOverlay'
 import type { TracingSparklineData, VisibleSpanTimeRange } from './tracingDataLogic'
 
+// Duration buckets are categorical (1ms, 2ms, 5ms, ...) — the 1-2-5 series is already
+// log-spaced, so a plain category axis renders it evenly. Shared with OperationHistogram
+// so the two duration histograms render identically.
+export function categoryDurationXScale(scale: AnyScaleOptions): AnyScaleOptions {
+    return {
+        ...scale,
+        type: 'category',
+        ticks: {
+            display: true,
+            maxRotation: 0,
+            maxTicksLimit: 8,
+            font: {
+                size: 10,
+                lineHeight: 1,
+            },
+        },
+    } as AnyScaleOptions
+}
+
 interface CompareConfig {
     fullStartMs: number
     fullEndMs: number
@@ -68,21 +87,7 @@ export function TracingSparkline({
     const withXScale = useCallback(
         (scale: AnyScaleOptions): AnyScaleOptions => {
             if (durationMode) {
-                // Duration buckets are categorical (1ms, 2ms, 5ms, ...) — the 1-2-5 series is
-                // already log-spaced, so a plain category axis renders it evenly.
-                return {
-                    ...scale,
-                    type: 'category',
-                    ticks: {
-                        display: true,
-                        maxRotation: 0,
-                        maxTicksLimit: 8,
-                        font: {
-                            size: 10,
-                            lineHeight: 1,
-                        },
-                    },
-                } as AnyScaleOptions
+                return categoryDurationXScale(scale)
             }
             return {
                 ...scale,
@@ -133,14 +138,17 @@ export function TracingSparkline({
         if (!durationHistogram || !visibleRowDurationRange || durationHistogram.bucketsNs.length === 0) {
             return null
         }
-        const { bucketsNs } = durationHistogram
+        const { bucketsNs, labels } = durationHistogram
         // An edge missing from the axis can only mean it's outside the rendered range (the axis
         // spans the data's min..max bucket), so clamp it to the nearest end.
         const startIndexRaw = bucketsNs.indexOf(snapDurationToBucket(visibleRowDurationRange.minNs))
         const endIndexRaw = bucketsNs.indexOf(snapDurationToBucket(visibleRowDurationRange.maxNs))
         const startIndex = startIndexRaw === -1 ? 0 : startIndexRaw
         const endIndex = endIndexRaw === -1 ? bucketsNs.length - 1 : endIndexRaw
-        return startIndex <= endIndex ? { startIndex, endIndex } : null
+        if (startIndex > endIndex) {
+            return null
+        }
+        return { xMin: labels[startIndex], xMax: labels[endIndex + 1] ?? labels[endIndex] }
     }, [visibleRowDurationRange, durationHistogram])
 
     // Map the visible-row date range onto bucket indices in `dates`. Buckets are anchored at
@@ -171,8 +179,8 @@ export function TracingSparkline({
         if (endIndex === -1 || endIndex < startIndex) {
             return null
         }
-        return { startIndex, endIndex }
-    }, [compare, visibleRowDateRange, sparklineData.dates])
+        return { xMin: sparklineLabels[startIndex], xMax: sparklineLabels[endIndex + 1] ?? sparklineLabels[endIndex] }
+    }, [compare, visibleRowDateRange, sparklineData.dates, sparklineLabels])
 
     const onSelectionChange = useCallback(
         (selection: { startIndex: number; endIndex: number }): void => {

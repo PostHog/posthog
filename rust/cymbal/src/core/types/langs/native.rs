@@ -71,9 +71,16 @@ pub fn find_debug_image<'a>(
     Err(NativeError::NoMatchingDebugImage)
 }
 
-/// Offset of `instruction_addr` from the image's runtime load address. The
-/// symcache contains addresses relative to the binary's VM base, so the load
-/// offset is all that's needed for lookup.
+/// Offset of `instruction_addr` from the image's runtime load address, i.e. the
+/// address the symcache is keyed by.
+///
+/// `image_vmaddr` is intentionally NOT added here. `symbolic` rebases symcache
+/// entries to the image's preferred base, and the SDK reports `image_addr` as
+/// the *actual* load address (preferred base + ASLR slide), so
+/// `instruction_addr - image_addr` already yields the symcache-relative address.
+/// Adding `image_vmaddr` would double-count the preferred base and break every
+/// image with a nonzero one — see
+/// `test_native_symbolication_is_load_relative_with_nonzero_vmaddr`.
 pub fn calculate_relative_addr(
     instruction_addr: u64,
     debug_image: &DebugImage,
@@ -110,6 +117,16 @@ pub fn launch_invariant_addr(
 /// present and a matching debug image was sent, the frame is symbolicated
 /// server-side against the uploaded debug symbols; otherwise the client-side
 /// enrichment fields (`function`/`filename`/`lineno`) pass through as-is.
+///
+/// SDKs that expand inline chains client-side send one *group* per physical
+/// frame: the physical frame first (`inline: false`), then the frames the
+/// client expanded from that same address, each tagged `inline: true` and
+/// carrying the same `instruction_addr`. The group resolves as a unit — the
+/// physical frame's address is symbolicated once, and either the server-side
+/// expansion replaces the whole group or the client's expansion is kept
+/// verbatim (see `FrameResolver`). Grouping keys off the `inline` markers,
+/// not bare address adjacency: recursion legitimately repeats an address
+/// across *distinct* physical frames, which must stay separate groups.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RawNativeFrame {
     pub instruction_addr: Option<String>,
@@ -123,6 +140,20 @@ pub struct RawNativeFrame {
     pub filename: Option<String>,
     pub lineno: Option<u32>,
     pub colno: Option<u32>,
+    /// True when the SDK resolved this frame's `function`/`filename`/`lineno`
+    /// from debug info available in the running process. Informational for
+    /// addressed frames (the address still resolves server-side, group-wise
+    /// when `inline` markers are present); address-less frames pass through
+    /// regardless.
+    #[serde(default)]
+    pub client_resolved: bool,
+    /// Marks a frame the SDK synthesized by expanding the inline chain of the
+    /// nearest preceding non-inline frame, which carries the same
+    /// `instruction_addr`. Inline frames never resolve their own address —
+    /// that would re-expand the chain once per member (see the guard in
+    /// [`RawNativeFrame::resolve`]).
+    #[serde(default)]
+    pub inline: bool,
     #[serde(flatten)]
     pub meta: CommonFrameMetadata,
 }
@@ -138,6 +169,18 @@ impl RawNativeFrame {
     where
         C: SymbolCatalog<OrChunkId<NativeRef>, ParsedNativeSymbols>,
     {
+        // Inline members of a client-expanded group never resolve on their
+        // own: their address belongs to the group's physical frame, which
+        // resolves once for the whole group (`FrameResolver` then replaces or
+        // keeps the group atomically). Resolving a member here would expand
+        // the same inline chain once per member. That holds for orphaned
+        // members too (malformed or reordered input): resolving one
+        // independently could duplicate its group's expansion, so they pass
+        // through with their client fields instead.
+        if self.inline {
+            return Ok(vec![self.into()]);
+        }
+
         // Frames without an instruction address (e.g. hand-built exception
         // lists) carry only client-side resolution and pass through as-is.
         let Some(instruction_addr) = self.instruction_addr.as_deref() else {
@@ -201,7 +244,25 @@ impl RawNativeFrame {
 
         let symbol_infos = symbols.lookup(lookup_addr)?;
         if symbol_infos.is_empty() {
-            return Err(NativeError::SymbolNotFound(lookup_addr).into());
+            // The symbol set exists but doesn't cover this address (e.g. a
+            // section outside the symcache). The frame falls back to its
+            // client-side fields — but the set's source bundle can still
+            // supply context for the client-reported file/line. Exact-match
+            // only: the path comes from event input here, so the fuzzy
+            // basename fallback could attach lines from the wrong file.
+            let mut frame = self.handle_resolution_error(NativeError::SymbolNotFound(lookup_addr));
+            if let (Some(filename), Some(lineno)) =
+                (self.filename.as_deref(), self.lineno.filter(|l| *l > 0))
+            {
+                if let Some(source_text) = symbols.get_source_exact(filename) {
+                    frame.context = get_context_lines(
+                        source_text.lines(),
+                        (lineno - 1) as usize,
+                        context_lines,
+                    );
+                }
+            }
+            return Ok(vec![frame]);
         }
 
         // Build one resolved Frame per logical layer. The symcache returns
@@ -234,6 +295,17 @@ impl RawNativeFrame {
         Ok(frames)
     }
 
+    // Clients classify in_app at capture time from symbol names alone (stripped
+    // release binaries carry no file paths, so the SDK's path rules never fire),
+    // which leaves crates outside the SDK's small denylist marked in-app. Inline
+    // expansion then smears one physical frame's flag across every logical
+    // layer. Post-resolution we know each layer's real DWARF source path, so
+    // demote frames that are clearly registry/stdlib/vendored code; we never
+    // promote, so explicit client config (in_app_exclude) still wins.
+    fn in_app_for(&self, source_path: Option<&str>) -> bool {
+        self.meta.in_app && !source_path.is_some_and(is_library_source_path)
+    }
+
     fn build_resolved_frame(&self, symbol_info: &SymbolInfo) -> Frame {
         let mut f = Frame {
             frame_id: FrameId::placeholder(),
@@ -245,7 +317,7 @@ impl RawNativeFrame {
             },
             column: None,
             source: symbol_info.filename.clone(),
-            in_app: self.meta.in_app,
+            in_app: self.in_app_for(symbol_info.full_path.as_deref()),
             resolved_name: Some(symbol_info.display_name.clone()),
             lang: self.lang_for(symbol_info.filename.as_deref()),
             resolved: true,
@@ -296,7 +368,7 @@ impl RawNativeFrame {
             line: self.lineno,
             column: self.colno,
             source,
-            in_app: self.meta.in_app,
+            in_app: self.in_app_for(self.filename.as_deref()),
             resolved_name,
             lang: self.lang_for(self.filename.as_deref()),
             resolved: false,
@@ -329,6 +401,18 @@ impl RawNativeFrame {
             Some("m") => "objectivec".to_string(),
             _ => self.lang.clone().unwrap_or_else(|| "native".to_string()),
         }
+    }
+
+    /// Whether this frame is an inline member of the client-expanded group led
+    /// by `lead`: it must be inline-marked and carry the lead's (physical)
+    /// instruction address and image. Any mismatch ends the group — a
+    /// malformed sequence degrades to independent frames rather than
+    /// mis-grouping.
+    pub fn continues_group_of(&self, lead: &RawNativeFrame) -> bool {
+        self.inline
+            && self.instruction_addr.is_some()
+            && self.instruction_addr == lead.instruction_addr
+            && self.image_addr == lead.image_addr
     }
 
     /// The uploaded debug symbol set this frame resolves against, identified by
@@ -377,10 +461,65 @@ impl RawNativeFrame {
         self.module
             .as_ref()
             .inspect(|m| hasher.update(m.as_bytes()));
+        // Resolution behavior branches on the inline marker (members pass
+        // through, physical frames symbolicate), so it must split the cache
+        // identity too — inlined self-recursion can make a member and its
+        // physical frame otherwise hash identically. Hashed only when set so
+        // every pre-marker frame id is unchanged.
+        if self.inline {
+            hasher.update(b"inline");
+        }
         hasher.update(b"native");
 
         format!("{:x}", hasher.finalize())
     }
+}
+
+/// Whether a source path unambiguously points at dependency or toolchain code:
+/// the cargo registry / git checkouts, or the standard library
+/// (`/rustc/<commit-hash>/...`, the rustup rust-src layout, or the remapped
+/// relative `library/<crate>/src/` form). Every pattern is anchored to a
+/// directory shape only build tooling produces — a user directory that merely
+/// ends in `cargo` or contains `mylibrary/std/src/` must not match, since
+/// demoting real app frames degrades fingerprinting for every customer. Paths
+/// outside these locations stay whatever the client said — application source
+/// layouts vary too much to classify positively. Demote-only means a miss
+/// (e.g. an exotic CARGO_HOME name) is safe: the frame just stays in-app.
+fn is_library_source_path(path: &str) -> bool {
+    let normalized = path.replace('\\', "/");
+    // `<CARGO_HOME>/registry/src/<registry-host>-<hash>/`, anchored either on
+    // the conventional cargo home directory name or on the crates.io host
+    // segment (which covers custom CARGO_HOME locations).
+    normalized.contains("/cargo/registry/src/")
+        || normalized.contains(".cargo/registry/src/")
+        || normalized.contains("/registry/src/index.crates.io-")
+        || normalized.contains("/cargo/git/checkouts/")
+        || normalized.contains(".cargo/git/checkouts/")
+        || has_rustc_hash_segment(&normalized)
+        // rust-src component layout, used when debug info points at the
+        // rustup-installed standard library sources.
+        || normalized.contains("/rustlib/src/rust/library/")
+        || is_relative_stdlib_path(&normalized)
+}
+
+/// Matches the rustc source remapping prefix `/rustc/<commit-hash>/` used for
+/// standard-library paths in official toolchains. Requiring the hex hash
+/// segment keeps user paths that merely contain a `rustc` directory (e.g.
+/// `/home/rustc/app/src/main.rs`) classified as app code.
+fn has_rustc_hash_segment(normalized: &str) -> bool {
+    normalized.split("/rustc/").skip(1).any(|rest| {
+        let segment = rest.split('/').next().unwrap_or_default();
+        segment.len() >= 7 && segment.chars().all(|c| c.is_ascii_hexdigit())
+    })
+}
+
+/// Stdlib paths sometimes surface relative (`library/std/src/...`) once the
+/// `/rustc/<hash>/` remap prefix has been stripped. Anchor at the very start
+/// of the path so `/home/user/mylibrary/std/src/main.rs` never matches.
+fn is_relative_stdlib_path(normalized: &str) -> bool {
+    ["std", "core", "alloc", "proc_macro", "test"]
+        .iter()
+        .any(|krate| normalized.starts_with(&format!("library/{krate}/src/")))
 }
 
 impl From<&RawNativeFrame> for Frame {
@@ -391,7 +530,7 @@ impl From<&RawNativeFrame> for Frame {
             line: raw.lineno,
             column: raw.colno,
             source: raw.filename.clone(),
-            in_app: raw.meta.in_app,
+            in_app: raw.in_app_for(raw.filename.as_deref()),
             resolved_name: raw.function.clone(),
             lang: raw.lang_for(raw.filename.as_deref()),
             resolved: raw.function.is_some(),
@@ -413,7 +552,177 @@ impl From<&RawNativeFrame> for Frame {
 }
 
 #[cfg(test)]
+pub(crate) mod test_support {
+    use super::*;
+    use crate::langs::CommonFrameMetadata;
+
+    /// Wrap a fixture ELF in the upload ZIP layout (binary as `dwarf` at the
+    /// root, optional `__source/` bundle), mirroring what the CLI produces.
+    pub(crate) fn zip_fixture(elf: &[u8], source: Option<(&str, &str)>) -> Vec<u8> {
+        use std::io::{Cursor, Write};
+
+        let mut buffer = Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buffer);
+            let options = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated);
+            zip.start_file("dwarf", options).unwrap();
+            zip.write_all(elf).unwrap();
+
+            if let Some((dwarf_path, content)) = source {
+                let manifest = serde_json::json!({
+                    "version": 1,
+                    "files": { dwarf_path: "__source/0" },
+                });
+                zip.start_file("__source/manifest.json", options).unwrap();
+                zip.write_all(manifest.to_string().as_bytes()).unwrap();
+                zip.start_file("__source/0", options).unwrap();
+                zip.write_all(content.as_bytes()).unwrap();
+            }
+
+            zip.finish().unwrap();
+        }
+
+        posthog_symbol_data::write_symbol_data(posthog_symbol_data::ElfDebugInfo {
+            data: buffer.into_inner(),
+        })
+        .unwrap()
+    }
+
+    /// Build a catalog whose native provider serves `data` for `chunk_id`.
+    pub(crate) async fn catalog_for_chunk(
+        db: &sqlx::PgPool,
+        chunk_id: &str,
+        data: Vec<u8>,
+    ) -> crate::symbolication::symbol_store::Catalog {
+        use chrono::Utc;
+        use mockall::predicate;
+        use uuid::Uuid;
+
+        use crate::symbolication::symbol_store::{saving::SymbolSetRecord, MockS3Client};
+
+        let mut record = SymbolSetRecord {
+            id: Uuid::now_v7(),
+            team_id: 1,
+            set_ref: chunk_id.to_string(),
+            storage_ptr: Some(chunk_id.to_string()),
+            failure_reason: None,
+            created_at: Utc::now(),
+            content_hash: Some("fake-hash".to_string()),
+            last_used: Some(Utc::now()),
+        };
+        record.save(db).await.unwrap();
+
+        let mut client = MockS3Client::default();
+        client
+            .expect_get()
+            .with(
+                predicate::eq("test-bucket".to_string()),
+                predicate::eq(chunk_id.to_string()),
+            )
+            .returning(move |_, _| Ok(Some(bytes::Bytes::from(data.clone()))));
+
+        catalog_with_client(db, client)
+    }
+
+    /// Build a catalog with no stored symbol sets: every chunk_id lookup
+    /// reports missing symbols.
+    pub(crate) fn catalog_without_symbols(
+        db: &sqlx::PgPool,
+    ) -> crate::symbolication::symbol_store::Catalog {
+        catalog_with_client(
+            db,
+            crate::symbolication::symbol_store::MockS3Client::default(),
+        )
+    }
+
+    fn catalog_with_client(
+        db: &sqlx::PgPool,
+        client: crate::symbolication::symbol_store::MockS3Client,
+    ) -> crate::symbolication::symbol_store::Catalog {
+        use std::sync::Arc;
+
+        use crate::{
+            core::config::ResolverConfig,
+            symbolication::symbol_store::{
+                apple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider,
+                native::NativeProvider, proguard::ProguardProvider, sourcemap::SourcemapProvider,
+                Catalog,
+            },
+        };
+
+        let mut config = ResolverConfig::init_with_defaults().unwrap();
+        config.object_storage_bucket = "test-bucket".to_string();
+
+        let client = Arc::new(client);
+
+        Catalog::new(
+            ChunkIdFetcher::new(
+                SourcemapProvider::new(&config),
+                client.clone(),
+                db.clone(),
+                config.object_storage_bucket.clone(),
+            ),
+            ChunkIdFetcher::new(
+                HermesMapProvider {},
+                client.clone(),
+                db.clone(),
+                config.object_storage_bucket.clone(),
+            ),
+            ChunkIdFetcher::new(
+                ProguardProvider {},
+                client.clone(),
+                db.clone(),
+                config.object_storage_bucket.clone(),
+            ),
+            ChunkIdFetcher::new(
+                AppleProvider {},
+                client.clone(),
+                db.clone(),
+                config.object_storage_bucket.clone(),
+            ),
+            ChunkIdFetcher::new(
+                NativeProvider {},
+                client.clone(),
+                db.clone(),
+                config.object_storage_bucket.clone(),
+            ),
+        )
+    }
+
+    pub(crate) fn native_frame_at(instruction_addr: u64, image_addr: u64) -> RawNativeFrame {
+        RawNativeFrame {
+            instruction_addr: Some(format!("0x{instruction_addr:x}")),
+            symbol_addr: None,
+            image_addr: Some(format!("0x{image_addr:x}")),
+            lang: Some("rust".to_string()),
+            module: Some("test_binary".to_string()),
+            function: None,
+            filename: None,
+            lineno: None,
+            colno: None,
+            client_resolved: false,
+            inline: false,
+            meta: CommonFrameMetadata::default(),
+        }
+    }
+
+    pub(crate) fn debug_image_at(debug_id: &str, image_addr: u64) -> DebugImage {
+        DebugImage {
+            debug_id: debug_id.to_string(),
+            image_addr: format!("0x{image_addr:x}"),
+            image_vmaddr: None,
+            image_size: Some(0x100000),
+            code_file: Some("/app/test_binary".to_string()),
+            image_type: Some("elf".to_string()),
+            arch: Some("x86_64".to_string()),
+        }
+    }
+}
+
+#[cfg(test)]
 mod test {
+    use super::test_support::*;
     use super::*;
     use crate::core::symbolication::resolve::Resolve;
 
@@ -516,6 +825,8 @@ mod test {
             filename: Some("src/checkout.rs".to_string()),
             lineno: Some(42),
             colno: None,
+            client_resolved: true,
+            inline: false,
             meta: CommonFrameMetadata::default(),
         };
 
@@ -539,6 +850,8 @@ mod test {
             filename: None,
             lineno: None,
             colno: None,
+            client_resolved: false,
+            inline: false,
             meta: CommonFrameMetadata::default(),
         };
 
@@ -553,131 +866,20 @@ mod test {
         assert_ne!(launch_a.frame_id(&[]), launch_b.frame_id(&[]));
     }
 
-    /// Wrap a fixture ELF in the upload ZIP layout (binary as `dwarf` at the
-    /// root, optional `__source/` bundle), mirroring what the CLI produces.
-    fn zip_fixture(elf: &[u8], source: Option<(&str, &str)>) -> Vec<u8> {
-        use std::io::{Cursor, Write};
+    /// Resolution behavior branches on the inline marker, so it must split the
+    /// per-frame cache identity: with inlined self-recursion, a group member
+    /// and its physical frame can carry identical address/name/file/line, and
+    /// a shared id would let one's cached result answer for the other.
+    #[test]
+    fn test_native_frame_id_distinguishes_inline_members() {
+        let mut physical = native_frame_at(0x100004000, 0x100000000);
+        physical.function = Some("recurse".to_string());
+        physical.filename = Some("src/lib.rs".to_string());
+        physical.lineno = Some(12);
+        let mut member = physical.clone();
+        member.inline = true;
 
-        let mut buffer = Cursor::new(Vec::new());
-        {
-            let mut zip = zip::ZipWriter::new(&mut buffer);
-            let options = zip::write::SimpleFileOptions::default()
-                .compression_method(zip::CompressionMethod::Deflated);
-            zip.start_file("dwarf", options).unwrap();
-            zip.write_all(elf).unwrap();
-
-            if let Some((dwarf_path, content)) = source {
-                let manifest = serde_json::json!({
-                    "version": 1,
-                    "files": { dwarf_path: "__source/0" },
-                });
-                zip.start_file("__source/manifest.json", options).unwrap();
-                zip.write_all(manifest.to_string().as_bytes()).unwrap();
-                zip.start_file("__source/0", options).unwrap();
-                zip.write_all(content.as_bytes()).unwrap();
-            }
-
-            zip.finish().unwrap();
-        }
-
-        posthog_symbol_data::write_symbol_data(posthog_symbol_data::ElfDebugInfo {
-            data: buffer.into_inner(),
-        })
-        .unwrap()
-    }
-
-    /// Build a catalog whose native provider serves `data` for `chunk_id`.
-    async fn catalog_for_chunk(
-        db: &sqlx::PgPool,
-        chunk_id: &str,
-        data: Vec<u8>,
-    ) -> crate::symbolication::symbol_store::Catalog {
-        use chrono::Utc;
-        use mockall::predicate;
-        use std::sync::Arc;
-        use uuid::Uuid;
-
-        use crate::{
-            core::config::ResolverConfig,
-            symbolication::symbol_store::{
-                apple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider,
-                native::NativeProvider, proguard::ProguardProvider, saving::SymbolSetRecord,
-                sourcemap::SourcemapProvider, Catalog, MockS3Client,
-            },
-        };
-
-        let mut config = ResolverConfig::init_with_defaults().unwrap();
-        config.object_storage_bucket = "test-bucket".to_string();
-
-        let mut record = SymbolSetRecord {
-            id: Uuid::now_v7(),
-            team_id: 1,
-            set_ref: chunk_id.to_string(),
-            storage_ptr: Some(chunk_id.to_string()),
-            failure_reason: None,
-            created_at: Utc::now(),
-            content_hash: Some("fake-hash".to_string()),
-            last_used: Some(Utc::now()),
-        };
-        record.save(db).await.unwrap();
-
-        let mut client = MockS3Client::default();
-        client
-            .expect_get()
-            .with(
-                predicate::eq(config.object_storage_bucket.clone()),
-                predicate::eq(chunk_id.to_string()),
-            )
-            .returning(move |_, _| Ok(Some(bytes::Bytes::from(data.clone()))));
-        let client = Arc::new(client);
-
-        Catalog::new(
-            ChunkIdFetcher::new(
-                SourcemapProvider::new(&config),
-                client.clone(),
-                db.clone(),
-                config.object_storage_bucket.clone(),
-            ),
-            ChunkIdFetcher::new(
-                HermesMapProvider {},
-                client.clone(),
-                db.clone(),
-                config.object_storage_bucket.clone(),
-            ),
-            ChunkIdFetcher::new(
-                ProguardProvider {},
-                client.clone(),
-                db.clone(),
-                config.object_storage_bucket.clone(),
-            ),
-            ChunkIdFetcher::new(
-                AppleProvider {},
-                client.clone(),
-                db.clone(),
-                config.object_storage_bucket.clone(),
-            ),
-            ChunkIdFetcher::new(
-                NativeProvider {},
-                client.clone(),
-                db.clone(),
-                config.object_storage_bucket.clone(),
-            ),
-        )
-    }
-
-    fn native_frame_at(instruction_addr: u64, image_addr: u64) -> RawNativeFrame {
-        RawNativeFrame {
-            instruction_addr: Some(format!("0x{instruction_addr:x}")),
-            symbol_addr: None,
-            image_addr: Some(format!("0x{image_addr:x}")),
-            lang: Some("rust".to_string()),
-            module: Some("test_binary".to_string()),
-            function: None,
-            filename: None,
-            lineno: None,
-            colno: None,
-            meta: CommonFrameMetadata::default(),
-        }
+        assert_ne!(physical.frame_id(&[]), member.frame_id(&[]));
     }
 
     #[test]
@@ -699,16 +901,77 @@ mod test {
         assert_eq!(frame.lang_for(None), "rust");
     }
 
-    fn debug_image_at(debug_id: &str, image_addr: u64) -> DebugImage {
-        DebugImage {
-            debug_id: debug_id.to_string(),
-            image_addr: format!("0x{image_addr:x}"),
-            image_vmaddr: None,
-            image_size: Some(0x100000),
-            code_file: Some("/app/test_binary".to_string()),
-            image_type: Some("elf".to_string()),
-            arch: Some("x86_64".to_string()),
+    fn symbol_info_at(full_path: Option<&str>) -> SymbolInfo {
+        SymbolInfo {
+            display_name: "some::function".to_string(),
+            full_name: "some::function".to_string(),
+            filename: None,
+            full_path: full_path.map(|p| p.to_string()),
+            line: 1,
         }
+    }
+
+    #[test]
+    fn resolved_library_frames_are_demoted_from_in_app() {
+        let library_paths = [
+            "/usr/local/cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-1.40.0/src/runtime/task/core.rs",
+            "/root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/hyper-1.4.1/src/proto/h1/dispatch.rs",
+            "/home/user/.cargo/git/checkouts/some-fork-abc123/def456/src/lib.rs",
+            "/rustc/f6e511eec7342f59a25f7c0534f1dbea00d01b14/library/std/src/panicking.rs",
+            // Stdlib submodules under the remap prefix aren't in the
+            // library/<crate>/src/ enumeration; the /rustc/<hash>/ anchor
+            // must catch them.
+            "/rustc/f6e511eec7342f59a25f7c0534f1dbea00d01b14/library/panic_unwind/src/lib.rs",
+            "library/core/src/ops/function.rs",
+            "/Users/dev/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/thread/mod.rs",
+            // Custom CARGO_HOME name: caught by the crates.io host anchor.
+            "/opt/cargo-home/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.219/src/lib.rs",
+        ];
+        // Only directory shapes build tooling produces may demote: user
+        // checkouts that merely contain a `vendor`, `rustc`, or
+        // `<something>library/std/src` path fragment must keep their client
+        // classification.
+        let app_paths = [
+            "/app/src/modes/processing/router/event.rs",
+            "src/main.rs",
+            "C:\\projects\\my_service\\src\\handler.rs",
+            "/home/ci/vendor/customer-service/src/main.rs",
+            "/home/rustc/app/src/main.rs",
+            "/rustc/not-a-hash/src/main.rs",
+            "/home/user/mylibrary/std/src/main.rs",
+            "/home/user/mycargo/registry/src/main.rs",
+        ];
+
+        let mut frame = native_frame_at(0x1000, 0x1000);
+        frame.meta.in_app = true;
+
+        for path in library_paths {
+            assert!(
+                !frame
+                    .build_resolved_frame(&symbol_info_at(Some(path)))
+                    .in_app,
+                "expected library path to demote in_app: {path}"
+            );
+        }
+        for path in app_paths {
+            assert!(
+                frame
+                    .build_resolved_frame(&symbol_info_at(Some(path)))
+                    .in_app,
+                "expected app path to keep in_app: {path}"
+            );
+        }
+        // No path information: keep the client's classification.
+        assert!(frame.build_resolved_frame(&symbol_info_at(None)).in_app);
+
+        // Never promote: a frame the client excluded stays excluded even when
+        // it resolves to an app-looking path.
+        frame.meta.in_app = false;
+        assert!(
+            !frame
+                .build_resolved_frame(&symbol_info_at(Some(app_paths[0])))
+                .in_app
+        );
     }
 
     #[test]
@@ -928,6 +1191,58 @@ mod test {
         assert_eq!(resolved.resolved_name.as_deref(), Some("inner_function"));
     }
 
+    /// Symbolication must be purely load-relative: `image_vmaddr` (the image's
+    /// stated/preferred base) must NOT be added to the lookup address.
+    ///
+    /// `symbolic` rebases every symcache entry relative to the object's
+    /// preferred base at conversion time, so the symcache is keyed by
+    /// `svma - image_vmaddr`. The SDK already folds the preferred base into
+    /// `image_addr` (it reports the *actual* runtime load address), so
+    /// `instruction_addr - image_addr` recovers that same relative address and
+    /// the `image_vmaddr` term cancels out. Re-adding it would push every
+    /// lookup past the end of the symcache and break symbolication for all
+    /// images with a nonzero preferred base — every macOS/iOS Mach-O binary and
+    /// every non-PIE ELF.
+    ///
+    /// This exercises an ASLR-slid Mach-O image (nonzero `__TEXT` vmaddr *and* a
+    /// nonzero slide, so `image_addr != image_vmaddr`) — the case no other test
+    /// covers and the one a spurious `+ image_vmaddr` "fix" would silently break.
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_native_symbolication_is_load_relative_with_nonzero_vmaddr(db: sqlx::PgPool) {
+        use crate::frames::RawFrame;
+
+        const DSYM_ZIP: &[u8] =
+            include_bytes!("../../../../tests/static/apple/test_binary.dSYM.zip");
+        let wrapped = posthog_symbol_data::write_symbol_data(posthog_symbol_data::AppleDsym {
+            data: DSYM_ZIP.to_vec(),
+        })
+        .unwrap();
+
+        let chunk_id = "f70b89dc-3eb9-d3aa-d6a0-3b0c87cb0c45";
+        let catalog = catalog_for_chunk(&db, chunk_id, wrapped).await;
+
+        // __TEXT preferred base 0x100000000, inner_function at relative 0x334.
+        // Simulate an ASLR slide: the image actually loaded 0x1000000 higher, so
+        // the SDK reports image_addr = actual base and image_vmaddr = stated base.
+        let preferred_base = 0x100000000u64;
+        let actual_base = preferred_base + 0x1000000;
+
+        let frame = RawFrame::Native(native_frame_at(actual_base + 0x334, actual_base));
+        let mut image = debug_image_at(chunk_id, actual_base);
+        image.image_vmaddr = Some(format!("0x{preferred_base:x}"));
+        let debug_images = vec![image];
+
+        let resolved = frame
+            .resolve(1, &catalog, &debug_images, 15)
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+
+        assert!(resolved.resolved, "{:?}", resolved.resolve_failure);
+        assert_eq!(resolved.resolved_name.as_deref(), Some("inner_function"));
+    }
+
     /// A Go-built binary: Go function naming, non-PIE link base, and
     /// mid-stack inline expansion (transform inlined into process).
     #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -1005,5 +1320,151 @@ mod test {
         assert_eq!(resolved.source.as_deref(), Some("src/lib.rs"));
         assert_eq!(resolved.line, Some(7));
         assert_eq!(resolved.lang, "rust");
+    }
+
+    /// Inline members of a client-expanded group never resolve their own
+    /// address, even when the symbol set could: the group's physical frame
+    /// resolves once for the whole group, and resolving members too would
+    /// re-expand the same inline chain per member.
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_inline_marked_frames_pass_through_even_when_resolvable(db: sqlx::PgPool) {
+        use crate::frames::RawFrame;
+
+        const ELF: &[u8] = include_bytes!("../../../../tests/static/native/test_binary_inline");
+        let chunk_id = "140ab543-c098-09dc-22b6-11f72e46d6fe";
+        let catalog = catalog_for_chunk(&db, chunk_id, zip_fixture(ELF, None)).await;
+
+        let slide_base = 0x7f0000000000u64;
+        let mut raw = native_frame_at(slide_base + 0x1475, slide_base);
+        raw.inline = true;
+        raw.client_resolved = true;
+        raw.function = Some("inner_function".to_string());
+        raw.filename = Some("test_binary_inline.c".to_string());
+        raw.lineno = Some(7);
+        let frame = RawFrame::Native(raw);
+        let debug_images = vec![debug_image_at(chunk_id, slide_base)];
+
+        let frames = frame.resolve(1, &catalog, &debug_images, 15).await.unwrap();
+
+        assert_eq!(
+            frames.len(),
+            1,
+            "inline member must not expand: {frames:#?}"
+        );
+        assert!(frames[0].resolved);
+        assert_eq!(frames[0].resolved_name.as_deref(), Some("inner_function"));
+        assert_eq!(frames[0].line, Some(7));
+        assert!(frames[0].resolve_failure.is_none());
+    }
+
+    /// Server-resolved names share one vocabulary with client-side resolution:
+    /// no Rust symbol-hash suffixes (`::h0123456789abcdef`) and no crate
+    /// disambiguators (`[abc123]`). posthog-rs normalizes its client-resolved
+    /// names to this same shape (`normalize_function_name`), which keeps issue
+    /// fingerprints — they hash the resolved function name — stable when a
+    /// customer starts or stops uploading debug symbols mid-stream.
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_resolved_names_match_client_normalization_vocabulary(db: sqlx::PgPool) {
+        use crate::frames::RawFrame;
+
+        const ELF_ZST: &[u8] =
+            include_bytes!("../../../../tests/static/native/test_rust_binary.zst");
+        let elf = zstd::decode_all(ELF_ZST).unwrap();
+        let chunk_id = "d1dea836-4ad3-daad-dd96-0e8626f766e1";
+        let catalog = catalog_for_chunk(&db, chunk_id, zip_fixture(&elf, None)).await;
+
+        let slide_base = 0x7f0000000000u64;
+        let frame = RawFrame::Native(native_frame_at(slide_base + 0x10645, slide_base));
+        let debug_images = vec![debug_image_at(chunk_id, slide_base)];
+
+        let frames = frame.resolve(1, &catalog, &debug_images, 15).await.unwrap();
+        assert!(frames.len() >= 2, "expected an inline expansion");
+
+        let is_rust_symbol_hash = |segment: &str| {
+            segment.len() == 17
+                && segment.starts_with('h')
+                && segment[1..].chars().all(|c| c.is_ascii_hexdigit())
+        };
+
+        for frame in &frames {
+            let Some(name) = frame.resolved_name.as_deref() else {
+                panic!("resolved frame missing a resolved_name: {frame:#?}");
+            };
+            assert!(
+                !name.rsplit("::").next().is_some_and(is_rust_symbol_hash),
+                "symbol hash suffix leaked into resolved name: {name}"
+            );
+            assert!(
+                !name.contains('['),
+                "crate disambiguator leaked into resolved name: {name}"
+            );
+        }
+    }
+
+    /// When the uploaded set doesn't cover an address (symbol not found), the
+    /// frame keeps its client-side fields — and the set's source bundle still
+    /// supplies context for the client-reported file/line.
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_symbol_not_found_salvages_context_from_source_bundle(db: sqlx::PgPool) {
+        use crate::frames::RawFrame;
+
+        const ELF: &[u8] = include_bytes!("../../../../tests/static/native/test_binary_inline");
+        const SOURCE: &str = include_str!("../../../../tests/static/native/test_binary_inline.c");
+        let chunk_id = "140ab543-c098-09dc-22b6-11f72e46d6fe";
+        let zip = zip_fixture(
+            ELF,
+            Some(("/cymbal_tests/native/test_binary_inline.c", SOURCE)),
+        );
+        let catalog = catalog_for_chunk(&db, chunk_id, zip).await;
+
+        let slide_base = 0x7f0000000000u64;
+        // 0x10 is inside the image range but outside any symcache-covered
+        // function (ELF header area), so the lookup finds no symbol.
+        let mut raw = native_frame_at(slide_base + 0x10, slide_base);
+        raw.client_resolved = true;
+        raw.function = Some("inlined_leaf".to_string());
+        raw.filename = Some("/cymbal_tests/native/test_binary_inline.c".to_string());
+        raw.lineno = Some(6);
+        let frame = RawFrame::Native(raw);
+        let debug_images = vec![debug_image_at(chunk_id, slide_base)];
+
+        let resolved = frame
+            .resolve(1, &catalog, &debug_images, 3)
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+
+        assert!(!resolved.resolved);
+        assert!(resolved
+            .resolve_failure
+            .as_deref()
+            .is_some_and(|f| f.contains("Symbol not found")));
+        assert_eq!(resolved.resolved_name.as_deref(), Some("inlined_leaf"));
+
+        let context = resolved.context.expect("salvaged context from bundle");
+        assert_eq!(context.line.number, 6);
+        assert!(
+            context.line.line.contains("volatile int x = 99"),
+            "expected fixture line 6, got: {:?}",
+            context.line.line
+        );
+
+        // The salvage path is exact-match only: a bare basename (or any other
+        // fuzzy spelling) of a bundled path attaches nothing, since the
+        // filename here is event input rather than symcache output.
+        let mut fuzzy = native_frame_at(slide_base + 0x10, slide_base);
+        fuzzy.client_resolved = true;
+        fuzzy.function = Some("inlined_leaf".to_string());
+        fuzzy.filename = Some("test_binary_inline.c".to_string());
+        fuzzy.lineno = Some(6);
+        let resolved = RawFrame::Native(fuzzy)
+            .resolve(1, &catalog, &debug_images, 3)
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+        assert!(!resolved.resolved);
+        assert!(resolved.context.is_none());
     }
 }

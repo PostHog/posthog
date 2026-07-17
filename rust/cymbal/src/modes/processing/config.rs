@@ -67,6 +67,9 @@ pub struct ProcessingConfig {
     #[envconfig(default = "document_embeddings_input")]
     pub embedding_worker_topic: String,
 
+    #[envconfig(default = "error_tracking_ingestion_notifications")]
+    pub ingestion_notifications_topic: String,
+
     #[envconfig(default = "600")]
     pub issue_cache_ttl_seconds: u64,
 
@@ -110,6 +113,13 @@ pub struct ProcessingConfig {
     // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
     pub max_suppression_rule_cache_size: u64,
 
+    #[envconfig(default = "300")]
+    pub bypass_rule_cache_ttl_secs: u64,
+
+    #[envconfig(default = "100000")]
+    // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
+    pub max_bypass_rule_cache_size: u64,
+
     #[envconfig(from = "ISSUE_BUCKETS_REDIS_URL", default = "redis://localhost:6379/")]
     pub issue_buckets_redis_url: String,
 
@@ -152,10 +162,6 @@ pub struct ProcessingConfig {
     // If empty, all teams can receive alerts
     #[envconfig(default = "")]
     pub spike_alert_enabled_team_ids: String,
-
-    // Internal API for signal emission
-    #[envconfig(default = "")]
-    pub signals_api_base_url: String,
 
     // ----------------------------------------------------------------------
     // Remote resolution (cymbal.resolution.v1) — Batch 3 client integration.

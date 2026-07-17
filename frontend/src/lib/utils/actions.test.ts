@@ -20,4 +20,31 @@ describe('elementToSelector', () => {
         const actual = elementToSelector(element, [])
         expect(actual).toEqual('.potato.soup')
     })
+
+    const dataAttributeValueCases = [
+        {
+            name: 'keeps dots unescaped so backend literal matching still works',
+            value: 'user.settings.save',
+            expected: '[data-attr="user.settings.save"]',
+        },
+        {
+            name: 'escapes quotes so a value cannot break out of the selector',
+            value: 'x"],[id="other',
+            expected: '[data-attr="x\\"],[id=\\"other"]',
+        },
+        {
+            name: 'escapes backslashes before quotes',
+            value: 'a\\"b',
+            expected: '[data-attr="a\\\\\\"b"]',
+        },
+    ]
+
+    it.each(dataAttributeValueCases)('$name', ({ value, expected }) => {
+        const element = {
+            attributes: { 'attr__data-attr': value },
+        } as unknown as ElementType
+
+        const actual = elementToSelector(element, ['data-attr'])
+        expect(actual).toEqual(expected)
+    })
 })

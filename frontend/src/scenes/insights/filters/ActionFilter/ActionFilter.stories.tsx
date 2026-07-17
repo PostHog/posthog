@@ -16,6 +16,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { EntityTypes, FilterLogicalOperator, FilterType, InsightLogicProps, InsightType } from '~/types'
 
+import __trendsLineBreakdown from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'
 import { ActionFilter, ActionFilterProps } from './ActionFilter'
 import { MathAvailability } from './ActionFilterRow/ActionFilterRow'
 
@@ -57,7 +58,7 @@ const renderActionFilter = ({ ...props }: Partial<ActionFilterProps>): JSX.Eleme
     const [dashboardItemId] = useState(() => `ActionFilterStory.${uniqueNode++}`)
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const insight = require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json')
+    const insight = __trendsLineBreakdown as any
     const cachedInsight = { ...insight, short_id: dashboardItemId, filters }
     const insightProps = { dashboardItemId, doNotLoad: true, cachedInsight } as InsightLogicProps
 
@@ -176,7 +177,7 @@ const renderAutocaptureFilter = ({ ...props }: Partial<ActionFilterProps>): JSX.
     const [dashboardItemId] = useState(() => `ActionFilterStory.${uniqueNode++}`)
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const insight = require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json')
+    const insight = __trendsLineBreakdown as any
     const cachedInsight = { ...insight, short_id: dashboardItemId, filters }
     const insightProps = { dashboardItemId, doNotLoad: true, cachedInsight } as InsightLogicProps
 
@@ -257,7 +258,7 @@ const renderGroupStory = (initialFilters: FilterType, actionFilterProps: Partial
         const [dashboardItemId] = useState(() => `ActionFilterStory.${uniqueNode++}`)
 
         // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const insight = require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json')
+        const insight = __trendsLineBreakdown as any
         const cachedInsight = { ...insight, short_id: dashboardItemId, filters }
         const insightProps = { dashboardItemId, doNotLoad: true, cachedInsight } as InsightLogicProps
 

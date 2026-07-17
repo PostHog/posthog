@@ -42,17 +42,19 @@ function PropertyRow({ property }: { property: SchemaPropertyGroupProperty }): J
 function PropertyGroupCard({
     schema,
     eventName,
+    eventFirstSeen,
     onEdit,
     onRemove,
 }: {
     schema: EventSchema
     eventName: string
+    eventFirstSeen?: string | null
     onEdit: () => void
     onRemove: () => void
 }): JSX.Element {
     const queryResult = useMemo(
-        () => buildPropertyGroupTrendsQuery(eventName, schema.property_group.properties),
-        [eventName, schema.property_group.properties]
+        () => buildPropertyGroupTrendsQuery(eventName, schema.property_group.properties, eventFirstSeen),
+        [eventName, eventFirstSeen, schema.property_group.properties]
     )
 
     const linkQuery = useMemo(
@@ -108,7 +110,7 @@ function PropertyGroupCard({
                     <div className="p-4 bg-bg-light">
                         <h4 className="font-semibold mb-2 text-sm flex items-center gap-1">
                             <Link to={insightUrl} className="text-default hover:text-link">
-                                Property Coverage Trends (90 days)
+                                Property Coverage Trends ({queryResult.dateRangeLabel})
                             </Link>
                             <Tooltip title="% of events containing this property">
                                 <IconInfo className="text-xl text-secondary shrink-0" />
@@ -211,6 +213,7 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
                                 key={schema.id}
                                 schema={schema}
                                 eventName={definition.name}
+                                eventFirstSeen={definition.created_at}
                                 onEdit={() => {
                                     setEditingPropertyGroup(schema.property_group)
                                     setPropertyGroupModalOpen(true)

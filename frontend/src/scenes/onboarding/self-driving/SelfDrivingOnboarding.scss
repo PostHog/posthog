@@ -1,0 +1,42 @@
+// Mobile: no decorative backdrop; the card chrome drops away and content sits on a plain surface.
+.OnboardingDottedBg {
+    background-color: var(--color-bg-surface-primary);
+}
+
+// `sm`+ (≥640px): dotted paper grid + faint amber glow, copied from the paper-desk auth variant
+// (scenes/authentication/shared/paperDesk/PaperDesk.scss) so onboarding and sign-in/sign-up share the
+// exact same backdrop. Multi-layer background (per-layer size/repeat), not achievable via Tailwind.
+// Unlike paper-desk (light-only), the base color lives here too so it can flip with the theme without
+// competing against a Tailwind `bg-*` utility's cascade layer.
+@media (min-width: 640px) {
+    .OnboardingDottedBg {
+        background-color: #eef0e7;
+        background-image:
+            radial-gradient(72% 72% at 50% 38%, rgb(247 165 1 / 5%), transparent 70%),
+            radial-gradient(rgb(17 17 17 / 5.5%) 1.4px, transparent 1.4px);
+        background-repeat: no-repeat, repeat;
+        background-size:
+            auto,
+            16px 16px;
+    }
+
+    // Onboarding also runs in dark mode (paper-desk is light-only), so swap the parchment base and
+    // invert the dot tint there. The grid geometry (1.4px dots, 16px cell) and amber glow are unchanged.
+    [theme='dark'] .OnboardingDottedBg {
+        background-color: var(--color-bg-surface-tertiary);
+        background-image:
+            radial-gradient(72% 72% at 50% 38%, rgb(247 165 1 / 4%), transparent 70%),
+            radial-gradient(rgb(255 255 255 / 6%) 1.4px, transparent 1.4px);
+    }
+}
+
+// Use-case / product cards: a soft warm off-white inset on the white card (light) and the secondary
+// surface in dark. Slightly darker than the card so they read as recessed tiles rather than bright
+// white islands. Not gated by breakpoint: these are content, present at every width.
+.OnboardingProductCard {
+    background-color: #f5f6ee;
+}
+
+[theme='dark'] .OnboardingProductCard {
+    background-color: var(--color-bg-surface-secondary);
+}

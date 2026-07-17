@@ -6,11 +6,9 @@ import { cn } from 'lib/utils/css-classes'
 
 import type { WorkflowState } from '../lib/runHealth'
 
-// Verdict word + tag type + the matching accent classes per state, matching the run tables' StatusDot
-// palette: green healthy, amber degraded, red failing. Shared by the single-workflow and all-workflows
-// (fleet) headers so both read identically. Classes are literal token utilities (not built from a string)
-// so Tailwind keeps them and the theme tracks automatically — border-l for the strip edge, bg for the
-// status dot, text for the state word.
+// Verdict word + tag type + accent classes per state, matching the run tables' StatusDot palette (green
+// healthy, amber degraded, red failing). Classes are literal token utilities (not string-built) so
+// Tailwind keeps them: border-l for the strip edge, bg for the dot, text for the word.
 export const STATE_META: Record<
     WorkflowState,
     { word: string; tag: LemonTagType; borderClass: string; dotClass: string; wordClass: string }

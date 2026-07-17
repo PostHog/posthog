@@ -25,7 +25,6 @@ from .prompts import (
     ACCOUNT_TAGS_TEMPLATE,
 )
 
-_ROLE_LABELS = [("CSM", "csm"), ("Account executive", "account_executive"), ("Account owner", "account_owner")]
 _EXTERNAL_ID_LABELS = [
     ("Stripe customer id", "stripe_customer_id"),
     ("HubSpot deal id", "hubspot_deal_id"),
@@ -87,11 +86,10 @@ class AccountContext:
         return await self.format_account(account)
 
     def _roles_section(self, account: AccountContextData) -> str:
-        properties = account.properties
         lines = [
-            f"- {label}: {assignment.email} (user {assignment.id})"
-            for label, field in _ROLE_LABELS
-            if (assignment := getattr(properties, field)) is not None
+            f"- {relationship.definition.name}: {relationship.user.email} (user {relationship.user.id})"
+            for relationship in account.relationships
+            if relationship.user is not None
         ]
         if not lines:
             return ""

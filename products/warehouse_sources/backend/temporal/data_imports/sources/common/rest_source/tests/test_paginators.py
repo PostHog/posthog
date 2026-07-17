@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from requests import Request, Response
+from requests import PreparedRequest, Request, Response, Session
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     HeaderLinkPaginator,
@@ -70,6 +70,40 @@ class TestJSONResponsePaginator:
 
     def test_json_link_paginator_is_alias(self) -> None:
         assert JSONLinkPaginator is JSONResponsePaginator
+
+    def test_clears_original_params_when_following_next_url(self) -> None:
+        # The initial request carries query params (e.g. per_page + an incremental
+        # filter). Once the paginator switches to the server's self-contained next
+        # URL, those params must be dropped — otherwise prepare_request re-appends
+        # them to the already-complete URL, and an API that echoes the query back
+        # into its next link compounds a duplicate every page (observed: an Intercom
+        # activity_logs URL grew hundreds of `created_at_after=0` copies until 500).
+        p = JSONResponsePaginator(next_url_path="pages.next")
+        next_url = "https://api.example.com/logs?per_page=150&created_at_after=0&page=2"
+        p.update_state(_make_response({"pages": {"next": next_url}, "activity_logs": []}))
+        req = Request(
+            method="GET",
+            url="https://api.example.com/logs",
+            params={"per_page": 150, "created_at_after": 0},
+        )
+        p.update_request(req)
+
+        prepared: PreparedRequest = Session().prepare_request(req)
+        assert prepared.url is not None
+        assert prepared.url.count("created_at_after") == 1
+        assert prepared.url.count("per_page") == 1
+
+    def test_header_link_paginator_clears_original_params(self) -> None:
+        p = HeaderLinkPaginator()
+        resp = _make_response()
+        resp.headers["Link"] = '<https://api.example.com/page2?per_page=150>; rel="next"'
+        p.update_state(resp)
+        req = Request(method="GET", url="https://api.example.com/page1", params={"per_page": 150})
+        p.update_request(req)
+
+        prepared: PreparedRequest = Session().prepare_request(req)
+        assert prepared.url is not None
+        assert prepared.url.count("per_page") == 1
 
 
 class TestJSONResponseCursorPaginator:
@@ -156,3 +190,59 @@ class TestSingleEntityPath:
     )
     def test_detection(self, path: str, expected: bool) -> None:
         assert single_entity_path(path) == expected
+
+
+class TestPaginatorResume:
+    def test_offset_paginator_round_trips_resume_state(self) -> None:
+        p = OffsetPaginator(limit=100, total_path=None)
+        p.update_state(_make_response(), data=[{} for _ in range(100)])  # full page -> more
+        assert p.has_next_page is True
+        state = p.get_resume_state()
+        assert state == {"offset": 100}
+
+        resumed = OffsetPaginator(limit=100, total_path=None)
+        resumed.set_resume_state(state)
+        req = Request(method="GET", url="https://api.example.com/x")
+        resumed.init_request(req)
+        assert req.params["offset"] == 100
+
+    def test_offset_paginator_no_resume_state_when_done(self) -> None:
+        p = OffsetPaginator(limit=100, total_path=None)
+        p.update_state(_make_response(), data=[{}])  # short page -> done
+        assert p.get_resume_state() is None
+
+    def test_page_number_paginator_round_trips_resume_state(self) -> None:
+        p = PageNumberPaginator(page=1)
+        p.update_state(_make_response(), data=[{} for _ in range(50)])
+        state = p.get_resume_state()
+        assert state == {"page": 2}
+
+        resumed = PageNumberPaginator(page=1)
+        resumed.set_resume_state(state)
+        req = Request(method="GET", url="https://api.example.com/x")
+        resumed.init_request(req)
+        assert req.params["page"] == 2
+
+    def test_cursor_paginator_round_trips_resume_state(self) -> None:
+        p = JSONResponseCursorPaginator(cursor_path="cursors.next", cursor_param="cursor")
+        p.update_state(_make_response({"cursors": {"next": "abc"}}))
+        state = p.get_resume_state()
+        assert state == {"cursor": "abc"}
+
+        resumed = JSONResponseCursorPaginator(cursor_param="cursor")
+        resumed.set_resume_state(state)
+        req = Request(method="GET", url="https://api.example.com/x")
+        resumed.init_request(req)
+        assert req.params["cursor"] == "abc"
+
+    def test_next_url_paginator_round_trips_resume_state(self) -> None:
+        p = JSONResponsePaginator(next_url_path="next")
+        p.update_state(_make_response({"next": "https://api.example.com/page2"}))
+        state = p.get_resume_state()
+        assert state == {"next_url": "https://api.example.com/page2"}
+
+        resumed = JSONResponsePaginator()
+        resumed.set_resume_state(state)
+        req = Request(method="GET", url="https://api.example.com/page1")
+        resumed.init_request(req)
+        assert req.url == "https://api.example.com/page2"

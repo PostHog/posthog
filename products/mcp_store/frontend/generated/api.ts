@@ -169,6 +169,28 @@ export const mcpServerInstallationsProxyCreate = async (
     })
 }
 
+export const getMcpServerInstallationsShareCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/mcp_server_installations/${id}/share/`
+}
+
+/**
+ * Escalate a personal installation to a team-wide shared one.
+ *
+ * Owner-only AND admin-only: sharing exposes the owner's credential to
+ * every project member and all autonomous agents, so it carries the same
+ * gate as creating a shared install outright.
+ */
+export const mcpServerInstallationsShareCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MCPServerInstallationApi> => {
+    return apiMutator<MCPServerInstallationApi>(getMcpServerInstallationsShareCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getMcpServerInstallationsToolsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/mcp_server_installations/${id}/tools/`
 }
@@ -228,6 +250,29 @@ export const mcpServerInstallationsToolsRefreshCreate = async (
             body: JSON.stringify(mCPServerInstallationApi),
         }
     )
+}
+
+export const getMcpServerInstallationsUnshareCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/mcp_server_installations/${id}/unshare/`
+}
+
+/**
+ * De-escalate a shared installation back to personal.
+ *
+ * Allowed for the credential owner OR a project admin (the reclaim path
+ * for shared credentials). The row always stays owned by the ORIGINAL
+ * owner — an admin unsharing someone else's install must not capture
+ * their credential.
+ */
+export const mcpServerInstallationsUnshareCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MCPServerInstallationApi> => {
+    return apiMutator<MCPServerInstallationApi>(getMcpServerInstallationsUnshareCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
 }
 
 export const getMcpServerInstallationsAuthorizeRetrieveUrl = (

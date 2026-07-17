@@ -15,6 +15,13 @@ class HogQLPrinter(BasePrinter):
 
     DIALECT_NAME: ClassVar[HogQLDialect] = "hogql"
 
+    def _assert_qualify_supported(self) -> None:
+        # QUALIFY is valid HogQL (the grammar and resolver support it), so the canonical
+        # round-trip must print it back rather than reject — otherwise any query carrying a
+        # QUALIFY clause fails when `query.py` renders `self.hogql` for the response, before
+        # the target dialect ever runs.
+        return
+
     def visit_cte(self, node: ast.CTE) -> str:
         materialization_hint = (
             "" if node.materialized is None else ("MATERIALIZED " if node.materialized else "NOT MATERIALIZED ")
@@ -39,6 +46,15 @@ class HogQLPrinter(BasePrinter):
         # (e.g. the stored batch-export `hogql_query`). The keys join onto the blob field as chain access.
         parts = [self.visit(node.expr)]
         parts.extend(self._print_identifier(str(key)) for key in node.keys)
+        return ".".join(parts)
+
+    def visit_json_subcolumn_access(self, node: ast.JsonSubcolumnAccess) -> str:
+        parts = [self.visit(node.expr)]
+        if node.access_type == "sub_object" and node.keys:
+            parts.append("^" + self._print_identifier(node.keys[0]))
+            parts.extend(self._print_identifier(key) for key in node.keys[1:])
+            return ".".join(parts)
+        parts.extend(self._print_identifier(key) for key in node.keys)
         return ".".join(parts)
 
     def _render_aggregation_name(self, node: ast.Call, func_meta) -> str:

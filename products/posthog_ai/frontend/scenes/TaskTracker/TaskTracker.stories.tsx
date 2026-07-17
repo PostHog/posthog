@@ -6,6 +6,8 @@ import { App } from 'scenes/App'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import { OriginProduct, Task, TaskRun, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 
 const taskTrackerUrl = (): string => '/tasks'
@@ -48,8 +50,10 @@ const TASKS: Task[] = [
         title: 'Add retention graph export',
         description: 'Let users download the retention graph as a CSV from the insight menu.',
         origin_product: OriginProduct.USER_CREATED,
+        runtime: RuntimeEnumApi.Acp,
         repository: 'PostHog/posthog',
         github_integration: 1,
+        signal_report: null,
         json_schema: null,
         internal: false,
         latest_run: mockRun('task-1', TaskRunStatus.COMPLETED, '2024-01-15T09:30:00Z', '2024-01-15T09:48:00Z'),
@@ -64,8 +68,10 @@ const TASKS: Task[] = [
         title: 'Fix cohort empty state in query builder',
         description: 'Handle an empty cohort gracefully instead of throwing in the query builder.',
         origin_product: OriginProduct.USER_CREATED,
+        runtime: RuntimeEnumApi.Acp,
         repository: 'PostHog/posthog',
         github_integration: 1,
+        signal_report: null,
         json_schema: null,
         internal: false,
         latest_run: mockRun('task-2', TaskRunStatus.COMPLETED, '2024-01-15T11:40:00Z', '2024-01-15T11:52:00Z'),
@@ -80,8 +86,10 @@ const TASKS: Task[] = [
         title: 'Investigate slow dashboard load',
         description: 'Profile the dashboard scene and find the slowest tiles on first paint.',
         origin_product: OriginProduct.USER_CREATED,
+        runtime: RuntimeEnumApi.Acp,
         repository: 'PostHog/posthog',
         github_integration: 1,
+        signal_report: null,
         json_schema: null,
         internal: false,
         latest_run: null,
@@ -97,6 +105,16 @@ const listResponse = (results: Task[]): Record<string, unknown> => ({
     previous: null,
     results,
 })
+
+const GITHUB_INTEGRATION = {
+    id: 1,
+    kind: 'github',
+    display_name: 'PostHog',
+    icon_url: '',
+    config: {},
+    created_by: null,
+    created_at: '2024-01-01T00:00:00Z',
+}
 
 const meta: Meta = {
     component: App,
@@ -135,6 +153,33 @@ export const NewTask: Story = {
     },
 }
 
+// New-task route with a GitHub integration connected — the footer shows the repository picker chip (and,
+// once a repo is auto/selected, the branch picker) instead of the "Connect GitHub" chip.
+export const NewTaskWithRepository: Story = {
+    parameters: {
+        pageUrl: taskNewUrl(),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/integrations/': { results: [GITHUB_INTEGRATION] },
+                '/api/environments/:team_id/integrations/1/github_repos': {
+                    repositories: [
+                        { id: 1, name: 'posthog', full_name: 'PostHog/posthog' },
+                        { id: 2, name: 'posthog.com', full_name: 'PostHog/posthog.com' },
+                    ],
+                    has_more: false,
+                },
+                '/api/environments/:team_id/integrations/1/github_branches': {
+                    branches: ['master', 'release'],
+                    default_branch: 'master',
+                    has_more: false,
+                },
+            },
+        }),
+    ],
+}
+
 // A task is selected: the row is highlighted and its detail fills the right column.
 export const TaskSelected: Story = {
     parameters: {
@@ -154,6 +199,20 @@ export const Loading: Story = {
                     await delay('infinite')
                     return HttpResponse.json(listResponse([]))
                 },
+                '/api/projects/:team_id/tasks/repositories/': { repositories: [] },
+                '/api/environments/:team_id/integrations/': { results: [] },
+            },
+        }),
+    ],
+}
+
+// The tasks list endpoint fails with no cached tasks — the column shows an error + retry, not "No tasks yet".
+export const ListLoadError: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/tasks/': () =>
+                    HttpResponse.json({ detail: 'Could not load tasks.' }, { status: 500 }),
                 '/api/projects/:team_id/tasks/repositories/': { repositories: [] },
                 '/api/environments/:team_id/integrations/': { results: [] },
             },
@@ -271,7 +330,7 @@ const MOBILE_PARAMETERS = {
     testOptions: { viewport: MOBILE_VIEWPORT },
 }
 
-// Mobile: the list fills the screen and scrolls with the page, with a floating "New task" button.
+// Mobile: the list fills the screen in its own scroll container, with a floating "New task" button.
 export const MobileList: Story = {
     parameters: MOBILE_PARAMETERS,
 }

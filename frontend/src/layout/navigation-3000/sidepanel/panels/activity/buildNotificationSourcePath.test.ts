@@ -1,6 +1,6 @@
 import { InAppNotification } from '~/types'
 
-import { buildNotificationSourcePath } from './sidePanelNotificationsLogic'
+import { buildNotificationSourcePath, withRecapSourceUrl } from './sidePanelNotificationsLogic'
 
 function makeNotification(overrides: Partial<InAppNotification> = {}): InAppNotification {
     return {
@@ -12,6 +12,7 @@ function makeNotification(overrides: Partial<InAppNotification> = {}): InAppNoti
         body: '',
         read: false,
         read_at: null,
+        archivable: false,
         resource_type: null,
         resource_id: '',
         target_type: 'user',
@@ -130,5 +131,29 @@ describe('buildNotificationSourcePath', () => {
             })
         )
         expect(result).toBeNull()
+    })
+})
+
+describe('withRecapSourceUrl', () => {
+    it('rewrites the /web segment of a digest source_url to /web/recap', () => {
+        const result = withRecapSourceUrl(
+            makeNotification({ source_url: '/project/2/web?utm_source=web_analytics_digest&utm_medium=in_app' })
+        )
+        expect(result.source_url).toBe('/project/2/web/recap?utm_source=web_analytics_digest&utm_medium=in_app')
+    })
+
+    it('rewrites a bare /web path with no query string', () => {
+        const result = withRecapSourceUrl(makeNotification({ source_url: '/project/2/web' }))
+        expect(result.source_url).toBe('/project/2/web/recap')
+    })
+
+    it('leaves an empty source_url untouched', () => {
+        const notification = makeNotification({ source_url: '' })
+        expect(withRecapSourceUrl(notification)).toBe(notification)
+    })
+
+    it('does not rewrite unrelated paths that merely contain web', () => {
+        const result = withRecapSourceUrl(makeNotification({ source_url: '/project/2/web-vitals' }))
+        expect(result.source_url).toBe('/project/2/web-vitals')
     })
 })

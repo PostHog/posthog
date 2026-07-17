@@ -1,11 +1,12 @@
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.apollo.settings import APOLLO_ENDPOINTS
@@ -19,10 +20,16 @@ MAX_PAGES = 500
 REQUEST_TIMEOUT_SECONDS = 60
 # Rate limits are plan-dependent fixed windows; back off on 429.
 MAX_RETRY_ATTEMPTS = 5
+# Cap how long a single in-function retry waits so a long fixed-window (hourly/daily)
+# Retry-After doesn't pin a worker thread; if the window is longer, the attempts
+# exhaust and Temporal retries the whole activity later from saved page state.
+MAX_RETRY_AFTER_SECONDS = 120
 
 
 class ApolloRetryableError(Exception):
-    pass
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 @dataclasses.dataclass
@@ -47,6 +54,36 @@ def _parse_timestamp(value: Any) -> Optional[datetime]:
         except ValueError:
             return None
     return None
+
+
+def _parse_retry_after(value: str | None) -> Optional[float]:
+    # Retry-After is either delta-seconds or an HTTP-date (RFC 7231).
+    if not value:
+        return None
+    value = value.strip()
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        pass
+    try:
+        retry_at = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=UTC)
+    return max(0.0, (retry_at - datetime.now(UTC)).total_seconds())
+
+
+_backoff = wait_exponential_jitter(initial=5, max=120)
+
+
+def _wait_apollo(retry_state: RetryCallState) -> float:
+    # Prefer the server's own backoff instruction on rate limits; fall back to
+    # exponential jitter when the header is absent (429 without one, or a 5xx).
+    exc = retry_state.outcome.exception() if retry_state.outcome is not None else None
+    if isinstance(exc, ApolloRetryableError) and exc.retry_after is not None:
+        return min(exc.retry_after, MAX_RETRY_AFTER_SECONDS)
+    return _backoff(retry_state)
 
 
 def validate_credentials(api_key: str) -> bool:
@@ -83,7 +120,7 @@ def get_rows(
     @retry(
         retry=retry_if_exception_type((ApolloRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=5, max=120),
+        wait=_wait_apollo,
         reraise=True,
     )
     def fetch_page(page_number: int) -> dict[str, Any]:
@@ -96,7 +133,13 @@ def get_rows(
         response = session.post(url, json=body, timeout=REQUEST_TIMEOUT_SECONDS)
 
         if response.status_code == 429 or response.status_code >= 500:
-            raise ApolloRetryableError(f"Apollo API error (retryable): status={response.status_code}, url={url}")
+            retry_after = (
+                _parse_retry_after(response.headers.get("Retry-After")) if response.status_code == 429 else None
+            )
+            raise ApolloRetryableError(
+                f"Apollo API error (retryable): status={response.status_code}, url={url}",
+                retry_after=retry_after,
+            )
 
         if not response.ok:
             logger.error(f"Apollo API error: status={response.status_code}, body={response.text}, url={url}")

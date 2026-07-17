@@ -25,7 +25,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads import (
     META_AUTH_ERROR_MESSAGE,
@@ -42,6 +45,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    supported_versions = ("v25.0",)
+    default_version = "v25.0"
+    api_docs_url = "https://developers.facebook.com/docs/graph-api/changelog"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -69,8 +76,23 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
             # access tokens, checkpoint-required, invalidated sessions, permission denials).
             # `meta_ads._raise_meta_api_error` prefixes these with this exact message.
             META_AUTH_ERROR_MESSAGE: META_AUTH_ERROR_MESSAGE,
-            "Ad account owner has NOT": None,
-            "cannot be loaded due to missing permissions": None,
+            # Graph API code 200: "Ad account owner has NOT granted ads_management or ads_read
+            # permission." The connected Meta user can't read this ad account's data. Retrying
+            # can't grant the permission — the account owner has to. Without a message here the
+            # raw Graph API JSON blob surfaces to the user, so give actionable guidance instead.
+            "Ad account owner has NOT": (
+                "Meta denied access to this ad account — the connected Meta account is missing the "
+                "ads_read permission needed to sync its data. Ask the ad account owner to grant that "
+                "access, then reconnect the Meta Ads integration."
+            ),
+            # Graph API code 100: "This endpoint cannot be loaded due to missing permissions." A
+            # specific endpoint can't be read with the permissions the user granted. Same as above:
+            # not fixable by retrying, and the raw JSON would otherwise reach the user.
+            "cannot be loaded due to missing permissions": (
+                "Meta blocked this request because the connected account is missing a permission "
+                "required to read your ads data. Please reconnect the Meta Ads integration and grant "
+                "all requested permissions."
+            ),
             # Meta returns this 500 when the requested query is too large for their backend to
             # service. Both pagination paths adapt to it (stats chunks shrink 30 → 7 → 1 day, and
             # both paths shrink the per-page limit 500 → 100 → 50); if it still escapes after those
@@ -86,21 +108,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MetaAdsResumeConfig]:
         return ResumableSourceManager[MetaAdsResumeConfig](inputs, MetaAdsResumeConfig)
@@ -130,7 +138,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
             name=SchemaExternalDataSourceType.META_ADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             featured=True,
-            keywords=["facebook ads", "instagram ads"],
+            keywords=["facebook ads", "instagram ads", "facebook", "instagram", "fb"],
             label="Meta Ads",
             caption="Ensure you have granted PostHog access to your Meta Ads account, learn how to do this in the [documentation](https://posthog.com/docs/cdp/sources/meta-ads).",
             iconPath="/static/services/meta-ads.png",

@@ -24,14 +24,27 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MSSQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import (
     _SSH_HANDSHAKE_EOF_ERROR,
+    _TABLE_NOT_FOUND_ERROR,
     MSSQLImplementation,
     retry_on_transient_connection_error,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+_FIREWALL_BLOCKED_ERROR = (
+    "Your SQL Server's firewall is blocking PostHog. Add a firewall rule allowing PostHog's IP "
+    "addresses to reach the server (on Azure SQL, use the portal or sp_set_firewall_rule), then "
+    "try again. New rules can take a few minutes to take effect."
+)
+
 MSSQLErrors = {
-    "Login failed for user": "Login failed for database",
+    # SQL Server error 18456 is an authentication failure (wrong username/password, or the login is
+    # disabled), not a problem with the database field. Surface the same wording the sibling SQL
+    # sources use and match the stable prefix, not the volatile "'<username>'." that follows it.
+    "Login failed for user": "Invalid user or password",
     "Adaptive Server is unavailable or does not exist": "Could not connect to SQL server - check server host and port",
+    # Azure SQL error 40615 — the server-level firewall rejected the connecting client IP. The full
+    # message echoes the server name and client IP, so match the stable, distinctive phrase instead.
+    "is not allowed to access the server": _FIREWALL_BLOCKED_ERROR,
     "connection timed out": "Could not connect to SQL server - check server firewall settings",
 }
 
@@ -50,13 +63,22 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            # Azure SQL error 40615 — the server-level firewall rejected PostHog's client IP. This
+            # also surfaces "Adaptive Server connection failed" below, but that generic entry has no
+            # message; keep this first so the actionable firewall guidance wins. Match the stable
+            # phrase, not the volatile server name / client IP the rest of the message echoes.
+            "is not allowed to access the server": _FIREWALL_BLOCKED_ERROR,
             "Adaptive Server connection failed": None,
             # pymssql DB-Lib error 20009 — the server host can't be reached for the whole
             # connection attempt. On a managed instance this is a persistent connectivity issue
             # (security group doesn't allow PostHog's IPs, the instance is stopped, or the
             # hostname is wrong), not a momentary blip, so retrying the job won't recover it.
             "Adaptive Server is unavailable or does not exist": "Could not reach your SQL Server. Check that the server is running and reachable, and that PostHog's IP addresses are allowed through its firewall / security group.",
-            "Login failed for user": None,
+            # SQL Server error 18456 — the login was rejected (wrong username/password, or the login
+            # is disabled). Deterministic until the customer fixes the credentials, so retrying just
+            # replays the same rejection; surface the same actionable wording as the validation path
+            # instead of the raw driver string (which echoes the username back).
+            "Login failed for user": "Invalid user or password",
             # SQL Server error 229 — the login PostHog connects with was authenticated but lacks
             # SELECT permission on a table/view being synced. This is a server-side GRANT the
             # customer has to make (db_datareader or an explicit GRANT SELECT); retrying with the
@@ -111,6 +133,13 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # existing column in place, so retrying won't help — the table must be reset and
             # fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
+            # Raised by `get_table_metadata` when INFORMATION_SCHEMA.COLUMNS returns no columns for a
+            # table we were asked to sync — the table was dropped or renamed at the source after
+            # schema discovery. This is the metadata-lookup counterpart of "Invalid object name"
+            # (SQL Server error 208): the lookup returns an empty result set rather than erroring, so
+            # our own guard fires before the SELECT. The table is gone from the source, so retrying
+            # replays the identical empty lookup. Match the stable prefix, not the schema/table name.
+            _TABLE_NOT_FOUND_ERROR: "One of the tables you're syncing no longer exists in your SQL Server — it was likely dropped or renamed after it was first discovered. Remove it from the sync or restore it at the source, then re-enable the sync.",
         }
 
     def get_schemas(
@@ -138,7 +167,7 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         return SourceConfig(
             name=SchemaExternalDataSourceType.MSSQL,
             category=DataWarehouseSourceCategory.DATABASES,
-            keywords=["sql server"],
+            keywords=["sql server", "sql", "mssql"],
             label="Microsoft SQL Server",
             caption="Enter your Microsoft SQL Server/Azure SQL Server credentials to automatically pull your SQL data into the PostHog Data warehouse.",
             iconPath="/static/services/sql-azure.png",

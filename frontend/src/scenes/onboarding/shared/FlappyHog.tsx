@@ -4,8 +4,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
-import flappyHogSplashSrc from 'public/hedgehog/flappy-hog-splash.png'
-import robotHogSrc from 'public/hedgehog/robot-hog.png'
+import flappyHogSplashSrc from './flappy-hog/flappy-hog-splash.png'
+import robotHogSrc from './flappy-hog/robot-hog.png'
 
 const GAME_WIDTH = 450
 const GAME_HEIGHT = 450

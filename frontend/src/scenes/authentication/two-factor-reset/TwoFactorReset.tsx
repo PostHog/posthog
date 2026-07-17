@@ -4,7 +4,6 @@ import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -26,21 +25,11 @@ export function TwoFactorReset(): JSX.Element {
         loginRedirectUrl,
     } = useValues(twoFactorResetLogic)
     const { confirmReset } = useActions(twoFactorResetLogic)
-    const { preflight } = useValues(preflightLogic)
 
     // Show loading while validating
     if (validatedResetTokenLoading) {
         return (
-            <BridgePage
-                view="login"
-                hedgehog
-                message={
-                    <>
-                        Welcome to
-                        <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
-                    </>
-                }
-            >
+            <BridgePage view="login">
                 <div className="text-center">
                     <h2>Validating reset link...</h2>
                     <Spinner className="mt-4" />
@@ -52,16 +41,7 @@ export function TwoFactorReset(): JSX.Element {
     // If user needs to login first, show redirect message
     if (requiresLogin) {
         return (
-            <BridgePage
-                view="login"
-                hedgehog
-                message={
-                    <>
-                        Welcome to
-                        <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
-                    </>
-                }
-            >
+            <BridgePage view="login">
                 <div className="space-y-4">
                     <h2>Login required</h2>
                     <p>Please log in with your email and password first to reset your two-factor authentication.</p>
@@ -76,16 +56,7 @@ export function TwoFactorReset(): JSX.Element {
     // Show success state
     if (resetComplete) {
         return (
-            <BridgePage
-                view="login"
-                hedgehog
-                message={
-                    <>
-                        Welcome to
-                        <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
-                    </>
-                }
-            >
+            <BridgePage view="login">
                 <div className="space-y-4">
                     <h2>2FA has been reset</h2>
                     <p>
@@ -105,16 +76,7 @@ export function TwoFactorReset(): JSX.Element {
     const invalidLink = !validatedResetToken?.success
 
     return (
-        <BridgePage
-            view="login"
-            hedgehog
-            message={
-                <>
-                    Welcome to
-                    <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
-                </>
-            }
-        >
+        <BridgePage view="login">
             <div className="space-y-4">
                 {invalidLink ? (
                     <>

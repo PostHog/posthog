@@ -18,6 +18,8 @@ export interface MonacoDiffEditorProps {
     className?: string | null
     originalUri?: (m: typeof monaco) => monaco.Uri
     modifiedUri?: (m: typeof monaco) => monaco.Uri
+    /** Optional placeholder overlaid on the editor until it has laid out its first content. */
+    loading?: React.ReactNode
 }
 
 const LINE_HEIGHT = 18
@@ -43,6 +45,7 @@ function MonacoDiffEditor(
         className = null,
         originalUri,
         modifiedUri,
+        loading = null,
     }: MonacoDiffEditorProps,
     ref: React.ForwardedRef<{ editor: monaco.editor.IStandaloneDiffEditor | null }>
 ): JSX.Element {
@@ -190,14 +193,17 @@ function MonacoDiffEditor(
 
     return (
         <div
-            ref={containerRef}
+            className="relative"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: processSize(width),
                 height: processSize(calculatedHeight),
             }}
-            className="react-monaco-editor-container"
-        />
+        >
+            <div ref={containerRef} className="react-monaco-editor-container w-full h-full" />
+            {/* Overlay the placeholder until Monaco reports its first content size (editor laid out). */}
+            {loading && contentHeight === null && <div className="absolute inset-0">{loading}</div>}
+        </div>
     )
 }
 

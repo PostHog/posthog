@@ -8,8 +8,13 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 from temporalio.exceptions import ApplicationError
+
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -20,7 +25,10 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
 )
-from products.experiments.backend.temporal.models import RecalculationProgressUpdate
+from products.experiments.backend.temporal.models import (
+    CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
+    RecalculationProgressUpdate,
+)
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.experiments.backend.temporal.recalculation_logic import (
     _calculate_experiment_metric_for_recalculation_sync,
@@ -444,6 +452,75 @@ class TestCalculateActivity(BaseTest):
             recalc.refresh_from_db()
             assert "m1" in recalc.metric_errors
 
+    @parameterized.expand(
+        [
+            ("org_quota", ConcurrencyLimitExceeded("org quota saturated")),
+            ("cluster_at_capacity", ClickHouseAtCapacity()),
+        ]
+    )
+    def test_backpressure_bounce_defers_with_retry_delay_and_no_capture(self, name: str, exc: Exception):
+        # A query bouncing off the per-org ClickHouse limiter or the cluster's at-capacity guard is
+        # backpressure, not a fault: it must re-raise as an ApplicationError carrying next_retry_delay
+        # (overriding the retry policy's 5s exponential schedule with the flat quota-wait delay), must never
+        # reach capture_exception (a saturated org would spam error tracking with expected bounces), and must
+        # persist nothing before the final attempt.
+        exp = self._experiment(flag_key=f"calc-quota-{name}", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with (
+            patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
+            patch("products.experiments.backend.temporal.recalculation_logic.capture_exception") as mock_capture,
+        ):
+            mock_runner.return_value.run.side_effect = exc
+
+            with pytest.raises(ApplicationError) as exc_info:
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False)
+            assert exc_info.value.type == type(exc).__name__
+            assert exc_info.value.next_retry_delay == timedelta(seconds=CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS)
+            mock_capture.assert_not_called()
+            recalc.refresh_from_db()
+            assert recalc.metric_errors == {}
+            assert not ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid="m1").exists()
+
+            # Final attempt: the failure is persisted for the UI, still without exception capture.
+            with pytest.raises(ApplicationError):
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=True)
+            mock_capture.assert_not_called()
+            recalc.refresh_from_db()
+            assert "m1" in recalc.metric_errors
+            row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
+            assert row.status == ExperimentMetricResult.Status.FAILED
+
+    @parameterized.expand(
+        [
+            ("out_of_memory", ClickHouseQueryMemoryLimitExceeded(), "out_of_memory"),
+            ("byte_limit", ServerException("too many bytes", code=307), "byte_limit"),
+            ("validation_error", ValidationError("bad metric config"), "validation_error"),
+            ("config_value_error", ValueError("No control variant found"), "server_error"),
+        ]
+    )
+    def test_permanent_error_fails_non_retryable_and_persists_on_first_attempt(
+        self, name: str, exc: Exception, expected_type: str
+    ):
+        # Deterministic failures (out-of-memory, byte limits, invalid config) can't succeed on retry, so
+        # even a NON-final attempt must persist the FAILED row immediately and raise non_retryable — every
+        # retry would burn a full ClickHouse query without changing the outcome.
+        exp = self._experiment(flag_key=f"calc-permanent-{name}", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.side_effect = exc
+
+            with pytest.raises(ApplicationError) as exc_info:
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False)
+
+        assert exc_info.value.non_retryable is True
+        assert exc_info.value.type == expected_type
+        recalc.refresh_from_db()
+        assert "m1" in recalc.metric_errors
+        row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
+        assert row.status == ExperimentMetricResult.Status.FAILED
+
     def test_query_to_is_passed_as_as_of_to_runner(self):
         # The run's shared query_to MUST be threaded into the ClickHouse query bounds via the runner's
         # as_of, not just stored on the result row. Without as_of the runner falls back to its own now(),
@@ -753,20 +830,16 @@ class TestMissingRecalcRow:
 
 @contextmanager
 def _record_captures():
-    """Patch ph_scoped_capture so the analytics tests can assert the exact event name + properties
-    without standing up a real PostHog client. Yields the list of captured capture(...) kwargs."""
+    """Patch the global posthoganalytics client so the analytics tests can assert the exact event
+    name + properties without sending anything. Yields the list of captured capture(...) kwargs."""
     captured: list[dict] = []
 
     def _fake_capture(*args, **kwargs) -> None:
         captured.append(kwargs)
 
-    @contextmanager
-    def _fake_scoped():
-        yield _fake_capture
-
     with patch(
-        "products.experiments.backend.temporal.recalculation_logic.ph_scoped_capture",
-        _fake_scoped,
+        "products.experiments.backend.temporal.recalculation_logic.posthoganalytics.capture",
+        _fake_capture,
     ):
         yield captured
 
@@ -866,9 +939,9 @@ class TestRecalculationAnalytics(BaseTest):
 
         assert captured[0]["properties"]["is_primary"] is False
 
-    def test_transient_failure_emits_no_per_metric_event(self):
-        # The transient except-Exception path re-raises for Temporal to retry; emitting there would
-        # double-count per attempt. The failure is reflected in the run-level event instead.
+    def test_non_final_failure_emits_no_per_metric_event(self):
+        # A non-final attempt re-raises for Temporal to retry; emitting there would double-count a
+        # failure that may still succeed on a later attempt. Only the terminal attempt emits.
         exp = self._experiment(flag_key="an-transient", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
@@ -878,9 +951,49 @@ class TestRecalculationAnalytics(BaseTest):
             ) as mock_runner:
                 mock_runner.return_value.run.side_effect = RuntimeError("kaboom")
                 with pytest.raises(RuntimeError, match="kaboom"):
-                    _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+                    _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False)
 
         assert captured == []
+
+    @parameterized.expand(
+        [
+            # name, exc, expected_error_type, raises_application_error
+            # Permanent classes (oom/byte_limit/validation) and backpressure (at_capacity) re-raise as
+            # ApplicationError; genuinely transient classes re-raise the original exception for Temporal.
+            ("wrapped_oom", ClickHouseQueryMemoryLimitExceeded(), "out_of_memory", True),
+            ("wrapped_timeout", ClickHouseQueryTimeOut(), "timeout", False),
+            ("wrapped_at_capacity", ClickHouseAtCapacity(), "rate_limited", True),
+            ("ch_timeout_code", ServerException("timed out", code=159), "timeout", False),
+            ("ch_socket_timeout_code", ServerException("socket timed out", code=209), "timeout", False),
+            ("ch_memory_limit_code", ServerException("memory limit exceeded", code=241), "out_of_memory", True),
+            ("ch_too_many_bytes_code", ServerException("too many bytes", code=307), "byte_limit", True),
+            ("ch_too_many_queries_code", ServerException("too many queries", code=202), "rate_limited", False),
+            ("other", RuntimeError("kaboom"), "server_error", False),
+        ]
+    )
+    def test_terminal_failure_emits_metric_error_event(self, name, exc, expected_error_type, raises_application_error):
+        # On the terminal attempt (retries exhausted) an infra failure emits 'experiment metric error'
+        # with the shared backend error_type taxonomy — including byte_limit (307) and rate_limited (202),
+        # the two real failure modes that used to collapse into server_error and stay invisible.
+        exp = self._experiment(flag_key=f"an-terminal-{name}", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with _record_captures() as captured:
+            with patch(
+                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
+            ) as mock_runner:
+                mock_runner.return_value.run.side_effect = exc
+                with pytest.raises(ApplicationError if raises_application_error else type(exc)):
+                    _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=True)
+
+        assert len(captured) == 1
+        assert captured[0]["event"] == "experiment metric error"
+        props = captured[0]["properties"]
+        assert props["error_type"] == expected_error_type
+        assert props["execution_mode"] == "recalculation"
+        assert props["context"] == "ui"
+        assert props["mechanism"] == "orchestrated"
+        assert props["trigger"] == "manual"
 
     def test_results_refresh_completed_event_on_finish(self):
         exp = self._experiment(flag_key="an-finish", metrics=[_mean_metric("m1")])

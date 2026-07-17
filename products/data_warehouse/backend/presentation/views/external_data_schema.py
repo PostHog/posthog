@@ -6,9 +6,10 @@ from django.db import transaction
 
 import structlog
 import temporalio
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from asgiref.sync import async_to_sync
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import MethodNotAllowed, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -25,21 +26,22 @@ from products.data_warehouse.backend.facade.api import (
     cancel_external_data_workflow,
     create_and_register_webhook,
     external_data_workflow_exists,
+    get_direct_query_engine,
     get_or_create_webhook_hog_function,
     get_postgres_source_location,
-    hide_direct_mysql_table,
-    hide_direct_postgres_table,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
-    is_xmin_enabled_for_team,
     pause_external_data_schedule,
     reconcile_webhook_events,
-    reproject_direct_mysql_table,
-    reproject_direct_postgres_table,
     sync_cdc_extraction_schedule,
     sync_external_data_job_workflow,
     trigger_external_data_workflow,
     unpause_external_data_schedule,
+    update_external_job_status,
+)
+from products.data_warehouse.backend.presentation.views.source_api_versions import (
+    ExternalDataSourceApiVersionDeprecationSerializer,
+    api_version_deprecation_payload,
 )
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataJob,
@@ -49,6 +51,7 @@ from products.warehouse_sources.backend.facade.models import (
     sync_frequency_to_sync_frequency_interval,
     update_sync_type_config_keys,
 )
+from products.warehouse_sources.backend.facade.pipelines import finish_row_tracking
 from products.warehouse_sources.backend.facade.source_management import (
     RowFilterValidationError,
     SourceRegistry,
@@ -64,13 +67,28 @@ logger = structlog.get_logger(__name__)
 
 
 def source_supports_column_selection(source_type: str) -> bool:
+    """Column selection is available for every registered source: SQL sources project the
+    selection into their SELECT, everything else is projected generically just before the
+    Delta write. Unknown source types stay False so the UI fails closed.
+
+    Excludes managed-schema sources (Stripe, Paddle, Zendesk): their HogQL tables expose a
+    fixed canonical schema, so dropping a referenced column breaks the query."""
+    try:
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+    except Exception as e:
+        capture_exception(e)
+        return False
+    return not source.has_managed_hogql_schema
+
+
+def source_supports_row_filters(source_type: str) -> bool:
     try:
         source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
     except Exception as e:
         capture_exception(e)
         return False
     # `bool()` guards against test mocks whose attribute access returns a Mock — orjson can't serialize.
-    return bool(source.supports_column_selection)
+    return bool(source.supports_row_filters)
 
 
 _CDC_WRITE_TARGETS_BY_TABLE_MODE: dict[str, frozenset[str]] = {
@@ -171,14 +189,17 @@ class RowFiltersField(serializers.JSONField):
     """Typed JSON field for the list of `{column, operator, value}` row-filter predicates."""
 
 
-def unsupported_row_filter_reason(*, is_direct_postgres: bool, is_cdc: bool) -> str | None:
+def unsupported_row_filter_reason(*, is_direct_query: bool, is_cdc: bool) -> str | None:
     """Row filters are only enforced on snapshot-style syncs, which apply them as a `WHERE`
-    clause. Direct Postgres queries tables live and CDC streams WAL changes — both bypass that
+    clause. Direct-query sources read tables live and CDC streams WAL changes — both bypass that
     query, so a saved filter would silently leave excluded rows visible. Reject those up front.
+
+    This covers every direct engine (Postgres, MySQL, Snowflake): none of the live-query executors
+    apply the predicates, so accepting a filter would be a silent data-restriction bypass.
     """
-    if is_direct_postgres:
+    if is_direct_query:
         return (
-            "Row filters are not supported for direct Postgres sources — "
+            "Row filters are not supported for direct-query sources — "
             "tables are queried live and filters cannot be enforced at the source."
         )
     if is_cdc:
@@ -300,10 +321,28 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "Applied on the next sync — not retroactive to already-synced rows."
         ),
     )
+    api_version = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=128,
+        help_text=(
+            "Vendor API version override for this schema. `null` (default) syncs on the source's "
+            "pinned version. Must be one of the source type's supported versions. User-managed: "
+            "version-migration tooling never changes it. Not available for webhook-sync schemas."
+        ),
+    )
+    api_version_deprecation = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Set when this schema's version override is deprecated by the vendor; null when there "
+            "is no override or it is not deprecated. The source-level field covers the source pin."
+        ),
+    )
     available_columns = serializers.SerializerMethodField(
         read_only=True,
-        help_text="Source-side column metadata (name, data type, nullable) discovered for this schema. "
-        "Empty until the source has been refreshed via `refresh_schemas`.",
+        help_text="Column metadata (name, data type, nullable) for this schema. For SQL sources this is the "
+        "source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back "
+        "to the synced table's columns. Empty only before the first successful sync/refresh.",
     )
     # `source` shadows DRF's reserved `Field.source` attribute, so mypy flags the assignment;
     # the runtime behaviour (a read-only SerializerMethodField backed by get_source) is correct.
@@ -340,6 +379,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "row_filters",
             "available_columns",
             "source",
+            "api_version",
+            "api_version_deprecation",
         ]
 
         read_only_fields = [
@@ -353,6 +394,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "description",
             "available_columns",
             "source",
+            "api_version_deprecation",
         ]
 
     @extend_schema_field(
@@ -372,17 +414,25 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     def get_available_columns(self, schema: ExternalDataSchema) -> list[dict[str, Any]]:
         metadata = schema.schema_metadata or {}
         columns = metadata.get("columns") if isinstance(metadata, dict) else None
-        if not isinstance(columns, list):
-            return []
-        return [
-            {
-                "name": column.get("name"),
-                "data_type": column.get("data_type"),
-                "is_nullable": column.get("is_nullable"),
-            }
-            for column in columns
-            if isinstance(column, dict) and isinstance(column.get("name"), str)
-        ]
+        if isinstance(columns, list):
+            sql_columns = [
+                {
+                    "name": column.get("name"),
+                    "data_type": column.get("data_type"),
+                    "is_nullable": column.get("is_nullable"),
+                }
+                for column in columns
+                if isinstance(column, dict) and isinstance(column.get("name"), str)
+            ]
+            if sql_columns:
+                return sql_columns
+        # `schema_metadata` is only written on source creation and explicit schema reload
+        # (`refresh_schemas`) — never by background schema discovery or the data sync, and never for
+        # non-SQL sources. So it's empty for non-SQL sources and for SQL schemas discovered/added later
+        # or not yet reloaded. Fall back to the synced table's universal column store so the Descriptions
+        # UI can still list columns (and surface their existing annotations) and let users edit them.
+        table = schema.table
+        return table.get_user_facing_columns() if table is not None else []
 
     @extend_schema_field(
         {
@@ -392,7 +442,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 "id": {"type": "string"},
                 "source_type": {"type": "string"},
                 "supports_column_selection": {"type": "boolean"},
+                "supports_row_filters": {"type": "boolean"},
                 "user_access_level": {"type": "string", "nullable": True},
+                "api_version": {"type": "string", "nullable": True},
+                "supported_api_versions": {"type": "array", "items": {"type": "string"}},
             },
         }
     )
@@ -407,12 +460,64 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         user_access_control = getattr(view, "user_access_control", None)
         if user_access_control is not None:
             user_access_level = user_access_control.get_user_access_level(source)
+        try:
+            source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+            # The version the schema falls back to without an override, and the picker's options.
+            source_api_version: str | None = source_impl.resolve_api_version(source.api_version)
+            supported_api_versions = list(source_impl.supported_versions)
+        except ValueError:
+            source_api_version = None
+            supported_api_versions = []
         return {
             "id": str(source.id),
             "source_type": source.source_type,
             "supports_column_selection": source_supports_column_selection(source.source_type),
+            "supports_row_filters": source_supports_row_filters(source.source_type),
             "user_access_level": user_access_level,
+            "api_version": source_api_version,
+            "supported_api_versions": supported_api_versions,
         }
+
+    @extend_schema_field(ExternalDataSourceApiVersionDeprecationSerializer(allow_null=True))
+    def get_api_version_deprecation(self, schema: ExternalDataSchema) -> dict[str, Any] | None:
+        # Only the schema-level override is judged here; a deprecated source pin surfaces on the
+        # source, not on every schema.
+        if not schema.api_version:
+            return None
+        return api_version_deprecation_payload(schema.source.source_type, schema.api_version)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        instance = cast(Optional[ExternalDataSchema], self.instance)
+        override = attrs["api_version"] if "api_version" in attrs else (instance.api_version if instance else None)
+        if override:
+            sync_type = attrs.get("sync_type", instance.sync_type if instance else None)
+            if sync_type == ExternalDataSchema.SyncType.WEBHOOK:
+                raise ValidationError(
+                    {
+                        "api_version": "API version overrides are not available for webhook-sync schemas — "
+                        "webhook payload versions are configured on the source at the vendor."
+                    }
+                )
+            # Membership is enforced only when the override actually changes: existing pins are
+            # honored verbatim even if the vendor version was later retired from
+            # supported_versions, so full-payload PATCHes (the sources list spreads the GET
+            # response back) never 400 on unrelated edits. The viewset 405s POST, so there is
+            # no create path to validate.
+            if "api_version" in attrs and instance is not None and override != instance.api_version:
+                try:
+                    source_impl = SourceRegistry.get_source(ExternalDataSourceType(instance.source.source_type))
+                except ValueError:
+                    raise ValidationError(
+                        {"api_version": "API version overrides are not supported for this source type."}
+                    )
+                if override not in source_impl.supported_versions:
+                    raise ValidationError(
+                        {
+                            "api_version": f"'{override}' is not a supported {instance.source.source_type} API version. "
+                            f"Supported versions: {', '.join(source_impl.supported_versions)}"
+                        }
+                    )
+        return attrs
 
     def get_status(self, schema: ExternalDataSchema) -> str | None:
         if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:
@@ -513,6 +618,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         # whether the change adds a new physical write target (and therefore needs a re-snapshot).
         previous_cdc_table_mode = instance.cdc_table_mode
 
+        api_version_changed = "api_version" in validated_data and validated_data["api_version"] != instance.api_version
+
         # Snapshot sync_type_config before the branches below mutate it in place. The terminal save
         # diffs against this to persist only the keys this request changed. Shallow is enough: the
         # branches replace top-level keys (they never mutate a nested value in place), so a key is
@@ -546,6 +653,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         if "enabled_columns" in validated_data:
             enabled_columns = validated_data["enabled_columns"]
             if enabled_columns is not None:
+                # Managed-schema sources expose a fixed canonical HogQL schema; dropping a
+                # referenced column breaks the query, so column selection isn't offered for them.
+                if not source_supports_column_selection(instance.source.source_type):
+                    raise ValidationError("Column selection is not supported for this source type.")
                 if not isinstance(enabled_columns, list) or not all(isinstance(c, str) for c in enabled_columns):
                     raise ValidationError("enabled_columns must be a list of column-name strings or null.")
                 metadata = instance.schema_metadata or {}
@@ -565,12 +676,16 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         # Validate against the schema's columns; raw filters are persisted as-is and re-coerced at sync time.
         if "row_filters" in validated_data and validated_data["row_filters"] is not None:
+            # Only sources that push filters into their query (SQL WHERE) can honor them — a
+            # saved-but-ignored filter would silently sync unfiltered rows.
+            if not source_supports_row_filters(instance.source.source_type):
+                raise ValidationError("Row filters are not supported for this source type.")
             incoming_sync_type = data.get("sync_type")
             target_is_cdc = (
                 incoming_sync_type == ExternalDataSchema.SyncType.CDC if "sync_type" in data else instance.is_cdc
             )
             if reason := unsupported_row_filter_reason(
-                is_direct_postgres=instance.source.is_direct_postgres, is_cdc=target_is_cdc
+                is_direct_query=instance.source.is_direct_query, is_cdc=target_is_cdc
             ):
                 raise ValidationError(reason)
             try:
@@ -588,17 +703,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 raise ValidationError("CDC is not enabled for this team")
 
         # Close the enum-exposure window: `XMIN` is a valid `SyncType` choice, so the field accepts
-        # "xmin" the moment the foundation lands. Reject it unless the source is Postgres, the flag is
-        # on for the team, and the table actually advertises xmin support — otherwise a raw PATCH would
-        # persist an xmin schema that silently degrades to full_refresh.
+        # "xmin" the moment the foundation lands. Reject it unless the source is Postgres and the table
+        # actually advertises xmin support — otherwise a raw PATCH would persist an xmin schema that
+        # silently degrades to full_refresh.
         if sync_type == ExternalDataSchema.SyncType.XMIN:
-            from posthog.models import Team
-
             if instance.source.source_type != ExternalDataSourceType.POSTGRES:
                 raise ValidationError("xmin replication is only available for Postgres sources.")
-            team = Team.objects.get(id=self.context["team_id"])
-            if not is_xmin_enabled_for_team(team):
-                raise ValidationError("xmin replication is not enabled for this team")
             if not self._xmin_available_for_schema(instance):
                 raise ValidationError(
                     f"xmin replication is not available for table '{instance.name}'. "
@@ -683,9 +793,16 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                         or payload.get("incremental_field_last_value") is None
                     )
 
-            if "incremental_field" in data:
+            # Webhook schemas derive their incremental field from the source, so a null here is the
+            # client's "not applicable", not an intentional clear. Writing it would wipe the cursor
+            # config a previous append/incremental sync built up, turning the webhook initial sync
+            # into an unbounded full-history scan with no durable watermark progress.
+            is_webhook_target = resulting_sync_type == ExternalDataSchema.SyncType.WEBHOOK
+            if "incremental_field" in data and not (is_webhook_target and incremental_field is None):
                 payload["incremental_field"] = incremental_field
-            if "incremental_field_type" in data:
+            if "incremental_field_type" in data and not (
+                is_webhook_target and data.get("incremental_field_type") is None
+            ):
                 payload["incremental_field_type"] = data.get("incremental_field_type")
 
             # Lookback only applies to incremental — merge-by-PK makes re-reading the overlap window
@@ -828,7 +945,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             if should_sync if should_sync is not None else instance.should_sync:
                 trigger_refresh = True
 
-        # When re-enabling a webhook schema, force a full refresh to avoid missing data
+        # When re-enabling a webhook schema, request a pipeline reset so a gap from the
+        # off-window gets filled. Poll-backfillable sources honor it as a wipe plus full
+        # re-crawl; webhook-only sources (no poll backfill) resume webhook ingestion over
+        # the existing table instead of wiping it — see handle_reset_or_full_refresh.
         if (
             should_sync is True
             and instance.should_sync is False
@@ -844,26 +964,21 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         )
 
         if source.is_direct_query:
+            direct_engine_adapter = get_direct_query_engine(source.direct_engine)
             # Direct-mode lifecycle hooks that need a fresh DataWarehouseTable projection:
             # (1) row is being re-exposed (should_sync flipping False → True);
             # (2) the column-picker selection changed on an already-exposed row.
             newly_exposed = should_sync is True and instance.should_sync is False
             projection_needs_refresh = enabled_columns_changed and instance.table is not None and instance.should_sync
-            if newly_exposed or projection_needs_refresh:
-                reproject = (
-                    reproject_direct_postgres_table if source.is_direct_postgres else reproject_direct_mysql_table
-                )
-                validated_data["table"] = reproject(
+            if direct_engine_adapter is not None and (newly_exposed or projection_needs_refresh):
+                validated_data["table"] = direct_engine_adapter.reproject_table(
                     instance,
                     source=source,
                     enabled_columns=validated_data.get("enabled_columns", instance.enabled_columns),
                 )
 
-            if should_sync is False and instance.should_sync is True:
-                if source.is_direct_postgres:
-                    hide_direct_postgres_table(instance.table)
-                else:
-                    hide_direct_mysql_table(instance.table)
+            if direct_engine_adapter is not None and should_sync is False and instance.should_sync is True:
+                direct_engine_adapter.hide_table(instance.table)
         elif enabled_columns_changed and instance.table is not None and instance.should_sync:
             # Warehouse mode: hide newly-disabled columns from HogQL immediately. Restoration
             # (reset to None or re-enabling a column) is deferred to the next sync — Delta may
@@ -893,6 +1008,29 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         # Persist under a row lock, replaying only the sync_type_config keys this request changed
         # so a concurrent CDC extract activity's writes aren't reverted by the full-instance save.
         updated_instance = self._save_merging_sync_type_config(instance, validated_data, original_sync_type_config)
+
+        # A version repin invalidates any in-flight import: retried/resumed activities re-resolve
+        # the version from the DB, so letting the run finish would mix two vendor API versions in
+        # one table. Cancel it; the user decides when to sync again.
+        if api_version_changed:
+            running_job = (
+                ExternalDataJob.objects.filter(schema_id=instance.pk, team_id=instance.team_id)
+                .order_by("-created_at")
+                .first()
+            )
+            if running_job and running_job.workflow_id and running_job.status == "Running":
+
+                def cancel_running_import() -> None:
+                    try:
+                        cancel_external_data_workflow(running_job.workflow_id)
+                    except temporalio.service.RPCError as e:
+                        logger.exception(
+                            "Could not cancel running workflow after api_version change",
+                            schema_id=str(instance.id),
+                            exc_info=e,
+                        )
+
+                self._run_temporal_side_effect(cancel_running_import)
 
         if source.supports_scheduled_sync and (
             should_sync is not None or was_sync_frequency_updated or was_sync_time_of_day_updated
@@ -1039,6 +1177,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 source=source_impl,
                 source_id=str(source.pk),
                 eligible_schemas=[schema],
+                config=config,
             )
 
             if hog_fn_result.error or not hog_fn_result.hog_function:
@@ -1143,7 +1282,6 @@ class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
 class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "external_data_source"
     scope_object_write_actions = [
-        "create",
         "update",
         "partial_update",
         "patch",
@@ -1161,6 +1299,12 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     search_fields = ["name"]
     ordering = "-created_at"
 
+    @extend_schema(exclude=True)
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Schemas are created by source schema discovery, never via the API. ModelViewSet would
+        # otherwise route POST here, whose serializer create path skips the api_version guards.
+        raise MethodNotAllowed("POST")
+
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
@@ -1170,13 +1314,16 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset):
         # `table__external_data_source` is read on every schema serialization (SimpleTableSerializer
-        # derives the dotted HogQL name from it), so join it for all actions to avoid a per-row query.
+        # derives the dotted HogQL name from it), and `source` by `get_api_version_deprecation` for
+        # any schema carrying a version override — join both for all actions to avoid per-row queries.
         queryset = (
-            queryset.exclude(deleted=True).prefetch_related("created_by").select_related("table__external_data_source")
+            queryset.exclude(deleted=True)
+            .prefetch_related("created_by")
+            .select_related("source", "table__external_data_source")
         )
         if self.action == "retrieve":
-            # retrieve additionally embeds the source summary + table credential.
-            queryset = queryset.select_related("source", "table__credential")
+            # retrieve additionally embeds the table credential.
+            queryset = queryset.select_related("table__credential")
         return queryset.order_by(self.ordering)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1285,6 +1432,22 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                description="The running sync was cancelled. v3 pipeline jobs are marked Failed immediately; "
+                "for older pipeline versions the cancelled workflow records the final status.",
+            ),
+            400: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "properties": {"detail": {"type": "string"}},
+                },
+                description="No running sync to cancel, or the sync already finished.",
+            ),
+        },
+    )
     @action(methods=["POST"], detail=True)
     def cancel(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
@@ -1301,14 +1464,57 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"detail": "No running sync to cancel."},
             )
 
+        if latest_running_job.pipeline_version != ExternalDataJob.PipelineVersion.V3:
+            # v1/v2: the workflow itself owns the job's terminal status, so keep the legacy
+            # behavior where the cancel RPC is the whole operation and a missing workflow
+            # is an error.
+            try:
+                cancel_external_data_workflow(latest_running_job.workflow_id)
+            except temporalio.service.RPCError as e:
+                logger.exception(f"Could not cancel external data workflow for schema {instance.id}", exc_info=e)
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"detail": "Could not find workflow to cancel. The sync may have already finished."},
+                )
+            return Response(status=status.HTTP_200_OK)
+
+        # v3: durable marker FIRST. Failed is terminal/absorbing, so the loader's later
+        # Completed write and the workflow finally-block write become no-ops.
+        model = update_external_job_status(
+            job_id=str(latest_running_job.id),
+            team_id=instance.team_id,
+            status=ExternalDataJob.Status.FAILED,
+            logger=logger,
+            latest_error="Sync cancelled by user",
+        )
+        if model.status != ExternalDataJob.Status.FAILED:
+            # The job reached a different terminal state concurrently (e.g. Completed).
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"detail": "The sync already finished."},
+            )
+
         try:
             cancel_external_data_workflow(latest_running_job.workflow_id)
         except temporalio.service.RPCError as e:
-            logger.exception(f"Could not cancel external data workflow for schema {instance.id}", exc_info=e)
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"detail": "Could not find workflow to cancel. The sync may have already finished."},
-            )
+            if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                # v3 loading phase: the extraction workflow already completed while the loader
+                # drains batches. The Failed marker above makes the loader skip and clean up.
+                logger.info("cancel_sync_workflow_already_finished", schema_id=str(instance.id))
+            else:
+                # Transient RPC failure against a possibly-live workflow. The Failed marker is
+                # already durable (terminal statuses absorb the workflow's later writes, and the
+                # v3 loader cleans up off the marker), so the cancel stands - but the workflow
+                # may keep running until it finishes on its own, so surface the failure.
+                logger.exception("cancel_sync_workflow_cancel_rpc_failed", schema_id=str(instance.id))
+
+        try:
+            # Clear the schema's in-flight row counter; nothing will finish it once the job is Failed.
+            async_to_sync(finish_row_tracking)(instance.team_id, str(instance.id))
+        except Exception as e:
+            # Best-effort: the counter is rebuilt from scratch by the next sync.
+            logger.exception("cancel_sync_row_tracking_cleanup_failed", schema_id=str(instance.id))
+            capture_exception(e)
 
         return Response(status=status.HTTP_200_OK)
 
@@ -1317,10 +1523,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance: ExternalDataSchema = self.get_object()
 
         if instance.source.is_direct_query:
-            if instance.source.is_direct_postgres:
-                hide_direct_postgres_table(instance.table)
-            else:
-                hide_direct_mysql_table(instance.table)
+            direct_engine_adapter = get_direct_query_engine(instance.source.direct_engine)
+            if direct_engine_adapter is not None:
+                direct_engine_adapter.hide_table(instance.table)
             instance.should_sync = False
             instance.save(update_fields=["should_sync", "updated_at"])
             return Response(status=status.HTTP_200_OK)
@@ -1374,12 +1579,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.
         source_cdc_enabled = str_to_bool(source.job_inputs.get("cdc_enabled"))
         cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
-        # xmin is Postgres-only AND flag-gated, mirroring the database_schema endpoint.
-        xmin_available = (
-            schema.supports_xmin
-            if (source.source_type == ExternalDataSourceType.POSTGRES and is_xmin_enabled_for_team(self.team))
-            else None
-        )
+        # xmin is Postgres-only, mirroring the database_schema endpoint.
+        xmin_available = schema.supports_xmin if source.source_type == ExternalDataSourceType.POSTGRES else None
 
         data = {
             "incremental_fields": schema.incremental_fields,

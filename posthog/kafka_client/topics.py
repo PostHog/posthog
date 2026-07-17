@@ -34,6 +34,7 @@ KAFKA_PERSON_OVERRIDE = f"{KAFKA_PREFIX}clickhouse_person_override{SUFFIX}"
 KAFKA_LOG_ENTRIES = f"{KAFKA_PREFIX}log_entries{SUFFIX}"
 KAFKA_LOG_ENTRIES_V2_TEST = f"{KAFKA_PREFIX}log_entries_v2_test{SUFFIX}"
 KAFKA_HOG_INVOCATION_RESULTS = f"{KAFKA_PREFIX}clickhouse_hog_invocation_results{SUFFIX}"
+KAFKA_MESSAGE_ASSETS = f"{KAFKA_PREFIX}clickhouse_message_assets{SUFFIX}"
 
 KAFKA_CLICKHOUSE_HEATMAP_EVENTS = f"{KAFKA_PREFIX}clickhouse_heatmap_events{SUFFIX}"
 KAFKA_CLICKHOUSE_AI_EVENTS_JSON = f"{KAFKA_PREFIX}clickhouse_ai_events_json{SUFFIX}"
@@ -89,3 +90,8 @@ KAFKA_SIGNALS_REPORT_COMPLETED = f"{KAFKA_PREFIX}signals_report_completed{SUFFIX
 # concern — no Node-side mirror needed.
 KAFKA_FLAGS_CACHE_INVALIDATION = f"{KAFKA_PREFIX}flags_cache_invalidation{SUFFIX}"
 KAFKA_FLAGS_CACHE_INVALIDATION_DLQ = f"{KAFKA_PREFIX}flags_cache_invalidation_dlq{SUFFIX}"
+
+# Producer: customer_analytics person-property sync activity (warehouse -> person props).
+# Consumer: a dedicated throttling consumer that rate-limits $set events into capture-internal.
+KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES = f"{KAFKA_PREFIX}warehouse_person_property_updates{SUFFIX}"
+KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ = f"{KAFKA_PREFIX}warehouse_person_property_updates_dlq{SUFFIX}"

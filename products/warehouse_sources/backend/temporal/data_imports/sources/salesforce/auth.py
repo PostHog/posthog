@@ -1,3 +1,4 @@
+import time
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
@@ -75,20 +76,38 @@ class SalesforceAuthRequestError(Exception):
         raise cls(error_message, response=response)
 
 
+# Salesforce serializes OAuth token requests per connected app: when a refresh for the same app
+# arrives while another is still in flight (parallel schema syncs sharing one connection commonly
+# do this), it rejects the duplicate with a 400 "token request is already being processed". The
+# lock clears in moments, so a short in-process backoff recovers without failing the whole import
+# activity — which would otherwise restart pagination and surface captured error-tracking noise.
+_TRANSIENT_TOKEN_REQUEST_ERROR = "token request is already being processed"
+_MAX_TOKEN_REFRESH_ATTEMPTS = 4
+
+
 def salesforce_refresh_access_token(refresh_token: str, instance_url: str) -> str:
-    res = make_tracked_session().post(
-        f"{instance_url}/services/oauth2/token",
-        data={
-            "grant_type": "refresh_token",
-            "client_id": settings.SALESFORCE_CONSUMER_KEY,
-            "client_secret": settings.SALESFORCE_CONSUMER_SECRET,
-            "refresh_token": refresh_token,
-        },
-    )
+    attempt = 0
+    while True:
+        res = make_tracked_session().post(
+            f"{instance_url}/services/oauth2/token",
+            data={
+                "grant_type": "refresh_token",
+                "client_id": settings.SALESFORCE_CONSUMER_KEY,
+                "client_secret": settings.SALESFORCE_CONSUMER_SECRET,
+                "refresh_token": refresh_token,
+            },
+        )
 
-    SalesforceAuthRequestError.raise_from_response(res)
+        try:
+            SalesforceAuthRequestError.raise_from_response(res)
+        except SalesforceAuthRequestError as err:
+            attempt += 1
+            if attempt >= _MAX_TOKEN_REFRESH_ATTEMPTS or _TRANSIENT_TOKEN_REQUEST_ERROR not in str(err):
+                raise
+            time.sleep(min(0.5 * attempt, 5))
+            continue
 
-    return res.json()["access_token"]
+        return res.json()["access_token"]
 
 
 def get_salesforce_access_token_from_code(code: str, redirect_uri: str, instance_url: str) -> tuple[str, str]:

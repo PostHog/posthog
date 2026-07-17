@@ -28,20 +28,41 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.types
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.workflow import (
     ErrorTrackingFingerprintEmbeddingResultWorkflow,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.health import (
-    HealthState,
-    start_health_server,
-)
+from products.warehouse_sources.backend.facade.pipelines import HealthState, start_health_server
 
 logger = structlog.get_logger(__name__)
 
+PREFERRED_EMBEDDING_MODEL = "text-embedding-3-large-3072"
+
 DEFAULT_CONSUMER_GROUP = "error-tracking-fingerprint-embedding-results"
 T = TypeVar("T")
+
+# Commit failures caused by a group rebalance: the partition was reassigned, so the
+# message will be redelivered to its new owner. Workflow starts are deduplicated by
+# workflow id, so redelivery is safe and these must not crash the consumer.
+_REBALANCE_COMMIT_ERROR_CODES = (
+    KafkaError.ILLEGAL_GENERATION,  # type: ignore[attr-defined]
+    KafkaError.UNKNOWN_MEMBER_ID,  # type: ignore[attr-defined]
+    KafkaError.REBALANCE_IN_PROGRESS,  # type: ignore[attr-defined]
+)
 
 
 async def _run_blocking_call(callback: Callable[[], T]) -> T:
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, callback)
+
+
+async def _commit_message(consumer: ConfluentConsumer, message: Message) -> None:
+    try:
+        await _run_blocking_call(lambda: consumer.commit(message=message, asynchronous=False))
+    except KafkaException as err:
+        error = err.args[0] if err.args and isinstance(err.args[0], KafkaError) else None
+        if error is None or error.code() not in _REBALANCE_COMMIT_ERROR_CODES:
+            raise
+        logger.warning(
+            "error_tracking.embedding_results_consumer.commit_failed_rebalance",
+            error=str(error),
+        )
 
 
 class FingerprintEmbeddingResultOutcome(StrEnum):
@@ -71,11 +92,11 @@ def _int_option(options: Mapping[str, object], key: str) -> int:
     raise TypeError(f"{key} must be an integer")
 
 
-def _success_model_names(results: object) -> list[str]:
+def _selected_model_name(results: object) -> str | None:
     if not isinstance(results, list):
-        return []
+        return None
 
-    model_names: list[str] = []
+    selected_model_name: str | None = None
     for result in results:
         if not isinstance(result, dict):
             continue
@@ -83,8 +104,32 @@ def _success_model_names(results: object) -> list[str]:
             continue
         model = result.get("model")
         if isinstance(model, str):
-            model_names.append(model)
-    return model_names
+            if model == PREFERRED_EMBEDDING_MODEL:
+                return model
+            selected_model_name = selected_model_name or model
+    return selected_model_name
+
+
+def _float_list(value: object) -> list[float] | None:
+    if not isinstance(value, list) or not value:
+        return None
+    try:
+        return [float(item) for item in value]
+    except (TypeError, ValueError):
+        return None
+
+
+def _success_embedding(results: object, model_name: str) -> list[float] | None:
+    if not isinstance(results, list):
+        return None
+
+    for result in results:
+        if not isinstance(result, dict) or result.get("outcome") != "success":
+            continue
+        model = result.get("model")
+        if model == model_name:
+            return _float_list(result.get("embedding"))
+    return None
 
 
 def fingerprint_embedding_result_inputs_from_message(value: bytes) -> FingerprintEmbeddingResultInputs | None:
@@ -99,7 +144,9 @@ def fingerprint_embedding_result_inputs_from_message(value: bytes) -> Fingerprin
     fingerprint = _string_value(data, "document_id")
     rendering = _string_value(data, "rendering")
     timestamp = _string_value(data, "timestamp")
-    model_names = _success_model_names(data.get("results"))
+    results = data.get("results")
+    model_name = _selected_model_name(results)
+    embedding = _success_embedding(results, model_name) if model_name is not None else None
 
     invalid_fields: list[str] = []
     if not isinstance(team_id, int):
@@ -110,12 +157,21 @@ def fingerprint_embedding_result_inputs_from_message(value: bytes) -> Fingerprin
         invalid_fields.append("rendering")
     if timestamp is None:
         invalid_fields.append("timestamp")
-    if not model_names:
+    if model_name is None:
         invalid_fields.append("results")
+    if embedding is None:
+        invalid_fields.append("embedding")
     if invalid_fields:
         raise ValueError(f"Invalid error tracking fingerprint embedding result message: {', '.join(invalid_fields)}")
 
-    if not isinstance(team_id, int) or fingerprint is None or rendering is None or timestamp is None:
+    if (
+        not isinstance(team_id, int)
+        or fingerprint is None
+        or rendering is None
+        or timestamp is None
+        or model_name is None
+        or embedding is None
+    ):
         raise AssertionError("validated embedding result fields were unexpectedly invalid")
 
     return FingerprintEmbeddingResultInputs(
@@ -123,7 +179,8 @@ def fingerprint_embedding_result_inputs_from_message(value: bytes) -> Fingerprin
         fingerprint=fingerprint,
         rendering=rendering,
         timestamp=timestamp,
-        model_names=model_names,
+        model_name=model_name,
+        embedding=embedding,
     )
 
 
@@ -291,18 +348,18 @@ class Command(BaseCommand):
         value = message.value()
         if value is None:
             logger.warning("error_tracking.embedding_results_consumer.empty_message")
-            await _run_blocking_call(lambda: consumer.commit(message=message, asynchronous=False))
+            await _commit_message(consumer, message)
             return
 
         try:
             outcome = await handle_embedding_result_message(temporal_client, value)
         except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as err:
             logger.warning("error_tracking.embedding_results_consumer.invalid_message", error=str(err))
-            await _run_blocking_call(lambda: consumer.commit(message=message, asynchronous=False))
+            await _commit_message(consumer, message)
             return
 
         logger.info(
             "error_tracking.embedding_results_consumer.message_processed",
             outcome=outcome,
         )
-        await _run_blocking_call(lambda: consumer.commit(message=message, asynchronous=False))
+        await _commit_message(consumer, message)

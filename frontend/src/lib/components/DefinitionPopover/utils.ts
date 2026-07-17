@@ -66,6 +66,7 @@ export function getSingularType(type: TaxonomicFilterGroupType): string {
         case TaxonomicFilterGroupType.SessionProperties:
             return 'property'
         case TaxonomicFilterGroupType.LogAttributes:
+        case TaxonomicFilterGroupType.MetricAttributes:
             return 'attribute'
         case TaxonomicFilterGroupType.EventFeatureFlags:
             return 'feature'

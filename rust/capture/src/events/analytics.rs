@@ -419,7 +419,6 @@ mod tests {
         sent_at: Option<OffsetDateTime>,
     ) -> ProcessingContext {
         ProcessingContext {
-            lib_version: None,
             user_agent: None,
             sent_at,
             token: "test_token".to_string(),

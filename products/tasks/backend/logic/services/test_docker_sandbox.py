@@ -1,11 +1,14 @@
 import os
+import shlex
 import subprocess
 from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.tasks.backend.exceptions import SandboxExecutionError
+from parameterized import parameterized
+
+from products.tasks.backend.exceptions import SandboxExecutionError, SandboxProvisionError
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
@@ -43,25 +46,46 @@ def is_ci() -> bool:
     return os.environ.get("GITHUB_ACTIONS") is not None or os.environ.get("CI") is not None
 
 
+class TestSandboxProviderGuard:
+    """The docker/modal_docker provider guards run at module import time. They must block
+    production (neither DEBUG nor TEST) but never trip test collection, where settings load
+    with DEBUG off but TEST on. No Docker daemon needed, so this runs in CI unlike the classes below."""
+
+    @parameterized.expand(
+        [
+            ("docker_production_blocked", "docker", False, False, True),
+            ("docker_local_dev_debug", "docker", True, False, False),
+            ("docker_test_context", "docker", False, True, False),
+            # MODAL_DOCKER blocked in production — the guard fires before the modal import.
+            ("modal_docker_production_blocked", "MODAL_DOCKER", False, False, True),
+        ]
+    )
+    @patch("products.tasks.backend.logic.services.sandbox.settings")
+    def test_provider_guard(self, _name, provider, debug, test, expect_raise, mock_settings):
+        mock_settings.SANDBOX_PROVIDER = provider
+        mock_settings.DEBUG = debug
+        mock_settings.TEST = test
+
+        if expect_raise:
+            with pytest.raises(RuntimeError, match="for local development only"):
+                get_sandbox_class()
+        else:
+            assert get_sandbox_class() is DockerSandbox
+
+    @patch("products.tasks.backend.logic.services.sandbox.settings")
+    def test_modal_evals_provider_uses_dedicated_app(self, mock_settings):
+        mock_settings.SANDBOX_PROVIDER = "MODAL_EVALS"
+        mock_settings.DEBUG = False
+        mock_settings.TEST = True
+
+        sandbox_class = get_sandbox_class()
+
+        assert getattr(sandbox_class, "DEFAULT_APP_NAME", None) == "posthog-sandbox-evals"
+
+
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")
 class TestSandboxFactory:
     """Tests for sandbox factory and production safety."""
-
-    @patch("products.tasks.backend.logic.services.sandbox.settings")
-    def test_docker_sandbox_blocked_in_production(self, mock_settings):
-        mock_settings.SANDBOX_PROVIDER = "docker"
-        mock_settings.DEBUG = False
-
-        with pytest.raises(RuntimeError, match="DockerSandbox cannot be used in production"):
-            get_sandbox_class()
-
-    @patch("products.tasks.backend.logic.services.sandbox.settings")
-    def test_docker_sandbox_opt_in_with_debug(self, mock_settings):
-        mock_settings.SANDBOX_PROVIDER = "docker"
-        mock_settings.DEBUG = True
-
-        sandbox_class = get_sandbox_class()
-        assert sandbox_class == DockerSandbox
 
     @patch("products.tasks.backend.logic.services.sandbox.settings")
     def test_modal_sandbox_default_in_debug(self, mock_settings):
@@ -171,6 +195,23 @@ class TestDockerSandboxUnit:
         assert "POSTHOG_TEAM_ID=1" in env_args
 
     @patch("products.tasks.backend.logic.services.docker_sandbox.subprocess.run")
+    def test_create_raises_clear_error_when_image_missing(self, mock_run):
+        # `docker image inspect` returns non-zero when the local-only sandbox image was
+        # never built. create() must fail with a clear SandboxProvisionError naming the
+        # image instead of letting `docker run` attempt an unpullable registry pull.
+        mock_run.return_value = MagicMock(stdout="", stderr="No such image", returncode=1)
+
+        config = SandboxConfig(name="test-sandbox", template=SandboxTemplate.DEFAULT_BASE)
+
+        with patch.object(DockerSandbox, "_get_image", return_value="posthog-sandbox-base"):
+            with pytest.raises(SandboxProvisionError) as exc:
+                DockerSandbox.create(config)
+
+        assert exc.value.context["image"] == "posthog-sandbox-base"
+        # Surfaced before `docker run` is ever attempted, so no doomed pull happens.
+        assert not any("run" in call.args[0] for call in mock_run.call_args_list)
+
+    @patch("products.tasks.backend.logic.services.docker_sandbox.subprocess.run")
     def test_get_status_running(self, mock_run):
         mock_run.return_value = MagicMock(stdout="true", returncode=0)
 
@@ -242,8 +283,6 @@ class TestDockerSandboxUnit:
         ],
     )
     def test_clone_repository_command_escaping(self, repository):
-        import shlex
-
         sandbox = DockerSandbox.__new__(DockerSandbox)
         sandbox._container_id = "abc123"
         sandbox.id = "abc123"
@@ -283,6 +322,20 @@ class TestDockerSandboxUnit:
                 assert expected_in_command in command
                 if not_expected_in_command:
                     assert not_expected_in_command not in command
+
+    def test_clone_repository_branch_flag(self):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        branch = "feature/branch; echo hacked"
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                sandbox.clone_repository("PostHog/posthog", github_token="test-token", branch=branch)
+                command = mock_execute.call_args[0][0]
+
+                assert f"--branch {shlex.quote(branch)}" in command
 
     @pytest.mark.parametrize(
         "repository,task_id,run_id,mode",
@@ -537,6 +590,7 @@ class TestDockerSandboxUnit:
                     provider="openai",
                     model="gpt-5.3-codex",
                     reasoning_effort="medium",
+                    initial_permission_mode="plan",
                     event_ingest_token="ingest-token",
                     event_ingest_url="http://localhost:8003",
                 )
@@ -546,9 +600,41 @@ class TestDockerSandboxUnit:
         assert "POSTHOG_CODE_PROVIDER=openai" in command
         assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command
         assert "POSTHOG_CODE_REASONING_EFFORT=medium" in command
+        assert "POSTHOG_CODE_INITIAL_PERMISSION_MODE=plan" in command
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=ingest-token" in command
         # The host proxy URL is rewritten so it resolves from inside the container.
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_URL=http://host.docker.internal:8003" in command
+
+    @pytest.mark.parametrize(
+        "keep_stream_open, expected_env_present",
+        [
+            (True, True),
+            (False, False),
+        ],
+    )
+    def test_start_agent_server_keep_stream_open_env(self, keep_stream_open, expected_env_present):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._host_port = 12345
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                mock_execute.return_value = ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None)
+                sandbox.start_agent_server(
+                    "posthog/posthog",
+                    "task-123",
+                    "run-456",
+                    "background",
+                    event_ingest_keep_stream_open=keep_stream_open,
+                )
+
+        command = _agent_server_launch_command(mock_execute)
+        if expected_env_present:
+            assert "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN=true" in command
+        else:
+            assert "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN" not in command
 
 
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")

@@ -5,7 +5,7 @@ import { FragileSelectorResult } from './utils/selectorQuality'
 export type ElementsEventType = {
     count: number
     elements: ElementType[]
-    hash: string
+    hash: string | null
     type: '$autocapture' | '$rageclick'
 }
 
@@ -38,7 +38,7 @@ export interface CountedHTMLElement {
     rageclickCount: number
     deadclickCount: number
     element: HTMLElement
-    hash: string
+    hash: string | null
     selector: string
     position?: number
     actionStep?: ActionStepType

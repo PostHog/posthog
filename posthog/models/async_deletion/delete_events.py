@@ -6,6 +6,8 @@ from prometheus_client import Counter
 from posthog.clickhouse.client import sync_execute
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.async_deletion.delete import AsyncDeletionProcess, logger
+from posthog.models.event.deletion import events_data_tables_via_sync_execute, events_read_tables_via_sync_execute
+from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
 logger.setLevel("DEBUG")
@@ -49,26 +51,18 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             },
         )
 
-        query = "SELECT 1"
-        conditions, args = [], {}
-        for i, deletion in enumerate(deletions):
-            condition, arg = self._condition(deletion, str(i))
+        # Deletions must land on every physical events table (legacy + native-JSON) or the
+        # tables diverge while both exist.
+        event_tables = events_data_tables_via_sync_execute()
 
-            conditions.append(condition)
-            args.update(arg)
-
-            # Get estimated  byte size of the query
-            str_predicate = " OR ".join(conditions)
-            query = f"DELETE FROM sharded_events ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE {str_predicate}"
-            query_size = len(query.encode("utf-8"))
-
-            logger.debug(f"Query size: {query_size}")
-            logger.debug(f"Query: {query}")
-            logger.debug(f"Query deletions: {deletions}")
-
-            # If the query size is greater than the max predicate size, execute the query and reset the query predicate
-            if query_size > MAX_QUERY_SIZE:
-                logger.debug(f"Executing query with args: {args}")
+        def run_batch(batch: list[tuple[str, AsyncDeletion]], args: dict, swallow_timeouts: bool) -> None:
+            # The predicate is rebuilt per table: group deletions reference the `$group_N` column,
+            # which is MATERIALIZED on the legacy table but an ALIAS on the JSON table — and
+            # mutations cannot reference ALIAS columns, so the JSON table reads the subcolumn.
+            for table in event_tables:
+                conditions = [self._condition(deletion, suffix, table=table)[0] for suffix, deletion in batch]
+                query = f"DELETE FROM {table} ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE {' OR '.join(conditions)}"
+                logger.debug(f"Executing query: {query} with args: {args}")
                 try:
                     sync_execute(
                         query,
@@ -76,22 +70,37 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                         settings={},
                     )
                 except SocketTimeoutError:
+                    if not swallow_timeouts:
+                        raise
                     # This is unfortunately needed because currently all lightweight deletes are executed sync
                     logger.warning(
                         "ClickHouse query timed out during async deletion. This is expected. Continuing with next batch.",
                         exc_info=True,
                     )
 
-                conditions, args = [], {}
+        batch, conditions, args = [], [], {}
+        for i, deletion in enumerate(deletions):
+            condition, arg = self._condition(deletion, str(i))
 
-        logger.debug(f"Executing query with args: {args}")
+            batch.append((str(i), deletion))
+            conditions.append(condition)
+            args.update(arg)
+
+            # Get estimated byte size of the query
+            str_predicate = " OR ".join(conditions)
+            query_size = len(
+                f"DELETE FROM sharded_events ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE {str_predicate}".encode()
+            )
+            logger.debug(f"Query size: {query_size}")
+
+            # If the query size is greater than the max predicate size, execute the query and reset the query predicate
+            if query_size > MAX_QUERY_SIZE:
+                run_batch(batch, args, swallow_timeouts=True)
+                batch, conditions, args = [], [], {}
 
         # This is the default condition if we don't hit the MAX_QUERY_SIZE
-        sync_execute(
-            query,
-            args,
-            settings={},
-        )
+        if batch:
+            run_batch(batch, args, swallow_timeouts=False)
 
         # Team data needs to be deleted from other models as well, groups/persons handles deletions on a schema level
         team_deletions = [row for row in deletions if row.deletion_type == DeletionType.Team]
@@ -129,26 +138,33 @@ class AsyncEventDeletion(AsyncDeletionProcess):
 
     def _verify_by_column(self, distinct_columns: str, async_deletions: list[AsyncDeletion]) -> set[tuple[Any, ...]]:
         conditions, args = self._conditions(async_deletions)
-        # nosemgrep: clickhouse-fstring-param-audit - distinct_columns hardcoded, conditions internal
-        clickhouse_result = sync_execute(
-            f"""
-            SELECT DISTINCT {distinct_columns}
-            FROM events
-            WHERE {" OR ".join(conditions)}
-            """,
-            args,
-            settings={"max_execution_time": MAX_SELECT_EXECUTION_TIME},
-        )
-        return {tuple(row) for row in clickhouse_result}
+        # A deletion is only verified once the rows are gone from every events table.
+        rows_with_data: set[tuple[Any, ...]] = set()
+        for table in events_read_tables_via_sync_execute():
+            # nosemgrep: clickhouse-fstring-param-audit - distinct_columns hardcoded, conditions internal
+            clickhouse_result = sync_execute(
+                f"""
+                SELECT DISTINCT {distinct_columns}
+                FROM {table}
+                WHERE {" OR ".join(conditions)}
+                """,
+                args,
+                settings={"max_execution_time": MAX_SELECT_EXECUTION_TIME},
+            )
+            rows_with_data.update(tuple(row) for row in clickhouse_result)
+        return rows_with_data
 
-    def _column_name(self, async_deletion: AsyncDeletion):
+    def _column_name(self, async_deletion: AsyncDeletion, table: str | None = None):
         assert async_deletion.deletion_type in (DeletionType.Person, DeletionType.Group)
         if async_deletion.deletion_type == DeletionType.Person:
             return "person_id"
-        else:
-            return f"$group_{async_deletion.group_type_index}"
+        if table == EVENTS_JSON_DATA_TABLE:
+            # `$group_N` is an ALIAS column on the JSON data table and mutations cannot reference
+            # ALIAS columns — read the backing JSON subcolumn directly instead.
+            return f"ifNull(properties.`$group_{async_deletion.group_type_index}`, '')"
+        return f"$group_{async_deletion.group_type_index}"
 
-    def _condition(self, async_deletion: AsyncDeletion, suffix: str) -> tuple[str, dict]:
+    def _condition(self, async_deletion: AsyncDeletion, suffix: str, table: str | None = None) -> tuple[str, dict]:
         if async_deletion.deletion_type == DeletionType.Team:
             return f"team_id = %(team_id{suffix})s", {f"team_id{suffix}": async_deletion.team_id}
         elif async_deletion.deletion_type == DeletionType.Person:
@@ -156,7 +172,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             # for deletion. For that reason we only delete events that happened up to the point when
             # the delete was requested.
             return (
-                f"(team_id = %(team_id{suffix})s AND {self._column_name(async_deletion)} = %(key{suffix})s) AND _timestamp <= %(timestamp{suffix})s",
+                f"(team_id = %(team_id{suffix})s AND {self._column_name(async_deletion, table)} = %(key{suffix})s) AND _timestamp <= %(timestamp{suffix})s",
                 {
                     f"team_id{suffix}": async_deletion.team_id,
                     f"key{suffix}": async_deletion.key,
@@ -165,7 +181,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             )
         else:
             return (
-                f"(team_id = %(team_id{suffix})s AND {self._column_name(async_deletion)} = %(key{suffix})s)",
+                f"(team_id = %(team_id{suffix})s AND {self._column_name(async_deletion, table)} = %(key{suffix})s)",
                 {
                     f"team_id{suffix}": async_deletion.team_id,
                     f"key{suffix}": async_deletion.key,

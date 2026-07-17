@@ -1,11 +1,14 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 import duckdb
 from parameterized import parameterized
 
 from posthog.ducklake.common import (
     DucklingBackfillEnableError,
+    default_bucket_region,
     enable_team_backfill,
     get_team_backfill_state,
     initialize_ducklake,
@@ -141,6 +144,20 @@ class TestGetTeamBackfillState:
         team = self._server_team(table_suffix="prod")
 
         assert get_team_backfill_state(team.id) == {"has_backfill": True, "table_suffix": "prod"}
+
+
+class TestDefaultBucketRegion:
+    @parameterized.expand(
+        [
+            ("unset", None, "us-east-1"),
+            ("us", "US", "us-east-1"),
+            ("eu", "EU", "eu-central-1"),
+            ("dev", "DEV", "us-east-1"),
+        ]
+    )
+    def test_region_follows_cloud_deployment(self, _name, deployment, expected):
+        with override_settings(CLOUD_DEPLOYMENT=deployment):
+            assert default_bucket_region() == expected
 
 
 TEST_CONFIG = {

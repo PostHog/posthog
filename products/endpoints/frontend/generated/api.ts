@@ -11,6 +11,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     EndpointLastExecutionTimesRequestApi,
     EndpointMaterializationApi,
+    EndpointMaterializationConditionsApi,
+    EndpointMaterializationSuggestionApi,
+    EndpointMaterializationSuggestionRequestApi,
     EndpointRequestApi,
     EndpointResponseApi,
     EndpointRunRequestApi,
@@ -218,6 +221,30 @@ export const endpointsMaterializationStatusRetrieve = async (
     })
 }
 
+export const getEndpointsMaterializationSuggestionCreateUrl = (projectId: string, name: string) => {
+    return `/api/projects/${projectId}/endpoints/${name}/materialization_suggestion/`
+}
+
+/**
+ * Ask AI to rewrite the endpoint's query into a semantically equivalent form that can be materialized. Only applicable to SQL (HogQL) endpoints that currently fail the materialization checks. The suggestion is validated against the live checks before being returned; nothing is saved. Requires the organization's AI data processing approval.
+ */
+export const endpointsMaterializationSuggestionCreate = async (
+    projectId: string,
+    name: string,
+    endpointMaterializationSuggestionRequestApi?: EndpointMaterializationSuggestionRequestApi,
+    options?: RequestInit
+): Promise<EndpointMaterializationSuggestionApi> => {
+    return apiMutator<EndpointMaterializationSuggestionApi>(
+        getEndpointsMaterializationSuggestionCreateUrl(projectId, name),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(endpointMaterializationSuggestionRequestApi),
+        }
+    )
+}
+
 export const getEndpointsOpenapiSpecRetrieveUrl = (
     projectId: string,
     name: string,
@@ -341,4 +368,24 @@ export const endpointsLastExecutionTimesCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(endpointLastExecutionTimesRequestApi),
     })
+}
+
+export const getEndpointsMaterializationConditionsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/endpoints/materialization_conditions/`
+}
+
+/**
+ * Get the source code of the live materialization checks, plus the rewrite contract. Lets an agent rewrite a rejected endpoint query itself: fetch these conditions, produce a semantically equivalent query that passes every check, update the endpoint with it, then confirm via materialization_status. The source is read from the running system, so it always matches the checks this instance enforces.
+ */
+export const endpointsMaterializationConditionsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<EndpointMaterializationConditionsApi> => {
+    return apiMutator<EndpointMaterializationConditionsApi>(
+        getEndpointsMaterializationConditionsRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }

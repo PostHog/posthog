@@ -22,7 +22,7 @@ describe('createApplyEventRestrictionsStep', () => {
 
         routingConfig = {
             preservePartitionLocality: true,
-            overflowEnabled: true,
+            overflowMode: 'redirect',
         }
 
         step = createApplyEventRestrictionsStep(eventIngestionRestrictionManager, routingConfig)
@@ -310,7 +310,7 @@ describe('createApplyEventRestrictionsStep', () => {
         it('returns success when overflow is disabled', async () => {
             const disabledConfig: RoutingConfig = {
                 ...routingConfig,
-                overflowEnabled: false,
+                overflowMode: 'disabled',
             }
             const disabledStep = createApplyEventRestrictionsStep(eventIngestionRestrictionManager, disabledConfig)
 

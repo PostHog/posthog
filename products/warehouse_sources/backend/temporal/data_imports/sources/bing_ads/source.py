@@ -1,11 +1,13 @@
 from typing import Optional, cast
 
+from django.conf import settings
+
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SuggestedTable,
 )
@@ -24,6 +26,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -32,12 +38,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 from .bing_ads import bing_ads_source, get_incremental_fields, get_schemas
+from .client import BingAdsClient
 from .utils import BingAdsResumeConfig
 
 
 @SourceRegistry.register
 class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], OAuthMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v13",)
+    default_version = "v13"
+    api_docs_url = "https://learn.microsoft.com/en-us/advertising/guides/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -73,6 +83,14 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
         )
         return {
             "AADSTS650052": service_principal_friendly,
+            # PostHog's own Azure AD application secret (BING_ADS_CLIENT_SECRET) is invalid or expired —
+            # Microsoft rejects the token request with AADSTS7000215 for the app itself, not the connected
+            # account. Reconnecting the integration can't fix it; only rotating PostHog's app secret can, so
+            # this is internal config (None message), not customer-actionable. Wrapped by the SDK as
+            # `OAuthTokenRequestException: invalid_client AADSTS7000215: …`, so it shares those two generic
+            # substrings — it must precede both so handle_non_retryable doesn't surface the misleading
+            # "reconnect your integration" message.
+            "AADSTS7000215": None,
             # OAuth grant rejection by Microsoft (the bingads SDK raises OAuthTokenRequestException
             # whose str() format is "<error_code> <error_description>").
             "OAuthTokenRequestException": auth_friendly,
@@ -134,25 +152,25 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             keywords=["microsoft ads", "microsoft advertising"],
             label="Bing Ads",
             caption="Ensure you have granted PostHog access to your Bing Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/bing-ads).",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/bing-ads.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/bing-ads",
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="account_id",
-                        label="Account ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="",
-                        secret=False,
-                    ),
+                    # OAuth first: the account dropdown below is populated from this integration.
                     SourceFieldOauthConfig(
                         name="bing_ads_integration_id",
                         label="Bing Ads account",
                         required=True,
                         kind="bing-ads",
+                    ),
+                    SourceFieldOauthAccountSelectConfig(
+                        name="account_id",
+                        label="Account ID",
+                        integrationField="bing_ads_integration_id",
+                        integrationKind="bing-ads",
+                        required=True,
                     ),
                 ],
             ),
@@ -191,6 +209,56 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
                 return False, "Bing Ads integration not found. Please reconnect your Bing Ads integration."
             capture_exception(e)
             return False, f"Failed to validate Bing Ads credentials: {str(e)}"
+
+    def _actionable_listing_message(self, error: str) -> str | None:
+        """Map a wrapped list_accounts error to the friendly, customer-actionable message for it, or
+        None if it isn't a known auth/credential failure (so it stays a 500). Reuses the non-retryable
+        catalog — entries with a None friendly message are internal config issues, not user-actionable."""
+        for substring, friendly in self.get_non_retryable_errors().items():
+            if friendly is not None and substring in error:
+                return friendly
+        return None
+
+    def get_oauth_accounts(
+        self, integration_id: int, team_id: int, search: str | None = None
+    ) -> list[IntegrationAccount]:
+        # Bing accounts are few, so `search` is ignored here and the endpoint filters the returned list.
+        try:
+            integration = self.get_oauth_integration(integration_id, team_id)
+        except ValueError as e:
+            # get_oauth_integration raises ValueError for a missing/foreign integration id — an
+            # actionable customer-side state (deleted/disconnected), not a server bug.
+            raise IntegrationAccountListingError(
+                "The linked Bing Ads integration could not be found. Please reconnect your Bing Ads integration."
+            ) from e
+
+        if not settings.BING_ADS_DEVELOPER_TOKEN:
+            raise ValueError("Bing Ads developer token not configured")
+        if not integration.access_token:
+            raise IntegrationAccountListingError(
+                "Bing Ads access token not found. Please reconnect your Bing Ads integration."
+            )
+        if not integration.refresh_token:
+            raise IntegrationAccountListingError(
+                "Bing Ads refresh token not found. Please reconnect your Bing Ads integration."
+            )
+
+        client = BingAdsClient(
+            access_token=integration.access_token,
+            refresh_token=integration.refresh_token,
+            developer_token=settings.BING_ADS_DEVELOPER_TOKEN,
+        )
+        try:
+            return client.list_accounts()
+        except ValueError as e:
+            # list_accounts funnels SDK errors through _wrap_with_fault_detail, which preserves the
+            # underlying type/message inside a ValueError. Match the known auth/credential failures
+            # (same substrings the retry classifier uses) and surface them as an actionable 400; let
+            # anything else propagate as a 500 so genuine bugs aren't masked as bad user input.
+            friendly = self._actionable_listing_message(str(e))
+            if friendly is not None:
+                raise IntegrationAccountListingError(friendly) from e
+            raise
 
     def get_schemas(
         self,

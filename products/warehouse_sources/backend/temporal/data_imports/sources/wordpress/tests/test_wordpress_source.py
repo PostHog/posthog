@@ -51,7 +51,7 @@ class TestWordpressSource:
         assert pass_field.required is False
         assert pass_field.secret is True
 
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error"])
+    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error", "404 Client Error"])
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
 

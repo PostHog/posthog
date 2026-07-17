@@ -27,9 +27,8 @@ mod select;
 mod template;
 
 use bp::{
-    build_infix, fold_call_or_exprcall, infix_bp, postfix_bp, BP_ADDITIVE, BP_ALIAS, BP_BETWEEN,
-    BP_COMPARE, BP_IGNORE_NULLS, BP_IS_DISTINCT_FROM, BP_IS_NULL, BP_MULT, BP_NOT, BP_OR,
-    BP_POSTFIX, BP_TERNARY, BP_UNARY_MINUS,
+    build_infix, fold_call_or_exprcall, infix_bp, postfix_bp, BP_ALIAS, BP_BETWEEN, BP_COMPARE,
+    BP_IGNORE_NULLS, BP_IS_DISTINCT_FROM, BP_IS_NULL, BP_MULT, BP_NOT, BP_TERNARY, BP_UNARY_MINUS,
 };
 use template::parse_template_body;
 
@@ -195,15 +194,11 @@ pub(crate) struct Parser<'a, E: Emitter = JsonEmitter> {
     /// position. None outside such a construct. Saved/restored across
     /// nesting.
     pub(crate) cast_as_stop: Option<usize>,
-    /// Depth tracker for nested `parse_between_body` calls. Used to
-    /// switch arm ordering: the outermost call uses WIDE-first
-    /// (consuming all in-between tokens greedy so split can find the
-    /// rightmost AND), but nested calls switch to NARROW-first so an
-    /// inner BETWEEN's body parse doesn't over-consume the outer's
-    /// trailing ternary / AND / etc. Mirrors cpp's ANTLR left-recursive
-    /// expansion where each nested BETWEEN matches the SHORTEST body
-    /// that lets the outer rule succeed.
-    pub(crate) between_body_depth: u32,
+    /// Set by the AS-alias infix arm and read (and reset) at the top of the next
+    /// Pratt-loop iteration. A bare alias sits in the loosest grammar tier, so only
+    /// an outer-tier operator (`AND`/`OR`/ternary/chained `AS`) may bind to it; a
+    /// value-tier operator terminates the expression. Guards `1 AS x + 2` etc.
+    pub(crate) after_bare_alias: bool,
     /// When set, `parse_trailing_set_decorators` skips a trailing
     /// `ORDER BY` at the selectSetStmt-wrapper level. Used by
     /// `parse_call_argument_select` so that for inputs like
@@ -351,7 +346,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             peek1,
             last_consumed_end: pos,
             cast_as_stop: None,
-            between_body_depth: 0,
+            after_bare_alias: false,
             suppress_setstmt_trailing_order_by: false,
             suppress_array_join_checks: false,
             suppress_unvisited_clause_checks: false,
@@ -603,6 +598,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             pos: self.peek0.start,
             last_consumed_end: self.last_consumed_end,
             cast_as_stop: self.cast_as_stop,
+            after_bare_alias: self.after_bare_alias,
         }
     }
 
@@ -612,6 +608,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         self.set_lexer_pos(c.pos)?;
         self.last_consumed_end = c.last_consumed_end;
         self.cast_as_stop = c.cast_as_stop;
+        self.after_bare_alias = c.after_bare_alias;
         Ok(())
     }
 
@@ -731,6 +728,7 @@ pub(crate) struct Checkpoint {
     pos: usize,
     last_consumed_end: usize,
     cast_as_stop: Option<usize>,
+    after_bare_alias: bool,
 }
 
 // Per-section method bodies live in the submodules:
@@ -1399,15 +1397,18 @@ pub(crate) fn interval_call_name(unit: &str) -> Option<&'static str> {
 /// (`INTERVAL 5 SECOND`) uses the case-insensitive helper because
 /// keywords come from the lexer (which is case-insensitive).
 pub(crate) fn interval_call_name_case_sensitive(unit: &str) -> Option<&'static str> {
-    match unit.trim_end_matches('s') {
-        "second" => Some("toIntervalSecond"),
-        "minute" => Some("toIntervalMinute"),
-        "hour" => Some("toIntervalHour"),
-        "day" => Some("toIntervalDay"),
-        "week" => Some("toIntervalWeek"),
-        "month" => Some("toIntervalMonth"),
-        "quarter" => Some("toIntervalQuarter"),
-        "year" => Some("toIntervalYear"),
+    // cpp matches each unit against exactly its singular OR single-`s` plural.
+    // `trim_end_matches('s')` would strip *every* trailing `s`, over-accepting
+    // doubled plurals (`dayss`, `secondss`) that cpp rejects.
+    match unit {
+        "second" | "seconds" => Some("toIntervalSecond"),
+        "minute" | "minutes" => Some("toIntervalMinute"),
+        "hour" | "hours" => Some("toIntervalHour"),
+        "day" | "days" => Some("toIntervalDay"),
+        "week" | "weeks" => Some("toIntervalWeek"),
+        "month" | "months" => Some("toIntervalMonth"),
+        "quarter" | "quarters" => Some("toIntervalQuarter"),
+        "year" | "years" => Some("toIntervalYear"),
         _ => None,
     }
 }

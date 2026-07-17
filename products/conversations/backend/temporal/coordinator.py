@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+if TYPE_CHECKING:
+    from posthog.models import Team
+
 with workflow.unsafe.imports_passed_through():
+    from django.db.models import Q
     from django.utils import timezone
 
     import structlog
@@ -20,12 +25,24 @@ with workflow.unsafe.imports_passed_through():
 
     from products.business_knowledge.backend.logic import has_ready_sources
     from products.conversations.backend.models import Ticket
+    from products.conversations.backend.models.constants import Status
     from products.conversations.backend.temporal.pipeline import SupportReplyInput, SupportReplyWorkflow
 
 logger = structlog.get_logger(__name__)
 
 COORDINATOR_INTERVAL_MINUTES = 1
-TICKET_LOOKBACK_MINUTES = 2
+
+# Settle/debounce window: don't draft until the customer has been quiet (no new message) for this
+# long. Lets someone raise a ticket and immediately fire off 1-2 follow-ups without the AI drafting
+# off only the first message. The reference is max(ticket.created_at, latest customer comment), so a
+# brand-new ticket also waits this long before its first draft — the latency we trade for completeness.
+TICKET_SETTLE_MINUTES = 1
+
+# Scan window. Keyed on last_message_at (the same axis the settle gate uses), so a ticket stays
+# eligible until SETTLE after its *last* customer message, regardless of how long ago it was created
+# — a late follow-up can't push the settle deadline past the scan window and silently drop the
+# ticket. Only needs to exceed SETTLE + interval + a little slack for a slow tick.
+TICKET_LOOKBACK_MINUTES = 5
 
 # Fanout caps so public ticket volume can't directly turn into unbounded sandbox/LLM work.
 # A single opted-in team that gets flooded with externally-created tickets can only spend
@@ -35,7 +52,6 @@ MAX_TICKETS_PER_TEAM_PER_RUN = 10
 MAX_TICKETS_PER_RUN = 50
 
 MASTER_FLAG = "product-support-ai-suggestion"
-ROLLOUT_FLAG = "product-support-ai-suggestion-rollout"
 
 # Minimum number of READY BK sources required before the coordinator will draft replies.
 # Set to 0 locally to skip the BK readiness check entirely.
@@ -65,35 +81,50 @@ class CollectEligibleTicketsOutput:
     tickets: list[EligibleTicket]
 
 
-def _is_master_flag_enabled(team_id: int) -> bool:
-    return bool(
-        posthoganalytics.feature_enabled(
-            MASTER_FLAG,
-            str(team_id),
+def _is_master_flag_enabled(team: Team) -> bool:
+    # The flag is targeted by project group; release conditions can match on the project's `uuid`,
+    # so it must be in group_properties — the headless worker only sends what's listed here (unlike
+    # posthog-js, which auto-attaches full group properties). Without it a uuid filter never matches.
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                MASTER_FLAG,
+                str(team.uuid),
+                groups={"organization": str(team.organization_id), "project": str(team.id)},
+                group_properties={
+                    "organization": {"id": str(team.organization_id)},
+                    "project": {"id": str(team.id), "uuid": str(team.uuid)},
+                },
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
         )
-    )
-
-
-def _is_rollout_enabled(ticket_id: str) -> bool:
-    return bool(
-        posthoganalytics.feature_enabled(
-            ROLLOUT_FLAG,
-            ticket_id,
-        )
-    )
+    except Exception:
+        # A flag-service blip must skip the ticket, not throw inside the scan loop and fail the
+        # whole coordinator tick. Fail closed: treat as disabled.
+        logger.warning("support_reply coordinator: master flag eval failed", team_id=team.id, exc_info=True)
+        return False
 
 
 def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[EligibleTicket]:
     """Sync DB scan for eligible tickets. Runs in a worker thread."""
-    cutoff = timezone.now() - timedelta(minutes=lookback_minutes)
-    recent_tickets = Ticket.objects.filter(created_at__gte=cutoff).select_related("team__organization")
+    now = timezone.now()
+    cutoff = now - timedelta(minutes=lookback_minutes)
+    # last_message_at is the debounce axis; fall back to created_at for tickets whose denormalized
+    # timestamp hasn't landed yet (set via a post-commit signal, so there's a brief null window).
+    recent_tickets = Ticket.objects.filter(
+        Q(last_message_at__gte=cutoff) | Q(last_message_at__isnull=True, created_at__gte=cutoff),
+        status__in=[Status.NEW, Status.OPEN],
+    ).select_related("team__organization")
 
-    # First pass: the cheap per-ticket gates that don't touch the comments table.
-    candidates: list[tuple[int, str]] = []
+    # First pass: the cheap per-ticket gates that don't touch the comments table. We keep
+    # created_at around so a ticket with no customer comments yet still settles from its own
+    # creation time (the initial message), not just from follow-up comments.
+    candidates: list[tuple[int, str, datetime]] = []
     for ticket in recent_tickets:
         team = ticket.team
 
-        if not _is_master_flag_enabled(team.id):
+        if not _is_master_flag_enabled(team):
             continue
 
         settings_dict = team.conversations_settings or {}
@@ -110,43 +141,54 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
         if MIN_READY_BK_SOURCES > 0 and not has_ready_sources(team.id):
             continue
 
-        candidates.append((team.id, str(ticket.id)))
+        candidates.append((team.id, str(ticket.id), ticket.created_at))
 
     if not candidates:
         return []
 
-    # Dedupe in one query per team instead of two `.exists()` round-trips per ticket. A ticket
-    # is "already engaged" iff it has any comment that isn't from the customer: our own AI note
-    # ("AI") or a human/team reply ("support"/"team", or "human" from the compose flow). Keying
-    # the query on (team_id, scope, item_id) keeps it on the matching index.
+    # One comment query per team instead of round-trips per ticket. Two things come out of it:
+    #   1. Dedupe: a ticket is "already engaged" iff it has any non-customer comment — our own AI
+    #      note ("AI") or a human/team reply ("support"/"team"/"human"). Those are excluded below.
+    #   2. Settle/debounce: the latest customer comment timestamp per ticket. Since engaged tickets
+    #      are dropped anyway, for everything we actually consider the latest customer comment is
+    #      simply the latest message on the ticket. Keying on (team_id, scope, item_id) hits the index.
     by_team: dict[int, list[str]] = {}
-    for team_id, ticket_id_str in candidates:
+    for team_id, ticket_id_str, _created_at in candidates:
         by_team.setdefault(team_id, []).append(ticket_id_str)
 
     engaged: set[str] = set()
+    latest_customer_msg: dict[str, datetime] = {}
     for team_id, ticket_ids in by_team.items():
-        for item_id, author_type in Comment.objects.filter(
+        for item_id, author_type, comment_created_at in Comment.objects.filter(
             team_id=team_id,
             scope="conversations_ticket",
             item_id__in=ticket_ids,
-        ).values_list("item_id", "item_context__author_type"):
+        ).values_list("item_id", "item_context__author_type", "created_at"):
             if author_type != "customer":
                 engaged.add(item_id)
+                continue
+            prev = latest_customer_msg.get(item_id)
+            if prev is None or comment_created_at > prev:
+                latest_customer_msg[item_id] = comment_created_at
 
-    # Rollout is sampled last (after the cheap gates and dedupe) so we don't burn the bucket on
-    # tickets that were never going to run. Per-team and global caps bound how many child
-    # workflows a single tick can fan out so externally-created ticket volume can't directly
-    # translate into unbounded LLM work; overflow rolls to the next tick (still in lookback).
+    # Per-team and global caps bound how many child workflows a single tick can fan out so
+    # externally-created ticket volume can't directly translate into unbounded LLM work; overflow
+    # rolls to the next tick (still in lookback).
+    settle_cutoff = now - timedelta(minutes=TICKET_SETTLE_MINUTES)
     eligible: list[EligibleTicket] = []
     per_team_counts: dict[int, int] = {}
-    for team_id, ticket_id_str in candidates:
+    for team_id, ticket_id_str, created_at in candidates:
         if len(eligible) >= MAX_TICKETS_PER_RUN:
             break
         if ticket_id_str in engaged:
             continue
-        if per_team_counts.get(team_id, 0) >= MAX_TICKETS_PER_TEAM_PER_RUN:
+        # Settle: wait until the customer has gone quiet. Reference is the most recent customer
+        # activity — max(ticket creation, latest customer comment). If that's newer than the
+        # cutoff the ticket is still settling; skip it and let a later tick pick it up.
+        last_activity = max(created_at, latest_customer_msg.get(ticket_id_str, created_at))
+        if last_activity > settle_cutoff:
             continue
-        if not _is_rollout_enabled(ticket_id_str):
+        if per_team_counts.get(team_id, 0) >= MAX_TICKETS_PER_TEAM_PER_RUN:
             continue
         per_team_counts[team_id] = per_team_counts.get(team_id, 0) + 1
         eligible.append(EligibleTicket(team_id=team_id, ticket_id=ticket_id_str))
@@ -169,11 +211,10 @@ class SupportReplyCoordinatorWorkflow:
 
     Dispatch is fire-and-forget via ParentClosePolicy.ABANDON. Child workflow IDs are
     deterministic per ticket (`support-reply-<ticket_id>`), so the same ticket can't be drafted
-    twice while a run is in flight (the lookback window of 6m intentionally overlaps the 5m
-    schedule interval): a running child conflicts on its id before its AI note lands and the DB
-    dedupe can see it. ALLOW_DUPLICATE_FAILED_ONLY still lets a later tick retry a ticket whose
-    prior pipeline run failed. ScheduleOverlapPolicy.SKIP only guards against a slow tick
-    overlapping the next one.
+    twice while a run is in flight (the lookback window intentionally overlaps the schedule
+    interval): a running child conflicts on its id before its AI note lands and the DB dedupe can
+    see it. ALLOW_DUPLICATE_FAILED_ONLY still lets a later tick retry a ticket whose prior pipeline
+    run failed. ScheduleOverlapPolicy.SKIP only guards against a slow tick overlapping the next one.
     """
 
     @staticmethod

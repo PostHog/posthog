@@ -3,10 +3,14 @@ import { Message } from 'node-rdkafka'
 import { DlqOutput, IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { ingestionPipelineResultCounter } from '~/ingestion/common/event-pipeline/metrics'
-import { logDroppedMessage, produceMessageToDLQ, redirectMessageToOutput } from '~/ingestion/common/pipeline-helpers'
+import { ingestionPipelineResultCounter } from '~/ingestion/common/metrics'
+import {
+    logDroppedMessage,
+    produceMessageToDLQ,
+    redirectMessageToOutput,
+} from '~/ingestion/framework/result-handling-helpers'
 
-import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
+import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import {
     PipelineResult,
     PipelineResultRedirect,
@@ -23,7 +27,7 @@ export type PipelineConfig<R extends string = never> = {
 }
 
 /**
- * Unified result handling pipeline that wraps any BatchProcessingPipeline and handles
+ * Unified result handling pipeline that wraps any chunk-processing pipeline and handles
  * non-success results (DLQ, DROP, REDIRECT) by adding side effects.
  *
  * The redirect type R flows through — redirect results are kept in the output
@@ -35,10 +39,10 @@ export class ResultHandlingPipeline<
     CInput extends { message: Message },
     COutput extends { message: Message } = CInput,
     R extends string = never,
-> implements BatchPipeline<TInput, TOutput, CInput, COutput, R>
+> implements ChunkPipeline<TInput, TOutput, CInput, COutput, R>
 {
     constructor(
-        private pipeline: BatchPipeline<TInput, TOutput, CInput, COutput, R>,
+        private pipeline: ChunkPipeline<TInput, TOutput, CInput, COutput, R>,
         private config: PipelineConfig<R>
     ) {}
 
@@ -46,14 +50,14 @@ export class ResultHandlingPipeline<
         this.pipeline.feed(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput, R> | null> {
+    async next(): Promise<ChunkPipelineResultWithContext<TOutput, COutput, R> | null> {
         const results = await this.pipeline.next()
 
         if (results === null) {
             return null
         }
 
-        const processedResults: BatchPipelineResultWithContext<TOutput, COutput, R> = []
+        const processedResults: ChunkPipelineResultWithContext<TOutput, COutput, R> = []
 
         for (const resultWithContext of results) {
             const stepName = resultWithContext.context.lastStep || 'unknown'

@@ -35,15 +35,12 @@ def execute_bridge_query(query: str, team_id: int, client_query_id: str | None =
         ),
     )
 
-    if hasattr(response, "model_dump"):
-        payload = response.model_dump(exclude_none=True)
-    else:
-        payload = response.dict(exclude_none=True)
-
-    # TODO: Why are we reinventing the wheel here?
-    # Allow-list the response shape so user code never sees internal fields.
+    # Deliberate allow-list off the typed response: HogQLQueryResponse also carries
+    # internal fields (hogql, the ClickHouse query, explain, timings) that sandbox
+    # user code must never see. Read the three presentation fields by name rather
+    # than dumping the whole model and re-picking string keys.
     return {
-        "columns": payload.get("columns") or [],
-        "results": payload.get("results") or [],
-        "types": payload.get("types") or [],
+        "columns": response.columns or [],
+        "results": response.results or [],
+        "types": response.types or [],
     }

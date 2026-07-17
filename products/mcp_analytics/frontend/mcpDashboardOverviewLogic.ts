@@ -1,20 +1,21 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
-import { dateStringToComponents, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
+import { getDefaultInterval } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { HogQLFilters, HogQLQueryResponse, MCPHarnessBreakdownItem, NodeKind } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, IntervalType, TeamType } from '~/types'
 
+import type { TeamPublicType } from '../../../frontend/src/types'
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
 import type { MCPIntentClusterApi } from './generated/api.schemas'
-import type { mcpDashboardOverviewLogicType } from './mcpDashboardOverviewLogicType'
+import { BUCKET_FORMAT, buildBucketKeys, normalizeBucket, resolveWindow, startOfBucket } from './timeBuckets'
 
 export interface DateFilter {
     dateFrom: string | null
@@ -28,8 +29,7 @@ const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-7d', dateTo: null }
 // the time buckets, so the query only needs the doubled date range. `__BUCKET__`
 // is replaced with a dateTrunc at the active interval at call time.
 //
-// Queries key on the canonical, $-prefixed event — PostHog's MCP server dual-emits a
-// legacy `mcp_tool_call` alias, so matching both names would double-count it.
+// Key on the canonical event only — also matching the legacy `mcp_tool_call` alias would double-count.
 const KPI_QUERY = `
 SELECT
     __BUCKET__ AS bucket,
@@ -44,6 +44,23 @@ WHERE event = '$mcp_tool_call'
     AND {filters}
 GROUP BY bucket
 ORDER BY bucket
+`
+
+// Distinct MCP users for the "Users" tile — how many distinct people made tool calls.
+// Counted over the doubled window like the KPI query, then split into the selected period
+// and its equal-length predecessor with a single conditional uniq so the comparison is a
+// true distinct-person count (summing per-bucket distinct users would over-count anyone
+// active on more than one day). `__CUR_START__` is the selected-period boundary, injected
+// as a timezone-aware toDateTime at call time.
+const USERS_QUERY = `
+SELECT
+    uniqIf(person_id, timestamp >= __CUR_START__) AS current_users,
+    uniqIf(person_id, timestamp < __CUR_START__) AS prior_users
+FROM events
+WHERE event = '$mcp_tool_call'
+    AND properties.$mcp_tool_name IS NOT NULL
+    AND properties.$mcp_tool_name != ''
+    AND {filters}
 `
 
 // Per-session rollup powering the Notable sessions block. The selector
@@ -137,6 +154,7 @@ export interface KPIMetric {
     previousValue: number
     deltaPct: number | null
     sparkline: number[]
+    sparklineLabels: string[]
     goodDirection: 'up' | 'down'
 }
 
@@ -207,7 +225,14 @@ export interface NotableSession {
     session: SessionRow
 }
 
-const EMPTY_METRIC: KPIMetric = { value: 0, previousValue: 0, deltaPct: null, sparkline: [], goodDirection: 'up' }
+const EMPTY_METRIC: KPIMetric = {
+    value: 0,
+    previousValue: 0,
+    deltaPct: null,
+    sparkline: [],
+    sparklineLabels: [],
+    goodDirection: 'up',
+}
 const EMPTY_KPIS: KPIData = {
     sessions: { ...EMPTY_METRIC, goodDirection: 'up' },
     toolCalls: { ...EMPTY_METRIC, goodDirection: 'up' },
@@ -254,53 +279,24 @@ export function deltaPct(current: number, previous: number): number | null {
     return ((current - previous) / previous) * 100
 }
 
-// Resolve the filter to absolute bounds. Hour-level relative ranges ("-1h") are
-// rolling from now; dateStringToDayJs anchors relative dates to the start of the
-// day, which would inflate a "last hour" window to half a day. Day+ ranges keep
-// that start-of-day anchoring (the established behaviour).
-function resolveWindow(dateFilter: DateFilter, timezone: string): { start: dayjs.Dayjs; end: dayjs.Dayjs } {
-    const now = dayjs().tz(timezone)
-    const end = (dateFilter.dateTo ? dateStringToDayJs(dateFilter.dateTo, timezone) : now) ?? now
-    const components = dateStringToComponents(dateFilter.dateFrom)
-    if (components && components.unit === 'hour' && !dateFilter.dateTo) {
-        // components.amount is signed (negative for the past), so add() walks backwards.
-        return { start: now.add(components.amount, 'hour'), end: now }
-    }
-    const start = dateStringToDayJs(dateFilter.dateFrom, timezone) ?? now.subtract(7, 'day')
-    return { start, end }
-}
+// Window resolution, bucket keys, and the BUCKET_FORMAT contract are shared with the tab/detail
+// surfaces — see ./timeBuckets. The dashboard adds only the KPI-comparison window and in-progress
+// tail below, built on those shared primitives.
 
-// Truncate to the start of an interval bucket the same way ClickHouse's dateTrunc does, so the keys
-// we generate line up with the query's bucket strings. dayjs' startOf covers minute/hour/day/month;
-// only 'week' differs — dateTrunc('week') is ISO (Monday-start) while dayjs defaults to Sunday.
-function startOfBucket(d: dayjs.Dayjs, interval: IntervalType): dayjs.Dayjs {
-    if (interval === 'week') {
-        const day = d.day() // 0 = Sunday … 6 = Saturday
-        return d.startOf('day').subtract((day + 6) % 7, 'day')
+// True when the final bucket is the current, still-running interval (open-ended window), so the
+// chart can dash that segment as "in progress" rather than letting the partial period read as data
+// loss. Needs ≥2 buckets to have a segment to dash; `now` is injectable so the logic stays testable.
+export function lastBucketIsInProgress(
+    bucketKeys: string[],
+    timezone: string,
+    interval: IntervalType,
+    now: dayjs.Dayjs = dayjs()
+): boolean {
+    if (bucketKeys.length < 2) {
+        return false
     }
-    return d.startOf(interval)
-}
-
-// Every bucket key across the resolved window [start, end] at the active interval, formatted to
-// match dateTrunc's DateTime output ('YYYY-MM-DD HH:mm:ss'). The activity and tool-usage series are
-// zero-filled against these so the x-axis spans the whole selected range instead of clipping to the
-// buckets that happened to have events.
-export function buildBucketKeys(dateFilter: DateFilter, timezone: string, interval: IntervalType): string[] {
-    const { start, end } = resolveWindow(dateFilter, timezone)
-    const last = startOfBucket(end, interval).valueOf()
-    const keys: string[] = []
-    let cursor = startOfBucket(start, interval)
-    // Bounded dashboard windows keep this small; the cap is just a guard against a pathological range.
-    for (let i = 0; cursor.valueOf() <= last && i < 100000; i++) {
-        keys.push(cursor.format('YYYY-MM-DD HH:mm:ss'))
-        cursor = cursor.add(1, interval)
-    }
-    return keys
-}
-
-export function normalizeBucket(raw: unknown, timezone: string): string {
-    const s = String(raw ?? '')
-    return s ? dayjs(s).tz(timezone).format('YYYY-MM-DD HH:mm:ss') : ''
+    const currentBucket = startOfBucket(now.tz(timezone), interval).format(BUCKET_FORMAT)
+    return bucketKeys[bucketKeys.length - 1] === currentBucket
 }
 
 // Project the daily success/error rows onto the full set of buckets, defaulting empty buckets to 0.
@@ -324,7 +320,7 @@ export interface KpiWindow {
 // `currentStartBucket` is the cutoff `buildKPIs` splits on — formatted to match
 // dateTrunc's DateTime output.
 export function buildKpiWindow(dateFilter: DateFilter, timezone: string, interval: IntervalType): KpiWindow {
-    const { start, end } = resolveWindow(dateFilter, timezone)
+    const { start, end } = resolveWindow(dateFilter.dateFrom, dateFilter.dateTo, timezone)
     // The selected period covers the inclusive buckets [start, end] — one more than
     // end.diff(start). Step the prior window back by that same count so the two
     // halves of the comparison span an equal number of buckets.
@@ -333,8 +329,16 @@ export function buildKpiWindow(dateFilter: DateFilter, timezone: string, interva
     return {
         dateFrom: priorStart.toISOString(),
         dateTo: end.toISOString(),
-        currentStartBucket: start.startOf(interval).format('YYYY-MM-DD HH:mm:ss'),
+        currentStartBucket: start.startOf(interval).format(BUCKET_FORMAT),
     }
+}
+
+// Merge the dashboard's active filters with a doubled comparison window's date range.
+// Shared by the KPI and Users loaders so both tiles are scoped to the exact same window —
+// the tile-parity the reload test asserts. Keep the two loaders reading from here so the
+// window/filter plumbing can't drift between them.
+function kpiWindowFilters(queryFilters: HogQLFilters, kpiWindow: KpiWindow): HogQLFilters {
+    return { ...queryFilters, dateRange: { date_from: kpiWindow.dateFrom, date_to: kpiWindow.dateTo } }
 }
 
 function parseRows(rawRows: unknown[][]): BucketRow[] {
@@ -353,18 +357,27 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
     const current = rows.filter((r) => r.bucket >= currentStartBucket).sort((a, b) => a.bucket.localeCompare(b.bucket))
     const previous = rows.filter((r) => r.bucket < currentStartBucket)
 
+    // Newest bucket with latency data — p95 === 0 marks a bucket without any.
+    const latestP95 = (rows_: BucketRow[]): number =>
+        [...rows_].sort((a, b) => b.bucket.localeCompare(a.bucket)).find((r) => r.p95 > 0)?.p95 ?? 0
+
+    // Newest bucket with any calls — a 0% rate from an empty bucket would be meaningless.
+    const latestErrorRate = (rows_: BucketRow[]): number => {
+        const row = [...rows_].sort((a, b) => b.bucket.localeCompare(a.bucket)).find((r) => r.tool_calls > 0)
+        return row ? (row.errors / row.tool_calls) * 100 : 0
+    }
+
     const curSessions = current.reduce((acc, r) => acc + r.sessions, 0)
     const curCalls = current.reduce((acc, r) => acc + r.tool_calls, 0)
-    const curErrors = current.reduce((acc, r) => acc + r.errors, 0)
-    const curP95 = current.length ? Math.max(...current.map((r) => r.p95)) : 0
+    const curP95 = latestP95(current)
 
     const prevSessions = previous.reduce((acc, r) => acc + r.sessions, 0)
     const prevCalls = previous.reduce((acc, r) => acc + r.tool_calls, 0)
-    const prevErrors = previous.reduce((acc, r) => acc + r.errors, 0)
-    const prevP95 = previous.length ? Math.max(...previous.map((r) => r.p95)) : 0
+    const prevP95 = latestP95(previous)
 
-    const curErrorRate = curCalls ? (curErrors / curCalls) * 100 : 0
-    const prevErrorRate = prevCalls ? (prevErrors / prevCalls) * 100 : 0
+    const curErrorRate = latestErrorRate(current)
+    const prevErrorRate = latestErrorRate(previous)
+    const sparklineLabels = current.map((r) => r.bucket)
 
     return {
         sessions: {
@@ -372,6 +385,7 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
             previousValue: prevSessions,
             deltaPct: deltaPct(curSessions, prevSessions),
             sparkline: current.map((r) => r.sessions),
+            sparklineLabels,
             goodDirection: 'up',
         },
         toolCalls: {
@@ -379,6 +393,7 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
             previousValue: prevCalls,
             deltaPct: deltaPct(curCalls, prevCalls),
             sparkline: current.map((r) => r.tool_calls),
+            sparklineLabels,
             goodDirection: 'up',
         },
         errorRatePct: {
@@ -386,6 +401,7 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
             previousValue: prevErrorRate,
             deltaPct: deltaPct(curErrorRate, prevErrorRate),
             sparkline: current.map((r) => (r.tool_calls ? (r.errors / r.tool_calls) * 100 : 0)),
+            sparklineLabels,
             goodDirection: 'down',
         },
         p95LatencyMs: {
@@ -393,10 +409,239 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
             previousValue: prevP95,
             deltaPct: deltaPct(curP95, prevP95),
             sparkline: current.map((r) => r.p95),
+            sparklineLabels,
             goodDirection: 'down',
         },
     }
 }
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface mcpDashboardOverviewLogicValues {
+    clusters: readonly MCPIntentClusterApi[] // mcpClusteringLogic
+    hasSnapshot: boolean // mcpClusteringLogic
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
+    timezone: string // teamLogic
+    activityIncompleteTail: boolean
+    activityRows: ActivityRow[]
+    activityRowsLoading: boolean
+    bucketKeys: string[]
+    dailyActivity: DailyActivity
+    dateFilter: DateFilter
+    filterTestAccounts: boolean
+    filterTestAccountsOverride: boolean | null
+    harnessRows: HarnessRow[]
+    harnessRowsLoading: boolean
+    intentClusterCount: KPIMetric
+    interval: IntervalType
+    kpis: KPIData
+    kpisLoading: boolean
+    notableSessions: NotableSession[]
+    propertyFilters: AnyPropertyFilter[]
+    queryFilters: HogQLFilters
+    sessionRows: SessionRow[]
+    sessionRowsLoading: boolean
+    toolDailyRows: ToolDailyRow[]
+    toolDailyRowsLoading: boolean
+    toolDailySeries: ToolDailySeries
+    toolRows: ToolRow[]
+    toolRowsLoading: boolean
+    users: KPIMetric
+    usersLoading: boolean
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface mcpDashboardOverviewLogicActions {
+    loadActivityRows: (_: void) => void
+    loadActivityRowsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadActivityRowsSuccess: (
+        activityRows: ActivityRow[],
+        payload?: void
+    ) => {
+        activityRows: ActivityRow[]
+        payload?: void
+    }
+    loadHarnessRows: (_: void) => void
+    loadHarnessRowsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadHarnessRowsSuccess: (
+        harnessRows: {
+            category: string
+            error_rate_pct: number
+            errors: number
+            sessions: number
+            total_calls: number
+        }[],
+        payload?: void
+    ) => {
+        harnessRows: {
+            category: string
+            error_rate_pct: number
+            errors: number
+            sessions: number
+            total_calls: number
+        }[]
+        payload?: void
+    }
+    loadKPIs: (_: void) => void
+    loadKPIsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadKPIsSuccess: (
+        kpis: KPIData,
+        payload?: void
+    ) => {
+        kpis: KPIData
+        payload?: void
+    }
+    loadSessionRows: (_: void) => void
+    loadSessionRowsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSessionRowsSuccess: (
+        sessionRows: {
+            distinct_tools: number
+            duration_seconds: number
+            error_rate_pct: number
+            errors: number
+            last_seen: string
+            session_id: string
+            tool_calls: number
+        }[],
+        payload?: void
+    ) => {
+        sessionRows: {
+            distinct_tools: number
+            duration_seconds: number
+            error_rate_pct: number
+            errors: number
+            last_seen: string
+            session_id: string
+            tool_calls: number
+        }[]
+        payload?: void
+    }
+    loadToolDailyRows: (_: void) => void
+    loadToolDailyRowsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadToolDailyRowsSuccess: (
+        toolDailyRows: ToolDailyRow[],
+        payload?: void
+    ) => {
+        toolDailyRows: ToolDailyRow[]
+        payload?: void
+    }
+    loadToolRows: (_: void) => void
+    loadToolRowsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadToolRowsSuccess: (
+        toolRows: {
+            error_rate_pct: number
+            errors: number
+            p95_duration_ms: number
+            tool: string
+            total_calls: number
+        }[],
+        payload?: void
+    ) => {
+        toolRows: {
+            error_rate_pct: number
+            errors: number
+            p95_duration_ms: number
+            tool: string
+            total_calls: number
+        }[]
+        payload?: void
+    }
+    loadUsers: (_: void) => void
+    loadUsersFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadUsersSuccess: (
+        users: KPIMetric,
+        payload?: void
+    ) => {
+        users: KPIMetric
+        payload?: void
+    }
+    reloadAll: () => {
+        value: true
+    }
+    setDateFilter: (
+        dateFrom: string | null,
+        dateTo: string | null
+    ) => {
+        dateFrom: string | null
+        dateTo: string | null
+    }
+    setFilterTestAccounts: (filterTestAccounts: boolean | null) => {
+        filterTestAccounts: boolean | null
+    }
+    setPropertyFilters: (properties: AnyPropertyFilter[]) => {
+        properties: AnyPropertyFilter[]
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface mcpDashboardOverviewLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        filterTestAccounts: (
+            filterTestAccountsOverride: boolean | null,
+            currentTeam: TeamPublicType | TeamType | null
+        ) => boolean
+        queryFilters: (
+            dateFilter: DateFilter,
+            filterTestAccounts: boolean,
+            propertyFilters: AnyPropertyFilter[]
+        ) => HogQLFilters
+        interval: (dateFilter: DateFilter) => IntervalType
+        bucketKeys: (dateFilter: DateFilter, timezone: string, interval: IntervalType) => string[]
+        activityIncompleteTail: (bucketKeys: string[], timezone: string, interval: IntervalType) => boolean
+        dailyActivity: (activityRows: ActivityRow[], bucketKeys: string[]) => DailyActivity
+        toolDailySeries: (toolDailyRows: ToolDailyRow[], bucketKeys: string[]) => ToolDailySeries
+        notableSessions: (sessionRows: SessionRow[]) => NotableSession[]
+        intentClusterCount: (clusters: readonly MCPIntentClusterApi[]) => KPIMetric
+    }
+}
+
+export type mcpDashboardOverviewLogicType = MakeLogicType<
+    mcpDashboardOverviewLogicValues,
+    mcpDashboardOverviewLogicActions,
+    Record<string, any>,
+    mcpDashboardOverviewLogicMeta
+>
 
 export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'mcpDashboardOverviewLogic']),
@@ -441,14 +686,46 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: KPI_QUERY.replace('__BUCKET__', `dateTrunc('${interval}', timestamp)`),
-                        filters: {
-                            ...values.queryFilters,
-                            dateRange: { date_from: kpiWindow.dateFrom, date_to: kpiWindow.dateTo },
-                        },
+                        filters: kpiWindowFilters(values.queryFilters, kpiWindow),
                     })) as HogQLQueryResponse
                     breakpoint()
                     const rows = parseRows((response?.results as unknown[][]) ?? [])
                     return buildKPIs(rows, kpiWindow.currentStartBucket)
+                },
+            },
+        ],
+        users: [
+            EMPTY_METRIC,
+            {
+                loadUsers: async (_: void, breakpoint): Promise<KPIMetric> => {
+                    const { interval, timezone } = values
+                    const kpiWindow = buildKpiWindow(values.dateFilter, timezone, interval)
+                    // Split the doubled window at the selected period's start. currentStartBucket is
+                    // interval-aligned (buildKpiWindow → start.startOf(interval)), so comparing the raw
+                    // `timestamp` against toDateTime(bucket, tz) lands on the same instant as the KPI
+                    // tiles' dateTrunc bucket-string split — keeping this count consistent with them.
+                    // (For rolling sub-day ranges the two halves can differ by up to one interval, the
+                    // same bounded skew the KPI tiles already carry; splitting on the raw start instead
+                    // would equalize the halves but desync Users from the other tiles, so don't.)
+                    const curStart = `toDateTime('${kpiWindow.currentStartBucket}', '${timezone}')`
+                    const response = (await api.query({
+                        kind: NodeKind.HogQLQuery,
+                        query: USERS_QUERY.replace(/__CUR_START__/g, curStart),
+                        filters: kpiWindowFilters(values.queryFilters, kpiWindow),
+                    })) as HogQLQueryResponse
+                    breakpoint()
+                    const row = (response?.results as unknown[][])?.[0] ?? []
+                    const value = Number(row[0] ?? 0)
+                    const previousValue = Number(row[1] ?? 0)
+                    return {
+                        value,
+                        previousValue,
+                        deltaPct: deltaPct(value, previousValue),
+                        // No sparkline: the headline is a window-level distinct count, not a per-bucket series.
+                        sparkline: [],
+                        sparklineLabels: [],
+                        goodDirection: 'up',
+                    }
                 },
             },
         ],
@@ -530,7 +807,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                     breakpoint()
                     const raw = (response?.results as unknown[][]) ?? []
                     return raw.map((r) => ({
-                        day: normalizeBucket(r[0], values.timezone),
+                        day: normalizeBucket(r[0]),
                         successes: Number(r[1] ?? 0),
                         errors: Number(r[2] ?? 0),
                     }))
@@ -549,7 +826,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                     breakpoint()
                     const raw = (response?.results as unknown[][]) ?? []
                     return raw.map((r) => ({
-                        day: normalizeBucket(r[0], values.timezone),
+                        day: normalizeBucket(r[0]),
                         tool: String(r[1] ?? ''),
                         calls: Number(r[2] ?? 0),
                     }))
@@ -584,7 +861,14 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         bucketKeys: [
             (s) => [s.dateFilter, s.timezone, s.interval],
             (dateFilter: DateFilter, timezone: string, interval: IntervalType): string[] =>
-                buildBucketKeys(dateFilter, timezone, interval),
+                buildBucketKeys(dateFilter.dateFrom, dateFilter.dateTo, timezone, interval),
+        ],
+        // Whether the activity chart's final bucket is the current, still-running interval — the
+        // chart dashes that segment so a partial period doesn't read as a drop in tool calls.
+        activityIncompleteTail: [
+            (s) => [s.bucketKeys, s.timezone, s.interval],
+            (bucketKeys: string[], timezone: string, interval: IntervalType): boolean =>
+                lastBucketIsInProgress(bucketKeys, timezone, interval),
         ],
         dailyActivity: [
             (s) => [s.activityRows, s.bucketKeys],
@@ -605,6 +889,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 previousValue: 0,
                 deltaPct: null,
                 sparkline: [],
+                sparklineLabels: [],
                 goodDirection: 'up',
             }),
         ],
@@ -621,6 +906,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         },
         reloadAll: () => {
             actions.loadKPIs()
+            actions.loadUsers()
             actions.loadToolRows()
             actions.loadSessionRows()
             actions.loadHarnessRows()

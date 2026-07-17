@@ -215,7 +215,14 @@ def validate_credentials(
         return False, str(e)
 
     if response.is_redirect or response.is_permanent_redirect:
-        return False, HOST_NOT_ALLOWED_ERROR
+        # A redirect on the API request usually means the instance URL doesn't point directly at
+        # GitLab (a project/web page, a login/SSO gateway, or a proxy). We can't follow it — the
+        # target could be an internal address (SSRF) — so guide the user to the right URL.
+        return False, (
+            "The GitLab instance URL returned an unexpected redirect. Enter just your instance URL "
+            "(for example https://gitlab.com or https://gitlab.example.com) with no project path, and make sure "
+            "it points directly at GitLab rather than a login, SSO, or proxy page."
+        )
 
     if response.status_code == 200:
         return True, None

@@ -133,7 +133,6 @@ impl RawRequest {
 
 #[derive(Debug)]
 pub struct ProcessingContext {
-    pub lib_version: Option<String>,
     pub user_agent: Option<String>,
     pub sent_at: Option<OffsetDateTime>,
     pub token: String,
@@ -422,7 +421,7 @@ mod tests {
 
     #[test]
     fn extract_non_engage_event_without_name_fails() {
-        let path = "/e/?ip=192.0.0.1&ver=2.3.4";
+        let path = "/e/?ip=192.0.0.1";
         let parse_and_extract_events =
             |input: &'static str| -> Result<Vec<RawEvent>, CaptureError> {
                 RawRequest::from_bytes(
@@ -448,7 +447,7 @@ mod tests {
 
     #[test]
     fn extract_engage_event_without_name_is_resolved() {
-        let path = "/engage/?ip=10.0.0.1&ver=1.2.3";
+        let path = "/engage/?ip=10.0.0.1";
         let parse_and_extract_events =
             |input: &'static str| -> Result<Vec<RawEvent>, CaptureError> {
                 RawRequest::from_bytes(

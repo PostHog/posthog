@@ -97,10 +97,11 @@ def _make_paginated_request(
     def execute(variables: dict[str, Any]) -> dict:
         try:
             response = sess.post(LINEAR_API_URL, json={"query": query, "variables": variables}, timeout=60)
-        except (requests.ConnectionError, requests.Timeout) as e:
+        except (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError) as e:
             # The session's urllib3 Retry only covers idempotent methods, so Linear's POSTs get no
-            # transport-level retry. Route transient network failures (read timeout, connection reset)
-            # through the same backoff path as 5xx/429 instead of failing the whole activity on one blip.
+            # transport-level retry. Route transient network failures (read timeout, connection reset,
+            # a connection broken mid-body which surfaces as ChunkedEncodingError) through the same
+            # backoff path as 5xx/429 instead of failing the whole activity on one blip.
             raise LinearRetryableError(f"Linear: transient network error - {e}")
 
         if response.status_code >= 500:
@@ -117,10 +118,16 @@ def _make_paginated_request(
 
         try:
             payload = response.json()
-        except Exception:
+        except Exception as e:
             if not response.ok:
-                raise Exception(f"{response.status_code} Client Error: {response.reason} (Linear API: {response.text})")
-            raise Exception(f"Unexpected Linear response: {response.text}")
+                raise Exception(
+                    f"{response.status_code} Client Error: {response.reason} (Linear API: {response.text})"
+                ) from e
+            # A 2xx whose body won't parse as JSON is almost always a truncated transfer (the
+            # connection dropped mid-body on a large page), not a stable response Linear will keep
+            # returning. Ride it out on the same backoff path as other transient failures instead of
+            # failing the activity outright. Don't echo response.text — a partial body carries data.
+            raise LinearRetryableError(f"Linear: incomplete JSON response ({e})") from e
 
         if "errors" in payload:
             error_messages = [e.get("message", "") for e in payload["errors"]]

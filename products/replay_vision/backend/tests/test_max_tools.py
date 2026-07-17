@@ -13,6 +13,7 @@ from parameterized import parameterized
 from products.replay_vision.backend.max_tools import (
     DraftReplayVisionScannerPromptTool,
     SearchReplayVisionObservationsTool,
+    SummarizeReplayVisionSummariesTool,
     _ObservationFilters,
 )
 from products.replay_vision.backend.models.replay_observation import (
@@ -208,6 +209,25 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
         ):
             _, artifact = await self._tool(context={"scanner_id": str(scanner.id)})._arun_impl(query="button")
 
+        assert artifact["result_count"] == 1
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_explicit_scanner_id_argument_overrides_scene_context(self):
+        context_scanner = await self._scanner(name="context-scanner")
+        target_scanner = await self._scanner(name="target-scanner")
+        obs = await self._observation(target_scanner, "sess-t", "broken button", score=0)
+
+        with (
+            patch(_FLAG_PATH, return_value=True),
+            patch(_GENERATE_EMBEDDING_PATH, new_callable=AsyncMock, return_value=MagicMock(embedding=[0.1])),
+            patch(_EXECUTE_HOGQL_PATH, return_value=MagicMock(results=[(str(obs.id), 0.1)])),
+        ):
+            _, artifact = await self._tool(context={"scanner_id": str(context_scanner.id)})._arun_impl(
+                query="button", scanner_id=str(target_scanner.id)
+            )
+
+        # Context-wins precedence would scope to context-scanner and drop the target scanner's row.
         assert artifact["result_count"] == 1
 
     @pytest.mark.django_db
@@ -423,6 +443,22 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         assert artifact["error"] == "not_enabled"
         assert "not enabled" in content
+
+
+class TestSummarizeReplayVisionSummariesTool(BaseTest):
+    def _tool(self) -> SummarizeReplayVisionSummariesTool:
+        config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
+        return SummarizeReplayVisionSummariesTool(team=self.team, user=self.user, config=config)
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_internal_error_details_stay_out_of_content_and_artifact(self):
+        # The raw exception may carry connection strings; it belongs in error tracking, not the conversation.
+        with patch(_FLAG_PATH, side_effect=RuntimeError("postgres://user:hunter2@db/prod")):
+            content, artifact = await self._tool()._arun_impl(scanner_id=str(uuid.uuid4()))
+
+        assert artifact == {"error": "fetch_failed"}
+        assert "hunter2" not in content
 
 
 class TestObservationFiltersTagClause:

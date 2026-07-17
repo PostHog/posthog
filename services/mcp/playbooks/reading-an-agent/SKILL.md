@@ -53,7 +53,7 @@ designated Slack channel every Monday.
 Trigger surface: cron (every Monday 09:00 UTC). No chat / webhook /
 mcp / slack entry points.
 
-Model: anthropic/claude-sonnet-4-6, reasoning: medium.
+Models: auto (level medium), reasoning: medium.
 
 Tools (5): @posthog/query, @posthog/slack-post-message,
 @posthog/load-skill, @posthog/meta-end-turn, @posthog/meta-end-session.

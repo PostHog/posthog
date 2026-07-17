@@ -378,6 +378,14 @@ impl HandoffHandler for MockHandler {
             .push(HandoffEvent::Released(partition));
         Ok(())
     }
+
+    async fn resume_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Resumed(partition));
+        Ok(())
+    }
 }
 
 fn start_pod_k8s(

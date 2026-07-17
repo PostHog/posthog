@@ -20,36 +20,25 @@ from common.hogvm.python.utils import HogVMException, HogVMMemoryExceededExcepti
 logger = structlog.get_logger(__name__)
 
 
-def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = False) -> dict[str, Any]:
-    """Run compiled Hog bytecode against a single event.
+def coerce_hog_io_value(value: Any) -> str:
+    """Coerce an extracted input/output value into a string for Hog globals.
 
-    Used by both the Temporal activity and the test endpoint.
-    Returns {"verdict": bool | None, "reasoning": str, "error": str | None}.
-    When allows_na=True, a `return null` is treated as N/A (not an error).
-    Sets "unexpected": True only when the bytecode raised something other than a
-    HogVM error — i.e. a bug in our code rather than in the user's Hog source.
+    String operations (ilike, length, etc.) should work consistently; users can still
+    parse structured data with jsonParse() when needed.
     """
-    properties = event_data["properties"]
-    if isinstance(properties, str):
-        properties = json.loads(properties)
+    if isinstance(value, list | dict):
+        return json.dumps(value)
+    return "" if value is None or value == "" else str(value)
 
-    event_type = event_data["event"]
-    input_raw, output_raw = extract_event_io(event_type, properties)
 
-    input_val = json.dumps(input_raw) if isinstance(input_raw, list | dict) else (input_raw or "")
-    output_val = json.dumps(output_raw) if isinstance(output_raw, list | dict) else (output_raw or "")
+def execute_hog_eval_bytecode(bytecode: list, globals_dict: dict[str, Any], allows_na: bool) -> dict[str, Any]:
+    """Run compiled Hog eval bytecode against pre-built globals and shape the verdict.
 
-    globals_dict: dict[str, Any] = {
-        "input": input_val,
-        "output": output_val,
-        "properties": properties,
-        "event": {
-            "uuid": event_data.get("uuid", ""),
-            "event": event_type,
-            "distinct_id": event_data.get("distinct_id", ""),
-        },
-    }
-
+    Shared by the single-event and trace-level Hog activities — only the globals differ.
+    Returns {"verdict": bool | None, "reasoning": str, "error": str | None}, plus "applicable"
+    when allows_na and a `return null` is treated as N/A, and "unexpected": True when the failure
+    was a bug in our code rather than in the user's Hog source.
+    """
     try:
         response = execute_bytecode(
             bytecode,
@@ -89,6 +78,36 @@ def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = F
     if allows_na:
         result["applicable"] = True
     return result
+
+
+def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = False) -> dict[str, Any]:
+    """Run compiled Hog bytecode against a single event.
+
+    Used by both the Temporal activity and the test endpoint.
+    Returns {"verdict": bool | None, "reasoning": str, "error": str | None}.
+    When allows_na=True, a `return null` is treated as N/A (not an error).
+    Sets "unexpected": True only when the bytecode raised something other than a
+    HogVM error — i.e. a bug in our code rather than in the user's Hog source.
+    """
+    properties = event_data["properties"]
+    if isinstance(properties, str):
+        properties = json.loads(properties)
+
+    event_type = event_data["event"]
+    input_raw, output_raw = extract_event_io(event_type, properties)
+
+    globals_dict: dict[str, Any] = {
+        "input": coerce_hog_io_value(input_raw),
+        "output": coerce_hog_io_value(output_raw),
+        "properties": properties,
+        "event": {
+            "uuid": event_data.get("uuid", ""),
+            "event": event_type,
+            "distinct_id": event_data.get("distinct_id", ""),
+        },
+    }
+
+    return execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=allows_na)
 
 
 @temporalio.activity.defn

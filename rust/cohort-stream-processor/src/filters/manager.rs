@@ -1,7 +1,8 @@
 //! `FilterCatalog` + atomic swap + jittered periodic refresh loop.
 
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,49 +15,10 @@ use sqlx::PgPool;
 use tokio::sync::Notify;
 use tracing::{debug, info, warn};
 
-use crate::filters::loader::{build_catalog_from_rows, load_realtime_cohorts, retain_allowlisted};
-use crate::filters::reverse_index::TeamFilters;
-use crate::filters::{FilterError, TeamId};
+use crate::filters::loader::{build_catalog_from_rows, load_realtime_cohorts, CohortRow};
+use crate::filters::FilterError;
+use crate::filters::{FilterCatalog, Generation};
 use crate::observability::metrics::{FILTER_CATALOG_TEAMS, FILTER_CATALOG_UNIQUE_CONDITIONS};
-
-#[derive(Debug, Default)]
-pub struct FilterCatalog {
-    teams: HashMap<TeamId, Arc<TeamFilters>>,
-}
-
-impl FilterCatalog {
-    pub fn new() -> Self {
-        Self {
-            teams: HashMap::new(),
-        }
-    }
-
-    /// The frozen filters for a team, or `None` if it has no realtime cohorts.
-    pub fn team(&self, team_id: TeamId) -> Option<&Arc<TeamFilters>> {
-        self.teams.get(&team_id)
-    }
-
-    pub fn team_count(&self) -> usize {
-        self.teams.len()
-    }
-
-    /// Total distinct conditionHashes across all teams (sum of the per-team dedup sets).
-    pub fn total_unique_conditions(&self) -> usize {
-        self.teams
-            .values()
-            .map(|team| team.unique_condition_hashes.len())
-            .sum()
-    }
-
-    pub fn from_teams(teams: impl IntoIterator<Item = (TeamId, TeamFilters)>) -> Self {
-        Self {
-            teams: teams
-                .into_iter()
-                .map(|(team, filters)| (team, Arc::new(filters)))
-                .collect(),
-        }
-    }
-}
 
 /// Snapshot counts returned by [`CatalogHandle::refresh`] for logging.
 #[derive(Debug, Clone, Copy)]
@@ -74,6 +36,11 @@ pub struct CatalogHandle {
     /// Cohorts for teams outside this allowlist never enter the catalog.
     allowlist: TeamAllowlist,
     cascade_enabled: bool,
+    /// Last stamped generation, advanced by [`Self::store`]. Single-writer (the refresh loop),
+    /// so `Relaxed` suffices.
+    current_generation: AtomicU64,
+    /// Signature of the last stored catalog, to detect a no-op refresh.
+    current_signature: AtomicU64,
 }
 
 impl CatalogHandle {
@@ -88,12 +55,21 @@ impl CatalogHandle {
             loaded_notify: Notify::new(),
             allowlist,
             cascade_enabled,
+            current_generation: AtomicU64::new(0),
+            current_signature: AtomicU64::new(0),
         }
     }
 
     /// Load the current snapshot for a wait-free hot-path read.
     pub fn load(&self) -> Guard<Arc<FilterCatalog>> {
         self.catalog.load()
+    }
+
+    /// Load the current snapshot as an owned `Arc` that borrows nothing from `self`, so it can move
+    /// into a `'static` blocking closure (e.g. a
+    /// [`StoreHandle::run_section`](crate::store::StoreHandle::run_section) body).
+    pub fn load_full(&self) -> Arc<FilterCatalog> {
+        self.catalog.load_full()
     }
 
     /// True once the first refresh has succeeded. Before that the catalog is empty and consumers
@@ -123,6 +99,21 @@ impl CatalogHandle {
     }
 
     fn store(&self, catalog: FilterCatalog) {
+        // Advance the generation only on a content change (`INITIAL` is the first store); a no-op
+        // refresh reuses it so memo entries stay valid.
+        let signature = catalog_signature(&catalog);
+        let prev = Generation(self.current_generation.load(Ordering::Relaxed));
+        let prev_sig = self.current_signature.load(Ordering::Relaxed);
+        let generation = if prev == Generation::INITIAL || signature != prev_sig {
+            prev.next()
+        } else {
+            prev
+        };
+        self.current_signature.store(signature, Ordering::Relaxed);
+        self.current_generation
+            .store(generation.0, Ordering::Relaxed);
+        let catalog = catalog.with_generation(generation);
+
         gauge!(FILTER_CATALOG_TEAMS).set(catalog.team_count() as f64);
         gauge!(FILTER_CATALOG_UNIQUE_CONDITIONS).set(catalog.total_unique_conditions() as f64);
         self.catalog.store(Arc::new(catalog));
@@ -152,10 +143,24 @@ impl CatalogHandle {
     }
 }
 
+/// Drop rows outside the configured team scope before catalog construction.
+fn retain_allowlisted(rows: &mut Vec<CohortRow>, allowlist: &TeamAllowlist) {
+    rows.retain(|row| allowlist.includes(row.team_id));
+}
+
 impl Default for CatalogHandle {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Hashes equal iff each team carries the same condition set — the sorts make it independent of
+/// `HashMap`/`HashSet` order. `DefaultHasher` is unseeded; only intra-process consistency is needed
+/// (the memo it gates resets on restart).
+fn catalog_signature(catalog: &FilterCatalog) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    catalog.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// Periodic catalog refresh task. On failure, keeps the previous snapshot and retries next tick.
@@ -200,12 +205,23 @@ fn next_interval(interval: Duration, jitter: Duration) -> Duration {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
     use chrono_tz::UTC;
     use serde_json::json;
 
     use crate::filters::reverse_index::TeamFiltersBuilder;
-    use crate::filters::CohortId;
+    use crate::filters::{CohortId, TeamFilters, TeamId};
+
+    fn cohort_row(id: i32, team_id: i32) -> CohortRow {
+        CohortRow {
+            id,
+            team_id,
+            filters: serde_json::Value::Null,
+            timezone: "UTC".to_string(),
+        }
+    }
 
     fn team_with_one_behavioral() -> TeamFilters {
         let mut builder = TeamFiltersBuilder::default();
@@ -220,6 +236,27 @@ mod tests {
                     "time_interval": "day",
                     "conditionHash": "0123456789abcdef",
                     "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11],
+                }],
+            }
+        });
+        builder
+            .add_cohort(CohortId(1), TeamId(7), &filters)
+            .unwrap();
+        builder.freeze(UTC)
+    }
+
+    fn team_with_one_person() -> TeamFilters {
+        let mut builder = TeamFiltersBuilder::default();
+        let filters = json!({
+            "properties": {
+                "type": "AND",
+                "values": [{
+                    "type": "person",
+                    "key": "email",
+                    "value": "a@b.com",
+                    "operator": "exact",
+                    "conditionHash": "fedcba9876543210",
+                    "bytecode": ["_H", 1, 32, "a@b.com", 32, "email", 32, "properties", 32, "person", 1, 3, 11],
                 }],
             }
         });
@@ -269,6 +306,84 @@ mod tests {
 
         // Already loaded → immediate.
         handle.wait_until_loaded().await;
+    }
+
+    #[test]
+    fn first_store_advances_past_the_initial_generation() {
+        let handle = CatalogHandle::new();
+        assert_eq!(handle.load().generation(), Generation::INITIAL);
+        handle.store(FilterCatalog::from_teams([(
+            TeamId(7),
+            team_with_one_behavioral(),
+        )]));
+        assert_eq!(handle.load().generation(), Generation(1));
+    }
+
+    #[test]
+    fn no_op_refresh_keeps_the_generation_and_a_content_change_bumps_it() {
+        let handle = CatalogHandle::new();
+        handle.store(FilterCatalog::from_teams([(
+            TeamId(7),
+            team_with_one_behavioral(),
+        )]));
+        let gen1 = handle.load().generation();
+
+        // Same condition set → same signature → generation unchanged (the memo survives the refresh).
+        handle.store(FilterCatalog::from_teams([(
+            TeamId(7),
+            team_with_one_behavioral(),
+        )]));
+        assert_eq!(
+            handle.load().generation(),
+            gen1,
+            "a no-op refresh reuses the generation",
+        );
+
+        // A different condition hash → signature changes → generation advances (memo invalidates).
+        handle.store(FilterCatalog::from_teams([(
+            TeamId(7),
+            team_with_one_person(),
+        )]));
+        assert_ne!(
+            handle.load().generation(),
+            gen1,
+            "a content change bumps the generation",
+        );
+    }
+
+    #[test]
+    fn catalog_signature_ignores_team_iteration_order() {
+        let a = FilterCatalog::from_teams([
+            (TeamId(7), team_with_one_behavioral()),
+            (TeamId(8), team_with_one_person()),
+        ]);
+        let b = FilterCatalog::from_teams([
+            (TeamId(8), team_with_one_person()),
+            (TeamId(7), team_with_one_behavioral()),
+        ]);
+        assert_eq!(catalog_signature(&a), catalog_signature(&b));
+    }
+
+    #[test]
+    fn retain_allowlisted_keeps_only_in_scope_rows() {
+        let mut rows = vec![cohort_row(1, 2), cohort_row(2, 7)];
+        retain_allowlisted(&mut rows, &TeamAllowlist::Only(HashSet::from([2])));
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].team_id, 2);
+    }
+
+    #[test]
+    fn retain_allowlisted_all_keeps_everything() {
+        let mut rows = vec![cohort_row(1, 2), cohort_row(2, 7)];
+        retain_allowlisted(&mut rows, &TeamAllowlist::All);
+        assert_eq!(rows.len(), 2);
+    }
+
+    #[test]
+    fn retain_allowlisted_empty_scope_drops_everything() {
+        let mut rows = vec![cohort_row(1, 2)];
+        retain_allowlisted(&mut rows, &TeamAllowlist::Only(HashSet::new()));
+        assert!(rows.is_empty());
     }
 
     #[test]

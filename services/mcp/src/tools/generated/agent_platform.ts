@@ -5,7 +5,11 @@ import type { Schemas } from '@/api/generated'
 import {
     AgentApplicationsCreateBody,
     AgentApplicationsDestroyParams,
+    AgentApplicationsInvokeBody,
+    AgentApplicationsInvokeParams,
     AgentApplicationsListQueryParams,
+    AgentApplicationsListenParams,
+    AgentApplicationsListenQueryParams,
     AgentApplicationsPartialUpdateBody,
     AgentApplicationsPartialUpdateParams,
     AgentApplicationsPreviewProxyBody,
@@ -41,15 +45,20 @@ import {
     AgentApplicationsRevisionsSpecUpdateParams,
     AgentApplicationsRevisionsSystemPromptParams,
     AgentApplicationsRevisionsToolsDestroyParams,
+    AgentApplicationsRevisionsToolsDryRunCreateBody,
+    AgentApplicationsRevisionsToolsDryRunCreateParams,
     AgentApplicationsRevisionsToolsUpdateBody,
     AgentApplicationsRevisionsToolsUpdateParams,
     AgentApplicationsRevisionsValidateCreateParams,
+    AgentApplicationsSendBody,
+    AgentApplicationsSendParams,
     AgentApplicationsSessionLogsParams,
     AgentApplicationsSessionLogsQueryParams,
     AgentApplicationsSessionsListParams,
     AgentApplicationsSessionsListQueryParams,
     AgentApplicationsSessionsRetrieveParams,
     AgentApplicationsSessionsRetrieveQueryParams,
+    AgentApplicationsSpecSchemaQueryParams,
     AgentRevisionsEnvKeysClearParams,
     AgentRevisionsEnvKeysGetParams,
     AgentRevisionsEnvKeysListParams,
@@ -151,6 +160,31 @@ const agentApplicationsEnvKeysList = (): ToolBase<
     },
 })
 
+const AgentApplicationsInvokeSchema = AgentApplicationsInvokeParams.omit({ project_id: true }).extend(
+    AgentApplicationsInvokeBody.shape
+)
+
+const agentApplicationsInvoke = (): ToolBase<typeof AgentApplicationsInvokeSchema, Schemas.AgentInvokeResponse> => ({
+    name: 'agent-applications-invoke',
+    schema: AgentApplicationsInvokeSchema,
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsInvokeSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.message !== undefined) {
+            body['message'] = params.message
+        }
+        if (params.external_key !== undefined) {
+            body['external_key'] = params.external_key
+        }
+        const result = await context.api.request<Schemas.AgentInvokeResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/invoke/`,
+            body,
+        })
+        return result
+    },
+})
+
 const AgentApplicationsListSchema = AgentApplicationsListQueryParams
 
 const agentApplicationsList = (): ToolBase<
@@ -167,6 +201,28 @@ const agentApplicationsList = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
+            },
+        })
+        return result
+    },
+})
+
+const AgentApplicationsListenSchema = AgentApplicationsListenParams.omit({ project_id: true }).extend(
+    AgentApplicationsListenQueryParams.shape
+)
+
+const agentApplicationsListen = (): ToolBase<typeof AgentApplicationsListenSchema, Schemas.AgentListenResponse> => ({
+    name: 'agent-applications-listen',
+    schema: AgentApplicationsListenSchema,
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsListenSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AgentListenResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/listen/`,
+            query: {
+                cursor: params.cursor,
+                max_chars: params.max_chars,
+                session_id: params.session_id,
             },
         })
         return result
@@ -717,6 +773,34 @@ const agentApplicationsRevisionsToolsDestroy = (): ToolBase<
     },
 })
 
+const AgentApplicationsRevisionsToolsDryRunCreateSchema = AgentApplicationsRevisionsToolsDryRunCreateParams.omit({
+    project_id: true,
+}).extend(AgentApplicationsRevisionsToolsDryRunCreateBody.shape)
+
+const agentApplicationsRevisionsToolsDryRunCreate = (): ToolBase<
+    typeof AgentApplicationsRevisionsToolsDryRunCreateSchema,
+    Schemas.AgentRevisionDryRunToolResponse
+> => ({
+    name: 'agent-applications-revisions-tools-dry-run-create',
+    schema: AgentApplicationsRevisionsToolsDryRunCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsRevisionsToolsDryRunCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.args !== undefined) {
+            body['args'] = params.args
+        }
+        if (params.mock_secrets !== undefined) {
+            body['mock_secrets'] = params.mock_secrets
+        }
+        const result = await context.api.request<Schemas.AgentRevisionDryRunToolResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/revisions/${encodeURIComponent(String(params.id))}/tools/${encodeURIComponent(String(params.tool_id))}/dry_run/`,
+            body,
+        })
+        return result
+    },
+})
+
 const AgentApplicationsRevisionsToolsUpdateSchema = AgentApplicationsRevisionsToolsUpdateParams.omit({
     project_id: true,
 }).extend(AgentApplicationsRevisionsToolsUpdateBody.shape)
@@ -763,6 +847,31 @@ const agentApplicationsRevisionsValidateCreate = (): ToolBase<
         const result = await context.api.request<Schemas.AgentRevisionValidateResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/revisions/${encodeURIComponent(String(params.id))}/validate/`,
+        })
+        return result
+    },
+})
+
+const AgentApplicationsSendSchema = AgentApplicationsSendParams.omit({ project_id: true }).extend(
+    AgentApplicationsSendBody.shape
+)
+
+const agentApplicationsSend = (): ToolBase<typeof AgentApplicationsSendSchema, Schemas.AgentSendResponse> => ({
+    name: 'agent-applications-send',
+    schema: AgentApplicationsSendSchema,
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsSendSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.session_id !== undefined) {
+            body['session_id'] = params.session_id
+        }
+        if (params.message !== undefined) {
+            body['message'] = params.message
+        }
+        const result = await context.api.request<Schemas.AgentSendResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/send/`,
+            body,
         })
         return result
     },
@@ -847,6 +956,27 @@ const agentApplicationsSessionsRetrieve = (): ToolBase<
     },
 })
 
+const AgentApplicationsSpecSchemaSchema = AgentApplicationsSpecSchemaQueryParams
+
+const agentApplicationsSpecSchema = (): ToolBase<
+    typeof AgentApplicationsSpecSchemaSchema,
+    Schemas.AgentApplication
+> => ({
+    name: 'agent-applications-spec-schema',
+    schema: AgentApplicationsSpecSchemaSchema,
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsSpecSchemaSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AgentApplication>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/spec_schema/`,
+            query: {
+                section: params.section,
+            },
+        })
+        return result
+    },
+})
+
 const AgentNativeToolsListSchema = z.object({})
 
 const agentNativeToolsList = (): ToolBase<
@@ -872,7 +1002,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'agent-applications-env-keys-clear': agentApplicationsEnvKeysClear,
     'agent-applications-env-keys-get': agentApplicationsEnvKeysGet,
     'agent-applications-env-keys-list': agentApplicationsEnvKeysList,
+    'agent-applications-invoke': agentApplicationsInvoke,
     'agent-applications-list': agentApplicationsList,
+    'agent-applications-listen': agentApplicationsListen,
     'agent-applications-models': agentApplicationsModels,
     'agent-applications-partial-update': agentApplicationsPartialUpdate,
     'agent-applications-preview-proxy': agentApplicationsPreviewProxy,
@@ -896,10 +1028,13 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'agent-applications-revisions-spec-update': agentApplicationsRevisionsSpecUpdate,
     'agent-applications-revisions-system-prompt': agentApplicationsRevisionsSystemPrompt,
     'agent-applications-revisions-tools-destroy': agentApplicationsRevisionsToolsDestroy,
+    'agent-applications-revisions-tools-dry-run-create': agentApplicationsRevisionsToolsDryRunCreate,
     'agent-applications-revisions-tools-update': agentApplicationsRevisionsToolsUpdate,
     'agent-applications-revisions-validate-create': agentApplicationsRevisionsValidateCreate,
+    'agent-applications-send': agentApplicationsSend,
     'agent-applications-session-logs': agentApplicationsSessionLogs,
     'agent-applications-sessions-list': agentApplicationsSessionsList,
     'agent-applications-sessions-retrieve': agentApplicationsSessionsRetrieve,
+    'agent-applications-spec-schema': agentApplicationsSpecSchema,
     'agent-native-tools-list': agentNativeToolsList,
 }

@@ -1,5 +1,5 @@
 import { IconPin, IconPinFilled } from '@posthog/icons'
-import { Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -81,12 +81,15 @@ type BreakdownColumnItemProps = {
     item: IndexedTrendResult
     formatItemBreakdownLabel: (item: IndexedTrendResult) => string
     breakdownFilter?: BreakdownFilter
+    /** "Current"/"Previous" tag, shown when the breakdown label doubles as the series column. */
+    compareValue?: string
 }
 
 export function BreakdownColumnItem({
     item,
     formatItemBreakdownLabel,
     breakdownFilter,
+    compareValue,
 }: BreakdownColumnItemProps): JSX.Element {
     const breakdownLabel = formatItemBreakdownLabel(item)
     const showPathCleaningHighlight = breakdownFilter?.breakdown_path_cleaning && typeof breakdownLabel === 'string'
@@ -96,7 +99,7 @@ export function BreakdownColumnItem({
 
     // Clipped with CSS only, so the full value stays in the DOM — copying the cell copies everything
     return (
-        <div className="flex justify-between items-center">
+        <div className="flex items-center gap-2">
             {breakdownLabel && (
                 <>
                     {isURL(breakdownLabel) ? (
@@ -116,6 +119,7 @@ export function BreakdownColumnItem({
                     )}
                 </>
             )}
+            {compareValue && <LemonTag className="tag-pill shrink-0">{compareValue}</LemonTag>}
         </div>
     )
 }

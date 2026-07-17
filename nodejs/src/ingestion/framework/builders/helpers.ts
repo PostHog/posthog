@@ -7,13 +7,13 @@ import {
     BeforeBatchInput,
     BeforeBatchOutput,
 } from '~/ingestion/framework/batching-pipeline'
-import { BufferingBatchPipeline } from '~/ingestion/framework/buffering-batch-pipeline'
+import { BufferingChunkPipeline } from '~/ingestion/framework/buffering-chunk-pipeline'
 
-import { BatchPipelineBuilder } from './batch-pipeline-builders'
+import { ChunkPipelineBuilder } from './chunk-pipeline-builders'
 import { PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
 
-export function newBatchPipelineBuilder<T, C = Record<string, never>>(): BatchPipelineBuilder<T, T, C> {
-    return new BatchPipelineBuilder(new BufferingBatchPipeline<T, C>())
+export function newChunkPipelineBuilder<T, C = Record<string, never>>(): ChunkPipelineBuilder<T, T, C> {
+    return new ChunkPipelineBuilder(new BufferingChunkPipeline<T, C>())
 }
 
 export function newPipelineBuilder<T, C = Record<string, never>>(): StartPipelineBuilder<T, C> {
@@ -36,13 +36,13 @@ export function newBatchingPipeline<
         Record<string, never>
     >,
     callback: (
-        builder: BatchPipelineBuilder<
+        builder: ChunkPipelineBuilder<
             TInput & CBatch,
             TInput & CBatch,
             CInput & BatchingContext,
             CInput & BatchingContext
         >
-    ) => BatchPipelineBuilder<TInput & CBatch, TOutput, CInput & BatchingContext, COutput & BatchingContext, R>,
+    ) => ChunkPipelineBuilder<TInput & CBatch, TOutput, CInput & BatchingContext, COutput & BatchingContext, R>,
     afterBatch: (
         builder: StartPipelineBuilder<
             AfterBatchInput<TOutput, COutput & BatchingContext, CBatch, R>,
@@ -55,8 +55,8 @@ export function newBatchingPipeline<
     >,
     options?: Partial<BatchingPipelineOptions>
 ): BatchingPipeline<TInput, TOutput, CInput, CBatch, COutput & BatchingContext, R> {
-    const startBuilder = new BatchPipelineBuilder(
-        new BufferingBatchPipeline<TInput & CBatch, CInput & BatchingContext>()
+    const startBuilder = new ChunkPipelineBuilder(
+        new BufferingChunkPipeline<TInput & CBatch, CInput & BatchingContext>()
     )
     const subPipeline = callback(startBuilder).build()
 

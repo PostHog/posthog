@@ -64,13 +64,9 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
         await this.jobQueues.hog_function.startAsProducer()
         await this.jobQueues.hog_flow.startAsProducer()
 
-        // Dedicated ClickHouse client for the paginator. The cluster's certs
-        // are issued for an internal hostname that doesn't match the one we
-        // dial in (`CLICKHOUSE_HOST` is typically a service-discovery name),
-        // so we override `checkServerIdentity` to no-op the hostname check
-        // while leaving the rest of the chain — signature, CA trust, expiry —
-        // verified. This is a narrower bypass than `rejectUnauthorized: false`,
-        // which would accept any cert from any signer.
+        // Dedicated ClickHouse client for the paginator. Internal ClickHouse
+        // uses self-signed certs with a hostname mismatch, same as the
+        // session-replay recording-api client.
         const chScheme = this.config.CLICKHOUSE_SECURE ? 'https' : 'http'
         const chPort = this.config.CLICKHOUSE_SECURE ? 8443 : 8123
         this.clickhouseClient = createClickHouseClient({
@@ -82,12 +78,7 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
             max_open_connections: 10,
             ...(this.config.CLICKHOUSE_SECURE
                 ? {
-                      http_agent: new https.Agent({
-                          keepAlive: true,
-                          maxSockets: 10,
-                          // Hostname-only bypass — full chain validation still runs.
-                          checkServerIdentity: () => undefined,
-                      }),
+                      http_agent: new https.Agent({ rejectUnauthorized: false, keepAlive: true, maxSockets: 10 }), // nosemgrep: problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
                   }
                 : {}),
         })

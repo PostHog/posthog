@@ -34,7 +34,7 @@ from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, get_oidc_verification_keys
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import (
     LEGACY_PERSONAL_API_KEY_SALT,
     PERSONAL_API_KEY_AUTH_COUNTER,
@@ -47,6 +47,7 @@ from posthog.models.user import User
 from posthog.models.utils import hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import verify_passkey_authentication_response
+from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
 
@@ -727,7 +728,9 @@ def _organization_disallows_public_sharing(sharing_configuration: SharingConfigu
     ORGANIZATION_SECURITY_SETTINGS feature. Sharing tokens must fail closed in that case,
     even though individual `SharingConfiguration` rows remain `enabled=True`.
     """
-    organization = sharing_configuration.team.organization
+    # Fetch the organization directly via the team FK rather than `sharing_configuration.team.organization`,
+    # which would lazy-load the entire wide `posthog_team` row just to hop to the organization.
+    organization = Organization.objects.get(team=sharing_configuration.team_id)
     return (
         organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
         and not organization.allow_publicly_shared_resources
@@ -762,7 +765,7 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
                     raise AuthenticationFailed(detail="Sharing access token is invalid.")
 
                 self.sharing_configuration = sharing_configuration
-                return (AnonymousUser(), None)
+                return (SharedLinkUser(sharing_configuration), None)
         return None
 
 
@@ -824,7 +827,7 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
 
             self.sharing_configuration = sharing_configuration
             self.share_password = share_password
-            return (AnonymousUser(), None)
+            return (SharedLinkUser(sharing_configuration), None)
 
         except jwt.InvalidTokenError:
             # Expected: JWT decode failed (likely a personal API key was passed)

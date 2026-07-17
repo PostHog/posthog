@@ -1,5 +1,7 @@
 from unittest import mock
 
+from parameterized import parameterized
+
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -39,6 +41,33 @@ class TestResendSource:
         errors = self.source.get_non_retryable_errors()
         assert any("401" in key for key in errors)
         assert any("403" in key for key in errors)
+
+    def test_audiences_bad_request_is_non_retryable(self):
+        errors = self.source.get_non_retryable_errors()
+        raised = "400 Client Error: Bad Request for url: https://api.resend.com/audiences"
+
+        matched = [message for key, message in errors.items() if key in raised]
+
+        assert len(matched) == 1
+        assert matched[0] is not None and "Audiences" in matched[0]
+
+    @parameterized.expand(
+        [
+            ("broadcasts_matches", "https://api.resend.com/broadcasts", True),
+            ("other_endpoint_stays_retryable", "https://api.resend.com/emails", False),
+        ]
+    )
+    def test_broadcasts_bad_request_retryability(self, _name: str, url: str, should_match: bool):
+        errors = self.source.get_non_retryable_errors()
+        raised = f"400 Client Error: Bad Request for url: {url}"
+
+        matched = [message for key, message in errors.items() if key in raised]
+
+        if should_match:
+            assert len(matched) == 1
+            assert matched[0] is not None and "Broadcasts" in matched[0]
+        else:
+            assert not matched
 
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

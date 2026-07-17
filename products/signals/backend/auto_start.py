@@ -3,17 +3,28 @@ from __future__ import annotations
 import json
 from typing import TypedDict, TypeVar
 
+from django.conf import settings
 from django.db import transaction
 
 import structlog
+import posthoganalytics
 from pydantic import BaseModel, ValidationError
 
+from posthog.event_usage import groups
 from posthog.models import Team, User
+from posthog.models.organization import OrganizationMembership
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.agent_runtime import STEP_IMPLEMENTATION, resolve_agent_runtime
+from products.signals.backend.billing import (
+    BillingExemptionError,
+    mark_report_billing_exempt,
+    system_billing_exempt_reason,
+)
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
+    SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
@@ -25,7 +36,7 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
-from products.signals.backend.slack_inbox_notifications import POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME
+from products.signals.backend.signal_metadata import fetch_source_products_for_reports
 from products.signals.backend.task_run_artefacts import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_IMPLEMENTATION,
@@ -62,11 +73,22 @@ def _effective_threshold(config: SignalUserAutonomyConfig | None, team_default_p
     return Priority(config.autostart_priority) if config and config.autostart_priority else team_default_priority
 
 
+def _report_meets_team_autostart_threshold(report_priority: Priority, team_default_priority: Priority) -> bool:
+    """Whether the report's priority is at or above the team's default autostart threshold.
+
+    Gates the reviewer-less fallback so a team that set ``default_autostart_priority`` (e.g. P2)
+    doesn't get autonomous PRs for lower-priority reports. Lower rank = higher priority; the team
+    default is P4 ("all priorities") when the team has no config row, so the gate is a no-op then.
+    Per-user autostart priorities are intentionally not consulted — the fallback has no named user.
+    """
+    return _priority_rank(report_priority) <= _priority_rank(team_default_priority)
+
+
 def _build_autostart_task_description(
-    *, report_id: str, summary: str, repository: str, priority: PriorityAssessment | None
+    *, report_id: str, team_id: int, summary: str, repository: str, priority: PriorityAssessment | None
 ) -> str:
     priority_line = f"Priority: {priority.priority.value}\nReason: {priority.explanation}\n\n" if priority else ""
-    report_deep_link = f"{POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME}://inbox/{report_id}"
+    report_link = f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
     return (
         f"{summary}\n\n"
         f"{priority_line}"
@@ -90,11 +112,56 @@ def _build_autostart_task_description(
         "the user to that branch so they can review the changes and decide how to proceed, and explain in your "
         "turn summary why you didn't open the PR directly. Err on the side of caution to avoid committing a "
         "social faux pas in someone else's project.\n\n"
-        "When opening the PR, include this report deep link in the description footer, "
+        "When opening the PR, include this report link in the description footer, "
         "making the footer '*Created with [PostHog Code](https://posthog.com/code?ref=pr) "
-        f"from [an inbox report]({report_deep_link}).' - "
+        f"from [this inbox report]({report_link}).' - "
         "so the human reviewer can jump straight to it."
     )
+
+
+def _stamp_billing_exemption(report: SignalReport, declared_reason: str | None) -> str | None:
+    """Freeze the report's billing exemption (caller-declared origin first, then system policy)
+    under the auto-start row lock, before the implementation task — and therefore any billable PR
+    run — can exist. Prospective-only by construction; returns the reason when the report ends up
+    exempt, None when it stays billable."""
+    reason = declared_reason or system_billing_exempt_reason(report.team_id, str(report.id))
+    if reason:
+        try:
+            mark_report_billing_exempt(report, reason)
+        except BillingExemptionError:
+            # A billable PR run already exists; a late "should have been free" is a refund, never
+            # a flag flip (it would break usage-report determinism). Stay billable.
+            logger.warning(
+                "signals billing exemption skipped: billable PR run already exists",
+                report_id=str(report.id),
+                team_id=report.team_id,
+            )
+    return report.billing_exempt_reason
+
+
+def _capture_billing_exempted(*, team: Team, report_id: str, reason: str, task_id: str) -> None:
+    """`signals_pr_billing_exempted` — exempt volume is a cost signal for the weekly refund review."""
+    try:
+        source_products: list[str] = []
+        meta = fetch_source_products_for_reports(team, [report_id]).get(report_id)
+        if meta is not None:
+            source_products = meta.source_products
+        posthoganalytics.capture(
+            event="signals_pr_billing_exempted",
+            distinct_id=str(team.organization.id),
+            properties={
+                "team_id": team.id,
+                "organization_id": str(team.organization.id),
+                "report_id": report_id,
+                "task_id": task_id,
+                "reason": reason,
+                "source_products": source_products,
+            },
+            groups=groups(team.organization, team),
+        )
+    except Exception:
+        # Analytics must never break auto-start.
+        logger.exception("Failed to capture signals_pr_billing_exempted", report_id=report_id)
 
 
 def _create_implementation_task_if_absent(
@@ -106,6 +173,7 @@ def _create_implementation_task_if_absent(
     user_id: int,
     repository: str,
     base_branch: str | None,
+    billing_exempt_reason: str | None = None,
 ) -> bool:
     """Create the implementation task and record it (gate row + work-log artefact), serialized per report.
 
@@ -116,7 +184,15 @@ def _create_implementation_task_if_absent(
     inside the lock makes the decision atomic: the second evaluation blocks, then sees the gate and
     returns ``False``. Returns ``True`` if it created the task, ``False`` if one already exists / the
     report is gone.
+
+    The same lock is where billing exemptions freeze (`_stamp_billing_exemption`): the reason is
+    decided and written before the task exists, so it can never race a billable PR run.
     """
+    # Resolved outside the transaction: the flag read does network I/O and must not hold the row lock.
+    agent_runtime = resolve_agent_runtime(team_id, STEP_IMPLEMENTATION)
+
+    exempt_reason: str | None = None
+    task_id: str | None = None
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
@@ -131,10 +207,13 @@ def _create_implementation_task_if_absent(
             report_id=report_id, team_id=team_id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
         ):
             return False
+        exempt_reason = _stamp_billing_exemption(report, billing_exempt_reason)
         team = Team.objects.select_related("organization").get(id=team_id)
         created = tasks_facade.create_and_run_task(
             team=team,
-            title=title,
+            # "Implementation: <report title>" mirrors the research task's "Research: <report title>"
+            # relabel, so the Runs surface reads "<relationship>: <report>" for every pipeline run.
+            title=f"Implementation: {title}",
             description=description,
             origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
             user_id=user_id,
@@ -146,18 +225,28 @@ def _create_implementation_task_if_absent(
             posthog_mcp_scopes="full",
             interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
             ai_stage="implementation",
+            # Internal so the run stays out of the default task list; the report surfaces it by id.
+            internal=True,
+            runtime_adapter=agent_runtime.runtime_adapter,
+            model=agent_runtime.model,
+            reasoning_effort=agent_runtime.reasoning_effort,
         )
         if created.latest_run is None:
             raise RuntimeError(f"Task {created.task_id} auto-started without producing a TaskRun")
+        task_id = str(created.task_id)
         # Written inside the lock so the gate check above and this write are serialized — the
         # `SignalReportTask` gate row must be visible before the lock releases.
         record_implementation_task(
             team_id=team_id,
             report_id=report_id,
-            task_id=str(created.task_id),
+            task_id=task_id,
             run_id=str(created.latest_run.id),
         )
-        return True
+    if exempt_reason and task_id:
+        # After commit: the exempt report's implementation task exists — count it (includes a
+        # best-effort ClickHouse lookup, so it must not run under the lock).
+        _capture_billing_exempted(team=team, report_id=report_id, reason=exempt_reason, task_id=task_id)
+    return True
 
 
 def _resolve_autostart_assignee(
@@ -210,6 +299,61 @@ def _resolve_autostart_assignee(
     return None
 
 
+def _resolve_autostart_fallback_user(team_id: int) -> User | None:
+    """Assignee for an actionable report whose suggested reviewers don't resolve to a member.
+
+    Suggested reviewers are advisory — a report can be immediately actionable with a clear fix
+    even when none of its suggested reviewers have linked a GitHub account (or it has none at all).
+    Rather than drop the auto-start, run the implementation task under the human who turned signals
+    on for this team. Enabling a signal source is the team's opt-in to the signals product, of which
+    autonomous PRs are a part, so attributing the task to that member is within the team's consent.
+
+    Resolution, restricted at every tier to *active* org members (still in the org and not
+    deactivated) — the task mints a PostHog OAuth token as this user, so a departed or disabled
+    account can't run it:
+
+    1. The earliest active member who enabled a ``SignalSourceConfig`` for this team (ordered by
+       the source's creation time) — who first turned signals on.
+    2. If none (sources enabled by a system path leave ``created_by`` null), the organization's
+       owner, then an admin — the accountable human for an org that is clearly running signals.
+    3. Otherwise ``None`` — no eligible human, so nothing auto-starts.
+
+    Deterministic within each tier so concurrent evaluations pick the same user.
+    """
+    org_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
+    if org_id is None:
+        return None
+
+    active_member_ids = OrganizationMembership.objects.filter(organization_id=org_id, user__is_active=True).values_list(
+        "user_id", flat=True
+    )
+
+    # Tier 1: the earliest active member who enabled a signal source for this team.
+    enabler_id = (
+        SignalSourceConfig.objects.filter(team_id=team_id, created_by_id__in=active_member_ids)
+        .order_by("created_at")
+        .values_list("created_by_id", flat=True)
+        .first()
+    )
+    if enabler_id is not None:
+        return User.objects.filter(id=enabler_id).first()
+
+    # Tier 2: no active enabler — fall back to the org's owner, then an admin (highest level first).
+    fallback_id = (
+        OrganizationMembership.objects.filter(
+            organization_id=org_id,
+            user__is_active=True,
+            level__gte=OrganizationMembership.Level.ADMIN,
+        )
+        .order_by("-level", "user_id")
+        .values_list("user_id", flat=True)
+        .first()
+    )
+    if fallback_id is not None:
+        return User.objects.filter(id=fallback_id).first()
+    return None
+
+
 def _resolve_triggering_user(
     team_id: int,
     user_id: int,
@@ -244,6 +388,7 @@ async def maybe_autostart_implementation_task(
     reviewers_content: list[ReviewerContent],
     priority: PriorityAssessment | None,
     triggering_user_id: int | None = None,
+    billing_exempt_reason: str | None = None,
 ) -> None:
     """Start an implementation Task for a SignalReport if autonomy + priority allow it.
 
@@ -254,13 +399,26 @@ async def maybe_autostart_implementation_task(
     agent / scout, whose reviewers come from commit authorship), the assignee is resolved from
     *reviewers_content*.
 
+    ``billing_exempt_reason`` lets a caller that knows its origin is PostHog-system (e.g. a future
+    report-linked onboarding run) declare the report never-billable up front. Independently of it,
+    system policy (`billing.system_billing_exempt_reason`) marks exempt-origin reports — either
+    way the reason freezes under the row lock before the task (and any billable PR run) exists.
+
     Idempotent: skipped if an implementation task already started for the report
     (a `SignalReportTask` implementation gate row), if the report is not immediately
-    actionable, if it's already addressed, if priority is missing, if there are no
-    suggested reviewers, or if no reviewer qualifies. The
-    "already started" check is enforced atomically under a row lock in
+    actionable, if it's already addressed, or if priority is missing. The "already
+    started" check is enforced atomically under a row lock in
     `_create_implementation_task_if_absent`, so concurrent evaluations
     (reviewer-edit hook, pipeline, custom agent) can't double-start.
+
+    Suggested reviewers no longer gate the pipeline path: an immediately-actionable report
+    whose reviewers don't resolve to a connected-GitHub member (or has none) still auto-starts
+    under the member who enabled signals for the team (see `_resolve_autostart_fallback_user`),
+    provided the report meets the team's ``default_autostart_priority``, so a clear fix isn't
+    dropped just because nobody linked GitHub. It's skipped when the report is below that team
+    threshold or no such member exists. The user-triggered path (a reviewer edit) still runs
+    strictly as the editing user and never falls back, so it can't act under another member's
+    identity.
 
     Both the agentic signals pipeline (``temporal/agentic/report.py``) and the
     custom agent activity (``temporal/custom_agent.py``) call this after persisting
@@ -283,8 +441,6 @@ async def maybe_autostart_implementation_task(
         skip_reason = "report already addressed"
     elif priority is None:
         skip_reason = "no priority assessment"
-    elif not reviewers_content:
-        skip_reason = "no suggested reviewers"
     if skip_reason is not None:
         logger.info("signals auto-start skipped", report_id=report_id, team_id=team_id, reason=skip_reason)
         return
@@ -292,6 +448,14 @@ async def maybe_autostart_implementation_task(
     assert priority is not None  # narrowed by the `priority is None` skip_reason guard above
 
     team_config = await SignalTeamConfig.objects.filter(team_id=team_id).afirst()
+    if team_config and team_config.autostart_enabled is False:
+        # Master switch: an explicit opt-out means no path (reviewer, user-triggered, or reviewer-less
+        # fallback) may auto-start. Null (never set) leaves autostart on, so only False disables here.
+        # Reports still generate and notify.
+        logger.info(
+            "signals auto-start skipped", report_id=report_id, team_id=team_id, reason="autostart disabled for team"
+        )
+        return
     team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P4
 
     # A user-triggered auto-start runs as the triggering user; otherwise resolve a trusted
@@ -304,12 +468,17 @@ async def maybe_autostart_implementation_task(
         task_user = await database_sync_to_async(_resolve_autostart_assignee, thread_sensitive=False)(
             team_id, priority.priority, reviewers_content, team_default_priority
         )
+        if task_user is None and _report_meets_team_autostart_threshold(priority.priority, team_default_priority):
+            # No suggested reviewer resolved to a connected-GitHub member, but the report meets the
+            # team's default autostart priority, so run it under the member who enabled signals for
+            # the team rather than dropping the PR.
+            task_user = await database_sync_to_async(_resolve_autostart_fallback_user, thread_sensitive=False)(team_id)
     if task_user is None:
         logger.info(
             "signals auto-start skipped",
             report_id=report_id,
             team_id=team_id,
-            reason="no reviewer meets the autonomy priority threshold",
+            reason="no autostart runner: no reviewer met threshold, and no enabling member for a report at/above the team autostart priority",
         )
         return
 
@@ -322,11 +491,12 @@ async def maybe_autostart_implementation_task(
         report_id=report_id,
         title=title,
         description=_build_autostart_task_description(
-            report_id=report_id, summary=summary, repository=repository, priority=priority
+            report_id=report_id, team_id=team_id, summary=summary, repository=repository, priority=priority
         ),
         user_id=task_user.id,
         repository=repository,
         base_branch=base_branch,
+        billing_exempt_reason=billing_exempt_reason,
     )
     if not created:
         # Another evaluation won the race and already created the implementation task.
@@ -433,15 +603,11 @@ async def maybe_autostart_from_report_artefacts(*, team_id: int, report_id: str)
     priority = await _latest_artefact_as(
         report_id, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, PriorityAssessment
     )
+    # Empty / unresolved reviewers no longer short-circuit here: `maybe_autostart_implementation_task`
+    # falls back to the member who enabled signals for the team (for the system/scout path, gated by
+    # the team autostart priority), while a user-edited list still runs strictly as the editing user
+    # via `triggering_user_id` below.
     reviewers_content, editor_user_id = await _latest_reviewers_content(report_id)
-    if not reviewers_content:
-        logger.info(
-            "signals auto-start re-eval skipped",
-            report_id=report_id,
-            team_id=team_id,
-            reason="no suggested reviewers",
-        )
-        return
 
     await maybe_autostart_implementation_task(
         team_id=team_id,

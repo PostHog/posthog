@@ -1,17 +1,21 @@
 import './ImpersonationNotice.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconCollapse, IconEllipsis, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonMenu, Tooltip } from '@posthog/lemon-ui'
+import { IconChevronDown, IconCollapse, IconRefresh, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonMenu, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { DraggableWithSnapZones, DraggableWithSnapZonesRef } from 'lib/components/DraggableWithSnapZones'
 import { dayjs } from 'lib/dayjs'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconDragHandle } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
+import { membershipLevelToName } from 'lib/utils/permissioning'
+import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
 import { userLogic } from 'scenes/userLogic'
+
+import { OrganizationMemberType } from '~/types'
 
 import { AdminLoginButtons } from './AdminLoginButtons'
 import {
@@ -21,6 +25,21 @@ import {
     impersonationNoticeLogic,
 } from './impersonationNoticeLogic'
 import { ImpersonationReasonModal } from './ImpersonationReasonModal'
+
+// One row in the "Change user" dropdown: name on top, email beneath in muted text, level pill on the right.
+function ChangeUserMenuItemLabel({ member }: { member: OrganizationMemberType }): JSX.Element {
+    return (
+        <span className="flex items-center gap-2 justify-between w-full">
+            <span className="flex flex-col">
+                <span>{fullName(member.user)}</span>
+                <span className="text-xs text-muted">{member.user.email}</span>
+            </span>
+            <LemonTag>
+                {capitalizeFirstLetter(membershipLevelToName.get(member.level) ?? `unknown (${member.level})`)}
+            </LemonTag>
+        </span>
+    )
+}
 
 function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: () => void }): JSX.Element {
     const [now, setNow] = useState(() => dayjs())
@@ -49,9 +68,9 @@ function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: (
         if (pastCountdown) {
             callback?.() // oxlint-disable-line react-hooks/exhaustive-deps
         }
-    }, [pastCountdown])
+    }, [pastCountdown, callback])
 
-    return <span className="tabular-nums text-warning">{countdown}</span>
+    return <span className="tabular-nums">{countdown}</span>
 }
 
 function LoginAsContent({
@@ -91,6 +110,7 @@ function ImpersonationExpiredOverlay({ expiredSessionInfo }: { expiredSessionInf
             description={`Your session impersonating ${expiredSessionInfo.email} has expired.`}
             confirmText="Re-impersonate"
             loading={isReImpersonating}
+            initialReason={expiredSessionInfo.reason ?? ''}
             onConfirm={(reason) => reImpersonate(reason, readOnly)}
             cancelButton={{
                 label: 'Return to admin',
@@ -118,24 +138,72 @@ function ImpersonationExpiredOverlay({ expiredSessionInfo }: { expiredSessionInf
 function ImpersonationNoticeContent(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
     const { logout, loadUser } = useActions(userLogic)
-    const { isReadOnly, isUpgradeModalOpen, isImpersonationUpgradeInProgress } = useValues(impersonationNoticeLogic)
-    const { closeUpgradeModal, upgradeImpersonation, setSessionExpired, returnToPostHog } =
-        useActions(impersonationNoticeLogic)
+    const {
+        isReadOnly,
+        isUpgradeModalOpen,
+        isImpersonationUpgradeInProgress,
+        changeableMembers,
+        isChangingUser,
+        membersLoading,
+    } = useValues(impersonationNoticeLogic)
+    const {
+        closeUpgradeModal,
+        upgradeImpersonation,
+        openUpgradeModal,
+        setSessionExpired,
+        returnToPostHog,
+        changeUser,
+        ensureAllMembersLoaded,
+    } = useActions(impersonationNoticeLogic)
 
-    const handleSessionExpired = (): void => {
+    // The user the operator picked to switch to; drives the confirm-reason modal.
+    const [pendingUserId, setPendingUserId] = useState<number | null>(null)
+
+    // The reason given when impersonation of the current user started (persisted server-side),
+    // used to pre-fill the change-user and upgrade modals.
+    const storedReason = user?.is_impersonated_reason
+
+    const changeUserItems =
+        changeableMembers.length === 0
+            ? [{ label: membersLoading ? 'Loading…' : 'No other members', disabledReason: ' ' }]
+            : changeableMembers.map((member) => ({
+                  key: member.user.uuid,
+                  label: <ChangeUserMenuItemLabel member={member} />,
+                  disabledReason: isChangingUser ? 'Switching user…' : undefined,
+                  // Always confirm via the modal (reason pre-filled) rather than switching silently.
+                  onClick: () => setPendingUserId(member.user.id),
+              }))
+
+    const handleSessionExpired = useCallback((): void => {
         if (user) {
             setSessionExpired({
                 email: user.email,
                 userId: user.id,
                 isImpersonatedUntil: user.is_impersonated_until ?? null,
+                reason: user.is_impersonated_reason ?? null,
             })
         }
-    }
+    }, [user, setSessionExpired])
 
     return (
         <>
             <p className="ImpersonationNotice__message">
-                Signed in as <span className="text-warning">{user?.email}</span>
+                Signed in as{' '}
+                <LemonMenu
+                    items={changeUserItems}
+                    onVisibilityChange={(visible) => visible && ensureAllMembersLoaded()}
+                >
+                    <LemonButton
+                        size="xsmall"
+                        sideIcon={<IconChevronDown />}
+                        loading={isChangingUser}
+                        tooltip={`Currently impersonating ${user?.email} - click to switch user`}
+                        truncate
+                        className="ImpersonationNotice__inline-trigger ImpersonationNotice__user-trigger text-warning"
+                    >
+                        {user?.email}
+                    </LemonButton>
+                </LemonMenu>
                 {user?.organization?.name && (
                     <>
                         {' '}
@@ -143,21 +211,36 @@ function ImpersonationNoticeContent(): JSX.Element {
                     </>
                 )}
                 .
-                {user?.is_impersonated_until && (
-                    <>
-                        {' '}
-                        Expires in{' '}
-                        <CountDown datetime={dayjs(user.is_impersonated_until)} callback={handleSessionExpired} />.
-                    </>
-                )}
             </p>
+            {user?.is_impersonated_until && (
+                <div className="ImpersonationNotice__expiry">
+                    <span>
+                        Expires in{' '}
+                        <CountDown datetime={dayjs(user.is_impersonated_until)} callback={handleSessionExpired} />
+                    </span>
+                    <LemonButton
+                        type="secondary"
+                        size="xxsmall"
+                        icon={<IconRefresh />}
+                        onClick={() => loadUser()}
+                        loading={userLoading}
+                        tooltip="Refresh"
+                    />
+                </div>
+            )}
             <div className="flex gap-2 justify-end">
-                <LemonButton type="secondary" size="small" onClick={() => loadUser()} loading={userLoading}>
-                    Refresh
-                </LemonButton>
+                {isReadOnly && (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => openUpgradeModal()}
+                        tooltip="Upgrade your impersonation session to have read-write permissions"
+                    >
+                        Upgrade to read-write
+                    </LemonButton>
+                )}
                 <LemonButton
-                    type="secondary"
-                    status="danger"
+                    type="primary"
                     size="small"
                     onClick={() => logout()}
                     sideAction={{
@@ -183,8 +266,24 @@ function ImpersonationNoticeContent(): JSX.Element {
                     description="Read-write mode allows you to make changes on behalf of the user. Please provide a reason for this upgrade."
                     confirmText="Upgrade"
                     loading={isImpersonationUpgradeInProgress}
+                    initialReason={storedReason ?? ''}
                 />
             )}
+            <ImpersonationReasonModal
+                isOpen={pendingUserId !== null}
+                onClose={() => setPendingUserId(null)}
+                onConfirm={(reason) => {
+                    if (pendingUserId !== null) {
+                        changeUser(pendingUserId, reason)
+                    }
+                    setPendingUserId(null)
+                }}
+                title="Change impersonated user"
+                description="Provide a reason for impersonating this user."
+                confirmText="Switch user"
+                loading={isChangingUser}
+                initialReason={storedReason ?? ''}
+            />
         </>
     )
 }
@@ -201,7 +300,7 @@ export function ImpersonationNotice(): JSX.Element | null {
         ticketContext,
         adminLoginUrls,
     } = useValues(impersonationNoticeLogic)
-    const { minimize, maximize, openUpgradeModal, setPageVisible } = useActions(impersonationNoticeLogic)
+    const { minimize, maximize, setPageVisible } = useActions(impersonationNoticeLogic)
 
     const { isVisible: isPageVisible } = usePageVisibility()
 
@@ -272,18 +371,6 @@ export function ImpersonationNotice(): JSX.Element | null {
                         <div className="ImpersonationNotice__header">
                             <IconWarning className="ImpersonationNotice__warning-icon" />
                             <span className="ImpersonationNotice__title">{title}</span>
-                            {isImpersonated && isReadOnly && (
-                                <LemonMenu
-                                    items={[
-                                        {
-                                            label: 'Upgrade to read-write',
-                                            onClick: openUpgradeModal,
-                                        },
-                                    ]}
-                                >
-                                    <LemonButton size="xsmall" icon={<IconEllipsis />} />
-                                </LemonMenu>
-                            )}
                             <LemonButton size="xsmall" icon={<IconCollapse />} onClick={handleMinimize} />
                         </div>
                         <div className="ImpersonationNotice__content">

@@ -5,6 +5,8 @@ import { ApiError } from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 
+import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import { tasksLogic } from '../../logics/tasksLogic'
 import { OriginProduct, Task, TaskRun, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 import { taskDetailSceneLogic } from './taskDetailSceneLogic'
@@ -16,8 +18,10 @@ const createMockTask = (id: string): Task => ({
     title: `Task ${id}`,
     description: 'A test task',
     origin_product: OriginProduct.USER_CREATED,
+    runtime: RuntimeEnumApi.Acp,
     repository: 'test/repo',
     github_integration: null,
+    signal_report: null,
     json_schema: null,
     internal: false,
     latest_run: null,
@@ -85,9 +89,9 @@ describe('taskDetailSceneLogic', () => {
         // mounts the common logics, so clear before init or flags enabled in one test leak into
         // the next.
         window.localStorage.clear()
-        // preflightLogic prefers the app context over fetching, and the default test fixture has
-        // is_debug: true, which would force streamViaProxyEnabled on. Pin it to false so the
-        // feature flag alone drives the rollout-gated behavior in these tests.
+        // streamViaProxyEnabled is now purely flag-driven, so preflight no longer affects it. The
+        // default test fixture has is_debug: true; pin it to false to keep the app context minimal
+        // and unsurprising for these tests.
         window.POSTHOG_APP_CONTEXT = { preflight: { is_debug: false } } as unknown as typeof window.POSTHOG_APP_CONTEXT
         initKeaTests()
         global.fetch = createFetchMock()
@@ -261,6 +265,42 @@ describe('taskDetailSceneLogic', () => {
 
             expect(logic.values.selectedRunNotFound).toBe(false)
             expect(logic.values.selectedRunError).toBe('Could not load task run')
+            logic.unmount()
+        })
+    })
+
+    describe('unified loading selectors', () => {
+        it('reports the header + run log as pending while task and runs are still loading', () => {
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+
+            // afterMount fires loadTask + loadTaskRuns synchronously; nothing has resolved yet.
+            expect(logic.values.isTaskPending).toBe(true)
+            expect(logic.values.isRunPending).toBe(true)
+            expect(logic.values.isHeaderLoading).toBe(true)
+            logic.unmount()
+        })
+
+        it('clears pending once the task and its runs resolve', async () => {
+            global.fetch = createFetchMock({ runsList: [createMockRun('run-1', TaskRunStatus.COMPLETED)] })
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.isTaskPending).toBe(false)
+            expect(logic.values.isRunPending).toBe(false)
+            expect(logic.values.isHeaderLoading).toBe(false)
+            logic.unmount()
+        })
+
+        it('resolves immediately for a task that has never run (no perpetual skeleton)', async () => {
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.runs).toEqual([])
+            expect(logic.values.isRunPending).toBe(false)
+            expect(logic.values.isHeaderLoading).toBe(false)
             logic.unmount()
         })
     })

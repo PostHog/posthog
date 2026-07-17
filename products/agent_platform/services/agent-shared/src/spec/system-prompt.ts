@@ -25,16 +25,15 @@ import { AgentRevision } from './spec'
 /** Coarse failure category — same shape the runner uses; redeclared here
  *  to avoid the runner→shared import cycle. Keep in sync with
  *  `agent-runner/src/loop/mcp-clients.ts#McpFailureCategory`. */
-export type UnavailableMcpCategory = 'auth' | 'network' | 'not_found' | 'unknown'
+export type UnavailableMcpCategory = 'connection_dead' | 'auth' | 'network' | 'not_found' | 'unknown'
 
 export interface UnavailableMcp {
     /** Spec ref id — same string the model sees as the tool-name prefix. */
     id: string
     category: UnavailableMcpCategory
-    /** Set when the MCP didn't open because the asker hasn't linked its
-     *  identity provider yet. The model relays this connect link rather than
-     *  reporting a dead "temporarily unavailable". */
-    authorizeUrl?: string
+    /** Identity provider to pass to `@posthog/identity-connect` after the user
+     *  explicitly asks to use or connect this capability. */
+    provider?: string
 }
 
 export interface BuildSystemPromptOpts {
@@ -58,6 +57,9 @@ export interface BuildSystemPromptOpts {
 }
 
 const CATEGORY_HINTS: Record<UnavailableMcpCategory, string> = {
+    // `connection_dead` gets its own section (not this hint), but the record
+    // must stay total — fall back to the same phrasing if it ever lands here.
+    connection_dead: 'disconnected — needs an admin to reconnect',
     auth: 'authentication issue',
     network: 'network or upstream issue',
     not_found: 'endpoint not found',
@@ -93,20 +95,38 @@ export async function buildSystemPrompt(
     }
 
     const unavailable = opts.unavailableMcps ?? []
-    // A link-required failure is the user's to fix (connect their account); a
-    // broken one is the owner's. Split so the model relays the link for the
-    // former instead of dead-ending both as "temporarily unavailable".
-    const linkable = unavailable.filter((u) => u.authorizeUrl)
-    const broken = unavailable.filter((u) => !u.authorizeUrl)
-    if (linkable.length > 0) {
-        const lines = ['\n\n---\n\n## Connect required', '']
+    // Shared connections need an owner/admin to reconnect them. Principal auth
+    // failures retain provider metadata for a later explicit connect action;
+    // startup itself never initiates OAuth.
+    const dead = unavailable.filter((u) => u.category === 'connection_dead')
+    const connectable = unavailable.filter(
+        (u): u is UnavailableMcp & { provider: string } => u.category === 'auth' && !!u.provider
+    )
+    const broken = unavailable.filter((u) => u.category !== 'connection_dead' && !(u.category === 'auth' && u.provider))
+    if (dead.length > 0) {
+        const lines = ['\n\n---\n\n## Disconnected integrations', '']
         lines.push(
-            "These capabilities need the user to connect (or reconnect) their account before you can use them — the connection is either not set up yet or no longer has the access it needs. When they ask for something one powers (including asking to reconnect), relay the link below as a **markdown link** with a short friendly label (never the bare URL), ask them to click it, then re-ask — don't say it's unavailable:"
+            "These integrations use a shared connection set up by the agent's owner, and that connection is no longer working (the owner needs to reconnect it in PostHog). This will NOT fix itself and the user can't reconnect it themselves — so do not suggest they retry or sign in. If they ask for something one of these powers, tell them the integration is disconnected and that an administrator/the agent owner needs to reconnect it in PostHog, then carry on with the tools you DO have:"
         )
         lines.push('')
-        for (const u of linkable) {
-            lines.push(`- \`${u.id}\`: [Connect ${u.id}](${u.authorizeUrl})`)
+        for (const u of dead) {
+            lines.push(`- \`${u.id}\``)
         }
+        lines.push('')
+        lines.push('Do NOT paste raw error messages, transport URLs, or stack traces into the conversation.')
+        parts.push(lines.join('\n'))
+    }
+    if (connectable.length > 0) {
+        const lines = ['\n\n---\n\n## Connections available on request', '']
+        lines.push(
+            'These MCP servers need the asking user to connect or reconnect an account. Do not start authorization merely because session startup found them disconnected. If the user asks to use or connect one of these capabilities, call `@posthog/identity-connect` with the listed provider, relay its `authorize_url` as a markdown link, and ask the user to continue after completing authorization:'
+        )
+        lines.push('')
+        for (const u of connectable) {
+            lines.push(`- \`${u.id}\`: provider \`${u.provider}\``)
+        }
+        lines.push('')
+        lines.push('Do NOT paste raw error messages, transport URLs, or stack traces into the conversation.')
         parts.push(lines.join('\n'))
     }
     if (broken.length > 0) {

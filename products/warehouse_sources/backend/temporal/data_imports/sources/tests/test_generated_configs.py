@@ -1,6 +1,7 @@
 import pytest
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+    BeamerSourceConfig,
     BigQuerySourceConfig,
     ChargebeeSourceConfig,
     DoItSourceConfig,
@@ -53,6 +54,11 @@ def test_bigquery_config():
     assert config.dataset_project is not None
     assert config.dataset_project.enabled is False
     assert config.dataset_project.dataset_project_id == ""
+
+
+def test_beamer_config():
+    config = BeamerSourceConfig.from_dict({"api_key": "api_key"})
+    assert config.api_key == "api_key"
 
 
 def test_chargebee_config():

@@ -3,10 +3,13 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase import metabase as metabase_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.metabase import (
     API_KEY_AUTH,
     SESSION_AUTH,
+    SESSION_RESPONSE_NOT_JSON_ERROR,
     MetabaseAuth,
     MetabaseAuthError,
     MetabaseHostNotAllowedError,
@@ -123,6 +126,16 @@ class TestResolveAuthHeaders:
         with patch, pytest.raises(MetabaseAuthError):
             _resolve_auth_headers("https://x.metabaseapp.com", _session_auth(), mock.MagicMock())
 
+    def test_session_non_json_body_raises_auth_error(self):
+        # A 2xx whose body isn't JSON (host isn't a Metabase API) must surface as a non-retryable
+        # MetabaseAuthError, not a raw JSONDecodeError bubbling out of the activity.
+        response = _response(status_code=200)
+        response.json.side_effect = requests.exceptions.JSONDecodeError("Expecting value", "", 0)
+        session, patch = self._patch_mint(response)
+        with patch, pytest.raises(MetabaseAuthError) as exc:
+            _resolve_auth_headers("https://x.metabaseapp.com", _session_auth(), mock.MagicMock())
+        assert SESSION_RESPONSE_NOT_JSON_ERROR in str(exc.value)
+
     @pytest.mark.parametrize("status_code", [404, 422, 500])
     def test_session_unexpected_status_raises_retryable_not_httperror(self, status_code):
         # Unexpected non-auth statuses must surface as a typed retryable error so callers'
@@ -176,13 +189,29 @@ class TestValidateCredentials:
         assert valid is False
         assert msg == "Invalid Metabase host"
 
-    def test_request_exception_returns_failure(self):
-        import requests
-
-        with self._patch_session(raises=requests.exceptions.ConnectionError("boom")):
+    def test_connection_error_does_not_leak_raw_exception(self):
+        # requests connection errors embed the customer's host/IP and give the user nothing to act
+        # on. The (fictional-range) IP and the raw blob must never reach the user; a friendly,
+        # actionable message must.
+        raw = "HTTPSConnectionPool(host='203.0.113.10', port=3000): Max retries exceeded"
+        with self._patch_session(raises=requests.exceptions.ConnectionError(raw)):
             valid, msg = validate_credentials("https://x.metabaseapp.com", _api_key_auth())
             assert valid is False
-            assert "boom" in (msg or "")
+            assert msg is not None
+            assert "203.0.113.10" not in msg
+            assert "HTTPSConnectionPool" not in msg
+            assert "Instance URL" in msg
+
+    def test_wrong_version_number_points_at_https(self):
+        # HTTPS forced onto a plaintext port surfaces as SSL WRONG_VERSION_NUMBER; the guidance
+        # should tell the user the instance must be served over HTTPS, without leaking the host.
+        raw = "HTTPSConnectionPool(host='203.0.113.10', port=3000): SSLError([SSL: WRONG_VERSION_NUMBER])"
+        with self._patch_session(raises=requests.exceptions.SSLError(raw)):
+            valid, msg = validate_credentials("https://x.metabaseapp.com", _api_key_auth())
+            assert valid is False
+            assert msg is not None
+            assert "203.0.113.10" not in msg
+            assert "HTTPS" in msg
 
     def test_rejects_redirect_response(self):
         with self._patch_session(_response(status_code=302)) as patched:
@@ -220,6 +249,18 @@ class TestValidateCredentials:
             assert valid is False
             assert msg is not None
             session.get.assert_not_called()
+
+    def test_unexpected_status_does_not_leak_response_body(self):
+        # When the host isn't a Metabase instance it returns an arbitrary body (e.g. a hosting
+        # provider's error page). That body must never reach the user — only a friendly,
+        # status-coded message that points them back at the Instance URL.
+        leaked_body = '{"error": {"code": "404", "message": "SENTINEL_UPSTREAM_BODY"}}'
+        with self._patch_session(_response(status_code=404, json_data={"error": {"code": "404"}}, text=leaked_body)):
+            valid, msg = validate_credentials("https://x.metabaseapp.com", _api_key_auth())
+            assert valid is False
+            assert msg is not None
+            assert "SENTINEL_UPSTREAM_BODY" not in msg
+            assert "404" in msg
 
 
 class TestMetabaseSourceResponse:

@@ -46,6 +46,13 @@ class Ticket(UUIDTModel):
     status = models.CharField(max_length=20, choices=Status, default=Status.NEW)
     priority = models.CharField(max_length=20, choices=Priority, null=True, blank=True)
     anonymous_traits = models.JSONField(default=dict, blank=True)
+    # Trust signal (tri-state):
+    #   True  — the claimed identity was attested by the server (widget HMAC,
+    #           SPF-authenticated email, or a signature-validated platform webhook).
+    #   False — assessed but not attested (anonymous claim we couldn't verify).
+    #   None  — unknown; we never assessed it (e.g. predates this signal and the
+    #           channel doesn't structurally guarantee verification).
+    identity_verified = models.BooleanField(null=True)
     ai_resolved = models.BooleanField(default=False)
     escalation_reason = models.TextField(null=True, blank=True)
     ai_triage = models.JSONField(default=dict, blank=True)
@@ -101,6 +108,11 @@ class Ticket(UUIDTModel):
     # Customer's PostHog org group key, resolved once at creation (local org pk or cross-region analytics key).
     organization_id = models.CharField(max_length=400, null=True, blank=True)
 
+    # Zendesk import dedup — set when a ticket is imported from Zendesk Support.
+    # No standalone index: the partial unique constraint below covers the dedup lookup
+    # (team + zendesk_ticket_id), mirroring the GitHub issue-number pattern.
+    zendesk_ticket_id = models.BigIntegerField(null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -136,6 +148,12 @@ class Ticket(UUIDTModel):
                 name="posthog_con_snooze_wake_idx",
                 condition=models.Q(snoozed_until__isnull=False),
             ),
+            models.Index(fields=["organization_id"], name="posthog_org_id_idx"),
+            models.Index(
+                fields=["organization_id", "slack_channel_id"],
+                name="posthog_org_slack_ch_idx",
+                condition=models.Q(channel_source="slack"),
+            ),
         ]
         constraints = [
             models.UniqueConstraint(fields=["team", "ticket_number"], name="unique_ticket_number_per_team"),
@@ -143,6 +161,11 @@ class Ticket(UUIDTModel):
                 fields=["team", "github_repo", "github_issue_number"],
                 condition=models.Q(github_repo__isnull=False, github_issue_number__isnull=False),
                 name="posthog_con_github_issue_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["team", "zendesk_ticket_id"],
+                condition=models.Q(zendesk_ticket_id__isnull=False),
+                name="posthog_con_zendesk_ticket_uniq",
             ),
         ]
 

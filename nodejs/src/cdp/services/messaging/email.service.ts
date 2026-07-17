@@ -4,7 +4,12 @@ import { SendMailOptions } from 'nodemailer'
 import { Counter } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
-import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '~/cdp/types'
+import {
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
+    IntegrationType,
+    MessageAssetRow,
+} from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 
@@ -15,6 +20,7 @@ import { addTrackingToEmail, resolveEmailEngagementDistinctId } from './email-tr
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
+import { MessageAssetsService } from './message-assets.service'
 import { RecipientTokensService } from './recipient-tokens.service'
 
 const sesThrottleResponsesTotal = new Counter({
@@ -108,7 +114,8 @@ export class EmailService {
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         encryptionSaltKeys: string,
         siteUrl: string,
-        private trackingCodeSigner: EmailTrackingCodeSigner
+        private trackingCodeSigner: EmailTrackingCodeSigner,
+        private messageAssetsService?: MessageAssetsService
     ) {
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
@@ -143,6 +150,7 @@ export class EmailService {
 
         let success: boolean = false
         let throttled: boolean = false
+        let assetRow: MessageAssetRow | null = null
 
         try {
             // Wrong-team references deliberately read as not-found so an ID's existence on another team can't be probed
@@ -171,7 +179,15 @@ export class EmailService {
                     throw new Error('Email delivery mode not supported')
             }
 
-            addLog('info', `Email sent to ${params.to.email}`)
+            // Emit the `[Email:…]` token in the success log only when an asset row
+            // will actually be captured; `renderWorkflowLogMessage` renders it as the
+            // "View email" chip, so suppressing it for skipped captures keeps the chip
+            // from 404-ing on click.
+            if (!isTest && this.messageAssetsService) {
+                assetRow = this.messageAssetsService.buildRowForEmail(invocation, params)
+            }
+            const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
+            addLog('info', `Email sent to ${params.to.email}${viewEmailToken}`)
             success = true
         } catch (error) {
             if (error instanceof SESThrottleError) {
@@ -213,6 +229,10 @@ export class EmailService {
                 metric_name: success ? 'email_sent' : 'email_failed',
                 count: 1,
             })
+
+            if (success && assetRow) {
+                result.emailAssets.push(assetRow)
+            }
         }
 
         const distinctId = resolveEmailEngagementDistinctId(invocation)

@@ -24,6 +24,7 @@ import type {
     OrganizationAIAccessRequestResponseApi,
     OrganizationApi,
     OrganizationMemberApi,
+    OrganizationMemberGithubLoginApi,
     PaginatedActivityLogListApi,
     PaginatedApprovalPolicyListApi,
     PaginatedChangeRequestListApi,
@@ -250,6 +251,21 @@ export const membersDestroy = async (
     return apiMutator<void>(getMembersDestroyUrl(organizationId, userUuid), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getMembersGithubLoginRetrieveUrl = (organizationId: string, userUuid: string) => {
+    return `/api/organizations/${organizationId}/members/${userUuid}/github_login/`
+}
+
+export const membersGithubLoginRetrieve = async (
+    organizationId: string,
+    userUuid: string,
+    options?: RequestInit
+): Promise<OrganizationMemberGithubLoginApi> => {
+    return apiMutator<OrganizationMemberGithubLoginApi>(getMembersGithubLoginRetrieveUrl(organizationId, userUuid), {
+        ...options,
+        method: 'GET',
     })
 }
 

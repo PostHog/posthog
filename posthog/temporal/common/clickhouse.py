@@ -186,6 +186,13 @@ class ClickHouseTooManyBytesError(ClickHouseError):
         super().__init__(error_message, query, query_id)
 
 
+class ClickHouseTooManyRowsOrBytesError(ClickHouseError):
+    """Exception raised when a query's result exceeds max_result_rows/max_result_bytes."""
+
+    def __init__(self, error_message, query: str | None = None, query_id: str | None = None):
+        super().__init__(error_message, query, query_id)
+
+
 class ClickHouseTooManySimultaneousQueriesError(ClickHouseError):
     """Exception raised when ClickHouse has too many simultaneous queries running."""
 
@@ -379,6 +386,7 @@ class ClickHouseClient:
         ERROR_CODE_TO_EXCEPTION: dict[str, type[ClickHouseError]] = {
             "ALL_REPLICAS_ARE_STALE": ClickHouseAllReplicasAreStaleError,
             "MEMORY_LIMIT_EXCEEDED": ClickHouseMemoryLimitExceededError,
+            "TOO_MANY_ROWS_OR_BYTES": ClickHouseTooManyRowsOrBytesError,
             "TOO_MANY_BYTES": ClickHouseTooManyBytesError,
             "TOO_MANY_SIMULTANEOUS_QUERIES": ClickHouseTooManySimultaneousQueriesError,
             "TIMEOUT_EXCEEDED": ClickHouseQueryTimeoutError,
@@ -519,7 +527,14 @@ class ClickHouseClient:
             raise ClickHouseClientTimeoutError(query, query_id)
 
     @contextlib.contextmanager
-    def post_query(self, query, *data, query_parameters, query_id) -> collections.abc.Iterator:
+    def post_query(
+        self,
+        query,
+        *data,
+        query_parameters,
+        query_id,
+        timeout: float | tuple[float, float] | None = None,
+    ) -> collections.abc.Iterator:
         """POST a query to the ClickHouse HTTP interface.
 
         The context manager protocol is used to control when to release the response.
@@ -532,6 +547,11 @@ class ClickHouseClient:
             *data: Iterable of values to include in the body of the request. For example, the tuples of VALUES for an INSERT query.
             query_parameters: Parameters to be formatted in the query.
             query_id: A query ID to pass to ClickHouse.
+            timeout: Optional requests-style timeout — a (connect, read) tuple or a single
+                float for both. The read timeout applies to every blocking socket read,
+                including body reads while streaming the response, so a half-open connection
+                raises instead of blocking the calling thread until TCP gives up. None (the
+                default) preserves the historical unbounded behavior.
 
         Returns:
             The response received from the ClickHouse HTTP interface.
@@ -565,6 +585,7 @@ class ClickHouseClient:
                 data=request_data,
                 stream=True,
                 verify=False,
+                timeout=timeout,
             )
             self.check_response(response, query)
             yield response
@@ -694,7 +715,7 @@ class ClickHouseClient:
             results = await self.read_query_as_jsonl(
                 query,
                 query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
-                query_id=f"{query_id}-CHECK-QUERY-LOG",
+                query_id=f"{query_id}-CHECK-QUERY-LOG-{uuid.uuid4()}",
             )
         except ClickHouseError as e:
             error_message = f"Error checking for query '{query_id}' in query log: {str(e)}"

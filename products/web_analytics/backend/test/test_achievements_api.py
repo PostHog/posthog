@@ -8,6 +8,7 @@ from posthog.models import Team, User
 from products.web_analytics.backend.models import (
     WebAnalyticsAchievementProgress,
     WebAnalyticsInteraction,
+    WebAnalyticsUserConfig,
     WebAnalyticsVisit,
 )
 
@@ -208,3 +209,29 @@ class TestAchievementsAPI(APIBaseTest):
     def test_record_interaction_rejects_unknown_kind(self) -> None:
         response = self.client.post(self._url("record_interaction"), {"interaction_kind": "bogus"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_preferences_default_is_not_opted_out(self) -> None:
+        response = self.client.get(self._url("preferences"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["achievements_opt_out"])
+
+    def test_preferences_round_trip(self) -> None:
+        opt_out = self.client.post(self._url("preferences"), {"achievements_opt_out": True})
+        self.assertEqual(opt_out.status_code, status.HTTP_200_OK)
+        self.assertTrue(opt_out.json()["achievements_opt_out"])
+        self.assertTrue(self.client.get(self._url("preferences")).json()["achievements_opt_out"])
+
+        opt_in = self.client.post(self._url("preferences"), {"achievements_opt_out": False})
+        self.assertFalse(opt_in.json()["achievements_opt_out"])
+        self.assertFalse(self.client.get(self._url("preferences")).json()["achievements_opt_out"])
+
+    def test_preferences_are_scoped_per_project(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        self.client.post(self._url("preferences"), {"achievements_opt_out": True})
+
+        other_url = f"/api/projects/{other_team.id}/web_analytics_achievements/preferences/"
+        self.assertFalse(self.client.get(other_url).json()["achievements_opt_out"])
+        self.assertEqual(
+            WebAnalyticsUserConfig.objects.for_team(self.team.id).filter(user=self.user).count(),
+            1,
+        )

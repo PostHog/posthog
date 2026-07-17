@@ -4,10 +4,12 @@ from typing import Any
 from urllib.parse import urljoin, urlparse
 
 from django.http import HttpResponse, StreamingHttpResponse
+from django.http.response import HttpResponseBase
 
 import httpx
 import structlog
 
+from posthog.api.streaming import sse_streaming_response
 from posthog.security.url_validation import is_url_allowed
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
@@ -316,7 +318,7 @@ def enforce_tool_approval(
     return HttpResponse(json.dumps(blocked), content_type="application/json", status=200)
 
 
-def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> HttpResponse | StreamingHttpResponse:
+def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> HttpResponseBase:
     allowed, error = is_url_allowed(installation.url)
     if not allowed:
         logger.warning("SSRF: blocked proxy request", url=installation.url, reason=error)
@@ -440,23 +442,18 @@ def _stream_upstream(upstream_response: httpx.Response, client: httpx.Client) ->
         client.close()
 
 
-def _build_sse_response(upstream_response: httpx.Response, client: httpx.Client) -> StreamingHttpResponse:
+def _build_sse_response(upstream_response: httpx.Response, client: httpx.Client) -> HttpResponseBase:
     stream = _stream_upstream(upstream_response, client)
+    astream = SyncIterableToAsync(stream) if SERVER_GATEWAY_INTERFACE == "ASGI" else stream
+    response = sse_streaming_response(astream, endpoint="mcp_store_proxy")
 
-    if SERVER_GATEWAY_INTERFACE == "ASGI":
-        astream = SyncIterableToAsync(stream)
-        response = StreamingHttpResponse(
-            streaming_content=astream,
-            content_type="text/event-stream",
-        )
-    else:
-        response = StreamingHttpResponse(
-            streaming_content=stream,
-            content_type="text/event-stream",
-        )
-
-    response["Cache-Control"] = "no-cache"
-    response["X-Accel-Buffering"] = "no"
+    if not isinstance(response, StreamingHttpResponse):
+        # Over-cap rejection: the generator that owns these resources never
+        # starts, so its finally never runs. Close them here (both closes are
+        # idempotent) instead of leaking them until the upstream timeout.
+        upstream_response.close()
+        client.close()
+        return response
 
     upstream_session_id = upstream_response.headers.get("mcp-session-id")
     if upstream_session_id:

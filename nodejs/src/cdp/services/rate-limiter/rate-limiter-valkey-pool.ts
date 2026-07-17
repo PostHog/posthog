@@ -14,19 +14,22 @@ export type RateLimiterValkeyConfig = Pick<
     Pick<CommonConfig, 'REDIS_POOL_MIN_SIZE' | 'REDIS_POOL_MAX_SIZE'>
 
 /**
- * Creates a connection to the dedicated SES rate-limiter Valkey instance.
+ * Creates a connection to the dedicated SES Valkey instance, shared by the
+ * SES rate limiter and the email MX-validation cache (each caller gets its
+ * own pool via `name`).
  *
- * Single writer pool — every operation in the rate limiter's Lua script is a
- * write (hset + expire), so there's no use for a read-only replica. Returns
- * null when the host is unset (local dev outside k8s); callers treat that as
- * "rate limiting disabled in this environment" and proceed without the gate.
+ * Single writer pool — the rate limiter's Lua script only writes (hset +
+ * expire) and the MX cache is low-volume, so there's no use for a read-only
+ * replica. Returns null when the host is unset (local dev outside k8s);
+ * callers treat that as "feature disabled in this environment" and proceed
+ * without it.
  */
 export function createSesRateLimiterValkeyPool(
     config: RateLimiterValkeyConfig,
     name = 'ses-rate-limiter'
 ): RedisV2 | null {
     if (!config.SES_RATE_LIMITER_VALKEY_HOST) {
-        logger.info('🪙', `[${name}] no host configured — rate limiter disabled`)
+        logger.info('🪙', `[${name}] no SES Valkey host configured — feature disabled`)
         return null
     }
 

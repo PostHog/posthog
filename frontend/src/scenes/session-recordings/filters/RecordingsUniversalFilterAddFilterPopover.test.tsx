@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
@@ -88,7 +88,7 @@ describe('RecordingsUniversalFilterAddFilterPopover (pill category dropdown)', (
         // Type a query so we can prove the surrounding popover is not dismissed by the pick:
         // the bug routed the menu click through the parent popover's outside-press handler,
         // which cleared the query and collapsed the filter.
-        await userEvent.type(input, 'email')
+        fireEvent.change(input, { target: { value: 'email' } })
         expect(input).toHaveValue('email')
 
         // Open the pill menu and select a visible option. Re-query the trigger — typing
@@ -97,9 +97,9 @@ describe('RecordingsUniversalFilterAddFilterPopover (pill category dropdown)', (
         const personPropertiesItem = await screen.findByTestId('taxonomic-category-dropdown-item-person_properties')
         await userEvent.click(personPropertiesItem)
 
-        // The picked category is applied (findByRole waits for the re-render)...
+        // The picked category is applied (findByLabelText waits for the re-render)...
         expect(
-            await screen.findByRole('button', { name: 'Current category: Person properties. Click to change.' })
+            await screen.findByLabelText('Current category: Person properties. Click to change.')
         ).toBeInTheDocument()
 
         // ...and the main filter stays open with its search query intact.

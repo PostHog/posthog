@@ -12,13 +12,22 @@ use crate::stage1::key::LeafStateKey;
 use crate::stage1::predicate::{compressed_predicate, daily_predicate, predicate};
 use crate::stage1::state::{Stage1State, StateVariant};
 
-/// Whether one leaf is currently a member. Absent state is `false`.
+/// Whether one leaf is currently a member, from its `cf_behavioral` state. Absent state is `false`.
+///
+/// Person-property leaves are NOT resolved here — their membership lives in the durable
+/// [`PersonRecord`](crate::stage1::PersonRecord), read directly by the Stage 2 resolver. A
+/// `PersonProperty` meta reaching this function is a desync (no person-property state is ever stored in
+/// `cf_behavioral`), counted and read as a non-member — loud, never a silent member.
 pub fn leaf_membership(state: Option<&Stage1State>, meta: &LeafStateMeta) -> bool {
     let Some(state) = state else {
         return false;
     };
     match meta.variant {
-        StateVariant::BehavioralSingle | StateVariant::PersonProperty => predicate(state),
+        StateVariant::BehavioralSingle => predicate(state),
+        StateVariant::PersonProperty => {
+            counter!(STAGE2_STATE_DECODE_ERROR).increment(1);
+            false
+        }
         StateVariant::BehavioralDailyBuckets => match (state, meta.predicate_op) {
             (Stage1State::BehavioralDailyBuckets { buckets, .. }, Some(op)) => {
                 daily_predicate(buckets, op)
@@ -82,10 +91,10 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
-    use crate::filters::tree::{CohortLeaf, CohortRefLeafConfig, PersonLeafConfig};
-    use crate::filters::CohortId;
+    use crate::filters::tree::{CohortLeaf, CohortRefLeafConfig, CohortTree, PersonLeafConfig};
+    use crate::filters::{CohortId, TeamId};
     use crate::stage1::pick_state::PredicateOp;
-    use crate::stage2::eligibility::condition_negation;
+    use crate::stage2::{classify, CohortEligibility, CohortParseFlags, ExcludedReason};
 
     fn lsk(byte: u8) -> LeafStateKey {
         LeafStateKey([byte; 16])
@@ -124,6 +133,32 @@ mod tests {
         FilterNode::Group { op, children }
     }
 
+    fn classifier_excludes_top_level_negation(root: &FilterNode) -> bool {
+        fn state_keyed_leaf_count(node: &FilterNode) -> u32 {
+            match node {
+                FilterNode::Group { children, .. } => {
+                    children.iter().map(state_keyed_leaf_count).sum()
+                }
+                FilterNode::Leaf(leaf) => u32::from(leaf.leaf_state_key().is_some()),
+            }
+        }
+
+        let tree = CohortTree {
+            cohort_id: CohortId(1),
+            team_id: TeamId(1),
+            root: root.clone(),
+        };
+        let flags = CohortParseFlags {
+            state_keyed_leaf_count: state_keyed_leaf_count(root),
+            has_cohort_ref: false,
+            has_dropped_leaf: false,
+        };
+        matches!(
+            classify(&tree, &flags),
+            CohortEligibility::Excluded(ExcludedReason::TopLevelNegation)
+        )
+    }
+
     fn person_meta() -> LeafStateMeta {
         LeafStateMeta {
             variant: StateVariant::PersonProperty,
@@ -150,20 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn leaf_membership_reads_the_op_less_bit() {
-        let yes = Stage1State::PersonProperty {
-            matches: true,
-            last_updated_at_ms: 1,
-            last_updated_offset: 2,
-        };
-        let no = Stage1State::PersonProperty {
-            matches: false,
-            last_updated_at_ms: 1,
-            last_updated_offset: 2,
-        };
-        assert!(leaf_membership(Some(&yes), &person_meta()));
-        assert!(!leaf_membership(Some(&no), &person_meta()));
-
+    fn leaf_membership_reads_the_behavioral_single_bit() {
         let single = LeafStateMeta {
             variant: StateVariant::BehavioralSingle,
             ..person_meta()
@@ -173,7 +195,23 @@ mod tests {
             last_event_at_ms: 1,
             earliest_eviction_at_ms: 2,
         };
+        let unmatched = Stage1State::BehavioralSingle {
+            has_match: false,
+            last_event_at_ms: 1,
+            earliest_eviction_at_ms: 2,
+        };
         assert!(leaf_membership(Some(&matched), &single));
+        assert!(!leaf_membership(Some(&unmatched), &single));
+    }
+
+    #[test]
+    fn leaf_membership_person_property_meta_reads_non_member() {
+        let matched = Stage1State::BehavioralSingle {
+            has_match: true,
+            last_event_at_ms: 1,
+            earliest_eviction_at_ms: 2,
+        };
+        assert!(!leaf_membership(Some(&matched), &person_meta()));
     }
 
     #[test]
@@ -504,7 +542,7 @@ mod tests {
             let leaf = person_leaf_neg(lsk(1), neg);
             for &op in &ops {
                 let tree = group(op, vec![leaf.clone()]);
-                if !condition_negation(&tree) {
+                if !classifier_excludes_top_level_negation(&tree) {
                     assert!(
                         !evaluate_tree(&tree, &empty, &no_refs()),
                         "depth=1, op={op:?}, neg={neg}",
@@ -520,7 +558,7 @@ mod tests {
                 let b = person_leaf_neg(lsk(2), neg_b);
                 for &op in &ops {
                     let tree = group(op, vec![a.clone(), b.clone()]);
-                    if !condition_negation(&tree) {
+                    if !classifier_excludes_top_level_negation(&tree) {
                         assert!(
                             !evaluate_tree(&tree, &empty, &no_refs()),
                             "depth=1, op={op:?}, neg_a={neg_a}, neg_b={neg_b}",
@@ -543,7 +581,7 @@ mod tests {
                                 outer_op,
                                 vec![group(inner_op, vec![a.clone(), b.clone()]), c.clone()],
                             );
-                            if !condition_negation(&tree) {
+                            if !classifier_excludes_top_level_negation(&tree) {
                                 assert!(
                                     !evaluate_tree(&tree, &empty, &no_refs()),
                                     "depth=2, outer={outer_op:?}, inner={inner_op:?}, \

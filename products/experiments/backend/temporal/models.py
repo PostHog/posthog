@@ -13,10 +13,32 @@ ALL_OUTCOMES = (OUTCOME_PASS, OUTCOME_DIVERGENCE, OUTCOME_PATH_FLIP, OUTCOME_ERR
 # Cap CanaryMetricResult.detail so a pathological error message can't bloat the Temporal payload.
 MAX_CANARY_DETAIL_LENGTH = 1000
 
-# Max attempts per metric before it's marked failed. The workflow's requeue loop owns retries (the activity
-# runs with maximum_attempts=1), so this caps how many times a transient failure is requeued. Kept low because
-# each extra attempt adds backoff (5s, 10s, 20s, ...) to the tail of a fully-failing run.
-MAX_METRIC_ATTEMPTS = 3
+# Max attempts per metric before it's marked failed on the recalculation workflow.
+MAX_METRIC_ATTEMPTS = 8
+
+# Retry delay for a calc attempt that bounced off the per-org ClickHouse concurrency limiter or the cluster's
+# at-capacity guard, applied via ApplicationError(next_retry_delay=...) instead of the retry policy's 5s
+# exponential schedule.
+CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS = 60
+
+# classify_experiment_query_error classes that are deterministic for a fixed query and data window: retrying
+# burns a full ClickHouse query per attempt without changing the outcome, so the activity fails non-retryable
+# and persists immediately. timeout is deliberately absent — the class conflates TIMEOUT_EXCEEDED with
+# SOCKET_TIMEOUT (a transient network blip), and recalc timeouts are rare enough to keep the retry budget.
+NON_RETRYABLE_ERROR_TYPES = frozenset({"out_of_memory", "byte_limit", "validation_error"})
+
+# Per-attempt ceiling for the calc activity (its start_to_close_timeout). The activity has no heartbeat, so
+# this is the real per-attempt limit — when it fires, Temporal kills the attempt from the outside and nothing
+# inside the activity (result persistence, the terminal error event) runs.
+METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS = 300
+
+# ClickHouse max_execution_time for the recalc metric query. Deliberately below
+# METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS (minus headroom for metric build, stats, and persistence) so a slow
+# query fails INSIDE the activity with a typed ClickHouse error (159 TIMEOUT_EXCEEDED) instead of the activity
+# being killed by Temporal — which would lose the error type, the FAILED result row, and the terminal event.
+# A query needing more than this was already doomed to lose its attempt at the 5-minute kill; failing fast
+# also stops the orphaned query from burning ClickHouse for the full default 600s.
+METRIC_CALC_MAX_EXECUTION_TIME_SECONDS = 270
 
 
 @dataclasses.dataclass
@@ -24,6 +46,9 @@ class ExperimentMetricsRecalculationWorkflowInputs:
     """Input to the batch metrics recalculation workflow."""
 
     recalculation_id: str  # UUID as string
+    # Task-queue fairness key for the calc activities (the org id, matching the app_per_org limiter scope).
+    # None falls back to default dispatch order.
+    fairness_key: str | None = None
 
 
 @dataclasses.dataclass

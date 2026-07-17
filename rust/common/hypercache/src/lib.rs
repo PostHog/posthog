@@ -36,7 +36,10 @@ use common_metrics::{histogram, inc};
 use common_redis::Client as RedisClient;
 #[cfg(all(test, feature = "mock-client"))]
 use common_s3::MockS3Client;
-use common_s3::{S3Client, S3Error, S3Impl};
+use common_s3::S3Impl;
+// Re-exported so callers of the public `new_with_s3_client` can name the S3 trait
+// (e.g. to inject a test double) without depending on common_s3 directly.
+pub use common_s3::{S3Client, S3Error};
 use common_types::{TeamId, TeamIdentifier};
 #[cfg(all(test, feature = "mock-client"))]
 use mockall::predicate;

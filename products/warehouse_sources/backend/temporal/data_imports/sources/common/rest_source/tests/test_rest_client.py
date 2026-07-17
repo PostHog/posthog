@@ -32,6 +32,18 @@ def _make_response(json_body: Any, status_code: int = 200) -> Response:
     return resp
 
 
+def _make_empty_response(content: bytes = b"", status_code: int = 200) -> Response:
+    # A successful response whose body is empty (or whitespace-only) — `response.json()`
+    # raises "Expecting value: line 1 column 1 (char 0)", the shape an endpoint returns
+    # when it has nothing to send back.
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = content
+    resp.headers["Content-Type"] = "application/json"
+    resp.url = "https://api.example.com/items"
+    return resp
+
+
 def _make_truncated_response(status_code: int = 200) -> Response:
     # Simulates a body cut off mid-stream — `response.json()` raises a JSONDecodeError
     # ("Unterminated string"), the same shape we see when an upstream truncates a large page.
@@ -330,6 +342,26 @@ class TestRESTClient:
             list(client.paginate(path="/items", paginator=SinglePagePaginator()))
 
         assert mock_session.send.call_count == 5
+
+    @pytest.mark.parametrize("content", [b"", b"   \n\t"], ids=["empty", "whitespace_only"])
+    @patch("tenacity.nap.time.sleep")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
+    def test_empty_response_body_yields_empty_page_without_retrying(self, MockSession, mock_sleep, content) -> None:
+        # A successful response with an empty/whitespace-only body is a complete "no data"
+        # answer, not a truncated page: yield an empty page and stop, never retrying.
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+        mock_session.send.return_value = _make_empty_response(content)
+
+        client = RESTClient(base_url="https://api.example.com")
+        pages = list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator()))
+
+        assert pages == [[]]
+        assert mock_session.send.call_count == 1
+        mock_sleep.assert_not_called()
 
     @patch("tenacity.nap.time.sleep")
     @patch(

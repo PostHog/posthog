@@ -11,12 +11,18 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     BusinessKnowledgeDocumentsSearchListParams,
     BusinessKnowledgeDocumentsWindowListParams,
+    BusinessKnowledgeGapSuggestionsListParams,
     BusinessKnowledgeSourcesListParams,
     BusinessKnowledgeSourcesTextRetrieve200,
     CreateTextSourceApi,
+    GapActionApi,
+    GapTopicActionApi,
+    GapTopicActionResultApi,
     KnowledgeDocumentWindowApi,
+    KnowledgeGapSuggestionApi,
     KnowledgeSearchResultApi,
     KnowledgeSourceApi,
+    PaginatedKnowledgeGapSuggestionListApi,
     PaginatedKnowledgeSourceListApi,
     PatchedUpdateTextSourceApi,
 } from './api.schemas'
@@ -107,6 +113,136 @@ export const businessKnowledgeDocumentsSearchList = async (
     return apiMutator<KnowledgeSearchResultApi[]>(getBusinessKnowledgeDocumentsSearchListUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getBusinessKnowledgeGapSuggestionsListUrl = (
+    projectId: string,
+    params?: BusinessKnowledgeGapSuggestionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/business_knowledge/gap_suggestions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/business_knowledge/gap_suggestions/`
+}
+
+/**
+ * Surfaces topics the support AI couldn't answer from the knowledge base.
+ *
+ * Two list shapes controlled by the ``ticket_id`` query param:
+ * - **per-ticket** (``?ticket_id=<uuid>``): individual gap rows for that ticket.
+ * - **aggregated** (no ``ticket_id``): gaps grouped by normalized topic with counts,
+ *   for the Business knowledge suggestions panel.
+ */
+export const businessKnowledgeGapSuggestionsList = async (
+    projectId: string,
+    params?: BusinessKnowledgeGapSuggestionsListParams,
+    options?: RequestInit
+): Promise<PaginatedKnowledgeGapSuggestionListApi> => {
+    return apiMutator<PaginatedKnowledgeGapSuggestionListApi>(
+        getBusinessKnowledgeGapSuggestionsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getBusinessKnowledgeGapSuggestionsAcceptCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/business_knowledge/gap_suggestions/${id}/accept/`
+}
+
+/**
+ * Surfaces topics the support AI couldn't answer from the knowledge base.
+ *
+ * Two list shapes controlled by the ``ticket_id`` query param:
+ * - **per-ticket** (``?ticket_id=<uuid>``): individual gap rows for that ticket.
+ * - **aggregated** (no ``ticket_id``): gaps grouped by normalized topic with counts,
+ *   for the Business knowledge suggestions panel.
+ */
+export const businessKnowledgeGapSuggestionsAcceptCreate = async (
+    projectId: string,
+    id: string,
+    gapActionApi?: GapActionApi,
+    options?: RequestInit
+): Promise<KnowledgeGapSuggestionApi> => {
+    return apiMutator<KnowledgeGapSuggestionApi>(getBusinessKnowledgeGapSuggestionsAcceptCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(gapActionApi),
+    })
+}
+
+export const getBusinessKnowledgeGapSuggestionsDismissCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/business_knowledge/gap_suggestions/${id}/dismiss/`
+}
+
+/**
+ * Surfaces topics the support AI couldn't answer from the knowledge base.
+ *
+ * Two list shapes controlled by the ``ticket_id`` query param:
+ * - **per-ticket** (``?ticket_id=<uuid>``): individual gap rows for that ticket.
+ * - **aggregated** (no ``ticket_id``): gaps grouped by normalized topic with counts,
+ *   for the Business knowledge suggestions panel.
+ */
+export const businessKnowledgeGapSuggestionsDismissCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<KnowledgeGapSuggestionApi> => {
+    return apiMutator<KnowledgeGapSuggestionApi>(getBusinessKnowledgeGapSuggestionsDismissCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getBusinessKnowledgeGapSuggestionsAcceptTopicCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/gap_suggestions/accept_topic/`
+}
+
+/**
+ * Accept all pending suggestions for a normalized topic cluster.
+ */
+export const businessKnowledgeGapSuggestionsAcceptTopicCreate = async (
+    projectId: string,
+    gapTopicActionApi: GapTopicActionApi,
+    options?: RequestInit
+): Promise<GapTopicActionResultApi> => {
+    return apiMutator<GapTopicActionResultApi>(getBusinessKnowledgeGapSuggestionsAcceptTopicCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(gapTopicActionApi),
+    })
+}
+
+export const getBusinessKnowledgeGapSuggestionsDismissTopicCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/gap_suggestions/dismiss_topic/`
+}
+
+/**
+ * Dismiss all pending suggestions for a normalized topic cluster.
+ */
+export const businessKnowledgeGapSuggestionsDismissTopicCreate = async (
+    projectId: string,
+    gapTopicActionApi: GapTopicActionApi,
+    options?: RequestInit
+): Promise<GapTopicActionResultApi> => {
+    return apiMutator<GapTopicActionResultApi>(getBusinessKnowledgeGapSuggestionsDismissTopicCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(gapTopicActionApi),
     })
 }
 
