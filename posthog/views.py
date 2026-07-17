@@ -38,6 +38,12 @@ from posthog.models.integration import SlackIntegration
 from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token
 from posthog.models.personal_api_key import find_personal_api_key
 from posthog.models.project_secret_api_key import find_project_secret_api_key
+from posthog.models.utils import (
+    OAUTH_ACCESS_TOKEN_PREFIX,
+    OAUTH_REFRESH_TOKEN_PREFIX,
+    PROJECT_API_TOKEN_PREFIX,
+    SECRET_API_TOKEN_PREFIX,
+)
 from posthog.plugins.plugin_server_api import validate_messaging_preferences_token
 from posthog.redis import get_client
 from posthog.utils import (
@@ -453,10 +459,19 @@ def api_key_search_view(request: HttpRequest):
     else:
         if request.method != "POST":
             return HttpResponseNotAllowed(permitted_methods=["POST"])
+        query = query.strip()
 
     personal_api_key_object = None
     personal_api_key_hash_mode = None
-    if query is not None and query.startswith("phx_"):
+    # Legacy personal API keys predate the phx_ prefix, so any query without another known
+    # prefix is also treated as a personal key candidate (matching authentication behavior).
+    non_personal_api_key_prefixes = (
+        SECRET_API_TOKEN_PREFIX,
+        OAUTH_ACCESS_TOKEN_PREFIX,
+        OAUTH_REFRESH_TOKEN_PREFIX,
+        PROJECT_API_TOKEN_PREFIX,
+    )
+    if query and not query.startswith(non_personal_api_key_prefixes):
         result = find_personal_api_key(query)
         if result is not None:
             personal_api_key_object, personal_api_key_hash_mode = result
@@ -464,7 +479,7 @@ def api_key_search_view(request: HttpRequest):
     project_secret_api_key_object = None
     team_object = None
     team_object_key_type = None
-    if query is not None and query.startswith("phs_"):
+    if query is not None and query.startswith(SECRET_API_TOKEN_PREFIX):
         project_secret_api_key_object = find_project_secret_api_key(query)
 
         Team = apps.get_model(app_label="posthog", model_name="Team")
@@ -478,11 +493,11 @@ def api_key_search_view(request: HttpRequest):
             pass
 
     oauth_access_token_object = None
-    if query is not None and query.startswith("pha_"):
+    if query is not None and query.startswith(OAUTH_ACCESS_TOKEN_PREFIX):
         oauth_access_token_object = find_oauth_access_token(query)
 
     oauth_refresh_token_object = None
-    if query is not None and query.startswith("phr_"):
+    if query is not None and query.startswith(OAUTH_REFRESH_TOKEN_PREFIX):
         oauth_refresh_token_object = find_oauth_refresh_token(query)
 
     context = {

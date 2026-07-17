@@ -44,7 +44,12 @@ from posthog.models.personal_api_key import (
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, find_project_secret_api_key
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
-from posthog.models.utils import hash_key_value
+from posthog.models.utils import (
+    OAUTH_ACCESS_TOKEN_PREFIX,
+    PERSONAL_API_KEY_PREFIX,
+    SECRET_API_TOKEN_PREFIX,
+    hash_key_value,
+)
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import verify_passkey_authentication_response
 from posthog.shared_link_user import SharedLinkUser
@@ -221,7 +226,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                 token = authorization_match.group(1).strip()
 
                 if token.startswith(
-                    "pha_"
+                    OAUTH_ACCESS_TOKEN_PREFIX
                 ):  # TRICKY: This returns None to allow the next authentication method to have a go. This should be `if not token.startswith("phx_")`, but we need to support legacy personal api keys that may not have been prefixed with phx_.
                     return None
                 return token, cls.SOURCE_HEADER
@@ -565,7 +570,7 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
     @classmethod
     def _is_id_jag_token(cls, token: str) -> bool:
         # Personal/OAuth API key prefixes are reserved for those auth backends.
-        if token.startswith(("phx_", "pha_", "phs_")):
+        if token.startswith((PERSONAL_API_KEY_PREFIX, OAUTH_ACCESS_TOKEN_PREFIX, SECRET_API_TOKEN_PREFIX)):
             return False
 
         if token.count(".") != 2:

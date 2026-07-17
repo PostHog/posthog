@@ -4,7 +4,15 @@ from django.test import Client, override_settings
 
 from parameterized import parameterized
 
-from posthog.models.utils import generate_random_token_secret
+from posthog.models import PersonalAPIKey
+from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT
+from posthog.models.utils import (
+    generate_random_token,
+    generate_random_token_personal,
+    generate_random_token_secret,
+    hash_key_value,
+    mask_key_value,
+)
 from posthog.test.api_keys import create_project_secret_api_key
 
 
@@ -20,6 +28,21 @@ class TestApiKeySearchView(BaseTest):
     def _search(self, query: str):
         return self.client.post("/admin/apikeysearch", data={"q": query})
 
+    def _create_personal_api_key(self, token: str, mode: str = "sha256", iterations: int | None = None):
+        if mode == "sha256":
+            secure_value = hash_key_value(token)
+        else:
+            secure_value = hash_key_value(
+                token, mode="pbkdf2", legacy_salt=LEGACY_PERSONAL_API_KEY_SALT, iterations=iterations
+            )
+        return PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Searched Key",
+            secure_value=secure_value,
+            mask_value=mask_key_value(token),
+            scopes=["*"],
+        )
+
     def test_requires_staff(self):
         self.user.is_staff = False
         self.user.save()
@@ -32,6 +55,33 @@ class TestApiKeySearchView(BaseTest):
         response = self.client.get("/admin/apikeysearch")
 
         self.assertEqual(response.status_code, 200)
+
+    @parameterized.expand(
+        [
+            ("modern_phx_sha256", True, "sha256", None),
+            ("legacy_unprefixed_sha256", False, "sha256", None),
+            ("legacy_unprefixed_pbkdf2_260000", False, "pbkdf2", 260000),
+            ("legacy_unprefixed_pbkdf2_390000", False, "pbkdf2", 390000),
+        ]
+    )
+    def test_finds_personal_api_key(self, _name: str, prefixed: bool, mode: str, iterations: int | None):
+        token = generate_random_token_personal() if prefixed else generate_random_token(32)
+        self._create_personal_api_key(token, mode=mode, iterations=iterations)
+
+        response = self._search(token)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Searched Key", response.content)
+        self.assertIn(self.user.email.encode(), response.content)
+
+    def test_strips_whitespace_from_query(self):
+        token = generate_random_token_personal()
+        self._create_personal_api_key(token)
+
+        response = self._search(f"  {token}\n")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Searched Key", response.content)
 
     def test_finds_project_secret_api_key(self):
         key, value = create_project_secret_api_key(team=self.team, created_by=self.user, label="PSAK Search Key")
