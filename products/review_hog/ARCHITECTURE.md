@@ -21,8 +21,8 @@ back to the sandbox above their gates, selection falls back to running everythin
 Postgres (`ReviewReport` + `ReviewReportArtefact`) — there is **no on-disk store**; the only external side
 effect is the GitHub review it posts.
 
-This document is the present-tense architecture reference — what ReviewHog *is today*. Its companion
-**[DECISIONS.md](./DECISIONS.md)** is the full record of *why* it got there: the staged build history, the
+This document is the present-tense architecture reference — what ReviewHog _is today_. Its companion
+**[DECISIONS.md](./DECISIONS.md)** is the full record of _why_ it got there: the staged build history, the
 design decisions (with the alternatives weighed and rejected), the gotchas, the grounded implementation maps,
 and the roadmap — including the designed-but-unbuilt loop. Nothing is summarized away; go there to check the
 reasoning behind any part of this reference. [Status & next](#status--next) below is a short summary of what's
@@ -143,7 +143,7 @@ flowchart TD
    (`PRMetadata.is_fork`) non-retryably before opening the report. The
    `diff` is the reviewed files' raw unified patch (the point-in-time snapshot). Lockfiles, minified assets,
    snapshots, `*.schema.py`, `*.txt`, build dirs, and test files are filtered out. `branch =
-   pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / `user_id`) into every sandbox
+pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / `user_id`) into every sandbox
    activity — there is no ContextVar identity. The team's GitHub integration is validated up front by
    `validate_github_integration_activity`; `upsert_review_report` opens the living `ReviewReport`, and
    `persist_commit_snapshot(…, diff=…)` records this turn's snapshot (gated on the `head_sha` watermark).
@@ -286,8 +286,8 @@ that any future merge must preserve: `MultiTurnSession.start(prompt, context, mo
 ### Selecting the sandbox model & reasoning effort
 
 Read this before testing another model (Sonnet, a new Codex model, a different effort). It is a **two-repo path**:
-`posthog/posthog` *sets* the knobs and the `@posthog/agent` package *applies* them. A pinned run is three values —
-`runtime_adapter` + `model` + `reasoning_effort`; `provider` is *derived* from the adapter (`claude → anthropic`,
+`posthog/posthog` _sets_ the knobs and the `@posthog/agent` package _applies_ them. A pinned run is three values —
+`runtime_adapter` + `model` + `reasoning_effort`; `provider` is _derived_ from the adapter (`claude → anthropic`,
 `codex → openai`), never set by hand.
 
 **`posthog/posthog` — where the knobs are set + validated.**
@@ -304,11 +304,11 @@ Read this before testing another model (Sonnet, a new Codex model, a different e
   `get_supported_reasoning_efforts` / `get_reasoning_effort_error`. A new model/effort must be added here or the combo
   is rejected. `test_constants.py` locks the ReviewHog combo to this registry at unit time.
 - **Transport into the sandbox:** `Task._build_task` writes `extra_state[{runtime_adapter, provider, model,
-  reasoning_effort}]` → `get_task_processing_context` reads it back → `start_agent_server` →
+reasoning_effort}]` → `get_task_processing_context` reads it back → `start_agent_server` →
   `build_agent_runtime_env_prefix` (`logic/services/sandbox.py`) emits
   `POSTHOG_CODE_{RUNTIME_ADAPTER,PROVIDER,MODEL,REASONING_EFFORT}` env prefixed onto the agent launch command.
 
-**`@posthog/agent` — where they are consumed + applied** (the PostHog Code monorepo, *not* this repo; clone via
+**`@posthog/agent` — where they are consumed + applied** (the PostHog Code monorepo, _not_ this repo; clone via
 `LOCAL_POSTHOG_CODE_MONOREPO_ROOT`, package `packages/agent`, baked into `Dockerfile.sandbox-base`).
 
 - **Entry `src/server/bin.ts`** reads + zod-validates `POSTHOG_CODE_{RUNTIME_ADAPTER,MODEL,REASONING_EFFORT}`, guards
@@ -335,14 +335,14 @@ All Pydantic. `models/__init__.py` is the authoritative registry that generates 
 `schema.json` files from `Model.model_json_schema()` — **`schema.json` files are generated artifacts; edit
 the model and regenerate, never hand-edit.**
 
-| Model                                                                        | File                                    | Schema-backed?                    | Role                                                                                                             |
-| ---------------------------------------------------------------------------- | --------------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `ChunksList` / `Chunk` / `FileInfo`                                          | `models/split_pr_into_chunks.py`        | ✅ chunking                       | PR → reviewable chunks (`chunk_type`, `key_changes`)                                                             |
+| Model                                                                        | File                                    | Schema-backed?                    | Role                                                                                                                                       |
+| ---------------------------------------------------------------------------- | --------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ChunksList` / `Chunk` / `FileInfo`                                          | `models/split_pr_into_chunks.py`        | ✅ chunking                       | PR → reviewable chunks (`chunk_type`, `key_changes`)                                                                                       |
 | `Issue` / `IssuesReview` / `LineRange` / `IssuePriority` / `PerspectiveType` | `models/issues_review.py`               | ✅ issues_review (`IssuesReview`) | **`Issue` is the shared currency** of the dedup → validate → publish stages; `Issue.source_perspective` records which perspective found it |
-| `IssueDeduplication` / `DuplicateIssue`                                      | `models/issue_deduplicator.py`          | ✅ issue_deduplicator             | ids of issues to drop                                                                                            |
-| `IssueValidation`                                                            | `models/issue_validation.py`            | ✅ issue_validation               | `is_valid` + `category` (+ optional `adjusted_priority`) per issue                                              |
-| `ValidationMarkdownReport*`                                                  | `models/prepare_validation_markdown.py` | — internal                        | report tree (Chunk × Issue)                                                                                      |
-| `PRMetadata` / `PRComment` / `PRFile` / `PRFileUpdate`                       | `models/github_meta.py`                 | — internal                        | raw GitHub ingestion                                                                                             |
+| `IssueDeduplication` / `DuplicateIssue`                                      | `models/issue_deduplicator.py`          | ✅ issue_deduplicator             | ids of issues to drop                                                                                                                      |
+| `IssueValidation`                                                            | `models/issue_validation.py`            | ✅ issue_validation               | `is_valid` + `category` (+ optional `adjusted_priority`) per issue                                                                         |
+| `ValidationMarkdownReport*`                                                  | `models/prepare_validation_markdown.py` | — internal                        | report tree (Chunk × Issue)                                                                                                                |
+| `PRMetadata` / `PRComment` / `PRFile` / `PRFileUpdate`                       | `models/github_meta.py`                 | — internal                        | raw GitHub ingestion                                                                                                                       |
 
 `Issue.id` encodes provenance as `"{pass_number}-{chunk_id}-{issue_number}"` and is parsed back throughout
 the pipeline to route validations and group the report. `IssuePriority` is `MUST_FIX` / `SHOULD_FIX` /

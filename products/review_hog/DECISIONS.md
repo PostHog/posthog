@@ -1,7 +1,7 @@
 # ReviewHog design record & history
 
-The living [ARCHITECTURE.md](./ARCHITECTURE.md) is the present-tense reference — *what* ReviewHog is today
-(pipeline, models, persistence, triggers). This doc is the full record of *why* it got there: the staged build
+The living [ARCHITECTURE.md](./ARCHITECTURE.md) is the present-tense reference — _what_ ReviewHog is today
+(pipeline, models, persistence, triggers). This doc is the full record of _why_ it got there: the staged build
 history, the design decisions with the alternatives weighed and rejected, the gotchas, and the roadmap —
 including the designed-but-unbuilt loop and the grounded implementation maps. It is preserved **in full** so an
 agent can go check the reasoning behind any part of the reference, not just a summary.
@@ -3331,4 +3331,3 @@ the model/effort is brand-new, add it to the registry in **both** repos (`utils.
 gateway model list in `@posthog/agent`) or startup validation rejects it on one side.
 
 ---
-
