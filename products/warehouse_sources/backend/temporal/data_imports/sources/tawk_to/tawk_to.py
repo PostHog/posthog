@@ -87,7 +87,7 @@ def validate_credentials(api_key: str) -> bool:
     """Confirm the API key is valid. `property.list` with an empty body is the cheapest
     authenticated probe (an invalid key gets `{"ok": false, "error": "auth_error"}` with 401)."""
     try:
-        response = make_tracked_session().post(
+        response = make_tracked_session(redact_values=(api_key,), capture=False).post(
             f"{TAWK_TO_BASE_URL}/property.list",
             json={},
             auth=(api_key, ""),
@@ -161,8 +161,10 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = TAWK_TO_ENDPOINTS[endpoint]
     # One session reused across every request so urllib3 keeps the connection alive instead of
-    # re-handshaking per call.
-    session = make_tracked_session()
+    # re-handshaking per call. `redact_values` masks the key in tracked logs/samples; `capture=False`
+    # keeps response bodies out of HTTP sample capture — chat and ticket payloads carry customer
+    # conversation text the name-based scrubbers can't recognise.
+    session = make_tracked_session(redact_values=(api_key,), capture=False)
 
     if not config.scoped_to_property:
         data = _post(session, api_key, config.method, {}, logger)
