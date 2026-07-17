@@ -2,6 +2,7 @@ import React, { useCallback, useMemo } from 'react'
 
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
+import { resolveCssColor } from '../../core/color-utils'
 import type {
     ChartConfig,
     ChartDimensions,
@@ -116,7 +117,14 @@ function HeatmapInner({
     children,
 }: Omit<HeatmapProps, 'onError'>): React.ReactElement {
     const { colorScale = 'log' } = config ?? {}
-    const accent = config?.color || theme.colors[0] || '#1d4aff'
+    // Resolve a `var(--…)` accent to a concrete color — canvas `fillStyle` (and `dimColor`'s
+    // d3 parse) can't handle CSS variables, so an unresolved var would blank out every cell.
+    // theme.colors are already resolved, so the memo re-runs (and re-resolves the accent against
+    // the current theme) on a light/dark flip too.
+    const accent = useMemo(
+        () => resolveCssColor(config?.color || theme.colors[0] || '#1d4aff'),
+        [config?.color, theme.colors]
+    )
 
     // Dense row-major grid padded to the label counts, so a ragged `cells` input can't
     // desync the draw loop from the axis.
@@ -124,6 +132,11 @@ function HeatmapInner({
         () => yLabels.map((_, r) => xLabels.map((_, c) => cells[r]?.[c] ?? 0)),
         [yLabels, xLabels, cells]
     )
+
+    // Per-column keys so repeated `xLabels` don't collapse onto one slot in the base chart's
+    // label-keyed interaction and tick layer; formatters map them back to the display label.
+    const columnKeys = useMemo<string[]>(() => xLabels.map((_, i) => `${i}`), [xLabels])
+    const resolveColumnLabel = useCallback((key: string): string => xLabels[Number(key)] ?? key, [xLabels])
     const maxValue = useMemo(() => maxCellValue(grid), [grid])
 
     // One adapter series per row: `data` is that row's counts (tooltip values), `meta.rowIndex`
@@ -268,32 +281,48 @@ function HeatmapInner({
             onCellClick({
                 xIndex: data.dataIndex,
                 yIndex: rowIndex,
-                xLabel: data.label,
+                // `data.label` is the per-column key, not the display label — map back by index.
+                xLabel: xLabels[data.dataIndex] ?? '',
                 yLabel: yLabels[rowIndex] ?? '',
                 value: data.value,
             })
         },
-        [onCellClick, yLabels]
+        [onCellClick, xLabels, yLabels]
+    )
+
+    const userXTickFormatter = config?.xTickFormatter
+    const xTickFormatter = useCallback(
+        (key: string, index: number): string | null => {
+            const label = resolveColumnLabel(key)
+            return userXTickFormatter ? userXTickFormatter(label, index) : label
+        },
+        [resolveColumnLabel, userXTickFormatter]
     )
 
     const tooltipLabelFormatter = config?.tooltip?.labelFormatter
     const tooltipValueFormatter = config?.tooltip?.valueFormatter
     const renderTooltip = useMemo(
         () =>
-            tooltip ??
-            ((ctx: HeatmapTooltipContext) => (
-                <HeatmapTooltip
-                    ctx={ctx}
-                    labelFormatter={tooltipLabelFormatter}
-                    valueFormatter={tooltipValueFormatter}
-                />
-            )),
-        [tooltip, tooltipLabelFormatter, tooltipValueFormatter]
+            (ctx: HeatmapTooltipContext): React.ReactNode => {
+                // The base chart's `ctx.label` is the per-column key; restore the display label
+                // before it reaches either the custom or default tooltip.
+                const mapped = { ...ctx, label: resolveColumnLabel(ctx.label) }
+                return tooltip ? (
+                    tooltip(mapped)
+                ) : (
+                    <HeatmapTooltip
+                        ctx={mapped}
+                        labelFormatter={tooltipLabelFormatter}
+                        valueFormatter={tooltipValueFormatter}
+                    />
+                )
+            },
+        [tooltip, resolveColumnLabel, tooltipLabelFormatter, tooltipValueFormatter]
     )
 
     const baseConfig = useMemo<ChartConfig>(
         () => ({
-            xTickFormatter: config?.xTickFormatter,
+            xTickFormatter,
             yTickFormatter,
             xAxisLabel: config?.xAxisLabel,
             yAxisLabel: config?.yAxisLabel,
@@ -305,7 +334,7 @@ function HeatmapInner({
             tooltip: { enabled: config?.tooltip?.enabled, placement: 'cursor' },
         }),
         [
-            config?.xTickFormatter,
+            xTickFormatter,
             yTickFormatter,
             config?.xAxisLabel,
             config?.yAxisLabel,
@@ -319,7 +348,7 @@ function HeatmapInner({
     return (
         <Chart<HeatmapRowMeta>
             series={adaptedSeries}
-            labels={xLabels}
+            labels={columnKeys}
             config={baseConfig}
             theme={theme}
             createScales={createScales}
