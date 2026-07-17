@@ -420,6 +420,43 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    def test_flag_dependency_numeric_key_is_coerced_to_string(self) -> None:
+        # A numeric dependency key persisted as a raw JSON number fails deserialization
+        # in the Rust flags service (key is typed as String), taking down flag evaluation
+        # for the whole project. Ensure it's stored as a string regardless of input type.
+        base_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="base-flag",
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Dependent flag",
+                "key": "dependent-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {
+                                    "key": base_flag.id,  # numeric, as stored by some migrations
+                                    "type": "flag",
+                                    "value": "true",
+                                    "operator": "flag_evaluates_to",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        stored_key = response.json()["filters"]["groups"][0]["properties"][0]["key"]
+        self.assertEqual(stored_key, str(base_flag.id))
+        self.assertIsInstance(stored_key, str)
+
     @parameterized.expand(
         [
             ("in",),

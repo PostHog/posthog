@@ -73,8 +73,32 @@ impl std::fmt::Debug for CompiledRegex {
     }
 }
 
+/// Deserializes `PropertyFilter.key` from either a JSON string or a JSON number.
+///
+/// Flag-dependency keys are flag IDs, and the API has persisted them as raw JSON
+/// numbers in some cases (e.g. a flag migration that stored dependency IDs as
+/// integers). serde will not coerce a number into a `String`, so without this a
+/// single numeric key fails deserialization of the whole team's cached flag
+/// payload — taking down flag evaluation for the entire project rather than just
+/// the malformed flag. Accept both forms and normalize to a string; the evaluator
+/// parses it back to an id at match time (`get_feature_flag_id`).
+fn deserialize_key<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    match serde_json::Value::deserialize(deserializer)? {
+        serde_json::Value::String(s) => Ok(s),
+        serde_json::Value::Number(n) => Ok(n.to_string()),
+        other => Err(D::Error::custom(format!(
+            "property filter `key` must be a string or number, got {other}"
+        ))),
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct PropertyFilter {
+    #[serde(deserialize_with = "deserialize_key")]
     pub key: String,
     // NB: if a property filter is of type is_set or is_not_set, the value isn't used, and if it's a filter made by the API, the value is None.
     pub value: Option<serde_json::Value>,
@@ -116,5 +140,40 @@ mod mock_impls {
                 ..Default::default()
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deserializes_numeric_key_as_string() {
+        // A flag dependency persisted with a numeric `key` (e.g. after a migration
+        // that stored dependency IDs as integers) must not fail deserialization —
+        // otherwise one bad flag takes down the whole team's cached payload.
+        let filter: PropertyFilter = serde_json::from_value(serde_json::json!({
+            "key": 226357,
+            "value": true,
+            "type": "flag",
+            "operator": "flag_evaluates_to",
+        }))
+        .expect("numeric key should deserialize as a string");
+
+        assert_eq!(filter.key, "226357");
+        assert_eq!(filter.get_feature_flag_id(), Some(226357));
+    }
+
+    #[test]
+    fn deserializes_string_key() {
+        let filter: PropertyFilter = serde_json::from_value(serde_json::json!({
+            "key": "email",
+            "value": "test@example.com",
+            "type": "person",
+            "operator": "exact",
+        }))
+        .expect("string key should deserialize");
+
+        assert_eq!(filter.key, "email");
     }
 }
