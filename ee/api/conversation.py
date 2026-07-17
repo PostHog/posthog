@@ -197,7 +197,12 @@ class QueueMessageUpdateSerializer(serializers.Serializer):
 
 
 class SandboxAttachedContextItemSerializer(serializers.Serializer):
-    """One typed attachment carried by a sandbox message."""
+    """One typed attachment carried by a sandbox message.
+
+    DEPRECATED PATH — do not extend. This structured `attached_context` (and its server-side wrap in
+    `context_wrapper.py`) exists only for the legacy Max conversations bridge and is removed with it;
+    the live path wraps context client-side (`products/posthog_ai/frontend/utils/posthogContextBlock.ts`).
+    """
 
     type = serializers.ChoiceField(
         choices=sorted(ALLOWED_ATTACHED_CONTEXT_TYPES),
@@ -211,6 +216,14 @@ class SandboxAttachedContextItemSerializer(serializers.Serializer):
         required=False, help_text="Optional human-readable label rendered in the context block."
     )
     value = serializers.CharField(required=False, help_text="Free-text content. Only for `text` attachments.")
+
+
+def _validate_sandbox_task(task_id: uuid.UUID, team_id: int, user_id: int | None) -> None:
+    runtime = tasks_facade.task_runtime(task_id, team_id, user_id)
+    if runtime is None:
+        raise serializers.ValidationError("Task not found or not accessible.")
+    if runtime == tasks_facade.TaskRuntime.PI:
+        raise serializers.ValidationError("Pi tasks cannot be opened in PostHog AI.")
 
 
 class SandboxOpenSerializer(serializers.Serializer):
@@ -227,6 +240,7 @@ class SandboxOpenSerializer(serializers.Serializer):
     trace_id = serializers.UUIDField(
         required=False, help_text="Client-generated trace id correlated with the resulting Run's SSE stream."
     )
+    # Deprecated with the legacy Max bridge (see SandboxAttachedContextItemSerializer) — do not extend.
     attached_context = serializers.ListField(
         required=False,
         child=SandboxAttachedContextItemSerializer(),
@@ -258,8 +272,7 @@ class SandboxOpenSerializer(serializers.Serializer):
         """
         team = self.context["team"]
         user = self.context["user"]
-        if not tasks_facade.task_visible(value, team.id, user.id):
-            raise serializers.ValidationError("Task not found or not accessible.")
+        _validate_sandbox_task(value, team.id, user.id)
         return value
 
 
@@ -680,7 +693,7 @@ class ConversationViewSet(
         responses={
             200: SandboxMessageResponseSerializer,
             204: OpenApiResponse(description="Warm request that provisioned nothing (pool full / released)."),
-            400: OpenApiResponse(description="Conversation is not on the sandbox runtime."),
+            400: OpenApiResponse(description="Conversation or task uses an unsupported runtime."),
         },
         description=(
             "Create-or-resume a sandbox conversation — the single sandbox session opener. With `content`, "
@@ -702,6 +715,9 @@ class ConversationViewSet(
         conversation, created = self._get_or_create_sandbox_conversation(
             request, bind_task=serializer.validated_data.get("task_id")
         )
+        if conversation.task_id is not None:
+            _validate_sandbox_task(conversation.task_id, self.team.id, request.user.id)
+
         has_content = bool(serializer.validated_data.get("content"))
         convert_to_acp, resumed_context = self._compute_sandbox_conversion(request, conversation, has_content)
 

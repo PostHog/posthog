@@ -38,6 +38,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class WritesonicSource(ResumableSource[WritesonicSourceConfig, WritesonicResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://docs.writesonic.com/reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -67,7 +70,6 @@ You'll need:
             iconPath="/static/services/writesonic.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/writesonic",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             keywords=["seo", "geo", "ai visibility", "content marketing"],
             fields=cast(
                 list[FieldType],

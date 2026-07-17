@@ -22,6 +22,7 @@ _LAZY = {
     "is_pipeline_v3_enabled": "workflow_activities.create_job_model",
     "SyncNewSchemasActivityInputs": "workflow_activities.sync_new_schemas",
     "is_duckgres_sink_team_member": "pipelines.pipeline_v3.duckgres.enablement",
+    "finish_row_tracking": "row_tracking",
     "HealthState": "pipelines.pipeline_v3.load.health",
     "start_health_server": "pipelines.pipeline_v3.load.health",
     "ensure_bucket": "pipelines.pipeline_v3.s3.common",

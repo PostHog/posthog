@@ -81,6 +81,10 @@ class LogsTable(Table):
             name="service_name", nullable=False, description="Name of the service that emitted the log."
         ),
         # internal fields for query optimization
+        # Physical type-suffixed backing map of `attributes`. A bare arrayElement() on it reads only
+        # the serialization bucket holding the key; membership guards (has/mapContains) force reading
+        # every key bucket, so internal hot paths grouping on one attribute use this directly.
+        "attributes_map_str": MapStringDatabaseField(name="attributes_map_str", nullable=False, hidden=True),
         "_part_starting_offset": IntegerDatabaseField(name="_part_starting_offset", nullable=True, hidden=True),
         "_part_offset": IntegerDatabaseField(name="_part_offset", nullable=True, hidden=True),
         "_bytes_uncompressed": IntegerDatabaseField(name="_bytes_uncompressed", nullable=True, hidden=True),

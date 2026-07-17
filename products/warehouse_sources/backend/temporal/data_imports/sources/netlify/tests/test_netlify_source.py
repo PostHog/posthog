@@ -23,7 +23,6 @@ class TestNetlifySourceConfig:
         config = NetlifySource().get_source_config
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/netlify"
 
     def test_single_password_token_field(self) -> None:

@@ -3,13 +3,13 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 56 enabled ops
+ * PostHog API - MCP 58 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
 /**
- * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` query param is required and scopes the tool / model / day / trace breakdowns to a single product; supported values: posthog_code. `by_product` is always returned for cross-product visibility. `by_day` returns a day-ascending spend series for the scoped product. Use `refresh=true` to bypass the 5-minute response cache.
+ * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` query param is required and scopes the tool / model / day / trace breakdowns to a single product; supported values: posthog_code. `by_product` is always returned for cross-product visibility. `by_day` returns a day-ascending spend series for the scoped product. Pass `bucket_minutes` (5, 15, 30, or 60; the window may span at most 600 buckets) to additionally get `by_bucket`, a time-ascending series with per-bucket cost split into uncached input / output / cache read / cache creation components. Use `refresh=true` to bypass the 5-minute response cache.
  */
 export const llmAnalyticsPersonalSpendListQueryDateFromDefault = `-30d`
 export const llmAnalyticsPersonalSpendListQueryDateFromMax = 32
@@ -24,6 +24,12 @@ export const llmAnalyticsPersonalSpendListQueryProductMax = 64
 export const llmAnalyticsPersonalSpendListQueryRefreshDefault = false
 
 export const LlmAnalyticsPersonalSpendListQueryParams = /* @__PURE__ */ zod.object({
+    bucket_minutes: zod
+        .union([zod.literal(5), zod.literal(15), zod.literal(30), zod.literal(60)])
+        .optional()
+        .describe(
+            'When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for the scoped product at this bucket size in minutes, with per-bucket cost split into uncached input / output / cache read / cache creation components plus the matching token sums. Supported bucket sizes: 5, 15, 30, 60. The window may span at most 600 buckets of the chosen size (e.g. 50 hours at 5-minute buckets).\n\n* `5` - 5\n* `15` - 15\n* `30` - 30\n* `60` - 60'
+        ),
     date_from: zod
         .string()
         .min(1)
@@ -1608,6 +1614,7 @@ export const LlmPromptsNameRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const llmPromptsNameRetrieveQueryContentDefault = `full`
+export const llmPromptsNameRetrieveQueryLabelMax = 128
 
 export const LlmPromptsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
     content: zod
@@ -1615,6 +1622,14 @@ export const LlmPromptsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .default(llmPromptsNameRetrieveQueryContentDefault)
         .describe(
             "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.\n\n* `full` - full\n* `preview` - preview\n* `none` - none"
+        ),
+    label: zod
+        .string()
+        .min(1)
+        .max(llmPromptsNameRetrieveQueryLabelMax)
+        .optional()
+        .describe(
+            "Fetch the version this label currently points to, e.g. 'production'. Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version."
         ),
     version: zod
         .number()
@@ -1684,6 +1699,41 @@ export const LlmPromptsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.'
         ),
+})
+
+export const llmPromptsNameLabelsUpdatePathLabelNameRegExp = new RegExp('^[^/]+$')
+export const llmPromptsNameLabelsUpdatePathPromptNameRegExp = new RegExp('^[^/]+$')
+
+export const LlmPromptsNameLabelsUpdateParams = /* @__PURE__ */ zod.object({
+    label_name: zod.string().regex(llmPromptsNameLabelsUpdatePathLabelNameRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    prompt_name: zod.string().regex(llmPromptsNameLabelsUpdatePathPromptNameRegExp),
+})
+
+export const LlmPromptsNameLabelsUpdateBody = /* @__PURE__ */ zod.object({
+    version: zod
+        .number()
+        .min(1)
+        .describe(
+            'Prompt version this label should point to. If the label already exists on another version of the prompt, it is moved there.'
+        ),
+})
+
+export const llmPromptsNameLabelsDestroyPathLabelNameRegExp = new RegExp('^[^/]+$')
+export const llmPromptsNameLabelsDestroyPathPromptNameRegExp = new RegExp('^[^/]+$')
+
+export const LlmPromptsNameLabelsDestroyParams = /* @__PURE__ */ zod.object({
+    label_name: zod.string().regex(llmPromptsNameLabelsDestroyPathLabelNameRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    prompt_name: zod.string().regex(llmPromptsNameLabelsDestroyPathPromptNameRegExp),
 })
 
 export const TaggersListParams = /* @__PURE__ */ zod.object({

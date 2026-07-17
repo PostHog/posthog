@@ -36,6 +36,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ChargedeskSource(ResumableSource[ChargedeskSourceConfig, ChargedeskResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://chargedesk.com/api-docs"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -49,7 +52,6 @@ class ChargedeskSource(ResumableSource[ChargedeskSourceConfig, ChargedeskResumeC
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Chargedesk",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your ChargeDesk secret API key to automatically pull your ChargeDesk data into the PostHog Data warehouse.
 
 Each company has its own secret key. Create one in your ChargeDesk account under **Setup → API / Webhooks → Issue New Key**, and make sure API access is enabled for the company.""",

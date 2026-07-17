@@ -14,6 +14,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.calendly import (
+    CALENDLY_API_VERSION_V2,
+    SUPPORTED_API_VERSIONS,
     CalendlyResumeConfig,
     calendly_source,
     validate_credentials as validate_calendly_credentials,
@@ -36,6 +38,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class CalendlySource(ResumableSource[CalendlySourceConfig, CalendlyResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://developer.calendly.com/"
+
+    supported_versions = SUPPORTED_API_VERSIONS
+    default_version = CALENDLY_API_VERSION_V2
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -125,6 +131,7 @@ You can create a personal access token in Calendly under **Integrations → API 
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

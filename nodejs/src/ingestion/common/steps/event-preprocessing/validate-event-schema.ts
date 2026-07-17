@@ -106,13 +106,21 @@ export function validateEventAgainstSchema(
 /**
  * Creates a processing step that validates events against enforced schemas.
  * Events that fail validation are dropped and an ingestion warning is emitted.
+ * When `enabled` is false the step passes every event through untouched, so
+ * pipelines can pipe it unconditionally.
  *
  * @param schemaManager - Manager for fetching enforced schemas (uses caching internally)
+ * @param enabled - Schema enforcement opt-in; when false the step is a no-op
  */
 export function createValidateEventSchemaStep<T extends { event: PipelineEvent; team: Team }>(
-    schemaManager: EventSchemaEnforcementManager
+    schemaManager: EventSchemaEnforcementManager,
+    enabled: boolean
 ): ProcessingStep<T, T> {
     return async function validateEventSchemaStep(input) {
+        if (!enabled) {
+            return ok(input)
+        }
+
         const { event, team } = input
 
         const enforcedSchemas = await schemaManager.getSchemas(team.id)

@@ -36,6 +36,12 @@ const FUNNEL_QUERY = {
     },
 }
 
+// Metrics insights persist their query as a bare MetricsQuery node — no InsightVizNode wrapper.
+const METRICS_QUERY = {
+    kind: NodeKind.MetricsQuery,
+    clauses: [{ name: 'a', metricName: 'queue.depth', aggregation: 'avg' }],
+}
+
 describe('insightAlertsLogic', () => {
     let listSpy: jest.SpyInstance
 
@@ -246,12 +252,13 @@ describe('areAlertsSupportedForInsight', () => {
         expect(areAlertsSupportedForInsight(query)).toBe(true)
     })
 
-    it('returns false for funnel insight viz when the funnel flag is off', () => {
-        expect(areAlertsSupportedForInsight(FUNNEL_QUERY)).toBe(false)
+    it('supports funnel insight viz by default', () => {
+        expect(areAlertsSupportedForInsight(FUNNEL_QUERY)).toBe(true)
     })
 
-    it('returns true for funnel insight viz when funnelAlertsEnabled', () => {
-        expect(areAlertsSupportedForInsight(FUNNEL_QUERY, { funnelAlertsEnabled: true })).toBe(true)
+    it('supports bare metrics query nodes only when metricsAlertsEnabled', () => {
+        expect(areAlertsSupportedForInsight(METRICS_QUERY, { metricsAlertsEnabled: true })).toBe(true)
+        expect(areAlertsSupportedForInsight(METRICS_QUERY)).toBe(false)
     })
 
     it('supports steps and trends funnels but not time-to-convert or flow', () => {
@@ -259,11 +266,10 @@ describe('areAlertsSupportedForInsight', () => {
             ...FUNNEL_QUERY,
             source: { ...FUNNEL_QUERY.source, funnelsFilter: { funnelVizType } },
         })
-        const opts = { funnelAlertsEnabled: true }
-        expect(areAlertsSupportedForInsight(withViz('steps'), opts)).toBe(true)
-        expect(areAlertsSupportedForInsight(withViz('trends'), opts)).toBe(true)
-        expect(areAlertsSupportedForInsight(withViz('time_to_convert'), opts)).toBe(false)
-        expect(areAlertsSupportedForInsight(withViz('flow'), opts)).toBe(false)
+        expect(areAlertsSupportedForInsight(withViz('steps'))).toBe(true)
+        expect(areAlertsSupportedForInsight(withViz('trends'))).toBe(true)
+        expect(areAlertsSupportedForInsight(withViz('time_to_convert'))).toBe(false)
+        expect(areAlertsSupportedForInsight(withViz('flow'))).toBe(false)
     })
 
     it.each<[string, ChartDisplayType | undefined, boolean]>([
@@ -285,11 +291,9 @@ describe('areAlertsSupportedForInsight', () => {
 
 describe('alertsUnsupportedReason', () => {
     it.each([
-        ['only trends (no flags)', {}, ['trends'], ['SQL', 'funnel']],
-        ['trends + SQL', { hogqlAlertsEnabled: true }, ['trends', 'SQL'], ['funnel']],
-        ['trends + funnel', { funnelAlertsEnabled: true }, ['trends', 'funnel'], ['SQL']],
-        ['all three', { hogqlAlertsEnabled: true, funnelAlertsEnabled: true }, ['trends', 'SQL', 'funnel'], []],
-    ])('lists only enabled types: %s', (_name, options, included, excluded) => {
+        ['metrics gated off', {}, ['trends', 'SQL', 'funnel'], ['metrics']],
+        ['metrics enabled', { metricsAlertsEnabled: true }, ['trends', 'SQL', 'funnel', 'metrics'], []],
+    ])('always lists trends/SQL/funnel and gates only metrics: %s', (_name, options, included, excluded) => {
         const reason = alertsUnsupportedReason(options)
         expect(included.every((type) => reason.includes(type))).toBe(true)
         expect(excluded.every((type) => !reason.includes(type))).toBe(true)
@@ -302,14 +306,13 @@ describe('alertsUnsupportedReason', () => {
             ...FUNNEL_QUERY,
             source: { ...FUNNEL_QUERY.source, funnelsFilter: { funnelVizType } },
         })
-        const options = { funnelAlertsEnabled: true }
         for (const viz of ['time_to_convert', 'flow']) {
-            const reason = alertsUnsupportedReason(options, funnelWithViz(viz))
+            const reason = alertsUnsupportedReason({}, funnelWithViz(viz))
             expect(reason).toContain('conversion rate')
             expect(reason).toContain('steps or trends')
             expect(reason).not.toContain('only available for')
         }
         // No query → backward-compatible generic copy.
-        expect(alertsUnsupportedReason(options)).toContain('only available for')
+        expect(alertsUnsupportedReason({})).toContain('only available for')
     })
 })

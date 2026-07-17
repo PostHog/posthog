@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ShippoSource(ResumableSource[ShippoSourceConfig, ShippoResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.goshippo.com/api-reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -56,7 +57,6 @@ You can find your live (`shippo_live_...`) and test (`shippo_test_...`) API toke
 """,
             iconPath="/static/services/shippo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/shippo",
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

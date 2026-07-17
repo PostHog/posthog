@@ -11,14 +11,32 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.storage.llm_prompt_cache import invalidate_prompt_latest_cache, invalidate_prompt_version_caches
 
-from products.ai_observability.backend.models.llm_prompt import LLMPrompt, annotate_llm_prompt_version_history_metadata
+from products.ai_observability.backend.models.llm_prompt import (
+    LLMPrompt,
+    LLMPromptLabel,
+    annotate_llm_prompt_version_history_metadata,
+)
 
 SYNC_ARCHIVE_VERSION_INVALIDATION_LIMIT = 100
 MAX_PROMPT_VERSION = 2000
+MAX_PROMPT_LABELS = 50
 
 
 class LLMPromptNotFoundError(Exception):
     pass
+
+
+class LLMPromptLabelNotFoundError(Exception):
+    pass
+
+
+class LLMPromptLabelConflictError(Exception):
+    pass
+
+
+@dataclass
+class LLMPromptLabelLimitError(Exception):
+    max_labels: int
 
 
 @dataclass
@@ -85,7 +103,7 @@ def apply_prompt_edits(prompt_content: Any, edits: list[dict[str, str]]) -> Any:
 
 def get_active_prompt_queryset(team: Team) -> QuerySet[LLMPrompt]:
     return annotate_llm_prompt_version_history_metadata(
-        LLMPrompt.objects.filter(team=team, deleted=False).select_related("created_by")
+        LLMPrompt.objects.filter(team=team, deleted=False).select_related("created_by").prefetch_related("labels")
     )
 
 
@@ -124,6 +142,7 @@ def resolve_versions_page(
     queryset = (
         LLMPrompt.objects.filter(team=team, name=prompt_name, deleted=False)
         .select_related("created_by")
+        .prefetch_related("labels")
         .order_by("-version", "-created_at", "-id")
     )
 
@@ -254,6 +273,8 @@ def archive_prompt(team: Team, prompt_name: str) -> list[int]:
             is_latest=False,
         )
 
+        LLMPromptLabel.objects.filter(team=team, prompt_name=prompt_name).delete()
+
         def invalidate_caches_on_commit() -> None:
             invalidate_prompt_latest_cache(team.id, prompt_name)
 
@@ -282,3 +303,72 @@ def archive_prompt(team: Team, prompt_name: str) -> list[int]:
         transaction.on_commit(invalidate_caches_on_commit)
 
     return prompt_versions
+
+
+@dataclass
+class PromptLabelSetResult:
+    label: LLMPromptLabel
+    previous_version: int | None
+    created: bool
+
+
+def set_prompt_label(
+    team: Team,
+    *,
+    user: User,
+    prompt_name: str,
+    label_name: str,
+    version: int,
+) -> PromptLabelSetResult:
+    """Point a label at a prompt version, creating or moving it.
+
+    "Set" is the only write verb: a label that already exists on another version is
+    moved, so the one-version-per-label invariant can't be violated through this path.
+    """
+    with transaction.atomic():
+        # Locked so a concurrent archive_prompt (which locks the same rows) can't mark the
+        # prompt deleted between this check and the label write, orphaning the label.
+        target = (
+            LLMPrompt.objects.select_for_update()
+            .filter(team=team, name=prompt_name, deleted=False, version=version)
+            .order_by("created_at", "id")
+            .first()
+        )
+        if target is None:
+            raise LLMPromptNotFoundError()
+
+        existing = (
+            LLMPromptLabel.objects.select_for_update()
+            .select_related("prompt")
+            .filter(team=team, prompt_name=prompt_name, name=label_name)
+            .first()
+        )
+        if existing is not None:
+            previous_version = existing.prompt.version
+            if existing.prompt_id != target.pk:
+                existing.prompt = target
+                existing.save()
+            return PromptLabelSetResult(label=existing, previous_version=previous_version, created=False)
+
+        if LLMPromptLabel.objects.filter(team=team, prompt_name=prompt_name).count() >= MAX_PROMPT_LABELS:
+            raise LLMPromptLabelLimitError(max_labels=MAX_PROMPT_LABELS)
+
+        try:
+            label = LLMPromptLabel.objects.create(
+                team=team,
+                prompt_name=prompt_name,
+                name=label_name,
+                prompt=target,
+                created_by=user,
+            )
+        except IntegrityError as err:
+            # Concurrent PUTs raced to create the same label; the other request won.
+            raise LLMPromptLabelConflictError() from err
+        return PromptLabelSetResult(label=label, previous_version=None, created=True)
+
+
+def remove_prompt_label(team: Team, *, prompt_name: str, label_name: str) -> None:
+    label = LLMPromptLabel.objects.filter(team=team, prompt_name=prompt_name, name=label_name).first()
+    if label is None:
+        raise LLMPromptLabelNotFoundError()
+    label.delete()

@@ -24,6 +24,8 @@ from posthog.models.team import Team
 
 from products.engineering_analytics.backend import logic
 from products.engineering_analytics.backend.facade.contracts import (
+    BranchPRMatch,
+    BrokenTestsResult,
     CICardSummary,
     CIFailureLogs,
     CurrentBranchHealth,
@@ -38,6 +40,9 @@ from products.engineering_analytics.backend.facade.contracts import (
     QuarantineRequestResult,
     RepoOverview,
     RunFailureLogs,
+    TeamCIActivity,
+    TeamCIHealthList,
+    TeamMergeTrend,
     WorkflowCost,
     WorkflowHealthItem,
     WorkflowJob,
@@ -48,20 +53,29 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from posthog.rbac.user_access_control import UserAccessControl
 
     from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
 
 def _authorized_source(
-    team: Team, source_id: str | None, user_access_control: "UserAccessControl | None"
+    team: Team,
+    source_id: str | None,
+    user_access_control: "UserAccessControl | None",
+    repo: str | None = None,
 ) -> "CuratedGitHubSource":
     """Resolve this caller's curated read handle — the single place source selection and per-source
     warehouse access control happen. ``user_access_control`` (None for system/Temporal/CLI contexts)
     filters out sources the requesting user can't access; ``source_id`` selects a specific source,
-    else the oldest connected. Raises ``GitHubSourceNotConnectedError`` / ``ValueError`` (bad source_id).
+    else the oldest connected. ``repo`` ('owner/name'), when the caller already scopes to one repo,
+    prefers the source connected for that repo — so a team with one source per repository reads the
+    right one. Raises ``GitHubSourceNotConnectedError`` / ``ValueError`` (bad source_id).
     """
-    return logic.CuratedGitHubSource.for_team(team, source_id=source_id, user_access_control=user_access_control)
+    return logic.CuratedGitHubSource.for_team(
+        team, source_id=source_id, repo=repo, user_access_control=user_access_control
+    )
 
 
 def get_pr_lifecycle(
@@ -73,7 +87,7 @@ def get_pr_lifecycle(
     user_access_control: "UserAccessControl | None" = None,
 ) -> PRLifecycle | None:
     return logic.build_pr_lifecycle(
-        curated=_authorized_source(team, source_id, user_access_control), pr_number=pr_number, repo=repo
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), pr_number=pr_number, repo=repo
     )
 
 
@@ -86,7 +100,7 @@ def get_pr_cost(
     user_access_control: "UserAccessControl | None" = None,
 ) -> PRCostSummary:
     return logic.build_pr_cost(
-        curated=_authorized_source(team, source_id, user_access_control), pr_number=pr_number, repo=repo
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), pr_number=pr_number, repo=repo
     )
 
 
@@ -95,9 +109,12 @@ def get_workflow_run(
     team: Team,
     run_id: int,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> WorkflowRunDetail | None:
-    return logic.build_workflow_run(curated=_authorized_source(team, source_id, user_access_control), run_id=run_id)
+    return logic.build_workflow_run(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), run_id=run_id
+    )
 
 
 def list_pr_runs(
@@ -109,7 +126,30 @@ def list_pr_runs(
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowRunDetail]:
     return logic.build_pr_runs(
-        curated=_authorized_source(team, source_id, user_access_control), pr_number=pr_number, repo=repo
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), pr_number=pr_number, repo=repo
+    )
+
+
+def resolve_branch(
+    *,
+    team: Team,
+    branch: str | None = None,
+    repo: str | None = None,
+    timestamp: "datetime | None" = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[BranchPRMatch]:
+    """Resolve a git branch to the pull request(s) it belongs to — the cross-product link seam
+    (LLM analytics links a git branch to a PR detail page). ``branch`` is required; ``repo``
+    ('owner/name') optionally narrows to one repository. ``timestamp`` (the trace's capture time)
+    prefers the PR that was active at that moment when a branch name was reused across PRs over
+    time — a ranking hint only, never a filter.
+    """
+    return logic.build_resolve_branch(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        branch=branch,
+        repo=repo,
+        timestamp=timestamp,
     )
 
 
@@ -122,7 +162,7 @@ def get_ci_failure_logs(
     user_access_control: "UserAccessControl | None" = None,
 ) -> CIFailureLogs:
     return logic.build_ci_failure_logs(
-        curated=_authorized_source(team, source_id, user_access_control), pr_number=pr_number, repo=repo
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), pr_number=pr_number, repo=repo
     )
 
 
@@ -138,7 +178,7 @@ def list_workflow_runs(
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowRunDetail]:
     return logic.build_workflow_run_list(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         repo=repo,
         workflow_name=workflow_name,
         date_from=date_from,
@@ -159,7 +199,7 @@ def get_workflow_run_activity(
     user_access_control: "UserAccessControl | None" = None,
 ) -> WorkflowRunActivity:
     return logic.build_workflow_run_activity(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         repo=repo,
         workflow_name=workflow_name,
         date_from=date_from,
@@ -180,7 +220,7 @@ def get_workflow_runner_costs(
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowRunnerCost]:
     return logic.build_workflow_runner_costs(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         repo=repo,
         workflow_name=workflow_name,
         date_from=date_from,
@@ -196,10 +236,11 @@ def list_author_workflow_costs(
     date_from: str | None = None,
     date_to: str | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowCost]:
     return logic.build_author_workflow_costs(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         author=author,
         date_from=date_from,
         date_to=date_to,
@@ -212,17 +253,24 @@ def list_workflow_jobs(
     run_id: int,
     run_attempt: int | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowJob]:
     return logic.build_workflow_jobs(
-        curated=_authorized_source(team, source_id, user_access_control), run_id=run_id, run_attempt=run_attempt
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        run_id=run_id,
+        run_attempt=run_attempt,
     )
 
 
 def get_ci_cards(
-    *, team: Team, source_id: str | None = None, user_access_control: "UserAccessControl | None" = None
+    *,
+    team: Team,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
 ) -> CICardSummary:
-    return logic.build_ci_cards(curated=_authorized_source(team, source_id, user_access_control))
+    return logic.build_ci_cards(curated=_authorized_source(team, source_id, user_access_control, repo=repo))
 
 
 def list_pull_requests(
@@ -231,10 +279,11 @@ def list_pull_requests(
     date_from: str | None = None,
     author: str | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> PullRequestList:
     return logic.build_pull_request_list(
-        curated=_authorized_source(team, source_id, user_access_control), date_from=date_from, author=author
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), date_from=date_from, author=author
     )
 
 
@@ -246,10 +295,11 @@ def list_workflow_health(
     branch: str | None = None,
     run_scope: str | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowHealthItem]:
     return logic.build_workflow_health(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         date_from=date_from,
         date_to=date_to,
         branch=branch,
@@ -266,9 +316,31 @@ def list_flaky_tests(
     min_failed_prs: int | None = None,
     limit: int | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> FlakyTestList:
     return logic.build_flaky_tests(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        date_from=date_from,
+        date_to=date_to,
+        min_rerun_passes=min_rerun_passes,
+        min_failed_prs=min_failed_prs,
+        limit=limit,
+    )
+
+
+def list_team_ci_health(
+    *,
+    team: Team,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    min_rerun_passes: int | None = None,
+    min_failed_prs: int | None = None,
+    limit: int | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> TeamCIHealthList:
+    return logic.build_team_ci_health(
         curated=_authorized_source(team, source_id, user_access_control),
         date_from=date_from,
         date_to=date_to,
@@ -276,6 +348,52 @@ def list_flaky_tests(
         min_failed_prs=min_failed_prs,
         limit=limit,
     )
+
+
+def get_team_ci_activity(
+    *,
+    team: Team,
+    owner_team: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    test_limit: int | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> TeamCIActivity:
+    return logic.build_team_ci_activity(
+        curated=_authorized_source(team, source_id, user_access_control),
+        owner_team=owner_team,
+        date_from=date_from,
+        date_to=date_to,
+        test_limit=test_limit,
+    )
+
+
+def get_team_merge_trend(
+    *,
+    team: Team,
+    owner_team: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> TeamMergeTrend:
+    return logic.build_team_merge_trend(
+        curated=_authorized_source(team, source_id, user_access_control),
+        owner_team=owner_team,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+def get_broken_tests(
+    *,
+    team: Team,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> BrokenTestsResult:
+    return logic.build_broken_tests(curated=_authorized_source(team, source_id, user_access_control, repo=repo))
 
 
 def list_github_sources(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> list[GitHubSource]:
@@ -311,10 +429,11 @@ def get_repo_overview(
     date_to: str | None = None,
     include_series: bool = True,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> RepoOverview:
     return logic.build_repo_overview(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         date_from=date_from,
         date_to=date_to,
         include_series=include_series,
@@ -325,9 +444,12 @@ def get_current_branch_health(
     *,
     team: Team,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> CurrentBranchHealth:
-    return logic.build_current_branch_health(curated=_authorized_source(team, source_id, user_access_control))
+    return logic.build_current_branch_health(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo)
+    )
 
 
 def get_repo_run_activity(
@@ -337,10 +459,11 @@ def get_repo_run_activity(
     date_to: str | None = None,
     branch: str | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> WorkflowRunActivity:
     return logic.build_repo_run_activity(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         date_from=date_from,
         date_to=date_to,
         branch=branch,
@@ -354,10 +477,11 @@ def list_master_failures(
     date_to: str | None = None,
     branch: str | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[MasterFailureGroup]:
     return logic.build_master_failures(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         date_from=date_from,
         date_to=date_to,
         branch=branch,
@@ -369,9 +493,12 @@ def get_run_failure_logs(
     team: Team,
     run_id: int,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> RunFailureLogs:
-    return logic.build_run_failure_logs(curated=_authorized_source(team, source_id, user_access_control), run_id=run_id)
+    return logic.build_run_failure_logs(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), run_id=run_id
+    )
 
 
 def list_job_aggregates(
@@ -382,10 +509,11 @@ def list_job_aggregates(
     date_to: str | None = None,
     branch: str | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowJobAggregate]:
     return logic.build_job_aggregates(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         workflow_name=workflow_name,
         date_from=date_from,
         date_to=date_to,

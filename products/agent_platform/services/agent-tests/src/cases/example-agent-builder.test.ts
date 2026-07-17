@@ -3,8 +3,7 @@
  *
  * The Agent Builder authors + operates other agents through the PostHog MCP
  * (one `spec.mcps[]` entry authed by the `posthog` identity provider), acting
- * as the asking user — the same pattern as `posthog-ai`, applied to the
- * authoring surface. It keeps only its own runtime natives (`@posthog/memory-*`
+ * as the asking user. It keeps only its own runtime natives (`@posthog/memory-*`
  * plus `@posthog/web-search`) and the PostHog Code client/UI tools. Destructive authoring ops
  * (`promote` / `archive` / `destroy`) are approval-gated on the MCP `tools[]`
  * via `level: 'approve'` + `approval_policy`, so the platform — not
@@ -14,15 +13,19 @@
  * Faux net — wiring, not inference quality.
  */
 
-import { readdir, readFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { cp, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 
 import { AgentSpecSchema } from '@posthog/agent-shared'
 import { listNativeTools } from '@posthog/agent-tools'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const BUNDLE_ROOT = resolve(__dirname, '../examples/agent-builder')
+const execFileAsync = promisify(execFile)
 
 async function loadBundle(): Promise<{ spec: Record<string, unknown>; files: Record<string, string> }> {
     const spec = JSON.parse(await readFile(join(BUNDLE_ROOT, 'spec.json'), 'utf-8')) as Record<string, unknown>
@@ -80,15 +83,15 @@ describe('example: agent-builder bundle', () => {
         }
     })
 
-    it('declares chat + mcp + slack triggers (console, MCP, and now Slack)', async () => {
+    it('declares chat + mcp triggers and NO slack trigger', async () => {
         const { spec } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
         const types = parsed.triggers.map((t) => t.type)
-        expect(types).toEqual(expect.arrayContaining(['chat', 'mcp', 'slack']))
-        // Slack must be owner-only so the asker's identity resolves (shared
-        // threads fail closed — you can't act as the owner for someone else).
-        const slack = parsed.triggers.find((t) => t.type === 'slack')
-        expect(slack?.type === 'slack' && slack.config.allow_workspace_participants).toBe(false)
+        expect(types).toEqual(expect.arrayContaining(['chat', 'mcp']))
+        // No Slack: the canonical Agent Builder has no dedicated Slack app, and
+        // a slack trigger makes promote refuse until SLACK_SIGNING_SECRET +
+        // SLACK_BOT_TOKEN are set — re-adding it breaks the seeded deployment.
+        expect(types).not.toContain('slack')
     })
 
     it('declares a posthog identity provider with the scopes authoring needs', async () => {
@@ -122,15 +125,15 @@ describe('example: agent-builder bundle', () => {
         ])
     })
 
-    it('accepts posthog + posthog_internal auth on its chat and mcp triggers', async () => {
+    it('tries the user PostHog bearer before the internal fallback', async () => {
         const { spec } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
         const modesFor = (type: string): string[] => {
             const t = parsed.triggers.find((x) => x.type === type)
             return t && 'auth' in t && t.auth ? (t.auth.modes?.map((m) => m.type) ?? []) : []
         }
-        expect(modesFor('chat')).toEqual(expect.arrayContaining(['posthog', 'posthog_internal']))
-        expect(modesFor('mcp')).toEqual(expect.arrayContaining(['posthog', 'posthog_internal']))
+        expect(modesFor('chat')).toEqual(['posthog', 'posthog_internal'])
+        expect(modesFor('mcp')).toEqual(['posthog', 'posthog_internal'])
     })
 
     it('enables resume so multi-step flows can span days', async () => {
@@ -182,5 +185,23 @@ describe('example: agent-builder bundle', () => {
         expect(src).toContain('def per_file_sha256(')
         // The bundle now SHIPS an MCP — the seeder must never blank mcps[].
         expect(src).not.toContain('spec["mcps"] = []')
+    })
+
+    it('the shared example seeder starts from the production sparse checkout', async () => {
+        const tempRoot = await mkdtemp(join(tmpdir(), 'agent-builder-seed-'))
+        const sparseExamplesRoot = join(tempRoot, 'products/agent_platform/services/agent-tests/src/examples')
+
+        try {
+            await mkdir(dirname(sparseExamplesRoot), { recursive: true })
+            await cp(resolve(__dirname, '../examples'), sparseExamplesRoot, { recursive: true })
+
+            const { stdout } = await execFileAsync('python3', [join(sparseExamplesRoot, 'seed.py'), '--list'], {
+                env: { ...process.env, SEED_DUMMY_SECRETS: '0' },
+            })
+
+            expect(stdout).toContain('agent-builder')
+        } finally {
+            await rm(tempRoot, { recursive: true, force: true })
+        }
     })
 })

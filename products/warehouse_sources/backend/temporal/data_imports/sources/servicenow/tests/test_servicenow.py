@@ -9,9 +9,12 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow import servicenow as servicenow_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.servicenow import (
+    SERVICENOW_API_VERSION_V1,
+    SERVICENOW_API_VERSION_V2,
     ServiceNowAuth,
     ServiceNowResumeConfig,
     _format_datetime,
+    _table_api_url,
     build_sysparm_query,
     get_rows,
     normalize_instance_url,
@@ -120,6 +123,20 @@ class TestBuildSysparmQuery:
         assert query == "ORDERBYsys_updated_on"
 
 
+class TestTableApiUrl:
+    @parameterized.expand(
+        [
+            # v1 keeps the versionless path so existing syncs are unchanged.
+            ("v1", SERVICENOW_API_VERSION_V1, "https://acme.service-now.com/api/now/table/incident"),
+            ("v2", SERVICENOW_API_VERSION_V2, "https://acme.service-now.com/api/now/v2/table/incident"),
+            # an unrecognized pin falls back to the versionless path.
+            ("unknown", "v99", "https://acme.service-now.com/api/now/table/incident"),
+        ]
+    )
+    def test_url_for_version(self, _name: str, api_version: str, expected: str) -> None:
+        assert _table_api_url("https://acme.service-now.com", "incident", api_version) == expected
+
+
 class TestServiceNowAuth:
     def test_api_key_headers(self) -> None:
         auth = ServiceNowAuth(api_key="abc")
@@ -179,12 +196,15 @@ class TestGetRows:
         pages: dict[int, list[dict[str, Any]]],
         manager: FakeResumeManager,
         page_size: int = 2,
+        api_version: str = SERVICENOW_API_VERSION_V1,
         **kwargs: Any,
     ) -> tuple[list[list[dict[str, Any]]], list[dict[str, Any]]]:
         captured_params: list[dict[str, Any]] = []
+        self.captured_urls: list[str] = []
 
         def fake_get(url: str, params: dict[str, Any], **_: Any) -> FakeResponse:
             captured_params.append(params)
+            self.captured_urls.append(url)
             offset = params["sysparm_offset"]
             return FakeResponse(json_data={"result": pages.get(offset, [])})
 
@@ -200,6 +220,7 @@ class TestGetRows:
                     auth=ServiceNowAuth(api_key="x"),
                     logger=mock.MagicMock(),
                     resumable_source_manager=manager,  # type: ignore[arg-type]
+                    api_version=api_version,
                     **kwargs,
                 )
             )
@@ -251,6 +272,17 @@ class TestGetRows:
         manager = FakeResumeManager()
         _, params = self._run({0: []}, manager, page_size=2, should_use_incremental_field=False)
         assert params[0]["sysparm_query"] == "ORDERBYsys_created_on"
+
+    @parameterized.expand(
+        [
+            (SERVICENOW_API_VERSION_V1, "https://acme.service-now.com/api/now/table/incident"),
+            (SERVICENOW_API_VERSION_V2, "https://acme.service-now.com/api/now/v2/table/incident"),
+        ]
+    )
+    def test_version_selects_request_url(self, api_version: str, expected_url: str) -> None:
+        manager = FakeResumeManager()
+        self._run({0: [{"sys_id": "1"}]}, manager, page_size=2, api_version=api_version)
+        assert self.captured_urls[0] == expected_url
 
 
 class TestServiceNowSource:

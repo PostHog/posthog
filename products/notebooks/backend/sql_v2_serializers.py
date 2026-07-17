@@ -85,6 +85,18 @@ class NotebookSQLV2DataPlaneRequestSerializer(serializers.Serializer):
         min_value=0,
         help_text="Number of rows to skip (applied as an outer OFFSET), for paging.",
     )
+    delivery = serializers.ChoiceField(
+        choices=["inline", "object"],
+        required=False,
+        default="inline",
+        help_text=(
+            "How the caller wants the result delivered. 'inline' (default) returns rows in the "
+            "poll response body as an Arrow IPC stream — right for pages and envelope fetches. "
+            "'object' streams the result to object storage and answers the poll with a 302 to a "
+            "short-lived presigned download URL — for whole-frame materializations; falls back "
+            "to 'inline' (clamped at the async row ceiling) when the frame store is unavailable."
+        ),
+    )
 
 
 class NotebookSQLV2MediaSerializer(serializers.Serializer):
@@ -94,8 +106,48 @@ class NotebookSQLV2MediaSerializer(serializers.Serializer):
     data = serializers.CharField(help_text="Base64-encoded media bytes.")  # type: ignore[assignment]
 
 
+class NotebookSQLV2FrameSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Name a SQL node can SELECT from.")
+    # CharField, not ChoiceField: a `kind` enum collides with other generated enums under
+    # --fail-on-warn, and `status` above sets the same precedent.
+    kind = serializers.CharField(
+        help_text=(
+            "Where the object came from: 'frame' (a dataframe a node produced), "
+            "or 'table'/'view' (created by SQL DDL in a DuckDB node)."
+        )
+    )
+    columns = serializers.ListField(
+        child=serializers.ListField(child=serializers.CharField(), help_text="A [column name, DuckDB type] pair."),
+        required=False,
+        default=list,
+        help_text="DuckDB type per column, as [name, type] pairs.",
+    )
+    row_count = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Rows available, or null when counting would require a table scan (a DDL view).",
+    )
+    row_count_is_estimate = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "True when row_count is DuckDB's optimizer estimate rather than a count. The estimate "
+            "does not track deletes, so it must never be presented as exact."
+        ),
+    )
+
+
 class NotebookSQLV2EnvelopeSerializer(serializers.Serializer):
-    status = serializers.CharField(help_text="Run outcome: 'ok' or 'error'.")
+    status = serializers.CharField(help_text="Run outcome: 'ok', 'error', or 'interrupted' (user-requested stop).")
+    frames = NotebookSQLV2FrameSerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text=(
+            "DuckDB objects a SQL node can SELECT from as of this run, for the schema browser. "
+            "Only kernel runs (python/duckdb) report these; a hogql run never enters the kernel."
+        ),
+    )
     stdout = serializers.CharField(
         required=False,
         default="",

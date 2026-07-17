@@ -59,6 +59,8 @@ _SERVER_READY_TIMEOUT_SECONDS = 15
 _RUN_POST_TIMEOUT_SECONDS = 10
 # A page fetch holds a web worker for the whole kernel -> data plane -> CH round trip.
 _PAGE_POST_TIMEOUT_SECONDS = 60
+# An interrupt only sets a cancel event and sends a SIGINT in the sandbox: near-instant.
+_INTERRUPT_POST_TIMEOUT_SECONDS = 5
 # Safety-net TTL for the per-user page-fetch lock: sized just past the POST timeout so a
 # worker killed before its finally-release can't wedge the user's paging for long.
 PAGE_LOCK_TTL_SECONDS = _PAGE_POST_TIMEOUT_SECONDS + 10
@@ -265,7 +267,12 @@ def ensure_sql_v2_server(notebook: Notebook, user: User | None) -> KernelRuntime
 
     runtime.server_url = credentials.url
     runtime.server_connect_token = credentials.token
-    runtime.save(update_fields=["server_url", "server_connect_token"])
+    # A redeploy relaunches the kernel inside a live sandbox and keeps this row, so the frame
+    # snapshot would outlive the kernel that produced it — the one path where the row's
+    # lifetime stops tracking the kernel's. Its registrations are gone with the namespace, so
+    # drop the snapshot; the next run repopulates it from the new kernel's catalog.
+    runtime.frames = None
+    runtime.save(update_fields=["server_url", "server_connect_token", "frames"])
     return runtime
 
 
@@ -286,6 +293,11 @@ def dispatch_sql_v2_run(
     """
     runtime = ensure_sql_v2_server(notebook, user)
     assert runtime.server_url  # ensure_sql_v2_server always returns a runtime with a live server_url
+    # Record which kernel took the run: the sandbox can't name it (its secret is a one-way
+    # derivation of the runtime id, not the id), and letting it name one would let a sandbox
+    # write over another kernel's state. So the backend decides here and the callback follows.
+    run.kernel_runtime_id = runtime.id
+    run.save(update_fields=["kernel_runtime_id", "updated_at"])
     command_token = mint_command_token(kernel_server_secret(str(runtime.id)), str(run.id))
     user_id = user.id if isinstance(user, User) else None
     payload: dict = {
@@ -358,6 +370,38 @@ def fetch_sql_v2_page(notebook: Notebook, user: User | None, run: NotebookNodeRu
         # Any other non-200 (e.g. a kernel 500) is an infrastructure problem, not a bad query.
         raise SQLV2KernelNotRunning()
     return response.json()
+
+
+def interrupt_sql_v2_run(notebook: Notebook, user: User | None, run: NotebookNodeRun) -> bool:
+    """Ask the kernel-server to interrupt a run; return whether the kernel knew the run.
+
+    False means the run never reached the kernel (dispatch still in flight) or already
+    finished there; the caller decides how to surface that. Raises SQLV2KernelNotRunning
+    when no reachable kernel exists at all, in which case the run's callback can never
+    arrive and the caller may mark the run terminal itself.
+    """
+    runtime = _find_running_runtime(notebook, user)
+    if runtime is None or not runtime.server_url:
+        raise SQLV2KernelNotRunning()
+
+    command_token = mint_command_token(kernel_server_secret(str(runtime.id)), str(run.id))
+    try:
+        response = requests.post(
+            f"{runtime.server_url.rstrip('/')}/interrupt",
+            json={"run_id": str(run.id)},
+            headers=_sandbox_auth_headers(runtime.server_connect_token, command_token),
+            timeout=_INTERRUPT_POST_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException as exc:
+        raise SQLV2KernelNotRunning() from exc
+    if response.status_code != 200:
+        raise SQLV2KernelNotRunning()
+    try:
+        body = response.json()
+    except ValueError:
+        return True
+    # A pre-run-scoped kernel-server omits `known`; treat its interrupt as delivered.
+    return bool(body.get("known", True))
 
 
 def _kernel_error_detail(response: requests.Response) -> str:

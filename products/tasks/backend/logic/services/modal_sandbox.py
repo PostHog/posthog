@@ -101,6 +101,14 @@ SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
 SANDBOX_VM_IMAGE = "ghcr.io/posthog/posthog-sandbox-vm"
 SANDBOX_STREAMLIT_IMAGE = "ghcr.io/posthog/posthog-sandbox-streamlit"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
+
+# SLIM_BASE has no registry image and no CD publish pipeline — it's built inline by Modal
+# (see _build_slim_template_image below) from debian_slim + apt packages, so there's nothing
+# to push or pin a digest for. Keep these two pins in sync with
+# Dockerfile.sandbox-slim's NODE_MAJOR / uv COPY --from pins (and with Dockerfile.sandbox-base,
+# which both mirror).
+SANDBOX_SLIM_NODE_MAJOR = 24
+SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.11.15"
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
 POST_RESTORE_PROBE_TIMEOUT_SECONDS = 45
@@ -343,6 +351,29 @@ def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) 
     return image
 
 
+def _build_slim_template_image() -> modal.Image:
+    """Inline image for SLIM_BASE: git + ca-certificates + node + uv, nothing else.
+
+    Built and cached by Modal itself from debian_slim — no registry image, no CD publish
+    pipeline, no digest pin to resolve. The first sandbox create after this definition
+    changes pays a one-time Modal-side build; every create after that reuses the cached
+    image layers.
+    """
+    return (
+        modal.Image.debian_slim()
+        # bash is required by the NodeSource setup script below; debian_slim doesn't guarantee it.
+        .apt_install("git", "ca-certificates", "curl", "bash")
+        .run_commands(
+            f"curl -fsSL https://deb.nodesource.com/setup_{SANDBOX_SLIM_NODE_MAJOR}.x | bash -",
+            "apt-get install -y --no-install-recommends nodejs",
+            "rm -rf /var/lib/apt/lists/*",
+        )
+        .dockerfile_commands(
+            [f"COPY --from={SANDBOX_SLIM_UV_IMAGE} /uv /uvx /usr/local/bin/"],
+        )
+    )
+
+
 _template_image_cache: TTLCache = TTLCache(maxsize=3, ttl=300)
 _template_image_lock = threading.Lock()
 
@@ -350,6 +381,11 @@ _template_image_lock = threading.Lock()
 @cached(cache=_template_image_cache, lock=_template_image_lock)
 def get_template_base_image(template: SandboxTemplate) -> modal.Image:
     """The template's base image without local dev mounts — safe to extend with further layers."""
+    if template == SandboxTemplate.SLIM_BASE:
+        # Built inline (see _build_slim_template_image), never from a registry or a local
+        # Dockerfile build context — same image in DEBUG and in production.
+        return _build_slim_template_image()
+
     registry_image = {
         SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
         SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
@@ -362,7 +398,10 @@ def get_template_base_image(template: SandboxTemplate) -> modal.Image:
     if settings.DEBUG:
         dockerfile_path, context_dir = _prepare_local_modal_build_context(template)
         return modal.Image.from_dockerfile(dockerfile_path, context_dir=context_dir, ignore=[])
-    return modal.Image.from_registry(_get_sandbox_image_reference(registry_image))
+    image_reference = resolve_template_base_image_reference(template)
+    if image_reference is None:
+        raise ValueError(f"Template does not use a registry image: {template}")
+    return modal.Image.from_registry(image_reference)
 
 
 def _get_template_image(template: SandboxTemplate) -> modal.Image:
@@ -373,6 +412,21 @@ def resolve_template_base_image(template: SandboxTemplate) -> modal.Image:
     # Undecorated import surface: the @cached wrapper on get_template_base_image trips
     # mypy's cross-module attribute resolution intermittently, so external callers import this.
     return get_template_base_image(template)
+
+
+def resolve_template_base_image_reference(template: SandboxTemplate) -> str | None:
+    if settings.DEBUG:
+        return None
+
+    registry_image = {
+        SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
+        SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
+        SandboxTemplate.VM_BASE: SANDBOX_VM_IMAGE,
+        SandboxTemplate.STREAMLIT_BASE: SANDBOX_STREAMLIT_IMAGE,
+    }.get(template)
+    if registry_image is None:
+        raise ValueError(f"Template does not use a registry image: {template}")
+    return _get_sandbox_image_reference(registry_image)
 
 
 @lru_cache(maxsize=3)
@@ -891,6 +945,7 @@ class ModalSandbox(SandboxBase):
         reasoning_effort: str | None = None,
         initial_permission_mode: str | None = None,
         mcp_servers_arg: str = "",
+        relay_mcp_servers_arg: str = "",
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
@@ -927,7 +982,8 @@ class ModalSandbox(SandboxBase):
             f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{domains_flag}{repo_ready_flag}"
+            f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
+            f"{domains_flag}{repo_ready_flag}"
         )
 
         if repo_ready_file:
@@ -1009,6 +1065,7 @@ class ModalSandbox(SandboxBase):
         reasoning_effort: str | None = None,
         initial_permission_mode: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
+        relayed_mcp_servers: list[str] | None = None,
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
@@ -1046,6 +1103,10 @@ class ModalSandbox(SandboxBase):
             mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
             mcp_servers_arg = f" --mcpServers {shlex.quote(mcp_json)}"
 
+        relay_mcp_servers_arg = ""
+        if relayed_mcp_servers:
+            relay_mcp_servers_arg = f" --relayMcpServers {shlex.quote(json.dumps(relayed_mcp_servers))}"
+
         if auto_publish and not self.agent_server_supports_auto_publish():
             logger.warning(f"Installed agent-server in sandbox {self.id} predates --autoPublish; starting review-first")
             auto_publish = False
@@ -1065,6 +1126,7 @@ class ModalSandbox(SandboxBase):
             reasoning_effort,
             initial_permission_mode,
             mcp_servers_arg,
+            relay_mcp_servers_arg,
             allowed_domains=allowed_domains,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,

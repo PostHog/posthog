@@ -1310,7 +1310,7 @@ def _maybe_hint_region_mismatch(name: str) -> None:
 @workspace_argument
 @click.option(
     "--disk",
-    type=click.Choice(["60", "80", "100"]),
+    type=click.Choice(["100", "200"]),
     default="100",
     help="Disk size in GiB (default: 100)",
 )
@@ -1918,6 +1918,7 @@ def _rm_dir(label: str, path: Path) -> None:
 
 
 @click.command(name="devbox:cleanup:disk", help="Free disk space by cleaning caches and build artifacts")
+@workspace_argument
 @click.option("--docker", "prune_docker", is_flag=True, help="Also prune stopped Docker containers")
 @click.option(
     "--cargo",
@@ -1925,14 +1926,37 @@ def _rm_dir(label: str, path: Path) -> None:
     is_flag=True,
     help="Also remove Cargo build artifacts (forces full Rust recompile on next build)",
 )
-def devbox_cleanup_disk(prune_docker: bool, prune_cargo: bool) -> None:
+def devbox_cleanup_disk(workspace: str | None, prune_docker: bool, prune_cargo: bool) -> None:
     """Free disk space by removing caches and build artifacts that are safe to delete.
 
     The default run is safe: it only removes orphaned packages, download caches,
     and old Nix generations — none of which force a full rebuild on next use.
     Use --cargo to also remove Cargo build artifacts (forces full Rust recompile).
     Use --docker to also prune stopped containers.
+
+    Runs locally by default. Pass a WORKSPACE (or --name/-n) to run it remotely
+    on that devbox over ssh instead.
     """
+    if workspace:
+        ensure_runtime_ready()
+        # Cleanup is destructive (removes caches and build artifacts), so refuse
+        # to run it against someone else's shared `@user[/label]` devbox.
+        if workspace.startswith("@"):
+            _fail("devbox:cleanup:disk only runs against your own devboxes, not a shared '@user' workspace.")
+        name, workspaces = resolve_workspace_name(workspace)
+        _get_workspace_or_fail(name, workspaces)
+        if not coder_ssh_alias_configured(name):
+            _fail(
+                "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry."
+            )
+        remote_cmd = ["hogli", "devbox:cleanup:disk"]
+        if prune_docker:
+            remote_cmd.append("--docker")
+        if prune_cargo:
+            remote_cmd.append("--cargo")
+        exec_replace(name, remote_cmd)
+        return  # unreachable; exec_replace replaces the process
+
     home = Path.home()
     # Watch distinct filesystems: home covers uv/sccache/cargo; /nix covers Nix store
     # (may be a separate volume); / covers Docker storage and anything else.

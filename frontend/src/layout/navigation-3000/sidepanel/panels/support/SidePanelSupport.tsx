@@ -389,7 +389,10 @@ export function SidePanelSupport(): JSX.Element {
                                 <Section title="Contact us">
                                     <StatusPageAlert />
                                     <SupportMessageOverride />
-                                    <p>Can't find what you need and PostHog AI unable to help?</p>
+                                    <p>
+                                        Can't find what you need and PostHog AI unable to help? Message our support
+                                        engineers.
+                                    </p>
                                     <SidePanelTickets />
                                 </Section>
                             )}

@@ -15,6 +15,8 @@ from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import transaction
 from django.db.models import Count, Prefetch, Q, QuerySet, deletion
 
+import grpc
+import requests
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema_field
@@ -32,7 +34,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
-from posthog.api.services.flags_service import get_flags_from_service
+from posthog.api.services.flags_service import RETRYABLE_FLAGS_SERVICE_EXCEPTIONS, get_flags_from_service
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, ErrorResponseSerializer, action
@@ -71,7 +73,7 @@ from posthog.rate_limit import (
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import REMOTE_CONFIG_RATE_LIMITS
-from posthog.utils import is_valid_regex
+from posthog.utils import is_valid_regex, str_to_bool
 from posthog.views import format_bytes
 
 from products.approvals.backend.decorators import approval_gate
@@ -910,6 +912,10 @@ class FeatureFlagSerializer(
         queryset=Dashboard.objects.all(),
     )
     is_used_in_replay_settings = serializers.SerializerMethodField()
+    is_eligible_for_experiment = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether this flag can back an experiment: multivariate with 2 to 20 variants.",
+    )
 
     name = serializers.CharField(
         required=False,
@@ -948,8 +954,6 @@ class FeatureFlagSerializer(
             "experiment_set_metadata",
             "surveys",
             "features",
-            "rollback_conditions",
-            "performed_rollback",
             "can_edit",
             "tags",
             "evaluation_contexts",
@@ -967,6 +971,7 @@ class FeatureFlagSerializer(
             "_create_in_folder",
             "_should_create_usage_dashboard",
             "is_used_in_replay_settings",
+            "is_eligible_for_experiment",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -2082,10 +2087,6 @@ class FeatureFlagSerializer(
         if "get_filters" in validated_data:
             validated_data["filters"] = validated_data.pop("get_filters")
 
-        active = validated_data.get("active", None)
-        if active:
-            validated_data["performed_rollback"] = False
-
     def get_status(self, feature_flag: FeatureFlag) -> str:
         checker = FeatureFlagStatusChecker(feature_flag=feature_flag)
         flag_status, _ = checker.get_status()
@@ -2235,9 +2236,47 @@ class MyFlagsQuerySerializer(serializers.Serializer):
     groups = GroupsJSONField()
 
 
+class FlagKeysField(serializers.ListField):
+    """
+    ListField that also accepts a single JSON-array string.
+
+    MCP clients JSON-stringify array query params into one value (e.g. `flag_keys=["a","b"]`),
+    while browsers/curl send repeated params (`flag_keys=a&flag_keys=b`). Support both.
+    """
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("child", serializers.CharField())
+        kwargs.setdefault("required", False)
+        kwargs.setdefault("allow_empty", True)
+        super().__init__(**kwargs)
+
+    def to_internal_value(self, data):
+        if isinstance(data, list) and len(data) == 1 and isinstance(data[0], str):
+            candidate = data[0].strip()
+            if candidate.startswith("["):
+                try:
+                    parsed = json.loads(candidate)
+                except json.JSONDecodeError:
+                    raise serializers.ValidationError("Invalid JSON in flag_keys parameter")
+                if not isinstance(parsed, list):
+                    raise serializers.ValidationError("flag_keys must be a JSON array")
+                data = parsed
+
+        return super().to_internal_value(data)
+
+
 class EvaluationReasonsQuerySerializer(serializers.Serializer):
     distinct_id = serializers.CharField(required=True, help_text="User distinct ID")
     groups = GroupsJSONField()
+    flag_keys = FlagKeysField(
+        help_text=(
+            "Optional list of flag keys to scope the response to. When omitted, evaluation reasons are "
+            "returned for every flag in the project, which can be a very large payload on projects with "
+            "many flags. Pass the specific flag(s) you are debugging to keep the response small. Accepts "
+            "either repeated query params (flag_keys=a&flag_keys=b) or a JSON array string "
+            '(flag_keys=["a","b"]).'
+        ),
+    )
 
 
 class ActivityQuerySerializer(serializers.Serializer):
@@ -2445,8 +2484,6 @@ class FeatureFlagVersionResponseSerializer(serializers.ModelSerializer):
             "active",
             "deleted",
             "version",
-            "rollback_conditions",
-            "performed_rollback",
             "ensure_experience_continuity",
             "has_enriched_analytics",
             "is_remote_configuration",
@@ -2900,6 +2937,14 @@ class FeatureFlagViewSet(
                 required=False,
                 enum=["true", "false"],
                 description="Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without.",
+            ),
+            OpenApiParameter(
+                "eligible_for_experiment",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["true"],
+                description="When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored.",
             ),
         ]
     )
@@ -3553,8 +3598,7 @@ class FeatureFlagViewSet(
             if key == "active":
                 queryset = filter_flags_by_active_param(queryset, value)
             elif key == "archived":
-                is_archived = value if isinstance(value, bool) else str(value).lower() == "true"
-                queryset = queryset.filter(archived=is_archived)
+                queryset = queryset.filter(archived=str_to_bool(value))
             elif key == "created_by_id":
                 user_ids = parse_created_by_ids(value)
                 if user_ids:
@@ -3624,17 +3668,19 @@ class FeatureFlagViewSet(
                 except (json.JSONDecodeError, TypeError):
                     pass
             elif key == "has_evaluation_contexts":
-                # Handle both string and boolean
-                if isinstance(value, bool):
-                    filter_value = value
-                else:
-                    filter_value = str(value).lower() in ("true", "1", "yes")
-
                 queryset = queryset.annotate(eval_tag_count=Count("flag_evaluation_contexts"))
-                if filter_value:
+                if str_to_bool(value):
                     queryset = queryset.filter(eval_tag_count__gt=0)
                 else:
                     queryset = queryset.filter(eval_tag_count=0)
+            elif key == "eligible_for_experiment":
+                if str_to_bool(value):
+                    # Subquery so this works on plain QuerySets too (e.g. objects_including_soft_deleted).
+                    queryset = queryset.filter(
+                        pk__in=FeatureFlag.objects.filter(team__project_id=self.project_id)
+                        .eligible_for_experiment()
+                        .values("pk")
+                    )
 
         return queryset
 
@@ -3642,6 +3688,10 @@ class FeatureFlagViewSet(
         query_serializer=EvaluationReasonsQuerySerializer,
         responses={
             200: OpenApiResponse(response=EvaluationReasonsResponseSerializer()),
+            502: OpenApiResponse(response=ErrorResponseSerializer, description="Flag evaluation service error"),
+            503: OpenApiResponse(
+                response=ErrorResponseSerializer, description="Flag evaluation service temporarily unavailable"
+            ),
         },
         examples=[
             OpenApiExample(
@@ -3682,15 +3732,51 @@ class FeatureFlagViewSet(
         if isinstance(groups, str):
             groups = json.loads(groups) if groups else {}
 
+        flag_keys = request.validated_query_data.get("flag_keys") or None
+
         # PostHog UI debug endpoint, not customer SDK traffic. Pass the internal
-        # token so the call bypasses per-team billing.
-        result = get_flags_from_service(
-            token=self.team.api_token,
-            distinct_id=distinct_id,
-            groups=groups,
-            evaluation_runtime="all",
-            internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
-        )
+        # token so the call bypasses per-team billing. Retry the transient
+        # connection blips (the service occasionally times out or refuses the
+        # connection) and turn a persistent failure into a clean error instead of
+        # an unhandled 500, so the person-profile flags tab can show a retry
+        # affordance rather than an empty table that looks like "no flags".
+        try:
+            result = get_flags_from_service(
+                token=self.team.api_token,
+                distinct_id=distinct_id,
+                groups=groups,
+                flag_keys=flag_keys,
+                evaluation_runtime="all",
+                internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
+                max_retries=2,
+            )
+        except RETRYABLE_FLAGS_SERVICE_EXCEPTIONS as e:
+            logger.warning("evaluation_reasons flags service call failed: %s", e)
+            capture_exception(e)
+            return Response(
+                {"error": "Feature flag evaluation service is temporarily unavailable. Please try again."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except (requests.exceptions.HTTPError, requests.exceptions.JSONDecodeError) as e:
+            # A non-2xx response or an unparseable body from the flags service — a real
+            # upstream failure, not the "will probably clear on retry" case above, so it
+            # gets its own status rather than being folded into the 503.
+            logger.warning("evaluation_reasons flags service returned an invalid response: %s", e)
+            capture_exception(e)
+            return Response(
+                {"error": "Feature flag evaluation service returned an unexpected response."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except requests.exceptions.RequestException as e:
+            # Any other requests failure (SSLError, ProxyError, InvalidSchema, ...) is still an
+            # upstream availability problem, not a "no flags" state — surface the same 503 as
+            # the retryable case above rather than letting it bubble up as an unhandled 500.
+            logger.warning("evaluation_reasons flags service call failed: %s", e)
+            capture_exception(e)
+            return Response(
+                {"error": "Feature flag evaluation service is temporarily unavailable. Please try again."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         # Result from Rust service is always a dictionary with a "flags" key. Parse it to get the flags data.
         flags_data = result.get("flags", {})
@@ -3710,9 +3796,10 @@ class FeatureFlagViewSet(
                 },
             }
 
-        disabled_flags = FeatureFlag.objects.filter(team__project_id=self.project_id, active=False).values_list(
-            "key", flat=True
-        )
+        disabled_flags_qs = FeatureFlag.objects.filter(team__project_id=self.project_id, active=False)
+        if flag_keys:
+            disabled_flags_qs = disabled_flags_qs.filter(key__in=flag_keys)
+        disabled_flags = disabled_flags_qs.values_list("key", flat=True)
 
         for flag_key in disabled_flags:
             flags_with_evaluation_reasons[flag_key] = {
@@ -3813,6 +3900,7 @@ class FeatureFlagViewSet(
             404: OpenApiResponse(response=ErrorResponseSerializer, description="Person not found"),
             500: OpenApiResponse(response=ErrorResponseSerializer, description="Server error"),
             502: OpenApiResponse(response=ErrorResponseSerializer, description="Flag evaluation service error"),
+            503: OpenApiResponse(response=ErrorResponseSerializer, description="Person lookup service unavailable"),
         },
     )
     @action(
@@ -3837,15 +3925,39 @@ class FeatureFlagViewSet(
         timestamp = request.validated_data.get("timestamp")
         groups = request.validated_data.get("groups") or {}
 
+        # The identifier we were asked to resolve. Logged on every failure path below so a
+        # personhog RPC outage, a genuinely missing person, and bad input can be told apart
+        # instead of collapsing into one opaque 500 (which left this endpoint's failures
+        # unclassifiable in tool-call telemetry).
+        identifier_type = "person_id" if person_id else "distinct_id"
+        identifier_value = person_id or distinct_id
+        log_context = {
+            "team_id": self.team_id,
+            "feature_flag_id": feature_flag.id,
+            "identifier_type": identifier_type,
+            "identifier_value": identifier_value,
+        }
+
         # Resolve person and distinct_ids
         try:
             person, distinct_ids = get_person_and_distinct_ids_for_identifier(
                 team_id=self.team_id, distinct_id=distinct_id, person_id=person_id
             )
         except ValueError as e:
-            capture_exception(e)
+            # Bad input shape (both identifiers, neither, or an empty value) — caller error, not a fault.
+            logger.warning("Invalid identifier for flag test evaluation: %s", e, extra=log_context)
             return Response({"error": "Invalid parameters"}, status=status.HTTP_400_BAD_REQUEST)
+        except grpc.RpcError as e:
+            # personhog is unreachable/erroring. This is a transient dependency failure, not a
+            # missing person or bad input, so surface a distinct retryable 503 rather than a 500.
+            logger.exception("personhog RPC failed resolving person for flag test evaluation", extra=log_context)
+            capture_exception(e)
+            return Response(
+                {"error": "Person lookup service temporarily unavailable. Please retry."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         except Exception as e:
+            logger.exception("Unexpected error resolving person for flag test evaluation", extra=log_context)
             capture_exception(e)
             return Response({"error": "Failed to resolve person"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -4102,6 +4214,8 @@ class FeatureFlagViewSet(
                 timestamp,
                 e,
                 extra={
+                    "team_id": self.team_id,
+                    "feature_flag_id": feature_flag.id,
                     "flag_key": feature_flag.key,
                     "distinct_id": distinct_id,
                     "person_id": person_id,

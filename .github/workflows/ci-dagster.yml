@@ -304,6 +304,7 @@ jobs:
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               run: |
+                  sudo rm -f /etc/apt/sources.list.d/*twingate*
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
@@ -357,7 +358,11 @@ jobs:
                   fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  ./bin/hogli db:restore-schema-fresh
+                  if ! ./bin/hogli db:restore-schema-fresh; then
+                      echo "::warning::Schema restore failed (stale/incompatible cached dump?) — falling through to full migrate"
+                      python manage.py migrate
+                      exit 0
+                  fi
                   gunzip -c .postgres-backups/schema-latest.sql.gz | \
                     docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog posthog
 

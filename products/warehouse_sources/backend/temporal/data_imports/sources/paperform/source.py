@@ -35,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PaperformSource(ResumableSource[PaperformSourceConfig, PaperformResumeConfig]):
+    api_docs_url = "https://paperform.readme.io/reference/getting-started-1"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -67,7 +69,6 @@ You can create an API key under **Account → Developer** in [Paperform](https:/
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

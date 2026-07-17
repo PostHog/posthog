@@ -38,6 +38,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class InvoiceninjaSource(ResumableSource[InvoiceninjaSourceConfig, InvoiceNinjaResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://api-docs.invoicing.co"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -117,7 +120,6 @@ class InvoiceninjaSource(ResumableSource[InvoiceninjaSourceConfig, InvoiceNinjaR
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Invoice Ninja",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             keywords=["invoice ninja", "invoicing", "billing"],
             caption="""Enter your Invoice Ninja API token to pull your invoicing data into the PostHog Data warehouse.
 

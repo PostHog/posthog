@@ -39,13 +39,13 @@ export function TracingDisplayBar(): JSX.Element {
                 {facetRailEnabled && (
                     <LemonButton
                         size="small"
-                        type="secondary"
                         icon={facetRailCollapsed ? <IconChevronRight /> : <IconChevronLeft />}
                         onClick={() => setFacetRailCollapsed(!facetRailCollapsed)}
-                        aria-label={facetRailCollapsed ? 'Show facets' : 'Hide facets'}
-                        tooltip={facetRailCollapsed ? 'Show facets' : 'Hide facets'}
+                        aria-label={facetRailCollapsed ? 'Show filters' : 'Hide filters'}
                         data-attr="tracing-facet-rail-toggle"
-                    />
+                    >
+                        {facetRailCollapsed ? 'Show filters' : 'Hide filters'}
+                    </LemonButton>
                 )}
                 {operationsViewEnabled && (
                     <LemonSegmentedButton<'traces' | 'operations'>

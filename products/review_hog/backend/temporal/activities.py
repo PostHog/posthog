@@ -126,7 +126,7 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     plan_deterministic_chunks,
     reconcile_chunks,
 )
-from products.review_hog.backend.temporal.types import TRIGGER_MANUAL
+from products.review_hog.backend.temporal.types import TRIGGER_LABEL, TRIGGER_MANUAL
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CodeReview, CodeReviewCounts
 from products.signals.backend.models import SignalReport, SignalReportArtefact
@@ -174,8 +174,8 @@ class ReviewMeta:
     # early-exit gate skips a dead re-trigger turn. Distinct from `snapshotted` (head moved) because a
     # head can be unchanged yet not-yet-published (a prior no-publish turn) and must still publish.
     already_published: bool
-    # New inline comments since the last turn's watermark — logged only for now (they don't force a
-    # turn yet; see ARCHITECTURE.md). Will gate the early-exit once ReviewHog reacts to comments.
+    # New inline comments since the last turn's watermark — logged only for now; they don't force a
+    # turn yet (see DECISIONS.md, Stage 5b). Will gate the early-exit once ReviewHog reacts to comments.
     new_comment_count: int
     # The PR author's GitHub login (`pr_metadata.author`), so the parent can resolve the acting user
     # whose enabled perspectives this review applies.
@@ -199,18 +199,27 @@ class ResolveActingUserInput:
     # When set, the resolved acting user is stamped onto this report (powers "your recent reviews").
     # Defaulted so payloads serialized before the field existed still deserialize.
     report_id: str | None = None
+    # Which trigger runs: the label trigger falls back to `default_user_id` on an unmapped author —
+    # the run user the trigger already resolved (`inputs.user_id`), so the acting identity can never
+    # drift from the identity the sandboxes execute under. Defaulted for old in-flight payloads.
+    trigger_source: str = TRIGGER_MANUAL
+    default_user_id: int | None = None
 
 
 @dataclass
 class ResolveActingUserResult:
-    # The user whose enabled perspectives drive this review; None when the PR author maps to no PostHog
-    # org user — we apply PostHog-stored skills, so the parent then skips the review.
+    # The user whose enabled perspectives drive this review; None when nothing in the resolution
+    # chain maps to a PostHog org user — the parent then skips the review.
     acting_user_id: int | None
     # The acting user's `ReviewUserSettings`, snapshotted here so mid-run edits don't flip gates
     # between stages. Defaults match the model's (and cover payloads serialized before these existed).
+    # `review_labeled_prs` is the AUTHOR's opt-out: when the acting user is the default-user
+    # fallback, it is forced True — a borrowed user's personal switch never governs someone else's PR.
     review_labeled_prs: bool = True
-    urgency_threshold: str = IssuePriority.SHOULD_FIX.value
+    urgency_threshold: str = IssuePriority.CONSIDER.value
     review_inbox_prs: bool = False
+    # Which chain link resolved: "author" | "default" | "override" (observability + tests).
+    resolved_from: str = "author"
 
 
 @dataclass
@@ -327,9 +336,9 @@ class BuildBodyInput:
     run_index: int
     # This turn's survivor ids (`DedupResult.issue_ids`); content reloads from the finding rows.
     issue_ids: list[str]
-    # The acting user's threshold, snapshotted at resolve time. Defaulted so payloads serialized
-    # before the field existed still deserialize (they keep today's should_fix behavior).
-    urgency_threshold: str = IssuePriority.SHOULD_FIX.value
+    # The acting user's threshold, snapshotted at resolve time. Defaulted so pre-field payloads
+    # still deserialize — a missing field takes the current default, not the run's original gate.
+    urgency_threshold: str = IssuePriority.CONSIDER.value
 
 
 @dataclass
@@ -342,7 +351,7 @@ class PublishInput:
     repo: str
     pr_number: int
     # Same snapshot as `BuildBodyInput.urgency_threshold`, so body counts and comments agree.
-    urgency_threshold: str = IssuePriority.SHOULD_FIX.value
+    urgency_threshold: str = IssuePriority.CONSIDER.value
 
 
 @dataclass
@@ -530,7 +539,9 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     return ReviewMeta(
         report_id=report_id,
         head_sha=head_sha,
-        branch=pr_metadata.head_branch,
+        # Sandboxes check out this ref. For PRs use the pinned pull ref: refs/pull/N/head outlives the
+        # head branch (merging mid-review deletes it, killing every later sandbox checkout).
+        branch=f"pull/{pr_number}/head" if pr_number is not None else pr_metadata.head_branch,
         repository=input.repository,
         run_index=run_index,
         snapshotted=snapshotted,
@@ -555,27 +566,48 @@ async def fetch_pr_data_activity(input: FetchPRDataInput) -> ReviewMeta:
     return await database_sync_to_async(_fetch_and_persist, thread_sensitive=False)(input)
 
 
+def _login_to_user_id(team_id: int, login: str | None) -> int | None:
+    if not login:
+        return None
+    matches = resolve_org_github_login_to_users(team_id, [login])
+    user = matches.get(login.strip().lower())
+    return user.id if user is not None else None
+
+
 def _resolve_acting_user(
-    team_id: int, author_login: str, override_user_id: int | None, report_id: str | None = None
+    team_id: int,
+    author_login: str,
+    override_user_id: int | None,
+    report_id: str | None = None,
+    trigger_source: str = TRIGGER_MANUAL,
+    default_user_id: int | None = None,
 ) -> ResolveActingUserResult:
+    acting_user_id: int | None
     if override_user_id is not None:
-        acting_user_id: int | None = override_user_id
+        acting_user_id, resolved_from = override_user_id, "override"
     else:
-        matches = resolve_org_github_login_to_users(team_id, [author_login])
-        user = matches.get(author_login.strip().lower()) if author_login else None
-        acting_user_id = user.id if user is not None else None
+        acting_user_id, resolved_from = _login_to_user_id(team_id, author_login), "author"
+        # Label-trigger fallback — someone explicitly asked for this review, so borrow the run user
+        # the trigger already resolved. Other triggers keep the author-only contract and skip.
+        if acting_user_id is None and trigger_source == TRIGGER_LABEL:
+            acting_user_id, resolved_from = default_user_id, "default"
     if acting_user_id is None:
         return ResolveActingUserResult(acting_user_id=None)
+    if resolved_from == "default":
+        logger.info("PR author %r has no PostHog user; acting as the default user %s", author_login, acting_user_id)
     if report_id is not None:
         ReviewReport.objects.for_team(team_id).filter(id=report_id).update(acting_user_id=acting_user_id)
     settings = ReviewUserSettings.load(team_id, acting_user_id)
     return ResolveActingUserResult(
         acting_user_id=acting_user_id,
-        review_labeled_prs=settings.review_labeled_prs,
+        # The labeled-PR opt-out protects authors ("don't review my PRs") — the borrowed default
+        # user never imports their personal switch into someone else's PR.
+        review_labeled_prs=settings.review_labeled_prs if resolved_from in ("author", "override") else True,
         # str() unwraps the TextChoices member an unsaved defaults instance carries — the payload
         # must hold the plain value.
         urgency_threshold=str(settings.urgency_threshold),
         review_inbox_prs=settings.review_inbox_prs,
+        resolved_from=resolved_from,
     )
 
 
@@ -586,12 +618,17 @@ async def resolve_acting_user_activity(input: ResolveActingUserInput) -> Resolve
     """Resolve the user whose enabled perspectives drive this review, plus their settings snapshot.
 
     Production: the PR author, mapped GitHub-login → PostHog org user (`resolve_org_github_login_to_users`).
-    Returns None when the author isn't a PostHog org user — the parent then skips the review (no
-    fallback: we apply the author's PostHog-stored perspectives, so the author must be a PostHog user).
+    The label trigger falls back to the default run user (someone explicitly asked for the review);
+    other triggers return None on an unmapped author and the parent skips the review.
     The CLI/eval passes an explicit `override_user_id` to test a known user's perspectives on any PR.
     """
     return await database_sync_to_async(_resolve_acting_user, thread_sensitive=False)(
-        input.team_id, input.author_login, input.override_user_id, input.report_id
+        input.team_id,
+        input.author_login,
+        input.override_user_id,
+        input.report_id,
+        input.trigger_source,
+        input.default_user_id,
     )
 
 

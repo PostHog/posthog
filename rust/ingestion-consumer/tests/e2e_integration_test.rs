@@ -484,6 +484,7 @@ impl Harness {
                 max_in_flight_batches: max_in_flight,
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout,
+                debug_recorder: None,
             },
             handle,
         );
@@ -558,6 +559,7 @@ impl Harness {
                 max_in_flight_batches: self.max_in_flight,
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout: self.deferred_flush_timeout,
+                debug_recorder: None,
             },
             handle,
         );
@@ -2029,6 +2031,7 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
             max_in_flight_batches: 1,
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
+            debug_recorder: None,
         },
         handle2,
     );
@@ -2103,6 +2106,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
             max_in_flight_batches: 1,
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
+            debug_recorder: None,
         },
         handle,
     );

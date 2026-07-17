@@ -193,7 +193,7 @@ class ReadActivityLog(BaseModel):
         default=None,
         description=(
             "Filter by resource scope. Available scopes: "
-            "Action, AlertConfiguration, Annotation, BatchExport, BatchImport, Cohort, Comment, "
+            "Action, AlertConfiguration, Annotation, BatchExport, BatchImport, Billing, Cohort, Comment, "
             "Dashboard, DataManagement, EarlyAccessFeature, EventDefinition, Experiment, "
             "ExternalDataSchema, ExternalDataSource, FeatureFlag, HogFlow, HogFunction, "
             "Insight, Notebook, Organization, OrganizationDomain, OrganizationMembership, "
