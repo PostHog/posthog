@@ -184,6 +184,7 @@
             "type": null,
             "intents": ["metrics"]
         },
+        { "path": "Tasks", "category": "Tools", "iconType": "task", "type": "task", "intents": ["tasks"] },
         {
             "path": "Product analytics",
             "category": "Analytics",

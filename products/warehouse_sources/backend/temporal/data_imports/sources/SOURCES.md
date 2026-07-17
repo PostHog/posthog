@@ -87,6 +87,7 @@ the row lists both.
 | bigquery                         | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads                         | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
 | bitbucket                        | HTTP                        | requests                                                        | ✅                          |
+| bitrise                          | HTTP                        | requests                                                        | ✅                          |
 | bland_ai                         | HTTP                        | requests                                                        | ✅                          |
 | blogger                          | HTTP                        | requests                                                        | ✅                          |
 | bluetally                        | HTTP                        | requests                                                        | ✅                          |
@@ -116,6 +117,7 @@ the row lists both.
 | chargedesk                       | HTTP                        | requests                                                        | ✅                          |
 | chargify                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | charthop                         | HTTP                        | requests                                                        | ✅                          |
+| chatwoot                         | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | checkmarx                        | HTTP                        | requests                                                        | ✅                          |
 | checkout_com                     | HTTP                        | requests                                                        | ✅                          |
 | churnkey                         | HTTP                        | requests                                                        | ✅                          |
@@ -136,6 +138,7 @@ the row lists both.
 | confluent_cloud                  | HTTP                        | requests                                                        | ✅                          |
 | chartmogul                       | HTTP                        | requests                                                        | ✅                          |
 | circleci                         | HTTP                        | requests                                                        | ✅                          |
+| circleci_insights                | HTTP                        | requests                                                        | ✅                          |
 | cimis                            | HTTP                        | requests                                                        | ✅                          |
 | cisco_duo                        | HTTP                        | requests (hand-rolled HMAC-SHA1 request signing)                | ✅                          |
 | cloudflare                       | HTTP                        | requests                                                        | ✅                          |
@@ -150,6 +153,7 @@ the row lists both.
 | convertkit                       | HTTP                        | requests                                                        | ✅                          |
 | convex                           | HTTP                        | requests                                                        | ✅                          |
 | copper                           | HTTP                        | requests                                                        | ✅                          |
+| coralogix                        | HTTP                        | requests                                                        | ✅                          |
 | coupa                            | HTTP                        | requests                                                        | ✅                          |
 | coveralls                        | HTTP                        | requests                                                        | ✅                          |
 | crates_io                        | HTTP                        | requests                                                        | ✅                          |
@@ -275,12 +279,14 @@ the row lists both.
 | invoiceninja                     | HTTP                        | requests                                                        | ✅                          |
 | ip2whois                         | HTTP                        | requests                                                        | ✅                          |
 | iterable                         | HTTP                        | requests                                                        | ✅                          |
+| jamf_pro                         | HTTP                        | requests                                                        | ✅                          |
 | jellyfish                        | HTTP                        | requests                                                        | ✅                          |
 | jfrog_artifactory                | HTTP                        | requests                                                        | ✅                          |
 | jira                             | HTTP                        | requests                                                        | ✅                          |
 | jobnimbus                        | HTTP                        | requests                                                        | ✅                          |
 | jotform                          | HTTP                        | requests                                                        | ✅                          |
 | judgeme_reviews                  | HTTP                        | requests                                                        | ✅                          |
+| jumpcloud                        | HTTP                        | requests                                                        | ✅                          |
 | justcall                         | HTTP                        | requests                                                        | ✅                          |
 | justsift                         | HTTP                        | requests                                                        | ✅                          |
 | k6_cloud                         | HTTP                        | requests                                                        | ✅                          |
@@ -292,6 +298,7 @@ the row lists both.
 | koyeb                            | HTTP                        | requests                                                        | ✅                          |
 | kong_konnect                     | HTTP                        | requests                                                        | ✅                          |
 | kubecost                         | HTTP                        | requests                                                        | ✅                          |
+| lacework                         | HTTP                        | requests                                                        | ✅                          |
 | lago                             | HTTP                        | requests                                                        | ✅                          |
 | lambda_labs                      | HTTP                        | requests                                                        | ✅                          |
 | langfuse                         | HTTP                        | requests                                                        | ✅                          |
@@ -303,6 +310,7 @@ the row lists both.
 | less_annoying_crm                | HTTP                        | requests                                                        | ✅                          |
 | lightspeed_retail                | HTTP                        | requests                                                        | ✅                          |
 | linear                           | HTTP                        | requests                                                        | ✅                          |
+| linearb                          | HTTP                        | requests                                                        | ✅                          |
 | lever                            | HTTP                        | requests                                                        | ✅                          |
 | lingo_dev                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | linkedin_ads                     | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
@@ -488,6 +496,7 @@ the row lists both.
 | taboola                          | HTTP                        | requests                                                        | ✅                          |
 | tailscale                        | HTTP                        | requests                                                        | ✅                          |
 | tavus                            | HTTP                        | requests                                                        | ✅                          |
+| tawk_to                          | HTTP                        | requests                                                        | ✅                          |
 | teamcity                         | HTTP                        | requests                                                        | ✅                          |
 | teamtailor                       | HTTP                        | requests                                                        | ✅                          |
 | teamwork                         | HTTP                        | requests                                                        | ✅                          |
@@ -514,6 +523,7 @@ the row lists both.
 | unstructured                     | HTTP                        | requests                                                        | ✅                          |
 | upstash                          | HTTP                        | requests                                                        | ✅                          |
 | uptimerobot                      | HTTP                        | requests                                                        | ✅                          |
+| uservoice                        | HTTP                        | requests                                                        | ✅                          |
 | vantage                          | HTTP                        | requests                                                        | ✅                          |
 | vapi                             | HTTP                        | requests                                                        | ✅                          |
 | vellum                           | HTTP                        | requests                                                        | ✅                          |
@@ -618,7 +628,6 @@ doesn't conflict with concurrent PRs.
 - basecamp
 - bigcommerce
 - bitly
-- bitrise
 - box
 - braintrust
 - branch
@@ -630,11 +639,9 @@ doesn't conflict with concurrent PRs.
 - captain_data
 - cart_com
 - castor_edc
-- chatwoot
 - chift
 - chorus
 - cin7
-- circleci_insights
 - cisco_meraki
 - clarifai
 - clazar
@@ -646,7 +653,6 @@ doesn't conflict with concurrent PRs.
 - codecov
 - constant_contact
 - copper
-- coralogix
 - cosmosdb
 - couchbase
 - criteo
@@ -745,11 +751,9 @@ doesn't conflict with concurrent PRs.
 - instagram
 - instantly
 - interzoid
-- jamf_pro
 - jenkins
 - jobber
 - judgeme_reviews
-- jumpcloud
 - justsift
 - kafka
 - kajabi
@@ -762,7 +766,6 @@ doesn't conflict with concurrent PRs.
 - knock
 - koyeb
 - kyve
-- lacework
 - lambda_labs
 - langsmith
 - leexi
@@ -770,7 +773,6 @@ doesn't conflict with concurrent PRs.
 - lever
 - liana
 - lightfield
-- linearb
 - lingo_dev
 - linkedin_pages
 - linnworks
@@ -850,6 +852,7 @@ doesn't conflict with concurrent PRs.
 - primetric
 - productive
 - prompting_company
+- promptwatch
 - qdrant
 - qonto
 - qualtrics
@@ -939,7 +942,6 @@ doesn't conflict with concurrent PRs.
 - swonkie
 - synthesia
 - systeme
-- tawk_to
 - teachable
 - telli
 - tempo
