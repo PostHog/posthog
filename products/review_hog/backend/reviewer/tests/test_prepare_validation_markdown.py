@@ -134,6 +134,38 @@ def test_other_findings_section_membership(
     assert ("Membership marker finding" in body) is expected_in_section
 
 
+def test_off_diff_finding_sections_lead_with_validation() -> None:
+    # The off-diff section must render its collapsed blocks in the same deliberate reading order as
+    # the inline comment (verdict first, then description, then fix). The two renderers are separate
+    # templates, so the inline-comment order test can't catch _render_off_diff_section flipping back
+    # to description-first.
+    chunks_data = ChunksList(chunks=[_chunk(1, "bugfix")])
+    issue = Issue(
+        id="1-1-1",
+        title="Off-diff finding",
+        file="src/auth.py",
+        lines=[LineRange(start=240, end=240)],
+        issue="problem",
+        suggestion="fix",
+        priority=IssuePriority.SHOULD_FIX,
+    )
+    validations = {"1-1-1": IssueValidation(is_valid=True, argumentation="verified", category="bug")}
+
+    body = build_review_body(
+        chunks_data=chunks_data,
+        issues=[issue],
+        validations=validations,
+        pr_files=_pr_files(),
+        published_priorities=_SHOULD_FIX_PUBLISHED,
+    )
+
+    positions = [
+        body.index(f"<summary><strong>{label}</strong></summary>")
+        for label in ("Why we think it's a valid issue", "Issue description", "Suggested fix")
+    ]
+    assert positions == sorted(positions)
+
+
 @pytest.mark.parametrize(
     "base,adjusted,expected_count_line",
     [
