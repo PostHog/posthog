@@ -513,15 +513,13 @@ def _format_graphql_errors(errors: Any) -> str:
     return str(errors)
 
 
-def _authenticated_session(
-    store_id: str, client_id: str, client_secret: str, api_version: str = SHOPIFY_API_VERSION_2026_07
-) -> tuple[str, requests.Session]:
+def _authenticated_session(store_id: str, client_id: str, client_secret: str) -> tuple[str, requests.Session]:
     """Fetch an access token and return the GraphQL URL plus a session that carries it.
 
     Credential validation and permission probes run before a source row (and its pin) exists, so
-    they default to the current version — the queries they issue are version-agnostic.
+    they use the current version — the queries they issue are version-agnostic.
     """
-    api_url = SHOPIFY_API_URL.format(store_id, api_version)
+    api_url = SHOPIFY_API_URL.format(store_id, SHOPIFY_API_VERSION_2026_07)
     access_token = _get_shopify_access_token(store_id, client_id, client_secret)
     sess = make_tracked_session(headers={"Content-Type": "application/json", "X-Shopify-Access-Token": access_token})
     return api_url, sess

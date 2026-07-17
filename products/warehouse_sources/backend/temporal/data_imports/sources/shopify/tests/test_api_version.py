@@ -25,8 +25,9 @@ def _make_inputs(api_version: str | None) -> MagicMock:
 
 
 class TestApiVersionResolution:
-    def test_default_version_is_current(self) -> None:
-        assert ShopifySource.default_version == SHOPIFY_API_VERSION_2026_07
+    def test_both_versions_are_supported(self) -> None:
+        # The default flip is covered by the (None -> 2026-07) resolution case below; this only
+        # guards that the legacy version stays declared alongside the new one.
         assert set(ShopifySource.supported_versions) == {SHOPIFY_API_VERSION_2025_10, SHOPIFY_API_VERSION_2026_07}
 
     @pytest.mark.parametrize(
