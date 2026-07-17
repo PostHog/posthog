@@ -135,11 +135,18 @@ def resolve_skill_authors(team: Team, skill_name: str) -> list[SkillAuthor]:
     return [to_author(creator, "creator")] + [to_author(p, "editor") for p in editors[:MAX_SKILL_EDITORS_IN_PROMPT]]
 
 
-def load_skill_for_run(team: Team, skill_name: str, *, version: int | None = None) -> LoadedSkill:
+def load_skill_for_run(
+    team: Team, skill_name: str, *, version: int | None = None, include_authors: bool = False
+) -> LoadedSkill:
     """Resolve a skill on the team's namespace and load its body + file manifest.
 
     Pass `version=None` to follow-latest. The `signals-scout-*` prefix is not enforced
     here — the management command can hand-trigger any skill on the team.
+
+    `include_authors` is for the prompt-building path only (the runner). Other callers —
+    notably the report-authorization gate in `views._assert_report_tool_opted_in`, which loads
+    the skill on every report write just to check `allowed_tools` — must not pay for the
+    membership + version-history author scan, so it defaults off.
     """
     # Lazy imports, both to break cycles: `lazy_seed` imports this module at top level
     # (SIGNALS_SCOUT_SKILL_PREFIX), and `products.skills.backend.api` triggers a temporal module
@@ -165,6 +172,6 @@ def load_skill_for_run(team: Team, skill_name: str, *, version: int | None = Non
         skill_id=str(skill.id),
         origin=origin,
         # Only a custom scout's prompt renders authorship (canonical bodies are PostHog-owned),
-        # so skip the extra query for canonical rows.
-        authors=resolve_skill_authors(team, skill_name) if origin == "custom" else [],
+        # so skip the extra queries unless the caller builds a prompt and the row is custom.
+        authors=resolve_skill_authors(team, skill_name) if include_authors and origin == "custom" else [],
     )

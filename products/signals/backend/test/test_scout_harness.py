@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -144,11 +145,14 @@ class TestSkillLoader(BaseTest):
             is_latest=True,
             created_by=self.user,
         )
-        loaded = load_skill_for_run(self.team, "signals-scout-errors")
+        loaded = load_skill_for_run(self.team, "signals-scout-errors", include_authors=True)
         assert [(a.role, a.email) for a in loaded.authors] == [
             ("creator", "ben@posthog.com"),
             ("editor", self.user.email),
         ]
+        # Off by default: the report-authorization path in views loads the skill on every report
+        # write just to check allowed_tools and must not pay the author scan.
+        assert load_skill_for_run(self.team, "signals-scout-errors").authors == []
 
     def test_diverged_seeded_skill_creator_is_first_human_author(self) -> None:
         # A seeded row's v1 is system-authored (`created_by=None`); the creator of the diverged
@@ -172,7 +176,7 @@ class TestSkillLoader(BaseTest):
             created_by=self.user,
             metadata=seeded_metadata,
         )
-        loaded = load_skill_for_run(self.team, "signals-scout-general")
+        loaded = load_skill_for_run(self.team, "signals-scout-general", include_authors=True)
         assert [(a.role, a.email) for a in loaded.authors] == [("creator", self.user.email)]
 
     def test_authors_exclude_users_without_project_access(self) -> None:
@@ -195,7 +199,7 @@ class TestSkillLoader(BaseTest):
             created_by=self.user,
         )
         OrganizationMembership.objects.filter(user=ben).delete()
-        loaded = load_skill_for_run(self.team, "signals-scout-errors")
+        loaded = load_skill_for_run(self.team, "signals-scout-errors", include_authors=True)
         assert [(a.role, a.email) for a in loaded.authors] == [("creator", self.user.email)]
 
     def test_authors_empty_for_pristine_canonical_skill(self) -> None:
@@ -209,7 +213,7 @@ class TestSkillLoader(BaseTest):
         )
         skill.metadata["canonical_hash"] = _compute_row_hash(skill, [])
         skill.save()
-        assert load_skill_for_run(self.team, "signals-scout-general").authors == []
+        assert load_skill_for_run(self.team, "signals-scout-general", include_authors=True).authors == []
 
     def test_signals_scout_prefix_check(self) -> None:
         match = self._create_skill("signals-scout-errors")
@@ -449,9 +453,11 @@ class TestPromptBuilder(BaseTest):
             version=2,
             is_latest=True,
             created_by=self.user,
+            allowed_tools=["emit_report"],
         )
+        loaded = load_skill_for_run(self.team, "signals-scout-errors", include_authors=True)
         prompt = build_run_prompt(
-            load_skill_for_run(self.team, "signals-scout-errors"),
+            loaded,
             run_id="00000000-0000-0000-0000-000000000abc",
             team_id=self.team.id,
             started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
@@ -461,6 +467,16 @@ class TestPromptBuilder(BaseTest):
         # The authors line is a default, not an override — dropping the precedence hedge would
         # set the harness up to fight a skill body that defines its own reviewer routing.
         assert "unless your skill body defines its own reviewer routing" in prompt
+        # A signal-channel scout has no `suggested_reviewers` field, so member names/emails must
+        # not reach its prompt — there is no feature path that could use them.
+        signal_prompt = build_run_prompt(
+            replace(loaded, allowed_tools=[]),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        )
+        assert "skill authors" not in signal_prompt
+        assert "ben@posthog.com" not in signal_prompt
 
     def _report_prompt_for(self, allowed_tools: list[str]) -> str:
         name = "signals-scout-" + "-".join(allowed_tools)

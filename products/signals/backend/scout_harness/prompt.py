@@ -457,7 +457,10 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
         self_improvement = _self_improvement_section(can_emit_report=can_emit_report, can_edit_report=can_edit_report)
         sections = [*sections[:-1], self_improvement, sections[-1]]
     tail = _render_tail(sections, schema_json=schema_json)
-    authors_line = _skill_authors_line(skill.authors)
+    # Report-channel scouts only: the authors line exists to steer `suggested_reviewers`, and a
+    # signal-channel scout has no reviewers field — member names/emails are PII that shouldn't
+    # flow into a prompt with no feature path to use them.
+    authors_line = _skill_authors_line(skill.authors) if report_channel else ""
     return f"""{intro}
 # Your run identity
 
