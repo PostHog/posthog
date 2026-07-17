@@ -641,14 +641,13 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 if (onCompleteOnboardingRedirectUrlOverride) {
                     return onCompleteOnboardingRedirectUrlOverride
                 }
-                // Without a product-specific destination, land on Quickstart rather than the
-                // AI home: fresh teams have no events yet, so the home input is a dead end.
-                const fallbackUrl =
-                    featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] === 'test' ? urls.quickstart() : urls.default()
-                if (!productKey) {
-                    return fallbackUrl
+                if (featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] === 'test') {
+                    return urls.quickstart()
                 }
-                return onboardingProviderRegistry[productKey]?.completeRedirectUrl?.() ?? fallbackUrl
+                if (!productKey) {
+                    return urls.default()
+                }
+                return onboardingProviderRegistry[productKey]?.completeRedirectUrl?.() ?? urls.default()
             },
         ],
     }),
@@ -797,7 +796,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 completedMap[productKey] = true
             }
             try {
-                await teamLogic.asyncActions.updateCurrentTeam({ has_completed_onboarding_for: completedMap })
+                // Keep both completion signals in sync so every bootstrapped team shape prevents
+                // sceneLogic from redirecting a completed user back into onboarding after refresh.
+                await teamLogic.asyncActions.updateCurrentTeam({
+                    completed_snippet_onboarding: true,
+                    has_completed_onboarding_for: completedMap,
+                })
                 setQuickstartAsDefaultHomepageOnce(previouslyOnboardedMap)
             } catch {
                 // The completion update failed, so leave the user's homepage untouched
@@ -829,16 +833,17 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 actions.reportContextOnboardingCompleted(productKey)
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey })
             }
-            // Populating has_completed_onboarding_for flips teamLogic.hasOnboardedAnyProduct true, so
-            // sceneLogic stops redirecting back into onboarding. Await the PATCH before navigating —
-            // updateCurrentTeam is NOT optimistic, so leaving early would race a still-stale currentTeam
-            // and sceneLogic could bounce a not-yet-ingested team straight back here.
+            // Persist both completion signals before navigating. updateCurrentTeam is not optimistic,
+            // so leaving early would race stale state and bounce a not-yet-ingested team back here.
             const completedMap: Record<string, boolean> = { ...team?.has_completed_onboarding_for }
             for (const productKey of products) {
                 completedMap[productKey] = true
             }
             try {
-                await teamLogic.asyncActions.updateCurrentTeam({ has_completed_onboarding_for: completedMap })
+                await teamLogic.asyncActions.updateCurrentTeam({
+                    completed_snippet_onboarding: true,
+                    has_completed_onboarding_for: completedMap,
+                })
                 setQuickstartAsDefaultHomepageOnce(team?.has_completed_onboarding_for)
                 router.actions.push(
                     getRelativeNextPath(router.values.searchParams['next'], window.location) ??

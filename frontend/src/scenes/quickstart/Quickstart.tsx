@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
@@ -19,13 +19,14 @@ import {
     IconPin,
     IconPinFilled,
     IconReceipt,
+    IconRocket,
     IconSearch,
     IconSparkles,
     IconTerminal,
 } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonSkeleton, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { liveUserCountLogic } from 'lib/components/LiveUserCount'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -33,6 +34,7 @@ import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
@@ -62,8 +64,11 @@ import { SDKSnippet } from 'scenes/onboarding/legacy/sdks/SDKSnippet'
 import { SessionReplaySDKInstructions } from 'scenes/onboarding/legacy/sdks/session-replay/SessionReplaySDKInstructions'
 import { SurveysSDKInstructions } from 'scenes/onboarding/legacy/sdks/surveys/SurveysSDKInstructions'
 import { WebAnalyticsSDKInstructions } from 'scenes/onboarding/legacy/sdks/web-analytics/WebAnalyticsSDKInstructions'
-import { useWizardCommand } from 'scenes/onboarding/shared/SetupWizardBanner'
 import { getProductIcon } from 'scenes/onboarding/shared/utils'
+import { activeCloudRunLogic } from 'scenes/onboarding/shared/wizard-sync/activeCloudRunLogic'
+import { finishedLocalRunLogic } from 'scenes/onboarding/shared/wizard-sync/finishedLocalRunLogic'
+import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/shared/wizard-sync/wizardActiveSessionDetectorLogic'
+import { wizardSyncUiLogic } from 'scenes/onboarding/shared/wizard-sync/wizardSyncUiLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -144,18 +149,6 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }
         <div className="mb-4">
             <h2 className="text-lg font-semibold mb-0">{title}</h2>
             {subtitle && <p className="text-secondary mb-0 mt-1">{subtitle}</p>}
-        </div>
-    )
-}
-
-function WaitingForEventsIndicator(): JSX.Element {
-    return (
-        <div className="flex items-center gap-2 px-2 py-1 border border-accent rounded-sm self-start">
-            <div className="relative flex items-center justify-center">
-                <div className="absolute w-3 h-3 border-2 border-accent rounded-full animate-ping" />
-                <div className="w-2 h-2 bg-accent rounded-full" />
-            </div>
-            <span className="text-sm text-accent whitespace-nowrap">Waiting for your first event…</span>
         </div>
     )
 }
@@ -338,71 +331,62 @@ function HeaderStat({ icon, children }: { icon: JSX.Element; children: React.Rea
     )
 }
 
-function InstallHeroCard(): JSX.Element {
-    const { wizardCommand, isCloudOrDev } = useWizardCommand()
-    const { showInviteModal } = useActions(inviteLogic)
+function QuickstartInstallationPrompt({ installationComplete }: { installationComplete: boolean }): JSX.Element | null {
+    const syncEnabled = useFeatureFlag('ONBOARDING_WIZARD_SYNC', 'test')
+    const { activeCloudRun } = useValues(activeCloudRunLogic)
+    const { finishedLocalRun } = useValues(finishedLocalRunLogic)
+
+    if (syncEnabled || activeCloudRun || finishedLocalRun) {
+        return <QuickstartInstallationPromptWithRunDetection installationComplete={installationComplete} />
+    }
+
+    return installationComplete ? null : <QuickstartInstallationLink />
+}
+
+function QuickstartInstallationPromptWithRunDetection({
+    installationComplete,
+}: {
+    installationComplete: boolean
+}): JSX.Element | null {
+    useMountedLogic(wizardActiveSessionDetectorLogic)
+    const { hasActiveSession } = useValues(wizardActiveSessionDetectorLogic)
+    const { activeCloudRun } = useValues(activeCloudRunLogic)
+    const { finishedLocalRun } = useValues(finishedLocalRunLogic)
+    const { openDialog } = useActions(wizardSyncUiLogic)
+    const hasWizardStatus = !!activeCloudRun || hasActiveSession || !!finishedLocalRun
+
+    if (!hasWizardStatus) {
+        return installationComplete ? null : <QuickstartInstallationLink />
+    }
 
     return (
-        <LemonCard hoverEffect={false} className="rounded-lg border-transparent shadow-sm">
-            <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
-                <SectionHeader
-                    title="Connect your product's context"
-                    subtitle="Install an SDK or connect a source so PostHog can receive events and business data."
-                />
-                <WaitingForEventsIndicator />
-            </div>
-            <div className="grid grid-cols-1 @3xl/main-content:grid-cols-2 gap-6">
-                {isCloudOrDev && (
-                    <div className="flex flex-col gap-2">
-                        <h3 className="text-sm font-semibold mb-0">Fastest: the AI setup wizard</h3>
-                        <p className="text-secondary text-sm mb-0">
-                            Run this in your project root. It detects your framework, installs the SDK, and configures
-                            event capture for you.
-                        </p>
-                        <CodeSnippet language={Language.Bash}>{wizardCommand}</CodeSnippet>
-                    </div>
-                )}
-                <div className="flex flex-col gap-2">
-                    <h3 className="text-sm font-semibold mb-0">Other ways to get set up</h3>
-                    <LemonButton
-                        type="secondary"
-                        fullWidth
-                        to={urls.onboarding({
-                            productKey: ProductKey.PRODUCT_ANALYTICS,
-                            stepKey: OnboardingStepKey.INSTALL,
-                        })}
-                        onClick={() => captureQuickstartAction('install_manually')}
-                        data-attr="quickstart-install-manually"
-                    >
-                        Follow the install guide for your framework
-                    </LemonButton>
-                    <LemonButton
-                        type="secondary"
-                        fullWidth
-                        onClick={() => {
-                            captureQuickstartAction('invite_teammate')
-                            showInviteModal()
-                        }}
-                        data-attr="quickstart-invite-teammate"
-                    >
-                        Invite a developer to install it for you
-                    </LemonButton>
-                    <LemonButton
-                        type="secondary"
-                        fullWidth
-                        to={urls.sources()}
-                        onClick={() => captureQuickstartAction('connect_source')}
-                        data-attr="quickstart-connect-source"
-                    >
-                        No app? Connect a data source instead
-                    </LemonButton>
-                </div>
-            </div>
-            {/* Installing is the token's moment: every manual guide asks for it */}
-            <div className="mt-6">
-                <ProjectToken />
-            </div>
-        </LemonCard>
+        <LemonButton
+            type="primary"
+            size="small"
+            icon={<span className="inline-block size-2 rounded-full bg-accent animate-pulse" />}
+            onClick={openDialog}
+            data-attr="quickstart-installation-status"
+        >
+            Installation status
+        </LemonButton>
+    )
+}
+
+function QuickstartInstallationLink(): JSX.Element {
+    return (
+        <LemonButton
+            type="primary"
+            size="small"
+            icon={<IconRocket />}
+            to={urls.onboarding({
+                productKey: ProductKey.PRODUCT_ANALYTICS,
+                stepKey: OnboardingStepKey.INSTALL,
+            })}
+            onClick={() => captureQuickstartAction('return_to_installation')}
+            data-attr="quickstart-return-to-installation"
+        >
+            Run setup wizard
+        </LemonButton>
     )
 }
 
@@ -1383,16 +1367,11 @@ export function Quickstart(): JSX.Element {
                 {/* Standard scene header: title left, actions right. This page is a recurring
                     homepage, so it gets utility, not a one-time welcome ceremony. */}
                 <section>
-                    <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-2">
-                        <div className="min-w-0">
-                            <h1 className="text-2xl font-bold mb-1">Quickstart</h1>
-                            <p className="text-secondary mb-0 max-w-140">
-                                Connect your product's context, configure Tools, and choose how you work with PostHog.
-                            </p>
-                        </div>
+                    <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-2">
+                        <h1 className="text-2xl font-bold mb-0">Quickstart</h1>
                         <div className="flex flex-wrap items-center gap-2">
                             <LemonButton
-                                type="primary"
+                                type="secondary"
                                 size="small"
                                 icon={<IconSparkles />}
                                 onClick={() => {
@@ -1426,15 +1405,15 @@ export function Quickstart(): JSX.Element {
                             </LemonButton>
                         </div>
                     </div>
-                    {installationComplete && (
-                        <div className="mt-3">
-                            <ProjectToken inline />
-                        </div>
-                    )}
+                    <p className="text-secondary mb-0 mt-1 max-w-140">
+                        Connect your product's context, configure Tools, and choose how you work with PostHog.
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <ProjectToken inline />
+                        <QuickstartInstallationPrompt installationComplete={installationComplete} />
+                    </div>
                 </section>
             </div>
-
-            {!installationComplete && <InstallHeroCard />}
 
             <section>
                 <div className="flex flex-wrap items-start justify-between gap-x-8">

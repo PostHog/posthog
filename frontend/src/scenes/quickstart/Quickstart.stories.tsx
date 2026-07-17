@@ -1,13 +1,20 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { useMountedLogic } from 'kea'
+import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
+import { activeCloudRunLogic } from 'scenes/onboarding/shared/wizard-sync/activeCloudRunLogic'
+import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/shared/wizard-sync/wizardActiveSessionDetectorLogic'
+import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { Mocks } from '~/mocks/utils'
+import type { TeamType } from '~/types'
 
 import { QuickstartToolSignals, clearQuickstartActivationCache } from './quickstartLogic'
 
@@ -92,6 +99,7 @@ const scenarioMocks = (signals: Partial<QuickstartToolSignals>, resources: Scena
         '/api/environments/:team_id/error_tracking/symbol_sets/': { count: resources.symbolSets ?? 0, results: [] },
         '/api/environments/:team_id/hog_functions/': { count: resources.errorAlerts ?? 0, results: [] },
         '/api/projects/:team_id/conversations/tickets/': { count: resources.tickets ?? 0, results: [] },
+        '/api/projects/:projectId/wizard/sessions/latest/': () => [204, ''],
         'https://posthog.com/rss.xml': () =>
             new Response(BLOG_RSS, { status: 200, headers: { 'Content-Type': 'application/rss+xml' } }),
     },
@@ -109,6 +117,64 @@ const CacheBuster = (Story: React.ComponentType): JSX.Element => {
     return <Story />
 }
 
+type InstallationState = 'complete' | 'not_started' | 'running'
+
+function QuickstartInstallationState({
+    state,
+    children,
+}: {
+    state: InstallationState
+    children: React.ReactNode
+}): JSX.Element {
+    useMountedLogic(teamLogic)
+    useMountedLogic(activeCloudRunLogic)
+    useMountedLogic(wizardActiveSessionDetectorLogic)
+
+    useEffect(() => {
+        const currentTeam = teamLogic.values.currentTeam
+        if (!currentTeam) {
+            return
+        }
+        const installationComplete = state === 'complete'
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...currentTeam,
+            completed_snippet_onboarding: installationComplete,
+            has_completed_onboarding_for: installationComplete ? { product_analytics: true } : {},
+            ingested_event: installationComplete,
+        } as TeamType)
+        activeCloudRunLogic.actions.clearActiveCloudRun()
+        activeCloudRunLogic.actions.setPanelMounted(false)
+        wizardActiveSessionDetectorLogic.actions.markInactive()
+
+        if (state === 'running') {
+            activeCloudRunLogic.actions.setActiveCloudRun(
+                'storybook-task',
+                'storybook-run',
+                new Date(Date.now() - 90_000).toISOString(),
+                projectLogic.values.currentProjectId ?? currentTeam.id
+            )
+            activeCloudRunLogic.actions.setPanelMounted(true)
+        }
+
+        return () => {
+            teamLogic.actions.loadCurrentTeamSuccess(currentTeam)
+            activeCloudRunLogic.actions.clearActiveCloudRun()
+            activeCloudRunLogic.actions.setPanelMounted(false)
+            wizardActiveSessionDetectorLogic.actions.markInactive()
+        }
+    }, [state])
+
+    return <>{children}</>
+}
+
+const installationStateDecorator =
+    (state: InstallationState) =>
+    (Story: React.ComponentType): JSX.Element => (
+        <QuickstartInstallationState state={state}>
+            <Story />
+        </QuickstartInstallationState>
+    )
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Quickstart',
@@ -118,7 +184,10 @@ const meta: Meta = {
         mockDate: '2026-07-15',
         pageUrl: urls.quickstart(),
         // The scene only renders for the test variant of the experiment flag
-        featureFlags: { [FEATURE_FLAGS.QUICKSTART_HOMEPAGE]: 'test' },
+        featureFlags: {
+            [FEATURE_FLAGS.QUICKSTART_HOMEPAGE]: 'test',
+            [FEATURE_FLAGS.ONBOARDING_WIZARD_SYNC]: 'test',
+        },
     },
     // External artwork (Substack covers) makes pixel snapshots nondeterministic
     tags: ['test-skip'],
@@ -157,6 +226,21 @@ export const Base: Story = {
 /** Nothing has sent data in the window: every event-based tool decays back to ready/needs setup */
 export const QuietProject: Story = {
     decorators: [mswDecorator(scenarioMocks({}))],
+}
+
+/** Fresh account without a wizard run: the header links back to the onboarding installation step. */
+export const InstallationNotStarted: Story = {
+    decorators: [installationStateDecorator('not_started'), mswDecorator(scenarioMocks({}))],
+}
+
+/** Fresh account with a wizard run: progress moves into the header and the global FAB stays hidden. */
+export const InstallationRunning: Story = {
+    decorators: [installationStateDecorator('running'), mswDecorator(scenarioMocks({}))],
+}
+
+/** Installed project without a wizard run: no installation CTA is shown in the header. */
+export const InstallationComplete: Story = {
+    decorators: [installationStateDecorator('complete'), mswDecorator(scenarioMocks({ totalEvents: 120 }))],
 }
 
 /** Everything wired: all tools live with deep quality — the "topped out" look */
