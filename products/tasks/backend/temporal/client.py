@@ -450,13 +450,13 @@ def resume_task_in_cloud_workflow(run_id: str, workflow_id: str) -> None:
     )
 
 
-def execute_build_sandbox_image_workflow(image_id: str, team_id: int) -> None:
+def execute_build_sandbox_image_workflow(image_id: str, team_id: int, *, refresh: bool = False) -> None:
     """Start (or restart) the scan → build → publish workflow for a custom sandbox image."""
     client = sync_connect()
     asyncio.run(
         client.start_workflow(
             "build-sandbox-image",
-            BuildSandboxImageInput(image_id=image_id, team_id=team_id),
+            BuildSandboxImageInput(image_id=image_id, team_id=team_id, refresh=refresh),
             id=f"build-sandbox-image-{image_id}",
             id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
             task_queue=settings.TASKS_TASK_QUEUE,

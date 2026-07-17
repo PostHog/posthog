@@ -136,6 +136,7 @@ class RESTClient:
         hooks: Optional[Hooks] = None,
         resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None,
         initial_paginator_state: Optional[dict[str, Any]] = None,
+        data_selector_required: bool = False,
     ) -> Iterator[list[Any]]:
         paginator = copy.deepcopy(paginator) if paginator else copy.deepcopy(self.paginator)
         hooks = hooks or {}
@@ -164,7 +165,7 @@ class RESTClient:
             except IgnoreResponseException:
                 break
 
-            data = self._extract_response(body, data_selector)
+            data = self._extract_response(body, data_selector, required=data_selector_required)
 
             if paginator is not None:
                 paginator.update_state(response, data)
@@ -222,9 +223,20 @@ class RESTClient:
 
         return response, body
 
-    def _extract_response(self, body: Any, data_selector: Optional[TJsonPath]) -> list[Any]:
+    def _extract_response(self, body: Any, data_selector: Optional[TJsonPath], *, required: bool = False) -> list[Any]:
         if data_selector:
-            data: Any = find_values(data_selector, body)
+            matches: Any = find_values(data_selector, body)
+            # ``required`` distinguishes "the selector key is absent" (no matches -> the response
+            # shape changed, fail loud) from "the key is present but the list is empty" (a legit
+            # zero-row page, which yields one match whose value is []). Sources that treat a missing
+            # data key as an error set data_selector_required=True instead of silently syncing 0 rows.
+            if required and not matches:
+                keys = sorted(body.keys())[:20] if isinstance(body, dict) else type(body).__name__
+                raise ValueError(
+                    f"Required data_selector {data_selector!r} matched nothing in the response "
+                    f"(body keys: {keys}). The API response shape may have changed."
+                )
+            data: Any = matches
             # unwrap single-item list from jsonpath
             if isinstance(data, list) and len(data) == 1:
                 data = data[0]
