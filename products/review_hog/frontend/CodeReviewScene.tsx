@@ -16,6 +16,7 @@ import {
 import {
     LemonBanner,
     LemonButton,
+    LemonInput,
     LemonSegmentedButton,
     LemonSkeleton,
     LemonSlider,
@@ -51,7 +52,7 @@ import type {
 } from 'products/review_hog/frontend/generated/api.schemas'
 import { ReviewHogReviewsListScope } from 'products/review_hog/frontend/generated/api.schemas'
 
-import { ReviewDrawerTab, ReviewSkillKind, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
+import { REVIEWS_PAGE_SIZE, ReviewDrawerTab, ReviewSkillKind, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
 
 /** "review-hog-perspective-logic-correctness" → "Logic correctness" */
 function prettifySkillName(skillName: string): string {
@@ -104,12 +105,13 @@ const URGENCY_STOPS: { key: UrgencyThresholdEnumApi; label: string; description:
     {
         key: 'consider',
         label: 'All issues',
-        description: 'Every validated finding is published, including the minor consider-level ones.',
+        description:
+            'Every validated finding is published, including the minor consider-level ones. This is the default.',
     },
     {
         key: 'should_fix',
         label: 'Should fix',
-        description: 'Recommended fixes and anything more serious — the default balance.',
+        description: 'Recommended fixes and anything more serious. Minor consider-level findings are dropped.',
     },
     {
         key: 'must_fix',
@@ -484,9 +486,15 @@ function RecentReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Ele
 
 /** Compact proof-of-life block under the hero — hidden entirely until the project has reviews. */
 function RecentReviewsSection(): JSX.Element | null {
-    const { recentReviews, recentReviewsLoading, reviewsScope, hasUserChosenReviewsScope } =
-        useValues(reviewHogSettingsLogic)
-    const { setReviewsScope } = useActions(reviewHogSettingsLogic)
+    const {
+        recentReviews,
+        recentReviewsPageLoading,
+        moreReviewsAvailable,
+        reviewsExpanding,
+        reviewsScope,
+        hasUserChosenReviewsScope,
+    } = useValues(reviewHogSettingsLogic)
+    const { setReviewsScope, showMoreReviews, showFewerReviews } = useActions(reviewHogSettingsLogic)
     const everyone = reviewsScope === ReviewHogReviewsListScope.Everyone
     const loadedEmpty = recentReviews !== null && recentReviews.length === 0
 
@@ -494,13 +502,13 @@ function RecentReviewsSection(): JSX.Element | null {
     // the section entirely. The scope flips before the reload lands, so an in-flight load keeps the
     // section mounted (skeleton below) instead of yanking the toggle away mid-click. An empty
     // For-you scope keeps the section (with an empty state) so the scope switch stays reachable.
-    if (loadedEmpty && everyone && !recentReviewsLoading) {
+    if (loadedEmpty && everyone && !recentReviewsPageLoading) {
         return null
     }
     // A stale EMPTY list must not render an empty state while a reload (scope switch, auto-default)
     // is in flight — but previous ROWS are kept during refreshes, so the in-progress poll never
     // flashes skeletons.
-    const emptyAwaitingReload = loadedEmpty && (recentReviewsLoading || !hasUserChosenReviewsScope)
+    const emptyAwaitingReload = loadedEmpty && (recentReviewsPageLoading || !hasUserChosenReviewsScope)
 
     return (
         // The one section without a top hairline — it reads as a continuation of the hero.
@@ -544,13 +552,80 @@ function RecentReviewsSection(): JSX.Element | null {
                         </div>
                     ))
                 ) : recentReviews.length ? (
-                    recentReviews.map((review) => <RecentReviewRow key={review.id} review={review} />)
+                    <>
+                        {recentReviews.map((review) => (
+                            <RecentReviewRow key={review.id} review={review} />
+                        ))}
+                        {(moreReviewsAvailable || recentReviews.length > REVIEWS_PAGE_SIZE) && (
+                            <div className="flex justify-center gap-2 px-4 py-1.5">
+                                {moreReviewsAvailable && (
+                                    <LemonButton
+                                        size="small"
+                                        type="tertiary"
+                                        onClick={showMoreReviews}
+                                        loading={reviewsExpanding}
+                                    >
+                                        Show more
+                                    </LemonButton>
+                                )}
+                                {recentReviews.length > REVIEWS_PAGE_SIZE && (
+                                    <LemonButton size="small" type="tertiary" onClick={showFewerReviews}>
+                                        Show fewer
+                                    </LemonButton>
+                                )}
+                            </div>
+                        )}
+                    </>
                 ) : (
                     <div className="px-4 py-6 text-center text-sm text-secondary">
                         No reviews of your pull requests yet. Switch to "Entire project" to see the whole team's.
                     </div>
                 )}
             </LemonCard>
+        </section>
+    )
+}
+
+/**
+ * "Review a pull request": paste any PR URL the project's GitHub App installation can access and
+ * start a publishing review, acting as the requesting user. Hidden unless the backend says this
+ * project can trigger reviews (limited to the designated ReviewHog team while in alpha).
+ */
+function TriggerReviewSection(): JSX.Element | null {
+    const { settings, triggerPrUrl, triggeringReview } = useValues(reviewHogSettingsLogic)
+    const { setTriggerPrUrl, submitTriggerReview } = useActions(reviewHogSettingsLogic)
+
+    if (!settings?.can_trigger_reviews) {
+        return null
+    }
+    return (
+        <section className="flex flex-col gap-4">
+            <SectionHeader icon={<IconGithub />} title="Review a pull request">
+                Start a review of any pull request the GitHub App can access. The review is posted back to the pull
+                request, runs with your perspectives, and shows up under your recent reviews.
+            </SectionHeader>
+            <form
+                className="ml-9 flex flex-wrap items-center gap-2"
+                onSubmit={(e) => {
+                    e.preventDefault()
+                    submitTriggerReview()
+                }}
+            >
+                <LemonInput
+                    className="min-w-80 flex-1"
+                    placeholder="https://github.com/posthog/posthog.com/pull/1234"
+                    value={triggerPrUrl}
+                    onChange={setTriggerPrUrl}
+                />
+                <LemonButton
+                    type="primary"
+                    htmlType="submit"
+                    loading={triggeringReview}
+                    disabledReason={!triggerPrUrl.trim() ? 'Paste a pull request URL first' : undefined}
+                >
+                    Review
+                </LemonButton>
+            </form>
         </section>
     )
 }
@@ -995,7 +1070,7 @@ function UrgencySection(): JSX.Element {
 
     const activeIndex = Math.max(
         0,
-        URGENCY_STOPS.findIndex((stop) => stop.key === (settings?.urgency_threshold ?? 'should_fix'))
+        URGENCY_STOPS.findIndex((stop) => stop.key === (settings?.urgency_threshold ?? 'consider'))
     )
 
     return (
@@ -1462,6 +1537,7 @@ export function CodeReviewScene(): JSX.Element {
                     </LemonBanner>
                 )}
 
+                <TriggerReviewSection />
                 <RecentReviewsSection />
                 <PipelineSection />
                 <TriggersSection />

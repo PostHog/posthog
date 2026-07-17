@@ -33,7 +33,10 @@ import {
     ItemAnyComment,
     ItemAnyCommentDetail,
 } from 'scenes/session-recordings/player/inspector/components/ItemAnyComment'
-import { ItemExperimentVariant } from 'scenes/session-recordings/player/inspector/components/ItemExperimentVariant'
+import {
+    ItemExperimentVariant,
+    ItemExperimentVariantDetail,
+} from 'scenes/session-recordings/player/inspector/components/ItemExperimentVariant'
 import { ItemInactivity } from 'scenes/session-recordings/player/inspector/components/ItemInactivity'
 import { ItemSessionChange } from 'scenes/session-recordings/player/inspector/components/ItemSessionChange'
 import { ItemSummary } from 'scenes/session-recordings/player/inspector/components/ItemSummary'
@@ -115,7 +118,7 @@ const typeToIconAndDescription: Record<InspectorListItem['type'], IconAndDescrip
     },
 }
 
-const notExpandable = ['inspector-summary', 'inactivity', 'session-change', 'experiment-variant']
+const notExpandable = ['inspector-summary', 'inactivity', 'session-change']
 
 // TODO @posthog/icons doesn't export the type we need here
 // eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types,@typescript-eslint/explicit-function-return-type
@@ -253,6 +256,8 @@ function RowItemDetail({
                 <ItemDoctorDetail item={item} />
             ) : item.type === 'comment' ? (
                 <ItemAnyCommentDetail item={item} />
+            ) : item.type === 'experiment-variant' ? (
+                <ItemExperimentVariantDetail item={item} />
             ) : null}
         </div>
     )

@@ -191,7 +191,7 @@ class AirOpsSourceConfig(config.Config):
 
 @config.config
 class AirbrakeSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -382,7 +382,8 @@ class AshbySourceConfig(config.Config):
 
 @config.config
 class AsknicelySourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -490,7 +491,7 @@ class BeamerSourceConfig(config.Config):
 
 @config.config
 class BetterStackSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -763,7 +764,9 @@ class ChatwootSourceConfig(config.Config):
 
 @config.config
 class CheckmarxSourceConfig(config.Config):
-    pass
+    tenant_name: str
+    api_key: str
+    region: Literal["us", "us2", "eu", "eu2", "deu", "anz", "ind", "sng", "mea"] = config.value(default="us")
 
 
 @config.config
@@ -1037,12 +1040,14 @@ class CoupaSourceConfig(config.Config):
 
 @config.config
 class CoverallsSourceConfig(config.Config):
-    pass
+    repositories: str
+    service: Literal["github", "gitlab", "bitbucket"] = config.value(default="github")
+    api_token: str | None = None
 
 
 @config.config
 class CratesIOSourceConfig(config.Config):
-    pass
+    crates: str
 
 
 @config.config
@@ -1602,7 +1607,7 @@ class FreshserviceSourceConfig(config.Config):
 
 @config.config
 class FrillSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1639,7 +1644,9 @@ class GainsightPxSourceConfig(config.Config):
 
 @config.config
 class GerritSourceConfig(config.Config):
-    pass
+    host: str
+    username: str | None = None
+    http_password: str | None = None
 
 
 @config.config
@@ -1678,7 +1685,8 @@ class GitguardianSourceConfig(config.Config):
 @config.config
 class GithubSourceConfig(config.Config):
     auth_method: GithubAuthMethodConfig
-    repository: str
+    repositories: list[str] | None = config.value(converter=config.str_to_optional_list, default_factory=lambda: None)
+    repository: str | None = None
 
 
 @config.config
@@ -1968,7 +1976,8 @@ class HoneybadgerSourceConfig(config.Config):
 
 @config.config
 class HoneycombSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -2082,7 +2091,8 @@ class InstagramSourceConfig(config.Config):
 
 @config.config
 class InstanaSourceConfig(config.Config):
-    pass
+    base_url: str
+    api_token: str
 
 
 @config.config
@@ -2290,7 +2300,8 @@ class KoyebSourceConfig(config.Config):
 
 @config.config
 class KubecostSourceConfig(config.Config):
-    pass
+    host: str
+    api_key: str | None = None
 
 
 @config.config
@@ -2945,7 +2956,8 @@ class OpinionStageSourceConfig(config.Config):
 
 @config.config
 class OpsgenieSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -2980,7 +2992,8 @@ class OrbitSourceConfig(config.Config):
 
 @config.config
 class OrcaSecuritySourceConfig(config.Config):
-    pass
+    api_token: str
+    region: Literal["global", "us", "eu"] = config.value(default="global")
 
 
 @config.config
@@ -3017,7 +3030,8 @@ class OveitSourceConfig(config.Config):
 
 @config.config
 class PabblySubscriptionsBillingSourceConfig(config.Config):
-    pass
+    api_key: str
+    secret_key: str
 
 
 @config.config
@@ -3361,7 +3375,9 @@ class QualtricsSourceConfig(config.Config):
 
 @config.config
 class QualysVmdrSourceConfig(config.Config):
-    pass
+    api_server: str
+    username: str
+    password: str
 
 
 @config.config
@@ -3409,7 +3425,7 @@ class Rapid7InsightvmSourceConfig(config.Config):
 
 @config.config
 class RaygunSourceConfig(config.Config):
-    pass
+    personal_access_token: str
 
 
 @config.config
@@ -3709,7 +3725,7 @@ class SemaphoreSourceConfig(config.Config):
 
 @config.config
 class SemgrepSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -4054,7 +4070,10 @@ class StytchSourceConfig(config.Config):
 
 @config.config
 class SumoLogicSourceConfig(config.Config):
-    pass
+    access_id: str
+    access_key: str
+    deployment: Literal["us1", "us2", "au", "ca", "de", "eu", "fed", "in", "jp", "kr"] = config.value(default="us1")
+    search_query: str | None = None
 
 
 @config.config
@@ -4203,7 +4222,9 @@ class TemporalIOSourceConfig(config.Config):
 
 @config.config
 class TenableVulnerabilityManagementSourceConfig(config.Config):
-    pass
+    access_key: str
+    secret_key: str
+    region: Literal["standard", "fedramp"] = config.value(default="standard")
 
 
 @config.config
@@ -4213,7 +4234,8 @@ class TerraApiSourceConfig(config.Config):
 
 @config.config
 class TerraformCloudSourceConfig(config.Config):
-    pass
+    api_token: str
+    organization: str
 
 
 @config.config
@@ -4370,6 +4392,7 @@ class TypeformSourceConfig(config.Config):
     api_base_url: (
         Literal["https://api.typeform.com", "https://api.eu.typeform.com", "https://api.typeform.eu"] | None
     ) = config.value(default="https://api.typeform.com")
+    response_types: Literal["completed", "completed,partial,started"] | None = config.value(default="completed")
 
 
 @config.config
@@ -4678,7 +4701,7 @@ class ZendeskSunshineSourceConfig(config.Config):
 
 @config.config
 class ZendutySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
