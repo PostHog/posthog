@@ -624,39 +624,34 @@ def test_validate_credentials_maps_google_auth_error(auth_error, expect_retry_hi
         pytest.param(GOOGLE_SHEETS_API_VERSION_V4, GOOGLE_SHEETS_API_VERSION_V4, id="v4_pin_honored"),
     ],
 )
-def test_source_for_pipeline_threads_resolved_api_version_to_client(pinned_version, expected_version):
+def test_source_for_pipeline_threads_resolved_api_version_to_worksheet(pinned_version, expected_version):
     """The source resolves the instance's pin (falling back to the default) and threads the result
-    down to where the gspread client is built. Dropping the resolve or the threading would send the
-    wrong version — or none — to the request layer, breaking the seam every future Sheets version
-    relies on. Byte-for-byte behaviour is unchanged today because gspread pins the v4 base URL."""
-    # Distinct URL per case so the module-level worksheet TTLCache (keyed on url + id + version)
-    # can't serve one case's worksheet to another.
-    config = GoogleSheetsSourceConfig(
-        spreadsheet_url=f"https://docs.google.com/spreadsheets/d/fake-{expected_version}-{pinned_version}"
-    )
+    down to `_get_worksheet`, where it keys the handle cache. Dropping the resolve or the threading
+    would send the wrong version — or none — to the request layer, breaking the seam every future
+    Sheets version relies on. Behaviour is unchanged today because gspread pins the v4 base URL."""
+    config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
 
     worksheet = mock.MagicMock()
-    worksheet.title = "sheet1"
-    worksheet.id = 123
     worksheet.get_all_values.return_value = [["id"]]
     worksheet.get_all_records.return_value = [{"id": 1}]
-
-    spreadsheet = mock.MagicMock()
-    spreadsheet.worksheets.return_value = [worksheet]
-    spreadsheet.get_worksheet_by_id.return_value = worksheet
 
     inputs = mock.MagicMock()
     inputs.schema_name = "sheet1"
     inputs.should_use_incremental_field = False
     inputs.api_version = pinned_version
 
-    with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.google_sheets_client"
-    ) as mock_client:
-        mock_client.return_value.open_by_url.return_value = spreadsheet
-
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.get_schemas",
+            return_value=[("sheet1", 123)],
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets._get_worksheet",
+            return_value=worksheet,
+        ) as mock_get_worksheet,
+    ):
         response = GoogleSheetsSource().source_for_pipeline(config, inputs)
         list(cast(Iterable[Any], response.items()))
 
-    assert mock_client.called
-    assert all(call == mock.call(expected_version) for call in mock_client.call_args_list)
+    assert mock_get_worksheet.called
+    assert all(call.args[2] == expected_version for call in mock_get_worksheet.call_args_list)
