@@ -510,6 +510,7 @@ const insightsTrendingRetrieve = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/trending/`,
             query: {
                 days: params.days,
+                include_dashboards: params.include_dashboards,
                 limit: params.limit,
                 offset: params.offset,
             },

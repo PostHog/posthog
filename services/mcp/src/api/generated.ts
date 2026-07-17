@@ -67473,6 +67473,10 @@ export namespace Schemas {
     days?: number;
     format?: EnvironmentsInsightsTrendingRetrieveFormat;
     /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
+    /**
      * Maximum number of insights to return. Defaults to 10. Capped at 100.
      */
     limit?: number;
@@ -75091,6 +75095,10 @@ export namespace Schemas {
      */
     days?: number;
     format?: InsightsTrendingRetrieveFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     /**
      * Maximum number of insights to return. Defaults to 10. Capped at 100.
      */

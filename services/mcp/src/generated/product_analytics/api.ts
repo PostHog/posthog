@@ -416,6 +416,12 @@ export const InsightsTrendingRetrieveQueryParams = /* @__PURE__ */ zod.object({
             "Time window in days to compute view counts over. Defaults to 7. Larger windows surface consistently popular insights; smaller windows surface what's hot right now."
         ),
     format: zod.enum(['csv', 'json']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
+        ),
     limit: zod.number().optional().describe('Maximum number of insights to return. Defaults to 10. Capped at 100.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
