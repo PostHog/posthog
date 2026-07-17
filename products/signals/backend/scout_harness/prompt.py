@@ -450,6 +450,8 @@ Pin to v{skill.version} explicitly — the run row, your tool resolution, and yo
 
 The body tells you what to investigate, in what order, with what hypotheses. Pull files on demand with `skill-file-get` only when the body references them. Don't start investigating before you've read it.
 
+If the `body` you get back is shorter than the response's `body_total_length`, it was truncated in transit — page through the rest with `body_offset`/`body_length` and keep fetching from `body_next_offset` until it comes back null, so you read the whole procedure and don't start on a partial one.
+
 # Then: orient on this project
 
 Once you've read your skill, call:

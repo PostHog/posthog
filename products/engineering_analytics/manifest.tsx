@@ -121,6 +121,7 @@ export const manifest: ProductManifest = {
             href: urls.engineeringAnalytics(),
             flag: FEATURE_FLAGS.ENGINEERING_ANALYTICS,
             tags: ['alpha'],
+            pinnedByDefault: true,
             sceneKey: 'EngineeringAnalytics',
         },
     ],

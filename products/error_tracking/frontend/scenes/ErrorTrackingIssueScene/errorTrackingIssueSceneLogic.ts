@@ -636,8 +636,12 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             loadSimilarIssuesFailure: (_, { error }) => error,
         },
         initialEventTimestamp: {
+            // A malformed `timestamp` URL param (truncated/mangled shared links, crawlers) would
+            // otherwise be stored and fed to getNarrowDateRange, where dayjs().toISOString() throws
+            // a RangeError on an Invalid Date. Ignore invalid values so we fall back to the valid
+            // last_seen/first_seen the server provides, exactly as if no timestamp were passed.
             setInitialEventTimestamp: (state, { timestamp }) => {
-                if (!state && timestamp) {
+                if (!state && timestamp && dayjs(timestamp).isValid()) {
                     return timestamp
                 }
                 return state
@@ -702,6 +706,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         },
         initialEvent: {
             loadInitialEvent: async ({ timestamp }) => {
+                // Guard the narrow-range formatting below: an invalid timestamp makes
+                // getNarrowDateRange throw a RangeError. Treat it as "no initial event".
+                if (!dayjs(timestamp).isValid()) {
+                    return null
+                }
                 const response = await api.query(
                     errorTrackingIssueQuery({
                         issueId: props.id,

@@ -953,8 +953,6 @@ class FeatureFlagSerializer(
             "experiment_set_metadata",
             "surveys",
             "features",
-            "rollback_conditions",
-            "performed_rollback",
             "can_edit",
             "tags",
             "evaluation_contexts",
@@ -2088,10 +2086,6 @@ class FeatureFlagSerializer(
         if "get_filters" in validated_data:
             validated_data["filters"] = validated_data.pop("get_filters")
 
-        active = validated_data.get("active", None)
-        if active:
-            validated_data["performed_rollback"] = False
-
     def get_status(self, feature_flag: FeatureFlag) -> str:
         checker = FeatureFlagStatusChecker(feature_flag=feature_flag)
         flag_status, _ = checker.get_status()
@@ -2489,8 +2483,6 @@ class FeatureFlagVersionResponseSerializer(serializers.ModelSerializer):
             "active",
             "deleted",
             "version",
-            "rollback_conditions",
-            "performed_rollback",
             "ensure_experience_continuity",
             "has_enriched_analytics",
             "is_remote_configuration",
