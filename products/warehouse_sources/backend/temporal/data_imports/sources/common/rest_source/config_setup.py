@@ -21,6 +21,7 @@ from .paginators import (
     SinglePagePaginator,
     single_entity_path,
 )
+from .rest_client import RESTClientRetryableError
 from .typing import (
     AuthConfig,
     AuthType,
@@ -336,25 +337,24 @@ def _find_resolved_params(endpoint_config: Endpoint) -> list[ResolvedParam]:
     ]
 
 
-def _handle_response_actions(response: Response, actions: list[ResponseAction]) -> Optional[str]:
+def _handle_response_actions(response: Response, actions: list[ResponseAction]) -> Optional[ResponseAction]:
     content = response.text
 
     for action in actions:
         status_code = action.get("status_code")
         content_substr = action.get("content")
-        action_type = action.get("action")
-        if action_type is None:
+        if action.get("action") is None:
             continue
 
         if status_code is not None and content_substr is not None:
             if response.status_code == status_code and content_substr in content:
-                return action_type
+                return action
         elif status_code is not None:
             if response.status_code == status_code:
-                return action_type
+                return action
         elif content_substr is not None:
             if content_substr in content:
-                return action_type
+                return action
 
     return None
 
@@ -363,10 +363,25 @@ def _create_response_actions_hook(
     response_actions: list[ResponseAction],
 ) -> Callable[[Response, Any, Any], None]:
     def response_actions_hook(response: Response, *args: Any, **kwargs: Any) -> None:
-        action_type = _handle_response_actions(response, response_actions)
+        matched = _handle_response_actions(response, response_actions)
+        action_type = matched.get("action") if matched else None
+
         if action_type == "ignore":
             logger.info(f"Ignoring response with code {response.status_code} and content '{response.json()}'.")
             raise IgnoreResponseException
+
+        # Re-issue the request. This is how a source classifies an HTTP-200 body-level error
+        # envelope (e.g. an in-body rate-limit signal) or a non-5xx status as retryable, since the
+        # client's own retry check only fires on 429/5xx status codes.
+        if action_type == "retry":
+            raise RESTClientRetryableError(
+                (matched and matched.get("message")) or f"Retryable response (HTTP {response.status_code})"
+            )
+
+        # Fail loud with a permanent, non-retryable error — for a success-status body error envelope
+        # that should surface an actionable message rather than silently syncing 0 rows.
+        if action_type == "raise":
+            raise ValueError((matched and matched.get("message")) or f"Error response (HTTP {response.status_code})")
 
         if not action_type and response.status_code >= 400:
             response.raise_for_status()

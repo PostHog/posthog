@@ -223,7 +223,19 @@ class ResolvedParam:
 class ResponseAction(TypedDict, total=False):
     status_code: Optional[int | str]
     content: Optional[str]
+    # One of:
+    #  - "ignore" — treat the matched response as a valid empty page and stop pagination.
+    #  - "retry"  — raise a retryable error so the request is re-issued (for an HTTP-200 body-level
+    #               error envelope, e.g. a rate-limit signal carried in the JSON, or to promote a
+    #               non-5xx status like 408 to retryable). The framework retries on HTTP status only,
+    #               so this is the hook for content-classified retries.
+    #  - "raise"  — raise a permanent (non-retryable) error with ``message``, for a success-status
+    #               body error envelope that should fail loud with an actionable message that
+    #               ``get_non_retryable_errors`` can match.
     action: str
+    # Message for the "raise" action (and, optionally, "retry"). Authored in the manifest, so it
+    # carries no secret — kept out of any URL. Falls back to a status-only default when unset.
+    message: Optional[str]
 
 
 class Endpoint(TypedDict, total=False):
