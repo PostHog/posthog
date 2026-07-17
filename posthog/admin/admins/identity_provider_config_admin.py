@@ -17,11 +17,14 @@ class IdentityProviderConfigAdmin(admin.ModelAdmin):
     )
     list_filter = ("scim_enabled",)
     search_fields = ("name", "organization__name", "domains__domain")
-    readonly_fields = ("id", "created_at", "updated_at", "linked_domains")
+    readonly_fields = ("id", "created_at", "updated_at", "linked_domains", "saml_relay_state")
     autocomplete_fields = ["organization"]
     fieldsets = (
         (None, {"fields": ("id", "organization", "name", "created_at", "updated_at", "linked_domains")}),
-        ("SAML Configuration", {"fields": ("saml_entity_id", "saml_acs_url", "saml_x509_cert")}),
+        (
+            "SAML Configuration",
+            {"fields": ("saml_entity_id", "saml_acs_url", "saml_x509_cert", "saml_relay_state")},
+        ),
         ("SCIM Configuration", {"fields": ("scim_enabled", "scim_bearer_token")}),
         ("ID-JAG (XAA) Configuration", {"fields": ("id_jag_issuer_url", "id_jag_jwks_url", "id_jag_allowed_clients")}),
     )
