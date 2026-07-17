@@ -129,6 +129,10 @@
                 font-size: 12px;
                 margin: -8px 0 16px;
             }
+            .Shell__hint--toggle {
+                margin: 12px 0 4px;
+                text-align: center;
+            }
             .Shell__hint button {
                 background: none;
                 border: 0;
@@ -264,14 +268,20 @@
                     autocomplete="off"
                     spellcheck="false"
                 />
-                <label class="Shell__label" for="api-key">Personal API key</label>
-                <input class="Shell__input" id="api-key" type="password" placeholder="phx_..." autocomplete="off" />
-                <p class="Shell__hint">
-                    Create one with all scopes under
-                    <button id="open-key-settings" type="button">Settings &rsaquo; Personal API keys</button>
-                    in PostHog.
+                <button class="Shell__button" id="browser-sign-in" type="button">Sign in with browser</button>
+                <p class="Shell__hint Shell__hint--toggle">
+                    <button id="toggle-api-key" type="button">Use a personal API key instead</button>
                 </p>
-                <button class="Shell__button" id="sign-in" type="button">Sign in</button>
+                <div id="api-key-form" class="Shell--hidden">
+                    <label class="Shell__label" for="api-key">Personal API key</label>
+                    <input class="Shell__input" id="api-key" type="password" placeholder="phx_..." autocomplete="off" />
+                    <p class="Shell__hint">
+                        Create one with all scopes under
+                        <button id="open-key-settings" type="button">Settings &rsaquo; Personal API keys</button>
+                        in PostHog.
+                    </p>
+                    <button class="Shell__button" id="sign-in" type="button">Sign in</button>
+                </div>
                 <p class="Shell__error" id="error"></p>
             </section>
 

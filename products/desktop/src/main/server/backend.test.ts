@@ -73,6 +73,10 @@ describe('local backend', () => {
                 distDir,
                 cacheDir,
                 getAuth: () => auth,
+                onOAuthCallback: async (query) => ({
+                    ok: query.get('code') === 'good',
+                    message: `handled:${query.get('state')}`,
+                }),
                 onSignOutRequested: () => {
                     signOutRequests += 1
                 },
@@ -187,6 +191,14 @@ describe('local backend', () => {
         const response = await fetch(`${backend.origin}/logout`)
         assert.equal(response.status, 200)
         assert.equal(signOutRequests, 1)
+        assert.equal(upstreamRequests.length, 0)
+    })
+
+    test('/oauth/callback is routed to the OAuth handler instead of the SPA', async () => {
+        const response = await fetch(`${backend.origin}/oauth/callback?code=good&state=xyz`)
+        assert.equal(response.status, 200)
+        const body = await response.text()
+        assert.match(body, /handled:xyz/)
         assert.equal(upstreamRequests.length, 0)
     })
 

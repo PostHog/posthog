@@ -33,8 +33,10 @@ export interface LocalBackendOptions {
     distDir: string
     /** Directory for the offline response cache */
     cacheDir: string
-    /** Returns the current auth, or null when signed out */
-    getAuth: () => UpstreamAuth | null
+    /** Returns the current auth, or null when signed out. May be async when a token refresh is needed. */
+    getAuth: () => UpstreamAuth | null | Promise<UpstreamAuth | null>
+    /** Handles the OAuth loopback redirect (GET /oauth/callback); returns the message shown in the browser tab */
+    onOAuthCallback?: (query: URLSearchParams) => Promise<{ ok: boolean; message: string }>
     /** Called when the renderer navigates to /logout */
     onSignOutRequested: () => void
     /** Called when the upstream rejects the stored credentials (e.g. a revoked API key) */
@@ -184,7 +186,7 @@ async function proxyRequest(
     pathname: string,
     options: LocalBackendOptions
 ): Promise<void> {
-    const auth = options.getAuth()
+    const auth = await options.getAuth()
     if (!auth) {
         sendJson(res, 401, {
             type: 'authentication_error',
@@ -306,6 +308,19 @@ const SIGNED_OUT_HTML = `<!doctype html>
 <p>Signing out...</p>
 </body></html>`
 
+function escapeHtml(text: string): string {
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+function oauthCallbackHtml(ok: boolean, message: string): string {
+    return `<!doctype html>
+<html><head><meta charset="utf-8"><title>PostHog</title></head>
+<body style="font-family: sans-serif; background: #1d1f27; color: #fff; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center">
+<div><h2 style="margin-bottom: 8px">${ok ? 'Signed in to PostHog' : 'Sign-in failed'}</h2>
+<p style="color: #b8b8b3">${escapeHtml(message)}</p></div>
+</body></html>`
+}
+
 export async function startLocalBackend(options: LocalBackendOptions, preferredPort: number): Promise<LocalBackend> {
     const manifest = readPreloadManifest(options.distDir)
     const indexHtml = manifest
@@ -313,10 +328,29 @@ export async function startLocalBackend(options: LocalBackendOptions, preferredP
         : null
 
     const server = http.createServer((req, res) => {
-        const pathname = new URL(req.url || '/', 'http://localhost').pathname
+        const url = new URL(req.url || '/', 'http://localhost')
+        const pathname = url.pathname
 
         if (pathname === '/__desktop/health') {
-            sendJson(res, 200, { ok: true, authenticated: options.getAuth() !== null })
+            void Promise.resolve(options.getAuth()).then((auth) => {
+                sendJson(res, 200, { ok: true, authenticated: auth !== null })
+            })
+            return
+        }
+        if (pathname === '/oauth/callback' && options.onOAuthCallback) {
+            options
+                .onOAuthCallback(url.searchParams)
+                .then(({ ok, message }) => {
+                    res.writeHead(ok ? 200 : 400, {
+                        'content-type': 'text/html; charset=utf-8',
+                        'cache-control': 'no-store',
+                    })
+                    res.end(oauthCallbackHtml(ok, message))
+                })
+                .catch(() => {
+                    res.writeHead(500, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+                    res.end(oauthCallbackHtml(false, 'Something went wrong. Start again from the PostHog app.'))
+                })
             return
         }
         if (pathname === '/logout') {

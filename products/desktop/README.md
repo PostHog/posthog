@@ -35,7 +35,9 @@ pnpm turbo build --filter=@posthog/frontend
 pnpm --filter=@posthog/desktop start
 ```
 
-Sign in by choosing a region (US Cloud, EU Cloud, or a custom host) and pasting a personal API key, created in PostHog under Settings › Personal API keys. Give the key all scopes you want the app to be able to use.
+Sign in by choosing a region (US Cloud, EU Cloud, or a custom host) and clicking "Sign in with browser": the app opens PostHog Cloud's OAuth consent flow in your system browser (password, Google or SAML — whatever your account uses), receives the callback on its local loopback server, and stores the refresh token encrypted with `safeStorage`. Access tokens are refreshed automatically before they expire.
+
+Alternatively, use "Use a personal API key instead" and paste a key created in PostHog under Settings › Personal API keys (give it all scopes you want the app to be able to use). A personal API key is the only option for custom hosts, unless `POSTHOG_DESKTOP_OAUTH_CLIENT_ID` points at an OAuth app registered on that instance.
 
 ## Development
 

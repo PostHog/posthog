@@ -12,6 +12,7 @@ import * as path from 'node:path'
 
 import { registerIpcHandlers } from './ipc.ts'
 import { buildAppMenu } from './menu.ts'
+import { OAuthBrowserFlow } from './oauth.ts'
 import { isFrontendBuilt, type LocalBackend, startLocalBackend } from './server/backend.ts'
 import { type DesktopSettings, DEFAULT_SETTINGS, JsonStore } from './settings.ts'
 import { AppState } from './state.ts'
@@ -86,20 +87,26 @@ async function main(): Promise<void> {
 
     await app.whenReady()
 
+    const oauthFlow = new OAuthBrowserFlow()
+
     let backend: LocalBackend
     try {
         backend = await startLocalBackend(
             {
                 distDir,
                 cacheDir: path.join(app.getPath('userData'), 'offline-cache'),
-                getAuth: () => state.getAuth(),
+                getAuth: () => state.getFreshAuth(),
+                onOAuthCallback: (query) => oauthFlow.handleCallback(query),
                 onSignOutRequested: () => {
                     state.signOut()
                     showShell()
                 },
                 onAuthRejected: () => {
-                    state.signOut()
-                    showShell()
+                    void state.handleAuthRejected().then((signedOut) => {
+                        if (signedOut) {
+                            showShell()
+                        }
+                    })
                 },
                 upstreamHeaders: { 'user-agent': `PostHog-Desktop/${app.getVersion()}` },
                 desktopVersion: app.getVersion(),
@@ -148,7 +155,7 @@ async function main(): Promise<void> {
         return win
     }
 
-    registerIpcHandlers(state, { showShell, showApp })
+    registerIpcHandlers(state, oauthFlow, { showShell, showApp })
     buildAppMenu({
         showShell,
         newWindow: () => {

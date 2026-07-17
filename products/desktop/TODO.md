@@ -32,8 +32,9 @@ The long-term goal is to merge PostHog Code (github.com/posthog/code) into this 
 
 ### Auth
 
-- [ ] OAuth (PKCE) sign-in instead of pasted personal API keys: register per-region public OAuth client IDs (like PostHog Code has), open the system browser, receive the callback via a `posthog://` deep link or loopback redirect. The frontend already has most of the plumbing in `frontend/src/lib/oauth/oauthClient.ts`, but it is DEBUG-gated server-side today
-- [ ] Token refresh + "network error vs auth error" distinction so flaky networks never sign the user out
+- [x] OAuth (PKCE) sign-in through the system browser (`src/main/oauth.ts`): reuses the per-region public client IDs from `frontend/src/lib/oauth/oauthClient.ts`, loopback redirect on the local server's `/oauth/callback`, tokens encrypted with safeStorage, on-demand refresh with rotation. Personal API key sign-in remains as the fallback (and the only option for custom hosts without `POSTHOG_DESKTOP_OAUTH_CLIENT_ID`)
+- [x] Token refresh + "network error vs auth error" distinction so flaky networks never sign the user out (terminal vs transient refresh failures; a 401 on `@me` forces one refresh before signing out)
+- [ ] Confirm the pre-registered cloud OAuth clients allow the `http://localhost/oauth/callback` loopback redirect and the `*` scope; if not, register a first-party "PostHog Desktop" app per region (admin data change, no backend code)
 - [ ] Multi-account / multi-region switching without re-entering credentials
 
 ### Frontend integration

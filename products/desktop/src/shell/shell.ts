@@ -1,6 +1,8 @@
 /**
- * The shell UI: region selection, sign-in, and account management. Everything
- * here works offline except the sign-in verification itself.
+ * The shell UI: region selection, sign-in, and account management. Browser
+ * sign-in (OAuth) is the primary path for cloud regions; a pasted personal API
+ * key remains available as a fallback and is the only option for custom hosts.
+ * Everything here works offline except the sign-in itself.
  */
 
 import type { CloudRegion, DesktopApi, DesktopState } from '../shared/ipc.ts'
@@ -25,6 +27,9 @@ const signinCard = el<HTMLElement>('signin-card')
 const signedinCard = el<HTMLElement>('signedin-card')
 const regionsContainer = el<HTMLElement>('regions')
 const customHostInput = el<HTMLInputElement>('custom-host')
+const browserSignInButton = el<HTMLButtonElement>('browser-sign-in')
+const toggleApiKeyButton = el<HTMLButtonElement>('toggle-api-key')
+const apiKeyForm = el<HTMLElement>('api-key-form')
 const apiKeyInput = el<HTMLInputElement>('api-key')
 const signInButton = el<HTMLButtonElement>('sign-in')
 const errorText = el<HTMLElement>('error')
@@ -32,7 +37,19 @@ const statusText = el<HTMLElement>('status')
 const frontendWarning = el<HTMLElement>('frontend-warning')
 
 let selectedRegion: CloudRegion = 'us'
+let browserSignInAvailable: Record<CloudRegion, boolean> = { us: true, eu: true, custom: false }
+let apiKeyFormOpen = false
 let signingIn = false
+let browserFlowSeq = 0
+
+function renderSignInMethods(): void {
+    const browserAvailable = browserSignInAvailable[selectedRegion]
+    browserSignInButton.classList.toggle('Shell--hidden', !browserAvailable)
+    toggleApiKeyButton.parentElement?.classList.toggle('Shell--hidden', !browserAvailable)
+    // Without browser sign-in the API key form is the only path, so it is always open
+    apiKeyForm.classList.toggle('Shell--hidden', browserAvailable && !apiKeyFormOpen)
+    toggleApiKeyButton.textContent = apiKeyFormOpen ? 'Hide the API key form' : 'Use a personal API key instead'
+}
 
 function setRegion(region: CloudRegion): void {
     selectedRegion = region
@@ -40,6 +57,7 @@ function setRegion(region: CloudRegion): void {
         button.classList.toggle('Shell__region--active', button.dataset.region === region)
     }
     customHostInput.classList.toggle('Shell--hidden', region !== 'custom')
+    renderSignInMethods()
 }
 
 function showError(message: string): void {
@@ -48,6 +66,7 @@ function showError(message: string): void {
 }
 
 function render(state: DesktopState): void {
+    browserSignInAvailable = state.browserSignIn
     frontendWarning.classList.toggle('Shell__warning--visible', !state.frontendBuilt)
     signinCard.style.display = state.signedIn ? 'none' : 'block'
     signedinCard.style.display = state.signedIn ? 'block' : 'none'
@@ -71,6 +90,11 @@ regionsContainer.addEventListener('click', (event) => {
     }
 })
 
+toggleApiKeyButton.addEventListener('click', () => {
+    apiKeyFormOpen = !apiKeyFormOpen
+    renderSignInMethods()
+})
+
 el<HTMLButtonElement>('open-key-settings').addEventListener('click', () => {
     const host =
         selectedRegion === 'custom'
@@ -78,6 +102,38 @@ el<HTMLButtonElement>('open-key-settings').addEventListener('click', () => {
             : `https://${selectedRegion}.posthog.com`
     void desktop.openExternal(`${host.replace(/\/$/, '')}/settings/user-api-keys`)
 })
+
+async function completeSignIn(): Promise<void> {
+    apiKeyInput.value = ''
+    const state = await desktop.getState()
+    render(state)
+    if (state.signedIn && state.frontendBuilt) {
+        void desktop.openApp()
+    }
+}
+
+async function signInWithBrowser(): Promise<void> {
+    // Deliberately re-clickable while waiting: a second click restarts the flow
+    // (the user may have closed the browser tab), superseding the previous attempt
+    const seq = ++browserFlowSeq
+    browserSignInButton.textContent = 'Waiting for the browser... click to retry'
+    showError('')
+    try {
+        const result = await desktop.signInWithBrowser({
+            region: selectedRegion,
+            customHost: customHostInput.value,
+        })
+        if (result.ok) {
+            await completeSignIn()
+        } else if (seq === browserFlowSeq) {
+            showError(result.error)
+        }
+    } finally {
+        if (seq === browserFlowSeq) {
+            browserSignInButton.textContent = 'Sign in with browser'
+        }
+    }
+}
 
 async function signIn(): Promise<void> {
     if (signingIn) {
@@ -94,12 +150,7 @@ async function signIn(): Promise<void> {
             apiKey: apiKeyInput.value,
         })
         if (result.ok) {
-            apiKeyInput.value = ''
-            const state = await desktop.getState()
-            render(state)
-            if (state.frontendBuilt) {
-                void desktop.openApp()
-            }
+            await completeSignIn()
         } else {
             showError(result.error)
         }
@@ -110,6 +161,7 @@ async function signIn(): Promise<void> {
     }
 }
 
+browserSignInButton.addEventListener('click', () => void signInWithBrowser())
 signInButton.addEventListener('click', () => void signIn())
 apiKeyInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {

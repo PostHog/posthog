@@ -23,6 +23,14 @@ export interface DesktopSettings {
     windowBounds: WindowBounds | null
     /** Personal API key, encrypted with Electron safeStorage (see secrets.ts) */
     encryptedApiKey: string | null
+    /** OAuth refresh token (phr_...), encrypted with Electron safeStorage */
+    encryptedOauthRefreshToken: string | null
+    /** Last OAuth access token (pha_...), encrypted; kept so offline boots still have an auth to attach */
+    encryptedOauthAccessToken: string | null
+    /** Epoch ms when the stored OAuth access token expires */
+    oauthExpiresAt: number | null
+    /** OAuth client the stored tokens were issued to */
+    oauthClientId: string | null
     signedInEmail: string | null
 }
 
@@ -32,6 +40,10 @@ export const DEFAULT_SETTINGS: DesktopSettings = {
     port: 48752,
     windowBounds: null,
     encryptedApiKey: null,
+    encryptedOauthRefreshToken: null,
+    encryptedOauthAccessToken: null,
+    oauthExpiresAt: null,
+    oauthClientId: null,
     signedInEmail: null,
 }
 
