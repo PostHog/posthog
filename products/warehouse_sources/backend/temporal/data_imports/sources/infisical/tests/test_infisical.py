@@ -394,6 +394,32 @@ class TestResponseLimits:
                 infisical_module._read_capped_body(response)
         response.close.assert_called_once()
 
+    def test_watchdog_shuts_socket_down_when_read_blocks_past_deadline(self):
+        # read1 keeps the deadline enforceable between reads, but a chunked body falls through
+        # to readline() while parsing the chunk-size line, which loops until CRLF — a host
+        # dripping an unterminated size line stays inside one read past the deadline, so the
+        # between-reads check never fires. The socket-level watchdog must shut the connection
+        # down to force that read to return and abort. Firing the timer synchronously simulates
+        # the deadline elapsing while a read is in flight.
+        response = mock.MagicMock()
+
+        class _ImmediateTimer:
+            def __init__(self, interval, function, args=(), kwargs=None):
+                self._function = function
+                self._args = args
+
+            def start(self):
+                self._function(*self._args)
+
+            def cancel(self):
+                pass
+
+        with mock.patch.object(infisical_module.threading, "Timer", _ImmediateTimer):
+            with pytest.raises(InfisicalResponseTooLargeError):
+                infisical_module._read_capped_body(response)
+        response.raw._connection.sock.shutdown.assert_called_once()
+        response.close.assert_called()
+
     def test_pagination_stops_at_max_pages(self):
         # A host that always returns a full page would loop forever without the page cap.
         identities_config = INFISICAL_ENDPOINTS["identities"]

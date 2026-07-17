@@ -1,5 +1,8 @@
 import re
 import time
+import socket
+import threading
+import contextlib
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -133,6 +136,28 @@ def _retry_wait(retry_state: RetryCallState) -> float:
     return wait_exponential_jitter(initial=1, max=30)(retry_state)
 
 
+def _abort_on_deadline(response: requests.Response, tripped: threading.Event) -> None:
+    """Watchdog: fire once the total-transfer deadline passes and unblock any in-progress read.
+
+    ``read1`` bounds a *plain* drip because the deadline is re-checked between reads, but for a
+    ``Transfer-Encoding: chunked`` body it falls through to the stdlib ``readline()`` that parses
+    the chunk-size line, which loops until CRLF — a host dripping an unterminated size line stays
+    inside one read past the deadline. Shutting the socket down forces that blocked read to
+    return so the caller can abort, at the socket layer, regardless of what it's blocked on.
+    Closing the response is the fallback when the raw socket isn't reachable (the read then
+    unwinds on its idle timeout).
+    """
+    tripped.set()
+    raw = getattr(response, "raw", None)
+    conn = getattr(raw, "_connection", None) or getattr(raw, "connection", None)
+    sock = getattr(conn, "sock", None)
+    if sock is not None:
+        with contextlib.suppress(Exception):
+            sock.shutdown(socket.SHUT_RDWR)
+    with contextlib.suppress(Exception):
+        response.close()
+
+
 def _read_body_chunk(response: requests.Response, size: int) -> bytes:
     """Read up to ``size`` bytes with a *single* underlying socket read.
 
@@ -171,36 +196,52 @@ def _read_capped_body(response: requests.Response) -> None:
     Aborts (closing the connection) once the byte cap or the total-transfer deadline is
     crossed rather than letting a hostile or misbehaving host stream an unbounded chunked
     body — or drip one byte at a time forever — and exhaust the worker. Reads a single socket
-    read at a time (see ``_read_body_chunk``) so the deadline is enforceable between reads.
-    Pins the bytes onto the response so downstream ``.json()`` / ``.text`` keep working.
+    read at a time (see ``_read_body_chunk``) so the deadline is enforceable between reads, and
+    a watchdog shuts the socket down at the deadline so a read stuck parsing a dripped chunk
+    frame can't outlast it either. Pins the bytes onto the response so downstream ``.json()`` /
+    ``.text`` keep working.
     """
     total = 0
     chunks: list[bytes] = []
     deadline = time.monotonic() + MAX_RESPONSE_SECONDS
-    while True:
-        # A slow-drip host can stay under the byte cap and never trip the idle read timeout,
-        # so bound the total transfer time as well. Checked before every single read.
-        if time.monotonic() > deadline:
-            response.close()
-            raise InfisicalResponseTooLargeError(
-                f"Infisical response did not finish within {MAX_RESPONSE_SECONDS}s; aborting"
-            )
-        chunk = _read_body_chunk(response, RESPONSE_CHUNK_BYTES)
-        if not chunk:
-            break
-        total += len(chunk)
-        if total > MAX_RESPONSE_BYTES:
-            response.close()
-            raise InfisicalResponseTooLargeError(
-                f"Infisical response exceeded {MAX_RESPONSE_BYTES} bytes; refusing to buffer it"
-            )
-        chunks.append(chunk)
+    tripped = threading.Event()
+    watchdog = threading.Timer(MAX_RESPONSE_SECONDS, _abort_on_deadline, args=(response, tripped))
+    watchdog.daemon = True
+    watchdog.start()
+    deadline_msg = f"Infisical response did not finish within {MAX_RESPONSE_SECONDS}s; aborting"
+    try:
+        while True:
+            # A slow-drip host can stay under the byte cap and never trip the idle read
+            # timeout, so bound the total transfer time as well. Checked before every single
+            # read; the watchdog is the backstop for a read that blocks past the deadline.
+            if tripped.is_set() or time.monotonic() > deadline:
+                response.close()
+                raise InfisicalResponseTooLargeError(deadline_msg)
+            chunk = _read_body_chunk(response, RESPONSE_CHUNK_BYTES)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX_RESPONSE_BYTES:
+                response.close()
+                raise InfisicalResponseTooLargeError(
+                    f"Infisical response exceeded {MAX_RESPONSE_BYTES} bytes; refusing to buffer it"
+                )
+            chunks.append(chunk)
+    except (requests.RequestException, OSError, ValueError) as exc:
+        # The watchdog shutting the socket down surfaces as a read/connection error (or a read
+        # on a closed file); translate it so it isn't mistaken for a retryable blip.
+        if tripped.is_set():
+            raise InfisicalResponseTooLargeError(deadline_msg) from exc
+        raise
+    finally:
+        watchdog.cancel()
+    # A body that finished exactly as the watchdog fired still counts as over-deadline.
+    if tripped.is_set():
+        raise InfisicalResponseTooLargeError(deadline_msg)
     # Reading raw bypasses urllib3's own connection release, so return the drained connection
     # to the pool ourselves to keep the reused session's keep-alive working.
-    try:
+    with contextlib.suppress(Exception):
         response.raw.release_conn()
-    except Exception:
-        pass
     # Setting _content to real bytes short-circuits Response.content, so downstream
     # .json()/.text return this buffer instead of re-reading the consumed stream.
     response._content = b"".join(chunks)
