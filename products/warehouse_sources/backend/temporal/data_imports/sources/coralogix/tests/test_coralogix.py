@@ -182,7 +182,7 @@ class TestRunQuery:
     def _query(self, response: Response) -> list[dict]:
         session = MagicMock()
         session.post.return_value = response
-        return _run_query.__wrapped__(
+        return _run_query.__wrapped__(  # type: ignore[attr-defined]
             session, QUERY_URL, "logs", "TIER_FREQUENT_SEARCH", NOW - timedelta(hours=1), NOW, MagicMock()
         )
 
