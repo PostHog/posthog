@@ -1077,6 +1077,17 @@ def get_ip_address(request: HttpRequest) -> str:
     return ip
 
 
+def sanitize_ip_address(ip: Any) -> Optional[str]:
+    """Return the value only if it is a valid IP address string, otherwise None.
+
+    Use this before persisting an externally supplied IP so a malformed or non-string
+    value can't reach an IP database column and fail the write.
+    """
+    if not isinstance(ip, str):
+        return None
+    return _normalize_ip(ip)
+
+
 def _normalize_ip(ip: str) -> Optional[str]:
     """Strip an optional port and validate; returns None if the result isn't a valid IP."""
     if ip.startswith("["):

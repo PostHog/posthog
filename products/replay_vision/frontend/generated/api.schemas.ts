@@ -888,6 +888,62 @@ export interface PatchedReplayScannerApi {
 }
 
 /**
+ * Body of POST /vision/scanners/:id/affected_cohort/. Same qualifiers as the impact GET.
+ */
+export interface AffectedCohortRequestApi {
+    /**
+     * Trailing window of observations to count. Defaults to 30 days.
+     * @minimum 1
+     * @maximum 90
+     */
+    window_days?: number
+    /**
+     * Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.
+     * @maxLength 100
+     * @nullable
+     */
+    tag?: string | null
+    /**
+     * Scorer scanners only: count sessions scoring at or above this value. Scorers require `min_score` and/or `max_score`. Not applicable to other scanner types.
+     * @nullable
+     */
+    min_score?: number | null
+    /**
+     * Scorer scanners only: count sessions scoring at or below this value.
+     * @nullable
+     */
+    max_score?: number | null
+}
+
+/**
+ * The static cohort created from the scanner's affected users.
+ */
+export interface AffectedCohortResponseApi {
+    /** ID of the created static cohort; usable anywhere cohorts are (funnels, surveys, experiments). */
+    readonly cohort_id: number
+    /** Generated cohort name, stamped with the creation date since the snapshot doesn't live-update. */
+    readonly name: string
+    /** Persons actually in the created cohort. Can be lower than `affected_users`: matched distinct IDs without a person profile are dropped, and merged persons deduplicate. */
+    readonly users_in_cohort: number
+    /** Trailing window the cohort was drawn from, in days. */
+    readonly window_days: number
+}
+
+/**
+ * Who this scanner's findings affected in the window; counted from observations, not estimated.
+ */
+export interface ScannerImpactApi {
+    /** Distinct sessions with an affected observation in the window. For monitors only verdict-yes observations count; for other scanner types every succeeded observation counts. */
+    readonly affected_sessions: number
+    /** Distinct users behind the affected sessions, by distinct ID. May include anonymous device IDs when the recorded sessions were not identified. */
+    readonly affected_users: number
+    /** Affected sessions whose recording carried no distinct ID at all. */
+    readonly sessions_without_user: number
+    /** Trailing window the counts cover, in days. */
+    readonly window_days: number
+}
+
+/**
  * Body of POST /vision/scanners/{id}/observe/.
  */
 export interface ObserveRequestApi {
@@ -1449,6 +1505,31 @@ export type VisionScannersListParams = {
      * Case-insensitive substring match across name, description, and the prompt in scanner_config.
      */
     search?: string
+}
+
+export type VisionScannersImpactRetrieveParams = {
+    /**
+     * Scorer scanners only: count sessions scoring at or below this value.
+     * @nullable
+     */
+    max_score?: number | null
+    /**
+     * Scorer scanners only: count sessions scoring at or above this value. Scorers require `min_score` and/or `max_score`. Not applicable to other scanner types.
+     * @nullable
+     */
+    min_score?: number | null
+    /**
+     * Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.
+     * @maxLength 100
+     * @nullable
+     */
+    tag?: string | null
+    /**
+     * Trailing window of observations to count. Defaults to 30 days.
+     * @minimum 1
+     * @maximum 90
+     */
+    window_days?: number
 }
 
 export type VisionScannersObservationsListParams = {

@@ -113,6 +113,13 @@ class TestBucketParams:
         assert params["start_time"] == int(datetime(2020, 1, 1, tzinfo=UTC).timestamp())
         assert params["limit"] == 180
 
+    def test_costs_groups_only_by_dimensions_the_api_accepts(self) -> None:
+        # api_key_id grouping is rejected by the live costs endpoint with a 400 that fails the whole
+        # sync, even though the SDK types list it.
+        config = OPENAI_ENDPOINTS["costs"]
+        _, multi = _bucket_params(config, should_use_incremental_field=False, db_incremental_field_last_value=None)
+        assert multi == {"group_by": ["project_id", "line_item"]}
+
 
 class TestFlattenBucketResult:
     def test_flattens_nested_amount_and_converts_bucket_times(self) -> None:
