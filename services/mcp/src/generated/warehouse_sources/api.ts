@@ -1484,6 +1484,10 @@ export const externalDataSourcesPartialUpdateBodyPrefixMax = 100
 
 export const externalDataSourcesPartialUpdateBodyDescriptionMax = 400
 
+export const externalDataSourcesPartialUpdateBodyAutoSyncSchemaPatternsItemMax = 250
+
+export const externalDataSourcesPartialUpdateBodyAutoSyncSchemaPatternsMax = 100
+
 export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         created_via: zod
@@ -1508,6 +1512,24 @@ export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
+            ),
+        auto_sync_new_schemas: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'
+            ),
+        auto_sync_schema_patterns: zod
+            .array(
+                zod
+                    .string()
+                    .max(externalDataSourcesPartialUpdateBodyAutoSyncSchemaPatternsItemMax)
+                    .describe('An fnmatch-style glob pattern, e.g. `raw_*`.')
+            )
+            .max(externalDataSourcesPartialUpdateBodyAutoSyncSchemaPatternsMax)
+            .nullish()
+            .describe(
+                'Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
             ),
         job_inputs: zod.unknown().optional(),
     })
@@ -1541,6 +1563,10 @@ export const externalDataSourcesCreateWebhookCreateBodyPrefixMax = 100
 
 export const externalDataSourcesCreateWebhookCreateBodyDescriptionMax = 400
 
+export const externalDataSourcesCreateWebhookCreateBodyAutoSyncSchemaPatternsItemMax = 250
+
+export const externalDataSourcesCreateWebhookCreateBodyAutoSyncSchemaPatternsMax = 100
+
 export const ExternalDataSourcesCreateWebhookCreateBody = /* @__PURE__ */ zod
     .object({
         created_via: zod
@@ -1566,6 +1592,24 @@ export const ExternalDataSourcesCreateWebhookCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
             ),
+        auto_sync_new_schemas: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'
+            ),
+        auto_sync_schema_patterns: zod
+            .array(
+                zod
+                    .string()
+                    .max(externalDataSourcesCreateWebhookCreateBodyAutoSyncSchemaPatternsItemMax)
+                    .describe('An fnmatch-style glob pattern, e.g. `raw_*`.')
+            )
+            .max(externalDataSourcesCreateWebhookCreateBodyAutoSyncSchemaPatternsMax)
+            .nullish()
+            .describe(
+                'Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
+            ),
         job_inputs: zod.unknown().optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
@@ -1585,6 +1629,10 @@ export const ExternalDataSourcesDeleteWebhookCreateParams = /* @__PURE__ */ zod.
 export const externalDataSourcesDeleteWebhookCreateBodyPrefixMax = 100
 
 export const externalDataSourcesDeleteWebhookCreateBodyDescriptionMax = 400
+
+export const externalDataSourcesDeleteWebhookCreateBodyAutoSyncSchemaPatternsItemMax = 250
+
+export const externalDataSourcesDeleteWebhookCreateBodyAutoSyncSchemaPatternsMax = 100
 
 export const ExternalDataSourcesDeleteWebhookCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1611,6 +1659,24 @@ export const ExternalDataSourcesDeleteWebhookCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
             ),
+        auto_sync_new_schemas: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'
+            ),
+        auto_sync_schema_patterns: zod
+            .array(
+                zod
+                    .string()
+                    .max(externalDataSourcesDeleteWebhookCreateBodyAutoSyncSchemaPatternsItemMax)
+                    .describe('An fnmatch-style glob pattern, e.g. `raw_*`.')
+            )
+            .max(externalDataSourcesDeleteWebhookCreateBodyAutoSyncSchemaPatternsMax)
+            .nullish()
+            .describe(
+                'Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
+            ),
         job_inputs: zod.unknown().optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
@@ -1626,6 +1692,10 @@ export const ExternalDataSourcesRefreshSchemasCreateParams = /* @__PURE__ */ zod
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+export const externalDataSourcesRefreshSchemasCreateBodyAutoSyncSchemaPatternsItemMax = 250
+
+export const externalDataSourcesRefreshSchemasCreateBodyAutoSyncSchemaPatternsMax = 100
 
 export const ExternalDataSourcesRefreshSchemasCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1648,6 +1718,24 @@ export const ExternalDataSourcesRefreshSchemasCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
             ),
+        auto_sync_new_schemas: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'
+            ),
+        auto_sync_schema_patterns: zod
+            .array(
+                zod
+                    .string()
+                    .max(externalDataSourcesRefreshSchemasCreateBodyAutoSyncSchemaPatternsItemMax)
+                    .describe('An fnmatch-style glob pattern, e.g. `raw_*`.')
+            )
+            .max(externalDataSourcesRefreshSchemasCreateBodyAutoSyncSchemaPatternsMax)
+            .nullish()
+            .describe(
+                'Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
+            ),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -1662,6 +1750,10 @@ export const ExternalDataSourcesReloadCreateParams = /* @__PURE__ */ zod.object(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+export const externalDataSourcesReloadCreateBodyAutoSyncSchemaPatternsItemMax = 250
+
+export const externalDataSourcesReloadCreateBodyAutoSyncSchemaPatternsMax = 100
 
 export const ExternalDataSourcesReloadCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1683,6 +1775,24 @@ export const ExternalDataSourcesReloadCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
+            ),
+        auto_sync_new_schemas: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'
+            ),
+        auto_sync_schema_patterns: zod
+            .array(
+                zod
+                    .string()
+                    .max(externalDataSourcesReloadCreateBodyAutoSyncSchemaPatternsItemMax)
+                    .describe('An fnmatch-style glob pattern, e.g. `raw_*`.')
+            )
+            .max(externalDataSourcesReloadCreateBodyAutoSyncSchemaPatternsMax)
+            .nullish()
+            .describe(
+                'Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
             ),
     })
     .describe('Mixin for serializers to add user access control fields')
@@ -1724,6 +1834,10 @@ export const externalDataSourcesUpdateWebhookInputsCreateBodyPrefixMax = 100
 
 export const externalDataSourcesUpdateWebhookInputsCreateBodyDescriptionMax = 400
 
+export const externalDataSourcesUpdateWebhookInputsCreateBodyAutoSyncSchemaPatternsItemMax = 250
+
+export const externalDataSourcesUpdateWebhookInputsCreateBodyAutoSyncSchemaPatternsMax = 100
+
 export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ zod
     .object({
         created_via: zod
@@ -1748,6 +1862,24 @@ export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ 
             .optional()
             .describe(
                 'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
+            ),
+        auto_sync_new_schemas: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'
+            ),
+        auto_sync_schema_patterns: zod
+            .array(
+                zod
+                    .string()
+                    .max(externalDataSourcesUpdateWebhookInputsCreateBodyAutoSyncSchemaPatternsItemMax)
+                    .describe('An fnmatch-style glob pattern, e.g. `raw_*`.')
+            )
+            .max(externalDataSourcesUpdateWebhookInputsCreateBodyAutoSyncSchemaPatternsMax)
+            .nullish()
+            .describe(
+                'Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
             ),
         job_inputs: zod.unknown().optional(),
     })

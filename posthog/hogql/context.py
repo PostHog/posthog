@@ -125,8 +125,8 @@ class HogQLContext:
     workload: Optional[Workload] = None
     # Per-query cache of the `system.information_schema` introspection result (populated lazily in
     # posthog/hogql/database/schema/information_schema.py). A dict keyed by the pushed-down table
-    # filter, so information_schema tables resolving to the same bound within one query walk the
-    # database (and fire the warehouse metadata ORM queries) only once.
+    # filter and holding lazy introspection objects, so tables resolving to the same bound walk the
+    # database only once while surface-specific catalog metadata is fetched only when requested.
     information_schema_introspection: Optional[Any] = field(default=None, compare=False, repr=False)
     # Property-level access control: set of (property_name, PropertyDefinition.Type) tuples
     # that the current user is denied access to. Populated before type resolution so that
