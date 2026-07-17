@@ -1,17 +1,28 @@
 import { useValues } from 'kea'
 
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonSwitch, LemonSwitchProps } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonSwitchProps, Link } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 type TestAccountFilterProps = Partial<LemonSwitchProps> & {
-    checked: boolean
+    checked: boolean | 'indeterminate'
     onChange: (checked: boolean) => void
+    /**
+     * Opt-in override semantics: while `checked` is `'indeterminate'` (no explicit choice, falling back to the
+     * project default) a "No override set" hint is shown; once an explicit value exists, an "Unset override"
+     * link calls this to clear it.
+     */
+    onReset?: () => void
 }
 
-export function TestAccountFilterSwitch({ checked, onChange, ...props }: TestAccountFilterProps): JSX.Element | null {
+export function TestAccountFilterSwitch({
+    checked,
+    onChange,
+    onReset,
+    ...props
+}: TestAccountFilterProps): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
     return (
@@ -36,6 +47,21 @@ export function TestAccountFilterSwitch({ checked, onChange, ...props }: TestAcc
                         className="ml-1"
                         to={urls.settings('project-product-analytics', 'internal-user-filtering')}
                     />
+                    {onReset &&
+                        (checked === 'indeterminate' ? (
+                            <span className="ml-1 text-xs text-tertiary">No override set</span>
+                        ) : (
+                            <Link
+                                className="ml-1 text-xs"
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    onReset()
+                                }}
+                            >
+                                Unset override
+                            </Link>
+                        ))}
                 </div>
             }
         />
