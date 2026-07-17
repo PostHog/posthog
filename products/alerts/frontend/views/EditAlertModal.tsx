@@ -2,8 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useCallback, useMemo } from 'react'
 
-import { IconCalendar } from '@posthog/icons'
-import { Link, SpinnerOverlay } from '@posthog/lemon-ui'
+import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dayjs } from 'lib/dayjs'
@@ -21,14 +20,15 @@ import { AlertCalculationInterval, AlertState } from '~/queries/schema/schema-ge
 import { isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
 import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
+import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/AlertAdvancedOptionsSection'
+import { AlertTimezoneNotice } from 'products/alerts/frontend/components/AlertDefinition'
+import { AlertDefinitionSection } from 'products/alerts/frontend/components/AlertDefinitionSection'
 import {
     AlertEditor,
     AlertEditorFormDetails,
     AlertEditorSection,
 } from 'products/alerts/frontend/components/AlertEditor'
-import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/editAlertModal/AlertAdvancedOptionsSection'
-import { AlertDefinitionSection } from 'products/alerts/frontend/components/editAlertModal/AlertDefinitionSection'
-import { AlertIntervalRow } from 'products/alerts/frontend/components/editAlertModal/AlertIntervalRow'
+import { AlertIntervalRow } from 'products/alerts/frontend/components/AlertIntervalRow'
 import { isSubDailyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { InsightAlertNotificationSection } from 'products/alerts/frontend/views/InsightAlertNotificationSection'
 
@@ -325,19 +325,10 @@ export function EditAlertModal({
                                 </div>
                             </AlertEditorSection>
 
-                            <div className="text-muted text-sm flex flex-wrap items-start gap-2">
-                                <IconCalendar className="size-4 shrink-0 text-muted mt-0.5" aria-hidden />
-                                <span className="min-w-0">
-                                    Times use your project timezone ({projectTimezone}).{' '}
-                                    <Link
-                                        to={urls.settings('environment-customization', 'date-and-time')}
-                                        target="_blank"
-                                        targetBlankIcon={false}
-                                    >
-                                        Change in settings
-                                    </Link>
-                                </span>
-                            </div>
+                            <AlertTimezoneNotice
+                                timezone={projectTimezone}
+                                settingsUrl={urls.settings('environment-customization', 'date-and-time')}
+                            />
 
                             <InsightAlertNotificationSection
                                 alertForm={alertForm}
