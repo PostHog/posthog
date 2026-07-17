@@ -89,9 +89,9 @@ Create an organization-scoped token with `fly tokens create org` (or from the **
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # An invalid, revoked, or expired token surfaces as an HTTPError when `_fetch_page`
-            # calls `raise_for_status()`. Retrying can never satisfy a credential problem, so stop
-            # the sync. Match the stable status text and base host, not the per-request path.
+            # An invalid, revoked, or expired token surfaces as an HTTPError when the rest_source
+            # client calls `raise_for_status()`. Retrying can never satisfy a credential problem, so
+            # stop the sync. Match the stable status text and base host, not the per-request path.
             "401 Client Error: Unauthorized for url: https://api.machines.dev": "Your Fly.io API token is invalid or expired. Create a new token with `fly tokens create org` and reconnect.",
             "403 Client Error: Forbidden for url: https://api.machines.dev": "Your Fly.io API token does not have access to this organization or resource. Check the token's scope and reconnect.",
         }
@@ -130,5 +130,6 @@ Create an organization-scoped token with `fly tokens create org` (or from the **
             api_token=config.api_token,
             endpoint=inputs.schema_name,
             org_slug=config.organization_slug,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )
