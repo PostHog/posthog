@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -57,6 +57,20 @@ def _get_headers(api_key: str) -> dict[str, str]:
 def _build_url(path: str, params: dict[str, Any]) -> str:
     base = f"{STATUSCAKE_BASE_URL}{path}"
     return f"{base}?{urlencode(params)}" if params else base
+
+
+def _is_api_url(url: Any) -> bool:
+    """Only follow pagination URLs pinned to the StatusCake API origin.
+
+    The session's default headers carry the account token, so an off-origin `links.next` (a
+    tampered upstream response, or poisoned resume state read back from Redis) would send the
+    credential to an attacker-controlled host. `allow_redirects=False` doesn't cover a direct
+    off-origin request, so the URL itself must be validated before it's persisted or fetched.
+    """
+    if not isinstance(url, str):
+        return False
+    parts = urlsplit(url)
+    return parts.scheme == "https" and parts.netloc == "api.statuscake.com" and parts.path.startswith("/v1/")
 
 
 def _get_session(api_key: str) -> requests.Session:
@@ -202,7 +216,8 @@ def _iter_history_rows(
     resume_url: Optional[str] = None
     if resume is not None and resume.test_id is not None and resume.test_id in test_ids:
         remaining = test_ids[test_ids.index(resume.test_id) :]
-        resume_url = resume.next_url
+        # An off-origin resume URL restarts the bookmarked test from its first page instead.
+        resume_url = resume.next_url if _is_api_url(resume.next_url) else None
         logger.debug(f"StatusCake: resuming {config.name} from test_id={resume.test_id}, url={resume_url}")
 
     for index, test_id in enumerate(remaining):
@@ -218,6 +233,9 @@ def _iter_history_rows(
                 for row in rows:
                     row["test_id"] = test_id
                 next_url = (data.get("links") or {}).get("next")
+                if next_url and not _is_api_url(next_url):
+                    logger.warning(f"StatusCake: ignoring off-origin next link for test {test_id}: {next_url}")
+                    next_url = None
                 yield rows
                 # Save AFTER yielding (and only when more pages remain) so a crash re-yields the
                 # last page rather than skipping it — merge dedupes on the primary key.

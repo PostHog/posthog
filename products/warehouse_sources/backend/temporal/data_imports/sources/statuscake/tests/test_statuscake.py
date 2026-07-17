@@ -222,6 +222,37 @@ class TestGetRowsFanOut:
         assert history_urls == [resume_url]
 
     @mock.patch(_TRANSPORT)
+    def test_off_origin_next_link_is_never_fetched_or_persisted(self, mock_session):
+        # The session's default headers carry the account token: a tampered response pointing
+        # links.next off-origin must not receive a request (or be saved as resume state).
+        hostile = "https://evil.example.com/v1/uptime/t1/history?before=123"
+        mock_session.return_value = _session_returning(
+            _list_body([{"id": "t1"}], page=1, page_count=1),
+            _history_body([{"created_at": "2026-01-02T00:00:00Z", "location": "UK"}], next_url=hostile),
+        )
+        manager = _make_manager()
+
+        list(get_rows("token", "uptime_history", mock.MagicMock(), manager))
+
+        fetched = [c.args[0] for c in mock_session.return_value.get.call_args_list]
+        assert hostile not in fetched
+        assert all(c.args[0].next_url != hostile for c in manager.save_state.call_args_list)
+
+    @mock.patch(_TRANSPORT)
+    def test_off_origin_resume_url_restarts_test_from_first_page(self, mock_session):
+        hostile = "https://evil.example.com/v1/uptime/t1/history?before=456"
+        mock_session.return_value = _session_returning(
+            _list_body([{"id": "t1"}], page=1, page_count=1),
+            _history_body([{"created_at": "2026-01-01T00:00:00Z", "location": "UK"}]),
+        )
+        manager = _make_manager(StatusCakeResumeConfig(test_id="t1", next_url=hostile))
+
+        list(get_rows("token", "uptime_history", mock.MagicMock(), manager))
+
+        history_urls = [c.args[0] for c in mock_session.return_value.get.call_args_list if "/history" in c.args[0]]
+        assert history_urls == ["https://api.statuscake.com/v1/uptime/t1/history?limit=100"]
+
+    @mock.patch(_TRANSPORT)
     def test_deleted_test_404_is_skipped(self, mock_session):
         not_found = _response({"message": "not found"}, status_code=404)
         not_found.raise_for_status.side_effect = requests.HTTPError("404 Client Error", response=not_found)
