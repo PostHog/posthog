@@ -498,9 +498,7 @@ export function ArtefactLogList({
             durationSecById.set(chronological[i].id, Math.round((endMs - startMs) / 1000))
         }
     }
-    const ordered = [...artefacts].sort(
-        (a, b) => (durationSecById.get(b.id) ?? -1) - (durationSecById.get(a.id) ?? -1)
-    )
+    const ordered = [...artefacts].sort((a, b) => (durationSecById.get(b.id) ?? -1) - (durationSecById.get(a.id) ?? -1))
     return (
         <div className="flex flex-col gap-2">
             {ordered.map((artefact) => (
