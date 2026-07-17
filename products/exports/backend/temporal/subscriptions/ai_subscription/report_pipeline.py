@@ -434,6 +434,9 @@ async def _run_steps(
                     # planner referenced, which is what the fixer needs); fall back to the type name.
                     error_message=_safe_error_message(exc) or type(exc).__name__,
                     step_description=safe_description,
+                    # The planner's project schema (event/property names) — a schema-blind fixer just
+                    # re-guesses the wrong name, so give it the same grounding the planner had.
+                    context_blob=spec.context_blob,
                     team=team,
                     user=user,
                     trace_correlation_id=trace_correlation_id,
@@ -482,6 +485,7 @@ async def _arequest_hogql_fix(
     original_hogql: str,
     error_message: str,
     step_description: str,
+    context_blob: str,
     team: Team,
     user: User,
     trace_correlation_id: Optional[Union[int, str]],
@@ -504,7 +508,12 @@ async def _arequest_hogql_fix(
     )
     rendered = render_prompt(
         fix_prompt,
-        {"description": step_description, "error": error_message, "original_hogql": original_hogql},
+        {
+            "description": step_description,
+            "error": error_message,
+            "original_hogql": original_hogql,
+            "context_blob": context_blob,
+        },
     )
 
     try:

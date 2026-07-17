@@ -201,6 +201,7 @@ async def test_request_hogql_fix_returns_fixed_query(mock_chat: MagicMock) -> No
         original_hogql="SELECT 1",
         error_message="boom",
         step_description="d",
+        context_blob="c",
         team=MagicMock(),
         user=MagicMock(),
         trace_correlation_id=None,
@@ -216,11 +217,32 @@ async def test_request_hogql_fix_returns_none_on_wrong_type(mock_chat: MagicMock
         original_hogql="SELECT 1",
         error_message="boom",
         step_description="d",
+        context_blob="c",
         team=MagicMock(),
         user=MagicMock(),
         trace_correlation_id=None,
     )
     assert result is None
+
+
+@patch(f"{_RP}.MaxChatOpenAI")
+async def test_request_hogql_fix_grounds_prompt_in_project_schema(mock_chat: MagicMock) -> None:
+    # A schema-blind fixer just re-guesses the same wrong event/property name, so the project schema
+    # must reach the fix prompt. Guards against the context_blob being dropped from the call or template.
+    structured = mock_chat.return_value.with_structured_output.return_value
+    structured.invoke.return_value = HogQLFix(fixed_hogql="SELECT 2")
+    await _arequest_hogql_fix(
+        original_hogql="SELECT 1",
+        error_message="Unable to resolve field: properties.made_up",
+        step_description="d",
+        context_blob="EVENTS: export_created (properties: file_size)",
+        team=MagicMock(),
+        user=MagicMock(),
+        trace_correlation_id=None,
+    )
+    (messages,) = structured.invoke.call_args.args
+    system_prompt = messages[0][1]
+    assert "export_created (properties: file_size)" in system_prompt
 
 
 @patch(f"{_RP}.AssistantQueryExecutor")
