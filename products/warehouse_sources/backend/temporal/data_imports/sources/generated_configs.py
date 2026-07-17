@@ -9,6 +9,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @config.config
+class AppdynamicsAuthMethodConfig(config.Config):
+    selection: Literal["api_client", "basic"] = "api_client"
+    api_client_name: str | None = None
+    api_client_secret: str | None = None
+    username: str | None = None
+    password: str | None = None
+
+
+@config.config
 class BigQueryDatasetProjectConfig(config.Config):
     dataset_project_id: str
     enabled: bool = config.value(converter=config.str_to_bool, default=False)
@@ -191,7 +200,7 @@ class AirOpsSourceConfig(config.Config):
 
 @config.config
 class AirbrakeSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -321,7 +330,10 @@ class AppcuesSourceConfig(config.Config):
 
 @config.config
 class AppdynamicsSourceConfig(config.Config):
-    pass
+    host: str
+    account_name: str
+    auth_method: AppdynamicsAuthMethodConfig
+    metric_paths: str | None = None
 
 
 @config.config
@@ -382,7 +394,8 @@ class AshbySourceConfig(config.Config):
 
 @config.config
 class AsknicelySourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -763,7 +776,9 @@ class ChatwootSourceConfig(config.Config):
 
 @config.config
 class CheckmarxSourceConfig(config.Config):
-    pass
+    tenant_name: str
+    api_key: str
+    region: Literal["us", "us2", "eu", "eu2", "deu", "anz", "ind", "sng", "mea"] = config.value(default="us")
 
 
 @config.config
@@ -814,7 +829,9 @@ class CircleciInsightsSourceConfig(config.Config):
 
 @config.config
 class CiscoDuoSourceConfig(config.Config):
-    pass
+    api_hostname: str
+    integration_key: str
+    secret_key: str
 
 
 @config.config
@@ -912,7 +929,9 @@ class CodaSourceConfig(config.Config):
 
 @config.config
 class CodacySourceConfig(config.Config):
-    pass
+    api_token: str
+    organization: str
+    provider: Literal["gh", "gl", "bb"] = config.value(default="gh")
 
 
 @config.config
@@ -1253,7 +1272,8 @@ class DopplerSourceConfig(config.Config):
 
 @config.config
 class DrataSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["US", "EU", "APAC"] = config.value(default="US")
 
 
 @config.config
@@ -1641,7 +1661,9 @@ class GainsightPxSourceConfig(config.Config):
 
 @config.config
 class GerritSourceConfig(config.Config):
-    pass
+    host: str
+    username: str | None = None
+    http_password: str | None = None
 
 
 @config.config
@@ -1968,7 +1990,7 @@ class HightouchSourceConfig(config.Config):
 
 @config.config
 class HoneybadgerSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2088,7 +2110,8 @@ class InstagramSourceConfig(config.Config):
 
 @config.config
 class InstanaSourceConfig(config.Config):
-    pass
+    base_url: str
+    api_token: str
 
 
 @config.config
@@ -3026,7 +3049,8 @@ class OveitSourceConfig(config.Config):
 
 @config.config
 class PabblySubscriptionsBillingSourceConfig(config.Config):
-    pass
+    api_key: str
+    secret_key: str
 
 
 @config.config
@@ -3931,7 +3955,9 @@ class SnowflakeSourceConfig(config.Config):
 
 @config.config
 class SnowplowSourceConfig(config.Config):
-    pass
+    organization_id: str
+    api_key_id: str
+    api_key: str
 
 
 @config.config
@@ -4117,7 +4143,7 @@ class SvixSourceConfig(config.Config):
 
 @config.config
 class SwarmiaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -4179,7 +4205,8 @@ class TeachableSourceConfig(config.Config):
 
 @config.config
 class TeamcitySourceConfig(config.Config):
-    pass
+    host: str
+    access_token: str
 
 
 @config.config
@@ -4314,7 +4341,7 @@ class TrackPMSSourceConfig(config.Config):
 
 @config.config
 class TravisCISourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -4526,7 +4553,9 @@ class WebflowSourceConfig(config.Config):
 
 @config.config
 class WeightsAndBiasesSourceConfig(config.Config):
-    pass
+    api_key: str
+    entity: str
+    host: str | None = None
 
 
 @config.config
