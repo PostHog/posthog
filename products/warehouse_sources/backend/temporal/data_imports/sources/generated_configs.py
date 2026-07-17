@@ -1193,7 +1193,9 @@ class CustomerlySourceConfig(config.Config):
 
 @config.config
 class DagsterCloudSourceConfig(config.Config):
-    pass
+    organization: str
+    deployment: str
+    api_token: str
 
 
 @config.config
@@ -2253,7 +2255,8 @@ class JenkinsSourceConfig(config.Config):
 
 @config.config
 class JfrogArtifactorySourceConfig(config.Config):
-    pass
+    base_url: str
+    access_token: str
 
 
 @config.config
@@ -2709,7 +2712,7 @@ class MetabaseSourceConfig(config.Config):
 
 @config.config
 class MetaplaneSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2939,7 +2942,7 @@ class NotionSourceConfig(config.Config):
 
 @config.config
 class NugetSourceConfig(config.Config):
-    pass
+    package_ids: str
 
 
 @config.config
@@ -2964,7 +2967,8 @@ class OctolensSourceConfig(config.Config):
 
 @config.config
 class OctopusDeploySourceConfig(config.Config):
-    pass
+    host: str
+    api_key: str
 
 
 @config.config
@@ -4195,7 +4199,8 @@ class StripeSourceConfig(config.Config):
 
 @config.config
 class StytchSourceConfig(config.Config):
-    pass
+    project_id: str
+    secret: str
 
 
 @config.config
@@ -4576,7 +4581,8 @@ class UptimerobotSourceConfig(config.Config):
 
 @config.config
 class UsersnapSourceConfig(config.Config):
-    pass
+    jwt_secret: str
+    jwt_id: str
 
 
 @config.config

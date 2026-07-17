@@ -86,6 +86,7 @@ describe('taskTrackerSceneLogic', () => {
         // state). Dropping either regresses follow-up streaming / loses the first prompt.
         expect(runBody).toMatchObject({
             mode: 'interactive',
+            initial_permission_mode: 'bypassPermissions',
             pending_user_message: 'do the thing',
         })
         expect(router.values.location.pathname).toContain('/tasks/new-task')
