@@ -118,7 +118,9 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                     value: ChartDisplayType.Scatter,
                     icon: <IconScatter />,
                     label: 'Scatter plot',
-                    disabledReason: numericalColumns.length === 0 ? 'Requires at least one numeric column' : undefined,
+                    disabledReason: !canDisplayContinuousChart
+                        ? 'Requires at least two columns, including one numeric column'
+                        : undefined,
                 },
             ],
         },

@@ -35,11 +35,16 @@ export interface ScatterChartData {
 const isDateType = (column: Column): boolean => column.type.name === 'DATE' || column.type.name === 'DATETIME'
 
 const parseNumeric = (value: unknown): number | null => {
-    if (value === null || value === undefined || value === '') {
+    // Only numbers and numeric strings plot; Infinity breaks Chart.js axis scaling,
+    // and arrays/booleans would coerce into misleading dots.
+    if (typeof value !== 'number' && typeof value !== 'string') {
+        return null
+    }
+    if (value === '') {
         return null
     }
     const numericValue = Number(value)
-    return Number.isNaN(numericValue) ? null : numericValue
+    return Number.isFinite(numericValue) ? numericValue : null
 }
 
 const parseX = (value: unknown, xIsDate: boolean): number | null => {

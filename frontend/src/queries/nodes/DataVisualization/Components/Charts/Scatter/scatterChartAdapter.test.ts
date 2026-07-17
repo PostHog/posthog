@@ -53,6 +53,18 @@ describe('buildScatterChartData', () => {
             expectedHidden: 3,
         },
         {
+            name: 'non-finite and non-scalar y values',
+            settings: { xAxisColumn: 'timestamp', yAxisColumn: 'duration' },
+            rows: [
+                ['2026-07-17 10:00:00', 'Infinity', 'a'],
+                ['2026-07-17 11:00:00', [5], 'a'],
+                ['2026-07-17 12:00:00', true, 'a'],
+                ['2026-07-17 13:00:00', 4, 'a'],
+            ],
+            expectedYs: [4],
+            expectedHidden: 3,
+        },
+        {
             name: 'non-positive y values on a log scale',
             settings: { xAxisColumn: 'timestamp', yAxisColumn: 'duration', yAxisScale: 'logarithmic' as const },
             rows: [

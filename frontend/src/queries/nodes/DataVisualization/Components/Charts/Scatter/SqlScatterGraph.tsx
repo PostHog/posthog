@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 import { LemonBanner, LemonModal, Link } from '@posthog/lemon-ui'
 
@@ -15,7 +15,12 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ScatterSettings } from '~/queries/schema/schema-general'
 
 import { Column, dataVisualizationLogic } from '../../../dataVisualizationLogic'
-import { ScatterPoint, buildScatterChartData } from './scatterChartAdapter'
+import { SCATTER_MAX_POINTS, ScatterPoint, buildScatterChartData } from './scatterChartAdapter'
+
+// The full row lives in the click modal; the canvas tooltip is neither scrollable nor
+// selectable, so cap it before a `SELECT *` row overflows the chart.
+const TOOLTIP_MAX_LINES = 12
+const TOOLTIP_MAX_LINE_LENGTH = 80
 
 const axisFont = {
     family: '"Emoji Flags Polyfill", -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
@@ -71,7 +76,9 @@ function ScatterRowModal({
 export function SqlScatterGraph({ className }: { className?: string }): JSX.Element {
     const { response, columns, chartSettings } = useValues(dataVisualizationLogic)
     const { isDarkModeOn } = useValues(themeLogic)
-    const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null)
+    // Snapshot of the clicked row, not an index: a query re-run must not silently swap
+    // the modal's contents to whatever row now sits at the same position.
+    const [selectedRow, setSelectedRow] = useState<any[] | null>(null)
 
     const scatterSettings: ScatterSettings = chartSettings.scatter ?? {}
     const rows: any[][] =
@@ -81,6 +88,11 @@ export function SqlScatterGraph({ className }: { className?: string }): JSX.Elem
         () => buildScatterChartData(rows ?? [], columns, scatterSettings),
         [rows, columns, scatterSettings]
     )
+
+    // useChart JSON-stringifies its deps each render; a revision number stands in for the
+    // (up to 10k-point) chartData so re-renders don't pay for serializing the point arrays.
+    const chartRevisionRef = useRef(0)
+    const chartRevision = useMemo(() => ++chartRevisionRef.current, [chartData])
 
     const { canvasRef } = useChart<'scatter'>({
         getConfig: () => {
@@ -128,7 +140,13 @@ export function SqlScatterGraph({ className }: { className?: string }): JSX.Elem
                         }
                         const point = chartData.series[element.datasetIndex]?.points[element.index]
                         if (point) {
-                            setSelectedRowIndex(point.rowIndex)
+                            setSelectedRow(rows[point.rowIndex] ?? null)
+                        }
+                    },
+                    onHover: (event, elements) => {
+                        const target = event.native?.target as HTMLElement | undefined
+                        if (target) {
+                            target.style.cursor = elements.length ? 'pointer' : 'default'
                         }
                     },
                     plugins: {
@@ -136,7 +154,9 @@ export function SqlScatterGraph({ className }: { className?: string }): JSX.Elem
                         crosshair: false,
                         datalabels: { display: false },
                         legend: {
-                            display: chartSettings.showLegend ?? Boolean(scatterSettings.colorByColumn),
+                            // Keyed purely off color-by: the Display tab (home of showLegend)
+                            // is hidden for scatter, so honoring it could strand the legend off.
+                            display: Boolean(scatterSettings.colorByColumn),
                             labels: {
                                 usePointStyle: true,
                                 color: (colors.axisLabel as Color) ?? undefined,
@@ -160,9 +180,16 @@ export function SqlScatterGraph({ className }: { className?: string }): JSX.Elem
                                     if (!row) {
                                         return ''
                                     }
-                                    return columns.map(
-                                        (column) => `${column.name}: ${formatCellValue(row[column.dataIndex])}`
-                                    )
+                                    const lines = columns.slice(0, TOOLTIP_MAX_LINES).map((column) => {
+                                        const line = `${column.name}: ${formatCellValue(row[column.dataIndex])}`
+                                        return line.length > TOOLTIP_MAX_LINE_LENGTH
+                                            ? `${line.slice(0, TOOLTIP_MAX_LINE_LENGTH - 1)}…`
+                                            : line
+                                    })
+                                    if (columns.length > TOOLTIP_MAX_LINES) {
+                                        lines.push(`… ${columns.length - TOOLTIP_MAX_LINES} more columns`)
+                                    }
+                                    return lines
                                 },
                                 footer: () => 'Click to inspect the row',
                             },
@@ -195,10 +222,10 @@ export function SqlScatterGraph({ className }: { className?: string }): JSX.Elem
                 },
             }
         },
-        deps: [chartData, chartSettings.showLegend, scatterSettings, isDarkModeOn],
+        deps: [chartRevision, isDarkModeOn],
     })
 
-    if (!scatterSettings.xAxisColumn || !scatterSettings.yAxisColumn || !chartData) {
+    if (!scatterSettings.xAxisColumn || !scatterSettings.yAxisColumn) {
         return (
             <div className="flex items-center justify-center h-full">
                 <InsightEmptyState
@@ -209,10 +236,26 @@ export function SqlScatterGraph({ className }: { className?: string }): JSX.Elem
         )
     }
 
+    if (!chartData) {
+        return (
+            <div className="flex items-center justify-center h-full">
+                <InsightEmptyState
+                    heading="The selected columns aren't in the query results"
+                    detail="The query no longer returns the configured columns. Pick different columns in the chart settings."
+                />
+            </div>
+        )
+    }
+
+    const logScaleClause = scatterSettings.yAxisScale === 'logarithmic' ? ', or non-positive values on a log scale' : ''
+
     if (chartData.series.length === 0) {
         return (
             <div className="flex items-center justify-center h-full">
-                <InsightEmptyState heading="No plottable rows for the selected columns" detail="" />
+                <InsightEmptyState
+                    heading="No plottable rows for the selected columns"
+                    detail={`All rows have missing or non-numeric values for the selected columns${logScaleClause}.`}
+                />
             </div>
         )
     }
@@ -220,26 +263,28 @@ export function SqlScatterGraph({ className }: { className?: string }): JSX.Elem
     const notes: string[] = []
     if (chartData.hiddenPointCount > 0) {
         notes.push(
-            `${chartData.hiddenPointCount} row${chartData.hiddenPointCount === 1 ? '' : 's'} hidden (missing or non-numeric values${
-                scatterSettings.yAxisScale === 'logarithmic' ? ', or non-positive values on a log scale' : ''
-            })`
+            `${chartData.hiddenPointCount} row${chartData.hiddenPointCount === 1 ? '' : 's'} hidden (missing or non-numeric values${logScaleClause})`
         )
     }
     if (chartData.truncated) {
-        notes.push('Only the first 10,000 plottable rows are shown')
+        notes.push(`Only the first ${SCATTER_MAX_POINTS.toLocaleString()} plottable rows are shown`)
     }
 
     return (
         <div className={`flex flex-col h-full gap-2 p-3 ${className ?? ''}`}>
             {notes.length > 0 && <LemonBanner type="info">{notes.join('. ')}.</LemonBanner>}
             <div className="relative flex-1 min-h-0">
-                <canvas ref={canvasRef} />
+                <canvas
+                    ref={canvasRef}
+                    role="img"
+                    aria-label={`Scatter plot of ${scatterSettings.yAxisColumn} by ${scatterSettings.xAxisColumn}`}
+                />
             </div>
             <ScatterRowModal
-                row={selectedRowIndex !== null ? (rows[selectedRowIndex] ?? null) : null}
+                row={selectedRow}
                 columns={columns}
                 personColumn={scatterSettings.personColumn}
-                onClose={() => setSelectedRowIndex(null)}
+                onClose={() => setSelectedRow(null)}
             />
         </div>
     )

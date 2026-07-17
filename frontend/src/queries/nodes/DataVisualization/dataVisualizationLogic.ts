@@ -352,7 +352,9 @@ const applyAutoHeatmapSettings = (
     })
 }
 
-const SCATTER_PERSON_COLUMN_CANDIDATES = ['distinct_id', 'person_id']
+// Only distinct_id: the row modal links via the distinct_id person route, and a HogQL
+// `person_id` column holds the person UUID, which that route cannot resolve.
+const SCATTER_PERSON_COLUMN_CANDIDATES = ['distinct_id']
 
 const getScatterAutoSettings = (columns: Column[], scatterSettings: ScatterSettings): Partial<ScatterSettings> => {
     const dateColumns = columns.filter((column) => ['DATE', 'DATETIME'].includes(column.type.name))
@@ -366,7 +368,9 @@ const getScatterAutoSettings = (columns: Column[], scatterSettings: ScatterSetti
     }
 
     if (!scatterSettings.yAxisColumn) {
-        const yAxisColumn = numericalColumns.find((column) => column.name !== xAxisColumn)
+        // Fall back to sharing the x column rather than leaving y unfillable when
+        // the only numeric column was already taken as x.
+        const yAxisColumn = numericalColumns.find((column) => column.name !== xAxisColumn) ?? numericalColumns[0]
         if (yAxisColumn) {
             nextSettings.yAxisColumn = yAxisColumn.name
         }

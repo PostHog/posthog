@@ -78,23 +78,28 @@ export const ScatterSeriesTab = (): JSX.Element => {
                 </LemonLabel>
                 <LemonSelect
                     className="w-full"
-                    value={scatterSettings.colorByColumn ?? null}
+                    value={scatterSettings.colorByColumn || null}
                     options={[NONE_OPTION, ...columns.map(columnOption)]}
                     disabledReason={disabledReason}
-                    onChange={(value) => updateScatterSettings({ colorByColumn: value })}
+                    // '' (not null) marks a cleared column: the insight save path drops null
+                    // fields, which would let auto-fill resurrect the cleared value on reload.
+                    onChange={(value) => updateScatterSettings({ colorByColumn: value ?? '' })}
                 />
             </div>
 
             <div>
-                <LemonLabel className="mb-1" info="Clicking a dot links this column's value to the person profile.">
+                <LemonLabel
+                    className="mb-1"
+                    info="When you click a dot, this column's value links to the person's profile in the row details."
+                >
                     Person column
                 </LemonLabel>
                 <LemonSelect
                     className="w-full"
-                    value={scatterSettings.personColumn ?? null}
+                    value={scatterSettings.personColumn || null}
                     options={[NONE_OPTION, ...columns.map(columnOption)]}
                     disabledReason={disabledReason}
-                    onChange={(value) => updateScatterSettings({ personColumn: value })}
+                    onChange={(value) => updateScatterSettings({ personColumn: value ?? '' })}
                 />
             </div>
         </div>
