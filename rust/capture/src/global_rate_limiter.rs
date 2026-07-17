@@ -219,18 +219,31 @@ impl GlobalRateLimiter {
         })
     }
 
-    /// Check if a key is rate limited. Routes to custom or global check based on
-    /// whether the key is registered in the custom_keys map. Exactly one check
-    /// fires per call — no double-enqueue to the Redis batch channel.
+    /// Check if a key is rate limited. The key is resolved against the custom-key
+    /// map exactly once: `check_custom_limit` returns `NotApplicable` for keys
+    /// without a custom override, and only then do we fall back to the global
+    /// threshold check. Routing and threshold therefore come from a single map
+    /// snapshot, so a concurrent custom-map swap can't misroute a request (a
+    /// prior `is_custom_key` probe + separate check made two independent loads
+    /// that could straddle a swap). Exactly one enforcing check fires — the
+    /// `NotApplicable` probe returns before touching the cache or Redis batch
+    /// channel, so there's no double-enqueue.
     ///
     /// In dry-run mode the underlying limiter is still evaluated (counts are
     /// tracked, Redis is synced) but the result is suppressed: metrics and a
     /// warn log are emitted, then `None` is returned so callers never enforce.
     pub async fn is_limited(&self, key: &str, count: u64) -> Option<GlobalRateLimitResponse> {
-        let result = if self.limiter.is_custom_key(key) {
-            self.is_custom_key_limited(key, count).await
-        } else {
-            self.is_global_key_limited(key, count).await
+        let result = match self
+            .limiter
+            .check_custom_limit(key, count, Some(Utc::now()))
+            .await
+        {
+            // No custom override for this key: enforce the global threshold.
+            EvalResult::NotApplicable => self.is_global_key_limited(key, count).await,
+            EvalResult::Limited(response) => Some(response),
+            // Allowed / FailOpen on a key that HAS a custom override: not limited,
+            // and we must not re-check it against the global threshold.
+            _ => None,
         };
 
         match (result, self.dry_run) {
@@ -260,21 +273,6 @@ impl GlobalRateLimiter {
         count: u64,
     ) -> Option<GlobalRateLimitResponse> {
         match self.limiter.check_limit(key, count, Some(Utc::now())).await {
-            EvalResult::Limited(response) => Some(response),
-            _ => None,
-        }
-    }
-
-    async fn is_custom_key_limited(
-        &self,
-        key: &str,
-        count: u64,
-    ) -> Option<GlobalRateLimitResponse> {
-        match self
-            .limiter
-            .check_custom_limit(key, count, Some(Utc::now()))
-            .await
-        {
             EvalResult::Limited(response) => Some(response),
             _ => None,
         }
@@ -567,7 +565,11 @@ mod tests {
 
         assert!(result.is_some());
         assert!(!result.unwrap().is_custom_limited);
-        assert_eq!(*calls.lock().unwrap(), vec!["is_custom_key", "check_limit"]);
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec!["check_custom_limit", "check_limit"],
+            "no custom override (NotApplicable) must fall back to the global check"
+        );
     }
 
     #[tokio::test]
@@ -585,7 +587,8 @@ mod tests {
         assert!(result.unwrap().is_custom_limited);
         assert_eq!(
             *calls.lock().unwrap(),
-            vec!["is_custom_key", "check_custom_limit"]
+            vec!["check_custom_limit"],
+            "a custom Limited result must not trigger a second global check"
         );
     }
 
@@ -603,8 +606,8 @@ mod tests {
         assert!(result.is_none());
         assert_eq!(
             *calls.lock().unwrap(),
-            vec!["is_custom_key", "check_custom_limit"],
-            "must NOT call check_limit when key is registered as custom"
+            vec!["check_custom_limit"],
+            "an Allowed custom key must NOT fall through to the global check"
         );
     }
 
@@ -729,7 +732,7 @@ mod tests {
         );
         assert_eq!(
             *calls.lock().unwrap(),
-            vec!["is_custom_key", "check_limit"],
+            vec!["check_custom_limit", "check_limit"],
             "underlying limiter must still be called in dry-run mode"
         );
     }
@@ -751,7 +754,7 @@ mod tests {
         );
         assert_eq!(
             *calls.lock().unwrap(),
-            vec!["is_custom_key", "check_custom_limit"],
+            vec!["check_custom_limit"],
             "underlying limiter must still be called in dry-run mode"
         );
     }
