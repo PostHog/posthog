@@ -106,7 +106,8 @@ class TestAuthNonRetryableErrors:
         errors = auth_non_retryable_errors(host, service="Example")
         assert f"401 Client Error: Unauthorized for url: {host}" in errors
         assert f"403 Client Error: Forbidden for url: {host}" in errors
-        assert "Example" in errors[f"401 Client Error: Unauthorized for url: {host}"]
+        unauthorized_message = errors[f"401 Client Error: Unauthorized for url: {host}"]
+        assert unauthorized_message is not None and "Example" in unauthorized_message
 
     def test_host_agnostic_default(self) -> None:
         errors = auth_non_retryable_errors()

@@ -144,14 +144,16 @@ def build_endpoint_schemas(
     should_sync_default = should_sync_default or {}
     schemas = []
     for name in endpoints:
-        fields = incremental_fields.get(name) or []
-        has_incremental = bool(fields)
+        fields = incremental_fields.get(name)
+        # Match the hand-written loop's `.get(name) is not None`: a mapping entry (even an
+        # explicit `[]`) counts as incremental, a missing one doesn't.
+        has_incremental = fields is not None
         schemas.append(
             SourceSchema(
                 name=name,
                 supports_incremental=has_incremental and name not in append_only,
                 supports_append=has_incremental and name not in merge_only,
-                incremental_fields=fields,
+                incremental_fields=fields or [],
                 description=descriptions.get(name),
                 should_sync_default=should_sync_default.get(name, True),
                 supports_webhooks=name in supports_webhooks,
