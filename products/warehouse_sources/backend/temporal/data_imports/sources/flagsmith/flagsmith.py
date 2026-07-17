@@ -1,3 +1,5 @@
+import json
+import time
 import dataclasses
 from collections.abc import Iterator
 from typing import Any
@@ -29,11 +31,63 @@ MAX_RETRY_WAIT_SECONDS = 60
 # credentialed requests until the activity is cancelled. Generous enough not to truncate real data.
 MAX_PAGES_PER_RESOURCE = 10_000
 
+# base_url can be a customer-controlled self-hosted host, so response bodies are streamed and
+# read under a byte cap and a total-transfer deadline: an arbitrarily large (or endlessly
+# dripped) 200 body must fail the sync instead of exhausting worker memory or holding a worker.
+# The cap counts decoded bytes, so a gzip bomb can't slip past it.
+MAX_RESPONSE_BYTES = 256 * 1024 * 1024
+_READ_CHUNK_BYTES = 1024 * 1024
+# The per-read timeout only bounds the gap between chunks, so a host that trickles one byte just
+# before each read timeout could keep a worker busy until the activity's timeout. A monotonic
+# total-transfer deadline caps how long a single body read may take end to end.
+MAX_RESPONSE_SECONDS = 600
+# Bytes pulled from an error body for a diagnostic message — error bodies are never needed in full.
+_ERROR_SNIPPET_BYTES = 2048
+
 
 class FlagsmithRetryableError(Exception):
     def __init__(self, message: str, retry_after: float | None = None):
         super().__init__(message)
         self.retry_after = retry_after
+
+
+class FlagsmithResponseTooLargeError(Exception):
+    pass
+
+
+class FlagsmithResponseTimeoutError(Exception):
+    pass
+
+
+def _read_bounded(
+    response: requests.Response, max_bytes: int = MAX_RESPONSE_BYTES, max_seconds: float = MAX_RESPONSE_SECONDS
+) -> bytes:
+    """Read a streamed response body under both a byte cap and a total-transfer deadline.
+
+    The deadline covers time spent waiting for each chunk, so a slow-drip body that stays under
+    the per-read timeout but never finishes is aborted instead of holding the worker.
+    """
+    total = 0
+    chunks: list[bytes] = []
+    deadline = time.monotonic() + max_seconds
+    for chunk in response.iter_content(chunk_size=_READ_CHUNK_BYTES):
+        total += len(chunk)
+        if total > max_bytes:
+            raise FlagsmithResponseTooLargeError(f"Flagsmith API response exceeded the size limit ({max_bytes} bytes)")
+        if time.monotonic() > deadline:
+            raise FlagsmithResponseTimeoutError(
+                f"Flagsmith API response exceeded the download time limit ({max_seconds:g}s)"
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _error_snippet(response: requests.Response) -> str:
+    try:
+        chunk = next(response.iter_content(chunk_size=_ERROR_SNIPPET_BYTES), b"")
+        return chunk[:_ERROR_SNIPPET_BYTES].decode("utf-8", errors="replace")
+    except Exception:
+        return ""
 
 
 @dataclasses.dataclass
@@ -142,26 +196,30 @@ def _wait_strategy(retry_state: Any) -> float:
     reraise=True,
 )
 def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> Any:
-    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+    # stream=True keeps the body off the wire until it's read through `_read_bounded` under a byte
+    # cap and a transfer deadline — a customer-controlled host must not exhaust worker memory or
+    # hold a worker with an endless body.
+    with session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, stream=True) as response:
+        if response.status_code == 429:
+            retry_after_header = response.headers.get("Retry-After")
+            try:
+                retry_after = float(retry_after_header) if retry_after_header else None
+            except ValueError:
+                # A non-numeric value (e.g. an HTTP-date) falls back to exponential backoff.
+                retry_after = None
+            logger.warning(f"Flagsmith rate limited (429), retrying. retry_after={retry_after_header}, url={url}")
+            raise FlagsmithRetryableError(f"Flagsmith rate limited: url={url}", retry_after=retry_after)
 
-    if response.status_code == 429:
-        retry_after_header = response.headers.get("Retry-After")
-        try:
-            retry_after = float(retry_after_header) if retry_after_header else None
-        except ValueError:
-            # A non-numeric value (e.g. an HTTP-date) falls back to exponential backoff.
-            retry_after = None
-        logger.warning(f"Flagsmith rate limited (429), retrying. retry_after={retry_after_header}, url={url}")
-        raise FlagsmithRetryableError(f"Flagsmith rate limited: url={url}", retry_after=retry_after)
+        if response.status_code >= 500:
+            raise FlagsmithRetryableError(f"Flagsmith server error: status={response.status_code}, url={url}")
 
-    if response.status_code >= 500:
-        raise FlagsmithRetryableError(f"Flagsmith server error: status={response.status_code}, url={url}")
+        if not response.ok:
+            logger.error(
+                f"Flagsmith API error: status={response.status_code}, body={_error_snippet(response)}, url={url}"
+            )
+            response.raise_for_status()
 
-    if not response.ok:
-        logger.error(f"Flagsmith API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
+        return json.loads(_read_bounded(response))
 
 
 def validate_credentials(api_key: str, base_url: str | None, path: str = "/organisations/") -> int | None:

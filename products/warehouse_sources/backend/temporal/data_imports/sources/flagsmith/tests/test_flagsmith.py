@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import pytest
@@ -6,9 +7,12 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.flagsmith import (
     DEFAULT_BASE_URL,
     MAX_PAGES_PER_RESOURCE,
+    FlagsmithResponseTimeoutError,
+    FlagsmithResponseTooLargeError,
     FlagsmithResumeConfig,
     _initial_url,
     _pinned_next_url,
+    _read_bounded,
     flagsmith_source,
     get_rows,
     normalize_base_url,
@@ -37,10 +41,17 @@ def _page(results: list[dict[str, Any]], next_url: str | None = None) -> dict[st
 
 
 def _resp(data: Any, status_code: int = 200) -> mock.MagicMock:
+    # `_fetch_page` streams the body (`with session.get(..., stream=True) as response`) and reads
+    # it via `_read_bounded`/`iter_content`, so the mock must act as its own context manager and
+    # expose the JSON-encoded body through `iter_content`.
     resp = mock.MagicMock()
+    body = json.dumps(data).encode()
+    resp.iter_content.side_effect = lambda *args, **kwargs: iter([body])
     resp.json.return_value = data
     resp.status_code = status_code
     resp.ok = 200 <= status_code < 300
+    resp.__enter__.return_value = resp
+    resp.__exit__.return_value = False
     return resp
 
 
@@ -294,6 +305,23 @@ class TestErrors:
 
         with pytest.raises(Exception, match="403 Client Error"):
             list(get_rows("key", None, "organisations", mock.MagicMock(), _make_manager()))
+
+
+class TestReadBounded:
+    # A customer-controlled self-hosted host could return an arbitrarily large or slow-dripped
+    # body; these guard that the byte cap and transfer deadline both fail the read.
+    def test_raises_when_body_exceeds_byte_cap(self):
+        resp = mock.MagicMock()
+        resp.iter_content.return_value = iter([b"x" * 10, b"y" * 10])
+        with pytest.raises(FlagsmithResponseTooLargeError):
+            _read_bounded(resp, max_bytes=15)
+
+    def test_raises_when_transfer_exceeds_deadline(self):
+        resp = mock.MagicMock()
+        resp.iter_content.return_value = iter([b"a", b"b"])
+        # A deadline already in the past trips on the first chunk regardless of pacing.
+        with pytest.raises(FlagsmithResponseTimeoutError):
+            _read_bounded(resp, max_bytes=100, max_seconds=-1)
 
 
 class TestFlagsmithSourceResponse:
