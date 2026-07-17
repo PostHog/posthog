@@ -7,6 +7,17 @@
             "enum": ["warehouse", "direct"],
             "type": "string"
         },
+        "api_version": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Vendor API version to pin this source to. Must be one of the source's supported versions (see `versions` in the public source config). Defaults to the source's newest version when omitted."
+        },
         "description": {
             "anyOf": [
                 {
