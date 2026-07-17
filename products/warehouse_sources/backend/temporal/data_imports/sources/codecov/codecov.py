@@ -53,11 +53,18 @@ def _endpoint_url(owner_base_url: str, config: CodecovEndpointConfig, repo: str 
     return f"{url}?{urlencode(params)}" if params else url
 
 
-def _force_https(url: str) -> str:
-    """Codecov's DRF `next` links come back with an http:// scheme; never follow one in
-    plaintext — the request carries the bearer token."""
+def _ensure_codecov_url(url: str) -> str:
+    """Upgrade and pin a pagination/resume URL to the Codecov API origin.
+
+    Codecov's DRF `next` links come back with an http:// scheme, so upgrade them rather than
+    send the bearer token in plaintext. Beyond that, `next` is response-controlled and resume
+    URLs are replayed from persisted state, so refuse any URL outside the API origin — the
+    token must never be sent to a host we didn't choose.
+    """
     if url.startswith("http://"):
-        return "https://" + url.removeprefix("http://")
+        url = "https://" + url.removeprefix("http://")
+    if not url.startswith(f"{CODECOV_BASE_URL}/"):
+        raise ValueError(f"Refusing to follow non-Codecov URL: {url}")
     return url
 
 
@@ -144,7 +151,7 @@ def _iter_pages(
         data = _fetch_page(session, url, headers, logger)
         results = data.get("results") or []
         next_url = data.get("next")
-        next_url = _force_https(next_url) if next_url else None
+        next_url = _ensure_codecov_url(next_url) if next_url else None
         yield results, next_url
         if not next_url:
             return
@@ -173,7 +180,7 @@ def _get_top_level_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.next_url:
-        url = resume.next_url
+        url = _ensure_codecov_url(resume.next_url)
         logger.debug(f"Codecov: resuming {config.name} from URL: {url}")
     else:
         url = _endpoint_url(owner_base_url, config, None, {"page_size": PAGE_SIZE, **config.extra_params})
@@ -226,7 +233,7 @@ def _get_fan_out_rows(
     resume_url: str | None = None
     if resume is not None and resume.repo is not None and resume.repo in repo_names:
         remaining = repo_names[repo_names.index(resume.repo) :]
-        resume_url = resume.next_url
+        resume_url = _ensure_codecov_url(resume.next_url) if resume.next_url else None
         logger.debug(f"Codecov: resuming {config.name} from repo={resume.repo}, url={resume_url}")
 
     for index, repo in enumerate(remaining):

@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
 from unittest import mock
 from unittest.mock import MagicMock
 
@@ -10,6 +11,7 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.codecov import codecov
 from products.warehouse_sources.backend.temporal.data_imports.sources.codecov.codecov import (
     CodecovResumeConfig,
+    _ensure_codecov_url,
     _owner_base_url,
     _should_stop_desc,
     get_rows,
@@ -104,6 +106,31 @@ class TestOwnerBaseUrl:
         assert _owner_base_url("github", owner) == expected
 
 
+class TestEnsureCodecovUrl:
+    @parameterized.expand(
+        [
+            ("http_upgraded", "http://api.codecov.io/api/v2/github/acme/repos?page=2"),
+            ("https_unchanged", "https://api.codecov.io/api/v2/github/acme/repos?page=2"),
+        ]
+    )
+    def test_valid_urls_normalize_to_https(self, _name: str, url: str) -> None:
+        assert _ensure_codecov_url(url) == "https://api.codecov.io/api/v2/github/acme/repos?page=2"
+
+    @parameterized.expand(
+        [
+            # A pagination link or poisoned resume state pointing anywhere but the Codecov API
+            # origin would receive the bearer token — refuse it.
+            ("foreign_host", "https://evil.example.com/api/v2/github/acme/repos"),
+            ("userinfo_trick", "https://api.codecov.io@evil.example.com/api/v2/repos"),
+            ("host_suffix", "https://api.codecov.io.evil.example.com/api/v2/repos"),
+            ("path_prefix_escape", "https://api.codecov.io/api/v2evil"),
+        ]
+    )
+    def test_non_codecov_urls_are_refused(self, _name: str, url: str) -> None:
+        with pytest.raises(ValueError):
+            _ensure_codecov_url(url)
+
+
 class TestShouldStopDesc:
     _CUTOFF = datetime(2026, 7, 5, tzinfo=UTC)
 
@@ -156,6 +183,17 @@ class TestTopLevelRows:
 
         assert [r["name"] for r in rows] == ["r2"]
         assert fetched == [resume_url]
+
+    def test_poisoned_next_url_aborts_the_sync(self, monkeypatch: Any) -> None:
+        pages = {
+            f"{_BASE}/repos?page_size=500": _page(
+                [{"name": "r1"}], next_url="https://evil.example.com/api/v2/github/acme/repos?page=2"
+            ),
+        }
+        _patch_fetch(monkeypatch, pages)
+
+        with pytest.raises(ValueError):
+            _collect(_FakeResumableManager(), repositories=None, endpoint="repos")
 
     def test_repos_applies_repository_allow_list(self, monkeypatch: Any) -> None:
         pages = {f"{_BASE}/repos?page_size=500": _page([{"name": "r1"}, {"name": "r2"}, {"name": "r3"}])}
