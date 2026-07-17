@@ -106,6 +106,14 @@ class TestOtelLogMirror(SimpleTestCase):
         assert provider.get_logger.called
         assert result == event_dict
 
+    def test_factory_is_fail_soft_when_provider_build_fails(self) -> None:
+        # Provider construction failing at warm-up must not break worker startup: the factory returns a
+        # no-op processor instead of propagating out of configure_logger.
+        event_dict = {"event": "x", "logger": f"{_PREFIX}.x"}
+        with mock.patch("posthog.otel_logs._build_provider", side_effect=RuntimeError("boom")):
+            mirror = otel_log_mirror_processor("replay-vision", logger_prefix=_PREFIX, attribute_allowlist=_ALLOWLIST)
+        assert mirror(None, "info", dict(event_dict)) == event_dict
+
     @parameterized.expand(
         [("both_empty", "", ""), ("endpoint_only", "http://c/i/v1/logs", ""), ("token_only", "", "phc_x")]
     )

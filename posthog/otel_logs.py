@@ -116,6 +116,12 @@ def _exception_type(event_dict: "structlog.types.EventDict") -> dict[str, str]:
     return {}
 
 
+def _passthrough(
+    logger: "structlog.types.WrappedLogger", method_name: str, event_dict: "structlog.types.EventDict"
+) -> "structlog.types.EventDict":
+    return event_dict
+
+
 def otel_log_mirror_processor(
     service_name: str,
     *,
@@ -127,18 +133,22 @@ def otel_log_mirror_processor(
     `attribute_allowlist` keys ship). Insert before the terminal renderer, message still under `event`.
     """
     allowlist = frozenset(attribute_allowlist)
-    # Warm the provider at startup so the exporter's thread isn't spawned inside the workflow sandbox.
-    _ensure_provider(service_name)
+    try:
+        # Warm the provider at startup so the exporter's thread isn't spawned inside the workflow
+        # sandbox, and resolve SDK types + the pinned resource once, off the per-log path. Without a
+        # pinned resource the record would default to the pod's OTEL_SERVICE_NAME and the Logs
+        # service.name filter would miss it.
+        _ensure_provider(service_name)
 
-    # Resolve SDK types and the pinned resource once at startup (this factory runs after django.setup),
-    # keeping them off the per-log path. Without a pinned resource the record would default to the pod's
-    # OTEL_SERVICE_NAME and the Logs service.name filter would miss it.
-    from opentelemetry.sdk._logs import LogRecord  # noqa: PLC0415
-    from opentelemetry.sdk.resources import Resource  # noqa: PLC0415
-    from opentelemetry.trace import TraceFlags  # noqa: PLC0415
+        from opentelemetry.sdk._logs import LogRecord  # noqa: PLC0415
+        from opentelemetry.sdk.resources import Resource  # noqa: PLC0415
+        from opentelemetry.trace import TraceFlags  # noqa: PLC0415
 
-    resource = Resource.create({"service.name": service_name})
-    trace_flags = TraceFlags(TraceFlags.DEFAULT)
+        resource = Resource.create({"service.name": service_name})
+        trace_flags = TraceFlags(TraceFlags.DEFAULT)
+    except Exception:
+        # Telemetry setup must never break worker startup; degrade to a no-op.
+        return _passthrough
 
     def mirror(
         logger: "structlog.types.WrappedLogger",
