@@ -179,6 +179,7 @@ class HyperCache:
         batch_load_fn: Optional[Callable[[list[Team]], dict[int, dict]]] = None,
         enable_etag: bool = False,
         expiry_sorted_set_key: Optional[str] = None,
+        s3_enabled: bool = True,
     ):
         if token_based and hashed_credential_based:
             raise ValueError("token_based and hashed_credential_based are mutually exclusive")
@@ -196,6 +197,10 @@ class HyperCache:
         self.batch_load_fn = batch_load_fn
         self.enable_etag = enable_etag
         self.expiry_sorted_set_key = expiry_sorted_set_key
+        # Redis-only mode: skips the S3 tier on reads, writes, and deletes. For short-TTL
+        # entries whose staleness bound depends on expiry — an S3 copy never expires, so
+        # it would restore a stale value past every redis expiry.
+        self.s3_enabled = s3_enabled
 
         # Derive cache_client and redis_url from cache_alias (single source of truth)
         if cache_alias:
@@ -273,12 +278,13 @@ class HyperCache:
                 return json.loads(data), "redis"
 
         try:
-            data = object_storage.read(cache_key, missing_ok=True)
-            if data:
-                response = json.loads(data)
-                HYPERCACHE_CACHE_COUNTER.labels(result="hit_s3", namespace=self.namespace, value=self.value).inc()
-                self._set_cache_value_redis(key, response)
-                return response, "s3"
+            if self.s3_enabled:
+                data = object_storage.read(cache_key, missing_ok=True)
+                if data:
+                    response = json.loads(data)
+                    HYPERCACHE_CACHE_COUNTER.labels(result="hit_s3", namespace=self.namespace, value=self.value).inc()
+                    self._set_cache_value_redis(key, response)
+                    return response, "s3"
         except (ObjectStorageError, BotoCoreError, ClientError, ValueError) as e:
             # Any storage-layer failure here (including a misconfigured S3 endpoint that
             # makes boto3 raise on client construction) must degrade to a cache miss and
@@ -523,7 +529,8 @@ class HyperCache:
                 HYPERCACHE_WRITE_SKIPPED_UNCHANGED_COUNTER.labels(namespace=self.namespace, value=self.value).inc()
                 return len(json_data)
         size = self._set_cache_value_redis(key, data, ttl=ttl, json_data=json_data)
-        self._set_cache_value_s3(key, data, ttl=ttl)
+        if self.s3_enabled:
+            self._set_cache_value_s3(key, data, ttl=ttl)
         # Only track expiry when we have a Team object (avoids DB lookup)
         if isinstance(key, Team):
             self._track_expiry(key, data, ttl=ttl)
@@ -574,7 +581,7 @@ class HyperCache:
                 self.cache_client.delete(self.get_cache_key(key))
                 # Always delete ETag key to clean up stale ETags from when enable_etag was True
                 self.cache_client.delete(self.get_etag_key(key))
-            if "s3" in kinds:
+            if "s3" in kinds and self.s3_enabled:
                 object_storage.delete(self.get_cache_key(key))
         finally:
             self._remove_expiry_tracking(key)
