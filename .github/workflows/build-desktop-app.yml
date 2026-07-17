@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
     package-macos:
-        name: Package macOS DMG (arm64, unsigned)
+        name: Package macOS DMG (arm64)
         # Depot macOS is a fixed FIFO pool (Startup+ plan); if it's unavailable,
         # swap runs-on for `macos-14`.
         runs-on: depot-macos-latest
@@ -38,11 +38,35 @@ jobs:
                   pnpm --filter=@posthog/frontend build:products
                   pnpm --filter=@posthog/frontend build
 
-            - name: Package desktop app
+            # PR builds stay unsigned (ad-hoc signature from after-pack.cjs):
+            # signing secrets must never be reachable from PR-modified workflow
+            # code, and fork PRs don't get them anyway. Master pushes and manual
+            # dispatches produce the signed + notarized DMG. If the signing
+            # secrets aren't configured, non-PR builds degrade to unsigned
+            # instead of failing.
+            - name: Package desktop app (unsigned)
+              if: github.event_name == 'pull_request' || secrets.DESKTOP_MACOS_SIGNING_CERT == ''
               env:
-                  # No signing identity in CI yet; the package script ad-hoc signs
                   CSC_IDENTITY_AUTO_DISCOVERY: 'false'
               run: pnpm --filter=@posthog/desktop package
+
+            - name: Package desktop app (signed + notarized)
+              if: github.event_name != 'pull_request' && secrets.DESKTOP_MACOS_SIGNING_CERT != ''
+              env:
+                  # Base64-encoded Developer ID Application .p12 + its password;
+                  # electron-builder accepts base64 data directly in CSC_LINK
+                  CSC_LINK: ${{ secrets.DESKTOP_MACOS_SIGNING_CERT }}
+                  CSC_KEY_PASSWORD: ${{ secrets.DESKTOP_MACOS_SIGNING_CERT_PASSWORD }}
+                  # App Store Connect API key for notarization; electron-builder
+                  # expects APPLE_API_KEY to be a path to the .p8 file
+                  APPLE_API_KEY_B64: ${{ secrets.DESKTOP_APPLE_API_KEY }}
+                  APPLE_API_KEY_ID: ${{ secrets.DESKTOP_APPLE_API_KEY_ID }}
+                  APPLE_API_ISSUER: ${{ secrets.DESKTOP_APPLE_API_ISSUER }}
+              run: |
+                  export APPLE_API_KEY="$RUNNER_TEMP/apple_api_key.p8"
+                  printf '%s' "$APPLE_API_KEY_B64" | base64 --decode > "$APPLE_API_KEY"
+                  pnpm --filter=@posthog/desktop package
+                  rm -f "$APPLE_API_KEY"
 
             - name: Upload DMG
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

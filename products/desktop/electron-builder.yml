@@ -28,7 +28,13 @@ mac:
         - target: dmg
           arch:
               - arm64
-    # No signing identity yet. after-pack.cjs applies an ad-hoc signature so
-    # the app can launch on Apple Silicon (which refuses fully unsigned code).
-    identity: null
+    # Signing is driven by env: with CSC_LINK/CSC_KEY_PASSWORD set (CI master
+    # builds, or a local keychain identity) electron-builder signs with the
+    # Developer ID cert and hardened runtime; without one, after-pack.cjs
+    # applies an ad-hoc signature so the app can still launch on Apple Silicon
+    # (which refuses fully unsigned code).
+    hardenedRuntime: true
+    # Notarization runs only when APPLE_API_KEY/APPLE_API_KEY_ID/APPLE_API_ISSUER
+    # are present in the env; otherwise electron-builder skips it.
+    notarize: true
 afterPack: scripts/after-pack.cjs
