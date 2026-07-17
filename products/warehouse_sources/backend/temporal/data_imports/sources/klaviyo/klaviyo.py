@@ -11,6 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.constants import (
+    KLAVIYO_API_VERSION_2026_07_15,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.settings import (
     KLAVIYO_ENDPOINTS,
     KlaviyoEndpointConfig,
@@ -117,10 +120,12 @@ def _build_url(base_url: str, params: dict[str, Any]) -> str:
     return f"{base_url}?{'&'.join(parts)}"
 
 
-def _get_headers(api_key: str) -> dict[str, str]:
+def _get_headers(api_key: str, revision: str = KLAVIYO_API_VERSION_2026_07_15) -> dict[str, str]:
+    # `revision` is the pinned vendor API version, threaded from the source instance's resolved pin.
+    # Defaults to the current version for credential validation, which runs before any row is pinned.
     return {
         "Authorization": f"Klaviyo-API-Key {api_key}",
-        "revision": "2024-10-15",
+        "revision": revision,
         "Accept": "application/json",
     }
 
@@ -311,12 +316,13 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[KlaviyoResumeConfig],
+    api_version: str = KLAVIYO_API_VERSION_2026_07_15,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
     incremental_field: str | None = None,
 ) -> Iterator[Any]:
     config = KLAVIYO_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
+    headers = _get_headers(api_key, api_version)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     # One session reused across every page (and, for fan-out, every list) so urllib3 keeps the
     # connection alive instead of re-handshaking per request.
@@ -377,6 +383,7 @@ def klaviyo_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[KlaviyoResumeConfig],
+    api_version: str = KLAVIYO_API_VERSION_2026_07_15,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
@@ -390,6 +397,7 @@ def klaviyo_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=api_version,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
             incremental_field=incremental_field,
