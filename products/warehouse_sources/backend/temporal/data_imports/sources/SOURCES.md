@@ -107,6 +107,7 @@ the row lists both.
 | chargedesk                       | HTTP                        | requests                                                        | ✅                          |
 | chargify                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | charthop                         | HTTP                        | requests                                                        | ✅                          |
+| checkmarx                        | HTTP                        | requests                                                        | ✅                          |
 | checkout_com                     | HTTP                        | requests                                                        | ✅                          |
 | churnkey                         | HTTP                        | requests                                                        | ✅                          |
 | coassemble                       | HTTP                        | requests                                                        | ✅                          |
@@ -200,6 +201,7 @@ the row lists both.
 | fulcrum                          | HTTP                        | requests                                                        | ✅                          |
 | fullstory                        | HTTP                        | requests                                                        | ✅                          |
 | gainsight_px                     | HTTP                        | requests                                                        | ✅                          |
+| gerrit                           | HTTP                        | requests                                                        | ✅                          |
 | gitbook                          | HTTP                        | requests                                                        | ✅                          |
 | github                           | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | giphy                            | HTTP                        | requests                                                        | ✅                          |
@@ -588,7 +590,6 @@ doesn't conflict with concurrent PRs.
 - cart_com
 - castor_edc
 - chatwoot
-- checkmarx
 - chift
 - chorus
 - cin7
