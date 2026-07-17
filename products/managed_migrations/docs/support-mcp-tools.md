@@ -20,7 +20,10 @@ The `batch_import_support:read` scope is **hidden from the key-creation UI** and
 so minting takes two steps — create the key normally, then add the hidden scope via Django admin:
 
 1. In the PostHog UI on the region you want to inspect, go to **Settings → Personal API keys** and create a key with the **User: Read** scope and **no organization/project restriction** (the endpoint rejects scoped keys). Copy the `phx_...` value — it is shown only once.
-2. In Django admin (`/admin/posthog/personalapikey/`), open your new key and add `batch_import_support:read` to its `scopes` list, then save. Do this **before** first using the key with MCP — the MCP server caches a token's scopes on first use.
+2. In Django admin (`/admin/posthog/personalapikey/`), open your new key and add `batch_import_support:read` to its `scopes` list (comma-separated, no spaces), then save.
+   Leave `Scoped teams` / `Scoped organizations` **blank** — the key must stay unscoped.
+   Do this **before** first using the key with MCP — the MCP server caches a token's scopes on first use.
+   Note: admin bypasses scope validation, so a typo in the scope string saves fine and just silently never matches — double-check the spelling.
 
 <details>
 <summary>Alternative: one-shot mint from the browser console</summary>
@@ -34,8 +37,16 @@ await fetch('/api/personal_api_keys/', {
     'Content-Type': 'application/json',
     'X-Csrftoken': document.cookie.match(/posthog_csrftoken=([^;]+)/)[1],
   },
-  body: JSON.stringify({ label: 'migrations support', scopes: ['batch_import_support:read', 'user:read'] }),
-}).then((r) => r.json())
+  body: JSON.stringify({
+    label: 'migrations support',
+    scopes: ['batch_import_support:read', 'user:read'],
+    // Required keys (the serializer demands them even when empty); [] = unscoped.
+    scoped_teams: [],
+    scoped_organizations: [],
+  }),
+})
+  .then((r) => r.json())
+  .then((k) => k.value)
 ```
 
 The CSRF header is required — session-authenticated POSTs are CSRF-protected.

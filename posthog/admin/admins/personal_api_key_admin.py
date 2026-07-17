@@ -1,5 +1,8 @@
+from typing import Any
+
+from django import forms
 from django.contrib import admin
-from django.http import HttpResponseNotAllowed
+from django.http import HttpRequest, HttpResponseNotAllowed
 from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
@@ -38,6 +41,20 @@ class PersonalAPIKeyAdmin(admin.ModelAdmin):
     search_fields = ("id", "user__email", "scopes")
     autocomplete_fields = ("user", "team")
     ordering = ("-created_at",)
+
+    def get_form(
+        self, request: HttpRequest, obj: PersonalAPIKey | None = None, change: bool = False, **kwargs: Any
+    ) -> type[forms.ModelForm]:
+        form = super().get_form(request, obj, change=change, **kwargs)
+        # `scoped_teams` / `scoped_organizations` are nullable in the DB (null/[] = unscoped,
+        # the normal state of every UI-minted key) but lack `blank=True` on the model, so
+        # Django's default form marks them required - which made the change form unsaveable
+        # for unscoped keys (e.g. adding an OAuth-hidden support scope to a staff key).
+        # Blank input saves as [], which every scoping check treats the same as null.
+        for field_name in ("scoped_teams", "scoped_organizations"):
+            if field_name in form.base_fields:
+                form.base_fields[field_name].required = False
+        return form
 
     @admin.display(description="User")
     def user_link(self, key: PersonalAPIKey):
