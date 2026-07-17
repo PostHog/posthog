@@ -86,6 +86,12 @@ pub enum FingerprintVersion {
     // line/column, and normalizes volatile path and message tokens. Selected by an offline
     // research loop: pairwise F1 0.40 vs 0.26 for V1 on a held-out LLM-labeled pair dataset.
     V2,
+    // V2 plus dynamic-token stripping inside stack-frame function names and a broader message
+    // mask. Some themes/bundlers (Alpine/Hyvä, lazy webpack chunks) suffix function names with a
+    // per-load token — `initPriceBox__6a5a17a744e6e` — that changes every page load; V2 hashes
+    // those bytes verbatim and the message mask only caught hex runs >= 16 chars, so one logical
+    // error fragmented into a fresh issue per load. V3 masks the suffix so those regroup.
+    V3,
 }
 
 impl FingerprintVersion {
@@ -97,11 +103,14 @@ impl FingerprintVersion {
         // V1, then V1's — an event matching both a V2-era legacy row and an
         // older V1 row stays on the newer issue. The last entry (the new-issue
         // fallback) must never be a legacy version.
+        // V3 has no legacy twin: it ships after wire-order normalization, so no issue was ever
+        // keyed under it in the pre-flip order and there is nothing for a V3Legacy to match.
         &[
             FingerprintVersion::V1Legacy,
             FingerprintVersion::V1,
             FingerprintVersion::V2Legacy,
             FingerprintVersion::V2,
+            FingerprintVersion::V3,
         ]
     }
 
@@ -111,6 +120,7 @@ impl FingerprintVersion {
             FingerprintVersion::V2Legacy => "v2_legacy",
             FingerprintVersion::V1 => "v1",
             FingerprintVersion::V2 => "v2",
+            FingerprintVersion::V3 => "v3",
         }
     }
 
@@ -144,12 +154,25 @@ impl FingerprintVersion {
                     strip_hashed_chunks: true,
                     basename_only: true,
                 },
+                function_normalize: FunctionNormalization::default(),
                 message_normalize: MessageNormalization {
                     mask_quoted: true,
                     mask_hex_ids: true,
                     mask_numbers: true,
+                    mask_dynamic_tokens: false,
                     truncate: Some(200),
                 },
+            },
+            // V3 = V2 with dynamic tokens stripped from function names and a broader message mask.
+            FingerprintVersion::V3 => FingerprintStrategy {
+                function_normalize: FunctionNormalization {
+                    strip_dynamic_tokens: true,
+                },
+                message_normalize: MessageNormalization {
+                    mask_dynamic_tokens: true,
+                    ..FingerprintVersion::V2.strategy().message_normalize
+                },
+                ..FingerprintVersion::V2.strategy()
             },
         }
     }
@@ -246,6 +269,43 @@ impl Normalization {
     }
 }
 
+static DYNAMIC_TOKEN: OnceLock<Regex> = OnceLock::new();
+
+// Masks per-load dynamic suffixes glued onto an identifier with a double underscore, e.g.
+// `initPriceBox__6a5a17a744e6e` -> `initPriceBox__*`. Some themes/bundlers (Alpine/Hyvä, lazy
+// webpack chunks) regenerate this suffix on every page load, so hashing it verbatim forks a fresh
+// issue per load. The `__` delimiter plus a digit-bearing run keeps ordinary dunder names
+// (`__init__`, `__proto__`) and digit-free identifiers untouched. The regex crate has no
+// lookahead, so the digit requirement lives in the replacer.
+fn mask_dynamic_tokens(value: &str) -> Cow<'_, str> {
+    let re = DYNAMIC_TOKEN.get_or_init(|| Regex::new(r"__[A-Za-z0-9]{6,}").expect("valid regex"));
+    re.replace_all(value, |caps: &regex::Captures| {
+        let token = &caps[0];
+        if token.bytes().any(|b| b.is_ascii_digit()) {
+            "__*".to_string()
+        } else {
+            token.to_string()
+        }
+    })
+}
+
+// Normalization applied to frame function names (resolved_name/mangled_name) before hashing. The
+// all-off default (V1/V2) is a byte-identity, so it never changes existing fingerprints.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FunctionNormalization {
+    // "initPriceBox__6a5a17a744e6e" -> "initPriceBox__*"
+    pub strip_dynamic_tokens: bool,
+}
+
+impl FunctionNormalization {
+    fn apply<'a>(&self, value: &'a str) -> Cow<'a, str> {
+        if !self.strip_dynamic_tokens {
+            return Cow::Borrowed(value);
+        }
+        mask_dynamic_tokens(value)
+    }
+}
+
 // Masks dynamic tokens in the exception message before hashing, so interpolated values
 // (ids, counts, durations) don't fork issues. The all-off default (V1) is a byte-identity.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -256,6 +316,9 @@ pub struct MessageNormalization {
     pub mask_hex_ids: bool,
     // digit runs (incl. decimals) -> '#' (counts, ports, durations, errnos)
     pub mask_numbers: bool,
+    // "__<mixed-alphanumeric>" suffixes -> "__*" (per-load tokens the 16-char hex mask misses,
+    // e.g. `initPriceBox__6a5a17a744e6e` in a "X is not defined" message)
+    pub mask_dynamic_tokens: bool,
     // keep only the first N chars (huge payloads embedded in messages)
     pub truncate: Option<usize>,
 }
@@ -266,7 +329,8 @@ static NUMBER_TOKEN: OnceLock<Regex> = OnceLock::new();
 
 impl MessageNormalization {
     fn is_noop(&self) -> bool {
-        !(self.mask_quoted || self.mask_hex_ids || self.mask_numbers) && self.truncate.is_none()
+        !(self.mask_quoted || self.mask_hex_ids || self.mask_numbers || self.mask_dynamic_tokens)
+            && self.truncate.is_none()
     }
 
     fn apply<'a>(&self, value: &'a str) -> Cow<'a, str> {
@@ -278,6 +342,11 @@ impl MessageNormalization {
             let re =
                 QUOTED_TOKEN.get_or_init(|| Regex::new(r#"'[^']*'|"[^"]*""#).expect("valid regex"));
             out = re.replace_all(&out, "'*'").into_owned();
+        }
+        // Before mask_numbers, so the whole `__<token>` collapses to `__*` instead of the digits
+        // alone turning into `#` and leaving the volatile letters behind.
+        if self.mask_dynamic_tokens {
+            out = mask_dynamic_tokens(&out).into_owned();
         }
         if self.mask_hex_ids {
             // UUIDs before bare numbers: they contain both hyphens and digits.
@@ -314,6 +383,7 @@ pub struct FingerprintStrategy {
     pub unresolved_include_line: bool,
     pub unresolved_include_column: bool,
     pub normalize: Normalization,
+    pub function_normalize: FunctionNormalization,
     pub message_normalize: MessageNormalization,
 }
 
@@ -325,6 +395,7 @@ impl Default for FingerprintStrategy {
             unresolved_include_line: true,
             unresolved_include_column: true,
             normalize: Normalization::default(),
+            function_normalize: FunctionNormalization::default(),
             message_normalize: MessageNormalization::default(),
         }
     }
@@ -419,7 +490,7 @@ impl FingerprintStrategy {
 
         // If we've resolved this frame, include function name, and then return
         if let Some(resolved) = &frame.resolved_name {
-            fp.update(resolved.as_bytes());
+            fp.update(self.function_normalize.apply(resolved).as_bytes());
             included_pieces.push("Resolved function name");
 
             fp.add_part(get_part(&frame.frame_id, included_pieces));
@@ -427,7 +498,7 @@ impl FingerprintStrategy {
         }
 
         // Otherwise, get more granular
-        fp.update(frame.mangled_name.as_bytes());
+        fp.update(self.function_normalize.apply(&frame.mangled_name).as_bytes());
         included_pieces.push("Mangled function name");
 
         if self.unresolved_include_line {
@@ -794,6 +865,95 @@ mod test {
         }
     }
 
+    // ---- V2 vs V3 direction tests: dynamic tokens in function names / messages ----
+
+    #[test]
+    fn v3_strips_dynamic_tokens_from_resolved_function_names() {
+        // A Hyvä/Alpine theme re-generates the `__<hex>` suffix every page load, so V2 forks a
+        // fresh issue per load; V3 collapses them.
+        let with_fn = |name: &str| {
+            vec![exception(
+                "ReferenceError",
+                "boom",
+                resolved_stack(vec![frame(
+                    "x",
+                    Some("theme.js"),
+                    Some(name),
+                    true,
+                    true,
+                    Some(1),
+                )]),
+            )]
+        };
+        assert_ne!(
+            value(FingerprintVersion::V2, with_fn("initPriceBox__6a5a17a744e6e")),
+            value(FingerprintVersion::V2, with_fn("initPriceBox__b1c2d3e4f5061")),
+        );
+        assert_eq!(
+            value(FingerprintVersion::V3, with_fn("initPriceBox__6a5a17a744e6e")),
+            value(FingerprintVersion::V3, with_fn("initPriceBox__b1c2d3e4f5061")),
+        );
+    }
+
+    #[test]
+    fn v3_strips_dynamic_tokens_from_unresolved_function_names() {
+        let with_mangled = |name: &str| {
+            vec![exception(
+                "ReferenceError",
+                "boom",
+                resolved_stack(vec![frame(name, Some("theme.js"), None, false, true, None)]),
+            )]
+        };
+        assert_ne!(
+            value(FingerprintVersion::V2, with_mangled("initPriceBox__6a5a17a744e6e")),
+            value(FingerprintVersion::V2, with_mangled("initPriceBox__b1c2d3e4f5061")),
+        );
+        assert_eq!(
+            value(FingerprintVersion::V3, with_mangled("initPriceBox__6a5a17a744e6e")),
+            value(FingerprintVersion::V3, with_mangled("initPriceBox__b1c2d3e4f5061")),
+        );
+    }
+
+    #[test]
+    fn v3_masks_short_dynamic_suffix_in_message() {
+        // 13-char mixed-alphanumeric suffix: below the 16-char bare-hex mask V2 relies on, so V2
+        // splits; V3's `__`-anchored mask catches it.
+        let with_msg = |msg: &str| vec![exception("ReferenceError", msg, None)];
+        let a = "initPriceBox__6a5a17a744e6e is not defined";
+        let b = "initPriceBox__b1c2d3e4f5061 is not defined";
+        assert_ne!(
+            value(FingerprintVersion::V2, with_msg(a)),
+            value(FingerprintVersion::V2, with_msg(b)),
+        );
+        assert_eq!(
+            value(FingerprintVersion::V3, with_msg(a)),
+            value(FingerprintVersion::V3, with_msg(b)),
+        );
+    }
+
+    #[test]
+    fn v3_keeps_ordinary_dunder_names_distinct() {
+        // Digit-free dunder identifiers are not dynamic tokens and must stay distinguishable.
+        let with_fn = |name: &str| {
+            vec![exception(
+                "TypeError",
+                "boom",
+                resolved_stack(vec![frame(
+                    "x",
+                    Some("app.js"),
+                    Some(name),
+                    true,
+                    true,
+                    Some(1),
+                )]),
+            )]
+        };
+        assert_ne!(
+            value(FingerprintVersion::V3, with_fn("Model.__init__")),
+            value(FingerprintVersion::V3, with_fn("Model.__repr__")),
+        );
+    }
+
     #[test]
     fn versions_match_the_research_implementation() {
         // Cross-validation against the offline research harness (notebooks/ research project +
@@ -854,5 +1014,9 @@ mod test {
         );
         let msg = "timeout after 30s for 'user' at 0xdeadbeef";
         assert!(matches!(MessageNormalization::default().apply(msg), Cow::Borrowed(s) if s == msg));
+        let func = "initPriceBox__6a5a17a744e6e";
+        assert!(
+            matches!(FunctionNormalization::default().apply(func), Cow::Borrowed(s) if s == func)
+        );
     }
 }
