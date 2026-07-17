@@ -211,6 +211,7 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
 
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
+        actions: [featureFlagLogic, ['setFeatureFlags']],
     })),
 
     actions({
@@ -365,6 +366,18 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
             // Fetch lazily on first switch; date-range changes keep it fresh while active.
             if (chartType === 'heatmap' && values.rawLatencyHeatmap.length === 0) {
                 actions.fetchLatencyHeatmap()
+            }
+        },
+        // Feature flags land asynchronously (posthog.js /flags), potentially after the URL
+        // restore ran with the flag still off. Re-apply a ?chart=heatmap deep link once the
+        // flag makes the heatmap available.
+        setFeatureFlags: () => {
+            if (
+                values.heatmapEnabled &&
+                router.values.searchParams.chart === 'heatmap' &&
+                values.chartType !== 'heatmap'
+            ) {
+                actions.setChartType('heatmap')
             }
         },
         applyHeatmapBrush: ({ selection }) => {
