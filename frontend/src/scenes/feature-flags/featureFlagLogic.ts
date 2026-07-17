@@ -899,7 +899,7 @@ export interface featureFlagLogicActions {
     updateFlag: (flag: FeatureFlagType) => {
         flag: FeatureFlagType
     } // featureFlagsLogic
-    closeSidePanel: (tab?: SidePanelTab) => {
+    closeSidePanel: (tab?: SidePanelTab | undefined) => {
         tab: SidePanelTab | undefined
     } // sidePanelStateLogic
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
@@ -1838,7 +1838,7 @@ export interface featureFlagLogicMeta {
             | 'Release toggle (boolean)'
             | 'Remote configuration (single payload)'
         roleBasedAccessEnabled: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
         ) => boolean
         variants: (featureFlag: FeatureFlagType) => MultivariateFlagVariant[]
         nonEmptyVariants: (variants: MultivariateFlagVariant[]) => MultivariateFlagVariant[]
@@ -1846,7 +1846,7 @@ export interface featureFlagLogicMeta {
         areVariantRolloutsValid: (variants: MultivariateFlagVariant[], variantRolloutSum: number) => boolean
         aggregationTargetName: (
             featureFlag: FeatureFlagType,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => string
         breadcrumbs: (featureFlag: FeatureFlagType) => Breadcrumb[]
         projectTreeRef: (arg: number | 'link' | 'new') => ProjectTreeRef

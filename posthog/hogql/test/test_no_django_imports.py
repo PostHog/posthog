@@ -9,6 +9,12 @@ import subprocess
 # importing it in a fresh interpreter raises AppRegistryNotReady and this test fails.
 DJANGO_FREE_MODULES = [
     "posthog.uuidt",
+    "posthog.exchange_rate_constants",
+    "posthog.raw_sessions_v3_ad_ids",
+    "posthog.clickhouse.events_json",
+    "posthog.property_columns",
+    "posthog.week_start_day",
+    "products.event_definitions.backend.property_type",
     "posthog.hogql.ast",
     "posthog.hogql.base",
     "posthog.hogql.visitor",
@@ -19,6 +25,13 @@ DJANGO_FREE_MODULES = [
     "posthog.hogql.functions.mapping",
     "posthog.hogql.database.models",
     "posthog.hogql.parser",
+    # database.database transitively imports every schema table module, so importing it here
+    # guards the whole schema layer; the resolver is the headline Seam 0 win (parse -> resolve
+    # -> AST with no django.setup()). The printer stays coupled until the property-metadata
+    # providers land (it transitively imports the property transforms).
+    "posthog.hogql.database.database",
+    "posthog.hogql.resolver",
+    "posthog.hogql.property_metadata",
 ]
 
 _CHILD = f"""
@@ -27,8 +40,11 @@ for mod in {DJANGO_FREE_MODULES!r}:
     importlib.import_module(mod)
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.database.database import Database
 assert isinstance(parse_select("select 1"), ast.SelectQuery)
 assert isinstance(parse_expr("1 + 1"), ast.Expr)
+# The static table catalog builds without Django — no team, no ORM.
+assert Database(include_posthog_tables=True).has_table("events")
 print("DJANGO_FREE_OK")
 """
 

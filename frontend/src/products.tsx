@@ -144,6 +144,7 @@ export const productRoutes: Record<string, [string, string]> = {
     ],
     '/engineering-analytics/authors/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
+    '/error_tracking/fingerprint/:fingerprint': ['ErrorTrackingFingerprint', 'errorTrackingFingerprint'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
     '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
@@ -174,6 +175,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/metrics': ['Metrics', 'metrics'],
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskTracker', 'taskDetail'],
+    '/pulse': ['Pulse', 'pulse'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
     '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
     '/replay-vision/actions/:actionId/runs/:runId': ['ReplayVisionActionRun', 'replayVisionActionRun'],
@@ -614,6 +616,7 @@ export const productConfiguration: Record<string, any> = {
     },
     ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue', layout: 'app-raw' },
     ErrorTrackingIssueFingerprints: { projectBased: true, name: 'Error tracking issue fingerprints' },
+    ErrorTrackingFingerprint: { projectBased: true, name: 'Error tracking fingerprint' },
     FeatureFlagTemplates: { projectBased: true, name: 'Feature flag templates' },
     FeatureFlagsStaffTools: { instanceLevel: true, name: 'Flags staff tools' },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
@@ -703,6 +706,13 @@ export const productConfiguration: Record<string, any> = {
         description: 'Tasks are work that agents can do for you, like creating a pull request or fixing an issue.',
         iconType: 'task',
         layout: 'app-full-scene-height',
+    },
+    Pulse: {
+        name: 'Pulse',
+        projectBased: true,
+        description:
+            'Your always-on product manager: spots growth opportunities and shows how to move the numbers that matter.',
+        iconType: 'activity',
     },
     ReplayVision: {
         name: 'Replay vision',
@@ -871,9 +881,19 @@ export const productUrls = {
             msg?: string
         }
     ): string => {
+        const encodePathSegment = (value: string): string => {
+            const encodedValue = encodeURIComponent(value).replace(
+                /[!'()*]/g,
+                (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+            )
+            return encodeURIComponent(encodedValue).replace(
+                /[!'()*]/g,
+                (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+            )
+        }
         const queryParams = new URLSearchParams(params)
         const stringifiedParams = queryParams.toString()
-        return `/ai-observability/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
+        return `/ai-observability/traces/${encodePathSegment(id)}${stringifiedParams ? `?${stringifiedParams}` : ''}`
     },
     aiObservabilityUsers: (): string => '/ai-observability/users',
     aiObservabilityErrors: (): string => '/ai-observability/errors',
@@ -1055,9 +1075,18 @@ export const productUrls = {
             searchQuery?: string
             dateRange?: DateRange
             filterGroup?: UniversalFiltersGroup
+            utm_source?: string
+            utm_campaign?: string
+            utm_medium?: string
         } = {}
     ): string => combineUrl(`/error_tracking/${id}`, params).url,
     errorTrackingIssueFingerprints: (id: string): string => `/error_tracking/${id}/fingerprints`,
+    errorTrackingFingerprint: (
+        fingerprint: string,
+        params: {
+            timestamp?: string
+        } = {}
+    ): string => combineUrl(`/error_tracking/fingerprint/${encodeURIComponent(fingerprint)}`, params).url,
     errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
     errorTrackingAlertNew: (templateId: string): string => `/error_tracking/alerts/new/${templateId}`,
     experiment: (
@@ -1206,6 +1235,7 @@ export const productUrls = {
     insightQuickStart: (): string => '/insights/quick-start',
     productTours: (): string => '/product_tours',
     productTour: (id: string): string => `/product_tours/${id}`,
+    pulse: (): string => '/pulse',
     replay: (
         tab?: ReplayTabs,
         filters?: Partial<RecordingUniversalFilters>,
@@ -1788,6 +1818,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.engineeringAnalytics(),
         flag: FEATURE_FLAGS.ENGINEERING_ANALYTICS,
         tags: ['alpha'],
+        pinnedByDefault: true,
         sceneKey: 'EngineeringAnalytics',
         sceneKeys: [
             'EngineeringAnalytics',
@@ -1810,7 +1841,12 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ] as FileSystemIconColor,
         href: urls.errorTracking(),
         sceneKey: 'ErrorTracking',
-        sceneKeys: ['ErrorTracking', 'ErrorTrackingIssue', 'ErrorTrackingIssueFingerprints'],
+        sceneKeys: [
+            'ErrorTracking',
+            'ErrorTrackingIssue',
+            'ErrorTrackingIssueFingerprints',
+            'ErrorTrackingFingerprint',
+        ],
     },
     {
         path: 'Evaluations',
@@ -2080,6 +2116,18 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ],
     },
     {
+        path: 'Pulse',
+        intents: [ProductKey.PULSE],
+        category: ProductItemCategory.UNRELEASED,
+        iconType: 'activity',
+        iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'] as FileSystemIconColor,
+        href: urls.pulse(),
+        flag: FEATURE_FLAGS.PULSE,
+        tags: ['alpha'],
+        sceneKey: 'Pulse',
+        sceneKeys: ['Pulse'],
+    },
+    {
         path: 'Replay vision',
         category: ProductItemCategory.BEHAVIOR,
         intents: [ProductKey.REPLAY_VISION],
@@ -2191,6 +2239,19 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityClusters',
             'AIObservabilityCluster',
         ],
+    },
+    {
+        path: 'Tasks',
+        intents: [ProductKey.TASKS],
+        category: ProductItemCategory.TOOLS,
+        type: 'task',
+        iconType: 'task',
+        iconColor: ['var(--product-tasks-light)', 'var(--product-tasks-dark)'] as FileSystemIconColor,
+        href: urls.taskTracker(),
+        sceneKey: 'TaskTracker',
+        flag: FEATURE_FLAGS.TASKS,
+        pinnedByDefault: true,
+        sceneKeys: ['TaskTracker'],
     },
     {
         path: 'Toolbar',

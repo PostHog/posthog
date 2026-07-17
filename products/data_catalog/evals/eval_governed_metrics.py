@@ -22,14 +22,24 @@ To run a single case::
 
 from __future__ import annotations
 
-from products.data_catalog.evals.constants import APPROVED_METRIC_NAME, DRIFTED_METRIC_NAME, PROPOSED_METRIC_NAME
+from products.data_catalog.evals.constants import (
+    APPROVED_METRIC_NAME,
+    DECOY_INSIGHT_NAMES,
+    DRIFTED_METRIC_NAME,
+    PROPOSED_METRIC_NAME,
+)
 from products.data_catalog.evals.scorers import (
     GovernedBehaviorCorrectness,
     MetricsCatalogBeforeAnswer,
     MetricsCatalogNotQueried,
     MetricsCatalogQueried,
 )
-from products.data_catalog.evals.seeders import seed_approved_metric, seed_drifted_metric, seed_proposed_metric
+from products.data_catalog.evals.seeders import (
+    seed_approved_metric,
+    seed_drifted_metric,
+    seed_metric_listing_catalog,
+    seed_proposed_metric,
+)
 from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
@@ -90,6 +100,25 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
                 },
             },
             setup=seed_drifted_metric,
+        ),
+        # Listing question with decoy insights present: "what metrics are available" is a
+        # catalog listing, not an insight search — the trap this case guards against.
+        SandboxedEvalCase(
+            name="metric_listing",
+            prompt="What are the metrics that I have available in PostHog?",
+            expected={
+                "metrics_catalog_queried": {},
+                "governed_behavior_correctness": {
+                    "expected_behavior": (
+                        f"Answered from the governed-metrics catalog: listed '{APPROVED_METRIC_NAME}' as approved "
+                        f"and '{PROPOSED_METRIC_NAME}' as proposed/unapproved, distinguishing the two statuses. "
+                        f"It must not answer the question with saved insights (e.g. "
+                        f"{', '.join(repr(name) for name in DECOY_INSIGHT_NAMES)}) as if insights were the "
+                        "available metrics; mentioning them as separate saved insights is acceptable."
+                    )
+                },
+            },
+            setup=seed_metric_listing_catalog,
         ),
         # Empty catalog — the normal case: derive without stalling. Consulting the catalog is
         # allowed (and finding nothing is fine), so only the judge grades this case.
