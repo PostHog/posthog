@@ -13,6 +13,8 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from django.conf import settings
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.client import sync_execute
@@ -1056,6 +1058,19 @@ def test_parse_prop_clauses_defaults(snapshot):
         }
     )
 
+    # events_json accesses event properties with a different SQL shape, so it needs its own
+    # snapshot per assertion (mirrors QueryMatchingTest._schema_snapshot for the plain fixture).
+    schema_snapshot_index = 0
+
+    def expected():
+        nonlocal schema_snapshot_index
+        if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            return snapshot
+        snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+        name = "new_events_schema" if schema_snapshot_index == 0 else f"new_events_schema.{schema_snapshot_index}"
+        schema_snapshot_index += 1
+        return snapshot(name=name)
+
     assert (
         parse_prop_grouped_clauses(
             property_group=filter.property_groups,
@@ -1063,7 +1078,7 @@ def test_parse_prop_clauses_defaults(snapshot):
             team_id=1,
             hogql_context=filter.hogql_context,
         )
-        == snapshot
+        == expected()
     )
     assert (
         parse_prop_grouped_clauses(
@@ -1073,7 +1088,7 @@ def test_parse_prop_clauses_defaults(snapshot):
             team_id=1,
             hogql_context=filter.hogql_context,
         )
-        == snapshot
+        == expected()
     )
     assert (
         parse_prop_grouped_clauses(
@@ -1083,7 +1098,7 @@ def test_parse_prop_clauses_defaults(snapshot):
             allow_denormalized_props=False,
             hogql_context=filter.hogql_context,
         )
-        == snapshot
+        == expected()
     )
 
 
