@@ -41,6 +41,7 @@ from posthog.event_usage import EventSource
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
+from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 from ee.hogai.utils.anthropic import SUPPORTED_ANTHROPIC_BLOCKS
@@ -209,6 +210,10 @@ def _process_events_data(
     # Create a set of event names from context for efficient lookup
     context_event_names = {event.name for event in events_in_context if event.name}
 
+    # Fall back to the user-authored descriptions stored on event definitions for any custom
+    # events that aren't covered by the core taxonomy or the conversation context.
+    db_event_descriptions = _get_event_definition_descriptions(team, events, event_to_description)
+
     processed_events = []
     for event_name in events:
         event_data = {"name": event_name}
@@ -227,10 +232,47 @@ def _process_events_data(
                 event_data["description"] = remove_line_breaks(event_data["description"])
         elif event_name in event_to_description:
             event_data["description"] = remove_line_breaks(event_to_description[event_name])
+        elif event_name in db_event_descriptions:
+            event_data["description"] = remove_line_breaks(db_event_descriptions[event_name])
 
         processed_events.append(event_data)
 
     return processed_events, event_to_description, has_more
+
+
+def _get_event_definition_descriptions(
+    team: Team, event_names: list[str], already_described: dict[str, str]
+) -> dict[str, str]:
+    """Map event name -> user-authored description from the team's event definitions.
+
+    Only the enterprise `EventDefinition` model carries a `description` field, so this is a no-op
+    on non-EE builds. Skips core taxonomy events and events already described via context, and
+    runs a single batched query rather than one per event.
+    """
+    if not EE_AVAILABLE:
+        return {}
+
+    from ee.models.event_definition import (
+        EnterpriseEventDefinition,  # noqa: PLC0415 — EE-only model, keep off the OSS import path
+    )
+
+    names_to_fetch = [
+        name
+        for name in event_names
+        if name not in already_described
+        and name != "All events"
+        and name not in CORE_FILTER_DEFINITIONS_BY_GROUP["events"]
+    ]
+    if not names_to_fetch:
+        return {}
+
+    rows = (
+        EnterpriseEventDefinition.objects.filter(team_id=team.pk, name__in=names_to_fetch)
+        .exclude(description__isnull=True)
+        .exclude(description="")
+        .values_list("name", "description")
+    )
+    return dict(rows)
 
 
 def format_events_xml(events_in_context: list[MaxEventContext], team: Team, user: User) -> str:
