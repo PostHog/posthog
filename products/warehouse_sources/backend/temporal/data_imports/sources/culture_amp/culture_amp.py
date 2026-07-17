@@ -1,58 +1,70 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import quote, urlencode
-
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import OAuth2Auth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponseCursorPaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.culture_amp.settings import (
     CULTURE_AMP_BASE_URL,
     CULTURE_AMP_ENDPOINTS,
     CULTURE_AMP_TOKEN_URL,
 )
 
-REQUEST_TIMEOUT_SECONDS = 60
-# Rate limits are undisclosed ("generous"); back off on 429/503.
-MAX_RETRY_ATTEMPTS = 5
+# Fan-out parent resource name. With include_from_parent=["id"] the framework injects the parent
+# employee id into demographic rows as `_employees_id`; a data_map renames it to the `_employee_id`
+# key the rows carried before the rest_source migration.
+_EMPLOYEES_PARENT = "employees"
+_PARENT_EMPLOYEE_ID_KEY = f"_{_EMPLOYEES_PARENT}_id"
+_EMPLOYEE_ID_KEY = "_employee_id"
+_DEMOGRAPHICS_CHILD_PATH = "employees/{employee_id}/demographics"
 
-
-class CultureAmpRetryableError(Exception):
-    pass
+# Scope minted for the create-time credential probe: enough to list employees.
+_VALIDATE_SCOPES = "employees-read"
 
 
 @dataclasses.dataclass
 class CultureAmpResumeConfig:
-    # Cursor endpoints: the afterKey of the next unfetched page. Fan-out: the id
-    # of the last fully-processed employee, re-located in a freshly-fetched list
-    # on resume so an employee added/removed mid-sync can't shift the position.
+    # Pre-framework fields, kept so previously saved state still parses (dataclass(**saved)).
+    # Cursor endpoints: the afterKey of the next unfetched page.
     cursor: Optional[str] = None
+    # Fan-out: id of the last fully-processed employee (pre-framework shape).
     last_processed_employee_id: Optional[str] = None
+    # Framework fan-out checkpoint for employee_demographics
+    # ({"completed": [child_path, ...], "current": child_path | None, "child_state": {...} | None}).
+    fanout_state: Optional[dict[str, Any]] = None
 
 
-def _get_session(client_secret: str) -> requests.Session:
-    return make_tracked_session(redact_values=(client_secret,))
+def _scoped(account_id: str, scopes: str) -> str:
+    """Build the Culture Amp scope string (`target-entity:{account_id}:{scopes}`)."""
+    return f"target-entity:{account_id}:{scopes}"
 
 
-def _mint_token(session: requests.Session, client_id: str, client_secret: str, account_id: str, scopes: str) -> str:
-    """Exchange client credentials for a bearer JWT (~1h lifetime)."""
-    response = session.post(
-        CULTURE_AMP_TOKEN_URL,
-        data={
-            "grant_type": "client_credentials",
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "scope": f"target-entity:{account_id}:{scopes}",
-        },
-        timeout=REQUEST_TIMEOUT_SECONDS,
+def _make_auth(client_id: str, client_secret: str, account_id: str, scopes: str) -> OAuth2Auth:
+    # Culture Amp uses OAuth2 client-credentials; tokens last ~1h and the framework re-mints on
+    # expiry mid-run. Scopes are minted per endpoint so credentials granted a subset of permissions
+    # can still sync the streams they cover.
+    return OAuth2Auth(
+        token_url=CULTURE_AMP_TOKEN_URL,
+        client_id=client_id,
+        client_secret=client_secret,
+        grant_type="client_credentials",
+        scopes=_scoped(account_id, scopes),
     )
-    response.raise_for_status()
-    return response.json()["access_token"]
 
 
 def _format_timestamp(value: Any) -> str:
@@ -65,120 +77,38 @@ def _format_timestamp(value: Any) -> str:
     return str(value)
 
 
-def validate_credentials(client_id: str, client_secret: str, account_id: str) -> bool:
-    """Confirm the credentials are valid by minting an employees-read token."""
-    try:
-        _mint_token(_get_session(client_secret), client_id, client_secret, account_id, "employees-read")
-        return True
-    except Exception:
-        return False
+def _paginator() -> JSONResponseCursorPaginator:
+    # Every Culture Amp list paginates with a `cursor` query param and an `afterKey` under
+    # `pagination` in the response body.
+    return JSONResponseCursorPaginator(cursor_path="pagination.afterKey", cursor_param="cursor")
 
 
-def get_rows(
-    client_id: str,
-    client_secret: str,
-    account_id: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[CultureAmpResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = CULTURE_AMP_ENDPOINTS[endpoint]
-    session = _get_session(client_secret)
-    token = _mint_token(session, client_id, client_secret, account_id, config.scopes)
+def _client_config(auth: OAuth2Auth) -> ClientConfig:
+    return {
+        "base_url": CULTURE_AMP_BASE_URL,
+        "auth": auth,
+        "paginator": _paginator(),
+    }
 
-    @retry(
-        retry=retry_if_exception_type((CultureAmpRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=2, max=90),
-        reraise=True,
-    )
-    def fetch(url: str) -> dict[str, Any]:
-        nonlocal token
-        response = session.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=REQUEST_TIMEOUT_SECONDS)
 
-        # Tokens expire after ~1h; re-mint once if one expires mid-sync.
-        if response.status_code == 401:
-            token = _mint_token(session, client_id, client_secret, account_id, config.scopes)
-            response = session.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=REQUEST_TIMEOUT_SECONDS)
+def _rename_employee_id(row: dict[str, Any]) -> dict[str, Any]:
+    row[_EMPLOYEE_ID_KEY] = row.pop(_PARENT_EMPLOYEE_ID_KEY)
+    return row
 
-        if response.status_code in (429, 503) or response.status_code >= 500:
-            raise CultureAmpRetryableError(
-                f"Culture Amp API error (retryable): status={response.status_code}, url={url}"
-            )
 
-        if not response.ok:
-            logger.error(f"Culture Amp API error: status={response.status_code}, body={response.text[:500]}, url={url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    def paginate(path: str, params: dict[str, Any], on_page_done: Any = None) -> Iterator[list[dict[str, Any]]]:
-        cursor = params.pop("cursor", None)
-        while True:
-            query = dict(params)
-            if cursor:
-                query["cursor"] = cursor
-            url = f"{CULTURE_AMP_BASE_URL}{path}"
-            if query:
-                url = f"{url}?{urlencode(query)}"
-
-            body = fetch(url)
-            items = body.get("data") or []
-            if isinstance(items, dict):
-                items = [items]
-            items = [row for row in items if isinstance(row, dict)]
-
-            if items:
-                yield items
-
-            cursor = (body.get("pagination") or {}).get("afterKey")
-            if not cursor:
-                return
-            if on_page_done is not None:
-                on_page_done(cursor)
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-
-    if config.per_employee:
-        employee_ids: list[str] = []
-        for page in paginate("/employees", {}):
-            employee_ids.extend(str(row["id"]) for row in page)
-
-        start_index = 0
-        if resume_config is not None and resume_config.last_processed_employee_id is not None:
-            start_id = resume_config.last_processed_employee_id
-            logger.debug(f"Culture Amp: resuming {endpoint} from after employee id {start_id}")
-            try:
-                start_index = employee_ids.index(start_id) + 1
-            except ValueError:
-                # The saved employee no longer exists; restart from the beginning
-                # (merge dedupes on primary key, so re-yielding is safe).
-                start_index = 0
-
-        for index in range(start_index, len(employee_ids)):
-            employee_id = employee_ids[index]
-            path = config.path.format(employee_id=quote(employee_id, safe=""))
-            for page in paginate(path, {}):
-                yield [{**row, "_employee_id": employee_id} for row in page]
-            # Save state AFTER yielding so a crash re-yields the in-flight
-            # employee (merge dedupes on primary key).
-            resumable_source_manager.save_state(CultureAmpResumeConfig(last_processed_employee_id=employee_id))
-        return
-
-    params: dict[str, Any] = {}
-    if config.incremental_fields and should_use_incremental_field and db_incremental_field_last_value is not None:
-        params["after_date"] = _format_timestamp(db_incremental_field_last_value)
-    if resume_config is not None and resume_config.cursor:
-        params["cursor"] = resume_config.cursor
-        logger.debug(f"Culture Amp: resuming {endpoint} from saved cursor")
-
-    def save_cursor(after_key: str) -> None:
-        # Save state AFTER the previous page yielded so a crash re-yields it.
-        resumable_source_manager.save_state(CultureAmpResumeConfig(cursor=after_key))
-
-    yield from paginate(config.path, params, on_page_done=save_cursor)
+def _fanout_initial_state(resume: CultureAmpResumeConfig) -> Optional[dict[str, Any]]:
+    if resume.fanout_state is not None:
+        return resume.fanout_state
+    # Pre-framework state saved only the last fully-processed employee id. Translate it into a
+    # single completed child path so that employee is skipped on resume; any earlier employees
+    # are re-fetched, which is safe (merge dedupes on the [_employee_id, name] primary key).
+    if resume.last_processed_employee_id is None:
+        return None
+    return {
+        "completed": [_DEMOGRAPHICS_CHILD_PATH.format(employee_id=resume.last_processed_employee_id)],
+        "current": None,
+        "child_state": None,
+    }
 
 
 def culture_amp_source(
@@ -186,29 +116,124 @@ def culture_amp_source(
     client_secret: str,
     account_id: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[CultureAmpResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = CULTURE_AMP_ENDPOINTS[endpoint]
+    auth = _make_auth(client_id, client_secret, account_id, config.scopes)
+
+    resume: Optional[CultureAmpResumeConfig] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+
+    if config.per_employee:
+        initial_state = _fanout_initial_state(resume) if resume is not None else None
+
+        def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state is not None:
+                resumable_source_manager.save_state(CultureAmpResumeConfig(fanout_state=state))
+
+        rest_config: RESTAPIConfig = {
+            "client": _client_config(auth),
+            "resources": [
+                {
+                    "name": _EMPLOYEES_PARENT,
+                    "endpoint": {
+                        "path": "employees",
+                        "data_selector": "data",
+                    },
+                },
+                {
+                    "name": endpoint,
+                    "endpoint": {
+                        "path": _DEMOGRAPHICS_CHILD_PATH,
+                        "params": {
+                            "employee_id": {
+                                "type": "resolve",
+                                "resource": _EMPLOYEES_PARENT,
+                                "field": "id",
+                            },
+                        },
+                        "data_selector": "data",
+                        # Each employee's demographics list is cursor-paged like every other list.
+                        "paginator": _paginator(),
+                    },
+                    "include_from_parent": ["id"],
+                    "data_map": _rename_employee_id,
+                },
+            ],
+        }
+        resources = {
+            res.name: res
+            for res in rest_api_resources(
+                rest_config,
+                team_id,
+                job_id,
+                None,
+                resume_hook=save_fanout_checkpoint,
+                initial_paginator_state=initial_state,
+            )
+        }
+        resource = resources[endpoint]
+    else:
+        params: dict[str, Any] = {}
+        if config.incremental_fields and should_use_incremental_field and db_incremental_field_last_value is not None:
+            params["after_date"] = _format_timestamp(db_incremental_field_last_value)
+
+        initial_paginator_state: Optional[dict[str, Any]] = None
+        if resume is not None and resume.cursor is not None:
+            initial_paginator_state = {"cursor": resume.cursor}
+
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            # Persist only while a next page remains; the framework calls the hook AFTER a page is
+            # yielded, so a crash re-yields the last batch (merge dedupes on primary key) rather
+            # than skipping it.
+            if state is not None and state.get("cursor") is not None:
+                resumable_source_manager.save_state(CultureAmpResumeConfig(cursor=state["cursor"]))
+
+        endpoint_config: Endpoint = {
+            "path": config.path,
+            "params": params,
+            "data_selector": "data",
+        }
+        rest_config = {
+            "client": _client_config(auth),
+            "resources": [{"name": endpoint, "endpoint": endpoint_config}],
+        }
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            client_id=client_id,
-            client_secret=client_secret,
-            account_id=account_id,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=list(config.primary_keys) if config.primary_keys else None,
         partition_count=1,
         partition_size=1,
-        # Result ordering within an after_date window is undocumented, so the
-        # pipeline defers incremental watermark commits until a run completes.
+        # Result ordering within an after_date window is undocumented, so the pipeline defers
+        # incremental watermark commits until a run completes.
         sort_mode="desc" if config.incremental_fields else "asc",
     )
+
+
+def validate_credentials(client_id: str, client_secret: str, account_id: str) -> bool:
+    """Confirm the credentials are valid by minting an employees-read token and probing /employees."""
+    auth = _make_auth(client_id, client_secret, account_id, _VALIDATE_SCOPES)
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(client_secret,)),
+        f"{CULTURE_AMP_BASE_URL}/employees",
+        auth=auth,
+        # 200 means the token minted and /employees is readable. 403 means the token minted (the
+        # credentials are valid) but lacks the employees scope — accept at create time, matching
+        # the old mint-only check; the sync-time non-retryable copy guides the permission fix.
+        ok_statuses=(200, 403),
+    )
+    return ok
