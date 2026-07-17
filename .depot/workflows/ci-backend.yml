@@ -820,6 +820,7 @@ jobs:
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: ${{ needs.get_clickhouse_versions.outputs.local_image }}
                   WAIT_FOR_DOCKER_TIMEOUT: 900
+              # objectstorage answers InvalidAccessKeyId until its bootstrap registers identities.
               run: |
                   bin/ci-wait-for-docker wait objectstorage \
                     || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
