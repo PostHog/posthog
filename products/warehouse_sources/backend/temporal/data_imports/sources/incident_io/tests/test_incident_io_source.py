@@ -157,3 +157,29 @@ class TestIncidentIoSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_incident_io_source.call_args.kwargs["db_incremental_field_last_value"] is None
+
+    def test_version_declaration(self):
+        assert set(self.source.supported_versions) == {"v1", "v2"}
+        # New sources are stamped with the default; v2 is the target for fresh syncs.
+        assert self.source.default_version == "v2"
+
+    @pytest.mark.parametrize(
+        "pinned, expected",
+        [
+            (None, "v2"),
+            ("", "v2"),
+            ("v1", "v1"),
+            ("v2", "v2"),
+        ],
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.source.incident_io_source"
+    )
+    def test_source_for_pipeline_resolves_and_passes_api_version(self, mock_incident_io_source, pinned, expected):
+        inputs = mock.MagicMock()
+        inputs.schema_name = "incidents"
+        inputs.api_version = pinned
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        assert mock_incident_io_source.call_args.kwargs["api_version"] == expected

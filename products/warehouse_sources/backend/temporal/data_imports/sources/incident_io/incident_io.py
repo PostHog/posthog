@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.settings import (
+    DEFAULT_API_VERSION,
     INCIDENT_IO_ENDPOINTS,
     IncidentIoEndpointConfig,
 )
@@ -129,8 +130,9 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
     params: dict[str, Any] = {"page_size": 1} if config.paginated else {}
 
     try:
+        # Creation-time probe has no source pin yet, so it validates against the default version.
         response = make_tracked_session().get(
-            _build_url(config.path, params),
+            _build_url(config.path_for(DEFAULT_API_VERSION), params),
             headers=_get_headers(api_key),
             timeout=VALIDATION_TIMEOUT_SECONDS,
         )
@@ -162,8 +164,10 @@ def get_rows(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
     incremental_field: str | None = None,
+    api_version: str = DEFAULT_API_VERSION,
 ) -> Iterator[list[dict[str, Any]]]:
     config = INCIDENT_IO_ENDPOINTS[endpoint]
+    path = config.path_for(api_version)
     headers = _get_headers(api_key)
 
     incremental_value = _format_filter_value(db_incremental_field_last_value) if should_use_incremental_field else None
@@ -175,7 +179,7 @@ def get_rows(
         logger.debug(f"incident.io: resuming from URL: {url}")
     else:
         params = _build_params(config, incremental_field if should_use_incremental_field else None, incremental_value)
-        url = _build_url(config.path, params)
+        url = _build_url(path, params)
 
     @retry(
         retry=retry_if_exception_type((IncidentIoRetryableError, requests.ReadTimeout, requests.ConnectionError)),
@@ -219,7 +223,7 @@ def get_rows(
         if not config.paginated or not after:
             break
 
-        url = _build_url(config.path, {**params, "after": after})
+        url = _build_url(path, {**params, "after": after})
         resumable_source_manager.save_state(IncidentIoResumeConfig(next_url=url))
 
 
@@ -231,6 +235,7 @@ def incident_io_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
+    api_version: str = DEFAULT_API_VERSION,
 ) -> SourceResponse:
     config = INCIDENT_IO_ENDPOINTS[endpoint]
 
@@ -244,6 +249,7 @@ def incident_io_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
             incremental_field=incremental_field,
+            api_version=api_version,
         ),
         primary_keys=[config.primary_key],
         # Incidents are requested with `sort_by=created_at_oldest_first` (the only sortable

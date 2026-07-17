@@ -3,12 +3,22 @@ from typing import Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
+# incident.io versions its API per-resource and runs versions in parallel — some resources
+# expose only /v1, some only /v2, and a few both. These are opaque source-level pins that map
+# onto the per-resource paths below; they are never parsed or ordered.
+INCIDENT_IO_API_VERSION_V1 = "v1"
+INCIDENT_IO_API_VERSION_V2 = "v2"
+SUPPORTED_API_VERSIONS = (INCIDENT_IO_API_VERSION_V1, INCIDENT_IO_API_VERSION_V2)
+DEFAULT_API_VERSION = INCIDENT_IO_API_VERSION_V2
+
 
 @dataclass
 class IncidentIoEndpointConfig:
     name: str
-    # Versioned path — incident.io mixes /v1 and /v2 across resources.
-    path: str
+    # Request path per source-level API version. Many resources exist on a single version;
+    # incidents, incident_roles and custom_fields expose both. `path_for` resolves a source's
+    # pin against this map, falling back to the version the resource actually offers.
+    paths: dict[str, str]
     # Key the list of objects is nested under in the response body (e.g. {"incidents": [...]}).
     data_key: str
     # Small config-style endpoints (severities, statuses, ...) return the full list in one
@@ -25,6 +35,15 @@ class IncidentIoEndpointConfig:
     # Server-side sort. Only the incidents list supports sorting; `created_at_oldest_first`
     # keeps pages stable and lets the incremental watermark advance monotonically.
     sort_by: Optional[str] = None
+
+    def path_for(self, api_version: str) -> str:
+        """Request path for a source's pinned API version.
+
+        Honors the pin when this resource offers that version; otherwise falls back to the
+        default version, then to whatever single version the resource exposes — several
+        incident.io resources only exist on one version regardless of the source pin.
+        """
+        return self.paths.get(api_version) or self.paths.get(DEFAULT_API_VERSION) or next(iter(self.paths.values()))
 
 
 _DATETIME_INCREMENTAL_FIELD_CREATED_AT: IncrementalField = {
@@ -45,10 +64,15 @@ _DATETIME_INCREMENTAL_FIELD_UPDATED_AT: IncrementalField = {
 # Alerts and escalations also document `created_at[gte]` filters, but neither endpoint
 # accepts a sort param and the default ordering is undocumented, so we keep them full
 # refresh rather than risk an unstable incremental watermark.
+# The incidents list only gained server-side sorting and `[gte]` timestamp filters in v2 (the
+# v1 list is deprecated and offers neither), so incidents is v2-only here regardless of pin —
+# the incremental sync depends on those v2 capabilities. The v2-only resources below likewise
+# have no v1 list endpoint. severities / incident_statuses / incident_types exist only on v1.
+# incident_roles and custom_fields expose both; a v1-pinned source uses their /v1 list.
 INCIDENT_IO_ENDPOINTS: dict[str, IncidentIoEndpointConfig] = {
     "incidents": IncidentIoEndpointConfig(
         name="incidents",
-        path="/v2/incidents",
+        paths={INCIDENT_IO_API_VERSION_V2: "/v2/incidents"},
         data_key="incidents",
         paginated=True,
         page_size=250,
@@ -61,7 +85,7 @@ INCIDENT_IO_ENDPOINTS: dict[str, IncidentIoEndpointConfig] = {
     ),
     "incident_updates": IncidentIoEndpointConfig(
         name="incident_updates",
-        path="/v2/incident_updates",
+        paths={INCIDENT_IO_API_VERSION_V2: "/v2/incident_updates"},
         data_key="incident_updates",
         paginated=True,
         page_size=250,
@@ -69,7 +93,7 @@ INCIDENT_IO_ENDPOINTS: dict[str, IncidentIoEndpointConfig] = {
     ),
     "follow_ups": IncidentIoEndpointConfig(
         name="follow_ups",
-        path="/v2/follow_ups",
+        paths={INCIDENT_IO_API_VERSION_V2: "/v2/follow_ups"},
         data_key="follow_ups",
         paginated=True,
         page_size=250,
@@ -77,7 +101,7 @@ INCIDENT_IO_ENDPOINTS: dict[str, IncidentIoEndpointConfig] = {
     ),
     "alerts": IncidentIoEndpointConfig(
         name="alerts",
-        path="/v2/alerts",
+        paths={INCIDENT_IO_API_VERSION_V2: "/v2/alerts"},
         data_key="alerts",
         paginated=True,
         # The alerts list caps page_size at 50, unlike incidents' 250.
@@ -86,7 +110,7 @@ INCIDENT_IO_ENDPOINTS: dict[str, IncidentIoEndpointConfig] = {
     ),
     "escalations": IncidentIoEndpointConfig(
         name="escalations",
-        path="/v2/escalations",
+        paths={INCIDENT_IO_API_VERSION_V2: "/v2/escalations"},
         data_key="escalations",
         paginated=True,
         page_size=50,
@@ -94,14 +118,14 @@ INCIDENT_IO_ENDPOINTS: dict[str, IncidentIoEndpointConfig] = {
     ),
     "users": IncidentIoEndpointConfig(
         name="users",
-        path="/v2/users",
+        paths={INCIDENT_IO_API_VERSION_V2: "/v2/users"},
         data_key="users",
         paginated=True,
         page_size=250,
     ),
     "schedules": IncidentIoEndpointConfig(
         name="schedules",
-        path="/v2/schedules",
+        paths={INCIDENT_IO_API_VERSION_V2: "/v2/schedules"},
         data_key="schedules",
         paginated=True,
         page_size=250,
@@ -109,27 +133,33 @@ INCIDENT_IO_ENDPOINTS: dict[str, IncidentIoEndpointConfig] = {
     ),
     "severities": IncidentIoEndpointConfig(
         name="severities",
-        path="/v1/severities",
+        paths={INCIDENT_IO_API_VERSION_V1: "/v1/severities"},
         data_key="severities",
     ),
     "incident_roles": IncidentIoEndpointConfig(
         name="incident_roles",
-        path="/v2/incident_roles",
+        paths={
+            INCIDENT_IO_API_VERSION_V1: "/v1/incident_roles",
+            INCIDENT_IO_API_VERSION_V2: "/v2/incident_roles",
+        },
         data_key="incident_roles",
     ),
     "incident_statuses": IncidentIoEndpointConfig(
         name="incident_statuses",
-        path="/v1/incident_statuses",
+        paths={INCIDENT_IO_API_VERSION_V1: "/v1/incident_statuses"},
         data_key="incident_statuses",
     ),
     "incident_types": IncidentIoEndpointConfig(
         name="incident_types",
-        path="/v1/incident_types",
+        paths={INCIDENT_IO_API_VERSION_V1: "/v1/incident_types"},
         data_key="incident_types",
     ),
     "custom_fields": IncidentIoEndpointConfig(
         name="custom_fields",
-        path="/v2/custom_fields",
+        paths={
+            INCIDENT_IO_API_VERSION_V1: "/v1/custom_fields",
+            INCIDENT_IO_API_VERSION_V2: "/v2/custom_fields",
+        },
         data_key="custom_fields",
     ),
 }

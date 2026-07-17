@@ -27,8 +27,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.incident_i
     validate_credentials as validate_incident_io_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.settings import (
+    DEFAULT_API_VERSION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SUPPORTED_API_VERSIONS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -36,6 +38,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class IncidentIoSource(ResumableSource[IncidentIoSourceConfig, IncidentIoResumeConfig]):
     api_docs_url = "https://api-docs.incident.io"
+
+    supported_versions = SUPPORTED_API_VERSIONS
+    default_version = DEFAULT_API_VERSION
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -132,4 +137,5 @@ You can create an API key in your [incident.io dashboard](https://app.incident.i
             if inputs.should_use_incremental_field
             else None,
             incremental_field=inputs.incremental_field,
+            api_version=self.resolve_api_version(inputs.api_version),
         )

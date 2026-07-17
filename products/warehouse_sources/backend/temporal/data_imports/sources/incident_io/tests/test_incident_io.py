@@ -18,7 +18,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.incident_i
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.settings import (
+    DEFAULT_API_VERSION,
     ENDPOINTS,
+    INCIDENT_IO_API_VERSION_V1,
+    INCIDENT_IO_API_VERSION_V2,
     INCIDENT_IO_ENDPOINTS,
 )
 
@@ -435,4 +438,70 @@ class TestIncidentIoSourceResponse:
 
     @pytest.mark.parametrize("config", list(INCIDENT_IO_ENDPOINTS.values()))
     def test_endpoint_paths_are_versioned(self, config):
-        assert config.path.startswith(("/v1/", "/v2/"))
+        assert config.paths
+        for version, path in config.paths.items():
+            assert path.startswith(f"/{version}/")
+
+
+class TestApiVersionDispatch:
+    # v2 is the default, so its resolved paths must equal what every existing (unpinned) sync
+    # already requests — bumping the default must not move a single URL. incidents and the
+    # v2-only resources stay on /v2; the config resources incident.io only exposes on v1 stay
+    # on /v1 under either pin.
+    @pytest.mark.parametrize(
+        "endpoint, expected_path",
+        [
+            ("incidents", "/v2/incidents"),
+            ("incident_updates", "/v2/incident_updates"),
+            ("follow_ups", "/v2/follow_ups"),
+            ("alerts", "/v2/alerts"),
+            ("escalations", "/v2/escalations"),
+            ("users", "/v2/users"),
+            ("schedules", "/v2/schedules"),
+            ("severities", "/v1/severities"),
+            ("incident_roles", "/v2/incident_roles"),
+            ("incident_statuses", "/v1/incident_statuses"),
+            ("incident_types", "/v1/incident_types"),
+            ("custom_fields", "/v2/custom_fields"),
+        ],
+    )
+    def test_default_version_paths_match_current_behavior(self, endpoint, expected_path):
+        assert INCIDENT_IO_ENDPOINTS[endpoint].path_for(DEFAULT_API_VERSION) == expected_path
+
+    # A v1-pinned source drops back to the /v1 list only where incident.io actually offers one
+    # (the dual-version config resources); resources that exist solely on /v2 stay on /v2.
+    @pytest.mark.parametrize(
+        "endpoint, expected_path",
+        [
+            ("incident_roles", "/v1/incident_roles"),
+            ("custom_fields", "/v1/custom_fields"),
+            ("severities", "/v1/severities"),
+            ("incident_statuses", "/v1/incident_statuses"),
+            ("incidents", "/v2/incidents"),
+            ("follow_ups", "/v2/follow_ups"),
+            ("users", "/v2/users"),
+        ],
+    )
+    def test_v1_pin_prefers_v1_list_where_available(self, endpoint, expected_path):
+        assert INCIDENT_IO_ENDPOINTS[endpoint].path_for(INCIDENT_IO_API_VERSION_V1) == expected_path
+
+    def test_unknown_pin_falls_back_to_default_version_path(self):
+        # A pin the resource does not declare resolves through the default version, never crashes.
+        assert INCIDENT_IO_ENDPOINTS["custom_fields"].path_for("2099-01-01.made-up") == "/v2/custom_fields"
+
+    @pytest.mark.parametrize(
+        "api_version, expected_path",
+        [
+            (INCIDENT_IO_API_VERSION_V1, "https://api.incident.io/v1/custom_fields"),
+            (INCIDENT_IO_API_VERSION_V2, "https://api.incident.io/v2/custom_fields"),
+        ],
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.incident_io.make_tracked_session"
+    )
+    def test_api_version_selects_request_url(self, mock_session, api_version, expected_path):
+        mock_session.return_value.get.return_value = _response(_page("custom_fields", [{"id": "01A"}], None))
+
+        list(get_rows("key", "custom_fields", mock.MagicMock(), _make_manager(), api_version=api_version))
+
+        assert mock_session.return_value.get.call_args.args[0] == expected_path
