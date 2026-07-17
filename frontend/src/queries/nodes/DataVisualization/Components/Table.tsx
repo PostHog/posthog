@@ -33,6 +33,12 @@ interface TableProps {
 
 export const DEFAULT_PAGE_SIZE = 500
 
+// Tallest common row: a sparkline cell (h-8, 32px) plus the standard 5px vertical cell padding
+const VIRTUALIZED_ROW_HEIGHT_PX = 42
+// Bounds the standalone insight scene's table so it scrolls internally — virtualization needs a
+// height-constrained scroll container (embedded surfaces get one from their tile/pane)
+const STANDALONE_VIRTUALIZED_TABLE_HEIGHT = '70vh'
+
 function formatColumnTitle(title: string): React.ReactNode {
     const parts = title.split(/([_-])/)
     if (parts.length === 1) {
@@ -125,6 +131,7 @@ export const Table = (props: TableProps): JSX.Element => {
         isTransposed,
         hasSortedTable,
         hasMoreData,
+        isTableVirtualized,
     } = useValues(dataVisualizationLogic)
     const { toggleColumnPin, setTableSorted } = useActions(dataVisualizationLogic)
 
@@ -339,6 +346,11 @@ export const Table = (props: TableProps): JSX.Element => {
                 rowClassName="DataVizRow"
                 embedded={props.embedded}
                 allowContentScroll={!!props.embedded}
+                virtualized={isTableVirtualized}
+                rowHeight={VIRTUALIZED_ROW_HEIGHT_PX}
+                style={
+                    isTableVirtualized && !props.embedded ? { height: STANDALONE_VIRTUALIZED_TABLE_HEIGHT } : undefined
+                }
             />
         </>
     )

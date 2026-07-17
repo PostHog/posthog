@@ -1,5 +1,6 @@
 import './LemonTable.scss'
 
+import { useVirtualizer } from '@tanstack/react-virtual'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -28,6 +29,9 @@ import { BulkSelectionConfig, BulkSelectionKey, useBulkSelection } from './useBu
 /** Sentinel passed to `useBulkSelection` when `bulkSelection` is undefined — the hook still runs
  *  unconditionally so hook order is stable, but its result is never read. */
 const UNUSED_ROW_KEY = (): string | number => 0
+
+/** Rows rendered beyond the visible window on each side, so scrolling doesn't flash blank rows. */
+const VIRTUALIZED_OVERSCAN_ROWS = 5
 
 export interface LemonTableProps<T extends Record<string, any>, K extends BulkSelectionKey = BulkSelectionKey> {
     /** Table ID that will also be used in pagination to add uniqueness to search params (page + order). */
@@ -104,6 +108,14 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
      * Whether the table content is allowed to scroll inside its container.
      */
     allowContentScroll?: boolean
+    /**
+     * Opt-in row windowing for large datasets: only the rows near the visible viewport are mounted.
+     * Requires `rowHeight`, implies `allowContentScroll`, and needs a height-bounded container so the
+     * table scrolls its own content. Not compatible with `expandable` (expanded rows break the fixed height).
+     */
+    virtualized?: boolean
+    /** Fixed row height in px, used to size and position virtualized rows. */
+    rowHeight?: number
     /** Row actions to display at the end of each row. Return null to hide actions for specific rows. */
     rowActions?: (record: T, recordIndex: number) => React.ReactNode | null
     /** Whether to hide the sorting indicator when no sort is active. Defaults to false. */
@@ -150,6 +162,8 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     maxHeaderWidth,
     hideScrollbar,
     allowContentScroll = false,
+    virtualized = false,
+    rowHeight,
     rowActions,
     hideSortingIndicatorWhenInactive = false,
     bulkSelection,
@@ -240,6 +254,14 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     }, [dataSource, currentSorting, baseColumns])
 
     const paginationState = usePagination(sortedDataSource, pagination, id)
+
+    const rowVirtualizer = useVirtualizer({
+        count: paginationState.dataSourcePage.length,
+        getScrollElement: () => scrollRef.current,
+        estimateSize: () => rowHeight ?? 0,
+        overscan: VIRTUALIZED_OVERSCAN_ROWS,
+        enabled: virtualized,
+    })
 
     const resolveRowKey = useMemo<(record: T) => K>(() => {
         if (bulkSelection?.getKey) {
@@ -354,15 +376,86 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
         // Due to CSS, for firstColumnSticky to work the first column needs to be a content column
         throw new Error('LemonTable `firstColumnSticky` prop cannot be used with `expandable`')
     }
+    if (virtualized && !rowHeight) {
+        throw new Error('LemonTable `virtualized` requires a fixed `rowHeight`')
+    }
+    if (virtualized && expandable) {
+        throw new Error('LemonTable `virtualized` cannot be used with `expandable`')
+    }
+
+    // Virtualization needs the table to scroll its own content — the virtualizer listens to this container
+    const contentScrollEnabled = allowContentScroll || virtualized
 
     const isRowExpansionToggleShown = expandable ? (expandable?.showRowExpansionToggle ?? true) : false
 
     const visibleDataColumnCount = useMemo(() => columns.filter((column) => !column.isHidden).length, [columns])
-    // Matches the main header row cell count so the loader row does not add an extra table column (which shifts headers while loading)
-    const headerLoaderColSpan = Math.max(
+    // Matches the main header row cell count so full-width rows (loader, virtual spacers) do not add
+    // an extra table column (which shifts headers)
+    const fullRowColSpan = Math.max(
         1,
         Number(isRowExpansionToggleShown) + visibleDataColumnCount + Number(!!rowActions)
     )
+
+    const renderTableRow = (record: T, rowIndex: number): JSX.Element => {
+        const rowKeyDetermined = rowKey
+            ? typeof rowKey === 'function'
+                ? rowKey(record, rowIndex)
+                : (record[rowKey] ?? rowIndex)
+            : paginationState.currentStartIndex + rowIndex
+        const rowClassNameDetermined =
+            typeof rowClassName === 'function' ? rowClassName(record, rowIndex) : rowClassName
+        const rowRibbonColorDetermined =
+            typeof rowRibbonColor === 'function'
+                ? rowRibbonColor(record, rowIndex) || 'var(--color-border-primary)'
+                : rowRibbonColor
+        const rowStatusDetermined = typeof rowStatus === 'function' ? rowStatus(record, rowIndex) : rowStatus
+
+        return (
+            <TableRow
+                key={`LemonTable-tr-${rowKeyDetermined}`}
+                record={record}
+                recordIndex={paginationState.currentStartIndex + rowIndex}
+                rowKeyDetermined={rowKeyDetermined}
+                rowClassNameDetermined={rowClassNameDetermined}
+                rowRibbonColorDetermined={rowRibbonColorDetermined}
+                rowStatusDetermined={rowStatusDetermined}
+                columnGroups={columnGroups}
+                onRow={onRow}
+                expandable={expandable}
+                rowCount={paginationState.dataSourcePage.length}
+                firstColumnSticky={firstColumnSticky}
+                pinnedColumns={pinnedColumns}
+                pinnedColumnWidths={pinnedColumnWidths}
+                columns={columns}
+                rowActions={rowActions}
+            />
+        )
+    }
+
+    const renderSpacerRow = (key: string, height: number): JSX.Element => (
+        <tr key={key} className="LemonTable__virtual-spacer" aria-hidden="true">
+            {/* eslint-disable-next-line react/forbid-dom-props */}
+            <td colSpan={fullRowColSpan} style={{ height }} />
+        </tr>
+    )
+
+    const renderVirtualizedRows = (): JSX.Element => {
+        const virtualRows = rowVirtualizer.getVirtualItems()
+        if (!virtualRows.length) {
+            return <></>
+        }
+        const paddingTop = virtualRows[0].start
+        const paddingBottom = rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end
+        return (
+            <>
+                {paddingTop > 0 && renderSpacerRow('LemonTable-virtual-spacer-top', paddingTop)}
+                {virtualRows.map((virtualRow) =>
+                    renderTableRow(paginationState.dataSourcePage[virtualRow.index], virtualRow.index)
+                )}
+                {paddingBottom > 0 && renderSpacerRow('LemonTable-virtual-spacer-bottom', paddingBottom)}
+            </>
+        )
+    }
 
     return (
         <>
@@ -378,7 +471,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                     rowRibbonColor !== undefined && `LemonTable--with-ribbon`,
                     stealth && 'LemonTable--stealth',
                     !uppercaseHeader && 'LemonTable--lowercase-header',
-                    allowContentScroll && 'h-full min-h-0 overflow-hidden',
+                    contentScrollEnabled && 'h-full min-h-0 overflow-hidden',
                     className
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
@@ -387,7 +480,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
             >
                 <ScrollableShadows
                     innerClassName={hideScrollbar ? 'hide-scrollbar' : undefined}
-                    direction={allowContentScroll ? undefined : 'horizontal'}
+                    direction={contentScrollEnabled ? undefined : 'horizontal'}
                     scrollRef={scrollRef}
                 >
                     <div className="LemonTable__content">
@@ -647,7 +740,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                         {rowActions && <th className="w-0" />}
                                     </tr>
                                     <tr className="LemonTable__loader-row">
-                                        <th colSpan={headerLoaderColSpan} className="LemonTable__loader-host">
+                                        <th colSpan={fullRowColSpan} className="LemonTable__loader-host">
                                             <LemonTableLoader loading={loading} tag="div" />
                                         </th>
                                     </tr>
@@ -655,44 +748,13 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                             )}
                             <tbody>
                                 {paginationState.dataSourcePage.length ? (
-                                    paginationState.dataSourcePage.map((record, rowIndex) => {
-                                        const rowKeyDetermined = rowKey
-                                            ? typeof rowKey === 'function'
-                                                ? rowKey(record, rowIndex)
-                                                : (record[rowKey] ?? rowIndex)
-                                            : paginationState.currentStartIndex + rowIndex
-                                        const rowClassNameDetermined =
-                                            typeof rowClassName === 'function'
-                                                ? rowClassName(record, rowIndex)
-                                                : rowClassName
-                                        const rowRibbonColorDetermined =
-                                            typeof rowRibbonColor === 'function'
-                                                ? rowRibbonColor(record, rowIndex) || 'var(--color-border-primary)'
-                                                : rowRibbonColor
-                                        const rowStatusDetermined =
-                                            typeof rowStatus === 'function' ? rowStatus(record, rowIndex) : rowStatus
-
-                                        return (
-                                            <TableRow
-                                                key={`LemonTable-tr-${rowKeyDetermined}`}
-                                                record={record}
-                                                recordIndex={paginationState.currentStartIndex + rowIndex}
-                                                rowKeyDetermined={rowKeyDetermined}
-                                                rowClassNameDetermined={rowClassNameDetermined}
-                                                rowRibbonColorDetermined={rowRibbonColorDetermined}
-                                                rowStatusDetermined={rowStatusDetermined}
-                                                columnGroups={columnGroups}
-                                                onRow={onRow}
-                                                expandable={expandable}
-                                                rowCount={paginationState.dataSourcePage.length}
-                                                firstColumnSticky={firstColumnSticky}
-                                                pinnedColumns={pinnedColumns}
-                                                pinnedColumnWidths={pinnedColumnWidths}
-                                                columns={columns}
-                                                rowActions={rowActions}
-                                            />
+                                    virtualized ? (
+                                        renderVirtualizedRows()
+                                    ) : (
+                                        paginationState.dataSourcePage.map((record, rowIndex) =>
+                                            renderTableRow(record, rowIndex)
                                         )
-                                    })
+                                    )
                                 ) : loading ? (
                                     Array(loadingSkeletonRows)
                                         .fill(null)

@@ -149,6 +149,9 @@ const cloneOrDefaultSettings = (settings?: AxisSeriesSettings): AxisSeriesSettin
 const TRANSPOSED_FIELD_COLUMN_NAME = '__transpose_field__'
 const TRANSPOSED_ROW_COLUMN_PREFIX = '__transpose_row__'
 
+// Above this row count the table windows its rows; below it plain rendering is cheaper than the virtualization overhead
+export const TABLE_VIRTUALIZATION_THRESHOLD_ROWS = 50
+
 export const formatDataWithSettings = (
     data: number | string | null | object,
     settings?: AxisSeriesSettings
@@ -448,6 +451,7 @@ export interface dataVisualizationLogicValues {
     isColumnPinned: (columnName: string) => boolean
     isPinningEnabled: boolean
     isShowingCachedResults: boolean
+    isTableVirtualized: boolean
     isTableVisualization: boolean
     isTransposed: boolean
     numericalColumns: Column[]
@@ -741,6 +745,7 @@ export interface dataVisualizationLogicMeta {
                 | null
         ) => ChartDisplayType
         isTableVisualization: (effectiveVisualizationType: ChartDisplayType) => boolean
+        isTableVirtualized: (tabularData: TableDataCell<any>[][]) => boolean
         showTableSettings: (effectiveVisualizationType: ChartDisplayType) => boolean
         isColumnPinned: (pinnedColumns: string[]) => (columnName: string) => boolean
         isPinningEnabled: (activeSceneId: string | null, isTransposed: boolean) => boolean
@@ -1663,6 +1668,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 // BoldNumber relies on yAxis formatting so it's considered a table visualization
                 visualizationType === ChartDisplayType.ActionsTable ||
                 visualizationType === ChartDisplayType.BoldNumber,
+        ],
+        isTableVirtualized: [
+            (s) => [s.tabularData],
+            (tabularData: TableDataCell<any>[][]): boolean => tabularData.length > TABLE_VIRTUALIZATION_THRESHOLD_ROWS,
         ],
         showTableSettings: [
             (s) => [s.effectiveVisualizationType],

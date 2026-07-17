@@ -164,6 +164,21 @@
                 border-top: 1px solid var(--color-border-primary);
             }
 
+            // Zero-content row that stands in for the off-screen rows above/below the virtualized window
+            &.LemonTable__virtual-spacer {
+                border: none;
+
+                > td {
+                    padding: 0;
+                    border: none;
+                }
+            }
+
+            // The row after the top spacer is the first visible row — keep it borderless like a real first row
+            &.LemonTable__virtual-spacer:first-child + tr {
+                border-top: none;
+            }
+
             &.LemonTable__expansion {
                 position: relative;
                 background: var(--color-bg-primary);
