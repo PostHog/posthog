@@ -2,7 +2,7 @@ import { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import {
     IconBrackets,
@@ -73,10 +73,35 @@ export function getSidebarAddJoinSourceTableName(
     }
 }
 
+/**
+ * Keep a section whose folder, or any of its children, matches the search term — the same
+ * name-and-field matching the database tree does for its own tables.
+ */
+const filterTreeSections = (sections: TreeDataItem[], searchTerm: string): TreeDataItem[] => {
+    const needle = searchTerm.trim().toLowerCase()
+    if (!needle) {
+        return sections
+    }
+    const matches = (item: TreeDataItem): boolean =>
+        item.name.toLowerCase().includes(needle) || (item.children ?? []).some(matches)
+    return sections.flatMap((section) => {
+        const children = (section.children ?? []).filter(matches)
+        return children.length ? [{ ...section, children }] : []
+    })
+}
+
 export const QueryDatabase = ({
     virtualizationScrollContainerRef,
+    extraTreeSections,
 }: {
     virtualizationScrollContainerRef?: React.RefObject<HTMLDivElement | null>
+    /**
+     * Extra top-level sections to render above the database tree, owned by the embedding surface
+     * (notebooks lists the dataframes its kernel holds). Rendered as-is: whatever builds them owns
+     * their icons, children, and search filtering. Default empty, so surfaces that pass nothing are
+     * unaffected.
+     */
+    extraTreeSections?: TreeDataItem[]
 }): JSX.Element => {
     const {
         searchTerm,
@@ -308,10 +333,21 @@ export const QueryDatabase = ({
         setTreeRef(treeRef)
     }, [treeRef, setTreeRef])
 
+    const treeData = useMemo(() => {
+        if (!extraTreeSections?.length) {
+            return displayedTreeData
+        }
+        // Filtered here rather than by the caller: the tree swaps in its own filtered data while
+        // searching, so an unfiltered section would sit above the results still listing
+        // everything — and keeping the search term on this side means an embedder doesn't have to
+        // mount this logic just to read it.
+        return [...filterTreeSections(extraTreeSections, searchTerm), ...displayedTreeData]
+    }, [extraTreeSections, displayedTreeData, searchTerm])
+
     return (
         <LemonTree
             ref={treeRef}
-            data={displayedTreeData}
+            data={treeData}
             enableDragAndDrop={!searchTerm}
             isItemDraggable={(item) => !searchTerm && item.record?.type === 'view' && item.record?.isSavedQuery}
             isItemDroppable={(item) =>

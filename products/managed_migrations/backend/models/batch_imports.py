@@ -7,6 +7,8 @@ from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDTModel
 
+from products.managed_migrations.backend.models.batch_import_utils import redact_part_key
+
 
 class DateRangeExportSource(str, Enum):
     MIXPANEL = "mixpanel"
@@ -120,8 +122,11 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
         # a nondeterministic export can have a different decompressed size.
         inflight["total_size"] = None
 
-        self._flip_to_running(f"Resumed by admin with part {inflight['key']} reset to offset 0")
-        return inflight["key"]
+        # Redacted: url_list part keys are full source URLs whose query string /
+        # userinfo can carry credentials, and status_message is broadly visible.
+        redacted_key = str(redact_part_key(inflight.get("key")))
+        self._flip_to_running(f"Resumed by admin with part {redacted_key} reset to offset 0")
+        return redacted_key
 
     def _flip_to_running(self, status_message: str) -> None:
         self.status = BatchImport.Status.RUNNING
