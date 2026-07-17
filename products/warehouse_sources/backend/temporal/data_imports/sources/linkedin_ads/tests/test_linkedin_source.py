@@ -79,6 +79,18 @@ class TestLinkedInAdsSource:
 
         assert mock_linkedin_ads_source.call_args.kwargs["api_version"] == expected_header
 
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.linkedin_ads_client_for_integration"
+    )
+    def test_get_oauth_accounts_uses_default_version_header(self, mock_client_for_integration):
+        # The account picker must track the default version's header, not the client's legacy default,
+        # so listing doesn't break for new sources once the oldest declared header sunsets.
+        mock_client_for_integration.return_value.get_accounts.return_value = []
+
+        self.source.get_oauth_accounts(integration_id=456, team_id=self.team_id)
+
+        assert mock_client_for_integration.call_args.kwargs["api_version"] == "202606"
+
     def test_validate_credentials_missing_account_id(self):
         """Test credential validation with missing account ID."""
         invalid_config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=456, account_id="")

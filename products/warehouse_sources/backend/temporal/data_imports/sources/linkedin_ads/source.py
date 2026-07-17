@@ -159,8 +159,12 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
         self, integration_id: int, team_id: int, search: str | None = None
     ) -> list[IntegrationAccount]:
         # A member's ad accounts are few, so `search` is ignored here and the endpoint filters the list.
+        # List against the default version's header (not the client's legacy default) so the account
+        # picker tracks the version new sources are created on, rather than the oldest declared label.
         try:
-            client = linkedin_ads_client_for_integration(integration_id, team_id)
+            client = linkedin_ads_client_for_integration(
+                integration_id, team_id, api_version=_API_HEADER_BY_VERSION[self.default_version]
+            )
         except Integration.DoesNotExist as e:
             raise IntegrationAccountListingError(
                 "Your LinkedIn Ads connection is no longer available — it may have been disconnected. "
@@ -261,7 +265,8 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
         resumable_source_manager: ResumableSourceManager[LinkedInAdsResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
-        # Honor the instance's pin verbatim when it isn't a label we map, letting LinkedIn validate it.
+        # `inputs.api_version` is already resolved upstream; resolving again is idempotent and keeps
+        # this correct if ever called with a raw pin. An unmapped label passes through to LinkedIn.
         resolved_version = self.resolve_api_version(inputs.api_version)
         api_version = _API_HEADER_BY_VERSION.get(resolved_version, resolved_version)
         return linkedin_ads_source(
