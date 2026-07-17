@@ -775,8 +775,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.insightView(':shortId' as InsightShortId)]: [Scene.Insight, 'insightView'],
     [urls.insightSubcriptions(':shortId' as InsightShortId)]: [Scene.Insight, 'insightSubcriptions'],
     [urls.insightSubcription(':shortId' as InsightShortId, ':itemId')]: [Scene.Insight, 'insightSubcription'],
-    [urls.alert(':shortId')]: [Scene.SavedInsights, 'alert'],
-    [urls.alerts()]: [Scene.SavedInsights, 'alerts'],
     [urls.insightAlerts(':shortId' as InsightShortId)]: [Scene.Insight, 'insightAlerts'],
     [urls.insightSharing(':shortId' as InsightShortId)]: [Scene.Insight, 'insightSharing'],
     [urls.savedInsights()]: [Scene.SavedInsights, 'savedInsights'],

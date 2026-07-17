@@ -24,7 +24,6 @@ import { insightsModel } from '~/models/insightsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Breadcrumb, InsightModel, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
-import { AlertType } from 'products/alerts/frontend/types'
 import {
     InsightBulkDeleteResponseApi,
     InsightBulkRestoreResponseApi,
@@ -94,7 +93,6 @@ export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsight
 export interface savedInsightsLogicValues {
     activeSceneId: string | null // sceneLogic
     currentTeamId: number | null // teamLogic
-    alertModalId: AlertType['id'] | null
     breadcrumbs: Breadcrumb[]
     bulkDeleteResponse: InsightBulkDeleteResponseApi | null
     bulkDeleteResponseLoading: boolean
@@ -179,9 +177,6 @@ export interface savedInsightsLogicActions {
             ids: number[]
         }
     }
-    closeAlertModal: () => {
-        value: true
-    }
     duplicateInsight: (
         insight: QueryBasedInsightModel,
         redirectToInsight?: any
@@ -209,9 +204,6 @@ export interface savedInsightsLogicActions {
         payload?: {
             debounce: boolean
         }
-    }
-    openAlertModal: (alertId: AlertType['id']) => {
-        alertId: string
     }
     renameInsight: (insight: QueryBasedInsightModel) => {
         insight: QueryBasedInsightModel<Node<Record<string, any>>>
@@ -337,8 +329,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         loadInsights: (debounce: boolean = true) => ({ debounce }),
         updateInsight: (insight: QueryBasedInsightModel) => ({ insight }),
         addInsight: (insight: QueryBasedInsightModel) => ({ insight }),
-        openAlertModal: (alertId: AlertType['id']) => ({ alertId }),
-        closeAlertModal: true,
         setDashboardUpdateLoading: (insightId: number, loading: boolean) => ({ insightId, loading }),
     }),
     loaders(({ values }) => ({
@@ -451,13 +441,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                         // Reset page on filter change EXCEPT if it's page that's being updated
                         ...('page' in filters ? {} : { page: 1 }),
                     }),
-            },
-        ],
-        alertModalId: [
-            null as AlertType['id'] | null,
-            {
-                openAlertModal: (_, { alertId }) => alertId,
-                closeAlertModal: () => null,
             },
         ],
         dashboardUpdatesInProgress: [
@@ -721,15 +704,12 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         }
     }),
     urlToAction(({ actions, values }) => ({
-        [urls.savedInsights()]: async (
-            _,
-            { alert_id, ...searchParams }, // search params,
-            hashParams
-        ) => {
-            if (alert_id) {
-                actions.openAlertModal(alert_id)
-            } else {
-                actions.closeAlertModal()
+        [urls.savedInsights()]: async (_, searchParams, hashParams) => {
+            if (searchParams.tab === SavedInsightsTabs.Alerts || searchParams.alert_id) {
+                const alertsSearchParams = { ...searchParams }
+                delete alertsSearchParams.tab
+                router.actions.replace(urls.alerts(), alertsSearchParams, hashParams)
+                return
             }
 
             if (hashParams.fromItem && String(hashParams.fromItem).match(/^[0-9]+$/)) {

@@ -87,6 +87,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/ai-evals/evaluations/:id': ['AIObservabilityEvaluation', 'aiObservabilityEvaluation'],
     '/prompt-management/prompts': ['AIObservabilityPrompts', 'aiObservabilityPrompts'],
     '/prompt-management/prompts/:name': ['AIObservabilityPrompt', 'aiObservabilityPrompt'],
+    '/alerts': ['Alerts', 'alerts'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     '/transformations': ['Transformations', 'transformations'],
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
@@ -483,6 +484,12 @@ export const productConfiguration: Record<string, any> = {
         name: 'AI observability cluster',
         layout: 'app-container',
         iconType: 'llm_clusters',
+    },
+    Alerts: {
+        projectBased: true,
+        name: 'Alerts',
+        iconType: 'inbox',
+        description: 'Monitor insight metrics and get notified when conditions are met.',
     },
     BusinessKnowledge: {
         name: 'Business knowledge',
@@ -932,6 +939,8 @@ export const productUrls = {
         runId ? `/ai-observability/clusters/${encodeURIComponent(runId)}` : '/ai-observability/clusters',
     aiObservabilityCluster: (runId: string, clusterId: number | string): string =>
         `/ai-observability/clusters/${encodeURIComponent(runId)}/${clusterId}`,
+    alert: (alertId: string): string => `/alerts?alert_id=${alertId}`,
+    alerts: (): string => '/alerts',
     businessKnowledge: (): string => '/business-knowledge',
     transformations: (): string => '/transformations',
     eventFiltering: (): string => '/event-filtering',
@@ -1230,8 +1239,6 @@ export const productUrls = {
     insightAlerts: (insightShortId: InsightShortId): string => `/insights/${insightShortId}/alerts`,
     insightAlert: (insightShortId: InsightShortId, alertId: AlertType['id']): string =>
         `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
-    alert: (alertId: string): string => `/insights?tab=alerts&alert_id=${alertId}`,
-    alerts: (): string => `/insights?tab=alerts`,
     insightQuickStart: (): string => '/insights/quick-start',
     productTours: (): string => '/product_tours',
     productTour: (id: string): string => `/product_tours/${id}`,

@@ -209,8 +209,8 @@ describe('alertFormLogic', () => {
 
         const toastOptions = successToastSpy.mock.calls[0][1] as { button: { action: () => void } }
         toastOptions.button.action()
-        expect(router.values.location.pathname).toMatch(/\/insights$/)
-        expect(router.values.searchParams.tab).toBe('alerts')
+        expect(router.values.location.pathname).toMatch(/\/alerts$/)
+        expect(router.values.searchParams).toEqual({})
     })
 
     // Funnels hide the #/% unit toggle and always compare a relative change as a percentage of the
