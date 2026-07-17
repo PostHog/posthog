@@ -2460,6 +2460,8 @@ class TestExternalDataSource(APIBaseTest):
                 "description",
                 "access_method",
                 "direct_query_enabled",
+                "auto_sync_new_schemas",
+                "auto_sync_schema_patterns",
                 "engine",
                 "last_run_at",
                 "schemas",
@@ -2658,6 +2660,7 @@ class TestExternalDataSource(APIBaseTest):
         data = response.json()
         self.assertEqual(data["added"], 2)
         self.assertEqual(data["deleted"], 0)
+        self.assertEqual(data["auto_enabled"], 0)
         self.assertEqual(data["total_tables_seen"], 2)
         self.assertEqual(
             ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count(), 2
@@ -2668,6 +2671,90 @@ class TestExternalDataSource(APIBaseTest):
             )
         )
         self.assertCountEqual(names, ["table_a", "table_b"])
+
+    @patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow")
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_auto_enables_matching_new_schemas(self, mock_get_source, mock_schedule):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="raw_events",
+                supports_incremental=True,
+                supports_append=False,
+                incremental_fields=[
+                    {
+                        "label": "updated_at",
+                        "type": IncrementalFieldType.DateTime,
+                        "field": "updated_at",
+                        "field_type": IncrementalFieldType.DateTime,
+                    }
+                ],
+            ),
+            SourceSchema(name="audit_log", supports_incremental=False, supports_append=False),
+        ]
+        source = self._create_external_data_source()
+        source.auto_sync_new_schemas = True
+        source.auto_sync_schema_patterns = ["raw_*"]
+        source.save()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["added"], 2)
+        self.assertEqual(data["auto_enabled"], 1)
+        enabled = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="raw_events")
+        self.assertTrue(enabled.should_sync)
+        self.assertEqual(enabled.sync_type, ExternalDataSchema.SyncType.INCREMENTAL)
+        self.assertEqual(enabled.sync_type_config.get("incremental_field"), "updated_at")
+        disabled = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="audit_log")
+        self.assertFalse(disabled.should_sync)
+        mock_schedule.assert_called_once()
+
+    def test_update_source_auto_sync_new_schemas_fields(self):
+        source = self._create_external_data_source()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"auto_sync_new_schemas": True, "auto_sync_schema_patterns": ["raw_*", "billing_?"]},
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        source.refresh_from_db()
+        self.assertTrue(source.auto_sync_new_schemas)
+        self.assertEqual(source.auto_sync_schema_patterns, ["raw_*", "billing_?"])
+
+    def test_update_source_rejects_auto_sync_for_direct_query(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            created_by=self.user,
+            prefix="direct source",
+            job_inputs={
+                "host": "172.16.0.0",
+                "port": "123",
+                "database": "database",
+                "user": "user",
+                "password": "password",
+                "schema": "public",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"auto_sync_new_schemas": True},
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("direct query sources", response.json()["detail"])
+        source.refresh_from_db()
+        self.assertFalse(source.auto_sync_new_schemas)
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_creates_new_schemas_and_deletes_missing_schemas(self, mock_get_source):
@@ -11433,6 +11520,7 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
     )
     _REDDIT_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source"
     _LINKEDIN_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source"
+    _SNAPCHAT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.source"
     _META_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.source"
 
     def setUp(self):
@@ -11522,6 +11610,73 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         # raises NotImplementedError — it must surface as a 400, not an unhandled 500.
         response = self.client.get(self._url("Salesforce", 1))
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def _snapchat_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="snapchat",
+            config={},
+            sensitive_config={"access_token": "token"},
+            integration_id="snapchat_test",
+            created_by=self.user,
+        )
+
+    def test_snapchat_maps_accounts_grouped_by_organization(self):
+        integration = self._snapchat_integration()
+        listed = [
+            ({"id": "acc-1", "name": "PostHog Self Service", "status": "PENDING"}, "PostHog"),
+            ({"id": "acc-2", "name": "PostHog", "status": "ACTIVE"}, "PostHog"),
+        ]
+        with (
+            patch(f"{self._SNAPCHAT_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._SNAPCHAT_MODULE}.list_ad_accounts", return_value=listed),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("SnapchatAds", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["accounts"] == [
+            {
+                "value": "acc-1",
+                "display_name": "PostHog Self Service",
+                "is_primary": False,
+                "badges": ["Pending"],
+                "group": "PostHog",
+                "secondary_text": None,
+            },
+            {
+                "value": "acc-2",
+                "display_name": "PostHog",
+                "is_primary": False,
+                "badges": ["Active"],
+                "group": "PostHog",
+                "secondary_text": None,
+            },
+        ]
+
+    @parameterized.expand([(401,), (403,)])
+    def test_snapchat_auth_error_returns_actionable_400(self, status_code: int):
+        integration = self._snapchat_integration()
+        with (
+            patch(f"{self._SNAPCHAT_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._SNAPCHAT_MODULE}.list_ad_accounts", side_effect=self._http_error(status_code)),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("SnapchatAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "reconnect your snapchat ads" in str(response.json()).lower()
+
+    def test_snapchat_non_auth_api_error_is_not_swallowed(self):
+        integration = self._snapchat_integration()
+        with (
+            patch(f"{self._SNAPCHAT_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._SNAPCHAT_MODULE}.list_ad_accounts", side_effect=self._http_error(500)),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("SnapchatAds", integration.id))
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
 
     def _reddit_integration(self, **kwargs) -> Integration:
         return Integration.objects.create(

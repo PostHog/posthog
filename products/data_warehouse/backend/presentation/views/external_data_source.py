@@ -120,6 +120,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
     PendingSourceCredential,
+    auto_enable_new_schemas,
     sync_old_schemas_with_new_schemas,
     update_sync_type_config_keys,
 )
@@ -771,6 +772,30 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "Defaults to false for new sources; ignored for pure direct-query sources."
         ),
     )
+    auto_sync_new_schemas = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Automatically enable syncing for schemas discovered on this source after creation, "
+            "on both the scheduled discovery pass and manual schema refreshes. Defaults to false. "
+            "Not supported for direct-query sources."
+        ),
+    )
+    auto_sync_schema_patterns = serializers.ListField(
+        child=serializers.CharField(
+            max_length=250,
+            allow_blank=False,
+            help_text="An fnmatch-style glob pattern, e.g. `raw_*`.",
+        ),
+        required=False,
+        allow_null=True,
+        max_length=100,
+        help_text=(
+            "Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered "
+            "schema names auto-sync, matched case-insensitively against both the qualified and bare "
+            "table name. Null or empty means every new schema qualifies. Only used when "
+            "`auto_sync_new_schemas` is true."
+        ),
+    )
     api_version = serializers.CharField(
         read_only=True,
         allow_null=True,
@@ -803,6 +828,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "description",
             "access_method",
             "direct_query_enabled",
+            "auto_sync_new_schemas",
+            "auto_sync_schema_patterns",
             "engine",
             "last_run_at",
             "schemas",
@@ -954,6 +981,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         validated_data.pop("access_method", None)
         # created_via is set at creation time and cannot be mutated afterwards
         validated_data.pop("created_via", None)
+
+        if validated_data.get("auto_sync_new_schemas") and instance.is_direct_query:
+            raise ValidationError(
+                "Auto-syncing new schemas is not supported for direct query sources, "
+                "because their schemas resolve at query time."
+            )
+
         incoming_prefix = validated_data.get("prefix", instance.prefix)
 
         if instance.is_direct_query:
@@ -2797,6 +2831,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "properties": {
                     "added": {"type": "integer"},
                     "deleted": {"type": "integer"},
+                    "auto_enabled": {"type": "integer"},
                     "total_tables_seen": {"type": "integer"},
                 },
             }
@@ -2941,12 +2976,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 # ClickHouse isn't a SQLSource but exposes the same column-selection
                 # capability and reconcile hook, so it reuses this path.
                 source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
+
+        # Outside the atomic block: schedule creation talks to Temporal, which must not run under
+        # the source row lock or against rows that could still roll back. `schemas_created` holds
+        # post-substitution stored names, so remap the discovered names to match.
+        auto_enabled_names: list[str] = []
+        if schemas_created:
+            source_schemas_by_name = {name_substitutions.get(s.name, s.name): s for s in schemas}
+            auto_enabled_names = auto_enable_new_schemas(instance, schemas_created, source_schemas_by_name)
+
         logger.debug(
             "refresh_schemas completed",
             source_id=str(instance.id),
             team_id=self.team_id,
             added=len(schemas_created),
             deleted=len(schemas_deleted),
+            auto_enabled=len(auto_enabled_names),
             total_tables_seen=len(schemas),
         )
         return Response(
@@ -2954,6 +2999,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             data={
                 "added": len(schemas_created),
                 "deleted": len(schemas_deleted),
+                "auto_enabled": len(auto_enabled_names),
                 "total_tables_seen": len(schemas),
             },
         )
