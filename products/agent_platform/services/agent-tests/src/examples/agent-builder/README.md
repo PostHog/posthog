@@ -162,32 +162,6 @@ instead of minting a new live revision. It authenticates with the
 deploy repo via `CD_DEPLOY_ENABLED`. Manual seeding is only needed for
 other environments or when bootstrapping from scratch.
 
-### Refreshing a local Agent Builder
-
-Checking out bundle or ingress changes does not update processes that are
-already running, and it does not replace the Agent Builder revision stored in
-the local database. Restart the stack, re-seed the bundle, and open a new chat:
-
-```bash
-hogli down
-hogli up -d
-hogli wait
-flox activate -- bash -c 'python3 products/agent_platform/services/agent-tests/src/examples/seed.py --only agent-builder'
-```
-
-If flox is unavailable, run the seeder with a local personal API key that has
-`agents:write` scope:
-
-```bash
-PAT=phx_... python3 products/agent_platform/services/agent-tests/src/examples/seed.py --only agent-builder
-```
-
-A browser refresh alone is not enough. Existing sessions remain pinned to the
-revision they started with. A stale revision that accepted service-only auth
-can start successfully but cannot forward the asking user's bearer to the
-nested PostHog MCP, so every `posthog__*` tool is absent. The current revision
-rejects that path and opens the MCP with the user credential instead.
-
 Through the authoring MCP (preferred for manual deploys — same as
 other example bundles):
 
