@@ -2,7 +2,7 @@ import re
 from collections.abc import Iterable
 from datetime import date, datetime
 from difflib import get_close_matches
-from typing import TYPE_CHECKING, Any, ClassVar, Optional, cast, get_args
+from typing import Any, ClassVar, Optional, cast, get_args
 from uuid import UUID
 
 from django.conf import settings as django_settings
@@ -36,9 +36,7 @@ from posthog.hogql.visitor import Visitor, clone_expr
 from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
 from posthog.schema_enums import PersonsOnEventsMode
 from posthog.uuidt import UUIDT
-
-if TYPE_CHECKING:
-    from posthog.models.team.team import WeekStartDay
+from posthog.week_start_day import WeekStartDay
 
 MAX_PLACEHOLDER_MACRO_EXPANSION_DEPTH = 8
 
@@ -1527,9 +1525,7 @@ class BasePrinter(Visitor[str]):
             return "UTC"
         return self.context.database.get_timezone() if self.context.database else "UTC"
 
-    def _get_week_start_day(self) -> "WeekStartDay":
-        from posthog.models.team.team import WeekStartDay  # noqa: PLC0415
-
+    def _get_week_start_day(self) -> WeekStartDay:
         return self.context.database.get_week_start_day() if self.context.database else WeekStartDay.SUNDAY
 
     def _is_type_nullable(self, node_type: ast.Type) -> bool | None:
