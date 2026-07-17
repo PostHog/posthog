@@ -82,12 +82,16 @@ def _ensure_post_fork_init():
     from posthog.caching.redis_cluster_connection_factory import prewarm_query_cache_cluster_in_background
     from posthog.continuous_profiling import start_continuous_profiling
     from posthog.otel_instrumentation import initialize_otel
+    from posthog.views import warm_anonymous_preflight_cache
     from posthog.web_memory_probe import install_memory_probe_handler
     from posthog.web_memory_sampler import start_web_memory_sampler
 
     start_continuous_profiling()
     initialize_otel()
     prewarm_query_cache_cluster_in_background()
+    # Warm the anonymous preflight cache (login page payload) in the background so the
+    # first real anonymous render finds it hot instead of paying the probe fan-out.
+    warm_anonymous_preflight_cache()
     # Production runs ASGI, so the sampler — previously only started from wsgi.py — never
     # ran in prod, leaving posthog_web_worker_rss_mb empty. Start it here, post-fork.
     start_web_memory_sampler()

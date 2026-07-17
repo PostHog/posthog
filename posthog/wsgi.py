@@ -104,5 +104,12 @@ def application(environ, start_response):
         # single-threaded Unit worker this runs on the main thread; if Unit serves the app
         # from a worker thread the install no-ops gracefully. Inert unless the env flag is set.
         install_memory_probe_handler()
+        # Warm the anonymous preflight cache (login page payload) in the background so the
+        # first real anonymous render finds it hot instead of paying the probe fan-out.
+        from posthog.views import (
+            warm_anonymous_preflight_cache,  # noqa: PLC0415 — views imports models, so this must stay post-django.setup(), post-fork
+        )
+
+        warm_anonymous_preflight_cache()
         _prewarmed = True
     return _django_application(environ, start_response)

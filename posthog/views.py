@@ -335,6 +335,8 @@ def _refresh_anonymous_preflight_async() -> None:
     stale copy keeps being served until a later refresh succeeds or the staleness cap
     forces an inline rebuild.
     """
+    if settings.TEST:
+        return
     if not _anonymous_preflight_refresh_lock.acquire(blocking=False):
         return
 
@@ -356,6 +358,16 @@ def _refresh_anonymous_preflight_async() -> None:
     except BaseException:
         _anonymous_preflight_refresh_lock.release()
         raise
+
+
+def warm_anonymous_preflight_cache() -> None:
+    """Fill the anonymous preflight cache off the request path.
+
+    Called from the wsgi/asgi post-fork first-request init hooks, so the first request
+    of any kind (usually a k8s probe) kicks the build and the first real anonymous
+    login render finds the cache hot instead of paying the probe fan-out.
+    """
+    _refresh_anonymous_preflight_async()
 
 
 @never_cache
