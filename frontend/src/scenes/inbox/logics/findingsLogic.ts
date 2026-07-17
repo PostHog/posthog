@@ -477,26 +477,32 @@ export const findingsLogic = kea<findingsLogicType>([
                 action: ScoutReportAction
                 skillName: string
                 skillNames: string[]
-                latestRunId: string
                 runIds: string[]
+                hasLiveTouch: boolean
             }[] => {
-                // Newest run touching each report, on either channel — drives the recency cap order
-                // and the poll's recency check. Also collects *every* touching run (for the refetch
-                // key — a run first observed after it settled must still trigger a reload) and every
-                // touching scout, so a report scout B edited stays findable under B's filter even
-                // when scout A's authoring wins the card attribution.
-                const latestRunById = new Map<string, string>()
+                // First-touch order (runs arrive newest first) drives the recency cap. Also collects
+                // *every* touching run (for the refetch key — a run first observed after it settled
+                // must still trigger a reload), whether any touching run is still live (the poll
+                // refreshes live-touched reports; the live→settled flip changes the key so the run's
+                // final pre-completion edit gets one last reload), and every touching scout, so a
+                // report scout B edited stays findable under B's filter even when scout A's
+                // authoring wins the card attribution.
+                const orderedIds = new Map<string, null>()
                 const runIdsById = new Map<string, string[]>()
+                const liveTouchIds = new Set<string>()
                 const skillNamesById = new Map<string, string[]>()
                 for (const run of emittedRuns) {
                     for (const id of [...(run.edited_report_ids ?? []), ...(run.emitted_report_ids ?? [])]) {
-                        if (!latestRunById.has(id)) {
-                            latestRunById.set(id, run.run_id)
+                        if (!orderedIds.has(id)) {
+                            orderedIds.set(id, null)
                         }
                         const runIds = runIdsById.get(id) ?? []
                         if (!runIds.includes(run.run_id)) {
                             runIds.push(run.run_id)
                             runIdsById.set(id, runIds)
+                        }
+                        if (!isSettledRun(run)) {
+                            liveTouchIds.add(id)
                         }
                         const skills = skillNamesById.get(id) ?? []
                         if (!skills.includes(run.skill_name)) {
@@ -520,21 +526,22 @@ export const findingsLogic = kea<findingsLogicType>([
                         }
                     }
                 }
-                // latestRunById's insertion order is newest-touch-first, so slicing keeps recency.
-                return [...latestRunById.entries()].slice(0, MAX_FLEET_TOUCHED_REPORTS).map(([id, latestRunId]) => ({
+                // orderedIds' insertion order is newest-touch-first, so slicing keeps recency.
+                return [...orderedIds.keys()].slice(0, MAX_FLEET_TOUCHED_REPORTS).map((id) => ({
                     id,
                     ...byId.get(id)!,
                     skillNames: skillNamesById.get(id) ?? [],
-                    latestRunId,
                     runIds: runIdsById.get(id) ?? [],
+                    hasLiveTouch: liveTouchIds.has(id),
                 }))
             },
         ],
         // Stable key over the touched report set — refetch the reports only when the set actually
         // changes, not on every runs-window poll that returns the same runs. Includes *every*
         // touching run id, so any newly observed touch refetches the report's live title/status —
-        // including an overlapping run's edit first observed after that run settled, which the
-        // newest-run-only key missed (the poll's live-run fallback skips settled runs).
+        // including an overlapping run's edit first observed after that run settled — plus the
+        // live/settled state, so a touching run completing fires one final reload that catches its
+        // last pre-completion edit (which no id in the key would otherwise reflect).
         touchedReportsKey: [
             (s) => [s.touchedReports],
             (
@@ -542,12 +549,15 @@ export const findingsLogic = kea<findingsLogicType>([
                     id: string
                     action: ScoutReportAction
                     skillName: string
-                    latestRunId: string
                     runIds: string[]
+                    hasLiveTouch: boolean
                 }[]
             ): string =>
                 touchedReports
-                    .map(({ id, action, runIds }) => `${id}:${action}:${[...runIds].sort().join('+')}`)
+                    .map(
+                        ({ id, action, runIds, hasLiveTouch }) =>
+                            `${id}:${action}:${[...runIds].sort().join('+')}:${hasLiveTouch ? 'live' : 'settled'}`
+                    )
                     .sort()
                     .join(','),
         ],
@@ -838,36 +848,17 @@ export const findingsLogic = kea<findingsLogicType>([
             // until remount, and (b) a live run editing the same report repeatedly (dedup keeps
             // `edited_report_ids` unchanged after the first edit) serves a stale card until the run
             // settles. Refresh is *targeted*: only the needy ids are refetched — a report touched by
-            // ANY still-live run (with overlapping runs, the live one isn't necessarily the report's
-            // `latestRunId`; self-bounding since runs settle), or unresolved-but-recently-touched (a
-            // deleted report stops retriggering once its touch ages out of the window).
+            // ANY still-live run (self-bounding since runs settle), or unresolved (transient failure
+            // or deleted; no recency gate — the page's window is 72h, so an age gate would strand an
+            // older report's failed fetch while the header still counts it. A deleted report costs
+            // one targeted GET per poll until its touch leaves the window — bounded and rare).
             if (!values.scoutReportsLoading && values.touchedReports.length > 0) {
-                const touchedIds = new Set(values.touchedReports.map(({ id }) => id))
                 const resolvedIds = new Set(values.scoutReports.map((report) => report.id))
-                const needyIds = new Set<string>()
-                for (const run of values.emittedRuns) {
-                    if (isSettledRun(run)) {
-                        continue
-                    }
-                    for (const id of [...(run.edited_report_ids ?? []), ...(run.emitted_report_ids ?? [])]) {
-                        if (touchedIds.has(id)) {
-                            needyIds.add(id)
-                        }
-                    }
-                }
-                const runsById = new Map(values.emittedRuns.map((run) => [run.run_id, run]))
-                for (const { id, latestRunId } of values.touchedReports) {
-                    if (resolvedIds.has(id) || needyIds.has(id)) {
-                        continue
-                    }
-                    const run = runsById.get(latestRunId)
-                    const touchedAt = run?.completed_at ?? run?.created_at
-                    if (touchedAt && dayjs(touchedAt).isAfter(cutoff)) {
-                        needyIds.add(id)
-                    }
-                }
-                if (needyIds.size > 0) {
-                    actions.loadScoutReports([...needyIds])
+                const needyIds = values.touchedReports
+                    .filter(({ id, hasLiveTouch }) => hasLiveTouch || !resolvedIds.has(id))
+                    .map(({ id }) => id)
+                if (needyIds.length > 0) {
+                    actions.loadScoutReports(needyIds)
                 }
             }
         },
