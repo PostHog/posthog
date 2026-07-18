@@ -696,6 +696,35 @@ The 5-row cap became the first page: the list grows by a page per "Show more" cl
   jest — grow/collapse cycle (instant collapse, has_more preserved, scope flip resets the limit).
   Full suite: 503 backend + 3 jest green; `hogli build:openapi` regenerated cleanly (list function keeps its `reviewHogReviewsList` name).
 
+#### ✅ BUILT 2026-07-17 — page-level scope: the stats follow the "For you / Entire project" switch
+
+Supersedes the 2026-07-15 note that "`perspective_stats` stays personal": the split turned out to be
+the confusing part — flipping the list to Entire project left the hero and effectiveness cards
+silently personal, so the page showed one scope's list over another scope's numbers. One page-level
+switch now governs both. User decisions (grilled 2026-07-17): scope stays **project** (team), not
+org-wide; the switch moved to the **top of the page** (hero overline row), the Recent reviews
+section lost its local copy; project-scope effectiveness rows show **every** skill that raised
+findings (incl. teammates' customs — their names already surfaced via the everyone-scope detail
+drawer, and hero totals must equal the sum of rows); **all four** stat surfaces flip (hero proof
+card, Perspectives, Blind-spot, Validation criteria). Skill lists and toggles stay per-user — maybe
+skills follow later, deliberately not in this iteration.
+
+- **BE:** `GET reviews/perspective_stats/?scope=mine|everyone` (`PerspectiveStatsParamsSerializer`,
+  default `mine`) — `everyone` reuses the list's `_reports` scope plumbing; aggregation unchanged.
+- **Logic:** `loadPerspectiveStats` threads `values.reviewsScope` + takes a `breakpoint()`;
+  the scope listeners reload stats alongside the list, and `perspectiveStats → null` /
+  `recentReviewsPage → null` reducers on scope change drop the old data synchronously so the page
+  skeletons consistently instead of showing the wrong scope's stats or rows (the list half was a
+  PR-review finding: a failed reload would have stranded the other scope's rows on screen).
+  Persisted `reviewsScope` / URL `?reviews_scope=` / auto-default semantics untouched.
+- **UI:** `PageScopeSwitch` in the hero overline row; scope-aware copy — "findings worth the
+  team's time" / "This project's last N reviews" / validator card reads "Validation · dismissed by
+  validation" on project scope (the aggregate spans every author's active validator, so "your
+  quality bar" would lie).
+- Tests: BE — everyone-scope aggregation folds a teammate's report in + bad scope 400s (params-serializer
+  wiring guard), extended into the existing stats test; jest — scope flip rescopes the stats request and
+  nulls the stale value.
+
 #### ✅ BUILT 2026-07-02 — authoring guide moved to a canonical skill (`review-hog-authoring`)
 
 The "Create your own …" frontend prompts were fat, self-describing instruction sets — an
