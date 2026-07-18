@@ -27,9 +27,10 @@ const PAGE_SIZE = 50
 /** Fixed, tab-defining server filter (e.g. `{ has_implementation_pr: 'true' }`). */
 export type ReportListParams = Record<string, string>
 
-/** A list response stamped with the query params that produced it (see the loader). */
+/** A list response stamped with the query params and display context that produced it (see the loader). */
 export type ReportListResponse = CountedPaginatedResponse<SignalReport> & {
     requestParams?: Record<string, unknown>
+    requestContext?: { scope: InboxScope; hasActiveFilters: boolean }
 }
 
 export interface ReportListLogicProps {
@@ -57,6 +58,22 @@ export const INBOX_FLAT_TAB_LIST_PARAMS: Record<InboxFlatListTabKey, ReportListP
 
 function teammateUuidFromScope(scope: string): string | undefined {
     return scope.startsWith('teammate:') ? scope.slice('teammate:'.length).trim() || undefined : undefined
+}
+
+/** Display context at request time, stamped onto the response for telemetry (mirrors `hasActiveFilters`). */
+function requestContextFromValues(values: {
+    scope: InboxScope
+    searchQuery: string
+    sourceProductFilter: string[]
+    priorityFilter: SignalReportPriority[]
+}): { scope: InboxScope; hasActiveFilters: boolean } {
+    return {
+        scope: values.scope,
+        hasActiveFilters:
+            values.searchQuery.trim().length > 0 ||
+            values.sourceProductFilter.length > 0 ||
+            values.priorityFilter.length > 0,
+    }
 }
 
 /**
@@ -97,6 +114,7 @@ export interface reportListLogicValues {
     hasMore: boolean
     isLoaded: boolean
     listApiParams: any
+    loadedContext: { scope: InboxScope; hasActiveFilters: boolean } | null
     loadedQueryKey: string | null
     reports: SignalReport[]
     reportsResponse: ReportListResponse | null
@@ -230,6 +248,10 @@ export interface reportListLogicMeta {
         isLoaded: (reportsResponse: ReportListResponse | null) => boolean
         totalCount: (reportsResponse: ReportListResponse | null) => number | null
         loadedQueryKey: (reportsResponse: ReportListResponse | null) => string | null
+        loadedContext: (reportsResponse: ReportListResponse | null) => {
+            scope: InboxScope
+            hasActiveFilters: boolean
+        } | null
     }
 }
 
@@ -312,18 +334,25 @@ export const reportListLogic = kea<reportListLogicType>([
                 // live `listApiParams`, which changes before the refetch lands.
                 loadReports: async (): Promise<ReportListResponse> => {
                     const params = values.listApiParams
+                    const requestContext = requestContextFromValues(values)
                     const response = await api.signalReports.list({ ...params, offset: 0, limit: PAGE_SIZE })
-                    return { ...response, requestParams: params }
+                    return { ...response, requestParams: params, requestContext }
                 },
                 loadMoreReports: async (): Promise<ReportListResponse> => {
                     const params = values.listApiParams
+                    const requestContext = requestContextFromValues(values)
                     const current = values.reportsResponse?.results ?? []
                     const response = await api.signalReports.list({
                         ...params,
                         offset: current.length,
                         limit: PAGE_SIZE,
                     })
-                    return { ...response, results: [...current, ...response.results], requestParams: params }
+                    return {
+                        ...response,
+                        results: [...current, ...response.results],
+                        requestParams: params,
+                        requestContext,
+                    }
                 },
             },
         ],
@@ -407,6 +436,14 @@ export const reportListLogic = kea<reportListLogicType>([
             (s) => [s.reportsResponse],
             (reportsResponse: ReportListResponse | null): string | null =>
                 reportsResponse?.requestParams ? JSON.stringify(reportsResponse.requestParams) : null,
+        ],
+        // Display context (scope, active-filters flag) as it was when the loaded response was
+        // requested — for telemetry, so an in-flight response can't be labeled with context the
+        // user switched to after the request went out.
+        loadedContext: [
+            (s) => [s.reportsResponse],
+            (reportsResponse: ReportListResponse | null): { scope: InboxScope; hasActiveFilters: boolean } | null =>
+                reportsResponse?.requestContext ?? null,
         ],
     }),
 

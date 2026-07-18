@@ -163,13 +163,17 @@ def capture_status_change_analytics(
                 return
             collapsed_prior = getattr(instance, "_collapsed_prior_status", None)
             instance._collapsed_prior_status = None  # type: ignore[attr-defined]
+            previous_status = collapsed_prior or properties["previous_status"]
             posthoganalytics.capture(
                 event="signal_report_status_changed",
                 distinct_id=str(team.uuid),
                 properties={
                     **properties,
-                    "previous_status": collapsed_prior or properties["previous_status"],
-                    **_classification_snapshot(report_id),
+                    "previous_status": previous_status,
+                    **_classification_snapshot(
+                        report_id,
+                        include_dismissal=_is_dismissal_transition(previous_status, new_status),
+                    ),
                 },
                 groups=groups(team.organization, team),
             )
@@ -192,7 +196,15 @@ _SNAPSHOT_ARTEFACT_FIELDS = [
 ]
 
 
-def _classification_snapshot(report_id: str) -> dict[str, str | None]:
+def _is_dismissal_transition(previous_status: str, new_status: str) -> bool:
+    """Whether this transition is one the state API writes dismissal feedback for: a dismissal
+    (into suppressed) or a snooze (researched report back to potential)."""
+    return new_status == SignalReport.Status.SUPPRESSED or (
+        new_status == SignalReport.Status.POTENTIAL and previous_status in _SNOOZE_SOURCE_STATUSES
+    )
+
+
+def _classification_snapshot(report_id: str, *, include_dismissal: bool) -> dict[str, str | None]:
     # One DISTINCT ON query for all three types: the bulk-state endpoint can transition up to 100
     # reports in a request, and each one's post-commit callback takes this path before the
     # response returns, so per-type queries would multiply into hundreds.
@@ -206,6 +218,12 @@ def _classification_snapshot(report_id: str) -> dict[str, str | None]:
     )
     snapshot: dict[str, str | None] = {}
     for artefact_type, content_key, prop in _SNAPSHOT_ARTEFACT_FIELDS:
+        # Dismissal artefacts are append-only and never cleared, so a restored report would carry
+        # its old dismissal reason onto every later transition — only dismissal/snooze labels
+        # (where the feedback was just written) may include it.
+        if artefact_type == SignalReportArtefact.ArtefactType.DISMISSAL and not include_dismissal:
+            snapshot[prop] = None
+            continue
         value = None
         content = latest_content_by_type.get(artefact_type)
         if content:

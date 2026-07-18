@@ -60,7 +60,7 @@ function ActiveFiltersBanner(): JSX.Element | null {
 }
 
 function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps): JSX.Element {
-    const { reports, count, totalCount, hasMore, reportsResponseLoading, isLoaded, loadedQueryKey } =
+    const { reports, count, totalCount, hasMore, reportsResponseLoading, isLoaded, loadedQueryKey, loadedContext } =
         useValues(reportListLogic)
     const { ensureLoaded, loadMore, archiveReport, restoreReport, refresh } = useActions(reportListLogic)
     const { hasActiveFilters, sourceProductFilter, priorityFilter, scope } = useValues(inboxFiltersLogic)
@@ -97,11 +97,12 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     // events to have a matching impression.
     const impressionQueryKeyRef = useRef('')
     useEffect(() => {
-        // totalCount and loadedQueryKey come from the same response as `reports` (not the live
-        // params or the separately-loaded badge count), so impressions can't be stamped with a
-        // stale total, and rows from the previous query are never attributed to the new one
-        // while its refetch is still in flight.
-        if (!listVisible || !isLoaded || totalCount === null || loadedQueryKey === null) {
+        // totalCount, loadedQueryKey, and loadedContext come from the same response as `reports`
+        // (not the live filter state or the separately-loaded badge count), so impressions can't
+        // be stamped with a stale total or with scope/filter context the user switched to after
+        // the request went out, and rows from the previous query are never attributed to the new
+        // one while its refetch is still in flight.
+        if (!listVisible || !isLoaded || totalCount === null || loadedQueryKey === null || loadedContext === null) {
             return
         }
         if (loadedQueryKey !== impressionQueryKeyRef.current) {
@@ -121,10 +122,10 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
             ranks: fresh.map(({ rank }) => rank),
             listSize: reports.length,
             totalCount,
-            hasActiveFilters,
-            scope,
+            hasActiveFilters: loadedContext.hasActiveFilters,
+            scope: loadedContext.scope,
         })
-    }, [listVisible, isLoaded, totalCount, reports, tabKey, hasActiveFilters, scope, loadedQueryKey])
+    }, [listVisible, isLoaded, totalCount, reports, tabKey, loadedQueryKey, loadedContext])
 
     // Read fresh state at intersection time via refs so the observer is created once and not
     // rebuilt twice per page fetch (`hasMore`/`reportsResponseLoading` both flip during a load).

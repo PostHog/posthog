@@ -50,7 +50,15 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
         assert kwargs["properties"]["signal_count"] == 3
         assert kwargs["properties"]["total_weight"] == 2.5
 
-    def test_label_snapshots_latest_classification_artefacts(self):
+    @parameterized.expand(
+        [
+            ("dismissal_includes_reason", SignalReport.Status.SUPPRESSED, "wontfix_irrelevant"),
+            # Dismissal artefacts are append-only, so an old reason must not leak onto later
+            # non-dismissal transitions (e.g. a restored report getting resolved).
+            ("non_dismissal_excludes_stale_reason", SignalReport.Status.RESOLVED, None),
+        ]
+    )
+    def test_label_snapshots_latest_classification_artefacts(self, _name, new_status, expected_dismissal_reason):
         report = self._create_report()
         for artefact_type, content in [
             (SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, {"priority": "P1"}),
@@ -62,12 +70,12 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
             )
         with patch("products.signals.backend.receivers.posthoganalytics.capture") as mock_capture:
             with self.captureOnCommitCallbacks(execute=True):
-                updated = report.transition_to(SignalReport.Status.SUPPRESSED)
+                updated = report.transition_to(new_status)
                 report.save(update_fields=updated)
         props = mock_capture.call_args.kwargs["properties"]
         assert props["priority"] == "P1"
         assert props["actionability"] == "immediately_actionable"
-        assert props["dismissal_reason"] == "wontfix_irrelevant"
+        assert props["dismissal_reason"] == expected_dismissal_reason
 
     def test_transient_intermediate_transition_in_one_transaction_is_collapsed(self):
         report = self._create_report(report_status=SignalReport.Status.IN_PROGRESS)
