@@ -995,7 +995,9 @@ jobs:
         # Storybook CI is skipped on merge_group, so visual-regression won't run there;
         # != 'skipped' keeps this from spinning a runner that downloads nothing, while still
         # uploading failed-test results (the flake signal Trunk needs) on master push.
-        if: always() && github.repository == 'PostHog/posthog' && github.event_name != 'pull_request' && needs.visual-regression.result != 'skipped'
+        # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
+        # this job skips, so no results upload.
+        if: always() && github.repository == 'PostHog/posthog' && github.event_name != 'pull_request' && needs.visual-regression.result != 'skipped' && vars.TRUNK_UPLOAD_ENABLED == 'true'
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
