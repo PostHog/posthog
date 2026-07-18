@@ -1570,6 +1570,16 @@ class TestExtractColumns(ClickhouseTestMixin, APIBaseTest):
                     {"name": "cnt", "type": "integer"},
                 ],
             ),
+            (
+                # An empty-string dummy makes splitByChar reject the zero-byte separator; the
+                # fallback dummy must be a single byte so schema introspection still compiles.
+                "variable_used_as_strict_function_argument",
+                {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT splitByChar({variables.separator}, 'a,b,c') AS parts",
+                },
+                [{"name": "parts", "type": "array"}],
+            ),
         ]
     )
     def test_extract_columns(self, _name: str, query: dict, expected: list[dict]):
@@ -1577,6 +1587,24 @@ class TestExtractColumns(ClickhouseTestMixin, APIBaseTest):
 
         result = EndpointVersion.extract_columns(query, team_id=self.team.pk)
         self.assertEqual(result, expected)
+
+    def test_extract_columns_date_variable_gets_parseable_dummy(self):
+        """A DATE variable feeding toDate needs a parseable dummy, not the generic fallback."""
+        from products.endpoints.backend.models import EndpointVersion
+
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Cutoff", code_name="cutoff", type=InsightVariable.Type.DATE
+        )
+        query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT toDate({variables.cutoff}) AS day",
+            "variables": {
+                str(variable.id): {"code_name": "cutoff", "variableId": str(variable.id), "value": None},
+            },
+        }
+
+        result = EndpointVersion.extract_columns(query, team_id=self.team.pk)
+        self.assertEqual(result, [{"name": "day", "type": "date"}])
 
 
 class TestClickhouseTypeMapping(TestCase):

@@ -21,17 +21,63 @@ from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
 from posthog.schema_enums import ProductKey
 
+from products.product_analytics.backend.models.insight_variable import InsightVariable
+
 logger = logging.getLogger(__name__)
 
 
+# A single-byte string is a compile-safe fallback dummy: it satisfies functions that
+# reject an empty argument (e.g. splitByChar needs a one-byte separator), whereas the
+# empty string used previously broke schema introspection for those queries.
+_DEFAULT_PLACEHOLDER_DUMMY = "0"
+
+
+def _is_valid_uuid(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        uuid.UUID(value)
+        return True
+    except ValueError:
+        return False
+
+
+def _dummy_value_for_variable_type(variable_type: str) -> Any:
+    """A dummy value ClickHouse accepts for a variable of the given type.
+
+    Schema introspection compiles the query with placeholders swapped for dummies; it
+    never runs with real data. An empty string breaks strict functions (splitByChar
+    rejects a zero-length separator, toDate can't parse ''), so each type gets a value
+    it can be used with.
+    """
+    if variable_type == InsightVariable.Type.NUMBER:
+        return 1
+    if variable_type == InsightVariable.Type.BOOLEAN:
+        return True
+    if variable_type == InsightVariable.Type.DATE:
+        return "2020-01-01 00:00:00"
+    if variable_type == InsightVariable.Type.LIST:
+        return ["0"]
+    return _DEFAULT_PLACEHOLDER_DUMMY  # String and anything unrecognised
+
+
 class _ReplacePlaceholdersWithDummies(CloningVisitor):
-    """Replace all {variables.foo} placeholders with empty string constants."""
+    """Replace {variables.foo} placeholders with compile-safe dummy constants.
+
+    Used only for schema introspection (DESCRIBE TABLE), where the query must compile
+    but never runs with real values. Each placeholder is swapped for a value its
+    variable's type accepts, falling back to a single-byte string.
+    """
+
+    def __init__(self, dummies: dict[str, Any] | None = None) -> None:
+        super().__init__()
+        self._dummies = dummies or {}
 
     def visit_placeholder(self, node: ast.Placeholder) -> ast.Constant:
-        return ast.Constant(value="")
-
-
-_PLACEHOLDER_REPLACER = _ReplacePlaceholdersWithDummies()
+        chain = node.chain
+        if chain and len(chain) > 1 and chain[0] == "variables":
+            return ast.Constant(value=self._dummies.get(str(chain[1]), _DEFAULT_PLACEHOLDER_DUMMY))
+        return ast.Constant(value=_DEFAULT_PLACEHOLDER_DUMMY)
 
 
 # Matches Nullable(...) and LowCardinality(...) — single-arg wrappers
@@ -315,6 +361,31 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         return can_materialize_query(self.query)
 
     @staticmethod
+    def _build_placeholder_dummies(variables: dict, team_id: int) -> dict[str, Any]:
+        """Map each variable's code_name to a type-aware dummy for schema introspection.
+
+        Variable types live on InsightVariable, keyed by the variableId stored in the
+        query's variables map, so we look them up to pick a value ClickHouse accepts.
+        """
+        code_name_to_id = {
+            var["code_name"]: var["variableId"]
+            for var in variables.values()
+            if isinstance(var, dict) and var.get("code_name") and _is_valid_uuid(var.get("variableId"))
+        }
+        if not code_name_to_id:
+            return {}
+
+        types_by_id = {
+            str(iv.id): iv.type
+            for iv in InsightVariable.objects.filter(team_id=team_id, id__in=list(code_name_to_id.values()))
+        }
+        return {
+            code_name: _dummy_value_for_variable_type(types_by_id[var_id])
+            for code_name, var_id in code_name_to_id.items()
+            if var_id in types_by_id
+        }
+
+    @staticmethod
     def extract_columns(query: dict, team_id: int) -> list[dict]:
         """Extract SELECT column names and types by describing the query against ClickHouse."""
         if query.get("kind") != "HogQLQuery":
@@ -327,7 +398,8 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         from posthog.clickhouse.client import sync_execute
 
         parsed = parse_select(hogql_string)
-        cleaned = _PLACEHOLDER_REPLACER.visit(parsed)
+        dummies = EndpointVersion._build_placeholder_dummies(query.get("variables") or {}, team_id)
+        cleaned = _ReplacePlaceholdersWithDummies(dummies).visit(parsed)
 
         team = Team.objects.get(pk=team_id)
         executor = HogQLQueryExecutor(query=cleaned, team=team, limit_context=None)
