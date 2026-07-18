@@ -28,6 +28,10 @@ from .enums import AttributeScope, FilterOp, MetricAggregation, MetricType
 # the clause count per request is hard-capped.
 MAX_CLAUSES_PER_QUERY = 10
 
+# Private-alpha gate. Every read surface (viewset, query runner, MCP tools)
+# must check the same flag, or one of them becomes a bypass.
+METRICS_FEATURE_FLAG = "metrics"
+
 
 @dataclass(frozen=True, slots=True)
 class MetricFilter:
