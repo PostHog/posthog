@@ -77,6 +77,26 @@ const ACTIVE_STATUSES: SignalReportStatus[] = [
 
 const REPORT_TASKS_POLL_INTERVAL_MS = 5000
 
+/**
+ * HTTP statuses the diff endpoint returns when GitHub simply can't provide the branch diff:
+ * 404 = the branch/repo isn't on the remote (merged, deleted, or force-rewritten away) or no
+ * GitHub integration can reach the repository; 502 = GitHub errored while producing the compare.
+ * These are expected, user-recoverable states — we render the "Files changed" failure card for
+ * them instead of letting the loader reject, because a rejected loader reports a handled
+ * `$exception` to error tracking for something that isn't a bug.
+ */
+const EXPECTED_DIFF_UNAVAILABLE_STATUSES = [404, 502]
+
+/** True when the diff fetch failed for an expected GitHub-unavailability reason (see above). */
+export function isExpectedDiffUnavailable(error: unknown): boolean {
+    const status = (error as { status?: number } | null)?.status
+    return typeof status === 'number' && EXPECTED_DIFF_UNAVAILABLE_STATUSES.includes(status)
+}
+
+/** User-facing copy for the "Files changed" failure card when GitHub can't provide the branch diff. */
+export const DIFF_UNAVAILABLE_MESSAGE =
+    "Couldn't load the diff. The branch may have been merged, deleted, or rewritten, or GitHub can no longer access this repository."
+
 /** Extract the PR url from a task's latest run output, if present. Mirrors desktop `getTaskPrUrl`. */
 export function getTaskPrUrl(task: Task): string | null {
     const prUrl = task.latest_run?.output?.pr_url
@@ -234,6 +254,9 @@ export interface inboxReportDetailLogicActions {
     setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => {
         reviewers: EnrichedReviewer[] | null
     }
+    setReportDiffError: (error: string) => {
+        error: string
+    }
     setReport: (report: SignalReport | null) => {
         report: SignalReport | null
     }
@@ -316,9 +339,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setSelectedTaskId: (taskId: string | null) => ({ taskId }),
         // Inline-expand a linked task's run log within the report detail's Runs section.
         toggleExpandedTask: (taskId: string) => ({ taskId }),
+        // Populate the "Files changed" failure card for an expected diff-unavailability without
+        // rejecting the loader (which would report a handled `$exception` to error tracking).
+        setReportDiffError: (error: string) => ({ error }),
     }),
 
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, actions }) => ({
         reportArtefacts: [
             null as SignalReportArtefact[] | null,
             {
@@ -420,7 +446,20 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     if (!teamId) {
                         return null
                     }
-                    return await signalsReportArtefactsDiff(String(teamId), props.reportId, artefactId)
+                    try {
+                        return await signalsReportArtefactsDiff(String(teamId), props.reportId, artefactId)
+                    } catch (error) {
+                        // A branch that was merged, deleted, or rewritten — or a repo the GitHub
+                        // integration can't reach — is an expected state the "Files changed" card
+                        // already handles. Surface it there and resolve with `null` instead of
+                        // rejecting, so error tracking isn't flooded with handled `$exception`s.
+                        // Genuinely unexpected failures still reject and stay observable.
+                        if (isExpectedDiffUnavailable(error)) {
+                            actions.setReportDiffError(DIFF_UNAVAILABLE_MESSAGE)
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -461,13 +500,15 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 setReport: () => [],
             },
         ],
-        // Human-readable diff-load failure (kea-loaders only exposes a boolean loading flag). A failed
-        // compare usually means the branch was merged, deleted, or force-rewritten away.
+        // Human-readable diff-load failure (kea-loaders only exposes a boolean loading flag). Reset
+        // when a fetch starts. Expected GitHub-unavailability is set explicitly via `setReportDiffError`
+        // from the (non-rejecting) loader, so success must NOT clear it. A genuinely unexpected failure
+        // still lands here via `loadReportDiffFailure` and stays observable in error tracking.
         reportDiffError: [
             null as string | null,
             {
                 loadReportDiff: () => null,
-                loadReportDiffSuccess: () => null,
+                setReportDiffError: (_, { error }) => error,
                 loadReportDiffFailure: () =>
                     "Couldn't load the diff — the branch may have been merged, deleted, or rewritten.",
             },
