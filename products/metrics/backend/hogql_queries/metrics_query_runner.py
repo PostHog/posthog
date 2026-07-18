@@ -8,7 +8,7 @@ query path.
 """
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, cast
 
 from posthog.schema import (
     CachedMetricsQueryResponse,
@@ -26,6 +26,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
+from posthog.shared_link_user import SharedLinkUser
 
 from products.metrics.backend.facade.api import run_metric_query
 from products.metrics.backend.facade.contracts import (
@@ -62,6 +63,24 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
         ):
             raise UserAccessControlError("metrics", "viewer")
         return True
+
+    def _enforce_alpha_gate_for_anonymous_viewers(self) -> None:
+        # Shared-link renders execute with an anonymous SharedLinkUser, which skips
+        # validate_query_runner_access (the share link is its authorization) — so the
+        # alpha flag gate must also hold here. Userless runs (scheduled refreshes,
+        # cache warming) stay allowed: they only ever refresh flagged teams' insights.
+        # user is typed Optional[User] but runtime also passes SharedLinkUser (shared
+        # renders); broaden for is_anonymous.
+        user = cast("Optional[User | SharedLinkUser]", self.user)
+        if user is None or not user.is_anonymous:
+            return
+        if not posthog_feature_flag_enabled(
+            METRICS_FEATURE_FLAG,
+            str(getattr(user, "distinct_id", None) or f"shared-viewer-{self.team.pk}"),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+        ):
+            raise UserAccessControlError("metrics", "viewer")
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         raise NotImplementedError(
@@ -115,6 +134,7 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
         )
 
     def _calculate(self) -> MetricsQueryResponse:
+        self._enforce_alpha_gate_for_anonymous_viewers()
         series = run_metric_query(team=self.team, request=self._to_request())
         return MetricsQueryResponse(
             results=[

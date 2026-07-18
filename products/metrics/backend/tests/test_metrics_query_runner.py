@@ -1,4 +1,5 @@
 import datetime as dt
+from typing import cast
 
 import pytest
 from freezegun import freeze_time
@@ -17,9 +18,12 @@ from posthog.schema import (
 )
 
 from posthog.constants import AvailableFeature
+from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import UserAccessControlError
+from posthog.shared_link_user import SharedLinkUser
 
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation, MetricType
 from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
@@ -147,6 +151,24 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with patch("posthoganalytics.feature_enabled", return_value=False):
             with pytest.raises(UserAccessControlError):
                 self._runner(query).validate_query_runner_access(self.user)
+
+    def test_calculate_denied_for_shared_link_viewer_without_feature_flag(self) -> None:
+        # Shared-link renders execute with an anonymous SharedLinkUser, which skips
+        # validate_query_runner_access — the flag gate must also hold at calculation time.
+        sharing_config = SharingConfiguration.objects.create(team=self.team, enabled=True)
+        query = MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")])
+        runner = MetricsQueryRunner(query=query, team=self.team, user=cast(User, SharedLinkUser(sharing_config)))
+
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            with pytest.raises(UserAccessControlError):
+                runner.calculate()
+
+    def test_calculate_allowed_for_shared_link_viewer_with_feature_flag(self) -> None:
+        sharing_config = SharingConfiguration.objects.create(team=self.team, enabled=True)
+        query = MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")])
+        runner = MetricsQueryRunner(query=query, team=self.team, user=cast(User, SharedLinkUser(sharing_config)))
+
+        assert runner.calculate().results is not None
 
     def test_validate_query_runner_access_denied_without_resource_access(self) -> None:
         AccessControl.objects.create(team=self.team, resource="metrics", access_level="none")
