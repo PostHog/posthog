@@ -34488,6 +34488,42 @@ export namespace Schemas {
       config?: LogsListWidgetConfig;
     }
 
+    export interface LogsMetricRule {
+      /** Unique identifier for this metric rule. */
+      readonly id: string;
+      /**
+         * User-visible label for this rule.
+         * @maxLength 255
+         */
+      name: string;
+      /**
+         * Name of the generated metric as it appears in the Metrics product. Must start with a letter and contain only letters, digits, dots, underscores, and dashes. Unique per project and immutable after creation — create a new rule to emit under a different name.
+         * @maxLength 200
+         */
+      metric_name: string;
+      /** When true, ingestion evaluates this rule against every log record. At most 10 rules can be enabled per project. */
+      enabled?: boolean;
+      /** PropertyGroupFilter JSON (AND/OR tree of property predicates) selecting which log records feed the metric, e.g. `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api","type":"log_attribute"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match. */
+      filter_group?: unknown;
+      /**
+         * Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.
+         * @maxLength 512
+         * @nullable
+         */
+      value_attribute?: string | null;
+      /**
+         * Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+         * @items.maxLength 512
+         */
+      group_by?: string[];
+      /** Incremented on each update for worker cache coherency. */
+      readonly version: number;
+      readonly created_by: number;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
     export type LogsSamplingRuleScopeAttributeFiltersItem = { [key: string]: unknown };
 
     /**
@@ -37974,6 +38010,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LogsAlertEvent[];
+    }
+
+    export interface PaginatedLogsMetricRuleList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LogsMetricRule[];
     }
 
     export interface PaginatedLogsSamplingRuleList {
@@ -45652,6 +45697,42 @@ export namespace Schemas {
          * When the alert was last modified.
          * @nullable
          */
+      readonly updated_at?: string | null;
+    }
+
+    export interface PatchedLogsMetricRule {
+      /** Unique identifier for this metric rule. */
+      readonly id?: string;
+      /**
+         * User-visible label for this rule.
+         * @maxLength 255
+         */
+      name?: string;
+      /**
+         * Name of the generated metric as it appears in the Metrics product. Must start with a letter and contain only letters, digits, dots, underscores, and dashes. Unique per project and immutable after creation — create a new rule to emit under a different name.
+         * @maxLength 200
+         */
+      metric_name?: string;
+      /** When true, ingestion evaluates this rule against every log record. At most 10 rules can be enabled per project. */
+      enabled?: boolean;
+      /** PropertyGroupFilter JSON (AND/OR tree of property predicates) selecting which log records feed the metric, e.g. `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api","type":"log_attribute"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match. */
+      filter_group?: unknown;
+      /**
+         * Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.
+         * @maxLength 512
+         * @nullable
+         */
+      value_attribute?: string | null;
+      /**
+         * Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+         * @items.maxLength 512
+         */
+      group_by?: string[];
+      /** Incremented on each update for worker cache coherency. */
+      readonly version?: number;
+      readonly created_by?: number;
+      readonly created_at?: string;
+      /** @nullable */
       readonly updated_at?: string | null;
     }
 
@@ -76579,6 +76660,17 @@ export namespace Schemas {
     export type LogsExportCreate201 = { [key: string]: unknown };
 
     export type LogsHasLogsRetrieve200 = { [key: string]: unknown };
+
+    export type LogsMetricRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type LogsSamplingRulesListParams = {
     /**
