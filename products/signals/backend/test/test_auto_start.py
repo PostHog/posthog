@@ -469,3 +469,6 @@ def test_autostart_description_appends_fix_loop_instructions_only_for_metric_rep
     assert summary in description
     assert ("autoresearch target" in description) is expect_fix_loop
     assert ("never by masking errors" in description) is expect_fix_loop
+    # Evidence-hygiene guardrail: fix-loop PRs may target public repos, so the prompt must forbid
+    # real telemetry (raw rows, error messages, identifiers) in before/after evidence.
+    assert ("never raw telemetry rows" in description) is expect_fix_loop

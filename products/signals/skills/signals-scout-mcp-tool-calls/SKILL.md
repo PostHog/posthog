@@ -149,6 +149,7 @@ Its presence is what turns the auto-started implementation task from a one-shot 
 - **Baseline** — the value measured this run, with volume and reach ("41% of 2,013 calls across 34 users, 7d").
 - **Goal** — the direction and a concrete bar, e.g. decrease to at or below the project-wide error rate from `pattern:mcp_analytics:baseline`.
 - **Constraints** — the metric must move because the calls genuinely succeed: no masking errors, retry-hiding, swallowing exceptions, loosening schema validation to accept garbage, and no touching the `$mcp_tool_call` analytics stamping that feeds the measurement.
+- **Evidence hygiene** — the PR's before/after evidence shows aggregate metric outputs and synthetic/local reproductions only: raw telemetry rows, error messages, intent strings, and user/customer identifiers never appear in a PR or its attached images (the target repo may be public, and PR image assets stay readable forever).
 - **Intent evidence** — when `pct_with_intent` clears the bar, one line on what agents were trying to do when the tool failed (top `$mcp_intent` values), so the fix validates against real usage rather than the schema alone.
 
 The cadence math is deliberate: the daily schedule + one report per category + autostart's one-implementation-task-per-report gate means each owning team receives at most one autonomous fix PR per day, aimed at its category's worst measurable problem.

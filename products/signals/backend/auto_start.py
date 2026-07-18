@@ -105,7 +105,12 @@ def _fix_loop_instructions(summary: str) -> str:
         "by masking errors, swallowing exceptions, loosening validation, or changing how the metric is "
         "measured. In the PR description record the baseline, the expected post-fix value, and how you "
         "validated the change; include before/after evidence (screenshots, or a short recording where "
-        "the behavior is visual).\n\n"
+        "the behavior is visual). Evidence must be safe for the target repository's visibility: show "
+        "only aggregate metric outputs (rates, counts, percentiles) or synthetic/local reproductions — "
+        "never raw telemetry rows, error messages, intent strings, or identifiers (distinct_id, "
+        "session id, email, account names), which can expose real users or customers. Images attached "
+        "to a PR are publicly and permanently readable when the repository is public, so when in "
+        "doubt, state the number instead of screenshotting the surface that produced it.\n\n"
     )
 
 
