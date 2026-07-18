@@ -11,6 +11,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { Experiment } from '~/types'
 
+import type { ExperimentMetricsRecalculationApi } from 'products/experiments/frontend/generated/api.schemas'
+
 import { experimentMetricsLogic } from './experimentMetricsLogic'
 
 jest.mock('@posthog/lemon-ui', () => ({
@@ -734,6 +736,40 @@ describe('experimentMetricsLogic', () => {
             // Still in progress, but the finished metric from the partial payload is already on screen.
             expect(logic.values.currentRecalculation).toEqual(expect.objectContaining({ status: 'in_progress' }))
             expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
+        })
+    })
+
+    describe('liveRowsProgress', () => {
+        const asRecalc = (obj: Record<string, unknown>): ExperimentMetricsRecalculationApi =>
+            obj as unknown as ExperimentMetricsRecalculationApi
+
+        it('retains the last nonzero sample within a run and clears on a new run', () => {
+            // Draft experiment: afterMount no-ops, so the reducer can be driven directly.
+            const draft = { ...EXPERIMENT, status: undefined, start_date: null, end_date: null } as Experiment
+            logic = experimentMetricsLogic({ experiment: draft })
+            logic.mount()
+
+            logic.actions.setCurrentRecalculation(
+                asRecalc({ ...inProgressRecalculation, rows_read: 500, estimated_rows_total: 1000 })
+            )
+            expect(logic.values.liveRowsProgress).toEqual({
+                recalculationId: 'recalc-2',
+                rowsRead: 500,
+                estimatedRows: 1000,
+            })
+
+            // A poll without a live sample (all-zeros gap) must not wipe the last value — the 0/0 flash.
+            logic.actions.setCurrentRecalculation(
+                asRecalc({ ...inProgressRecalculation, rows_read: 0, estimated_rows_total: 0 })
+            )
+            expect(logic.values.liveRowsProgress).toEqual({
+                recalculationId: 'recalc-2',
+                rowsRead: 500,
+                estimatedRows: 1000,
+            })
+
+            logic.actions.setCurrentRecalculation(asRecalc({ ...inProgressRecalculation, id: 'recalc-3' }))
+            expect(logic.values.liveRowsProgress).toBeNull()
         })
     })
 
