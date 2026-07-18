@@ -76,16 +76,39 @@ class TestSyncCrossRegionDogfoodFlags(BaseTest):
         # conditional GET, silently degrading to a full transfer on every poll.
         assert flag_definitions_hypercache.get_etag(DOGFOOD_SELF_TEAM_ID)
 
-    def test_fails_safe_on_request_exception(self):
-        # A crash here would take down the Celery task every 30s; the existing
-        # cache entry must survive an upstream hiccup instead.
+    @parameterized.expand(
+        [
+            ("connection_error", requests.ConnectionError("boom")),
+            ("timeout", requests.Timeout("slow")),
+            ("proxy_error", requests.exceptions.ProxyError("proxy down")),
+        ]
+    )
+    def test_transient_network_error_is_not_captured(self, _name, exc):
+        # These self-heal on the next 30s tick, so they must fail safe (keep the
+        # cached entry) without reporting to error tracking -- otherwise every blip
+        # spawns a "new issue".
         with (
-            patch(f"{_MODULE}.requests.get", side_effect=requests.ConnectionError("boom")),
+            patch(f"{_MODULE}.requests.get", side_effect=exc),
             patch.object(flag_definitions_hypercache, "set_cache_value") as mock_set,
+            patch(f"{_MODULE}.capture_exception_throttled") as mock_capture,
         ):
             sync_cross_region_dogfood_flags()
 
         mock_set.assert_not_called()
+        mock_capture.assert_not_called()
+
+    def test_unexpected_request_error_is_captured(self):
+        # A non-network RequestException (e.g. a malformed URL) is genuinely
+        # unexpected, so it should still surface in error tracking.
+        with (
+            patch(f"{_MODULE}.requests.get", side_effect=requests.RequestException("unexpected")),
+            patch.object(flag_definitions_hypercache, "set_cache_value") as mock_set,
+            patch(f"{_MODULE}.capture_exception_throttled") as mock_capture,
+        ):
+            sync_cross_region_dogfood_flags()
+
+        mock_set.assert_not_called()
+        mock_capture.assert_called_once()
 
     @parameterized.expand(
         [
