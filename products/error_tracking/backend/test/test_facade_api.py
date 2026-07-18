@@ -252,8 +252,12 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         api.update_settings(
             self.team.id,
             {"project_rate_limit_value": 100, "project_rate_limit_bucket_size_minutes": 5},
+            user=self.user,
+            was_impersonated=False,
         )
-        updated = api.update_settings(self.team.id, {"per_issue_rate_limit_value": 7})
+        updated = api.update_settings(
+            self.team.id, {"per_issue_rate_limit_value": 7}, user=self.user, was_impersonated=False
+        )
 
         assert updated.project_rate_limit_value == 100
         assert updated.project_rate_limit_bucket_size_minutes == 5
@@ -263,9 +267,23 @@ class TestErrorTrackingFacadeAPI(BaseTest):
 
     def test_update_settings_scoped_by_team(self):
         other_team = Team.objects.create(organization=self.organization, name="Other team")
-        api.update_settings(self.team.id, {"project_rate_limit_value": 42})
+        api.update_settings(self.team.id, {"project_rate_limit_value": 42}, user=self.user, was_impersonated=False)
 
         assert api.get_settings(other_team.id).project_rate_limit_value is None
+
+    @parameterized.expand([[True], [False]])
+    def test_update_settings_autocapture_dual_writes_settings_and_team(self, opt_in: bool):
+        updated_at_before = self.team.updated_at
+
+        updated = api.update_settings(
+            self.team.id, {"autocapture_exceptions_opt_in": opt_in}, user=self.user, was_impersonated=False
+        )
+
+        assert updated.autocapture_exceptions_opt_in is opt_in
+        assert api.get_settings(self.team.id).autocapture_exceptions_opt_in is opt_in
+        self.team.refresh_from_db()
+        assert self.team.autocapture_exceptions_opt_in is opt_in
+        assert self.team.updated_at > updated_at_before
 
     def test_spike_detection_config_get_and_update(self):
         config = api.get_spike_detection_config(self.team.id)

@@ -23,6 +23,8 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
+import { exceptionAutocaptureLogic } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/exceptionAutocaptureLogic'
+
 import { exceptionIngestionLogic } from './exceptionIngestionLogic'
 
 export const ERROR_TRACKING_FRAMEWORK_LINKS: {
@@ -58,14 +60,13 @@ export const ErrorTrackingSetupPrompt = ({
     className?: string
 }): JSX.Element => {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(exceptionIngestionLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const exceptionAutocaptureEnabled = currentTeam && currentTeam.autocapture_exceptions_opt_in
+    const { autocaptureOptIn, settings, settingsLoading } = useValues(exceptionAutocaptureLogic)
 
-    return hasSentExceptionEventLoading || !currentTeam ? (
+    return hasSentExceptionEventLoading || (!settings && settingsLoading) ? (
         <div className="flex justify-center">
             <Spinner />
         </div>
-    ) : !hasSentExceptionEvent && !exceptionAutocaptureEnabled ? (
+    ) : !hasSentExceptionEvent && !autocaptureOptIn ? (
         <ErrorTrackingIngestionPrompt className={className} />
     ) : (
         <>{children}</>
@@ -89,7 +90,9 @@ export function ErrorTrackingIngestionPrompt({
     IntroductionComponent = ProductIntroduction,
     actionElementClassName = 'flex flex-col items-start gap-4',
 }: ErrorTrackingIngestionPromptProps): JSX.Element {
-    const { addProductIntent, updateCurrentTeam } = useActions(teamLogic)
+    const { addProductIntent } = useActions(teamLogic)
+    const { setAutocaptureOptIn } = useActions(exceptionAutocaptureLogic)
+    const { settingsLoading } = useValues(exceptionAutocaptureLogic)
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: TeamMembershipLevel.Admin,
         scope: RestrictionScope.Project,
@@ -150,12 +153,13 @@ export function ErrorTrackingIngestionPrompt({
                             type="primary"
                             size="small"
                             disabledReason={restrictionReason}
+                            loading={settingsLoading}
                             onClick={() => {
                                 addProductIntent({
                                     product_type: ProductKey.ERROR_TRACKING,
                                     intent_context: ProductIntentContext.ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED,
                                 })
-                                updateCurrentTeam({ autocapture_exceptions_opt_in: true })
+                                setAutocaptureOptIn(true)
                             }}
                         >
                             Enable exception autocapture

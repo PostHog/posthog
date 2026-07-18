@@ -6,6 +6,7 @@ from unittest import mock
 from django.core.management import call_command
 from django.test import override_settings
 
+from products.error_tracking.backend.facade import autocapture_exceptions_enabled
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 
 _SERVICE = "products.data_warehouse.backend.logic.data_load.service"
@@ -134,6 +135,8 @@ class TestResetSignalsSelfDrivingProductToggles(BaseTest):
         assert self.team.autocapture_exceptions_opt_in is None
         assert self.team.conversations_enabled is None
         assert self.team.conversations_settings is None
+        # The ErrorTrackingSettings mirror is cleared too, so autocapture reads as disabled.
+        assert autocapture_exceptions_enabled(self.team) is False
 
     def test_without_flag_leaves_product_toggles_untouched(self) -> None:
         self._enable_all_products()

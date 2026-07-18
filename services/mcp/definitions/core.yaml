@@ -522,6 +522,7 @@ tools:
             - default_modifiers
             - person_on_events_querying_enabled
             - organization
+            - autocapture_exceptions_opt_in
         param_overrides:
             id:
                 description: Project ID, or `@current` to target the caller's active project.

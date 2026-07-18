@@ -4,11 +4,16 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.helpers.impersonation import is_impersonated
 
 from products.error_tracking.backend.facade import api as error_tracking_api
 
 
 class ErrorTrackingSettingsSerializer(serializers.Serializer):
+    autocapture_exceptions_opt_in = serializers.BooleanField(
+        required=False,
+        help_text="Whether the SDK autocaptures unhandled exceptions for this project. Enabling starts exception ingestion.",
+    )
     project_rate_limit_value = serializers.IntegerField(
         min_value=1,
         allow_null=True,
@@ -54,5 +59,10 @@ class ErrorTrackingSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def update_settings(self, request, *args, **kwargs):
         serializer = ErrorTrackingSettingsSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        settings = error_tracking_api.update_settings(self.team.id, dict(serializer.validated_data))
+        settings = error_tracking_api.update_settings(
+            self.team.id,
+            dict(serializer.validated_data),
+            user=request.user,
+            was_impersonated=is_impersonated(request),
+        )
         return Response(ErrorTrackingSettingsSerializer(settings).data, status=status.HTTP_200_OK)

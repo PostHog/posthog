@@ -547,7 +547,7 @@ def compute_repository_readiness(
                 "needs_setup",
                 evidence={"recentErrorIssueCount": error_issue_count},
             )
-        elif not team.autocapture_exceptions_opt_in:
+        elif not error_tracking_api.autocapture_exceptions_enabled(team):
             errors = _capability_state(
                 "Error instrumentation detected. Enable error tracking for this project.",
                 "detected",

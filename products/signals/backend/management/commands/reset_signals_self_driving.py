@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from posthog.models import Team
 
+from products.error_tracking.backend.facade import sync_autocapture_opt_in
 from products.signals.backend.models import (
     SignalEmissionRecord,
     SignalProjectProfile,
@@ -182,6 +183,8 @@ class Command(BaseCommand):
                         "conversations_settings",
                     ]
                 )
+                # Clear the mirror directly rather than relying on the Team post_save signal.
+                sync_autocapture_opt_in(team_id=team.id, opt_in=None)
 
             # Scout run-state, so the fleet cold-starts with no learned memory or stale runs.
             runs_deleted, _ = SignalScoutRun.all_teams.filter(team=team).delete()

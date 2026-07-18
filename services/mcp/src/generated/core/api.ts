@@ -128,10 +128,6 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .nullish()
             .describe('Disables posthog-js autocapture (clicks, page views) when true.'),
-        autocapture_exceptions_opt_in: zod
-            .boolean()
-            .nullish()
-            .describe('Enables automatic capture of JavaScript exceptions via the SDK.'),
         autocapture_web_vitals_opt_in: zod
             .boolean()
             .nullish()

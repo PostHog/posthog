@@ -1,4 +1,5 @@
 import { ActivityDescriber as errorTrackingActivityDescriber } from '@posthog/products-error-tracking/frontend/components/ActivityDescriber'
+import { errorTrackingSettingsActivityDescriber } from '@posthog/products-error-tracking/frontend/components/SettingsActivityDescriber'
 
 import { instanceSettingActivityDescriber } from 'lib/components/ActivityLog/activityDescriptions/instanceSettingActivityDescriber'
 import { tagActivityDescriber } from 'lib/components/ActivityLog/activityDescriptions/tagActivityDescriber'
@@ -104,6 +105,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return surveyActivityDescriber
         case ActivityScope.ERROR_TRACKING_ISSUE:
             return errorTrackingActivityDescriber
+        case ActivityScope.ERROR_TRACKING_SETTINGS:
+            return errorTrackingSettingsActivityDescriber
         case ActivityScope.DATA_WAREHOUSE_SAVED_QUERY:
             return dataWarehouseSavedQueryActivityDescriber
         case ActivityScope.REPLAY:

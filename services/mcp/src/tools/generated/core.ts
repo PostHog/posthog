@@ -292,9 +292,6 @@ const projectSettingsUpdate = (): ToolBase<typeof ProjectSettingsUpdateSchema, S
         if (params.autocapture_opt_out !== undefined) {
             body['autocapture_opt_out'] = params.autocapture_opt_out
         }
-        if (params.autocapture_exceptions_opt_in !== undefined) {
-            body['autocapture_exceptions_opt_in'] = params.autocapture_exceptions_opt_in
-        }
         if (params.autocapture_web_vitals_opt_in !== undefined) {
             body['autocapture_web_vitals_opt_in'] = params.autocapture_web_vitals_opt_in
         }

@@ -4,8 +4,10 @@ from urllib.parse import quote
 from uuid import UUID
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Count, Q, QuerySet
 
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.integration import (
     GitHubIntegration,
     GitLabIntegration,
@@ -13,6 +15,7 @@ from posthog.models.integration import (
     JiraIntegration,
     LinearIntegration,
 )
+from posthog.models.user import User
 from posthog.models.utils import UUIDT
 
 from products.error_tracking.backend.models import (
@@ -53,6 +56,7 @@ SPIKE_EVENT_ORDER_FIELDS = (
 )
 
 SETTINGS_FIELDS = (
+    "autocapture_exceptions_opt_in",
     "project_rate_limit_value",
     "project_rate_limit_bucket_size_minutes",
     "per_issue_rate_limit_value",
@@ -381,13 +385,39 @@ def get_or_create_settings(team_id: int) -> ErrorTrackingSettings:
     return settings
 
 
-def update_settings(team_id: int, fields: dict[str, int | None]) -> ErrorTrackingSettings:
+def update_settings(
+    team_id: int, fields: dict[str, int | bool | None], *, user: User, was_impersonated: bool
+) -> ErrorTrackingSettings:
+    from posthog.models.team.team import Team  # noqa: PLC0415 — avoids an error_tracking <-> Team import cycle
+
     settings = get_or_create_settings(team_id)
     updates = {key: value for key, value in fields.items() if key in SETTINGS_FIELDS}
-    for key, value in updates.items():
-        setattr(settings, key, value)
-    if updates:
-        settings.save(update_fields=list(updates))
+    changes = [
+        Change(type="ErrorTrackingSettings", field=key, before=getattr(settings, key), after=value, action="changed")
+        for key, value in updates.items()
+        if getattr(settings, key) != value
+    ]
+    with transaction.atomic():
+        for key, value in updates.items():
+            setattr(settings, key, value)
+        if updates:
+            settings.save(update_fields=list(updates))
+        # Mirror onto Team via save() so its post_save consumers (remote config, team metadata cache) fire.
+        if "autocapture_exceptions_opt_in" in updates:
+            team = Team.objects.get(id=team_id)
+            team.autocapture_exceptions_opt_in = bool(updates["autocapture_exceptions_opt_in"])
+            team.save(update_fields=["autocapture_exceptions_opt_in", "updated_at"])
+    if changes:
+        log_activity(
+            organization_id=Team.objects.values_list("organization_id", flat=True).get(id=team_id),
+            team_id=team_id,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=str(team_id),
+            scope="ErrorTrackingSettings",
+            activity="updated",
+            detail=Detail(changes=changes),
+        )
     return settings
 
 

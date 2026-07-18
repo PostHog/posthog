@@ -2,6 +2,7 @@ import time
 from collections.abc import Sequence
 from decimal import Decimal
 from enum import StrEnum
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.conf import settings
@@ -27,6 +28,9 @@ from products.error_tracking.backend.sql import (
     INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
     INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES,
 )
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 logger = structlog.get_logger(__name__)
 
@@ -763,7 +767,7 @@ class ErrorTrackingSettings(models.Model):
     project_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
     per_issue_rate_limit_value = models.IntegerField(null=True, blank=True)
     per_issue_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
-    # Nullable mirrors the source Team.autocapture_exceptions_opt_in during the move; null == disabled.
+    # Read source of truth; dual-written from Team during the move. Null == disabled.
     autocapture_exceptions_opt_in = models.BooleanField(null=True, blank=True)
 
     class Meta:
@@ -771,17 +775,22 @@ class ErrorTrackingSettings(models.Model):
 
 
 def sync_autocapture_opt_in(team_id: int, opt_in: bool | None) -> None:
-    """Mirror Team.autocapture_exceptions_opt_in onto ErrorTrackingSettings while the setting is being moved.
-
-    Only opted-in teams get a row — a missing row reads as disabled, so teams that never opted in stay
-    row-less. Disabling an already-opted-in team syncs the existing row instead of creating one.
-    """
+    """Mirror Team.autocapture_exceptions_opt_in onto ErrorTrackingSettings. Only opted-in teams get a row."""
     if opt_in:
         ErrorTrackingSettings.objects.update_or_create(
             team_id=team_id, defaults={"autocapture_exceptions_opt_in": True}
         )
     else:
         ErrorTrackingSettings.objects.filter(team_id=team_id).update(autocapture_exceptions_opt_in=opt_in)
+
+
+def autocapture_exceptions_enabled(team: "Team") -> bool:
+    """Whether exception autocapture is opted in, read from ErrorTrackingSettings. Missing/null == disabled."""
+    return bool(
+        ErrorTrackingSettings.objects.filter(team_id=team.id)
+        .values_list("autocapture_exceptions_opt_in", flat=True)
+        .first()
+    )
 
 
 class ErrorTrackingSpikeEvent(UUIDModel):

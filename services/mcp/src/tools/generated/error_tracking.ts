@@ -387,6 +387,9 @@ const errorTrackingSettingsUpdate = (): ToolBase<
     handler: async (context: Context, params: z.infer<typeof ErrorTrackingSettingsUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.autocapture_exceptions_opt_in !== undefined) {
+            body['autocapture_exceptions_opt_in'] = params.autocapture_exceptions_opt_in
+        }
         if (params.project_rate_limit_value !== undefined) {
             body['project_rate_limit_value'] = params.project_rate_limit_value
         }

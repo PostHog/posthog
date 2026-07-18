@@ -401,7 +401,9 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
         autocapture_exceptions_opt_in: zod
             .boolean()
             .nullish()
-            .describe('Enables automatic capture of JavaScript exceptions via the SDK.'),
+            .describe(
+                'Deprecated: exception autocapture is moving to the error tracking settings endpoint (\/api\/projects\/:project_id\/error_tracking\/settings). Read and update it there; this field remains only for backward compatibility during the migration.'
+            ),
         autocapture_web_vitals_opt_in: zod
             .boolean()
             .nullish()
@@ -1002,7 +1004,9 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
         autocapture_exceptions_opt_in: zod
             .boolean()
             .nullish()
-            .describe('Enables automatic capture of JavaScript exceptions via the SDK.'),
+            .describe(
+                'Deprecated: exception autocapture is moving to the error tracking settings endpoint (\/api\/projects\/:project_id\/error_tracking\/settings). Read and update it there; this field remains only for backward compatibility during the migration.'
+            ),
         autocapture_web_vitals_opt_in: zod
             .boolean()
             .nullish()
@@ -1605,7 +1609,9 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
         autocapture_exceptions_opt_in: zod
             .boolean()
             .nullish()
-            .describe('Enables automatic capture of JavaScript exceptions via the SDK.'),
+            .describe(
+                'Deprecated: exception autocapture is moving to the error tracking settings endpoint (\/api\/projects\/:project_id\/error_tracking\/settings). Read and update it there; this field remains only for backward compatibility during the migration.'
+            ),
         autocapture_web_vitals_opt_in: zod
             .boolean()
             .nullish()
@@ -2212,7 +2218,9 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
         autocapture_exceptions_opt_in: zod
             .boolean()
             .nullish()
-            .describe('Enables automatic capture of JavaScript exceptions via the SDK.'),
+            .describe(
+                'Deprecated: exception autocapture is moving to the error tracking settings endpoint (\/api\/projects\/:project_id\/error_tracking\/settings). Read and update it there; this field remains only for backward compatibility during the migration.'
+            ),
         autocapture_web_vitals_opt_in: zod
             .boolean()
             .nullish()
@@ -2827,7 +2835,9 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
         autocapture_exceptions_opt_in: zod
             .boolean()
             .nullish()
-            .describe('Enables automatic capture of JavaScript exceptions via the SDK.'),
+            .describe(
+                'Deprecated: exception autocapture is moving to the error tracking settings endpoint (\/api\/projects\/:project_id\/error_tracking\/settings). Read and update it there; this field remains only for backward compatibility during the migration.'
+            ),
         autocapture_web_vitals_opt_in: zod
             .boolean()
             .nullish()
@@ -3444,7 +3454,9 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
         autocapture_exceptions_opt_in: zod
             .boolean()
             .nullish()
-            .describe('Enables automatic capture of JavaScript exceptions via the SDK.'),
+            .describe(
+                'Deprecated: exception autocapture is moving to the error tracking settings endpoint (\/api\/projects\/:project_id\/error_tracking\/settings). Read and update it there; this field remains only for backward compatibility during the migration.'
+            ),
         autocapture_web_vitals_opt_in: zod
             .boolean()
             .nullish()
@@ -4067,7 +4079,9 @@ export const OrganizationsProjectsDefaultEvaluationContextsCreateBody = /* @__PU
         autocapture_exceptions_opt_in: zod
             .boolean()
             .nullish()
-            .describe('Enables automatic capture of JavaScript exceptions via the SDK.'),
+            .describe(
+                'Deprecated: exception autocapture is moving to the error tracking settings endpoint (\/api\/projects\/:project_id\/error_tracking\/settings). Read and update it there; this field remains only for backward compatibility during the migration.'
+            ),
         autocapture_web_vitals_opt_in: zod
             .boolean()
             .nullish()
@@ -4684,7 +4698,9 @@ export const OrganizationsProjectsDefaultReleaseConditionsUpdateBody = /* @__PUR
         autocapture_exceptions_opt_in: zod
             .boolean()
             .nullish()
-            .describe('Enables automatic capture of JavaScript exceptions via the SDK.'),
+            .describe(
+                'Deprecated: exception autocapture is moving to the error tracking settings endpoint (\/api\/projects\/:project_id\/error_tracking\/settings). Read and update it there; this field remains only for backward compatibility during the migration.'
+            ),
         autocapture_web_vitals_opt_in: zod
             .boolean()
             .nullish()
@@ -5305,7 +5321,9 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
         autocapture_exceptions_opt_in: zod
             .boolean()
             .nullish()
-            .describe('Enables automatic capture of JavaScript exceptions via the SDK.'),
+            .describe(
+                'Deprecated: exception autocapture is moving to the error tracking settings endpoint (\/api\/projects\/:project_id\/error_tracking\/settings). Read and update it there; this field remains only for backward compatibility during the migration.'
+            ),
         autocapture_web_vitals_opt_in: zod
             .boolean()
             .nullish()
@@ -5926,7 +5944,9 @@ export const OrganizationsProjectsExperimentsConfigPartialUpdateBody = /* @__PUR
         autocapture_exceptions_opt_in: zod
             .boolean()
             .nullish()
-            .describe('Enables automatic capture of JavaScript exceptions via the SDK.'),
+            .describe(
+                'Deprecated: exception autocapture is moving to the error tracking settings endpoint (\/api\/projects\/:project_id\/error_tracking\/settings). Read and update it there; this field remains only for backward compatibility during the migration.'
+            ),
         autocapture_web_vitals_opt_in: zod
             .boolean()
             .nullish()
@@ -6549,7 +6569,9 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
         autocapture_exceptions_opt_in: zod
             .boolean()
             .nullish()
-            .describe('Enables automatic capture of JavaScript exceptions via the SDK.'),
+            .describe(
+                'Deprecated: exception autocapture is moving to the error tracking settings endpoint (\/api\/projects\/:project_id\/error_tracking\/settings). Read and update it there; this field remains only for backward compatibility during the migration.'
+            ),
         autocapture_web_vitals_opt_in: zod
             .boolean()
             .nullish()
@@ -7171,7 +7193,9 @@ export const OrganizationsProjectsLogsConfigPartialUpdateBody = /* @__PURE__ */ 
         autocapture_exceptions_opt_in: zod
             .boolean()
             .nullish()
-            .describe('Enables automatic capture of JavaScript exceptions via the SDK.'),
+            .describe(
+                'Deprecated: exception autocapture is moving to the error tracking settings endpoint (\/api\/projects\/:project_id\/error_tracking\/settings). Read and update it there; this field remains only for backward compatibility during the migration.'
+            ),
         autocapture_web_vitals_opt_in: zod
             .boolean()
             .nullish()
@@ -7776,7 +7800,9 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
         autocapture_exceptions_opt_in: zod
             .boolean()
             .nullish()
-            .describe('Enables automatic capture of JavaScript exceptions via the SDK.'),
+            .describe(
+                'Deprecated: exception autocapture is moving to the error tracking settings endpoint (\/api\/projects\/:project_id\/error_tracking\/settings). Read and update it there; this field remains only for backward compatibility during the migration.'
+            ),
         autocapture_web_vitals_opt_in: zod
             .boolean()
             .nullish()
@@ -8385,7 +8411,9 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
         autocapture_exceptions_opt_in: zod
             .boolean()
             .nullish()
-            .describe('Enables automatic capture of JavaScript exceptions via the SDK.'),
+            .describe(
+                'Deprecated: exception autocapture is moving to the error tracking settings endpoint (\/api\/projects\/:project_id\/error_tracking\/settings). Read and update it there; this field remains only for backward compatibility during the migration.'
+            ),
         autocapture_web_vitals_opt_in: zod
             .boolean()
             .nullish()

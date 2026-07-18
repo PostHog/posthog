@@ -210,7 +210,7 @@ class RemoteConfig(UUIDTModel):
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
 
-        from products.error_tracking.backend.facade import build_error_tracking_config
+        from products.error_tracking.backend.facade import autocapture_exceptions_enabled, build_error_tracking_config
         from products.feature_flags.backend.models.feature_flag import FeatureFlag
         from products.surveys.backend.api.survey import get_surveys_opt_in, get_surveys_response
 
@@ -236,7 +236,7 @@ class RemoteConfig(UUIDTModel):
                 else False
             ),
             "autocapture_opt_out": bool(team.autocapture_opt_out),
-            "autocaptureExceptions": bool(team.autocapture_exceptions_opt_in),
+            "autocaptureExceptions": autocapture_exceptions_enabled(team),
         }
 
         if str(team.id) not in (settings.NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS or []):

@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "autocapture_exceptions_opt_in": {
+            "description": "Whether the SDK autocaptures unhandled exceptions for this project. Enabling starts exception ingestion.",
+            "type": "boolean"
+        },
         "per_issue_rate_limit_bucket_size_minutes": {
             "anyOf": [
                 {

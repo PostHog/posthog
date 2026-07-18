@@ -93,6 +93,7 @@ class ErrorTrackingIssueAssignmentNotification:
 
 @dataclass(frozen=True)
 class ErrorTrackingSettings:
+    autocapture_exceptions_opt_in: bool
     project_rate_limit_value: int | None
     project_rate_limit_bucket_size_minutes: int | None
     per_issue_rate_limit_value: int | None

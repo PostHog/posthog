@@ -10,11 +10,13 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 
 import { DisableSurvey } from './DisableSurvey'
 import { disableSurveyLogic } from './disableSurveyLogic'
+import { exceptionAutocaptureLogic } from './exceptionAutocaptureLogic'
 
 export function ExceptionAutocaptureToggle(): JSX.Element {
     const { userLoading } = useValues(userLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam, addProductIntent } = useActions(teamLogic)
+    const { addProductIntent } = useActions(teamLogic)
+    const { autocaptureOptIn, settingsLoading } = useValues(exceptionAutocaptureLogic)
+    const { setAutocaptureOptIn } = useActions(exceptionAutocaptureLogic)
     const { reportAutocaptureExceptionsToggled } = useActions(eventUsageLogic)
     const { showSurvey, hideSurvey } = useActions(disableSurveyLogic)
 
@@ -29,9 +31,7 @@ export function ExceptionAutocaptureToggle(): JSX.Element {
                             intent_context: ProductIntentContext.ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED,
                         })
                     }
-                    updateCurrentTeam({
-                        autocapture_exceptions_opt_in: checked,
-                    })
+                    setAutocaptureOptIn(checked)
                     reportAutocaptureExceptionsToggled(checked)
                     if (checked) {
                         hideSurvey()
@@ -39,8 +39,8 @@ export function ExceptionAutocaptureToggle(): JSX.Element {
                         showSurvey()
                     }
                 }}
-                checked={!!currentTeam?.autocapture_exceptions_opt_in}
-                disabled={userLoading}
+                checked={autocaptureOptIn}
+                disabled={userLoading || settingsLoading}
                 label="Enable exception autocapture"
                 bordered
             />

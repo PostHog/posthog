@@ -834,6 +834,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "available_setup_task_ids",
         )
 
+        extra_kwargs = {
+            "autocapture_exceptions_opt_in": {
+                "help_text": (
+                    "Deprecated: exception autocapture is moving to the error tracking settings endpoint "
+                    "(/api/projects/:project_id/error_tracking/settings). Read and update it there; this field "
+                    "remains only for backward compatibility during the migration."
+                ),
+            },
+        }
+
     def to_representation(self, instance):
         with tracer.start_as_current_span("team_serializer.default_fields"):
             representation = super().to_representation(instance)

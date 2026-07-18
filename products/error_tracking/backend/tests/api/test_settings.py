@@ -1,8 +1,10 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -72,6 +74,56 @@ class TestErrorTrackingSettingsAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNone(response.json()["project_rate_limit_value"])
+
+    def test_update_settings_toggles_autocapture_and_dual_writes_team(self):
+        response = self.client.patch(
+            f"{self._base_url()}/update_settings/",
+            {"autocapture_exceptions_opt_in": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["autocapture_exceptions_opt_in"])
+
+        self.assertTrue(ErrorTrackingSettings.objects.get(team=self.team).autocapture_exceptions_opt_in)
+        self.team.refresh_from_db()
+        self.assertTrue(self.team.autocapture_exceptions_opt_in)
+
+        get_response = self.client.get(f"{self._base_url()}/retrieve_settings/")
+        self.assertTrue(get_response.json()["autocapture_exceptions_opt_in"])
+
+    @parameterized.expand(
+        [
+            ("autocapture_toggle_rebuilds", {"autocapture_exceptions_opt_in": True}, True),
+            ("rate_limit_only_does_not", {"project_rate_limit_value": 500}, False),
+        ]
+    )
+    def test_update_settings_dispatches_remote_config_rebuild(self, _name, payload, expects_rebuild):
+        with (
+            patch("posthog.tasks.remote_config.update_team_remote_config.delay") as mock_delay,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(f"{self._base_url()}/update_settings/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        if expects_rebuild:
+            # Team save + settings save each dispatch; count is an implementation detail, target team is not.
+            self.assertTrue(mock_delay.called)
+            self.assertEqual({call.args for call in mock_delay.call_args_list}, {(self.team.id,)})
+        else:
+            mock_delay.assert_not_called()
+
+    def test_update_settings_logs_activity(self):
+        response = self.client.patch(
+            f"{self._base_url()}/update_settings/",
+            {"autocapture_exceptions_opt_in": True, "project_rate_limit_value": 100},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        log = ActivityLog.objects.get(team_id=self.team.id, scope="ErrorTrackingSettings")
+        self.assertEqual(log.activity, "updated")
+        self.assertEqual(log.user, self.user)
+        changed_fields = {change["field"] for change in log.detail["changes"]}
+        self.assertEqual(changed_fields, {"autocapture_exceptions_opt_in", "project_rate_limit_value"})
 
     @parameterized.expand(
         [

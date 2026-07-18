@@ -12,12 +12,15 @@ from django.db.models import QuerySet
 import posthoganalytics
 
 from posthog.event_usage import groups
+from posthog.models.user import User
 
 from .. import logic, weekly_digest
 from ..models import (
     ErrorTrackingIssue,
+    autocapture_exceptions_enabled as autocapture_exceptions_enabled,
     override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
     resolve_fingerprints_for_issues,
+    sync_autocapture_opt_in as sync_autocapture_opt_in,
     sync_issues_to_clickhouse as sync_issues_to_clickhouse,
 )
 from ..remote_config import build_error_tracking_config as build_error_tracking_config
@@ -181,6 +184,7 @@ def resolve_fingerprints(team_id: int, issue_ids: list[str]) -> list[str]:
 
 def _to_settings(settings) -> contracts.ErrorTrackingSettings:
     return contracts.ErrorTrackingSettings(
+        autocapture_exceptions_opt_in=bool(settings.autocapture_exceptions_opt_in),
         project_rate_limit_value=settings.project_rate_limit_value,
         project_rate_limit_bucket_size_minutes=settings.project_rate_limit_bucket_size_minutes,
         per_issue_rate_limit_value=settings.per_issue_rate_limit_value,
@@ -192,8 +196,12 @@ def get_settings(team_id: int) -> contracts.ErrorTrackingSettings:
     return _to_settings(logic.get_or_create_settings(team_id))
 
 
-def update_settings(team_id: int, fields: dict[str, int | None]) -> contracts.ErrorTrackingSettings:
-    return _to_settings(logic.update_settings(team_id=team_id, fields=fields))
+def update_settings(
+    team_id: int, fields: dict[str, int | bool | None], *, user: User, was_impersonated: bool
+) -> contracts.ErrorTrackingSettings:
+    return _to_settings(
+        logic.update_settings(team_id=team_id, fields=fields, user=user, was_impersonated=was_impersonated)
+    )
 
 
 def _to_spike_detection_config(config) -> contracts.ErrorTrackingSpikeDetectionConfig:

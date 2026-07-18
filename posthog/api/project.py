@@ -826,7 +826,11 @@ class ProjectBackwardCompatSerializer(
             "week_start_day": {"help_text": "First day of the week for date range filters. 0 = Sunday, 1 = Monday."},
             "autocapture_opt_out": {"help_text": "Disables posthog-js autocapture (clicks, page views) when true."},
             "autocapture_exceptions_opt_in": {
-                "help_text": "Enables automatic capture of JavaScript exceptions via the SDK."
+                "help_text": (
+                    "Deprecated: exception autocapture is moving to the error tracking settings endpoint "
+                    "(/api/projects/:project_id/error_tracking/settings). Read and update it there; this field "
+                    "remains only for backward compatibility during the migration."
+                ),
             },
             "autocapture_web_vitals_opt_in": {
                 "help_text": "Enables automatic capture of Core Web Vitals performance metrics."

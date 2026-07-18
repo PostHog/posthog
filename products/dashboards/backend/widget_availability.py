@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from products.dashboards.backend.widget_specs.registry import get_widget_spec
+from products.error_tracking.backend.facade import autocapture_exceptions_enabled
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -21,7 +22,7 @@ def is_widget_availability_requirement_met(requirement: str, team: Team) -> bool
         # exceptions" as enabled, so a team ingesting exceptions without the opt-in flag
         # reads as not-enabled here. We avoid the events-received check to keep this off
         # the hot widget-add path (no ClickHouse query).
-        return bool(team.autocapture_exceptions_opt_in)
+        return autocapture_exceptions_enabled(team)
     return None
 
 

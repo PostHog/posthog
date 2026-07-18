@@ -23102,6 +23102,8 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingSettings {
+      /** Whether the SDK autocaptures unhandled exceptions for this project. Enabling starts exception ingestion. */
+      autocapture_exceptions_opt_in?: boolean;
       /**
          * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
          * @minimum 1
@@ -44101,6 +44103,8 @@ export namespace Schemas {
     }
 
     export interface PatchedErrorTrackingSettings {
+      /** Whether the SDK autocaptures unhandled exceptions for this project. Enabling starts exception ingestion. */
+      autocapture_exceptions_opt_in?: boolean;
       /**
          * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
          * @minimum 1
@@ -47039,7 +47043,7 @@ export namespace Schemas {
          */
       autocapture_opt_out?: boolean | null;
       /**
-         * Enables automatic capture of JavaScript exceptions via the SDK.
+         * Deprecated: exception autocapture is moving to the error tracking settings endpoint (/api/projects/:project_id/error_tracking/settings). Read and update it there; this field remains only for backward compatibility during the migration.
          * @nullable
          */
       autocapture_exceptions_opt_in?: boolean | null;
@@ -49022,7 +49026,10 @@ export namespace Schemas {
       correlation_config?: unknown;
       /** @nullable */
       autocapture_opt_out?: boolean | null;
-      /** @nullable */
+      /**
+         * Deprecated: exception autocapture is moving to the error tracking settings endpoint (/api/projects/:project_id/error_tracking/settings). Read and update it there; this field remains only for backward compatibility during the migration.
+         * @nullable
+         */
       autocapture_exceptions_opt_in?: boolean | null;
       /** @nullable */
       autocapture_web_vitals_opt_in?: boolean | null;
@@ -50956,7 +50963,7 @@ export namespace Schemas {
          */
       autocapture_opt_out?: boolean | null;
       /**
-         * Enables automatic capture of JavaScript exceptions via the SDK.
+         * Deprecated: exception autocapture is moving to the error tracking settings endpoint (/api/projects/:project_id/error_tracking/settings). Read and update it there; this field remains only for backward compatibility during the migration.
          * @nullable
          */
       autocapture_exceptions_opt_in?: boolean | null;
@@ -62339,7 +62346,10 @@ export namespace Schemas {
       correlation_config?: unknown;
       /** @nullable */
       autocapture_opt_out?: boolean | null;
-      /** @nullable */
+      /**
+         * Deprecated: exception autocapture is moving to the error tracking settings endpoint (/api/projects/:project_id/error_tracking/settings). Read and update it there; this field remains only for backward compatibility during the migration.
+         * @nullable
+         */
       autocapture_exceptions_opt_in?: boolean | null;
       /** @nullable */
       autocapture_web_vitals_opt_in?: boolean | null;
@@ -71152,6 +71162,7 @@ export namespace Schemas {
      * * `Team` - Team
      * * `Project` - Project
      * * `ErrorTrackingIssue` - ErrorTrackingIssue
+     * * `ErrorTrackingSettings` - ErrorTrackingSettings
      * * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
@@ -71240,6 +71251,7 @@ export namespace Schemas {
       Team: 'Team',
       Project: 'Project',
       ErrorTrackingIssue: 'ErrorTrackingIssue',
+      ErrorTrackingSettings: 'ErrorTrackingSettings',
       DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
       LegalDocument: 'LegalDocument',
       Organization: 'Organization',
@@ -71314,6 +71326,7 @@ export namespace Schemas {
      * * `Team` - Team
      * * `Project` - Project
      * * `ErrorTrackingIssue` - ErrorTrackingIssue
+     * * `ErrorTrackingSettings` - ErrorTrackingSettings
      * * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
@@ -71390,6 +71403,7 @@ export namespace Schemas {
       Team: 'Team',
       Project: 'Project',
       ErrorTrackingIssue: 'ErrorTrackingIssue',
+      ErrorTrackingSettings: 'ErrorTrackingSettings',
       DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
       LegalDocument: 'LegalDocument',
       Organization: 'Organization',

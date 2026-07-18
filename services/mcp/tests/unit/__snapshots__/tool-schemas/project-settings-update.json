@@ -23,17 +23,6 @@
             "type": "array"
         },
         "autocapture_exceptions_errors_to_ignore": {},
-        "autocapture_exceptions_opt_in": {
-            "anyOf": [
-                {
-                    "type": "boolean"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Enables automatic capture of JavaScript exceptions via the SDK."
-        },
         "autocapture_opt_out": {
             "anyOf": [
                 {
