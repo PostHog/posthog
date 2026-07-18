@@ -1340,6 +1340,9 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         logger.warning(
                             "MySQL connection dropped during pre-stream setup; reopening before streaming query"
                         )
+                        # Detach the cursor bound to the dead socket first so its later teardown
+                        # can't drain the freshly reopened connection (see _release_streaming_cursor).
+                        _release_streaming_cursor(ss_cursor)
                         streaming_connection.connect()
                         ss_cursor = streaming_connection.cursor(SSCursor)
 
