@@ -1058,6 +1058,60 @@ class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
         ]
 
 
+class SignalFixVerification(TeamScopedRootMixin, UUIDModel):
+    """Post-merge outcome check for a report resolved by a merged fix PR.
+
+    A merged PR marks a report RESOLVED, but merge is not proof the fix held. This row is
+    the pending claim "the fix worked", created by the tasks GitHub webhook at resolution
+    time and settled by the verification sweep: a recurrence (a fresh report the grouping
+    pipeline linked back via `related_to` artefacts) means the fix REGRESSED; staying quiet
+    through the soak window means VERIFIED. Terminal outcomes feed the scout scratchpad so
+    the fleet learns which of its fixes actually hold.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending"
+        VERIFIED = "verified"
+        REGRESSED = "regressed"
+        # The report left RESOLVED through another door (suppressed, refunded, deleted)
+        # before the check could settle — no outcome can be attributed to the fix.
+        INCONCLUSIVE = "inconclusive"
+
+    # See SignalReportRefund.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # FK to the hot posthog_team table uses db_constraint=False so creating this table
+    # takes no lock on the parent (app-level enforcement only).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    # OneToOne: RESOLVED is terminal, so a report is fixed at most once. Doubles as the
+    # concurrency backstop against duplicate webhook deliveries.
+    report = models.OneToOneField(SignalReport, on_delete=models.CASCADE, related_name="fix_verification")
+    # The implementation task whose merged PR resolved the report. Plain UUID, not an FK:
+    # tasks is another product and this is trace context, not a join the sweep needs.
+    task_id = models.UUIDField(null=True, blank=True)
+    pr_url = models.TextField()
+    # When the soak window ends: quiet until here counts as verified. Recurrence flips the
+    # row to REGRESSED as soon as the sweep sees it — regressions don't wait for the deadline.
+    verify_after = models.DateTimeField()
+    status = models.CharField(max_length=20, choices=Status, default=Status.PENDING)
+    checked_at = models.DateTimeField(null=True, blank=True)
+    # The recurrence report that proved the fix didn't hold. SET_NULL: deleting that report
+    # later shouldn't erase the recorded outcome.
+    regressed_report = models.ForeignKey(
+        SignalReport, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Signal fix verification"
+        verbose_name_plural = "Signal fix verifications"
+        default_manager_name = "all_teams"
+        indexes = [
+            # The sweep scans PENDING rows across all teams; team-first indexes don't help it.
+            models.Index(fields=["status", "verify_after"], name="signals_fixverif_due_idx"),
+        ]
+
+
 # ── Signals scout (headless cross-source explorer) ──────────────────────────────
 #
 # Three tables back the v1 Signals scout:
