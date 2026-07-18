@@ -1785,6 +1785,7 @@ name = "capture"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "assert-json-diff",
  "async-compression",
  "async-trait",
@@ -6157,6 +6158,7 @@ name = "limiters"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "async-trait",
  "chrono",
  "common-redis",
@@ -6168,6 +6170,7 @@ dependencies = [
  "metrics-util",
  "moka",
  "rand 0.8.5",
+ "serde_json",
  "strum 0.26.3",
  "tokio",
  "tracing",
