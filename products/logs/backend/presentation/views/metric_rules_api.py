@@ -1,20 +1,28 @@
 from __future__ import annotations
 
 import re
+from functools import cached_property
 from typing import Any, cast
 
+from django.db import connection, transaction
 from django.db.models import F, QuerySet
 
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.permissions import BasePermission
+from rest_framework.request import Request
+from rest_framework.views import APIView
 
 from posthog.schema import PropertyGroupFilter
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.event_usage import report_user_action
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.rbac.user_access_control import UserAccessControl
 
 from products.logs.backend.models import (
     MAX_ENABLED_METRIC_RULES,
@@ -24,9 +32,13 @@ from products.logs.backend.models import (
 )
 from products.logs.backend.presentation.filter_group_validation import (
     MAX_FILTER_GROUP_DEPTH,
+    MAX_FILTER_GROUP_LEAF_VALUES,
     MAX_FILTER_GROUP_NODES,
+    MAX_FILTER_GROUP_VALUE_LENGTH,
     filter_group_depth,
     filter_group_has_empty_group,
+    filter_group_has_oversized_value,
+    filter_group_leaf_value_count,
     filter_group_node_count,
 )
 
@@ -34,6 +46,41 @@ from products.logs.backend.presentation.filter_group_validation import (
 METRIC_NAME_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9._-]*$")
 
 ATTRIBUTE_KEY_PREFIXES = ("attributes.", "resource_attributes.")
+
+# Advisory-lock namespace for `pg_advisory_xact_lock(ns, canonical_team_id)` — serializes
+# metric-rule writes per team so the enabled-rule cap can't be raced past.
+_METRIC_RULE_LOCK_NAMESPACE = 0x106_2E7A  # "LOG-RULE"-ish; just needs to be unique enough.
+
+
+class MetricRuleCanonicalTeamPermission(BasePermission):
+    """Authorize against the canonical (data-owning) team, not just the URL environment team.
+
+    LogsMetricRule rows canonicalize to the parent (project-root) team on save, so a request made
+    against a child environment reads and writes the PARENT's rules. The default team gate only
+    checks membership of the URL team; re-anchor authorization to the canonical team so a
+    credential scoped solely to a child environment can't touch the parent's rules. Mirrors
+    stamphog's StamphogCanonicalTeamAccessPermission.
+    """
+
+    message = "You don't have access to the project that owns this data."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if not request.user.is_authenticated:
+            return True  # IsAuthenticated handles the unauthenticated case first
+        assert isinstance(view, LogsMetricRuleViewSet)
+        team = view.team
+        if team.parent_team_id is None or team.parent_team_id == team.id or team.parent_team is None:
+            return True
+        authenticator = request.successful_authenticator
+        scoped_teams = None
+        if isinstance(authenticator, OAuthAccessTokenAuthentication):
+            scoped_teams = authenticator.access_token.scoped_teams
+        elif isinstance(authenticator, PersonalAPIKeyAuthentication):
+            scoped_teams = authenticator.personal_api_key.scoped_teams
+        if scoped_teams and team.parent_team_id not in scoped_teams:
+            return False
+        level = view.user_permissions.team(team.parent_team).effective_membership_level
+        return level is not None
 
 
 class LogsMetricRuleSerializer(serializers.ModelSerializer):
@@ -146,6 +193,14 @@ class LogsMetricRuleSerializer(serializers.ModelSerializer):
             raise ValidationError(f"filter_group is nested too deeply (max depth {MAX_FILTER_GROUP_DEPTH}).")
         if filter_group_node_count(value) > MAX_FILTER_GROUP_NODES:
             raise ValidationError(f"filter_group has too many nodes (max {MAX_FILTER_GROUP_NODES} groups + leaves).")
+        if filter_group_leaf_value_count(value) > MAX_FILTER_GROUP_LEAF_VALUES:
+            raise ValidationError(
+                f"filter_group has too many filter values (max {MAX_FILTER_GROUP_LEAF_VALUES} across all filters)."
+            )
+        if filter_group_has_oversized_value(value):
+            raise ValidationError(
+                f"filter_group contains a value longer than {MAX_FILTER_GROUP_VALUE_LENGTH} characters."
+            )
         if filter_group_has_empty_group(value):
             raise ValidationError(
                 "Every group in filter_group must contain at least one filter — an empty group never matches, "
@@ -176,13 +231,41 @@ class LogsMetricRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = LogsMetricRuleSerializer
     lookup_field = "id"
     posthog_feature_flag = "logs-metric-rules"
-    permission_classes = [PostHogFeatureFlagPermission]
+    permission_classes = [PostHogFeatureFlagPermission, MetricRuleCanonicalTeamPermission]
+
+    @cached_property
+    def canonical_team_id(self) -> int:
+        # RootTeamMixin.save() stores rules under the parent (canonical) team; every read,
+        # cap check, and version bump must target that same id or child-environment
+        # requests silently miss the rows they just wrote.
+        return resolve_effective_team_id(self.team_id)
+
+    def _should_skip_parents_filter(self) -> bool:
+        # safely_get_queryset scopes by canonical_team_id; the default parent-lookup filter
+        # would AND the raw URL team id back in and hide rows stored under the parent.
+        return True
+
+    def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
+        # Metric rules publish log attribute values into the Metrics product, so API-key
+        # writes need authority over both resources.
+        if self.action in ("create", "update", "partial_update", "destroy"):
+            return ["logs:write", "metrics:write"]
+        return None
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return queryset.filter(team_id=self.team_id)
+        return queryset.filter(team_id=self.canonical_team_id)
+
+    def _assert_metrics_editor_access(self, user: User) -> None:
+        # Rule authors export log attribute values as metrics readable by anyone with
+        # metrics access — creating or changing a rule therefore requires metrics editor
+        # rights, so a logs editor can't publish logs data past a metrics restriction.
+        canonical_team = self.team.parent_team or self.team
+        user_access_control = UserAccessControl(user=user, team=canonical_team)
+        if not user_access_control.check_access_level_for_resource("metrics", "editor"):
+            raise PermissionDenied("Creating or updating metric rules requires editor access to metrics.")
 
     def _validate_team_limits(self, serializer: LogsMetricRuleSerializer, exclude_pk: Any = None) -> None:
-        team_rules = LogsMetricRule.objects.filter(team_id=self.team_id)
+        team_rules = LogsMetricRule.objects.filter(team_id=self.canonical_team_id)
         if exclude_pk is not None:
             team_rules = team_rules.exclude(pk=exclude_pk)
 
@@ -196,15 +279,27 @@ class LogsMetricRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"enabled": f"At most {MAX_ENABLED_METRIC_RULES} metric rules can be enabled per project."}
             )
 
+    def _lock_team_rules(self) -> None:
+        # Advisory xact lock serializes rule writes per canonical team so concurrent
+        # requests can't all pass the enabled-rule count before any of them saves.
+        # Must run inside transaction.atomic() — the lock releases on commit/rollback.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(%s, %s)", [_METRIC_RULE_LOCK_NAMESPACE, self.canonical_team_id]
+            )
+
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         s = cast(LogsMetricRuleSerializer, serializer)
         user = cast(User, self.request.user)
-        self._validate_team_limits(s)
-        instance = s.save(
-            team_id=self.team_id,
-            created_by=user if user.is_authenticated else None,
-            version=1,
-        )
+        self._assert_metrics_editor_access(user)
+        with transaction.atomic():
+            self._lock_team_rules()
+            self._validate_team_limits(s)
+            instance = s.save(
+                team_id=self.canonical_team_id,
+                created_by=user if user.is_authenticated else None,
+                version=1,
+            )
         report_user_action(
             user,
             "logs metric rule created",
@@ -217,9 +312,14 @@ class LogsMetricRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         s = cast(LogsMetricRuleSerializer, serializer)
         user = cast(User, self.request.user)
         assert s.instance is not None
-        self._validate_team_limits(s, exclude_pk=s.instance.pk)
-        instance = cast(LogsMetricRule, s.save())
-        LogsMetricRule.objects.filter(pk=instance.pk, team_id=self.team_id).update(version=F("version") + 1)
+        self._assert_metrics_editor_access(user)
+        with transaction.atomic():
+            self._lock_team_rules()
+            self._validate_team_limits(s, exclude_pk=s.instance.pk)
+            instance = cast(LogsMetricRule, s.save())
+            LogsMetricRule.objects.filter(pk=instance.pk, team_id=self.canonical_team_id).update(
+                version=F("version") + 1
+            )
         instance.refresh_from_db(fields=["version", "updated_at"])
         report_user_action(
             user,

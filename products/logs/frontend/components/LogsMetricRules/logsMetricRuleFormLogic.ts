@@ -191,11 +191,13 @@ export const logsMetricRuleFormLogic = kea<logsMetricRuleFormLogicType>([
                         )
                             ? 'Must be prefixed with `attributes.` or `resource_attributes.`'
                             : undefined,
+                    // Whole-array error message for an array field; kea-forms types expect
+                    // per-item errors but render a string fine (same as personalAPIKeysLogic).
                     group_by:
                         form.group_by.length > MAX_GROUP_BY_KEYS
-                            ? `At most ${MAX_GROUP_BY_KEYS} group-by keys`
+                            ? (`At most ${MAX_GROUP_BY_KEYS} group-by keys` as any)
                             : form.group_by.some((k) => !isValidGroupByKey(k))
-                              ? 'Keys must be service_name, severity_text, event_name, or prefixed with `attributes.` / `resource_attributes.`'
+                              ? ('Keys must be service_name, severity_text, event_name, or prefixed with `attributes.` / `resource_attributes.`' as any)
                               : undefined,
                 }
             },

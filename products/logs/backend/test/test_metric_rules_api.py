@@ -6,10 +6,17 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
+from posthog.models.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.logs.backend.models import MAX_ENABLED_METRIC_RULES, LogsMetricRule
+from products.logs.backend.presentation.filter_group_validation import MAX_FILTER_GROUP_LEAF_VALUES
 from products.logs.backend.presentation.views.metric_rules_api import LogsMetricRuleSerializer
+
+from ee.models.rbac.access_control import AccessControl
 
 VALID_FILTER_GROUP = {
     "type": "AND",
@@ -114,6 +121,51 @@ class TestLogsMetricRuleSerializerValidation(SimpleTestCase):
         assert not s.is_valid()
         assert "filter_group" in s.errors
 
+    def test_rejects_too_many_filter_leaf_values(self):
+        # One `exact` leaf with a huge value array counts as a single node, but
+        # matchExact scans the whole array per log record — the leaf-value budget
+        # bounds that per-record CPU.
+        huge = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "service.name",
+                            "operator": "exact",
+                            "value": [f"svc-{i}" for i in range(MAX_FILTER_GROUP_LEAF_VALUES + 1)],
+                            "type": "log_attribute",
+                        }
+                    ],
+                }
+            ],
+        }
+        s = self._serializer(filter_group=huge)
+        assert not s.is_valid()
+        assert "filter_group" in s.errors
+
+    def test_rejects_oversized_filter_leaf_value(self):
+        oversized = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "service.name",
+                            "operator": "exact",
+                            "value": "x" * 5000,
+                            "type": "log_attribute",
+                        }
+                    ],
+                }
+            ],
+        }
+        s = self._serializer(filter_group=oversized)
+        assert not s.is_valid()
+        assert "filter_group" in s.errors
+
 
 class TestLogsMetricRulesAPI(APIBaseTest):
     def setUp(self):
@@ -215,3 +267,91 @@ class TestLogsMetricRulesAPI(APIBaseTest):
             assert response.status_code == status.HTTP_403_FORBIDDEN
         self._ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
         self._ff_patcher.start()
+
+    def test_child_environment_url_targets_canonical_team(self):
+        # RootTeamMixin.save() stores rules under the parent (canonical) team, so the
+        # viewset must list, cap, and version-bump against that same canonical id — a
+        # raw-child filter would hide the row and silently skip the version bump the
+        # ingestion worker's cache coherency depends on.
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        env_url = f"/api/projects/{env.pk}/logs/metric_rules/"
+
+        created = self.client.post(env_url, self._payload(), format="json")
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        rule = LogsMetricRule.objects.unscoped().get(id=created.json()["id"])
+        assert rule.team_id == self.team.pk
+
+        listed = self.client.get(env_url)
+        assert listed.status_code == status.HTTP_200_OK
+        assert [r["id"] for r in listed.json()["results"]] == [created.json()["id"]]
+
+        updated = self.client.patch(f"{env_url}{created.json()['id']}/", {"enabled": True}, format="json")
+        assert updated.status_code == status.HTTP_200_OK, updated.json()
+        assert updated.json()["version"] == created.json()["version"] + 1
+
+    def test_child_scoped_personal_api_key_cannot_write_parent_rules(self):
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="child-scoped",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["logs:write", "metrics:write"],
+            scoped_teams=[env.pk],
+        )
+
+        response = self.client.post(
+            f"/api/projects/{env.pk}/logs/metric_rules/",
+            self._payload(),
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert LogsMetricRule.objects.unscoped().filter(team_id=self.team.pk).count() == 0
+
+    def test_enabled_cap_counts_canonical_rows(self):
+        # Rules created via the parent URL and a child URL land on the same canonical
+        # team, so the cap must hold across both paths.
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        for i in range(MAX_ENABLED_METRIC_RULES):
+            r = self.client.post(
+                self.base_url, self._payload(name=f"r{i}", metric_name=f"log.m{i}", enabled=True), format="json"
+            )
+            assert r.status_code == status.HTTP_201_CREATED, r.json()
+
+        response = self.client.post(
+            f"/api/projects/{env.pk}/logs/metric_rules/",
+            self._payload(name="overflow", metric_name="log.overflow", enabled=True),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_write_requires_metrics_editor_access(self):
+        # Metric rules publish log attribute values into the Metrics product, so rule
+        # authors need authority over metrics too — a logs editor whose org restricted
+        # metrics must not be able to export logs data through this side door.
+        AccessControl.objects.create(team=self.team, resource="metrics", access_level="viewer")
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+        response = self.client.post(self.base_url, self._payload(), format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    @parameterized.expand(
+        [
+            (["logs:write"], status.HTTP_403_FORBIDDEN),
+            (["logs:write", "metrics:write"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_write_requires_metrics_write_scope_for_api_keys(self, scopes, expected_status):
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="scoped", user=self.user, secure_value=hash_key_value(key_value), scopes=scopes
+        )
+
+        response = self.client.post(
+            self.base_url, self._payload(), format="json", HTTP_AUTHORIZATION=f"Bearer {key_value}"
+        )
+        assert response.status_code == expected_status, response.json()

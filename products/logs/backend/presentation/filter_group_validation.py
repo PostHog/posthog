@@ -12,6 +12,12 @@ from typing import Any
 MAX_FILTER_GROUP_DEPTH = 16
 MAX_FILTER_GROUP_NODES = 256
 
+# Leaf-value budget: a single `exact`/`in` leaf carrying a huge value array counts as
+# one node but costs O(len(values)) per log record in the worker's matchExact — so the
+# aggregate value count and each scalar's size are bounded independently of node count.
+MAX_FILTER_GROUP_LEAF_VALUES = 256
+MAX_FILTER_GROUP_VALUE_LENGTH = 1024
+
 
 def filter_group_depth(node: Any, depth: int = 0) -> int:
     # Short-circuit once we've crossed the cap — we don't need the true depth,
@@ -47,6 +53,37 @@ def filter_group_node_count(node: Any) -> int:
         if total > MAX_FILTER_GROUP_NODES:
             return total
     return total
+
+
+def filter_group_leaf_value_count(node: Any) -> int:
+    """Total count of leaf filter values across the tree (a scalar value counts as 1,
+    a value array as its length). Short-circuits once the cap is exceeded."""
+    if not isinstance(node, dict):
+        return 0
+    values = node.get("values")
+    if not isinstance(values, list) or node.get("type") not in ("AND", "OR"):
+        leaf_value = node.get("value")
+        if isinstance(leaf_value, list):
+            return len(leaf_value)
+        return 0 if leaf_value is None else 1
+    total = 0
+    for child in values:
+        total += filter_group_leaf_value_count(child)
+        if total > MAX_FILTER_GROUP_LEAF_VALUES:
+            return total
+    return total
+
+
+def filter_group_has_oversized_value(node: Any) -> bool:
+    """True when any leaf filter value's string form exceeds MAX_FILTER_GROUP_VALUE_LENGTH."""
+    if not isinstance(node, dict):
+        return False
+    values = node.get("values")
+    if not isinstance(values, list) or node.get("type") not in ("AND", "OR"):
+        leaf_value = node.get("value")
+        candidates = leaf_value if isinstance(leaf_value, list) else [leaf_value]
+        return any(isinstance(v, str) and len(v) > MAX_FILTER_GROUP_VALUE_LENGTH for v in candidates)
+    return any(filter_group_has_oversized_value(child) for child in values)
 
 
 def filter_group_has_empty_group(node: Any) -> bool:
