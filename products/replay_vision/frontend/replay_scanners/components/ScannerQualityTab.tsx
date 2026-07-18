@@ -122,7 +122,6 @@ const EVALUATION_OUTCOME_TAGS: Record<string, { type: LemonTagType; label: strin
     regressed: { type: 'danger', label: 'Regressed' },
     still_wrong: { type: 'danger', label: 'Still wrong' },
     error: { type: 'muted', label: 'Error' },
-    // Scorer/summarizer: no discrete verdict, just the raw before/after for the reviewer to compare.
     preview: { type: 'muted', label: 'Preview' },
 }
 
@@ -139,8 +138,6 @@ function SuggestionEvaluationPanel({
     if (!evaluation) {
         return null
     }
-    // Scorer/summarizer runs have no kept/fixed/regressed verdict, so skip the discrete tallies and let the
-    // per-session before/after columns do the talking.
     const isPreview = preview || evaluation.results.some((result) => result.outcome === 'preview')
 
     if (evaluation.status === 'running') {
@@ -293,8 +290,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const { quota } = useValues(visionQuotaLogic)
     const { isDarkModeOn } = useValues(themeLogic)
-    // Every scanner type can be tested. Preview types (scorer, summarizer) have no discrete outcome, so their
-    // results show the raw before/after rather than a kept/fixed/regressed classification.
+    // Scorer and summarizer have no discrete outcome, so they preview raw before/after instead of a verdict.
     const previewEvaluation = scanner?.scanner_type === 'scorer' || scanner?.scanner_type === 'summarizer'
     const evaluationSupported =
         scanner?.scanner_type === 'monitor' || scanner?.scanner_type === 'classifier' || previewEvaluation

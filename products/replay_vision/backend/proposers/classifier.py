@@ -65,9 +65,8 @@ class ClassifierProposer:
     ) -> list[ConfigChange]:
         rationale = str(llm_output.get("rationale", "")).strip()
         changes = prompt_change(base_config, suggested_config, rationale)
-        # Emit a change only for an op that actually alters the vocabulary, walking a working copy exactly as
-        # _apply_tag_ops does, so a no-op op (adding a present tag, removing or renaming an absent one) does
-        # not mark an unchanged config as pending.
+        # Emit a change only for an op that actually alters the vocabulary, so a no-op op does not mark an
+        # unchanged config as pending.
         working = list(base_config.get("tags", []))
         for op in llm_output.get("tag_ops", []):
             kind, tag, to = str(op["op"]), op["tag"], op.get("to")

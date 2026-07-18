@@ -44,8 +44,7 @@ class RecordEvaluationResultInputs(BaseModel, frozen=True):
     # The fresh scanner output, None when the run errored.
     after_output: dict[str, Any] | None = None
     error: str | None = None
-    # Preview types (scorer, summarizer) record the raw before/after output with outcome "preview" instead of
-    # a discrete classification. Defaulted so an in-flight run replaying without the field decodes it safely.
+    # Defaulted to False so an in-flight run replaying without this field decodes it as a non-preview run.
     preview: bool = False
 
 

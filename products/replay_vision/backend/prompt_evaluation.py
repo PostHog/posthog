@@ -30,9 +30,7 @@ def evaluation_usage_id(suggestion_id: uuid.UUID, session_id: str, started_at: s
     return uuid.uuid5(_EVALUATION_USAGE_NAMESPACE, f"{suggestion_id}:{session_id}:{started_at}")
 
 
-# Types with a discrete primary outcome, classified kept/fixed/regressed/still_wrong against ratings.
 EVALUATION_SUPPORTED_TYPES = (ScannerType.MONITOR, ScannerType.CLASSIFIER)
-# Types with no discrete verdict, tested in "preview" mode: before/after outputs shown, no classification.
 EVALUATION_PREVIEW_TYPES = (ScannerType.SCORER, ScannerType.SUMMARIZER)
 
 EvaluationOutcome = Literal["kept", "regressed", "fixed", "still_wrong", "error", "preview"]
