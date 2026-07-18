@@ -523,6 +523,22 @@ class TestBuildSuggestedReviewers(APIBaseTest):
         assert result is not None
         assert [e.github_login for e in result.root] == ["octocat"]
 
+    def test_reason_persists_on_resolved_entries(self) -> None:
+        # The resolver rebuilds entries from resolved logins — a refactor that drops `reason` there
+        # silently reverts reviewer routing to unexplained picks. Whitespace-only normalizes to None.
+        result = _build_suggested_reviewers(
+            self.team.id,
+            [
+                ReviewerInput(github_login="alice", reason="Top recent author on the affected surface"),
+                ReviewerInput(github_login="bob", reason="   "),
+            ],
+        )
+        assert result is not None
+        assert [(e.github_login, e.reason) for e in result.root] == [
+            ("alice", "Top recent author on the affected surface"),
+            ("bob", None),
+        ]
+
     def test_resolves_user_uuid_to_linked_login(self) -> None:
         member = self._github_member("ghhandle")
         result = _build_suggested_reviewers(self.team.id, [ReviewerInput(user_uuid=str(member.uuid))])

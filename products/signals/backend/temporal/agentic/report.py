@@ -225,6 +225,7 @@ def _build_reviewers_content(
                 github_login=reviewer.login.lower(),
                 github_name=reviewer.name,
                 relevant_commits=[dict(commit.model_dump()) for commit in reviewer.commits],
+                reason=None,
             )
         )
     return reviewers_content
