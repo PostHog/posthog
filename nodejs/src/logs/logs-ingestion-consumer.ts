@@ -616,7 +616,19 @@ export class LogsIngestionConsumer {
         }
         let state = byTeam.get(message.teamId)
         if (!state) {
-            const rules = await this.deps.metricRulesCache!.getCompiledRules(message.teamId)
+            let rules: CompiledMetricRule[]
+            try {
+                rules = await this.deps.metricRulesCache!.getCompiledRules(message.teamId)
+            } catch (error) {
+                // Fail open: metric rules are a purely additive side feature, so a rules-fetch
+                // failure (e.g. a Postgres blip) must never DLQ or block the log records —
+                // skip metric generation for this team this batch instead.
+                logger.warn('[logs-metric-rules] rules fetch failed — skipping metric rules for batch', {
+                    teamId: message.teamId,
+                    error: String(error),
+                })
+                return null
+            }
             // Re-check after the await: concurrent messages for the same team race here,
             // and replacing an existing state would silently drop its accumulated tallies.
             state = byTeam.get(message.teamId)

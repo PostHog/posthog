@@ -1927,6 +1927,32 @@ describe('LogsIngestionConsumer', () => {
             expect(bySeverity).toEqual({ info: 2, error: 1 })
         })
 
+        it('produces logs normally when the rules cache fetch throws (fail-open)', async () => {
+            // Metric rules are a purely additive side feature: a Postgres blip on the
+            // rules fetch must not DLQ or block the log records themselves.
+            await createConsumerWithMetricRules(
+                {},
+                {
+                    metricRulesCache: {
+                        getCompiledRules: () => Promise.reject(new Error('pg down')),
+                    } as unknown as MetricRulesCache,
+                }
+            )
+
+            const messages = await createKafkaMessages([createLogMessage({ level: 'info' })], {
+                token: team.api_token,
+                bytes_uncompressed: '400',
+                record_count: '1',
+            })
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            const logsOutput = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)
+            expect(logsOutput).toHaveLength(1)
+            const dlqOutput = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_INGESTION_DLQ)
+            expect(dlqOutput).toHaveLength(0)
+            expect(mockEmitter.emit).not.toHaveBeenCalled()
+        })
+
         it('still counts records that a drop rule removes (pre-drop semantics)', async () => {
             const droppingSamplingCache: Pick<SamplingRulesCache, 'getCompiledRuleSet'> = {
                 getCompiledRuleSet: () =>

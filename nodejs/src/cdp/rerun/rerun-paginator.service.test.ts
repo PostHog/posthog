@@ -120,8 +120,7 @@ describe('RerunPaginatorService integration', () => {
 
         // Seed visibility rides the shared Kafka -> ClickHouse pipe, whose consumer may still be
         // chewing a backlog from whichever suite the shard ran just before this one (run order
-        // shifts whenever sibling files change size). The deadline is sized for that worst case
-        // (90s proved too tight once the logs metrics-rules suites joined this shard);
+        // shifts whenever sibling files change size). The deadline is sized for that worst case;
         // waitForExpect polls, so a healthy pipe still completes in seconds.
         await waitForExpect(async () => {
             const got = await clickhouse.query<{ c: number }>(
@@ -130,7 +129,7 @@ describe('RerunPaginatorService integration', () => {
                    AND function_id = '${hogFunction.id}'`
             )
             expect(Number(got[0]?.c ?? 0)).toBeGreaterThanOrEqual(expected)
-        }, 150_000)
+        }, 90_000)
     }
 
     // Produce a raw lifecycle row with a chosen (here: undecodable) invocation_globals,
