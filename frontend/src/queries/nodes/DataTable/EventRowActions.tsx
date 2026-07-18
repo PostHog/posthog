@@ -68,10 +68,10 @@ function EventRowActionsDropdown({ event }: { event: EventType }): JSX.Element {
                     fullWidth
                     sideIcon={<IconWarning />}
                     data-attr="events-table-issue-link"
-                    to={urls.errorTrackingIssue(
-                        event.properties.$exception_issue_id,
-                        event.properties.$exception_fingerprint
-                    )}
+                    to={urls.errorTrackingIssue(event.properties.$exception_issue_id, {
+                        fingerprint: event.properties.$exception_fingerprint,
+                        timestamp: event.timestamp,
+                    })}
                 >
                     Visit issue
                 </LemonButton>

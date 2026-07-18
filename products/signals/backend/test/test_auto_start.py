@@ -15,6 +15,7 @@ from posthog.models.scoping import team_scope
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.auto_start import (
     ReviewerContent,
+    _build_autostart_task_description,
     _create_implementation_task_if_absent,
     _report_meets_team_autostart_threshold,
     _resolve_autostart_assignee,
@@ -437,3 +438,37 @@ async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabl
         )
 
     assert (mock_create.call_count == 1) is (autostart_enabled is not False)
+
+
+@pytest.mark.parametrize(
+    ("summary", "expect_fix_loop"),
+    [
+        # Scout-authored metric block (the MCP scout's autoresearch handoff) → loop instructions present.
+        (
+            "MCP data-warehouse tools failing broadly.\n\n"
+            "## Fix loop metric\n\n"
+            "Metric: category error rate over the problem tools (trailing 7d).\n"
+            "Baseline: 41%. Goal: decrease.",
+            True,
+        ),
+        # Marker detection is case-insensitive — scouts write prose, not exact headings.
+        ("Tools failing.\n\nFIX LOOP METRIC: error rate 41% -> decrease via the query above.", True),
+        # No metric block → the generic one-shot prompt, no autoresearch instructions.
+        ("MCP data-warehouse tools failing broadly, fix the handler.", False),
+    ],
+)
+def test_autostart_description_appends_fix_loop_instructions_only_for_metric_reports(summary, expect_fix_loop):
+    description = _build_autostart_task_description(
+        report_id="0198c0de-0000-7000-8000-000000000001",
+        team_id=1,
+        summary=summary,
+        repository="PostHog/posthog",
+        priority=None,
+    )
+
+    assert summary in description
+    assert ("autoresearch target" in description) is expect_fix_loop
+    assert ("never by masking errors" in description) is expect_fix_loop
+    # Evidence-hygiene guardrail: fix-loop PRs may target public repos, so the prompt must forbid
+    # real telemetry (raw rows, error messages, identifiers) in before/after evidence.
+    assert ("never raw telemetry rows" in description) is expect_fix_loop
