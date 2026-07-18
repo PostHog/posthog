@@ -28,6 +28,16 @@ interface OptionSelectorProps {
     submitLabel?: string
     /** Called when the user clicks "Skip question" */
     onSkip?: () => void
+    /**
+     * When true, picking an option only stages the selection (via `onSelect`) — the answer is not
+     * committed until the user clicks the always-visible submit button, which calls `onSubmit`. This
+     * prevents a single stray click or keypress from submitting the first/recommended answer, and gives
+     * mobile users a visible control to confirm with. When false (default) picking an option commits it
+     * immediately, matching the legacy advance-on-pick flow.
+     */
+    requireSubmit?: boolean
+    /** Called when the user commits a staged option via the submit button (only used with `requireSubmit`). */
+    onSubmit?: () => void
 }
 
 export function OptionSelector({
@@ -43,6 +53,8 @@ export function OptionSelector({
     selectedValue,
     submitLabel = 'Next',
     onSkip,
+    requireSubmit = false,
+    onSubmit,
 }: OptionSelectorProps): JSX.Element {
     const isCustomValue = selectedValue !== undefined && !options.some((o) => o.value === selectedValue)
     const [userWantsCustomMode, setUserWantsCustomMode] = useState(isCustomValue)
@@ -104,6 +116,12 @@ export function OptionSelector({
             return
         }
         setUserWantsCustomMode(false)
+        if (requireSubmit) {
+            // Stage the typed answer, then commit it through the same submit path as a picked option.
+            onSelect(customInput.trim())
+            onSubmit?.()
+            return
+        }
         onCustomSubmit?.(customInput.trim())
     }
 
@@ -180,14 +198,14 @@ export function OptionSelector({
                     )}
                 </label>
             )}
-            {(onSkip || showCustomInput) && (
+            {(onSkip || showCustomInput || requireSubmit) && (
                 <div className="flex items-center justify-between gap-2 pt-2">
                     {onSkip && (
                         <LemonButton type="secondary" size="small" onClick={onSkip}>
                             Skip question
                         </LemonButton>
                     )}
-                    {showCustomInput && (
+                    {showCustomInput ? (
                         <LemonButton
                             type="primary"
                             size="small"
@@ -197,7 +215,17 @@ export function OptionSelector({
                         >
                             {submitLabel}
                         </LemonButton>
-                    )}
+                    ) : requireSubmit ? (
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            disabledReason={selectedValue === undefined ? 'Select an option to continue' : undefined}
+                            onClick={() => onSubmit?.()}
+                            className="ml-auto"
+                        >
+                            {submitLabel}
+                        </LemonButton>
+                    ) : null}
                 </div>
             )}
         </div>

@@ -19,6 +19,12 @@ interface QuestionFieldProps {
     onSubmit: () => void
     onSkip?: () => void
     submitLabel?: string
+    /**
+     * When true, a single_select answer is only staged when an option is picked and requires an explicit
+     * click on the submit button (or a typed custom answer) to commit — mirroring the multi_select flow.
+     * When set, `onAnswer` is used to stage the picked option (no advance) and `onSubmit` commits it.
+     */
+    requireSubmit?: boolean
 }
 
 export function QuestionField({
@@ -29,6 +35,7 @@ export function QuestionField({
     onSubmit,
     onSkip,
     submitLabel = 'Next',
+    requireSubmit = false,
 }: QuestionFieldProps): JSX.Element {
     const fieldType = question.type ?? 'select'
 
@@ -51,8 +58,10 @@ export function QuestionField({
                     question={question}
                     value={value as string | undefined}
                     onAnswer={onAnswer}
+                    onSubmit={onSubmit}
                     onSkip={onSkip}
                     submitLabel={submitLabel}
+                    requireSubmit={requireSubmit}
                 />
             )
     }
@@ -62,14 +71,18 @@ function SelectField({
     question,
     value,
     onAnswer,
+    onSubmit,
     onSkip,
     submitLabel,
+    requireSubmit,
 }: {
     question: MultiQuestionFormQuestion
     value: string | undefined
     onAnswer: (value: string | null) => void
+    onSubmit: () => void
     onSkip?: () => void
     submitLabel: string
+    requireSubmit?: boolean
 }): JSX.Element {
     const options: Option[] = (question.options ?? []).map((option) => ({
         label: option.value,
@@ -89,6 +102,8 @@ function SelectField({
             selectedValue={value}
             submitLabel={submitLabel}
             onSkip={onSkip}
+            requireSubmit={requireSubmit}
+            onSubmit={onSubmit}
         />
     )
 }

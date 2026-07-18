@@ -41,9 +41,10 @@ function selectedLabels(answer: string | string[] | undefined): string[] {
  * rails as `PermissionInput` but renders the question(s) instead of an approve/decline card.
  *
  * It reuses the LangGraph `QuestionField` (and therefore `OptionSelector` / `LemonCheckbox`) for the
- * options, and mirrors `MultiQuestionFormInput`'s flow: single-select answers advance on pick,
- * multi-select accumulates behind a Next/Submit button, and the footer label flips to "Submit" on the
- * last question. On submit it replies via `respondToPermission` with the answers keyed by question
+ * options. Picking an option only stages it — both single- and multi-select require an explicit click
+ * on the visible Next/Submit button to commit, so a stray click or keypress can't fire off the
+ * first/recommended answer, and mobile users always have a control to confirm with. The footer label
+ * flips to "Submit" on the last question. On submit it replies via `respondToPermission` with the answers keyed by question
  * text — the agent reads `_meta.answers`; `optionId` only has to be a valid offered option (derived
  * from the first question's selection). `respondingToPermission` drives the loading / double-submit guard.
  */
@@ -95,7 +96,10 @@ export function QuestionInput({ streamKey, request }: QuestionInputProps): JSX.E
         [currentIndex, questions.length, submit]
     )
 
-    const handleAnswer = useCallback(
+    // Picking an option only stages the selection — it never advances or submits on its own. Committing
+    // an answer always goes through `handleSubmit` (the visible Submit/Next button), so a stray click or
+    // keypress can't fire off the first/recommended answer without the user confirming it.
+    const handleStage = useCallback(
         (value: string | string[] | null) => {
             if (respondingToPermission) {
                 return
@@ -110,21 +114,11 @@ export function QuestionInput({ streamKey, request }: QuestionInputProps): JSX.E
             const updated = { ...answersRef.current, [currentIndex]: value }
             setAnswers(updated)
             answersRef.current = updated
-            advanceOrSubmit(updated)
         },
-        [advanceOrSubmit, currentIndex, respondingToPermission]
+        [currentIndex, respondingToPermission]
     )
 
-    const handleMultiSelectChange = useCallback(
-        (value: string[]) => {
-            const updated = { ...answersRef.current, [currentIndex]: value }
-            setAnswers(updated)
-            answersRef.current = updated
-        },
-        [currentIndex]
-    )
-
-    const handleMultiSelectSubmit = useCallback(() => {
+    const handleSubmit = useCallback(() => {
         if (respondingToPermission) {
             return
         }
@@ -166,10 +160,11 @@ export function QuestionInput({ streamKey, request }: QuestionInputProps): JSX.E
                 key={currentIndex}
                 question={toFormQuestion(question, currentIndex)}
                 value={answers[currentIndex]}
-                onAnswer={handleAnswer}
-                onChange={handleMultiSelectChange}
-                onSubmit={handleMultiSelectSubmit}
+                onAnswer={handleStage}
+                onChange={handleStage}
+                onSubmit={handleSubmit}
                 submitLabel={isLast ? 'Submit' : 'Next'}
+                requireSubmit
             />
         </div>
     )

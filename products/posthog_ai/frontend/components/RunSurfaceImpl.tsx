@@ -227,7 +227,7 @@ function RunSurfaceComposer({ children }: { children?: ReactNode }): JSX.Element
     if (pendingPermissionRequest && !isTerminalRunStatus(currentRunStatus)) {
         const isQuestion = !!pendingPermissionRequest.questions && pendingPermissionRequest.questions.length > 0
         return (
-            <div className="border-t px-4 py-3">
+            <div className="border-t px-4 pt-3 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))]">
                 <div className="mx-auto w-full max-w-180">
                     {isQuestion ? (
                         <QuestionInput streamKey={runId} request={pendingPermissionRequest} />

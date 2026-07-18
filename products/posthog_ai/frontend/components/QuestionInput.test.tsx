@@ -72,12 +72,15 @@ describe('QuestionInput', () => {
         expect(screen.getByText('aha moment')).toBeInTheDocument()
     })
 
-    it('submits a single-select answer on pick with the derived optionId', () => {
+    it('stages a single-select pick and only submits on explicit confirm', () => {
         render(<QuestionInput streamKey="conv-1" request={makeRequest([goalQuestion])} />)
 
-        // Single-select advances/submits on pick (QuestionField behaviour) — the last question submits.
+        // Picking an option must not submit on its own — a stray click can't fire the answer.
         fireEvent.click(screen.getByText('Revenue'))
+        expect(respondToPermission).not.toHaveBeenCalled()
 
+        // Committing goes through the visible Submit button.
+        fireEvent.click(screen.getByText('Submit'))
         expect(respondToPermission).toHaveBeenCalledWith({
             requestId: 'req-1',
             optionId: 'option_1',
@@ -148,13 +151,15 @@ describe('QuestionInput', () => {
         render(<QuestionInput streamKey="conv-1" request={makeRequest([goalQuestion, second])} />)
 
         expect(screen.getByText('1/2')).toBeInTheDocument()
-        // Single-select pick auto-advances to the next question.
+        // Pick then confirm with "Next" to advance to the next question.
         fireEvent.click(screen.getByText('Activation'))
+        fireEvent.click(screen.getByText('Next'))
         expect(screen.getByText('2/2')).toBeInTheDocument()
         expect(respondToPermission).not.toHaveBeenCalled()
 
-        // Picking the last question's answer submits all collected answers.
+        // Confirming the last question with "Submit" sends all collected answers.
         fireEvent.click(screen.getByText('Monthly'))
+        fireEvent.click(screen.getByText('Submit'))
 
         expect(respondToPermission).toHaveBeenCalledWith({
             requestId: 'req-1',
