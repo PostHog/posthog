@@ -140,6 +140,15 @@ class TestMergeFiltersByPriority(SimpleTestCase):
         )
         assert len(merged["properties"]) == 2
 
+    def test_bare_string_property_entry_does_not_raise(self):
+        # A malformed filter list can carry a bare string instead of a filter dict; contradiction detection
+        # must treat it as non-contradicting rather than calling `.get` on a string and crashing.
+        merged = merge_filters_by_priority(
+            {"properties": ["utm_source", {"key": "browser", "type": "event", "value": "x"}]},
+            {"properties": ["utm_medium", {"key": "country", "type": "event", "value": "y"}]},
+        )
+        assert len(merged["properties"]) == 4
+
 
 class TestRemoveQueryPropertiesOverriddenBy(SimpleTestCase):
     def _query(self, properties):
@@ -187,6 +196,14 @@ class TestRemoveQueryPropertiesOverriddenBy(SimpleTestCase):
         # insight's own filter is kept to stack rather than dropped.
         query = self._query([{"key": "utm_source", "value": "google", "type": "event", "operator": "exact"}])
         overriding = {"properties": [{"key": "utm_source", "type": "event", "operator": "is_set"}]}
+
+        assert remove_query_properties_overridden_by(query, overriding) == query
+
+    def test_bare_string_property_entry_does_not_raise(self):
+        # The override property list can carry a bare string instead of a filter dict; the leaf strip must
+        # not crash on it, and query leaves are left untouched since a string can't contradict them.
+        query = self._query([{"key": "$browser", "value": "Chrome", "type": "event"}])
+        overriding = {"properties": ["utm_source", {"key": "$country", "value": "US", "type": "event"}]}
 
         assert remove_query_properties_overridden_by(query, overriding) == query
 

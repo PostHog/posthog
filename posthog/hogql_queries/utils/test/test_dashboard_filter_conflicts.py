@@ -93,6 +93,18 @@ class TestFiltersContradict(SimpleTestCase):
                 {"key": "k", "type": "event", "operator": "is_not", "value": ["true"]},
                 True,
             ),
+            (
+                "a bare string in place of a filter dict never contradicts",
+                {"key": "k", "type": "event", "operator": "exact", "value": ["a"]},
+                "utm_source",
+                False,
+            ),
+            (
+                "two non-dict entries never contradict",
+                "utm_source",
+                "utm_medium",
+                False,
+            ),
         ]
     )
     def test_filters_contradict(self, _name, filter_a, filter_b, expected):
