@@ -5739,6 +5739,7 @@ export enum DefaultChannelTypes {
     PaidShopping = 'Paid Shopping',
     PaidUnknown = 'Paid Unknown',
     Direct = 'Direct',
+    AIAssistant = 'AI Assistant',
     OrganicSearch = 'Organic Search',
     OrganicSocial = 'Organic Social',
     OrganicVideo = 'Organic Video',

@@ -907,6 +907,7 @@ class DefaultChannelTypes(StrEnum):
     PAID_SHOPPING = "Paid Shopping"
     PAID_UNKNOWN = "Paid Unknown"
     DIRECT = "Direct"
+    AI_ASSISTANT = "AI Assistant"
     ORGANIC_SEARCH = "Organic Search"
     ORGANIC_SOCIAL = "Organic Social"
     ORGANIC_VIDEO = "Organic Video"
