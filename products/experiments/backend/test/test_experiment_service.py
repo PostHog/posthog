@@ -5173,6 +5173,39 @@ class TestExperimentService(APIBaseTest):
 
         assert list(queryset.values_list("name", flat=True)[:3]) == expected_order
 
+    @parameterized.expand(
+        [
+            ("ascending", "conclusion", ["Won", "Lost", "Invalid", "No conclusion"]),
+            ("descending", "-conclusion", ["No conclusion", "Invalid", "Lost", "Won"]),
+        ]
+    )
+    def test_filter_experiments_queryset_orders_by_conclusion(
+        self, _: str, order: str, expected_order: list[str]
+    ) -> None:
+        service = self._service()
+        conclusions: dict[str, str | None] = {
+            "Won": "won",
+            "Lost": "lost",
+            "Invalid": "invalid",
+            "No conclusion": None,
+        }
+        for name, conclusion in conclusions.items():
+            experiment = service.create_experiment(
+                name=name,
+                feature_flag_key=f"order-conclusion-{name.lower().replace(' ', '-')}",
+            )
+            if conclusion:
+                experiment.conclusion = conclusion
+                experiment.save()
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"order": order},
+        )
+
+        assert list(queryset.values_list("name", flat=True)[:4]) == expected_order
+
     def test_filter_experiments_queryset_validates_feature_flag_id(self) -> None:
         with self.assertRaises(ValidationError) as ctx:
             self._service().filter_experiments_queryset(
@@ -5921,6 +5954,8 @@ class TestExperimentService(APIBaseTest):
             ("-duration",),
             ("status",),
             ("-status",),
+            ("conclusion",),
+            ("-conclusion",),
         ]
     )
     def test_order_by_valid_fields_works(self, order: str):
