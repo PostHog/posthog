@@ -262,7 +262,7 @@ class LogsMetricRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         canonical_team = self.team.parent_team or self.team
         user_access_control = UserAccessControl(user=user, team=canonical_team)
         if not user_access_control.check_access_level_for_resource("metrics", "editor"):
-            raise PermissionDenied("Creating or updating metric rules requires editor access to metrics.")
+            raise PermissionDenied("Managing metric rules requires editor access to metrics.")
 
     def _validate_team_limits(self, serializer: LogsMetricRuleSerializer, exclude_pk: Any = None) -> None:
         team_rules = LogsMetricRule.objects.filter(team_id=self.canonical_team_id)
@@ -331,6 +331,9 @@ class LogsMetricRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_destroy(self, instance: LogsMetricRule) -> None:
         user = cast(User, self.request.user)
+        # Same gate as create/update: deleting a rule tears down a metric that metrics
+        # users depend on, and AccessControlPermission only evaluates the `logs` scope.
+        self._assert_metrics_editor_access(user)
         report_user_action(
             user,
             "logs metric rule deleted",
