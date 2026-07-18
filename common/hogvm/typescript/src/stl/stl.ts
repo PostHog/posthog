@@ -970,7 +970,10 @@ export const STL: Record<string, STLFunction> = {
     },
     replaceOne: {
         fn: (args) => {
-            return args[0].replace(args[1], args[2])
+            // Use a replacer function so the replacement is treated literally.
+            // Passing a plain string lets JS interpret $$, $&, $`, $' as special
+            // patterns, which diverges from the Python VM and ClickHouse.
+            return args[0].replace(args[1], () => args[2])
         },
         description: 'Replaces first occurrence of a substring',
         example: 'replaceOne($1, $2, $3)',
@@ -979,7 +982,8 @@ export const STL: Record<string, STLFunction> = {
     },
     replaceAll: {
         fn: (args) => {
-            return args[0].replaceAll(args[1], args[2])
+            // Replacer function keeps the replacement literal (see replaceOne).
+            return args[0].replaceAll(args[1], () => args[2])
         },
         description: 'Replaces all occurrences of a substring',
         example: 'replaceAll($1, $2, $3)',

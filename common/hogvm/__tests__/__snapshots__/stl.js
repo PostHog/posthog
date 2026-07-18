@@ -75,8 +75,8 @@ function startsWith(str, prefix) {
 }
 function round(a) { return Math.round(a) }
 function reverse (value) { return value.split('').reverse().join('') }
-function replaceOne (str, searchValue, replaceValue) { return str.replace(searchValue, replaceValue) }
-function replaceAll (str, searchValue, replaceValue) { return str.replaceAll(searchValue, replaceValue) }
+function replaceOne (str, searchValue, replaceValue) { return str.replace(searchValue, () => replaceValue) }
+function replaceAll (str, searchValue, replaceValue) { return str.replaceAll(searchValue, () => replaceValue) }
 function range(...args) {
     if (args.length === 1) {
         const end = args[0];

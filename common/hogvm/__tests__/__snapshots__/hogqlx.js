@@ -1,4 +1,4 @@
-function replaceAll (str, searchValue, replaceValue) { return str.replaceAll(searchValue, replaceValue) }
+function replaceAll (str, searchValue, replaceValue) { return str.replaceAll(searchValue, () => replaceValue) }
 function print (...args) { console.log(...args.map(__printHogStringOutput)) }
 function jsonStringify (value, spacing) {
     function convert(x, marked) {
