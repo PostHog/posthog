@@ -18,7 +18,7 @@ from django.utils import timezone as django_timezone
 from posthog.models.integration import Integration
 
 from products.tasks.backend.loop_notifications import dispatch_loop_event
-from products.tasks.backend.loop_service import pause_loop_schedules
+from products.tasks.backend.loop_service import pause_loop_schedules, signal_loop_run_cancelled
 from products.tasks.backend.models import Loop, LoopTrigger, TaskRun
 
 logger = logging.getLogger(__name__)
@@ -52,11 +52,22 @@ def _pause_loop_and_cancel_runs(loop: Loop) -> None:
     now = django_timezone.now()
     # Matches both the FK (`Task.loop`) and the pre-FK run-state snapshot (`TaskRun.state["loop_id"]`),
     # same transitional lookup as `facade/loops.py::list_loop_runs`.
-    TaskRun.objects.filter(
-        Q(task__loop_id=loop.id) | Q(state__loop_id=str(loop.id)),
-        team_id=loop.team_id,
-        status__in=_NON_TERMINAL_TASK_RUN_STATUSES,
-    ).update(status=TaskRun.Status.CANCELLED, completed_at=now, updated_at=now)
+    runs = list(
+        TaskRun.objects.filter(
+            Q(task__loop_id=loop.id) | Q(state__loop_id=str(loop.id)),
+            team_id=loop.team_id,
+            status__in=_NON_TERMINAL_TASK_RUN_STATUSES,
+        )
+    )
+    if runs:
+        TaskRun.objects.filter(id__in=[run.id for run in runs]).update(
+            status=TaskRun.Status.CANCELLED, completed_at=now, updated_at=now
+        )
+        # Cancelling the DB row isn't enough: signal each workflow so the live sandbox actually winds
+        # down instead of running to completion under the deactivated owner's freshly minted
+        # credentials. That's the entire point of the security response (see module docstring).
+        for run in runs:
+            signal_loop_run_cancelled(run.workflow_id)
 
     dispatch_loop_event(
         loop,

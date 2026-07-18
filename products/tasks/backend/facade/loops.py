@@ -94,6 +94,21 @@ IDENTITY_FIELDS: frozenset[str] = frozenset(
 )
 _PAUSE_FIELD = "enabled"
 
+# Nested JSON config fields written through DRF nested serializers. A PATCH sends these as partial
+# dicts, so `update_loop` deep-merges them onto the stored value rather than replacing wholesale.
+_NESTED_MERGE_FIELDS: frozenset[str] = frozenset({"behaviors", "connectors", "notifications", "context_target"})
+
+
+def _deep_merge(base: dict, overlay: dict) -> dict:
+    """Recursively merge `overlay` onto `base`: overlay wins, nested dicts merge, lists and scalars
+    replace. Lets a partial PATCH of a nested loop config preserve the subfields it omits."""
+    merged = dict(base)
+    for key, value in overlay.items():
+        existing = merged.get(key)
+        merged[key] = _deep_merge(existing, value) if isinstance(value, dict) and isinstance(existing, dict) else value
+    return merged
+
+
 # Desktop file-system node types the loop's context attachment references (see LOOPS.md). A context
 # is a `folder`; a maintained living dashboard is a `dashboard` (canvas). Both live on the `desktop`
 # surface.
@@ -587,6 +602,17 @@ def visible_loop_ids(team_id: int, user: User | None) -> set[str]:
     return {str(loop_id) for loop_id in loops.values_list("id", flat=True)}
 
 
+def hidden_personal_loop_ids_for_org(organization_id: str | UUID, user: User | None) -> set[str]:
+    """Ids of personal loops across an org NOT owned by `user`, as strings. The org-wide activity-log
+    feed (org admins/owners) must still keep other people's personal-loop config out, since personal
+    loops are owner-only (see LOOPS.md "Access control"). Cross-team by design, hence `unscoped()`."""
+    user_id = getattr(user, "id", None)
+    hidden = Loop.objects.unscoped().filter(team__organization_id=organization_id, visibility=Loop.Visibility.PERSONAL)
+    if user_id is not None:
+        hidden = hidden.exclude(created_by_id=user_id)
+    return {str(loop_id) for loop_id in hidden.values_list("id", flat=True)}
+
+
 def get_loop(loop_id: str | UUID, team_id: int, user: User | None) -> LoopDTO | None:
     user_id = getattr(user, "id", None)
     loop = _visible_loop_queryset(team_id, user_id).prefetch_related("triggers").filter(pk=loop_id).first()
@@ -749,7 +775,13 @@ def update_loop(loop_id: str | UUID, team_id: int, user: User | None, validated_
     # by a member who can already reach it (fetched above). This is the documented mechanism for
     # editing a teammate's team loop, replacing the never-implemented "implicit takeover".
     take_ownership = bool(data.pop("take_ownership", False))
-    if take_ownership and loop.visibility == Loop.Visibility.TEAM and user is not None and not _is_owner(loop, user):
+    if take_ownership and user is not None and loop.visibility == Loop.Visibility.TEAM and not _is_owner(loop, user):
+        # Taking ownership unlocks editing a teammate's identity config, but must NOT double as a way
+        # to privatize a shared team loop in the same request. Changing visibility stays owner-only,
+        # judged against the pre-takeover owner, so a non-owner can't grab the loop and hide it from
+        # the team in one PATCH. Other identity edits are the whole point of takeover, so they pass.
+        if "visibility" in data:
+            raise LoopPermissionError("Taking ownership cannot change a loop's visibility in the same request.")
         loop.created_by_id = user.id
 
     _authorize_update(loop, user, data)
@@ -757,7 +789,8 @@ def update_loop(loop_id: str | UUID, team_id: int, user: User | None, validated_
 
     trigger_payloads = data.pop("triggers", None)
     # Detaching from a context sends `context_target: null`; the column is NOT NULL, so store {}.
-    if "context_target" in data and data["context_target"] is None:
+    detaching_context = "context_target" in data and data["context_target"] is None
+    if detaching_context:
         data["context_target"] = {}
 
     # Judged on the effective post-update state: attaching a context to a personal loop and
@@ -770,6 +803,18 @@ def update_loop(loop_id: str | UUID, team_id: int, user: User | None, validated_
     enabled_before = loop.enabled
     with transaction.atomic():
         for field_name, value in data.items():
+            # Nested JSON configs arrive as partial dicts on a PATCH (DRF drops omitted nested
+            # subfields under a partial parent), so a blind setattr would wipe the siblings the
+            # client didn't resend. Merge onto the stored value instead. A context detach is a full
+            # replace (clear to {}), not a merge.
+            if (
+                field_name in _NESTED_MERGE_FIELDS
+                and isinstance(value, dict)
+                and not (field_name == "context_target" and detaching_context)
+            ):
+                current = getattr(loop, field_name)
+                if isinstance(current, dict):
+                    value = _deep_merge(current, value)
             setattr(loop, field_name, value)
         # Re-enabling clears the lifecycle pause reason (owner reactivated, integration
         # reconnected), so the UI stops showing a stale "paused because ..." explanation.
@@ -844,7 +889,9 @@ def _sync_triggers(loop: Loop, trigger_payloads: list[dict]) -> None:
                 if existing.type == LoopTrigger.TriggerType.SCHEDULE and payload["type"] != existing.type:
                     schedules_to_delete.append(existing)
                 existing.type = payload["type"]
-                existing.enabled = payload.get("enabled", True)
+                # Preserve the current value when a resent trigger omits `enabled` (a PATCH drops
+                # omitted nested fields), so re-sending a trigger never silently re-enables it.
+                existing.enabled = payload.get("enabled", existing.enabled)
                 existing.config = payload.get("config") or {}
                 existing.schedule_sync_status = LoopTrigger.ScheduleSyncStatus.PENDING
                 existing.save()
@@ -1070,4 +1117,5 @@ __all__ = [
     "soft_delete_loop",
     "update_loop",
     "visible_loop_ids",
+    "hidden_personal_loop_ids_for_org",
 ]

@@ -1,1 +1,1 @@
-0065_looptrigger_completed_at
+0066_loopfire_trigger_set_null

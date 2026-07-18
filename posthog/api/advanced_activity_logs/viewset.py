@@ -53,6 +53,19 @@ def restrict_loop_activity(queryset: QuerySet[ActivityLog], team_id: int, user) 
     return queryset.exclude(Q(scope="Loop") & ~Q(item_id__in=visible_ids))
 
 
+def restrict_loop_activity_for_org(queryset: QuerySet[ActivityLog], organization_id, user) -> QuerySet[ActivityLog]:
+    """Org-wide equivalent of `restrict_loop_activity`. The org route has no single `team_id`, so it
+    can't build a per-team allowlist; instead deny the personal loops of other users across the org
+    per-row (by `item_id`), keeping every team loop and the caller's own personal loops.
+    """
+    from products.tasks.backend.facade import loops as loops_facade  # noqa: PLC0415
+
+    hidden_ids = loops_facade.hidden_personal_loop_ids_for_org(organization_id, user)
+    if not hidden_ids:
+        return queryset
+    return queryset.exclude(Q(scope="Loop") & Q(item_id__in=hidden_ids))
+
+
 def apply_organization_scoped_filter(
     queryset: QuerySet[ActivityLog], include_org_scoped: bool, team_id: int, organization_id
 ) -> QuerySet[ActivityLog]:
@@ -600,7 +613,8 @@ class OrganizationAdvancedActivityLogsViewSet(AdvancedActivityLogsViewSet):
             queryset = queryset.filter(created_at__gte=lookback_date)
 
         queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
-        queryset = restrict_loop_activity(queryset, self.team_id, self.request.user)
+        # Org route: no single team_id (this endpoint is org-nested), so use the org-wide variant.
+        queryset = restrict_loop_activity_for_org(queryset, self.organization.id, self.request.user)
 
         return queryset.order_by("-created_at")
 

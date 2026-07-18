@@ -258,7 +258,11 @@ class LoopTriggerWriteSerializer(serializers.Serializer):
 
     def validate(self, attrs: dict) -> dict:
         team = self.context["team"]
-        trigger_type = attrs["type"]
+        # On a partial (PATCH) update DRF skips omitted fields before the required check, so a resent
+        # trigger that omits `type` reaches here without it. Fail as a clean 400, not a raw KeyError 500.
+        trigger_type = attrs.get("type")
+        if trigger_type is None:
+            raise serializers.ValidationError({"type": "This field is required for each trigger."})
         config = attrs.get("config") or {}
         if trigger_type == loops_facade.LoopTriggerType.SCHEDULE:
             attrs["config"] = _validate_schedule_trigger_config(config, now=django_timezone.now())
@@ -375,6 +379,10 @@ class LoopWriteSerializer(serializers.Serializer):
 
     def validate_repositories(self, value: list[dict]) -> list[dict]:
         team = self.context["team"]
+        # A partial update can skip a nested entry's required `github_integration_id`; guard before
+        # indexing so it's a 400, not a KeyError 500.
+        if any(entry.get("github_integration_id") is None for entry in value):
+            raise serializers.ValidationError("Each repository requires a `github_integration_id`.")
         integration_ids = {entry["github_integration_id"] for entry in value}
         if not integration_ids:
             return value

@@ -15,7 +15,7 @@ from products.tasks.backend.loop_service import (
     delete_schedules_for_team,
     sync_loop_trigger_schedule,
 )
-from products.tasks.backend.models import Loop, LoopTrigger
+from products.tasks.backend.models import Loop, LoopFire, LoopTrigger
 from products.tasks.backend.temporal.loops.activities import run_loop_trigger
 
 
@@ -180,3 +180,18 @@ class TestLoopService(TestCase):
 
         deleted_schedule_ids = {call.args[1] for call in mock_delete.call_args_list}
         self.assertEqual(deleted_schedule_ids, {cron.schedule_id, one_time.schedule_id})
+
+    def test_deleting_a_trigger_nulls_its_fires_instead_of_deleting_them(self):
+        # LoopFire rows carry the rate-cap history (counted by `loop`, which survives). Replacing a
+        # trigger during an edit must SET_NULL, not CASCADE, or an owner could reset their own cost
+        # caps just by editing triggers.
+        loop = self.create_loop()
+        trigger = self.create_trigger(loop, {"cron_expression": "0 9 * * *", "timezone": "UTC"})
+        fire = LoopFire(team=self.team, loop=loop, loop_trigger=trigger, fire_key="key-1")
+        fire.save()
+
+        trigger.delete()
+
+        fire.refresh_from_db()
+        self.assertIsNone(fire.loop_trigger_id)
+        self.assertEqual(fire.loop_id, loop.id)

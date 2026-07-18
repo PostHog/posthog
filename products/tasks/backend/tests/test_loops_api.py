@@ -149,6 +149,72 @@ class LoopBehaviorsAPITest(LoopsAPITestCase):
         self.assertEqual(Loop.objects.unscoped().get(id=loop_id).behaviors, toggled_off)
 
 
+class LoopPartialUpdateAPITest(LoopsAPITestCase):
+    def test_partial_behaviors_patch_preserves_unsent_subfields(self):
+        # DRF drops omitted nested subfields on a PATCH, so a naive setattr would wipe them. The facade
+        # deep-merges, so sending one behavior toggle must not reset the siblings the client didn't send.
+        loop_id = self._create_loop(
+            self.owner_client,
+            behaviors={"create_prs": True, "watch_ci": True, "fix_review_comments": True, "max_fix_iterations": 5},
+        )["id"]
+
+        updated = self.owner_client.patch(self._loop_url(loop_id), {"behaviors": {"create_prs": False}}, format="json")
+
+        self.assertEqual(updated.status_code, status.HTTP_200_OK, updated.content)
+        behaviors = Loop.objects.unscoped().get(id=loop_id).behaviors
+        self.assertEqual(behaviors["create_prs"], False)
+        self.assertEqual(behaviors["watch_ci"], True)
+        self.assertEqual(behaviors["fix_review_comments"], True)
+        self.assertEqual(behaviors["max_fix_iterations"], 5)
+
+    def test_resent_trigger_without_type_is_rejected_as_400(self):
+        created = self._create_loop(
+            self.owner_client,
+            triggers=[{"type": "schedule", "config": {"cron_expression": "0 9 * * *", "timezone": "UTC"}}],
+        )
+        trigger_id = created["triggers"][0]["id"]
+
+        # Omitting the required `type` on a resent trigger must be a clean 400, not a KeyError 500.
+        response = self.owner_client.patch(
+            self._loop_url(created["id"]),
+            {"triggers": [{"id": trigger_id, "enabled": False}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+    def test_resent_trigger_without_enabled_keeps_its_current_value(self):
+        created = self._create_loop(
+            self.owner_client,
+            triggers=[
+                {
+                    "type": "schedule",
+                    "config": {"cron_expression": "0 9 * * *", "timezone": "UTC"},
+                    "enabled": False,
+                }
+            ],
+        )
+        trigger_id = created["triggers"][0]["id"]
+
+        # Resend the trigger changing only its config; omitting `enabled` must not silently re-enable it.
+        response = self.owner_client.patch(
+            self._loop_url(created["id"]),
+            {
+                "triggers": [
+                    {
+                        "id": trigger_id,
+                        "type": "schedule",
+                        "config": {"cron_expression": "0 10 * * *", "timezone": "UTC"},
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertFalse(response.json()["triggers"][0]["enabled"])
+
+
 class LoopSafetyLimitAPITest(LoopsAPITestCase):
     def test_too_many_triggers_rejected(self):
         triggers = [
@@ -296,6 +362,22 @@ class LoopVisibilityAPITest(LoopsAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(response.json()["instructions"], "new plan")
         self.assertEqual(response.json()["created_by_id"], self.peer.id)
+
+    def test_take_ownership_cannot_privatize_a_shared_team_loop(self):
+        # The hijack: a member takes ownership AND flips visibility=personal in one PATCH, privatizing
+        # a shared team loop out from under the team. Takeover must not double as a visibility change.
+        loop_id = self._create_loop(self.owner_client, visibility="team")["id"]
+
+        response = self.peer_client.patch(
+            self._loop_url(loop_id),
+            {"take_ownership": True, "visibility": "personal"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        loop = Loop.objects.unscoped().get(id=loop_id)
+        self.assertEqual(loop.visibility, "team")
+        self.assertEqual(loop.created_by_id, self.owner.id)
 
 
 class LoopContextVisibilityAPITest(LoopsAPITestCase):

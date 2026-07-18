@@ -610,5 +610,7 @@ def handle_loop_run_terminal(task_run: TaskRun) -> None:
     dispatch_loop_event(
         loop,
         "run_completed" if is_success else "run_failed",
-        {"task_id": str(task_run.task_id), "run_id": str(task_run.id), "status": task_run.status},
+        # Key must be `task_run_id`: loop_notifications builds its dedup `campaign_key` from it, and a
+        # wrong key collapses every run's key to a constant so MessagingRecord drops all but the first.
+        {"task_id": str(task_run.task_id), "task_run_id": str(task_run.id), "status": task_run.status},
     )

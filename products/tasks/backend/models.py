@@ -1253,7 +1253,12 @@ class LoopFire(TeamScopedRootMixin):
     # the per-loop rate-cap and retention queries hit an index instead of joining through trigger.
     loop = models.ForeignKey(Loop, on_delete=models.CASCADE, related_name="fires", null=True, db_constraint=False)
     # Null for manual "run now" fires, which have no trigger.
-    loop_trigger = models.ForeignKey(LoopTrigger, on_delete=models.CASCADE, related_name="fires", null=True, blank=True)
+    # SET_NULL, not CASCADE: replacing a trigger during an ordinary edit must not delete its LoopFire
+    # rows. Those rows carry the per-loop/per-team rate-cap history (counted by `loop`, which survives),
+    # so a CASCADE would let an owner reset their own cost caps just by editing triggers.
+    loop_trigger = models.ForeignKey(
+        LoopTrigger, on_delete=models.SET_NULL, related_name="fires", null=True, blank=True
+    )
     fire_key = models.CharField(max_length=512)
     # Outcome of the fire, for returning to a retry that dedups against this row.
     outcome_reason = models.CharField(max_length=64, null=True, blank=True)

@@ -665,7 +665,7 @@ class TestHandleLoopRunTerminal(LoopRunsTestCase):
         mock_dispatch.assert_called_once_with(
             loop,
             "run_completed",
-            {"task_id": str(task_run.task_id), "run_id": str(task_run.id), "status": TaskRun.Status.COMPLETED},
+            {"task_id": str(task_run.task_id), "task_run_id": str(task_run.id), "status": TaskRun.Status.COMPLETED},
         )
 
     @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
@@ -682,7 +682,7 @@ class TestHandleLoopRunTerminal(LoopRunsTestCase):
         mock_dispatch.assert_called_once_with(
             loop,
             "run_failed",
-            {"task_id": str(task_run.task_id), "run_id": str(task_run.id), "status": TaskRun.Status.FAILED},
+            {"task_id": str(task_run.task_id), "task_run_id": str(task_run.id), "status": TaskRun.Status.FAILED},
         )
 
     @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
@@ -703,5 +703,5 @@ class TestHandleLoopRunTerminal(LoopRunsTestCase):
         mock_dispatch.assert_any_call(
             loop,
             "run_failed",
-            {"task_id": str(task_run.task_id), "run_id": str(task_run.id), "status": TaskRun.Status.FAILED},
+            {"task_id": str(task_run.task_id), "task_run_id": str(task_run.id), "status": TaskRun.Status.FAILED},
         )

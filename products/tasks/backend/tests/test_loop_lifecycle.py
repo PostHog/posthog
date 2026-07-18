@@ -5,7 +5,7 @@ from django.test import TestCase
 from posthog.models import Organization, Team, User
 
 from products.tasks.backend.loop_lifecycle import DISABLED_REASON_OWNER_DEACTIVATED, pause_loops_for_deactivated_user
-from products.tasks.backend.models import Loop
+from products.tasks.backend.models import Loop, Task, TaskRun
 
 LIFECYCLE_MODULE = "products.tasks.backend.loop_lifecycle"
 
@@ -41,3 +41,28 @@ class TestPauseLoopsForDeactivatedUser(TestCase):
         self.assertEqual(loop.disabled_reason, DISABLED_REASON_OWNER_DEACTIVATED)
         reasons = [call.args[2].get("reason") for call in mock_dispatch.call_args_list if len(call.args) >= 3]
         self.assertIn(DISABLED_REASON_OWNER_DEACTIVATED, reasons)
+
+    @patch(f"{LIFECYCLE_MODULE}.pause_loop_schedules")
+    @patch(f"{LIFECYCLE_MODULE}.dispatch_loop_event")
+    @patch(f"{LIFECYCLE_MODULE}.signal_loop_run_cancelled")
+    def test_deactivation_cancels_and_signals_in_flight_runs(self, mock_signal, _mock_dispatch, _mock_pause):
+        # Cancelling the DB row isn't enough: the live sandbox must be told to stop, or it runs to
+        # completion under the deactivated owner's revoked credentials. Deactivation must signal each run.
+        loop = self._loop()
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Active",
+            description="d",
+            origin_product=Task.OriginProduct.LOOP,
+            internal=True,
+        )
+        run = task.create_run(mode="background", extra_state={"loop_id": str(loop.id)})
+        run.status = TaskRun.Status.IN_PROGRESS
+        run.save(update_fields=["status", "updated_at"])
+
+        pause_loops_for_deactivated_user(self.user.id)
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.CANCELLED)
+        mock_signal.assert_called_once_with(run.workflow_id)

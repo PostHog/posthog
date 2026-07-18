@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from django.db import transaction
 from django.utils import timezone
 
 from temporalio import activity
@@ -42,45 +43,52 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
     )
 
     try:
-        # Terminal transitions capture analytics that traverse task, team, and
-        # task.created_by; join them upfront instead of three lazy queries.
-        task_run = TaskRun.objects.select_related("task", "team", "task__created_by").get(id=input.run_id)
+        # Lock the run row across the read-guard-save so a concurrent out-of-band cancel (a loop's
+        # cancel_previous overlap policy, owner deactivation) can't slip a CANCELLED write in between
+        # our read and save and get clobbered back to completed/failed. `of=("self",)` locks only the
+        # run, not the joined task/team/created_by we select for the terminal-analytics join.
+        with transaction.atomic():
+            task_run = (
+                TaskRun.objects.select_for_update(of=("self",))
+                .select_related("task", "team", "task__created_by")
+                .get(id=input.run_id)
+            )
+
+            old_status = task_run.status
+            # Terminal statuses are final. A run cancelled out of band must not be resurrected to
+            # completed/failed by its own workflow finishing afterward, which would both lie in the
+            # audit trail and undo the cancellation. Re-checked here while holding the row lock.
+            if old_status in _TERMINAL_STATUSES and input.status != old_status:
+                log_with_activity_context(
+                    "Skipping terminal status overwrite",
+                    run_id=input.run_id,
+                    old_status=old_status,
+                    new_status=input.status,
+                )
+                return
+
+            task_run.status = input.status
+            if input.error_message:
+                task_run.error_message = input.error_message
+            if input.timed_out_inactivity:
+                # Atomic merge so concurrent state writers aren't clobbered; reassigned so reads below see it.
+                task_run.state = TaskRun.update_state_atomic(
+                    task_run.id, updates={TIMED_OUT_INACTIVITY_STATE_KEY: True}
+                )
+            if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]:
+                task_run.completed_at = timezone.now()
+            elif (
+                input.status == TaskRun.Status.CANCELLED
+                and task_run.environment == TaskRun.Environment.CLOUD
+                and not task_run.completed_at
+            ):
+                task_run.completed_at = timezone.now()
+            task_run.save(update_fields=["status", "error_message", "completed_at", "updated_at"])
     except TaskRun.DoesNotExist:
         activity.logger.warning(f"TaskRun {input.run_id} not found for status update")
         return
 
-    old_status = task_run.status
-    # Terminal statuses are final. A run cancelled out of band (a loop's cancel_previous overlap
-    # policy, owner deactivation) must not be resurrected to completed/failed by its own workflow
-    # finishing afterward, which would both lie in the audit trail and undo the cancellation.
-    if old_status in _TERMINAL_STATUSES and input.status != old_status:
-        log_with_activity_context(
-            "Skipping terminal status overwrite",
-            run_id=input.run_id,
-            old_status=old_status,
-            new_status=input.status,
-        )
-        return
-
-    task_run.status = input.status
-
-    if input.error_message:
-        task_run.error_message = input.error_message
-
-    if input.timed_out_inactivity:
-        # Atomic merge so concurrent state writers aren't clobbered; reassigned so reads below see it.
-        task_run.state = TaskRun.update_state_atomic(task_run.id, updates={TIMED_OUT_INACTIVITY_STATE_KEY: True})
-
-    if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]:
-        task_run.completed_at = timezone.now()
-    elif (
-        input.status == TaskRun.Status.CANCELLED
-        and task_run.environment == TaskRun.Environment.CLOUD
-        and not task_run.completed_at
-    ):
-        task_run.completed_at = timezone.now()
-
-    task_run.save(update_fields=["status", "error_message", "completed_at", "updated_at"])
+    # Side effects run after commit, outside the row lock (repo convention: no side effects in atomic).
     task_run.publish_stream_state_event()
     observe_wizard_run_unbound(task_run)
 

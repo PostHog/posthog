@@ -1084,7 +1084,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if pk is None:
             raise NotFound()
         task_id = self._ensure_task_accessible()
-        run = tasks_facade.update_task_run(pk, task_id, self.team_id, validated_data=dict(request.validated_data))
+        # only_if_non_terminal: a run cancelled out of band (loop cancel_previous, owner deactivation)
+        # must not be resurrected to completed/failed by a stale in-flight agent PATCH. A terminal run
+        # is done, so a late PATCH is a no-op, not an overwrite.
+        run = tasks_facade.update_task_run(
+            pk, task_id, self.team_id, validated_data=dict(request.validated_data), only_if_non_terminal=True
+        )
         if run is None:
             raise NotFound()
         return Response(TaskRunDetailSerializer(run).data)
