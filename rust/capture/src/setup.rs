@@ -178,6 +178,9 @@ pub async fn build_components(
         .expect("failed to create redis client"),
     );
 
+    // The dynamic custom-threshold refresh loop is owned by the common limiter:
+    // when GLOBAL_RATE_LIMIT_CUSTOM_THRESHOLD_KEY is set, `build()` wires a Redis
+    // source into the limiter, which spawns and manages the refresh task itself.
     let global_rate_limiter_token_distinctid = if config.global_rate_limit_enabled {
         let limiter = GlobalRateLimiter::try_from_config(&config, redis_client.clone())
             .await

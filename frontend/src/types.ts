@@ -5602,6 +5602,7 @@ export interface HeatmapExportContext {
     heatmap_fixed_position_mode?: HeatmapFixedPositionMode
     common_filters?: CommonFilters
     width?: number
+    height?: number
 }
 
 export type ExportContext = (
@@ -5678,6 +5679,7 @@ export const API_SCOPE_OBJECTS = [
     'approvals',
     'batch_export',
     'batch_import',
+    'batch_import_support',
     'business_knowledge',
     'clickhouse_test_cluster_perf',
     'cohort',
