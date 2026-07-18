@@ -50,3 +50,29 @@ export default meta
 export const WebVitals: Story = {
     args: { query: examples['WebVitals'] },
 }
+
+// The active metric has no data at the selected percentile/filters — the graph shows an explicit
+// empty state instead of a blank line.
+export const WebVitalsNoData: Story = {
+    args: { query: examples['WebVitals'] },
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: true,
+            waitForSelector: '[data-attr=web-vitals-graph-empty]',
+        },
+    },
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                    const body = (await request.json()) as any
+                    if (body.query.kind === 'WebVitalsQuery') {
+                        return [200, { ...webVitals, results: [] }]
+                    } else if (body.query.kind === 'TrendsQuery') {
+                        return [200, webVitalsTrends]
+                    }
+                },
+            },
+        }),
+    ],
+}

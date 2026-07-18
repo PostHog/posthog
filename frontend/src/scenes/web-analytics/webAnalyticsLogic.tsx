@@ -621,7 +621,8 @@ export interface webAnalyticsLogicMeta {
             webVitalsTab: WebVitalsMetric,
             dateFilter: DateFilterState,
             webAnalyticsFilters: WebAnalyticsPropertyFilters,
-            shouldFilterTestAccounts: boolean
+            shouldFilterTestAccounts: boolean,
+            compareFilter: CompareFilter
         ) => InsightVizNode<TrendsQuery>
         showFocusMode: (featureFlags: FeatureFlagsSet, productTab: ProductTab) => boolean
         hasSavedFocusMode: (focusModeConcerns: WebAnalyticsConcern[]) => boolean
@@ -1518,13 +1519,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.dateFilter,
                 s.webAnalyticsFilters,
                 s.shouldFilterTestAccounts,
+                s.compareFilter,
             ],
             (
                 webVitalsPercentile: WebVitalsPercentile,
                 webVitalsTab: WebVitalsMetric,
                 { dateFrom, dateTo, interval },
                 webAnalyticsFilters: WebAnalyticsPropertyFilters,
-                filterTestAccounts: boolean
+                filterTestAccounts: boolean,
+                compareFilter: CompareFilter
             ): InsightVizNode<TrendsQuery> => ({
                 kind: NodeKind.InsightVizNode,
                 source: {
@@ -1534,6 +1537,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         date_to: dateTo,
                     },
                     interval,
+                    compareFilter,
                     series: [
                         {
                             kind: NodeKind.EventsNode,
