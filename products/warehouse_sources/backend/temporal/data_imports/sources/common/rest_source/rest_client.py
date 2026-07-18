@@ -30,6 +30,25 @@ class RESTClientRetryableError(Exception):
         self.retry_after = retry_after
 
 
+class RESTClientNonRetryableError(Exception):
+    """A response that retrying can never turn into usable data.
+
+    Not a subclass of RESTClientRetryableError so the tenacity retry — which only
+    reissues RESTClientRetryableError — stops immediately instead of re-fetching a
+    deterministic failure.
+    """
+
+
+# Bytes that can legally begin a JSON document: an object/array, a string, a
+# number, or one of the literals true/false/null.
+_JSON_START_BYTES = frozenset(b'{["-tfn0123456789')
+
+
+def _looks_like_json(content: bytes) -> bool:
+    stripped = content.lstrip()
+    return bool(stripped) and stripped[0] in _JSON_START_BYTES
+
+
 # Upper bound on how long we'll honor a server-provided retry delay, so a
 # misreported header can't stall a worker for an unbounded amount of time.
 MAX_RETRY_AFTER_SECONDS = 300.0
@@ -215,10 +234,17 @@ class RESTClient:
             # An empty body on an otherwise-successful response is a complete "no data"
             # answer (e.g. an endpoint with nothing to return), not a truncated page —
             # retrying can't conjure rows, so treat it as an empty page and let the
-            # paginator stop. A non-empty body that fails to parse is a partial/truncated
-            # read, which stays retryable.
+            # paginator stop.
             if not response.content or not response.content.strip():
                 return response, None
+            # A body that doesn't even begin with a JSON value is not a truncated page:
+            # the endpoint returned non-JSON content (an HTML or plain-text error page, a
+            # login redirect) on an otherwise-successful response. Re-fetching returns the
+            # same non-JSON body, so fail fast and non-retryably instead of burning the
+            # retry budget. A body that starts as JSON but fails to parse is a partial /
+            # truncated read, which stays retryable.
+            if not _looks_like_json(response.content):
+                raise RESTClientNonRetryableError(f"Non-JSON response from {response.url}") from e
             raise RESTClientRetryableError(f"Malformed JSON response from {response.url}: {e}") from e
 
         return response, body
