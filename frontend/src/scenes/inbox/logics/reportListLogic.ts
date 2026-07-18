@@ -97,8 +97,8 @@ export interface reportListLogicValues {
     hasMore: boolean
     isLoaded: boolean
     listApiParams: any
-    reports: SignalReport[]
     loadedQueryKey: string | null
+    reports: SignalReport[]
     reportsResponse: ReportListResponse | null
     reportsResponseLoading: boolean
     totalCount: number | null
@@ -179,20 +179,10 @@ export interface reportListLogicActions {
         errorObject?: any
     }
     loadMoreReportsSuccess: (
-        reportsResponse: {
-            count: number
-            next?: string | null | undefined
-            previous?: string | null | undefined
-            results: SignalReport[]
-        },
+        reportsResponse: ReportListResponse,
         payload?: any
     ) => {
-        reportsResponse: {
-            count: number
-            next?: string | null | undefined
-            previous?: string | null | undefined
-            results: SignalReport[]
-        }
+        reportsResponse: ReportListResponse
         payload?: any
     }
     loadReports: () => any
