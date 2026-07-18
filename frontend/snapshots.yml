@@ -2305,9 +2305,9 @@ snapshots:
     exporter-other--sql-insight-no-results--light:
         hash: v1.k794b7964.61d2bc9e86a0f575ed9653d7a8591219e402a06f6e53021eee8efcc7eb87d644._4TYA0cVTREdm7CEPknXXiutaQB4rZKngjK1MrAGE-Y
     exporter-trends--trends-metric-insight--dark:
-        hash: v1.k794b7964.5888bc8efe3994a6f6de72dc564dd209797d995747398bbe0f8cf489f4d72df2.WJEQf5G2g5LwsaQVobnxkbS2SiYJxDbaadzeIyamrlY
+        hash: v1.k794b7964.60cf311bad689c8bb01a6fcb749abfbd89cf7b9b371064a4a3acc19273ea7cda.xVW6DGYkEz-U3CpVkdPJLSauhZp32RmadV1W_OHbquI
     exporter-trends--trends-metric-insight--light:
-        hash: v1.k794b7964.12f7c6fa526a6c940fa5138db6ba1066ece183e5feb87f52f8a48d1470c4cd57.VWm4tXCvu-q1PRelHAug4e69-DB9Tt5fpKG_kbwJuS0
+        hash: v1.k794b7964.dc3b4ca037fb20b275731fa0b444266500de21e4d353b1e717afadfaad75cd27.PGWo_98eeD07_YURWo5Bl3Z46sqQshH7cqRCJWI6jLw
     exporter-trends--trends-pie-insight--dark:
         hash: v1.k794b7964.e5e7c9e36ec62680c87794152b474fcd8ae0061bc7e8145416512ee745e05d21.uVeV9IUiset22yU0BtIEzyXgbkadZEoT1M-mMbalaVw
     exporter-trends--trends-pie-insight--light:
