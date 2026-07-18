@@ -23910,6 +23910,8 @@ export namespace Schemas {
          * @nullable
          */
       previous_pass_rate?: number | null;
+      /** False when the metrics query failed rather than the period being genuinely empty; counts and rates are then placeholders and must not be shown as real results. Absent on historical reports, which count as available. */
+      metrics_available?: boolean;
     }
 
     export interface EvaluationReportSection {
