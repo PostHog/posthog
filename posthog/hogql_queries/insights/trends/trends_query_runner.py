@@ -1112,11 +1112,29 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 reverse=True,
             )
         else:
-            # Create a deep copy of the results to avoid modifying shared data
-            copied_results = [[deepcopy(r[0]) for r in results]]
-            return [
-                self.apply_formula_to_results_group(copied_results[0], formula_node, aggregate_values=is_total_value)
-            ]
+            # A series can come back with zero rows (e.g. its sub-query matched nothing).
+            # Synthesize a zero-filled row for those instead of indexing into an empty list,
+            # mirroring how the breakdown branch above fills in missing breakdown values.
+            reference_row = next((r[0] for r in results if r), None)
+            data_length = len(reference_row.get("data") or []) if reference_row else 0
+            row_results = []
+            for r in results:
+                if r:
+                    # Create a deep copy to avoid modifying shared data
+                    row_results.append(deepcopy(r[0]))
+                else:
+                    row_results.append(
+                        {
+                            "label": "filler",
+                            "data": [0] * data_length,
+                            "count": 0,
+                            "aggregated_value": 0,
+                            "action": None,
+                            "days": reference_row.get("days") if reference_row else None,
+                            "labels": reference_row.get("labels") if reference_row else None,
+                        }
+                    )
+            return [self.apply_formula_to_results_group(row_results, formula_node, aggregate_values=is_total_value)]
 
     @staticmethod
     def apply_formula_to_results_group(

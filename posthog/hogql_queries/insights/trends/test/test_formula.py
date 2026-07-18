@@ -961,3 +961,31 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                     "trendsFilter": {"formula": "A/B"},
                 }
             )
+
+    def test_formula_with_empty_series_does_not_crash(self):
+        # Regression: a series can come back with zero rows (e.g. its action is skipped in
+        # build_series_response), which used to crash apply_formula with an IndexError on r[0].
+        trend_query = TrendsQuery(
+            series=[
+                {"kind": "EventsNode", "event": "session start", "math": "sum", "math_property": "xyz"},
+                {"kind": "EventsNode", "event": "session end", "math": "sum", "math_property": "xyz"},
+            ],
+            trendsFilter=TrendsFilter(formula="A + B"),
+        )
+        tqr = TrendsQueryRunner(team=self.team, query=trend_query)
+        formula_node = tqr.query.trendsFilter.formulaNodes[0]
+        populated_series = [
+            {
+                "label": "session start",
+                "data": [1.0, 2.0, 3.0],
+                "count": 6.0,
+                "days": ["2020-01-02", "2020-01-03", "2020-01-04"],
+                "labels": ["2-Jan-2020", "3-Jan-2020", "4-Jan-2020"],
+                "action": None,
+            }
+        ]
+
+        # Second series returned zero rows; the empty series is treated as all-zeros.
+        results = tqr.apply_formula(formula_node, [populated_series, []])
+        self.assertEqual(results[0]["data"], [1.0, 2.0, 3.0])
+        self.assertEqual(results[0]["count"], 6.0)
