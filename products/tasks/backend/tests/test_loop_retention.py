@@ -113,5 +113,5 @@ class TestSweepLoopTaskRetention(LoopRetentionTestCase):
 
         self.assertEqual(deleted_count, 1)
         mock_capture.assert_called_once()
-        deleted_flags = sorted(Task.objects.get(id=task.id).deleted for task in (stale_1, stale_2))
+        deleted_flags = sorted(bool(Task.objects.get(id=task.id).deleted) for task in (stale_1, stale_2))
         self.assertEqual(deleted_flags, [False, True])
