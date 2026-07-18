@@ -14,7 +14,7 @@ class Command(BaseCommand):
             "--pr-url",
             required=True,
             type=str,
-            help="GitHub PR URL (e.g., https://github.com/PostHog/posthog/pull/34633)",
+            help="GitHub PR URL whose unresolved threads to resolve (e.g., https://github.com/PostHog/posthog/pull/72074)",
         )
         parser.add_argument(
             "--team-id",
