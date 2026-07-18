@@ -4,6 +4,7 @@ Kept in one place so cross-cutting side effects of report state changes have a s
 rather than being sprinkled across every dismissal entrypoint (Slack, REST, bulk, …).
 """
 
+import json
 from typing import Any
 
 from django.db import transaction
@@ -16,7 +17,7 @@ import posthoganalytics
 from posthog.event_usage import groups
 
 from products.signals.backend.implementation_pr import PrCloseReason
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.tasks import close_dismissed_report_pr
 
 logger = structlog.get_logger(__name__)
@@ -143,19 +144,59 @@ def capture_status_change_analytics(
         "promoted_at": instance.promoted_at.isoformat() if instance.promoted_at else None,
     }
     report_id = str(instance.id)
+    new_status = instance.status
     team = instance.team
 
     def _capture() -> None:
         try:
+            # A single transaction can save the report through several statuses (e.g. ready →
+            # candidate on re-promotion in mark_report_ready_activity), queuing one callback per
+            # intermediate snapshot. Only the transition matching the durable, committed status
+            # emits — transient intermediate labels would corrupt the training stream.
+            current_status = sender.objects.filter(pk=instance.pk).values_list("status", flat=True).first()
+            if current_status != new_status:
+                return
             posthoganalytics.capture(
                 event="signal_report_status_changed",
                 distinct_id=str(team.uuid),
-                properties=properties,
+                properties={**properties, **_classification_snapshot(report_id)},
                 groups=groups(team.organization, team),
             )
         except Exception:
             # Analytics must never break the transition that triggered it.
             logger.exception("Failed to capture signal_report_status_changed", report_id=report_id)
 
-    # After commit so a rolled-back transition never emits a phantom label.
+    # After commit so a rolled-back transition never emits a phantom label. Post-commit also means
+    # artefacts written in the same transaction (e.g. the dismissal) are visible to the snapshot.
     transaction.on_commit(_capture)
+
+
+# Latest-wins artefact values snapshotted onto `signal_report_status_changed`. Captured with the
+# event because artefacts can be re-judged or edited later — a training join by report_id after
+# the fact could otherwise see different values than existed when the transition happened.
+_SNAPSHOT_ARTEFACT_FIELDS = [
+    (SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, "priority", "priority"),
+    (SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, "actionability", "actionability"),
+    (SignalReportArtefact.ArtefactType.DISMISSAL, "reason", "dismissal_reason"),
+]
+
+
+def _classification_snapshot(report_id: str) -> dict[str, str | None]:
+    snapshot: dict[str, str | None] = {}
+    for artefact_type, content_key, prop in _SNAPSHOT_ARTEFACT_FIELDS:
+        value = None
+        content = (
+            SignalReportArtefact.objects.filter(report_id=report_id, type=artefact_type)
+            .order_by("-created_at")
+            .values_list("content", flat=True)
+            .first()
+        )
+        if content:
+            try:
+                data = json.loads(content)
+                if isinstance(data, dict):
+                    value = data.get(content_key)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                value = None
+        snapshot[prop] = value if isinstance(value, str) else None
+    return snapshot

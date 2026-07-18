@@ -1,9 +1,13 @@
+import json
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import transaction
+
 from parameterized import parameterized
 
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalReport, SignalReportArtefact
 
 
 class TestCaptureStatusChangeAnalytics(BaseTest):
@@ -45,6 +49,37 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
         assert kwargs["properties"]["status"] == new_status
         assert kwargs["properties"]["signal_count"] == 3
         assert kwargs["properties"]["total_weight"] == 2.5
+
+    def test_label_snapshots_latest_classification_artefacts(self):
+        report = self._create_report()
+        for artefact_type, content in [
+            (SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, {"priority": "P1"}),
+            (SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, {"actionability": "immediately_actionable"}),
+            (SignalReportArtefact.ArtefactType.DISMISSAL, {"reason": "wontfix_irrelevant"}),
+        ]:
+            SignalReportArtefact.objects.create(
+                team=self.team, report=report, type=artefact_type, content=json.dumps(content)
+            )
+        with patch("products.signals.backend.receivers.posthoganalytics.capture") as mock_capture:
+            with self.captureOnCommitCallbacks(execute=True):
+                updated = report.transition_to(SignalReport.Status.SUPPRESSED)
+                report.save(update_fields=updated)
+        props = mock_capture.call_args.kwargs["properties"]
+        assert props["priority"] == "P1"
+        assert props["actionability"] == "immediately_actionable"
+        assert props["dismissal_reason"] == "wontfix_irrelevant"
+
+    def test_transient_intermediate_transition_in_one_transaction_is_collapsed(self):
+        report = self._create_report(report_status=SignalReport.Status.IN_PROGRESS)
+        with patch("products.signals.backend.receivers.posthoganalytics.capture") as mock_capture:
+            with self.captureOnCommitCallbacks(execute=True):
+                with transaction.atomic():
+                    report.save(update_fields=report.transition_to(SignalReport.Status.READY, title="t", summary="s"))
+                    report.save(update_fields=report.transition_to(SignalReport.Status.CANDIDATE))
+        assert mock_capture.call_count == 1
+        props = mock_capture.call_args.kwargs["properties"]
+        assert props["previous_status"] == SignalReport.Status.READY
+        assert props["status"] == SignalReport.Status.CANDIDATE
 
     @parameterized.expand(
         [
