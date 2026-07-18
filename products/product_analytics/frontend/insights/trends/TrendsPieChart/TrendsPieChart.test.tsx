@@ -78,6 +78,21 @@ describe('TrendsPieChart (ActionsPie)', () => {
             expect(container.querySelector('.InsightLegendMenu')).not.toBeInTheDocument()
         })
 
+        it('humanizes built-in event names in the legend (no breakdown)', async () => {
+            const { container } = renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }],
+                    trendsFilter: { display: ChartDisplayType.ActionsPie, showLegend: true },
+                }),
+            })
+            await screen.findByLabelText(/pie chart with/i, undefined, { timeout: 5000 })
+
+            const legendEl = getInChartLegend(container)
+            expect(legendEl).not.toBeNull()
+            expect(legendEl!.textContent).toContain('Pageview')
+            expect(legendEl!.textContent).not.toContain('$pageview')
+        })
+
         it('removes a toggled-off slice but keeps it listed (dimmed) so it can be restored', async () => {
             const { container } = renderInsight({ query: pieByHedgehog({ showLegend: true }) })
             await screen.findByLabelText(/pie chart with 5 slices/i, undefined, { timeout: 5000 })

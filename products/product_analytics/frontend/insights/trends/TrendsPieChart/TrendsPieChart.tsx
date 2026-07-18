@@ -14,7 +14,6 @@ import {
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -28,6 +27,7 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
+import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { buildTrendsPieSeries } from './trendsPieTransforms'
@@ -89,16 +89,15 @@ export function TrendsPieChart({
     const onDataPointClick = context?.onDataPointClick
     const showAggregation = !pieChartVizOptions?.hideAggregation
 
+    // Share the line/bar label resolver so the legend humanizes event names ($pageview → Pageview)
+    // and honors series renames, instead of showing the raw event key.
     const getLabel = useCallback(
         (r: IndexedTrendResult): string =>
-            breakdownFilter
-                ? formatBreakdownLabel(
-                      r.breakdown_value,
-                      breakdownFilter,
-                      allCohorts.results,
-                      formatPropertyValueForDisplay
-                  )
-                : (r.label ?? ''),
+            getTrendsSeriesDisplayLabel(r, {
+                breakdownFilter,
+                cohorts: allCohorts.results,
+                formatPropertyValueForDisplay,
+            }),
         [breakdownFilter, allCohorts.results, formatPropertyValueForDisplay]
     )
 
@@ -280,7 +279,7 @@ export function TrendsPieChart({
         <div className={clsx('flex flex-col w-full flex-1 min-h-0', legendAtBottom && 'justify-center')}>
             {legendAtBottom ? <div className="flex flex-col w-full min-h-0 max-h-full aspect-square">{pie}</div> : pie}
             {showAggregation && (
-                <div className="text-7xl text-center font-bold m-0">
+                <div className={clsx('text-7xl text-center font-bold m-0', legendAtBottom && 'mt-6')}>
                     {formatAggregationAxisValue(trendsFilter, total, baseCurrency)}
                 </div>
             )}
