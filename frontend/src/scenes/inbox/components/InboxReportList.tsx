@@ -60,7 +60,7 @@ function ActiveFiltersBanner(): JSX.Element | null {
 }
 
 function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps): JSX.Element {
-    const { reports, count, hasMore, reportsResponseLoading, isLoaded } = useValues(reportListLogic)
+    const { reports, count, totalCount, hasMore, reportsResponseLoading, isLoaded } = useValues(reportListLogic)
     const { ensureLoaded, loadMore, archiveReport, restoreReport, refresh } = useActions(reportListLogic)
     const { hasActiveFilters, sourceProductFilter, priorityFilter, scope } = useValues(inboxFiltersLogic)
     // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
@@ -92,9 +92,9 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     // per tab mount so re-renders and detail-pane round-trips don't refire.
     const impressedIdsRef = useRef(new Set<string>())
     useEffect(() => {
-        // Gate on the (separately-loaded) count so first-page impressions aren't permanently
-        // recorded with total_count: null before the count request settles.
-        if (!listVisible || !isLoaded || count === null) {
+        // totalCount comes from the same response as `reports` (not the separately-loaded badge
+        // count), so impressions can't be stamped with a total from a previous filter/refresh.
+        if (!listVisible || !isLoaded || totalCount === null) {
             return
         }
         const fresh = reports
@@ -109,11 +109,11 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
             reports: fresh.map(({ report }) => report),
             ranks: fresh.map(({ rank }) => rank),
             listSize: reports.length,
-            totalCount: count,
+            totalCount,
             hasActiveFilters,
             scope,
         })
-    }, [listVisible, isLoaded, count, reports, tabKey, hasActiveFilters, scope])
+    }, [listVisible, isLoaded, totalCount, reports, tabKey, hasActiveFilters, scope])
 
     // Read fresh state at intersection time via refs so the observer is created once and not
     // rebuilt twice per page fetch (`hasMore`/`reportsResponseLoading` both flip during a load).
