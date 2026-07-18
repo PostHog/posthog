@@ -344,6 +344,7 @@ class TestObjectStorageClientFactory(SimpleTestCase):
             storage = object_storage_client()
 
         # Reads stay on the single-attempt client; writes/deletes get their own retry-backoff client.
+        assert isinstance(storage, ObjectStorage)
         assert storage.aws_client is internal_client
         assert storage.write_client is write_client
         read_config = patched_client.call_args_list[0].kwargs["config"]
