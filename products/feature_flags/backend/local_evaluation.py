@@ -521,12 +521,24 @@ def clear_flag_definition_caches(team: Team | int, kinds: list[str] | None = Non
     flag_definitions_hypercache.clear_cache(team, kinds=kinds)
 
 
+def _local_eval_response(
+    flags: list[dict[str, Any]],
+    group_type_mapping: dict[str, str],
+    cohorts: dict[str, Any],
+    minimal_flag_called_events: bool,
+) -> dict[str, Any]:
+    return {
+        "flags": flags,
+        "group_type_mapping": group_type_mapping,
+        "cohorts": cohorts,
+        "minimal_flag_called_events": minimal_flag_called_events,
+    }
+
+
 def _get_flags_response_for_local_evaluation(team: Team) -> dict[str, Any]:
     """Build the local-evaluation response for a single team."""
     results = _get_flags_response_for_local_evaluation_batch([team])
-    return results.get(
-        team.id, {"flags": [], "group_type_mapping": {}, "cohorts": {}, "minimal_flag_called_events": False}
-    )
+    return results.get(team.id, _local_eval_response([], {}, {}, False))
 
 
 def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[int, dict[str, Any]]:
@@ -549,10 +561,11 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
     # Slim $feature_flag_called gate, exposed top-level so local-eval SDKs (which never
     # call /flags) get the same signal FlagsResponse.minimal_flag_called_events carries.
     # Absent row → False → SDKs send full events, same fail-safe as the /flags path.
-    minimal_flag_called_events_by_team = dict(
+    minimal_flag_called_events_by_team: defaultdict[int, bool] = defaultdict(
+        bool,
         TeamFeatureFlagsConfig.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
         .filter(team_id__in=team_ids)
-        .values_list("team_id", "minimal_flag_called_events")
+        .values_list("team_id", "minimal_flag_called_events"),
     )
 
     # Bulk load survey flag IDs across all teams
@@ -683,24 +696,24 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
                 FLAG_PROCESSING_ERROR_COUNTER.inc()
                 continue
 
-        response_data: dict[str, Any] = {
-            "flags": flags_data,
-            "group_type_mapping": gtm_by_project.get(team.project_id, {}),
-            "cohorts": cohorts,
-            "minimal_flag_called_events": minimal_flag_called_events_by_team.get(tid, False),
-        }
+        response_data = _local_eval_response(
+            flags_data,
+            gtm_by_project.get(team.project_id, {}),
+            cohorts,
+            minimal_flag_called_events_by_team[tid],
+        )
 
         results[tid] = _apply_flag_dependency_transformation(response_data, flag_id_to_key)
 
     # Ensure every requested team has a result, even if it had no flags
     for tid in team_ids:
         if tid not in results:
-            results[tid] = {
-                "flags": [],
-                "group_type_mapping": gtm_by_project.get(team_by_id[tid].project_id, {}),
-                "cohorts": {},
-                "minimal_flag_called_events": minimal_flag_called_events_by_team.get(tid, False),
-            }
+            results[tid] = _local_eval_response(
+                [],
+                gtm_by_project.get(team_by_id[tid].project_id, {}),
+                {},
+                minimal_flag_called_events_by_team[tid],
+            )
 
     return results
 
@@ -736,6 +749,16 @@ FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     should_skip_write=_skip_write_if_group_mapping_emptied,
     refresh_only_fields=_FLAG_DEFINITIONS_REFRESH_ONLY_FIELDS,
 )
+
+
+# Top-level blob fields (besides "flags", compared separately by key) checked for drift by
+# verify_team_flag_definitions. Each entry is (field, mismatch type, default used when a legacy
+# blob predates the field — None means the field has always been present).
+_TOP_LEVEL_FIELDS_TO_COMPARE: list[tuple[str, str, Any]] = [
+    ("cohorts", "COHORTS_MISMATCH", None),
+    ("group_type_mapping", "GROUP_TYPE_MAPPING_MISMATCH", None),
+    ("minimal_flag_called_events", "MINIMAL_FLAG_CALLED_EVENTS_MISMATCH", False),
+]
 
 
 def verify_team_flag_definitions(
@@ -826,16 +849,12 @@ def verify_team_flag_definitions(
                     diff["field_diffs"] = field_diffs
                 diffs.append(diff)
 
-    # Also compare cohorts and group_type_mapping
+    # Also compare top-level blob fields other than flags (cohorts, group_type_mapping, …).
+    # A default other than None means a legacy blob missing the key isn't reported as drift.
     if cached_data is not None and db_data is not None:
-        if cached_data.get("cohorts") != db_data.get("cohorts"):
-            diffs.append({"type": "COHORTS_MISMATCH", "flag_key": "cohorts"})
-        if cached_data.get("group_type_mapping") != db_data.get("group_type_mapping"):
-            diffs.append({"type": "GROUP_TYPE_MAPPING_MISMATCH", "flag_key": "group_type_mapping"})
-        # Default False on both sides so pre-existing blobs without the key don't all
-        # report drift — absent and False mean the same thing to SDKs (full events).
-        if cached_data.get("minimal_flag_called_events", False) != db_data.get("minimal_flag_called_events", False):
-            diffs.append({"type": "MINIMAL_FLAG_CALLED_EVENTS_MISMATCH", "flag_key": "minimal_flag_called_events"})
+        for field, mismatch_type, default in _TOP_LEVEL_FIELDS_TO_COMPARE:
+            if cached_data.get(field, default) != db_data.get(field, default):
+                diffs.append({"type": mismatch_type, "flag_key": field})
 
     if not diffs:
         return {"status": "match", "issue": "", "details": ""}
@@ -844,9 +863,7 @@ def verify_team_flag_definitions(
     missing_count = sum(1 for d in diffs if d.get("type") == "MISSING_IN_CACHE")
     stale_count = sum(1 for d in diffs if d.get("type") == "STALE_IN_CACHE")
     mismatch_count = sum(1 for d in diffs if d.get("type") == "FIELD_MISMATCH")
-    cohorts_mismatch = any(d.get("type") == "COHORTS_MISMATCH" for d in diffs)
-    gtm_mismatch = any(d.get("type") == "GROUP_TYPE_MAPPING_MISMATCH" for d in diffs)
-    minimal_ffc_mismatch = any(d.get("type") == "MINIMAL_FLAG_CALLED_EVENTS_MISMATCH" for d in diffs)
+    mismatched_types = {d.get("type") for d in diffs}
 
     summary_parts = []
     if missing_count > 0:
@@ -857,13 +874,11 @@ def verify_team_flag_definitions(
         summary_parts.append(f"{mismatch_count} mismatched")
 
     flag_summary = f"{', '.join(summary_parts)} flags" if summary_parts else ""
-    extra_parts = []
-    if cohorts_mismatch:
-        extra_parts.append("cohorts mismatch")
-    if gtm_mismatch:
-        extra_parts.append("group_type_mapping mismatch")
-    if minimal_ffc_mismatch:
-        extra_parts.append("minimal_flag_called_events mismatch")
+    extra_parts = [
+        f"{field} mismatch"
+        for field, mismatch_type, _ in _TOP_LEVEL_FIELDS_TO_COMPARE
+        if mismatch_type in mismatched_types
+    ]
 
     details = "; ".join(filter(None, [flag_summary, ", ".join(extra_parts)]))
 
