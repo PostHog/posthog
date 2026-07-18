@@ -6,6 +6,7 @@ from uuid import UUID
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Q, QuerySet
+from django.utils import timezone
 
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.integration import (
@@ -402,11 +403,14 @@ def update_settings(
             setattr(settings, key, value)
         if updates:
             settings.save(update_fields=list(updates))
-        # Mirror onto Team via save() so its post_save consumers (remote config, team metadata cache) fire.
+        # Mirror onto the (deprecated) Team column via a queryset update() so Team post_save doesn't
+        # fire: the settings row above is the source of truth and already rebuilt remote config, and a
+        # Team save() would mirror straight back into ErrorTrackingSettings, doubling the write and rebuild.
         if "autocapture_exceptions_opt_in" in updates:
-            team = Team.objects.get(id=team_id)
-            team.autocapture_exceptions_opt_in = bool(updates["autocapture_exceptions_opt_in"])
-            team.save(update_fields=["autocapture_exceptions_opt_in", "updated_at"])
+            Team.objects.filter(id=team_id).update(
+                autocapture_exceptions_opt_in=bool(updates["autocapture_exceptions_opt_in"]),
+                updated_at=timezone.now(),
+            )
     if changes:
         log_activity(
             organization_id=Team.objects.values_list("organization_id", flat=True).get(id=team_id),

@@ -105,9 +105,9 @@ class TestErrorTrackingSettingsAPI(APIBaseTest):
             response = self.client.patch(f"{self._base_url()}/update_settings/", payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         if expects_rebuild:
-            # Team save + settings save each dispatch; count is an implementation detail, target team is not.
-            self.assertTrue(mock_delay.called)
-            self.assertEqual({call.args for call in mock_delay.call_args_list}, {(self.team.id,)})
+            # The settings write rebuilds; the Team mirror must not dispatch a second, redundant one.
+            self.assertEqual(mock_delay.call_count, 1)
+            self.assertEqual(mock_delay.call_args_list[0].args, (self.team.id,))
         else:
             mock_delay.assert_not_called()
 
@@ -122,6 +122,7 @@ class TestErrorTrackingSettingsAPI(APIBaseTest):
         log = ActivityLog.objects.get(team_id=self.team.id, scope="ErrorTrackingSettings")
         self.assertEqual(log.activity, "updated")
         self.assertEqual(log.user, self.user)
+        assert log.detail is not None
         changed_fields = {change["field"] for change in log.detail["changes"]}
         self.assertEqual(changed_fields, {"autocapture_exceptions_opt_in", "project_rate_limit_value"})
 
