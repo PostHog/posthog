@@ -668,8 +668,10 @@ class ReviewPRWorkflow:
                     # A resolution run already in flight for this PR wins; this dispatch just no-ops.
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                 )
-            except Exception:
-                workflow.logger.warning("Could not dispatch the resolution stage; the review is unaffected")
+            except Exception as e:
+                # Broad by design (best-effort — a dispatch failure must never fail a finished review);
+                # log the detail so a real failure is distinguishable from the benign already-running race.
+                workflow.logger.warning(f"Could not dispatch the resolution stage; the review is unaffected: {e!r}")
 
         workflow.logger.info(f"ReviewHog complete · report stored on ReviewReport {report_id}")
         return report_id

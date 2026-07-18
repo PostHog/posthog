@@ -12,7 +12,10 @@ validation chunk sessions.
 Idempotency is per thread, not per activity: every turn's verdict persists as a `thread_verdict`
 artefact before its side effects, so an activity retry re-fetches the threads (cheap), skips the
 judged-and-delivered ones via the deterministic pre-filter, redelivers any missing GitHub writes,
-and spends LLM turns only on what's genuinely left.
+and spends LLM turns only on what's genuinely left. One gap: the reply mutation isn't idempotent
+and the per-thread watermark only advances once the reply is persisted, so a crash in the window
+between posting a reply and recording it re-triages that thread on retry — a fresh turn that posts
+a second reply. Reply-first deliberately fails toward a visible duplicate rather than a lost reply.
 """
 
 import logging
@@ -225,8 +228,11 @@ def _deliver_side_effects(
     what's still missing.
 
     The reply lands first (the outcome must be readable even if resolving then fails); the watermark
-    advances to our own posted reply so it doesn't re-open triage. Resolving is etiquette-gated
-    (`should_resolve`) and best-effort — a failed resolve is redelivered by the next run's pre-filter.
+    advances to our own posted reply so it doesn't re-open triage. A crash between posting the reply
+    and recording it (the persist below) leaves the watermark un-advanced, so the retry re-triages the
+    thread and can post a duplicate reply — the reply mutation has no idempotency key (module docstring).
+    Resolving is etiquette-gated (`should_resolve`) and best-effort — a failed resolve is redelivered by
+    the next run's pre-filter.
     """
     updated = verdict
     if not updated.reply_posted:
@@ -327,10 +333,10 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
     """Run the whole per-PR resolution session: fetch, gate, triage one thread per warm turn, deliver.
 
     One activity because the sandbox session is an in-process handle — it cannot cross activity
-    boundaries. Retries are cheap anyway: verdicts persist per thread, so a retry redoes only the
-    unjudged threads and any undelivered GitHub writes. A failed turn fails the activity for that
-    cheap retry; only the final attempt skips the thread (continuing on a fresh session), mirroring
-    the validation sessions.
+    boundaries. Retries are cheap anyway: verdicts persist per thread, so a retry redoes unjudged
+    threads and any undelivered GitHub writes (with one crash-window exception that can duplicate a
+    reply, per the module docstring). A failed turn fails the activity for that cheap retry; only the
+    final attempt skips the thread (continuing on a fresh session), mirroring the validation sessions.
     """
     prepared = await database_sync_to_async(_prepare_run, thread_sensitive=False)(input)
     if isinstance(prepared, ResolutionRunResult):

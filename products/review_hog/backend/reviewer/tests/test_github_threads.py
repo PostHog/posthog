@@ -8,6 +8,7 @@ from parameterized import parameterized
 from products.review_hog.backend.reviewer.artefact_content import ThreadVerdictArtefact
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.review_hog.backend.reviewer.tools.github_threads import (
+    REVIEW_HOG_FINDING_MARKER,
     ReviewThread,
     ThreadAction,
     ThreadComment,
@@ -122,7 +123,8 @@ class TestGitHubThreads:
             author_login="posthog-app[bot]",
             author_is_bot=True,
             created_at="2026-07-02T00:00:00Z",
-            first_body="**ReviewHog** found an issue",
+            # Recognized by the marker ReviewHog stamps on its comments, not the login (deployment-varying).
+            first_body=f"### A finding\n\n{REVIEW_HOG_FINDING_MARKER}",
         )
         human_new = _thread("PRRT_h2", author_login="bob", created_at="2026-07-03T00:00:00Z")
         human_old = _thread("PRRT_h1", author_login="alice", created_at="2026-07-01T00:00:00Z")
