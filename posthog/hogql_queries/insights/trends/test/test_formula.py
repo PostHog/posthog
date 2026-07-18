@@ -973,6 +973,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             trendsFilter=TrendsFilter(formula="A + B"),
         )
         tqr = TrendsQueryRunner(team=self.team, query=trend_query)
+        assert tqr.query.trendsFilter is not None and tqr.query.trendsFilter.formulaNodes is not None
         formula_node = tqr.query.trendsFilter.formulaNodes[0]
         populated_series = [
             {
