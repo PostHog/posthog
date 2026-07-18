@@ -152,14 +152,25 @@ def capture_status_change_analytics(
             # A single transaction can save the report through several statuses (e.g. ready →
             # candidate on re-promotion in mark_report_ready_activity), queuing one callback per
             # intermediate snapshot. Only the transition matching the durable, committed status
-            # emits — transient intermediate labels would corrupt the training stream.
+            # emits — transient intermediate labels would corrupt the training stream. The skipped
+            # callback stashes its prior status on the shared instance so the emitting one reports
+            # the committed transition (in_progress → candidate), not a phantom hop through a
+            # state that never committed (ready → candidate).
             current_status = sender.objects.filter(pk=instance.pk).values_list("status", flat=True).first()
             if current_status != new_status:
+                if getattr(instance, "_collapsed_prior_status", None) is None:
+                    instance._collapsed_prior_status = properties["previous_status"]  # type: ignore[attr-defined]
                 return
+            collapsed_prior = getattr(instance, "_collapsed_prior_status", None)
+            instance._collapsed_prior_status = None  # type: ignore[attr-defined]
             posthoganalytics.capture(
                 event="signal_report_status_changed",
                 distinct_id=str(team.uuid),
-                properties={**properties, **_classification_snapshot(report_id)},
+                properties={
+                    **properties,
+                    "previous_status": collapsed_prior or properties["previous_status"],
+                    **_classification_snapshot(report_id),
+                },
                 groups=groups(team.organization, team),
             )
         except Exception:
@@ -182,15 +193,21 @@ _SNAPSHOT_ARTEFACT_FIELDS = [
 
 
 def _classification_snapshot(report_id: str) -> dict[str, str | None]:
+    # One DISTINCT ON query for all three types: the bulk-state endpoint can transition up to 100
+    # reports in a request, and each one's post-commit callback takes this path before the
+    # response returns, so per-type queries would multiply into hundreds.
+    latest_content_by_type = dict(
+        SignalReportArtefact.objects.filter(
+            report_id=report_id, type__in=[artefact_type for artefact_type, _, _ in _SNAPSHOT_ARTEFACT_FIELDS]
+        )
+        .order_by("type", "-created_at")
+        .distinct("type")
+        .values_list("type", "content")
+    )
     snapshot: dict[str, str | None] = {}
     for artefact_type, content_key, prop in _SNAPSHOT_ARTEFACT_FIELDS:
         value = None
-        content = (
-            SignalReportArtefact.objects.filter(report_id=report_id, type=artefact_type)
-            .order_by("-created_at")
-            .values_list("content", flat=True)
-            .first()
-        )
+        content = latest_content_by_type.get(artefact_type)
         if content:
             try:
                 data = json.loads(content)

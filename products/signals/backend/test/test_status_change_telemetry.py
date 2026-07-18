@@ -78,7 +78,8 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
                     report.save(update_fields=report.transition_to(SignalReport.Status.CANDIDATE))
         assert mock_capture.call_count == 1
         props = mock_capture.call_args.kwargs["properties"]
-        assert props["previous_status"] == SignalReport.Status.READY
+        # The committed transition, not a phantom hop through the never-committed READY state.
+        assert props["previous_status"] == SignalReport.Status.IN_PROGRESS
         assert props["status"] == SignalReport.Status.CANDIDATE
 
     @parameterized.expand(
