@@ -1,4 +1,22 @@
-use serde::{Deserialize, Serialize};
+use serde::de::Error as DeError;
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
+
+fn deserialize_property_filter_key<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match Value::deserialize(deserializer)? {
+        Value::String(s) => Ok(s),
+        Value::Number(n) => n
+            .as_i64()
+            .map(|id| id.to_string())
+            .ok_or_else(|| DeError::custom("property filter key number must be an integer")),
+        _ => Err(DeError::custom(
+            "property filter key must be a string or integer",
+        )),
+    }
+}
 
 // Keep in sync with FEATURE_FLAG_SUPPORTED_OPERATORS in posthog/api/feature_flag.py
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -75,6 +93,7 @@ impl std::fmt::Debug for CompiledRegex {
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct PropertyFilter {
+    #[serde(deserialize_with = "deserialize_property_filter_key")]
     pub key: String,
     // NB: if a property filter is of type is_set or is_not_set, the value isn't used, and if it's a filter made by the API, the value is None.
     pub value: Option<serde_json::Value>,
@@ -99,6 +118,24 @@ pub struct PropertyFilter {
     /// See plans/verify-flags-cache-loose-comparison.md.
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_deserialize_property_filter_key_from_number() {
+        let filter: PropertyFilter = serde_json::from_value(json!({
+            "key": 226357,
+            "type": "flag",
+            "operator": "flag_evaluates_to",
+            "value": true
+        }))
+        .unwrap();
+        assert_eq!(filter.key, "226357");
+    }
 }
 
 #[cfg(test)]

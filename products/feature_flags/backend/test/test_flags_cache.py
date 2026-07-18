@@ -39,6 +39,7 @@ from products.feature_flags.backend.flags_cache import (
     _get_feature_flags_for_service,
     _get_feature_flags_for_teams_batch,
     _get_referenced_cohorts,
+    _normalize_flag_dependency_keys_in_flags_data,
     _serialize_cohort,
     _strip_null_values,
     clear_flags_cache,
@@ -3064,6 +3065,31 @@ def _make_flag(id: int, key: str, deps: list[int] | None = None, active: bool = 
         "deleted": deleted,
         "filters": {"groups": [{"properties": properties, "rollout_percentage": 100}]},
     }
+
+
+class TestNormalizeFlagDependencyKeys:
+    def test_numeric_dependency_key_coerced_to_string(self):
+        flags_data = [
+            {
+                "id": 1,
+                "key": "flag_a",
+                "active": True,
+                "deleted": False,
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"type": "flag", "key": 226357, "value": True, "operator": "flag_evaluates_to"},
+                            ]
+                        }
+                    ]
+                },
+            }
+        ]
+
+        _normalize_flag_dependency_keys_in_flags_data(flags_data)
+
+        assert flags_data[0]["filters"]["groups"][0]["properties"][0]["key"] == "226357"
 
 
 class TestExtractDirectDependencyIds:

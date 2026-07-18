@@ -419,6 +419,43 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    def test_numeric_flag_dependency_key_is_stored_as_string(self) -> None:
+        base_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="base-flag-numeric-dep",
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Dependent flag numeric key",
+                "key": "dependent-flag-numeric-dep",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {
+                                    "key": base_flag.id,
+                                    "type": "flag",
+                                    "value": "true",
+                                    "operator": "flag_evaluates_to",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        flag = FeatureFlag.objects.get(key="dependent-flag-numeric-dep", team=self.team)
+        flag_property = flag.filters["groups"][0]["properties"][0]
+        self.assertEqual(flag_property["key"], str(base_flag.id))
+        self.assertIsInstance(flag_property["key"], str)
+
     @parameterized.expand(
         [
             ("in",),

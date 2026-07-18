@@ -1575,7 +1575,22 @@ class FeatureFlagSerializer(
                 f"Please simplify conditions or reduce payload sizes."
             )
 
+        self._normalize_flag_dependency_property_keys(filters)
+
         return filters
+
+    def _normalize_flag_dependency_property_keys(self, filters: dict) -> None:
+        """Store flag-dependency property keys as strings (flag IDs) for Rust eval."""
+        from posthog.utils import safe_int
+
+        for flag_prop in _get_flag_properties_from_filters(filters):
+            flag_reference = flag_prop.get("key")
+            if flag_reference is None:
+                continue
+            self._validate_flag_reference(flag_reference)
+            flag_id = safe_int(flag_reference)
+            if flag_id is not None:
+                flag_prop["key"] = str(flag_id)
 
     def _validate_flag_reference(self, flag_reference):
         """Validate and convert flag reference to flag key."""

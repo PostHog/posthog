@@ -73,6 +73,23 @@ logger = structlog.get_logger(__name__)
 FLAGS_CACHE_EXPIRY_SORTED_SET = "flags_cache_expiry"
 
 
+def _normalize_flag_dependency_keys_in_flags_data(flags_data: list[dict[str, Any]]) -> None:
+    """Coerce flag-dependency property keys to strings for Rust hypercache deserialization."""
+    for flag_data in flags_data:
+        filters = flag_data.get("filters", {})
+        for group in filters.get("groups") or []:
+            for prop in group.get("properties") or []:
+                if prop.get("type") != "flag":
+                    continue
+                key = prop.get("key")
+                if key is None or isinstance(key, str):
+                    continue
+                try:
+                    prop["key"] = str(int(key))
+                except (ValueError, TypeError):
+                    continue
+
+
 def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
     """
     Extract direct flag dependency IDs from a serialized flag's filters.
@@ -343,6 +360,7 @@ def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
     """
     flags = get_feature_flags(team=team, exclude_encrypted_payloads=True)
     flags_data = serialize_feature_flags(flags)
+    _normalize_flag_dependency_keys_in_flags_data(flags_data)
     evaluation_metadata = _compute_flag_dependencies(flags_data)
 
     cohorts = _get_referenced_cohorts(team.id, flags_data)
@@ -416,6 +434,7 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
     for team in teams:
         team_flags = flags_by_team_id.get(team.id, [])
         flags_data = serialize_feature_flags(team_flags)
+        _normalize_flag_dependency_keys_in_flags_data(flags_data)
         flags_data_by_team[team.id] = flags_data
         all_cohort_ids.update(_extract_cohort_ids_from_flag_filters(flags_data))
 
