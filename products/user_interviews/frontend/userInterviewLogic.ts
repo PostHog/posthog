@@ -20,6 +20,7 @@ import {
     userInterviewTopicsTestLinkRetrieve,
     userInterviewsList,
 } from './generated/api'
+import { ClassificationsEnumApi } from './generated/api.schemas'
 import type {
     IntervieweeContextApi,
     InterviewLinkApi,
@@ -311,6 +312,17 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
         openInvitePreview: ({ identifier }) => {
             actions.loadInvitePreview(identifier)
         },
+        loadTopicSuccess: ({ topic }) => {
+            // generate_links 400s for a zero-target topic (now valid — a shared-only link needs no
+            // targeted interviewees), so only materialise personalised links once we know the topic
+            // has some. Avoids a guaranteed-failing POST and a misleading "couldn't generate link"
+            // state on the shared-only flow.
+            const hasTargets =
+                (topic?.interviewee_emails?.length || 0) + (topic?.interviewee_distinct_ids?.length || 0) > 0
+            if (hasTargets) {
+                actions.loadLinks()
+            }
+        },
         copySharedLink: async () => {
             const projectId = String(teamLogic.values.currentTeamId)
             try {
@@ -370,6 +382,12 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
             (interviews: UserInterviewApi[]): Set<string> => {
                 const responded = new Set<string>()
                 for (const interview of interviews) {
+                    // Mirror the backend `has_replied` rule: an abandoned partial (e.g. a mid-call
+                    // refresh) is not a reply, so it must not mark the invitee responded — otherwise
+                    // the topic page and the public link disagree on who still needs chasing.
+                    if (interview.classifications?.includes(ClassificationsEnumApi.Abandoned)) {
+                        continue
+                    }
                     if (interview.transcript || interview.summary) {
                         if (interview.interviewee_identifier) {
                             responded.add(interview.interviewee_identifier)
@@ -418,7 +436,8 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
         actions.loadTopic()
         actions.loadInterviewees()
         actions.loadInterviews()
-        actions.loadLinks()
+        // loadLinks is fired from loadTopicSuccess only when the topic has targeted interviewees —
+        // generate_links 400s for the zero-target (shared-only) topics this now supports.
         actions.loadTestLink()
     }),
 ])

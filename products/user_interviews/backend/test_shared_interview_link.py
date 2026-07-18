@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_sharing import mock_exporter_template
@@ -96,6 +97,33 @@ class TestGenerateSharedLink(_FeatureFlagEnabledMixin):
         assert not topic.interviewee_emails and not topic.interviewee_distinct_ids
         response = self.client.post(self._url(str(topic.id)))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+
+class TestReservedIdentifierRejected(_FeatureFlagEnabledMixin):
+    # A user-supplied identifier equal to the shared-link sentinel (or in the `shared:` namespace)
+    # would collide on the unique (topic, interviewee_identifier) constraint and silently merge with
+    # or revoke the topic's shared link, so it's rejected at every input boundary.
+    def _topics_url(self) -> str:
+        return f"/api/environments/{self.team.id}/user_interview_topics/"
+
+    @parameterized.expand([("sentinel", SHARED_INTERVIEWEE_IDENTIFIER), ("shared_namespace", "shared:abc123")])
+    def test_topic_create_rejects_reserved_distinct_id(self, _name: str, identifier: str) -> None:
+        response = self.client.post(
+            self._topics_url(),
+            data={"topic": "Why people churn", "interviewee_distinct_ids": [identifier]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+    @parameterized.expand([("sentinel", SHARED_INTERVIEWEE_IDENTIFIER), ("shared_namespace", "shared:abc123")])
+    def test_add_interviewee_rejects_reserved_identifier(self, _name: str, identifier: str) -> None:
+        topic = UserInterviewTopic.objects.create(team=self.team, created_by=self.user, topic="Why people churn")
+        response = self.client.post(
+            f"{self._topics_url()}{topic.id}/add_interviewee/",
+            data={"identifier": identifier},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
 
 
 class TestRevokeSharedLink(_FeatureFlagEnabledMixin):
@@ -362,14 +390,15 @@ class TestSharedVapiWebhook(APIBaseTest):
         config = self._shared_config()
         assert config.interviewee_context is not None
         topic = config.interviewee_context.topic
-        # Simulate the abandoned partial an accidental refresh leaves behind for this respondent.
+        # Simulate the abandoned partial an accidental refresh leaves behind: an AI-only transcript
+        # (the respondent never spoke), which is what auto-derives as abandoned and is safe to collapse.
         abandoned = UserInterview.objects.create(
             team=self.team,
             created_by=self.user,
             topic=topic,
             interviewee_identifier="shared:resp-1",
             respondent_key="resp-1",
-            transcript="",
+            transcript="AI: Hey! Thanks for making time. Ready to start?",
             classifications=[UserInterviewClassification.ABANDONED],
         )
         self.client.logout()
@@ -383,3 +412,30 @@ class TestSharedVapiWebhook(APIBaseTest):
         remaining = UserInterview.objects.filter(team=self.team, respondent_key="resp-1")
         assert remaining.count() == 1
         assert remaining.first().transcript == "a full answer"  # type: ignore[union-attr]
+
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    def test_manually_tagged_real_response_is_not_collapsed(self) -> None:
+        # A real response a curator re-tagged `abandoned` (it contains interviewee turns) must survive
+        # the collapse — the delete re-derives from the transcript, so only genuine AI-only partials go.
+        # `abandoned` is user-mutable, so trusting the stored label would permanently delete real data.
+        config = self._shared_config()
+        assert config.interviewee_context is not None
+        topic = config.interviewee_context.topic
+        real = UserInterview.objects.create(
+            team=self.team,
+            created_by=self.user,
+            topic=topic,
+            interviewee_identifier="shared:resp-9",
+            respondent_key="resp-9",
+            transcript="AI: How do you use this?\nUser: Every day — it's core to my workflow.",
+            classifications=[UserInterviewClassification.ABANDONED],
+        )
+        self.client.logout()
+        response = self._signed_post(
+            "topsecret",
+            self._payload(config.access_token, call_id="call_9", respondent_key="resp-9", transcript="a full answer"),
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        # The mislabeled real response is preserved (it has interviewee turns, so it doesn't re-derive
+        # as abandoned); only genuine AI-only partials are collapsed.
+        assert UserInterview.objects.filter(pk=real.pk).exists()

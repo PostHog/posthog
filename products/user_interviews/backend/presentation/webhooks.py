@@ -327,6 +327,41 @@ def _shared_interviewee_identifier(respondent_key: str) -> str:
     return f"{SHARED_RESPONDENT_IDENTIFIER_PREFIX}{respondent_key or uuid4().hex}"
 
 
+def _collapse_abandoned_partials(*, team: Team, topic: UserInterviewTopic, respondent_key: str, keep_pk: Any) -> None:
+    """Delete the abandoned partial an accidental mid-call refresh leaves behind, when the same
+    respondent (same ``respondent_key``) comes back and finishes — so the topic shows one response
+    per respondent instead of a junk trail.
+
+    Deletes only rows that STILL auto-derive as ``abandoned`` from their own transcript, rather than
+    trusting the stored label. ``abandoned`` is user-mutable (writable via the update API and the MCP
+    tool), so a real response a curator manually re-tagged ``abandoned`` would otherwise be
+    permanently, unrecoverably deleted here. Re-deriving keeps this a cleanup of genuine AI-only
+    partials and never touches a row that contains real interviewee content.
+    """
+    candidates = (
+        UserInterview.objects.filter(
+            team=team,
+            topic=topic,
+            respondent_key=respondent_key,
+            classifications__contains=[UserInterviewClassification.ABANDONED],
+        )
+        .exclude(pk=keep_pk)
+        .only("id", "transcript")
+    )
+    stale_pks = [
+        c.pk for c in candidates if UserInterviewClassification.ABANDONED in derive_auto_classifications(c.transcript)
+    ]
+    if not stale_pks:
+        return
+    deleted_count, _ = UserInterview.objects.filter(pk__in=stale_pks).delete()
+    logger.info(
+        "user_interviews_collapsed_abandoned_partials",
+        team_id=team.id,
+        topic_id=str(topic.id),
+        deleted_count=deleted_count,
+    )
+
+
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -368,8 +403,13 @@ def start_call(request: Request, access_token: str) -> Response:
 
     body = request.data if isinstance(request.data, dict) else {}
     # Honeypot: a hidden field real users never fill, but naive bots do. Present on the shared-link
-    # name form; reject silently-ish with a 400 so a bot can't spin up calls.
+    # name form; reject silently-ish with a 400 so a bot can't spin up calls. Log it so a bot wave —
+    # or a false positive dropping a real respondent — is visible rather than a silent black hole.
     if body.get("_hp"):
+        logger.warning(
+            "user_interviews_start_call_honeypot_tripped",
+            access_token_suffix=access_token[-6:] if access_token else None,
+        )
         return Response({"error": "invalid request"}, status=status.HTTP_400_BAD_REQUEST)
 
     sharing_config = _resolve_share(access_token)
@@ -647,12 +687,12 @@ def vapi_webhook(request: Request) -> Response:
         # respondent comes back (same respondent_key) and finishes, drop their earlier abandoned
         # rows so the topic shows one response per respondent instead of a junk trail.
         if respondent_key and UserInterviewClassification.ABANDONED not in classifications:
-            UserInterview.objects.filter(
+            _collapse_abandoned_partials(
                 team=sharing_config.team,
                 topic=topic,
                 respondent_key=respondent_key,
-                classifications__contains=[UserInterviewClassification.ABANDONED],
-            ).exclude(pk=interview.pk).delete()
+                keep_pk=interview.pk,
+            )
         transaction.on_commit(lambda: _emit_interview_embeddings(interview, topic))
 
     _capture_user_interview_event(

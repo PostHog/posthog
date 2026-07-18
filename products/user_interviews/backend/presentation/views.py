@@ -543,6 +543,21 @@ class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return response.Response(UserInterviewSearchResultSerializer(results, many=True).data)
 
 
+# The shared-link sentinel and the `shared:` respondent namespace are internal markers that back a
+# topic's non-personalised link. A user-supplied interviewee identifier equal to one — or in the
+# `shared:` namespace — would collide on the unique (topic, interviewee_identifier) constraint and
+# silently merge with, or revoke, the topic's shared link. Reject them at every input boundary;
+# internal creation of the sentinel goes through the ORM directly, bypassing these serializers.
+_RESERVED_SHARED_IDENTIFIER_PREFIX = "shared:"
+
+
+def _reject_reserved_identifier(value: str) -> None:
+    if value == SHARED_INTERVIEWEE_IDENTIFIER or value.startswith(_RESERVED_SHARED_IDENTIFIER_PREFIX):
+        raise serializers.ValidationError(
+            "This identifier is reserved for shared interview links and can't be assigned to an interviewee."
+        )
+
+
 class UserInterviewTopicSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     interviewee_emails = serializers.ListField(
@@ -610,6 +625,11 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
 
     def validate_invite_message(self, value: str | None) -> str | None:
         return validate_invite_message(value)
+
+    def validate_interviewee_distinct_ids(self, value: list[str]) -> list[str]:
+        for identifier in value:
+            _reject_reserved_identifier(identifier)
+        return value
 
     # A topic needs no targeted interviewees to be valid: a non-personalised (shared) link is created
     # for a zero-target topic — the whole point for reaching anonymous visitors we have no contact
@@ -887,6 +907,7 @@ class IntervieweeIdentifierRequestSerializer(serializers.Serializer):
     )
 
     def validate_identifier(self, value: str) -> str:
+        _reject_reserved_identifier(value)
         if _identifier_is_email(value) and len(value) > EMAIL_IDENTIFIER_MAX_LENGTH:
             raise serializers.ValidationError(
                 f"Email identifiers must be {EMAIL_IDENTIFIER_MAX_LENGTH} characters or fewer."
@@ -1419,6 +1440,10 @@ class IntervieweeContextSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id", "created_by", "created_at")
 
+    def validate_interviewee_identifier(self, value: str) -> str:
+        _reject_reserved_identifier(value)
+        return value
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         topic_id = self.context["topic_id"]
         team = self.context["get_team"]()
@@ -1465,6 +1490,10 @@ class BulkIntervieweeContextItemSerializer(serializers.Serializer):
         max_length=10000,
         help_text="Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.",
     )
+
+    def validate_interviewee_identifier(self, value: str) -> str:
+        _reject_reserved_identifier(value)
+        return value
 
 
 class BulkIntervieweeContextRequestSerializer(serializers.Serializer):
