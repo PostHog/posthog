@@ -27,6 +27,11 @@ const PAGE_SIZE = 50
 /** Fixed, tab-defining server filter (e.g. `{ has_implementation_pr: 'true' }`). */
 export type ReportListParams = Record<string, string>
 
+/** A list response stamped with the query params that produced it (see the loader). */
+export type ReportListResponse = CountedPaginatedResponse<SignalReport> & {
+    requestParams?: Record<string, unknown>
+}
+
 export interface ReportListLogicProps {
     tabKey: InboxFlatListTabKey
     /** The tab's fixed server filter. User-driven chrome (search/sort/source/priority/scope) is layered on top. */
@@ -93,7 +98,8 @@ export interface reportListLogicValues {
     isLoaded: boolean
     listApiParams: any
     reports: SignalReport[]
-    reportsResponse: CountedPaginatedResponse<SignalReport> | null
+    loadedQueryKey: string | null
+    reportsResponse: ReportListResponse | null
     reportsResponseLoading: boolean
     totalCount: number | null
 }
@@ -198,10 +204,10 @@ export interface reportListLogicActions {
         errorObject?: any
     }
     loadReportsSuccess: (
-        reportsResponse: CountedPaginatedResponse<SignalReport>,
+        reportsResponse: ReportListResponse,
         payload?: any
     ) => {
-        reportsResponse: CountedPaginatedResponse<SignalReport>
+        reportsResponse: ReportListResponse
         payload?: any
     }
     refresh: () => {
@@ -229,10 +235,11 @@ export interface reportListLogicMeta {
             user: UserType | null,
             arg: any
         ) => any
-        reports: (reportsResponse: CountedPaginatedResponse<SignalReport> | null) => SignalReport[]
-        hasMore: (reportsResponse: CountedPaginatedResponse<SignalReport> | null) => boolean
-        isLoaded: (reportsResponse: CountedPaginatedResponse<SignalReport> | null) => boolean
-        totalCount: (reportsResponse: CountedPaginatedResponse<SignalReport> | null) => number | null
+        reports: (reportsResponse: ReportListResponse | null) => SignalReport[]
+        hasMore: (reportsResponse: ReportListResponse | null) => boolean
+        isLoaded: (reportsResponse: ReportListResponse | null) => boolean
+        totalCount: (reportsResponse: ReportListResponse | null) => number | null
+        loadedQueryKey: (reportsResponse: ReportListResponse | null) => string | null
     }
 }
 
@@ -308,19 +315,25 @@ export const reportListLogic = kea<reportListLogicType>([
             },
         ],
         reportsResponse: [
-            null as CountedPaginatedResponse<SignalReport> | null,
+            null as ReportListResponse | null,
             {
-                loadReports: async () => {
-                    return await api.signalReports.list({ ...values.listApiParams, offset: 0, limit: PAGE_SIZE })
+                // `requestParams` records the query that produced the response, so consumers
+                // (impression telemetry) can key off what was actually fetched rather than the
+                // live `listApiParams`, which changes before the refetch lands.
+                loadReports: async (): Promise<ReportListResponse> => {
+                    const params = values.listApiParams
+                    const response = await api.signalReports.list({ ...params, offset: 0, limit: PAGE_SIZE })
+                    return { ...response, requestParams: params }
                 },
-                loadMoreReports: async () => {
+                loadMoreReports: async (): Promise<ReportListResponse> => {
+                    const params = values.listApiParams
                     const current = values.reportsResponse?.results ?? []
                     const response = await api.signalReports.list({
-                        ...values.listApiParams,
+                        ...params,
                         offset: current.length,
                         limit: PAGE_SIZE,
                     })
-                    return { ...response, results: [...current, ...response.results] }
+                    return { ...response, results: [...current, ...response.results], requestParams: params }
                 },
             },
         ],
@@ -380,24 +393,30 @@ export const reportListLogic = kea<reportListLogicType>([
         ],
         reports: [
             (s) => [s.reportsResponse],
-            (reportsResponse: CountedPaginatedResponse<SignalReport> | null): SignalReport[] =>
-                reportsResponse?.results ?? [],
+            (reportsResponse: ReportListResponse | null): SignalReport[] => reportsResponse?.results ?? [],
         ],
         hasMore: [
             (s) => [s.reportsResponse],
-            (reportsResponse: CountedPaginatedResponse<SignalReport> | null): boolean =>
+            (reportsResponse: ReportListResponse | null): boolean =>
                 reportsResponse?.next !== null && reportsResponse?.next !== undefined,
         ],
         isLoaded: [
             (s) => [s.reportsResponse],
-            (reportsResponse: CountedPaginatedResponse<SignalReport> | null): boolean => reportsResponse !== null,
+            (reportsResponse: ReportListResponse | null): boolean => reportsResponse !== null,
         ],
         // Total matching the *loaded* results — from the same response, so it can never be stale
         // relative to `reports` the way the separately-loaded badge `count` can (filter/refresh races).
         totalCount: [
             (s) => [s.reportsResponse],
-            (reportsResponse: CountedPaginatedResponse<SignalReport> | null): number | null =>
-                reportsResponse?.count ?? null,
+            (reportsResponse: ReportListResponse | null): number | null => reportsResponse?.count ?? null,
+        ],
+        // Stable key for the query that produced the loaded response. Unlike `listApiParams`, this
+        // only changes when a response fetched with the new params actually lands, so consumers
+        // never associate the new query with rows from the previous one.
+        loadedQueryKey: [
+            (s) => [s.reportsResponse],
+            (reportsResponse: ReportListResponse | null): string | null =>
+                reportsResponse?.requestParams ? JSON.stringify(reportsResponse.requestParams) : null,
         ],
     }),
 
