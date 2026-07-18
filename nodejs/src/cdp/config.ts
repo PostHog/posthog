@@ -97,6 +97,10 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
     CDP_OVERFLOW_QUEUE_ENABLED: boolean
+    // LLM step guardrails. 0 = unlimited. Per-workflow cap can be overridden per action via
+    // config.max_calls_per_minute; the per-team/day cap is a coarse backstop against a runaway.
+    CDP_LLM_MAX_CALLS_PER_WORKFLOW_PER_MIN: number
+    CDP_LLM_MAX_CALLS_PER_TEAM_PER_DAY: number
     HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
     HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: CdpProducerName
     HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
@@ -222,6 +226,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
         CDP_OVERFLOW_QUEUE_ENABLED: false,
+        CDP_LLM_MAX_CALLS_PER_WORKFLOW_PER_MIN: 0,
+        CDP_LLM_MAX_CALLS_PER_TEAM_PER_DAY: 0,
         HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
         HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
         HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: KAFKA_LOG_ENTRIES,

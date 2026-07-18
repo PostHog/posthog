@@ -30,6 +30,12 @@ dev). Env knobs:
 | `CDP_LLM_GATEWAY_REQUEST_TIMEOUT_MS` | `300000` | Per-call HTTP timeout. Reasoning models need this raised; the step's `max_wait_duration` is the outer backstop. |
 | `CDP_LLM_S3_ENDPOINT` | `http://localhost:8333` (SeaweedFS) | Object storage for spilled completions. |
 | `CDP_LLM_S3_BUCKET` / `_REGION` / `_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` | `posthog` / `us-east-1` / `any` / `any` | S3 connection for the spill store. |
+| `CDP_LLM_MAX_CALLS_PER_WORKFLOW_PER_MIN` | `0` (unlimited) | Guardrail: max LLM calls/min per workflow. A step can override it via `config.max_calls_per_minute`. |
+| `CDP_LLM_MAX_CALLS_PER_TEAM_PER_DAY` | `0` (unlimited) | Guardrail: coarse per-team daily backstop against a runaway. |
+
+Over-cap dispatches take the step's error branch (or `on_error`) instead of calling the model; the
+limiter is fixed-window in Redis and fails open, so a Redis blip never blocks workflows — the
+gateway's own admission control is the hard spend cap.
 
 ## Validating the RFC
 
@@ -83,8 +89,19 @@ SELECT id, status, scheduled, action_id FROM cyclotron_jobs WHERE action_id = '<
 
 ### 4. Scale — the RFC's core claims
 
-Fan out a broadcast (or a high-frequency trigger) hitting the LLM step across many executions, and
-measure:
+The executor + wake path (the parts in this service) run as a one-command load harness against a
+local Cyclotron DB — it parks N jobs, drives them through the executor at a target concurrency with
+a fake gateway (latency + response size), and prints throughput, wake latency, and state-blob sizes,
+asserting the invariants:
+
+```bash
+JOBS=5000 CONCURRENCY=200 RESPONSE_BYTES=20000 GATEWAY_LATENCY_MS=300 \
+  pnpm --filter=@posthog/nodejs llm:loadtest
+# → all jobs woken: PASS   |   state stays small under spill: PASS (max < 5KB for 20KB responses)
+```
+
+The full-stack version (a broadcast hitting the step across many real workflow runs) additionally
+covers workflow-worker occupancy — fan one out and measure:
 
 | RFC claim | How to observe it |
 | --- | --- |
@@ -98,6 +115,6 @@ measure:
 
 - Prompt templating is liquid-only (hog-bytecode templating is a follow-up).
 - Per-team gateway credential resolution is stubbed to a single token.
-- Per-workflow / per-team LLM rate + budget caps (RFC §4) are not yet implemented; spend control
-  currently relies on the gateway's admission control.
+- Cost guardrails are call-count based (per-workflow/min, per-team/day); a true cost/budget cap
+  driven by settlement is a follow-up.
 - Human-in-the-loop steps share this primitive but are a separate iteration.

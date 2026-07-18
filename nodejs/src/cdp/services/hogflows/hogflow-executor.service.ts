@@ -2,6 +2,7 @@ import { get } from 'lodash'
 import { DateTime } from 'luxon'
 
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
+import { LlmRateLimiter } from '~/cdp/services/llm/llm-rate-limiter'
 import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
 
@@ -91,7 +92,8 @@ export class HogFlowExecutorService {
         hogFlowFunctionsService: HogFlowFunctionsService,
         recipientPreferencesService: RecipientPreferencesService,
         emailValidationService: EmailValidationService,
-        duplicateObserver?: HogFlowDuplicateObserverService
+        duplicateObserver?: HogFlowDuplicateObserverService,
+        llmRateLimiter?: LlmRateLimiter
     ) {
         this.duplicateObserver = duplicateObserver ?? null
         const hogFunctionHandler = new HogFunctionHandler(
@@ -118,7 +120,7 @@ export class HogFlowExecutorService {
             function_sms: hogFunctionHandler,
             function_push: hogFunctionHandler,
             function_email: hogFunctionEmailHandler,
-            llm: new LlmActionHandler(),
+            llm: new LlmActionHandler(llmRateLimiter),
             exit: new ExitHandler(),
         }
     }

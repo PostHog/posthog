@@ -236,6 +236,9 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             temperature: z.number().optional(),
             max_tokens: z.number().optional(),
             tools: z.array(z.any()).optional(),
+            // Per-workflow guardrail: max LLM calls/minute for this step. Overrides the deployment
+            // default. Over-cap dispatches take the error branch instead of running up spend.
+            max_calls_per_minute: z.number().optional(),
             // Timeout backstop. If the executor never wakes the job (crash, lost message), this
             // fires and the step takes its on_error path. Must exceed the expected call duration.
             max_wait_duration: z.string(),

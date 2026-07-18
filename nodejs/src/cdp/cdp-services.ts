@@ -26,6 +26,7 @@ import { HogFlowExecutorService } from './services/hogflows/hogflow-executor.ser
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { InvocationResultsService } from './services/invocation-results.service'
+import { RedisLlmRateLimiter } from './services/llm/llm-rate-limiter'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
 import { IntegrationManagerService } from './services/managers/integration-manager.service'
@@ -113,6 +114,8 @@ export type CdpCoreServicesConfig = Pick<
 > &
     Pick<
         CdpConfig,
+        | 'CDP_LLM_MAX_CALLS_PER_WORKFLOW_PER_MIN'
+        | 'CDP_LLM_MAX_CALLS_PER_TEAM_PER_DAY'
         | 'CDP_REDIS_HOST'
         | 'CDP_REDIS_PORT'
         | 'CDP_REDIS_PASSWORD'
@@ -452,11 +455,16 @@ export function createCdpCoreServices(
     const emailValidationService = new EmailValidationService(deps.emailValidationValkey)
     // Observer mirrors writes to Valkey (load-only); only the primary path drives metrics.
     const hogFlowDuplicateObserver = new HogFlowDuplicateObserverService(redis, valkeyShadow?.writer ?? null)
+    const llmRateLimiter = new RedisLlmRateLimiter(redis, {
+        defaultMaxCallsPerWorkflowPerMinute: config.CDP_LLM_MAX_CALLS_PER_WORKFLOW_PER_MIN,
+        maxCallsPerTeamPerDay: config.CDP_LLM_MAX_CALLS_PER_TEAM_PER_DAY,
+    })
     const hogFlowExecutor = new HogFlowExecutorService(
         hogFlowFunctionsService,
         recipientPreferencesService,
         emailValidationService,
-        hogFlowDuplicateObserver
+        hogFlowDuplicateObserver,
+        llmRateLimiter
     )
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(outputs)

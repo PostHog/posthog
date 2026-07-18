@@ -15,6 +15,7 @@
         "start:dist": "node dist/index.js",
         "start:dev": "NODE_ENV=dev tsx watch src/index.ts",
         "start:devNoWatch": "NODE_ENV=dev tsx src/index.ts",
+        "llm:loadtest": "tsx src/cdp/services/llm/dev/llm-load-harness.ts",
         "prestart:dev": "pnpm build:cyclotron:dev",
         "prestart:devNoWatch": "pnpm build:cyclotron:dev",
         "build": "pnpm clean && pnpm typescript:compile && pnpm typescript:compile-cleanup",

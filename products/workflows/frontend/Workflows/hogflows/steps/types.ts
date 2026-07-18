@@ -325,6 +325,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             temperature: z.number().optional(),
             max_tokens: z.number().optional(),
             tools: z.array(z.any()).optional(),
+            max_calls_per_minute: z.number().optional(),
             max_wait_duration: DURATION_STRING,
         }),
     }),

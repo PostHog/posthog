@@ -54,8 +54,8 @@ describe('action.llm', () => {
 
     const run = () => handler.execute({ invocation, action, result })
 
-    it('on entry dispatches one request with the rendered prompt and parks until the backstop', () => {
-        const res = run()
+    it('on entry dispatches one request with the rendered prompt and parks until the backstop', async () => {
+        const res = await run()
 
         // Parked, not advanced.
         expect(res.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 5 }))
@@ -73,12 +73,12 @@ describe('action.llm', () => {
         expect(invocation.state.currentAction!.llmRequestId).toBe(request.nonce)
     })
 
-    it('advances to the next step with the completion when the executor wakes it with a result', () => {
-        run()
+    it('advances to the next step with the completion when the executor wakes it with a result', async () => {
+        await run()
         // The executor wakes the job by writing the completion into state.
         invocation.state.currentAction!.llmResult = { text: 'Hello John', model: 'openai/gpt-4' }
 
-        const res = run()
+        const res = await run()
 
         expect(res.nextAction).toEqual(findActionById(hogFlow, 'next'))
         expect(res.result).toEqual({ text: 'Hello John', parsed: undefined, model: 'openai/gpt-4' })
@@ -87,20 +87,30 @@ describe('action.llm', () => {
         expect(invocation.state.currentAction!.llmRequestId).toBeUndefined()
     })
 
-    it('throws (taking the on_error path) when the executor wakes it with a terminal error', () => {
-        run()
+    it('throws (taking the on_error path) when the executor wakes it with a terminal error', async () => {
+        await run()
         invocation.state.currentAction!.llmError = { message: 'gateway 500', retriable: true }
 
-        expect(() => run()).toThrow('LLM step failed: gateway 500')
+        await expect(run()).rejects.toThrow('LLM step failed: gateway 500')
     })
 
-    it('throws a timeout when re-entered after dispatch with no result written (backstop fired)', () => {
-        run() // dispatch + park; sets llmRequestId
+    it('throws a timeout when re-entered after dispatch with no result written (backstop fired)', async () => {
+        await run() // dispatch + park; sets llmRequestId
 
         // No completion or error was written, so this dequeue is the scheduled backstop firing.
-        expect(() => run()).toThrow(LlmStepTimeoutError)
+        await expect(run()).rejects.toThrow(LlmStepTimeoutError)
         // It must not silently advance or re-dispatch on timeout.
         expect(result.llmRequests).toHaveLength(1)
+    })
+
+    it('blocks the dispatch and throws when the rate limiter denies the call', async () => {
+        handler = new LlmActionHandler({
+            check: () => Promise.resolve({ allowed: false, reason: 'workflow exceeded 1 LLM calls/min' }),
+        })
+
+        await expect(run()).rejects.toThrow('rate limit')
+        // The blocked call must never be dispatched.
+        expect(result.llmRequests ?? []).toHaveLength(0)
     })
 
     describe('with an error branch wired', () => {
@@ -131,17 +141,17 @@ describe('action.llm', () => {
             result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation)
         })
 
-        it('routes a terminal error to the branch instead of throwing', () => {
-            run()
+        it('routes a terminal error to the branch instead of throwing', async () => {
+            await run()
             invocation.state.currentAction!.llmError = { message: 'gateway 500', retriable: true }
 
-            const res = run()
+            const res = await run()
             expect(res.nextAction).toEqual(findActionById(hogFlow, 'on_failure'))
         })
 
-        it('routes a timeout to the branch instead of throwing', () => {
-            run()
-            const res = run() // backstop fired, no result
+        it('routes a timeout to the branch instead of throwing', async () => {
+            await run()
+            const res = await run() // backstop fired, no result
 
             expect(res.nextAction).toEqual(findActionById(hogFlow, 'on_failure'))
         })

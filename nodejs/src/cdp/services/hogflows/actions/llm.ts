@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
+import { LlmRateLimiter, NoopLlmRateLimiter } from '~/cdp/services/llm/llm-rate-limiter'
 import { LlmRenderedMessage, LlmStepCompletion, LlmStepRequest } from '~/cdp/services/llm/llm-step.types'
 import { HogFunctionInvocationGlobalsWithInputs } from '~/cdp/types'
 import { LiquidRenderer } from '~/cdp/utils/liquid'
@@ -41,7 +42,13 @@ const MAX_STORED_TEXT = 4000
 // parks until the timeout backstop. It is woken early by the executor writing a completion (or a
 // terminal error) into the step's state; a plain timeout dequeue takes the on_error path.
 export class LlmActionHandler implements ActionHandler {
-    public execute({ invocation, action, result }: ActionHandlerOptions<LlmAction>): ActionHandlerResult {
+    constructor(private rateLimiter: LlmRateLimiter = new NoopLlmRateLimiter()) {}
+
+    public async execute({
+        invocation,
+        action,
+        result,
+    }: ActionHandlerOptions<LlmAction>): Promise<ActionHandlerResult> {
         const currentAction = invocation.state.currentAction
         if (!currentAction) {
             throw new Error('LLM step executed without a current action')
@@ -82,7 +89,22 @@ export class LlmActionHandler implements ActionHandler {
             throw new LlmStepTimeoutError(action.config.max_wait_duration)
         }
 
-        // Fresh entry: render, dispatch, park.
+        // Fresh entry. Enforce the rate/spend guardrail before dispatching - an over-cap call takes
+        // the error branch (or on_error) instead of running up spend.
+        const decision = await this.rateLimiter.check({
+            teamId: invocation.teamId,
+            workflowId: invocation.hogFlow.id,
+            maxCallsPerMinute: action.config.max_calls_per_minute,
+        })
+        if (!decision.allowed) {
+            const errorBranch = findErrorBranch(invocation, action)
+            if (errorBranch) {
+                return { nextAction: errorBranch, result: { rateLimited: true, reason: decision.reason } }
+            }
+            throw new Error(`LLM step blocked by rate limit: ${decision.reason}`)
+        }
+
+        // Render, dispatch, park.
         const nonce = new UUIDT().toString()
         const request: LlmStepRequest = {
             jobId: invocation.id,
