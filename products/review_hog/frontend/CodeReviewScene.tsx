@@ -213,7 +213,8 @@ function PipelineSection(): JSX.Element {
     return (
         <section className="flex flex-col gap-4 border-t border-primary pt-8">
             <SectionHeader icon={<IconDirectedGraph />} title="How we review your PRs">
-                Every review runs through the same steps before it's published.
+                Every review runs through the same steps before it's published, then works through the comment threads
+                it leaves open.
             </SectionHeader>
             <div className="flex flex-wrap items-stretch gap-2.5">
                 {PIPELINE_PHASES.map((phase, i) => (
