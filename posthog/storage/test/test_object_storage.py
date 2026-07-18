@@ -236,6 +236,25 @@ class TestStorage(APIBaseTest):
         assert len(mock_client.delete_objects.call_args_list[0].kwargs["Delete"]["Objects"]) == 1000
         assert len(mock_client.delete_objects.call_args_list[1].kwargs["Delete"]["Objects"]) == 1
 
+    def test_writes_and_deletes_route_through_write_client_not_read_client(self) -> None:
+        # Deletes/writes must go through the retry-backoff write client so S3 throttling is
+        # absorbed; routing them back to the read client is the regression this guards.
+        read_client = MagicMock()
+        write_client = MagicMock()
+        write_client.delete_objects.return_value = {}
+        storage = ObjectStorage(read_client, write_client=write_client)
+
+        storage.delete_objects("test-bucket", ["key-1"])
+        storage.delete("test-bucket", "key-1")
+        storage.write("test-bucket", "key-1", "content", None)
+
+        write_client.delete_objects.assert_called_once()
+        write_client.delete_object.assert_called_once()
+        write_client.put_object.assert_called_once()
+        read_client.delete_objects.assert_not_called()
+        read_client.delete_object.assert_not_called()
+        read_client.put_object.assert_not_called()
+
 
 class TestObjectStorageClientFactory(SimpleTestCase):
     def setUp(self) -> None:
@@ -268,8 +287,8 @@ class TestObjectStorageClientFactory(SimpleTestCase):
             storage = object_storage_client()
 
         assert isinstance(storage, ObjectStorage)
-        # Only the internal client is built; presigned degrades to the internal client.
-        patched_client.assert_called_once()
+        # The read and write clients are built; presigned degrades to the internal read client.
+        assert patched_client.call_count == 2
         assert storage.presigned_client is storage.aws_client
         # The bad config is surfaced to Sentry even though the read path stays up.
         patched_capture.assert_called_once()
@@ -278,7 +297,8 @@ class TestObjectStorageClientFactory(SimpleTestCase):
     @patch("posthog.storage.object_storage.client")
     def test_boto_failure_building_presigned_client_degrades(self, patched_client, patched_capture) -> None:
         internal_client = MagicMock()
-        patched_client.side_effect = [internal_client, ValueError("Invalid endpoint")]
+        write_client = MagicMock()
+        patched_client.side_effect = [internal_client, write_client, ValueError("Invalid endpoint")]
 
         with self.settings(
             OBJECT_STORAGE_ENABLED=True,
@@ -295,8 +315,9 @@ class TestObjectStorageClientFactory(SimpleTestCase):
     @patch("posthog.storage.object_storage.client")
     def test_valid_public_endpoint_builds_separate_presigned_client(self, patched_client) -> None:
         internal_client = MagicMock()
+        write_client = MagicMock()
         presigned_client = MagicMock()
-        patched_client.side_effect = [internal_client, presigned_client]
+        patched_client.side_effect = [internal_client, write_client, presigned_client]
 
         with self.settings(
             OBJECT_STORAGE_ENABLED=True,
@@ -308,3 +329,24 @@ class TestObjectStorageClientFactory(SimpleTestCase):
         assert isinstance(storage, ObjectStorage)
         assert storage.aws_client is internal_client
         assert storage.presigned_client is presigned_client
+
+    @patch("posthog.storage.object_storage.client")
+    def test_write_client_is_built_with_retry_backoff_separate_from_reads(self, patched_client) -> None:
+        internal_client = MagicMock()
+        write_client = MagicMock()
+        patched_client.side_effect = [internal_client, write_client]
+
+        with self.settings(
+            OBJECT_STORAGE_ENABLED=True,
+            OBJECT_STORAGE_ENDPOINT="http://objectstorage:19000",
+            OBJECT_STORAGE_PUBLIC_ENDPOINT="http://objectstorage:19000",
+        ):
+            storage = object_storage_client()
+
+        # Reads stay on the single-attempt client; writes/deletes get their own retry-backoff client.
+        assert storage.aws_client is internal_client
+        assert storage.write_client is write_client
+        read_config = patched_client.call_args_list[0].kwargs["config"]
+        write_config = patched_client.call_args_list[1].kwargs["config"]
+        assert read_config.retries == {"max_attempts": 1}
+        assert write_config.retries == {"max_attempts": 5, "mode": "adaptive"}

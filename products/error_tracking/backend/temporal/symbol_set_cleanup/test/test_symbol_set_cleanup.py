@@ -28,14 +28,38 @@ from products.error_tracking.backend.temporal.symbol_set_cleanup.workflow import
 class TestDeleteSymbolSetContentsWithPacing:
     @patch("products.error_tracking.backend.temporal.symbol_set_cleanup.activities.time.sleep")
     @patch("products.error_tracking.backend.temporal.symbol_set_cleanup.activities.delete_symbol_set_contents_many")
-    def test_paces_storage_delete_requests(self, delete_contents, sleep) -> None:
+    def test_paces_between_oversized_sub_batches(self, delete_contents, sleep) -> None:
         storage_ptrs = [f"symbols/{index}" for index in range(1001)]
         delete_contents.return_value = []
 
-        assert _delete_symbol_set_contents_with_pacing(storage_ptrs) == []
+        assert _delete_symbol_set_contents_with_pacing(storage_ptrs, pace_first_request=False) == []
 
         assert delete_contents.call_args_list == [call(storage_ptrs[:1000]), call(storage_ptrs[1000:])]
         sleep.assert_called_once_with(0.1)
+
+    @patch("products.error_tracking.backend.temporal.symbol_set_cleanup.activities.time.sleep")
+    @patch("products.error_tracking.backend.temporal.symbol_set_cleanup.activities.delete_symbol_set_contents_many")
+    def test_paces_before_first_request_across_outer_batches(self, delete_contents, sleep) -> None:
+        # A single outer batch of <1000 pointers still paces when it's not the first S3
+        # request of the run, so back-to-back outer batches don't hammer S3.
+        storage_ptrs = [f"symbols/{index}" for index in range(10)]
+        delete_contents.return_value = []
+
+        assert _delete_symbol_set_contents_with_pacing(storage_ptrs, pace_first_request=True) == []
+
+        assert delete_contents.call_args_list == [call(storage_ptrs)]
+        sleep.assert_called_once_with(0.1)
+
+    @patch("products.error_tracking.backend.temporal.symbol_set_cleanup.activities.time.sleep")
+    @patch("products.error_tracking.backend.temporal.symbol_set_cleanup.activities.delete_symbol_set_contents_many")
+    def test_does_not_pace_before_the_very_first_request(self, delete_contents, sleep) -> None:
+        storage_ptrs = [f"symbols/{index}" for index in range(10)]
+        delete_contents.return_value = []
+
+        assert _delete_symbol_set_contents_with_pacing(storage_ptrs, pace_first_request=False) == []
+
+        assert delete_contents.call_args_list == [call(storage_ptrs)]
+        sleep.assert_not_called()
 
 
 class TestSymbolSetCleanupActivity(BaseTest):
