@@ -254,11 +254,11 @@ export interface inboxReportDetailLogicActions {
     setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => {
         reviewers: EnrichedReviewer[] | null
     }
-    setReportDiffError: (error: string) => {
-        error: string
-    }
     setReport: (report: SignalReport | null) => {
         report: SignalReport | null
+    }
+    setReportDiffError: (error: string) => {
+        error: string
     }
     setSelectedTaskId: (taskId: string | null) => {
         taskId: string | null
