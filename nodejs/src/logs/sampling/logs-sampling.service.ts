@@ -114,17 +114,13 @@ export class LogsSamplingService {
         settings: LogsSettings,
         ruleSet: CompiledRuleSet,
         teamId?: number,
-        headerBytesUncompressed: number = 0,
-        onRecordsDecoded?: (records: LogRecord[]) => void
+        headerBytesUncompressed: number = 0
     ): Promise<ProcessBufferWithSamplingResult> {
         const [logRecordType, compressionCodec, records] = await decodeLogRecords(buffer)
         if (!logRecordType) {
             throw new Error('avro schema metadata not found')
         }
         const pii = await transformDecodedLogRecordsInPlace(records, settings)
-        // Metric-rule extraction sees every record post-PII-scrub and pre-drop-rules:
-        // dropping a log must not stop it from feeding a generated metric.
-        onRecordsDecoded?.(records)
         const kept: LogRecord[] = []
         let recordsDropped = 0
         const recordsDroppedByRuleId = new Map<string, number>()

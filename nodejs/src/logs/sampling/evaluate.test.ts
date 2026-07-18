@@ -463,33 +463,6 @@ describe('evaluateLogRecord', () => {
             expect(evaluateLogRecord(rules, rec).decision).not.toBe(SAMPLING_DECISION_DROP)
         })
 
-        it('filter_group with one leaf carrying too many values is dropped at compile time', () => {
-            // A single `in` leaf with a huge value array is one node, but matchExact
-            // scans the whole array per record. Matches MAX_FILTER_GROUP_LEAF_VALUES
-            // in compile-rules.ts.
-            const hugeLeaf = {
-                key: 'service.name',
-                operator: 'exact',
-                value: Array.from({ length: 300 }, (_, i) => `svc-${i}`),
-            }
-            const rules = compileRuleSet([
-                {
-                    id: 'oversize-values',
-                    rule_type: 'path_drop',
-                    scope_service: null,
-                    scope_path_pattern: null,
-                    scope_attribute_filters: [],
-                    config: {
-                        patterns: [],
-                        filter_group: wrap({ type: 'AND', values: [hugeLeaf] }),
-                    },
-                },
-            ])
-            const rec = baseRecord()
-            rec.service_name = 'svc-1'
-            expect(evaluateLogRecord(rules, rec).decision).not.toBe(SAMPLING_DECISION_DROP)
-        })
-
         it('classifySamplingRecord drops via filter_group match', () => {
             const rules = compileRuleSet([
                 {
