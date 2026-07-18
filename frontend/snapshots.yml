@@ -904,6 +904,10 @@ snapshots:
         hash: v1.k794b7964.8722c8fbf0ae21aaf5859792fd9d3290f7cb9d6b8454ef49efc40e9b70ea38a2.Itph8hW6UZ9BLa-NSu1QZwMufjgt5RrolGGoXBMUxgo
     components-hogcharts-piechart--with-breakdown-labels--light:
         hash: v1.k794b7964.bf784228da762a8863cac34da1233ba75792c32d7e11d42cbea859ebd1480367.RWfmnGln-i1Gxp-y0amq8goeKI5sEQxvWr0R10YyJHQ
+    components-hogcharts-piechart--with-legend--dark:
+        hash: v1.k794b7964.9fb9de3ef6ea3c41afefb2ef1f48bd8ea996498fd3178094becab4a8a99e6b53.7StTlix5q6M4Ywy06Z6zUB14yt-gXrgyo2qGEqyejBg
+    components-hogcharts-piechart--with-legend--light:
+        hash: v1.k794b7964.8bb46927c74f00a5579e78a238a28ae3b1c47017dd4d058c0ed3d46d66e95218.oR1c60kYOX2Uvf1l-aT1TcDUTpqAbQNFuJtRRPTQljI
     components-hogcharts-referenceline--fill-sides--dark:
         hash: v1.k794b7964.acab36e04b2a92190ca4add4f71d9e99abcbac5f7a0dd296fabeb6e762e377fc.jQyBm-m9DF4DfHq2RGkaoyHq0v1J5Q_46M7kIcWv6Lg
     components-hogcharts-referenceline--fill-sides--light:
@@ -2329,9 +2333,9 @@ snapshots:
     exporter-trends--trends-pie-insight-detailed--light:
         hash: v1.k794b7964.95dcd4785917ad0e1f258f30d82e481656398599a75ed040623dc11fae0d0598.E4VYQa1Di0mNwKY2uMTaBDnXwFMmtGg5fRntgafPZcA
     exporter-trends--trends-pie-insight-legend--dark:
-        hash: v1.k794b7964.db9a3388825ec030c3da484a38d3e2faf57d279626dbccec83546cc3e16d9e06.3xhuY7XkY5k7zICENHWIbcauBzu6ngjQ0YgbiTw_HPE
+        hash: v1.k794b7964.8d38d0a77274613f2b304d64ea0bb3ddabf44924304fa734ed152316ba00b8d4.FguklZx16pOjDtTI_lADxcKAAwD5gViligIlak9hhnI
     exporter-trends--trends-pie-insight-legend--light:
-        hash: v1.k794b7964.d57e08bf35b41c38b736d8712cf2cf68b70139cfe4f013e2f9103fc6d7729ac6.Oz3bw73AWu5BJ27LeGKzEktsAVp1d_NwxseczUx9FwM
+        hash: v1.k794b7964.2eee29146a4cd703a88df5986742cf2bfe804374e9b46e04f3a065acb3bb0d8f.vDNDFJu83-A5zpZF5hhUW1uHl36Hd18AwHbnNLrLnOA
     exporter-trends--trends-table-insight--dark:
         hash: v1.k794b7964.92191f5d6ed09bce9843b2168a0ae277493e522cfb6bd52fd7a5b91397d91fa5.2VnfYOZnlJzHQtD34o5Rws-OY7mm8onFWP_ZIfiPj-8
     exporter-trends--trends-table-insight--light:
