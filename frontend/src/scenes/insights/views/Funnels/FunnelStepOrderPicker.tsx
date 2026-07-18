@@ -12,29 +12,35 @@ interface StepOption {
     key?: string
     label: string
     value: StepOrderValue
+    disabledReason?: string
 }
-
-const options: StepOption[] = [
-    {
-        label: 'Sequential',
-        value: StepOrderValue.ORDERED,
-    },
-    {
-        label: 'Strict order',
-        value: StepOrderValue.STRICT,
-    },
-    {
-        label: 'Any order',
-        value: StepOrderValue.UNORDERED,
-    },
-]
 
 export function FunnelStepOrderPicker(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { insightFilter } = useValues(funnelDataLogic(insightProps))
+    const { insightFilter, series } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
     const { funnelOrderType } = (insightFilter || {}) as FunnelsFilter
+
+    const hasOptionalSteps = !!series?.some((step) => step.optionalInFunnel)
+
+    const options: StepOption[] = [
+        {
+            label: 'Sequential',
+            value: StepOrderValue.ORDERED,
+        },
+        {
+            label: 'Strict order',
+            value: StepOrderValue.STRICT,
+        },
+        {
+            label: 'Any order',
+            value: StepOrderValue.UNORDERED,
+            disabledReason: hasOptionalSteps
+                ? 'Any order is not supported with optional steps. Remove the optional steps first.'
+                : undefined,
+        },
+    ]
 
     return (
         <LemonSelect

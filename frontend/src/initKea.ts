@@ -58,6 +58,16 @@ issues. 500 is intentionally excluded: those are genuine backend exceptions wort
 */
 const TRANSIENT_GATEWAY_STATUSES = [502, 503, 504]
 
+/*
+Statuses whose responses carry an actionable, user-facing validation message that the owning UI
+already surfaces (e.g. the "There is a problem with this query" box for insights): 400 (bad query),
+512 (query estimated too expensive), 513 (out of memory). On load actions these are expected
+user-input errors — a query configured in a way the backend rejects — not code regressions, so we
+don't report them to error tracking. Kept in sync with VALIDATION_ERROR_STATUSES in
+queries/nodes/InsightViz/utils.ts.
+*/
+const QUERY_VALIDATION_STATUSES = [400, 512, 513]
+
 interface InitKeaProps {
     state?: Record<string, any>
     routerHistory?: any
@@ -177,7 +187,10 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status)) {
+                // Expected query validation failures (a user configuring an invalid query) surface
+                // their own message in the UI — don't also report them as uncaught exceptions.
+                const isHandledValidationError = isLoadAction && QUERY_VALIDATION_STATUSES.includes(error?.status)
+                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status) && !isHandledValidationError) {
                     posthog.captureException(error)
                 }
             },
