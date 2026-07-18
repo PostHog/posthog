@@ -31,8 +31,9 @@ RESOLUTION_INITIAL_PERMISSION_MODE: str | None = None
 MAX_THREADS_PER_RUN = 20
 
 # Attempts for the per-PR resolution session. Retries are cheap — the per-thread verdicts persist,
-# so a retry redoes only unjudged threads (and undelivered side effects). On the final attempt a
-# failed turn skips its thread instead of raising, mirroring the validation session.
+# so a retry redoes unjudged threads and undelivered side effects (a crash in the post-reply window
+# can still duplicate a reply; see temporal/resolution.py). On the final attempt a failed turn skips
+# its thread instead of raising, mirroring the validation session.
 RESOLUTION_MAX_ATTEMPTS = 2
 
 # CHUNKING MODEL
