@@ -9,8 +9,11 @@ InjectedState, but whole-key replacement does not.
 
 import re
 import json
+import time
+import random
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, TypeVar
 
 from django.db.models import Q
 
@@ -20,6 +23,8 @@ from langgraph.prebuilt import InjectedState
 
 from posthog.hogql import ast
 
+from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.temporal.ai_observability.eval_reports.output_types import (
     EvaluationReportOutcomeDefinition,
     get_outcome_definition,
@@ -183,6 +188,52 @@ def _widened_ts_window(state: dict) -> tuple[datetime, datetime]:
     return ts_start, ts_end
 
 
+# Transient ClickHouse failures (capacity pressure, scheduling contention, read-only
+# replicas) are expected under load and safe to retry. Without backoff the agent's
+# query tools fail one-by-one and whole analyses silently drop out of the report.
+_RETRIABLE_CH_ERRORS = (ClickHouseAtCapacity, *CH_TRANSIENT_ERRORS)
+_CH_QUERY_MAX_RETRIES = 3
+_CH_QUERY_BASE_DELAY_SECONDS = 8.0
+
+T = TypeVar("T")
+
+
+def _execute_ch_query_with_retry(
+    run_query: Callable[[], T],
+    *,
+    query_type: str,
+    max_retries: int = _CH_QUERY_MAX_RETRIES,
+    base_delay: float = _CH_QUERY_BASE_DELAY_SECONDS,
+) -> T:
+    """Run a ClickHouse-backed callable, retrying transient errors with exponential backoff + jitter.
+
+    The report agent runs synchronously in a worker thread while the activity's
+    Heartbeater keeps heartbeating on the event loop, so a plain blocking sleep
+    here does not risk a heartbeat timeout. Non-transient errors propagate
+    immediately so genuine bugs still fail loudly.
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            return run_query()
+        except _RETRIABLE_CH_ERRORS as error:
+            if attempt >= max_retries:
+                raise
+            # Full jitter over an exponentially growing window to avoid a thundering herd.
+            max_delay = base_delay * (2**attempt)
+            delay = random.uniform(max_delay / 2, max_delay)
+            logger.warning(
+                "llma_eval_reports_clickhouse_retry",
+                error=str(error),
+                error_type=type(error).__name__,
+                delay=round(delay, 1),
+                attempt=attempt + 1,
+                max_retries=max_retries,
+                query_type=query_type,
+            )
+            time.sleep(delay)
+    raise AssertionError("unreachable: retry loop must return or re-raise")
+
+
 def _execute_hogql(team_id: int, query_str: str, placeholders: dict | None = None) -> list[list]:
     """Execute a HogQL query against `events` and return results.
 
@@ -201,11 +252,14 @@ def _execute_hogql(team_id: int, query_str: str, placeholders: dict | None = Non
     query = parse_select(query_str)
 
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=team_id):
-        result = execute_hogql_query(
+        result = _execute_ch_query_with_retry(
+            lambda: execute_hogql_query(
+                query_type="EvalReportAgent",
+                query=query,
+                placeholders=placeholders or {},
+                team=team,
+            ),
             query_type="EvalReportAgent",
-            query=query,
-            placeholders=placeholders or {},
-            team=team,
         )
 
     return result.results or []
@@ -230,12 +284,15 @@ def _execute_hogql_via_ai_events(team: "Team", query_str: str, placeholders: dic
     # internally but not `feature`, so supply it here to keep these eval-report
     # agent reads attributed to background enrichment.
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=team.pk):
-        result = query_ai_events(
-            query=query,
-            placeholders=placeholders or {},
-            team=team,
+        result = _execute_ch_query_with_retry(
+            lambda: query_ai_events(
+                query=query,
+                placeholders=placeholders or {},
+                team=team,
+                query_type="EvalReportAgent",
+                fall_back_to_events=True,
+            ),
             query_type="EvalReportAgent",
-            fall_back_to_events=True,
         )
 
     return result.results or []

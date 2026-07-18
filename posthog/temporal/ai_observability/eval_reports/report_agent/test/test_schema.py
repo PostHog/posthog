@@ -87,6 +87,7 @@ class TestEvalReportMetrics(SimpleTestCase):
                 "previous_total_runs": 90,
                 "previous_result_counts": {"pass": 60, "fail": 20, "na": 10},
                 "previous_result_rates": {"pass": 66.67, "fail": 22.22, "na": 11.11},
+                "metrics_available": True,
                 "pass_rate": 81.63,
                 "previous_pass_rate": 75.0,
             },
@@ -152,6 +153,15 @@ class TestEvalReportMetrics(SimpleTestCase):
             {"positive": 50.0, "neutral": 50.0, "negative": 0.0},
         )
         self.assertNotIn("pass_count", original.to_dict())
+
+    def test_metrics_available_survives_roundtrip(self):
+        # A failed-query report must stay flagged after being stored and reloaded,
+        # otherwise the "0 runs" masquerade reappears once it round-trips through JSON.
+        original = EvalReportMetrics(period_start="2026-04-08T00:00:00+00:00", metrics_available=False)
+        self.assertFalse(EvalReportMetrics.from_dict(original.to_dict()).metrics_available)
+
+    def test_metrics_available_defaults_true_for_legacy_rows(self):
+        self.assertTrue(EvalReportMetrics.from_dict({"total_runs": 5}).metrics_available)
 
     def test_roundtrip_with_nulls(self):
         original = EvalReportMetrics(

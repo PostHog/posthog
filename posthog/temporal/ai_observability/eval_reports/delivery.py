@@ -185,6 +185,12 @@ def _format_boolean_pass_rate_value(metrics: EvalReportMetrics) -> str:
     return f"{value} ({arrow} {abs(diff):.2f}pp vs previous)"
 
 
+_METRICS_UNAVAILABLE_NOTICE = (
+    "Metrics could not be computed for this period because the analytics store was "
+    "temporarily unavailable. This does not mean no evaluations ran."
+)
+
+
 def _render_metrics_block_html(metrics: EvalReportMetrics) -> str:
     """Render trusted outcome counts and rates as an HTML table.
 
@@ -192,6 +198,10 @@ def _render_metrics_block_html(metrics: EvalReportMetrics) -> str:
     before reading the agent's analysis.
     """
     period = f"{_format_period_for_display(metrics.period_start)} → {_format_period_for_display(metrics.period_end)}"
+    if not metrics.metrics_available:
+        # Never render a failed query as a real "0 runs" table.
+        notice = _inline_email_styles(f"<p><strong>{_METRICS_UNAVAILABLE_NOTICE}</strong></p>")
+        return f'<p class="muted"><strong>Period</strong>: {period}</p>\n{notice}\n'
     outcome_labels = _OUTCOME_LABELS[metrics.output_type]
     headers = "".join(f"<th>{label}</th>" for _, label in outcome_labels)
     values = "".join(f"<td>{_format_outcome_value(metrics, outcome)}</td>" for outcome, _ in outcome_labels)
@@ -205,6 +215,8 @@ def _render_metrics_block_html(metrics: EvalReportMetrics) -> str:
 
 def _render_metrics_slack_blocks(metrics: EvalReportMetrics) -> list[dict]:
     """Render the metrics block as a compact, output-type-neutral Slack dashboard."""
+    if not metrics.metrics_available:
+        return [{"type": "section", "text": {"type": "mrkdwn", "text": _METRICS_UNAVAILABLE_NOTICE}}]
     outcome_lines = [
         f"{label}: {_format_outcome_value(metrics, outcome)}" for outcome, label in _OUTCOME_LABELS[metrics.output_type]
     ]
