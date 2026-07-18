@@ -12,7 +12,10 @@ Why this is safe and correct for a days-to-alpha timeline:
 - The streams layout is the _eventual_ target (Snuffle benchmarks ~89.5% less disk, ~31→3 bytes/sample) but it changes the ingestion write path + adds a backfill — too much risk to land under an alpha deadline.
 - The `attribute_field()` helper (P0) is the migration seam: when storage moves to streams, only that one function changes, not every query call site.
 
-**Action when we do the storage track:** model `metrics_series` keyed by a full series fingerprint — Snuffle computes it as `cityHash64(metric_name, service_name, mapSort(resource_attributes), mapSort(attributes_map_str))`. We already materialize a partial `resource_fingerprint = cityHash64(resource_attributes)` on `metrics1`; the full series identity adds metric_name + service_name + sorted data-point attributes.
+**Status of the storage track:** the schema has landed — migrations `0283_metric_events.py` / `0285_metric_series_temporality_samples_histograms.py` create `metric_series1` (ReplacingMergeTree, one row per series) and `metric_samples1` (samples keyed by fingerprint), though the query runners still read `metrics1`.
+The full series identity is `series_fingerprint`, assigned **once at ingest** in `rust/capture-logs/src/metric_record.rs` (`compute_series_fingerprint`: SipHash-1-3 with a fixed key over `metric_name`, `metric_type`, `service_name`, and the key-sorted resource + data-point attributes) and carried verbatim to ClickHouse — storage never recomputes it, and no second implementation of the hash may exist anywhere.
+(An earlier revision of this doc said `cityHash64`; that only ever applied to the partial `resource_fingerprint = cityHash64(resource_attributes)` materialized on `metrics1`, which is unrelated to series identity.)
+See [`product-guardrails-and-roadmap.md`](./product-guardrails-and-roadmap.md) for the invariants around this.
 
 ## The full data path (all environments)
 
