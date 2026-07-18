@@ -1329,6 +1329,20 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     # state for the streaming execute() below.
                     self.explain_query(ss_cursor, query, args, logger)
 
+                    # The best-effort preamble above (the session-timeout SET and the diagnostic
+                    # EXPLAIN) runs on this streaming connection. A transient drop during either
+                    # force-closes the socket silently, which would leave the streaming execute
+                    # below raising an opaque `InterfaceError(0, '')` — pymysql's signal that the
+                    # socket is already gone — that masks the recoverable lost connection. Reopen
+                    # once so the real query runs on a live socket instead of failing the attempt
+                    # on a blip a fresh connection recovers from.
+                    if not streaming_connection.open:
+                        logger.warning(
+                            "MySQL connection dropped during pre-stream setup; reopening before streaming query"
+                        )
+                        streaming_connection.connect()
+                        ss_cursor = streaming_connection.cursor(SSCursor)
+
                     ss_cursor.execute(query, args)
 
                     column_names = [column[0] for column in ss_cursor.description or []]
