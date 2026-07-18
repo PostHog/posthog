@@ -33,8 +33,13 @@ export interface DnsRecord extends ApiDnsRecord {
 export interface EmailSenderFormType {
     email: string
     name: string
-    provider: 'ses' | 'maildev'
+    provider: 'ses' | 'smtp' | 'maildev'
     mail_from_subdomain?: string
+    host?: string
+    port?: number
+    encryption?: 'starttls' | 'ssl' | 'none'
+    username?: string
+    password?: string
 }
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i
@@ -59,6 +64,13 @@ const getEmailSenderFromIntegration = (integration: IntegrationType): EmailSende
         name: integration.config.name,
         provider: integration.config.provider,
         mail_from_subdomain: integration.config.mail_from_subdomain,
+        host: integration.config.host,
+        port: integration.config.port,
+        encryption: integration.config.encryption,
+        username: integration.config.username,
+        // The password is stored encrypted and never returned by the API; leaving it blank on
+        // edit means "keep the existing password"
+        password: '',
     }
 }
 
@@ -195,13 +207,32 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                 name: '',
                 mail_from_subdomain: 'feedback',
             } as EmailSenderFormType,
-            errors: ({ email, name, provider, mail_from_subdomain }) => {
+            errors: ({ email, name, provider, mail_from_subdomain, host, port, encryption, username, password }) => {
                 let emailError = undefined
                 if (!email) {
                     emailError = 'Email is required'
                 }
                 if (!EMAIL_REGEX.test(email)) {
                     emailError = 'Invalid email format'
+                }
+                if (provider === 'smtp') {
+                    return {
+                        email: emailError,
+                        name: !name ? 'Name is required' : undefined,
+                        provider: undefined,
+                        host: !host ? 'SMTP host is required' : undefined,
+                        port: !port
+                            ? 'SMTP port is required'
+                            : ![587, 465, 2525].includes(port)
+                              ? 'Port must be 587, 465 or 2525'
+                              : undefined,
+                        encryption: !encryption ? 'Encryption mode is required' : undefined,
+                        username: !username ? 'Username is required' : undefined,
+                        password:
+                            values.savedIntegration === null && !password
+                                ? 'Password is required for new senders'
+                                : undefined,
+                    }
                 }
                 return {
                     email: emailError,
@@ -213,7 +244,14 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                             : undefined,
                 }
             },
-            submit: async (config) => {
+            submit: async (formValues) => {
+                // Only send the fields relevant to the chosen provider, and never an empty
+                // password (the backend treats an omitted password as "keep the existing one")
+                const { host, port, encryption, username, password, mail_from_subdomain, ...base } = formValues
+                const config: Record<string, any> =
+                    formValues.provider === 'smtp'
+                        ? { ...base, host, port, encryption, username, ...(password ? { password } : {}) }
+                        : { ...base, mail_from_subdomain }
                 try {
                     let integration: IntegrationType
                     if (values.savedIntegration) {
@@ -229,7 +267,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                     actions.loadIntegrations()
                     actions.setSavedIntegration(integration)
                     actions.verifyDomain()
-                    return config
+                    return formValues
                 } catch (error) {
                     if (error instanceof ApiError || (error && typeof error === 'object' && 'detail' in error)) {
                         lemonToast.error(`Failed to create email sender: ${error.detail || 'Please try again.'}`)

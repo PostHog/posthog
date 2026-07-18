@@ -178,13 +178,45 @@ def _ensure_oauth_token_valid(instance: Integration) -> None:
 
 
 class NativeEmailIntegrationSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    name = serializers.CharField()
-    provider = serializers.ChoiceField(choices=["ses", "maildev"] if settings.DEBUG else ["ses"])
-    mail_from_subdomain = serializers.CharField(required=False, allow_blank=True)
+    email = serializers.EmailField(help_text="From-address workflow emails are sent as.")
+    name = serializers.CharField(help_text="From-name shown to recipients.")
+    provider = serializers.ChoiceField(
+        choices=["ses", "smtp", "maildev"] if settings.DEBUG else ["ses", "smtp"],
+        help_text="Email delivery provider: 'ses' for PostHog-managed sending, 'smtp' for a custom SMTP relay.",
+    )
+    mail_from_subdomain = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Subdomain used for the Return-Path (MAIL FROM) domain. PostHog-managed (ses) provider only.",
+    )
+    host = serializers.CharField(required=False, help_text="SMTP server hostname. SMTP provider only.")
+    port = serializers.IntegerField(
+        required=False, min_value=1, max_value=65535, help_text="SMTP server port: one of 587, 465 or 2525."
+    )
+    encryption = serializers.ChoiceField(
+        choices=["starttls", "ssl", "none"],
+        required=False,
+        help_text="Connection security: 'starttls' (usually port 587), 'ssl' (implicit TLS, usually port 465), or 'none' (local development only).",
+    )
+    username = serializers.CharField(
+        required=False, allow_blank=True, help_text="SMTP AUTH username. SMTP provider only."
+    )
+    password = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        help_text="SMTP AUTH password. Stored encrypted and never returned; omit on update to keep the existing password.",
+    )
 
     def validate_email(self, value: str) -> str:
         return value.lower()
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("provider") == "smtp":
+            for field in ("host", "port", "encryption"):
+                if not attrs.get(field):
+                    raise serializers.ValidationError({field: f"{field} is required for the SMTP provider"})
+        return attrs
 
 
 class GitHubRepoSerializer(serializers.Serializer):

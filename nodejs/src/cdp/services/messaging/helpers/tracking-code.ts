@@ -77,8 +77,16 @@ export type ParsedTrackingCode = {
     actionId?: string
     parentRunId?: string
     isTest: boolean
+    // Marks codes whose sends have no delivery webhook (custom SMTP): the public pixel/redirect
+    // handlers record engagement directly for these, instead of deferring to the SES webhook.
+    directTracking: boolean
     distinctId?: string
     format: TrackingCodeFormat
+}
+
+export type TrackingCodeFlags = {
+    isTest?: boolean
+    directTracking?: boolean
 }
 
 // Generates, signs, verifies and renders email tracking codes. Signing keys and the public
@@ -138,7 +146,7 @@ export class EmailTrackingCodeSigner {
         try {
             const decoded = fromBase64UrlSafe(payloadB64)
             // distinctId is the trailing segment and may itself contain colons, so rejoin everything past it.
-            const [functionId, invocationId, teamId, actionId, parentRunId, isTest, ...distinctIdParts] =
+            const [functionId, invocationId, teamId, actionId, parentRunId, flags, ...distinctIdParts] =
                 decoded.split(':')
             if (!functionId || !invocationId) {
                 return null
@@ -149,7 +157,12 @@ export class EmailTrackingCodeSigner {
                 teamId,
                 actionId: actionId || undefined,
                 parentRunId: parentRunId || undefined,
-                isTest: isTest === '1',
+                // The sixth segment is a flags field: '1' marks test sends (its historical only
+                // value, kept for in-flight codes), 'd' marks direct-tracking (SMTP) sends.
+                isTest: (flags ?? '').includes('1'),
+                // Only trust directTracking from a signed code — an unsigned code with the flag could
+                // otherwise coerce the production pixel/redirect handlers into recording forged events.
+                directTracking: format === 'signed' && (flags ?? '').includes('d'),
                 // Only trust distinct_id from a signed code — the HMAC is its integrity guarantee. The
                 // legitimate unsigned tag never carries a distinct_id, so an unsigned code with one is
                 // forged; honoring it would let a crafted ph_id inject engagement events for any team.
@@ -167,15 +180,17 @@ export class EmailTrackingCodeSigner {
     // Full tracking code, HMAC-signed when a signing key is configured. Rides in the custom MIME
     // header and the pixel/link URLs — carriers with no length cap — and the signature lets the
     // public tracking endpoint reject forged `ph_id` values.
-    generate(invocation: TrackingInvocation, isTest = false): string {
+    generate(invocation: TrackingInvocation, trackingFlags: TrackingCodeFlags = {}): string {
         const actionId = invocation.state?.actionId ?? ''
         const parentRunId = invocation.parentRunId ?? ''
         const distinctId = invocation.distinctId ?? ''
-        // isTest marks sends from the editor's "Run test" so the SES webhook can skip recording their
-        // metrics — keeping test traffic out of the production Metrics tab. distinctId is appended last
-        // because it may contain colons; it attributes engagement events.
+        // The flags field: '1' marks sends from the editor's "Run test" so recording paths skip their
+        // metrics — keeping test traffic out of the production Metrics tab. 'd' marks direct-tracking
+        // sends (custom SMTP), telling the pixel/redirect handlers to record engagement themselves.
+        // distinctId is appended last because it may contain colons; it attributes engagement events.
+        const flags = `${trackingFlags.isTest ? '1' : ''}${trackingFlags.directTracking ? 'd' : ''}`
         const payload = toBase64UrlSafe(
-            `${invocation.functionId}:${invocation.id}:${invocation.teamId}:${actionId}:${parentRunId}:${isTest ? '1' : ''}:${distinctId}`
+            `${invocation.functionId}:${invocation.id}:${invocation.teamId}:${actionId}:${parentRunId}:${flags}:${distinctId}`
         )
         if (this.signingKeys.length === 0) {
             // Fail closed (#62624): a deployment with no signing key must never mint unsigned tracking
@@ -204,11 +219,24 @@ export class EmailTrackingCodeSigner {
         )
     }
 
-    pixelUrl(invocation: TrackingInvocation, isTest = false): string {
-        return `${this.trackingUrl}/public/m/pixel?ph_id=${this.generate(invocation, isTest)}`
+    pixelUrl(invocation: TrackingInvocation, trackingFlags: TrackingCodeFlags = {}): string {
+        return `${this.trackingUrl}/public/m/pixel?ph_id=${this.generate(invocation, trackingFlags)}`
     }
 
-    redirectUrl(invocation: TrackingInvocation, targetUrl: string, isTest = false): string {
-        return `${this.trackingUrl}/public/m/redirect?ph_id=${this.generate(invocation, isTest)}&target=${encodeURIComponent(targetUrl)}`
+    redirectUrl(invocation: TrackingInvocation, targetUrl: string, trackingFlags: TrackingCodeFlags = {}): string {
+        const trackingCode = this.generate(invocation, trackingFlags)
+        // `th` binds the redirect target to the signed code, so a valid ph_id can't be replayed
+        // with an attacker-chosen target to launder phishing links through our redirect domain.
+        return `${this.trackingUrl}/public/m/redirect?ph_id=${trackingCode}&target=${encodeURIComponent(targetUrl)}&th=${this.signRedirectTarget(trackingCode, targetUrl)}`
+    }
+
+    signRedirectTarget(trackingCode: string, targetUrl: string): string {
+        return this.signPayload(`redirect:${trackingCode}:${targetUrl}`, this.signingKeys[0])
+    }
+
+    // Legacy links minted before target binding carry no `th` — callers treat those as
+    // "not verifiable" rather than invalid so in-flight emails keep working.
+    verifyRedirectTarget(trackingCode: string, targetUrl: string, signature: string): boolean {
+        return this.verifySignature(`redirect:${trackingCode}:${targetUrl}`, signature)
     }
 }

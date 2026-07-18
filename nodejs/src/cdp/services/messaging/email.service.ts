@@ -18,6 +18,7 @@ import { RecipientManagerRecipient } from '../managers/recipients-manager.servic
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { addTrackingToEmail, resolveEmailEngagementDistinctId } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
+import { smtpTransportPool } from './helpers/smtp'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { MessageAssetsService } from './message-assets.service'
@@ -49,21 +50,48 @@ function isSesThrottleError(error: unknown): error is Error & { name: SesThrottl
 }
 
 /**
- * Tagged error signalling that SES rejected the send for a transient,
- * rate-limit-shaped reason. The caller schedules a retry instead of failing
- * the job. Carries the SES error name for metrics and the retry delay we
- * pick locally (SES doesn't return a Retry-After header).
+ * Base for provider errors that signal a transient condition — the caller schedules a retry
+ * instead of failing the job. Carries the retry delay we pick locally.
  */
-export class SESThrottleError extends Error {
-    public readonly errorCode: SesThrottleErrorName
+export class EmailTransientError extends Error {
     public readonly retryAfterMs: number
 
-    constructor(errorCode: SesThrottleErrorName, retryAfterMs: number, message: string) {
+    constructor(retryAfterMs: number, message: string) {
         super(message)
-        this.name = 'SESThrottleError'
-        this.errorCode = errorCode
+        this.name = 'EmailTransientError'
         this.retryAfterMs = retryAfterMs
     }
+}
+
+/**
+ * Tagged error signalling that SES rejected the send for a transient,
+ * rate-limit-shaped reason. Carries the SES error name for metrics and the
+ * retry delay we pick locally (SES doesn't return a Retry-After header).
+ */
+export class SESThrottleError extends EmailTransientError {
+    public readonly errorCode: SesThrottleErrorName
+
+    constructor(errorCode: SesThrottleErrorName, retryAfterMs: number, message: string) {
+        super(retryAfterMs, message)
+        this.name = 'SESThrottleError'
+        this.errorCode = errorCode
+    }
+}
+
+/**
+ * The relay answered the send with a 4xx — alive, but explicitly asking us to come back later
+ * (greylisting, connection caps, temporary quota). Retried on a longer delay than SES throttles
+ * since customer relays typically enforce coarser windows.
+ */
+export class SMTPTransientError extends EmailTransientError {
+    constructor(retryAfterMs: number, message: string) {
+        super(retryAfterMs, message)
+        this.name = 'SMTPTransientError'
+    }
+}
+
+function pickSmtpRetryDelayMs(): number {
+    return 15_000 + Math.floor(Math.random() * 15_000)
 }
 
 function pickThrottleRetryDelayMs(): number {
@@ -174,6 +202,9 @@ export class EmailService {
                 case 'ses':
                     await this.sendEmailWithSES(result, params, from, isTest)
                     break
+                case 'smtp':
+                    await this.sendEmailWithSMTP(result, params, from, integration, isTest)
+                    break
 
                 case 'unsupported':
                     throw new Error('Email delivery mode not supported')
@@ -190,14 +221,15 @@ export class EmailService {
             addLog('info', `Email sent to ${params.to.email}${viewEmailToken}`)
             success = true
         } catch (error) {
-            if (error instanceof SESThrottleError) {
+            if (error instanceof EmailTransientError) {
                 // Treat as a transient delivery delay — reschedule rather than fail
-                // the job. Our local bucket is the primary throttle; this path
-                // catches the cases where SES disagrees with our estimate.
+                // the job. For SES our local bucket is the primary throttle and this
+                // catches the cases where SES disagrees with our estimate; for SMTP
+                // it covers 4xx responses from the customer's relay.
                 throttled = true
                 result.finished = false
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
-                addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
+                addLog('warn', `${error.message}; rescheduling email in ${error.retryAfterMs}ms`)
             } else {
                 addLog('error', error.message)
                 result.error = error.message
@@ -284,7 +316,7 @@ export class EmailService {
             subject: sanitizeEmailSubject(params.subject),
             text: params.text,
             ...(params.html
-                ? { html: addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest) }
+                ? { html: addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, { isTest }) }
                 : {}),
         }
 
@@ -307,6 +339,93 @@ export class EmailService {
         result.logs.push(logEntry('debug', `Email sent to your local maildev server: ${mailDevWebUrl}`))
     }
 
+    // Send via the customer's own SMTP relay. Engagement is attributed by the PostHog-hosted
+    // pixel/redirect endpoints (direct tracking) since there is no delivery webhook — which also
+    // means delivered/bounced/complaint metrics don't exist for this provider.
+    private async sendEmailWithSMTP(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        params: CyclotronInvocationQueueParametersEmailType,
+        from: { email: string; name: string },
+        integration: IntegrationType,
+        isTest = false
+    ): Promise<void> {
+        const transport = await smtpTransportPool.get(integration)
+        const trackingFlags = { isTest, directTracking: true }
+        const distinctId = resolveEmailEngagementDistinctId(result.invocation)
+        const trackingCode = this.trackingCodeSigner.generate({ ...result.invocation, distinctId }, trackingFlags)
+
+        const headers: Record<string, string> = { [TRACKING_CODE_HEADER_NAME]: trackingCode }
+        const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'
+        if (!isTransactionalEmail) {
+            headers['List-Unsubscribe'] =
+                `<${this.recipientTokensService.generateOneClickUnsubscribeUrl({ team_id: result.invocation.teamId, identifier: params.to.email })}>`
+            headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click'
+        }
+
+        const mailOptions: SendMailOptions = {
+            from: from.name ? `"${from.name}" <${from.email}>` : from.email,
+            to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
+            subject: sanitizeEmailSubject(params.subject),
+            text: params.text,
+            headers,
+            ...(params.html
+                ? {
+                      html: maybeAddPreheaderToEmail(
+                          addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, trackingFlags),
+                          params.preheader
+                      ),
+                  }
+                : {}),
+        }
+
+        const replyToAddresses = parseAddressList(params.replyTo)
+        const ccAddresses = parseAddressList(params.cc)
+        const bccAddresses = parseAddressList(params.bcc)
+
+        if (replyToAddresses) {
+            mailOptions.replyTo = replyToAddresses
+        }
+        if (ccAddresses) {
+            mailOptions.cc = ccAddresses
+        }
+        if (bccAddresses) {
+            mailOptions.bcc = bccAddresses
+        }
+
+        try {
+            const response = await transport.sendMail(mailOptions)
+            if (response.rejected?.length) {
+                throw new Error(`The SMTP server rejected recipients: ${response.rejected.join(', ')}`)
+            }
+        } catch (error: unknown) {
+            throw this.mapSmtpError(error)
+        }
+    }
+
+    // SMTP failure classification. 4xx means "come back later" — reschedule. A network error
+    // during/after the DATA phase is ambiguous (the relay may already be delivering), so it must
+    // NOT retry: a blind retry double-sends. Everything else is terminal with the relay's own
+    // response preserved so users can self-diagnose against their provider.
+    private mapSmtpError(error: unknown): Error {
+        if (!(error instanceof Error)) {
+            return new Error(`Failed to send email via SMTP: ${String(error)}`)
+        }
+        const smtpError = error as Error & { responseCode?: number; command?: string; code?: string }
+
+        if (smtpError.responseCode && smtpError.responseCode >= 400 && smtpError.responseCode < 500) {
+            return new SMTPTransientError(
+                pickSmtpRetryDelayMs(),
+                `SMTP server responded ${smtpError.responseCode} (${smtpError.message})`
+            )
+        }
+        if (!smtpError.responseCode && smtpError.command === 'DATA') {
+            return new Error(
+                `The connection failed while transmitting the message and the email may or may not have been delivered (${smtpError.message}). It will not be retried to avoid a duplicate send.`
+            )
+        }
+        return new Error(`Failed to send email via SMTP: ${smtpError.message}`)
+    }
+
     private async sendEmailWithSES(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersEmailType,
@@ -320,14 +439,14 @@ export class EmailService {
         // Full signed code (with distinct_id + isTest) rides in the header; the short unsigned
         // carrier (no distinct_id/isTest) goes in the SES EmailTag, guaranteed under the 256-char
         // tag-value limit. The webhook reads the header first and only falls back to the tag.
-        const trackingCode = this.trackingCodeSigner.generate({ ...result.invocation, distinctId }, isTest)
+        const trackingCode = this.trackingCodeSigner.generate({ ...result.invocation, distinctId }, { isTest })
         const shortTrackingCode = this.trackingCodeSigner.generateShort(result.invocation)
 
         const htmlBody = params.html
             ? {
                   Html: {
                       Data: maybeAddPreheaderToEmail(
-                          addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest),
+                          addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, { isTest }),
                           params.preheader
                       ),
                       Charset: 'UTF-8',

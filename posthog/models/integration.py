@@ -59,7 +59,7 @@ from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
 from posthog.utils import get_instance_region
 
-from products.workflows.backend.providers import SESProvider, TwilioProvider
+from products.workflows.backend.providers import SESProvider, SMTPProvider, TwilioProvider
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -2408,26 +2408,53 @@ class EmailIntegration:
                 team_id=team_id,
                 org_team_ids=org_team_ids,
             )
+        elif provider == "smtp":
+            SMTPProvider().test_connection(
+                host=config.get("host", ""),
+                port=config.get("port", 0),
+                encryption=config.get("encryption", ""),
+                username=config.get("username"),
+                password=config.get("password"),
+            )
         elif provider == "maildev" and settings.DEBUG:
             pass
         else:
-            raise ValueError(f"Invalid provider: must be 'ses'")
+            raise ValueError("Invalid provider: must be 'ses' or 'smtp'")
+
+        integration_config: dict = {
+            "email": email_address,
+            "domain": domain,
+            "name": name,
+            "provider": provider,
+        }
+        defaults: dict = {"created_by": created_by}
+        if provider == "smtp":
+            # A successful connection test is what "verified" means for SMTP — there are no
+            # DNS records to check; the relay's own domain setup covers DKIM/SPF.
+            integration_config.update(
+                {
+                    "host": config.get("host", ""),
+                    "port": config.get("port"),
+                    "encryption": config.get("encryption", ""),
+                    "username": config.get("username", ""),
+                    "verified": True,
+                }
+            )
+            defaults["sensitive_config"] = {"password": config.get("password", "")}
+        else:
+            integration_config.update(
+                {
+                    "mail_from_subdomain": mail_from_subdomain,
+                    "verified": True if provider == "maildev" else False,
+                }
+            )
+        defaults["config"] = integration_config
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
             kind="email",
             integration_id=email_address,
-            defaults={
-                "config": {
-                    "email": email_address,
-                    "domain": domain,
-                    "mail_from_subdomain": mail_from_subdomain,
-                    "name": name,
-                    "provider": provider,
-                    "verified": True if provider == "maildev" else False,
-                },
-                "created_by": created_by,
-            },
+            defaults=defaults,
         )
 
         if integration.errors:
@@ -2439,8 +2466,12 @@ class EmailIntegration:
     def update_native_integration(self, config: dict, team_id: int) -> Integration:
         provider = self.integration.config.get("provider")
         domain = self.integration.config.get("domain")
-        # Only name and mail_from_subdomain can be updated
         name: str = config.get("name", self.integration.config.get("name"))
+
+        if provider == "smtp":
+            return self._update_smtp_integration(config, name)
+
+        # Only name and mail_from_subdomain can be updated
         mail_from_subdomain: str = config.get(
             "mail_from_subdomain", self.integration.config.get("mail_from_subdomain", "feedback")
         )
@@ -2452,7 +2483,7 @@ class EmailIntegration:
         elif provider == "maildev" and settings.DEBUG:
             pass
         else:
-            raise ValueError(f"Invalid provider: must be 'ses'")
+            raise ValueError("Invalid provider: must be 'ses' or 'smtp'")
 
         self.integration.config.update(
             {
@@ -2461,6 +2492,37 @@ class EmailIntegration:
             }
         )
         self.integration.save()
+
+        return self.integration
+
+    def _update_smtp_integration(self, config: dict, name: str) -> Integration:
+        current = self.integration.config
+        host: str = config.get("host", current.get("host", ""))
+        port: int = config.get("port", current.get("port", 0))
+        encryption: str = config.get("encryption", current.get("encryption", ""))
+        username: str = config.get("username", current.get("username", ""))
+        # Omitted password means "keep the existing one" — it is never echoed to the frontend,
+        # so edit forms can't round-trip it.
+        password: str = config.get("password") or self.integration.sensitive_config.get("password", "")
+
+        SMTPProvider().test_connection(
+            host=host, port=port, encryption=encryption, username=username, password=password
+        )
+
+        self.integration.config.update(
+            {
+                "name": name,
+                "host": host,
+                "port": port,
+                "encryption": encryption,
+                "username": username,
+                "verified": True,
+            }
+        )
+        self.integration.sensitive_config["password"] = password
+        self.integration.save()
+        # Credential changes must reach the Node email workers' integration cache immediately
+        reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
         return self.integration
 
@@ -2474,6 +2536,8 @@ class EmailIntegration:
             verification_result = self.ses_provider.verify_email_domain(
                 domain, mail_from_subdomain=mail_from_subdomain, team_id=self.integration.team_id
             )
+        elif provider == "smtp":
+            verification_result = self._verify_smtp()
         elif provider == "maildev":
             verification_result = {
                 "status": "success",
@@ -2482,7 +2546,10 @@ class EmailIntegration:
         else:
             raise ValueError(f"Invalid provider: {provider}")
 
-        if verification_result.get("status") == "success":
+        # SMTP verification is per-integration (each sender can point at a different relay and
+        # credentials), so _verify_smtp persists its own outcome — the domain-wide fan-out below
+        # only makes sense for DNS-based verification.
+        if provider != "smtp" and verification_result.get("status") == "success":
             # We can validate all other integrations with the same domain and provider
             all_integrations_for_domain = Integration.objects.filter(
                 team_id=self.integration.team_id,
@@ -2499,6 +2566,31 @@ class EmailIntegration:
             )
 
         return verification_result
+
+    def _verify_smtp(self) -> dict:
+        config = self.integration.config
+        try:
+            SMTPProvider().test_connection(
+                host=config.get("host", ""),
+                port=config.get("port", 0),
+                encryption=config.get("encryption", ""),
+                username=config.get("username"),
+                password=self.integration.sensitive_config.get("password"),
+            )
+        except ValidationError as e:
+            error_message = e.detail[0] if isinstance(e.detail, list) else str(e.detail)
+            self.integration.config["verified"] = False
+            self.integration.errors = str(error_message)
+            self.integration.save()
+            reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
+            return {"status": "failed", "error": error_message, "dnsRecords": []}
+
+        self.integration.config["verified"] = True
+        if self.integration.errors:
+            self.integration.errors = ""
+        self.integration.save()
+        reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
+        return {"status": "success", "dnsRecords": []}
 
 
 class LinearIntegration:

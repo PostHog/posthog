@@ -3,6 +3,7 @@ import { Form } from 'kea-forms'
 
 import { IconCheckCircle, IconCopy, IconQuestion, IconRefresh, IconWarning } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonInput,
     LemonModal,
@@ -14,73 +15,128 @@ import {
 } from '@posthog/lemon-ui'
 
 import { DomainConnectBanner } from 'lib/components/DomainConnect'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { DnsRecord, EmailSetupModalLogicProps, emailSetupModalLogic } from './emailSetupModalLogic'
 
 export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element => {
     const logic = emailSetupModalLogic(props)
-    const { savedIntegration, verificationLoading, isEmailSenderSubmitting, dnsRecords, domain, isDomainVerified } =
-        useValues(logic)
+    const {
+        savedIntegration,
+        verificationLoading,
+        isEmailSenderSubmitting,
+        dnsRecords,
+        domain,
+        isDomainVerified,
+        emailSender,
+        verification,
+    } = useValues(logic)
     const { verifyDomain, submitEmailSender } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const emailDomain = savedIntegration?.config?.domain || ''
+    const isSmtp = emailSender.provider === 'smtp'
+    const busyReason = verificationLoading || isEmailSenderSubmitting ? 'Creating sender...' : undefined
+
+    const providerOptions = [
+        { value: 'ses' as const, label: 'PostHog (recommended)' },
+        ...(featureFlags[FEATURE_FLAGS.MESSAGING_CUSTOM_SMTP]
+            ? [{ value: 'smtp' as const, label: 'Custom SMTP' }]
+            : []),
+        ...(featureFlags[FEATURE_FLAGS.MESSAGING_SES] ? [{ value: 'maildev' as const, label: 'Maildev (dev)' }] : []),
+    ]
 
     return (
         <>
             <LemonModal title="Configure email sender" width="auto" onClose={props.onClose}>
                 <Form logic={emailSetupModalLogic} props={props} formKey="emailSender">
                     <div className="space-y-4">
-                        <FlaggedFeature flag="messaging-ses">
-                            {/* NOTE: We probably dont want to actually give the options - this is just for our own testing */}
+                        {providerOptions.length > 1 && (
                             <LemonField name="provider" label="Provider">
                                 <LemonSelect
-                                    options={[
-                                        { value: 'ses', label: 'AWS SES' },
-                                        { value: 'maildev', label: 'Maildev' },
-                                    ]}
+                                    options={providerOptions}
+                                    disabledReason={
+                                        savedIntegration ? 'You cannot change the provider after creation' : busyReason
+                                    }
                                 />
                             </LemonField>
-                        </FlaggedFeature>
+                        )}
                         <LemonField name="name" label="Name">
-                            <LemonInput
-                                type="text"
-                                placeholder="John Doe"
-                                disabledReason={
-                                    verificationLoading || isEmailSenderSubmitting ? 'Creating sender...' : undefined
-                                }
-                            />
+                            <LemonInput type="text" placeholder="John Doe" disabledReason={busyReason} />
                         </LemonField>
                         <LemonField name="email" label="Email address">
                             <LemonInput
                                 type="text"
                                 placeholder="example@example.com"
                                 disabledReason={
-                                    savedIntegration
-                                        ? 'You cannot change the email after creation'
-                                        : verificationLoading || isEmailSenderSubmitting
-                                          ? 'Creating sender...'
-                                          : undefined
+                                    savedIntegration ? 'You cannot change the email after creation' : busyReason
                                 }
                             />
                         </LemonField>
-                        <LemonField
-                            name="mail_from_subdomain"
-                            label="MAIL FROM subdomain"
-                            help="The subdomain used for your emails' Return-Path header. Setting a MAIL FROM domain helps improve email deliverability."
-                        >
-                            <LemonInput
-                                className="w-fit"
-                                type="text"
-                                placeholder="feedback"
-                                suffix={<>.{domain || 'yourdomain.com'}</>}
-                                disabledReason={
-                                    verificationLoading || isEmailSenderSubmitting ? 'Creating sender...' : undefined
-                                }
-                            />
-                        </LemonField>
-                        {!savedIntegration && (
+                        {isSmtp ? (
+                            <>
+                                <div className="flex gap-2">
+                                    <LemonField name="host" label="SMTP host" className="flex-1">
+                                        <LemonInput
+                                            type="text"
+                                            placeholder="smtp.example.com"
+                                            disabledReason={busyReason}
+                                        />
+                                    </LemonField>
+                                    <LemonField name="port" label="Port">
+                                        <LemonSelect
+                                            options={[
+                                                { value: 587, label: '587' },
+                                                { value: 465, label: '465' },
+                                                { value: 2525, label: '2525' },
+                                            ]}
+                                            disabledReason={busyReason}
+                                        />
+                                    </LemonField>
+                                    <LemonField name="encryption" label="Encryption">
+                                        <LemonSelect
+                                            options={[
+                                                { value: 'starttls' as const, label: 'STARTTLS' },
+                                                { value: 'ssl' as const, label: 'SSL/TLS' },
+                                                { value: 'none' as const, label: 'None (dev only)' },
+                                            ]}
+                                            disabledReason={busyReason}
+                                        />
+                                    </LemonField>
+                                </div>
+                                <LemonField name="username" label="Username">
+                                    <LemonInput type="text" placeholder="apikey" disabledReason={busyReason} />
+                                </LemonField>
+                                <LemonField
+                                    name="password"
+                                    label="Password"
+                                    help={
+                                        savedIntegration
+                                            ? 'Leave blank to keep the existing password.'
+                                            : 'Stored encrypted. Your provider may call this an API key.'
+                                    }
+                                >
+                                    <LemonInput type="password" disabledReason={busyReason} />
+                                </LemonField>
+                            </>
+                        ) : (
+                            <LemonField
+                                name="mail_from_subdomain"
+                                label="MAIL FROM subdomain"
+                                help="The subdomain used for your emails' Return-Path header. Setting a MAIL FROM domain helps improve email deliverability."
+                            >
+                                <LemonInput
+                                    className="w-fit"
+                                    type="text"
+                                    placeholder="feedback"
+                                    suffix={<>.{domain || 'yourdomain.com'}</>}
+                                    disabledReason={busyReason}
+                                />
+                            </LemonField>
+                        )}
+                        {(!savedIntegration || isSmtp) && (
                             <div className="flex justify-end">
                                 <LemonButton
                                     type="primary"
@@ -88,14 +144,50 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                     loading={verificationLoading || isEmailSenderSubmitting}
                                     onClick={submitEmailSender}
                                 >
-                                    Continue
+                                    {savedIntegration ? 'Save & test connection' : 'Continue'}
                                 </LemonButton>
                             </div>
                         )}
                     </div>
                 </Form>
 
-                {savedIntegration && (
+                {savedIntegration && isSmtp && (
+                    <div className="mt-8 space-y-2 w-full">
+                        <h2>Connection</h2>
+                        {verificationLoading ? (
+                            <LemonBanner type="info">
+                                <div className="flex gap-2 items-center">
+                                    <Spinner /> Testing the connection to your SMTP server...
+                                </div>
+                            </LemonBanner>
+                        ) : isDomainVerified ? (
+                            <LemonBanner type="success">
+                                Connection verified. This sender is ready to use in workflows.
+                            </LemonBanner>
+                        ) : (
+                            <LemonBanner type="error">
+                                {verification?.error ||
+                                    'The connection could not be verified. Check the host, port and credentials, then test again.'}
+                            </LemonBanner>
+                        )}
+                        <div className="flex gap-2 justify-end">
+                            <LemonButton
+                                type="secondary"
+                                onClick={verifyDomain}
+                                disabledReason={verificationLoading ? 'Testing...' : undefined}
+                                loading={verificationLoading}
+                                icon={<IconRefresh />}
+                            >
+                                Test connection
+                            </LemonButton>
+                            <LemonButton type="primary" onClick={() => props.onComplete(savedIntegration?.id)}>
+                                Done
+                            </LemonButton>
+                        </div>
+                    </div>
+                )}
+
+                {savedIntegration && !isSmtp && (
                     <div className="mt-8 space-y-2 w-full">
                         <h2>DNS records</h2>
                         <p className="text-sm text-muted">

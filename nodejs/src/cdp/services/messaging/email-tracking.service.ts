@@ -16,7 +16,7 @@ import { RecipientsManagerService } from '../managers/recipients-manager.service
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import { SesWebhookHandler } from './helpers/ses'
-import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
+import { EmailTrackingCodeSigner, TrackingCodeFlags, trackingCodeFormatCounter } from './helpers/tracking-code'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
 const LINK_REGEX =
@@ -96,15 +96,20 @@ export const addTrackingToEmail = (
     html: string,
     invocation: CyclotronJobInvocationHogFunction,
     signer: EmailTrackingCodeSigner,
-    isTest = false
+    trackingFlags: TrackingCodeFlags = {}
 ): string => {
-    // Only carry distinct_id in the in-email pixel/redirect URLs in dev/test, where those handlers
-    // record metrics. In production they don't (SES webhooks own open/click attribution via the
-    // signed header), so embedding distinct_id in the public `ph_id` would be unused — and worse,
-    // a tracked-link click could leak the recipient identifier to the destination via the Referer.
-    const distinctId = isDevEnv() || isTestEnv() ? resolveEmailEngagementDistinctId(invocation) : undefined
+    // Carry distinct_id in the in-email pixel/redirect URLs only where those handlers record
+    // metrics: dev/test, and direct-tracking (custom SMTP) sends, which have no delivery webhook.
+    // For SES sends in production the webhook owns open/click attribution via the signed header,
+    // so embedding distinct_id in the public `ph_id` would be unused — and worse, a tracked-link
+    // click could leak the recipient identifier to the destination via the Referer (the redirect
+    // response's `Referrer-Policy: no-referrer` mitigates this for direct-tracking links).
+    const distinctId =
+        isDevEnv() || isTestEnv() || trackingFlags.directTracking
+            ? resolveEmailEngagementDistinctId(invocation)
+            : undefined
     const trackingInvocation = { ...invocation, distinctId }
-    const trackingUrl = signer.pixelUrl(trackingInvocation, isTest)
+    const trackingUrl = signer.pixelUrl(trackingInvocation, trackingFlags)
 
     html = html.replace(LINK_REGEX, (m, d, s, u) => {
         const href = decodeHtmlEntitiesInHref(d || s || u || '')
@@ -122,7 +127,7 @@ export const addTrackingToEmail = (
         if (LINK_TRACKING_OPT_OUT_REGEX.test(openingTag)) {
             return m
         }
-        const tracked = signer.redirectUrl(trackingInvocation, href, isTest)
+        const tracked = signer.redirectUrl(trackingInvocation, href, trackingFlags)
 
         // replace just the href in the original tag to preserve other attributes
         return m.replace(/\bhref\s*=\s*(?:"[^"]*"|'[^']*'|[^'">\s]+)/i, `href="${tracked}"`)
@@ -390,6 +395,8 @@ export class EmailTrackingService {
         actionId?: string
         parentRunId?: string
         distinctId?: string
+        isTest?: boolean
+        directTracking?: boolean
     } {
         // Support both combined ph_id format and legacy separate params
         if (query.ph_id) {
@@ -403,6 +410,8 @@ export class EmailTrackingService {
                 actionId: parsed?.actionId,
                 parentRunId: parsed?.parentRunId,
                 distinctId: parsed?.distinctId,
+                isTest: parsed?.isTest,
+                directTracking: parsed?.directTracking,
             }
         }
         return {
@@ -411,35 +420,57 @@ export class EmailTrackingService {
         }
     }
 
+    // Whether this request should record an engagement metric directly. SES sends are recorded by
+    // the SES webhook in production — recording here too would double-count — so direct recording
+    // is limited to codes minted with the direct-tracking flag (custom SMTP sends, which have no
+    // webhook) and to dev/test, where maildev replaces SES and no webhooks ever come back.
+    private shouldRecordDirectly(params: { isTest?: boolean; directTracking?: boolean }): boolean {
+        if (isDevEnv() || isTestEnv()) {
+            return true
+        }
+        return Boolean(params.directTracking) && !params.isTest
+    }
+
     // NOTE: this is somewhat naieve. We should expand with UA checking for things like apple's tracking prevention etc.
-    // In production, opens are tracked via SES webhooks — recording here would double-count.
-    // In dev/test (where maildev replaces SES and no webhooks come back), we fire the
-    // engagement event from the pixel handler so local testing produces real events.
     public handleEmailTrackingPixel(req: ModifiedRequest, res: express.Response): void {
         res.status(200).set('Content-Type', 'image/gif').send(PIXEL_GIF)
 
-        if (isDevEnv() || isTestEnv()) {
-            const params = this.parseTrackingParams(req.query as Record<string, any>)
+        const params = this.parseTrackingParams(req.query as Record<string, any>)
+        if (this.shouldRecordDirectly(params)) {
             void this.trackMetric({ ...params, metricName: 'email_opened', source: 'direct' }).catch((error) => {
                 logger.error('[EmailTrackingService] handleEmailTrackingPixel: trackMetric failed', { error })
             })
         }
     }
 
-    // Same rationale as handleEmailTrackingPixel: skip in production (SES webhooks own
-    // click tracking), but emit in dev/test where maildev never produces webhooks.
     public handleEmailTrackingRedirect(req: ModifiedRequest, res: express.Response): void {
-        const { target } = req.query
+        const { target, ph_id, th } = req.query
 
         if (!target) {
             res.status(404).send('Not found')
             return
         }
 
+        // Links minted with target binding must verify: a valid ph_id replayed with a swapped
+        // target would otherwise turn this endpoint into an open redirect for phishing. Links
+        // minted before binding existed carry no `th` and keep redirecting (in-flight emails),
+        // but never record.
+        const targetVerified =
+            typeof th === 'string' && typeof ph_id === 'string'
+                ? this.trackingCodeSigner.verifyRedirectTarget(ph_id, target as string, th)
+                : null
+        if (targetVerified === false) {
+            res.status(404).send('Not found')
+            return
+        }
+
+        // Keep the ph_id (which can carry a recipient identifier for direct-tracking sends) out
+        // of the Referer the destination sees after following the redirect.
+        res.set('Referrer-Policy', 'no-referrer')
         res.redirect(target as string)
 
-        if (isDevEnv() || isTestEnv()) {
-            const params = this.parseTrackingParams(req.query as Record<string, any>)
+        const params = this.parseTrackingParams(req.query as Record<string, any>)
+        if (this.shouldRecordDirectly(params) && (targetVerified === true || isDevEnv() || isTestEnv())) {
             void this.trackMetric({ ...params, metricName: 'email_link_clicked', source: 'direct' }).catch((error) => {
                 logger.error('[EmailTrackingService] handleEmailTrackingRedirect: trackMetric failed', { error })
             })

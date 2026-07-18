@@ -382,6 +382,7 @@ export const FEATURE_FLAGS = {
     MCP_ANALYTICS: 'mcp-analytics', // owner: #project-mcp-analytics
     MCP_ANALYTICS_INTENT_ROUTING: 'mcp-analytics-intent-routing', // owner: #project-mcp-analytics
     MCP_SERVERS: 'mcp-servers', // owner: #team-posthog-ai
+    MESSAGING_CUSTOM_SMTP: 'messaging-custom-smtp', // owner #team-workflows
     MESSAGING_SES: 'messaging-ses', // owner #team-workflows
     METRICS: 'metrics', // owner: #team-apm (@jonmcwest, @frankh)
     NEW_TAB_PROJECT_EXPLORER: 'new-tab-project-explorer', // owner: #team-platform-ux

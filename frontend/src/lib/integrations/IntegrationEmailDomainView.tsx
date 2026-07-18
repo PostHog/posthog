@@ -78,6 +78,11 @@ export function IntegrationEmailDomainView({
                             <span className="flex-1">
                                 {integration.config.name} &lt;{integration.config.email}&gt;
                             </span>
+                            {integration.config.provider === 'smtp' && (
+                                <Tooltip title="Sent through your own SMTP server">
+                                    <LemonTag type="highlight">Custom SMTP</LemonTag>
+                                </Tooltip>
+                            )}
                             <LemonButton
                                 type="primary"
                                 size="small"
