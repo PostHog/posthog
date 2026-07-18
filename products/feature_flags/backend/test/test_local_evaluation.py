@@ -976,9 +976,13 @@ class TestLocalEvaluationBatch(BaseTest):
         # team reading False, or an ungated/legacy team (no config row) reading anything but
         # False — including on the no-flags fallback path.
         gated_team = self._create_team_with_project("Gated")
+        gated_team_no_flags = self._create_team_with_project("Gated no flags")
         ungated_team = self._create_team_with_project("Ungated")
 
         TeamFeatureFlagsConfig.objects.update_or_create(team=gated_team, defaults={"minimal_flag_called_events": True})
+        TeamFeatureFlagsConfig.objects.update_or_create(
+            team=gated_team_no_flags, defaults={"minimal_flag_called_events": True}
+        )
         TeamFeatureFlagsConfig.objects.filter(team=ungated_team).delete()
 
         FeatureFlag.objects.create(
@@ -987,9 +991,14 @@ class TestLocalEvaluationBatch(BaseTest):
             filters={"groups": [{"rollout_percentage": 100}]},
         )
 
-        results = _get_flags_response_for_local_evaluation_batch([gated_team, ungated_team])
+        results = _get_flags_response_for_local_evaluation_batch([gated_team, gated_team_no_flags, ungated_team])
 
         assert results[gated_team.id]["minimal_flag_called_events"] is True
+        # Gated team with no flags hits the no-flags fallback path, not the main response path.
+        # Without this case, a fallback that hardcodes False instead of threading the gate would
+        # pass unnoticed, since the ungated team's expected False is indistinguishable from that.
+        assert results[gated_team_no_flags.id]["flags"] == []
+        assert results[gated_team_no_flags.id]["minimal_flag_called_events"] is True
         assert results[ungated_team.id]["minimal_flag_called_events"] is False
 
     def test_batch_team_with_no_flags_includes_group_type_mapping(self):

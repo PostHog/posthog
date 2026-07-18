@@ -522,6 +522,7 @@ def clear_flag_definition_caches(team: Team | int, kinds: list[str] | None = Non
 
 
 def _local_eval_response(
+    *,
     flags: list[dict[str, Any]],
     group_type_mapping: dict[str, str],
     cohorts: dict[str, Any],
@@ -538,7 +539,10 @@ def _local_eval_response(
 def _get_flags_response_for_local_evaluation(team: Team) -> dict[str, Any]:
     """Build the local-evaluation response for a single team."""
     results = _get_flags_response_for_local_evaluation_batch([team])
-    return results.get(team.id, _local_eval_response([], {}, {}, False))
+    return results.get(
+        team.id,
+        _local_eval_response(flags=[], group_type_mapping={}, cohorts={}, minimal_flag_called_events=False),
+    )
 
 
 def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[int, dict[str, Any]]:
@@ -697,10 +701,10 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
                 continue
 
         response_data = _local_eval_response(
-            flags_data,
-            gtm_by_project.get(team.project_id, {}),
-            cohorts,
-            minimal_flag_called_events_by_team[tid],
+            flags=flags_data,
+            group_type_mapping=gtm_by_project.get(team.project_id, {}),
+            cohorts=cohorts,
+            minimal_flag_called_events=minimal_flag_called_events_by_team[tid],
         )
 
         results[tid] = _apply_flag_dependency_transformation(response_data, flag_id_to_key)
@@ -709,10 +713,10 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
     for tid in team_ids:
         if tid not in results:
             results[tid] = _local_eval_response(
-                [],
-                gtm_by_project.get(team_by_id[tid].project_id, {}),
-                {},
-                minimal_flag_called_events_by_team[tid],
+                flags=[],
+                group_type_mapping=gtm_by_project.get(team_by_id[tid].project_id, {}),
+                cohorts={},
+                minimal_flag_called_events=minimal_flag_called_events_by_team[tid],
             )
 
     return results
