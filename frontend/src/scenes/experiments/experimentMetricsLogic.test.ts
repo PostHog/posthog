@@ -379,6 +379,42 @@ describe('experimentMetricsLogic', () => {
             expect(capturedBody).toEqual({ trigger: 'cold_run' })
         })
 
+        it('applies terminal results and resumes polling the active run (reload while recalculating)', async () => {
+            const createMock = jest.fn(() => [201, pendingRecalculation])
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        { ...completedRecalculation, active_run: { id: 'recalc-2', status: 'in_progress' } },
+                    ],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': () => [
+                        200,
+                        completedRecalculation2,
+                    ],
+                },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+            })
+            jest.useFakeTimers()
+            mountLogic()
+
+            await expectLogic(logic)
+                .toDispatchActions(['loadLatestRecalculation', 'setCurrentRecalculation', 'pollRecalculation'])
+                .toNotHaveDispatchedActions(['triggerRecalculation'])
+
+            // The terminal run's results are on screen immediately, dimmed while the active run refreshes them.
+            expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
+            expect(logic.values.recalculatingMetricUuids).toContain(PRIMARY_METRIC_UUID)
+
+            // The next poll tick finds the active run completed and applies its fresh results.
+            await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+            expect(logic.values.currentRecalculation?.id).toBe('recalc-2')
+            expect(logic.values.currentRecalculation?.status).toBe('completed')
+            expect(logic.values.recalculatingMetricUuids).toEqual([])
+            // Resuming must not create a new run — that was the bug (progress frozen until manual refresh).
+            expect(createMock).not.toHaveBeenCalled()
+            jest.useRealTimers()
+        })
+
         it('does not auto-trigger when the latest completed run is healthy', async () => {
             // freshCompletedRecalculation has result_source 'recalculation' (a real run) with all metrics
             // resolved, so neither the config-change heal path nor the timeseries-fallback path fires.

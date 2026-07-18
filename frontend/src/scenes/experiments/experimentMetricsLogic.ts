@@ -577,6 +577,28 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     applyResults(recalculation)
 
                     /**
+                     * if there's an active recalculation running, schedule pooling of
+                     * the active recalculation status
+                     */
+                    if (recalculation.active_run) {
+                        actions.setRecalculatingMetricUuids(
+                            metricUuidsToDim(
+                                props.experiment,
+                                values.primaryMetricsResults,
+                                values.secondaryMetricsResults,
+                                values.primaryMetricsResultsErrors,
+                                values.secondaryMetricsResultsErrors
+                            )
+                        )
+                        cache.activeRecalculationId = recalculation.active_run.id
+                        cache.recalcStartMs = Date.now()
+                        cache.pollCount = 0
+                        cache.pollRetryCount = 0
+                        actions.pollRecalculation(recalculation.active_run.id)
+                        return
+                    }
+
+                    /**
                      * Timeseries fallback is a placeholder: it may cover only some metrics and is cumulative
                      * daily data, not a fresh point-in-time result. Always trigger a real cold_run to fill the
                      * gaps and refresh; the placeholder stays visible and cells update in place as it polls.
