@@ -144,11 +144,17 @@ AGENT_PROXY_CALLBACK_SECRET: str | None = os.getenv("AGENT_PROXY_CALLBACK_SECRET
 
 # ReviewHog production label trigger. The trigger endpoint (POST /api/review_hog/trigger) authenticates
 # CI by comparing the request's bearer token to REVIEWHOG_TRIGGER_TOKEN (a shared secret provisioned to
-# both Django and the GitHub Action). Unset fails closed outside local dev/test. REVIEWHOG_TEAM_ID is the
-# team the review runs and publishes under; REVIEWHOG_RUN_USER_ID is the user the sandbox tasks run as
-# (falls back to the team's GitHub integration creator when unset).
+# both Django and the GitHub Action). Unset fails closed outside local dev/test. REVIEWHOG_TEAM_ID is a
+# comma-separated list of team ids allowed to use ReviewHog's UI trigger; the FIRST id is the team
+# label-triggered runs execute and publish under. REVIEWHOG_RUN_USER_ID is the user the sandbox tasks
+# run as (falls back to the team's GitHub integration creator when unset).
 REVIEWHOG_TRIGGER_TOKEN: str | None = os.getenv("REVIEWHOG_TRIGGER_TOKEN") or None
-REVIEWHOG_TEAM_ID: int | None = get_from_env("REVIEWHOG_TEAM_ID", optional=True, type_cast=int)
+# The env var stays singular (production charts provision it by that name); a single id parses to [id].
+REVIEWHOG_TEAM_IDS: list[int] = get_from_env(
+    "REVIEWHOG_TEAM_ID",
+    default=[],
+    type_cast=lambda raw: [int(part) for part in str(raw).split(",") if part.strip()],
+)
 REVIEWHOG_RUN_USER_ID: int | None = get_from_env("REVIEWHOG_RUN_USER_ID", optional=True, type_cast=int)
 
 # These are legacy values only kept around for backwards compatibility with self hosted versions

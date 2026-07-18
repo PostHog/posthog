@@ -630,7 +630,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         team_id = resolve_effective_team_id(self.team_id)
         # Dogfood gate: the UI trigger only runs on the designated ReviewHog team for now — reviews are
         # expensive, so widening beyond it is a deliberate later decision, not a default.
-        if not settings.REVIEWHOG_TEAM_ID or team_id != settings.REVIEWHOG_TEAM_ID:
+        if team_id not in settings.REVIEWHOG_TEAM_IDS:
             return Response(
                 {"error": "ReviewHog reviews can't be started from this project yet"},
                 status=status.HTTP_403_FORBIDDEN,

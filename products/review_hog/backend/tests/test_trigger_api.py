@@ -15,11 +15,11 @@ TRIGGER_URL = "/api/review_hog/trigger/"
 _START = "products.review_hog.backend.api.trigger.start_review_pr_workflow"
 
 
-@override_settings(REVIEWHOG_TRIGGER_TOKEN="secret-token", REVIEWHOG_TEAM_ID=99, REVIEWHOG_RUN_USER_ID=42)
+@override_settings(REVIEWHOG_TRIGGER_TOKEN="secret-token", REVIEWHOG_TEAM_IDS=[99], REVIEWHOG_RUN_USER_ID=42)
 class TestReviewHogTriggerApi(APIBaseTest):
     def setUp(self):
         super().setUp()
-        # The class-level REVIEWHOG_TEAM_ID=99 / REVIEWHOG_RUN_USER_ID=42 must be a real team and an
+        # The class-level REVIEWHOG_TEAM_IDS=[99] / REVIEWHOG_RUN_USER_ID=42 must be a real team and an
         # active member of its org: the trigger rejects unauthorized run users (their sandbox
         # credentials 403 and the review hangs).
         self.trigger_team = Team.objects.create(id=99, organization=self.organization, name="reviewhog trigger")
@@ -95,7 +95,7 @@ class TestReviewHogTriggerApi(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
         mock_start.assert_called_once()
 
-    @override_settings(REVIEWHOG_TEAM_ID=None)
+    @override_settings(REVIEWHOG_TEAM_IDS=[])
     @patch(_START, return_value="wf-1")
     def test_unconfigured_team_returns_503(self, mock_start):
         resp = self.client.post(
@@ -130,7 +130,7 @@ class TestReviewHogTriggerApi(APIBaseTest):
             sensitive_config={},
             created_by=self.user,
         )
-        with override_settings(REVIEWHOG_TEAM_ID=self.team.id):
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
             resp = self.client.post(
                 TRIGGER_URL,
                 {"repo": "PostHog/posthog", "pr_number": 1},
@@ -160,7 +160,7 @@ class TestReviewHogTriggerApi(APIBaseTest):
             sensitive_config={},
             created_by=departed,
         )
-        with override_settings(REVIEWHOG_TEAM_ID=self.team.id):
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
             resp = self.client.post(
                 TRIGGER_URL,
                 {"repo": "PostHog/posthog", "pr_number": 1},

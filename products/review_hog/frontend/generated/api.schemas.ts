@@ -494,7 +494,7 @@ export interface ReviewUserSettingsApi {
      * * `should_fix` - Should Fix
      * * `must_fix` - Must Fix */
     urgency_threshold?: UrgencyThresholdEnumApi
-    /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
+    /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog teams while the product is in alpha). */
     readonly can_trigger_reviews: boolean
 }
 
@@ -511,7 +511,7 @@ export interface PatchedReviewUserSettingsApi {
      * * `should_fix` - Should Fix
      * * `must_fix` - Must Fix */
     urgency_threshold?: UrgencyThresholdEnumApi
-    /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
+    /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog teams while the product is in alpha). */
     readonly can_trigger_reviews?: boolean
 }
 

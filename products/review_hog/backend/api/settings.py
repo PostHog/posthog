@@ -44,7 +44,7 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
     )
     can_trigger_reviews = serializers.SerializerMethodField(
         help_text="Whether reviews can be started from this project's Code review page (the UI trigger "
-        "is limited to the designated ReviewHog team while the product is in alpha).",
+        "is limited to the designated ReviewHog teams while the product is in alpha).",
     )
 
     class Meta:
@@ -59,7 +59,7 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_can_trigger_reviews(self, instance: ReviewUserSettings) -> bool:
-        return bool(settings.REVIEWHOG_TEAM_ID) and instance.team_id == settings.REVIEWHOG_TEAM_ID
+        return instance.team_id in settings.REVIEWHOG_TEAM_IDS
 
 
 class ReviewUserSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
