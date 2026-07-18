@@ -341,6 +341,26 @@ class TestLogsMetricRulesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         mock_check.assert_any_call("metrics", "editor")
 
+    def test_delete_requires_metrics_editor_access(self):
+        # Deleting a rule tears down a metric that metrics users may depend on, so it
+        # is gated like create/update — a logs-only editor must not remove it. The
+        # AccessControlPermission layer only evaluates the view's `logs` scope, so the
+        # metrics check has to run in perform_destroy itself.
+        created = self.client.post(self.base_url, self._payload(), format="json").json()
+        detail_url = f"{self.base_url}{created['id']}/"
+
+        def deny_metrics_only(resource, required_level=None, *args, **kwargs):
+            return resource != "metrics"
+
+        with patch(
+            "products.logs.backend.presentation.views.metric_rules_api.UserAccessControl.check_access_level_for_resource",
+            side_effect=deny_metrics_only,
+        ):
+            response = self.client.delete(detail_url)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert self.client.get(detail_url).status_code == status.HTTP_200_OK
+
     @parameterized.expand(
         [
             (["logs:write"], status.HTTP_403_FORBIDDEN),
