@@ -1,9 +1,11 @@
 import json
+from datetime import timedelta
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.db import transaction
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -52,13 +54,18 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
 
     @parameterized.expand(
         [
-            ("dismissal_includes_reason", SignalReport.Status.SUPPRESSED, "wontfix_irrelevant"),
+            ("dismissal_includes_fresh_reason", SignalReport.Status.SUPPRESSED, False, "wontfix_irrelevant"),
             # Dismissal artefacts are append-only, so an old reason must not leak onto later
-            # non-dismissal transitions (e.g. a restored report getting resolved).
-            ("non_dismissal_excludes_stale_reason", SignalReport.Status.RESOLVED, None),
+            # non-dismissal transitions (e.g. a restored report getting resolved)...
+            ("non_dismissal_excludes_reason", SignalReport.Status.RESOLVED, False, None),
+            # ...nor onto a later feedback-less dismissal (the state API only writes a new
+            # dismissal artefact when the user actually gave a reason or note).
+            ("stale_reason_excluded_from_new_dismissal", SignalReport.Status.SUPPRESSED, True, None),
         ]
     )
-    def test_label_snapshots_latest_classification_artefacts(self, _name, new_status, expected_dismissal_reason):
+    def test_label_snapshots_latest_classification_artefacts(
+        self, _name, new_status, backdate_dismissal, expected_dismissal_reason
+    ):
         report = self._create_report()
         for artefact_type, content in [
             (SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, {"priority": "P1"}),
@@ -67,6 +74,10 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
         ]:
             SignalReportArtefact.objects.create(
                 team=self.team, report=report, type=artefact_type, content=json.dumps(content)
+            )
+        if backdate_dismissal:
+            SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL).update(
+                created_at=timezone.now() - timedelta(hours=1)
             )
         with patch("products.signals.backend.receivers.posthoganalytics.capture") as mock_capture:
             with self.captureOnCommitCallbacks(execute=True):

@@ -5,11 +5,13 @@ rather than being sprinkled across every dismissal entrypoint (Slack, REST, bulk
 """
 
 import json
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.db import transaction
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -146,6 +148,7 @@ def capture_status_change_analytics(
     report_id = str(instance.id)
     new_status = instance.status
     team = instance.team
+    transition_at = timezone.now()
 
     def _capture() -> None:
         try:
@@ -173,6 +176,7 @@ def capture_status_change_analytics(
                     **_classification_snapshot(
                         report_id,
                         include_dismissal=_is_dismissal_transition(previous_status, new_status),
+                        transition_at=transition_at,
                     ),
                 },
                 groups=groups(team.organization, team),
@@ -204,28 +208,41 @@ def _is_dismissal_transition(previous_status: str, new_status: str) -> bool:
     )
 
 
-def _classification_snapshot(report_id: str, *, include_dismissal: bool) -> dict[str, str | None]:
+# A dismissal artefact only counts as this transition's feedback if it was written around the
+# transition itself (same request/transaction). Generous so request ordering and clock skew never
+# exclude genuine feedback; a dismiss → restore → re-dismiss inside one minute is the only
+# (negligible) false-inclusion window.
+_DISMISSAL_FRESHNESS = timedelta(minutes=1)
+
+
+def _classification_snapshot(
+    report_id: str, *, include_dismissal: bool, transition_at: datetime
+) -> dict[str, str | None]:
     # One DISTINCT ON query for all three types: the bulk-state endpoint can transition up to 100
     # reports in a request, and each one's post-commit callback takes this path before the
     # response returns, so per-type queries would multiply into hundreds.
-    latest_content_by_type = dict(
-        SignalReportArtefact.objects.filter(
+    latest_by_type = {
+        row[0]: (row[1], row[2])
+        for row in SignalReportArtefact.objects.filter(
             report_id=report_id, type__in=[artefact_type for artefact_type, _, _ in _SNAPSHOT_ARTEFACT_FIELDS]
         )
         .order_by("type", "-created_at")
         .distinct("type")
-        .values_list("type", "content")
-    )
+        .values_list("type", "content", "created_at")
+    }
     snapshot: dict[str, str | None] = {}
     for artefact_type, content_key, prop in _SNAPSHOT_ARTEFACT_FIELDS:
-        # Dismissal artefacts are append-only and never cleared, so a restored report would carry
-        # its old dismissal reason onto every later transition — only dismissal/snooze labels
-        # (where the feedback was just written) may include it.
-        if artefact_type == SignalReportArtefact.ArtefactType.DISMISSAL and not include_dismissal:
+        content, created_at = latest_by_type.get(artefact_type, (None, None))
+        # Dismissal artefacts are append-only and never cleared, and the state API only writes one
+        # when the user actually gave feedback — so a stale reason from an earlier dismissal must
+        # not ride along on later transitions (including feedback-less re-dismissals). Only a
+        # dismissal/snooze label whose feedback was written as part of this transition includes it.
+        if artefact_type == SignalReportArtefact.ArtefactType.DISMISSAL and (
+            not include_dismissal or created_at is None or created_at < transition_at - _DISMISSAL_FRESHNESS
+        ):
             snapshot[prop] = None
             continue
         value = None
-        content = latest_content_by_type.get(artefact_type)
         if content:
             try:
                 data = json.loads(content)
