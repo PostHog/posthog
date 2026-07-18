@@ -168,5 +168,30 @@ describe('metric rules compile + tally', () => {
             const entries = [...tallies.byRule.get('rule-1')!.values()]
             expect(entries[0]!.exemplarTraceId).toBe('0123456789abcdef0123456789abcdef')
         })
+
+        // capture-logs writes trace/span ids into the log Avro as base64 TEXT of the raw
+        // bytes (observed in posthog.logs32), not the bytes themselves — an exemplar built
+        // from the undecoded buffer is malformed and gets filtered by the metrics ingest.
+        it('decodes base64-text trace ids (the on-disk log Avro format) and ignores zeroed ones', () => {
+            const rules = compileMetricRules([ruleRow({ filter_group: null })])
+            const tallies = createBatchTallies()
+            const rawTrace = Buffer.from('0123456789abcdef0123456789abcdef', 'hex')
+            const rawSpan = Buffer.from('1122334455667788', 'hex')
+            tallyRecords(
+                rules,
+                [
+                    record({ trace_id: Buffer.from(Buffer.alloc(16).toString('base64'), 'ascii') }),
+                    record({
+                        trace_id: Buffer.from(rawTrace.toString('base64'), 'ascii'),
+                        span_id: Buffer.from(rawSpan.toString('base64'), 'ascii'),
+                    }),
+                ],
+                tallies,
+                NOW_MS
+            )
+            const entries = [...tallies.byRule.get('rule-1')!.values()]
+            expect(entries[0]!.exemplarTraceId).toBe('0123456789abcdef0123456789abcdef')
+            expect(entries[0]!.exemplarSpanId).toBe('1122334455667788')
+        })
     })
 })

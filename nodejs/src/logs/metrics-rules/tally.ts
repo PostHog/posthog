@@ -73,8 +73,28 @@ function resolveNumericValue(key: string, record: LogRecord): number | null {
     return Number.isFinite(parsed) ? parsed : null
 }
 
-function isNonZeroBuffer(buffer: Buffer): boolean {
-    return buffer.some((byte) => byte !== 0)
+/**
+ * Normalizes a trace/span id from the log Avro into lowercase hex, or null when absent,
+ * zeroed, or unparseable. capture-logs writes these fields as base64 TEXT of the raw
+ * bytes (not the bytes themselves), so decode when the length doesn't match; raw-byte
+ * buffers (tests, future producers) pass through unchanged.
+ */
+function idToHex(buffer: Buffer | null, expectedBytes: number): string | null {
+    if (!buffer || buffer.length === 0) {
+        return null
+    }
+    let bytes = buffer
+    if (bytes.length !== expectedBytes) {
+        const decoded = Buffer.from(bytes.toString('ascii'), 'base64')
+        if (decoded.length !== expectedBytes) {
+            return null
+        }
+        bytes = decoded
+    }
+    if (!bytes.some((byte) => byte !== 0)) {
+        return null
+    }
+    return bytes.toString('hex')
 }
 
 /**
@@ -140,10 +160,12 @@ export function tallyRecords(
             }
             entry.count += 1
             entry.sum += value
-            if (!entry.exemplarTraceId && record.trace_id && isNonZeroBuffer(record.trace_id)) {
-                entry.exemplarTraceId = record.trace_id.toString('hex')
-                entry.exemplarSpanId =
-                    record.span_id && isNonZeroBuffer(record.span_id) ? record.span_id.toString('hex') : null
+            if (!entry.exemplarTraceId) {
+                const traceIdHex = idToHex(record.trace_id, 16)
+                if (traceIdHex) {
+                    entry.exemplarTraceId = traceIdHex
+                    entry.exemplarSpanId = idToHex(record.span_id, 8)
+                }
             }
         }
     }
