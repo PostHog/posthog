@@ -47,13 +47,15 @@ from ..models import UserInterview, UserInterviewClassification, UserInterviewTo
 logger = structlog.get_logger(__name__)
 
 
-class _MetricsEmittingIPThrottle(IPThrottle):
-    """`IPThrottle` subclass that emits `rate_limit_exceeded_total` on rejection.
+class _RateLimitMetricsMixin(SimpleRateThrottle):
+    """Mixin that emits `rate_limit_exceeded_total` whenever the throttle it's mixed into rejects
+    a request. Mixed *ahead* of the concrete throttle base (`IPThrottle` or `SimpleRateThrottle`)
+    so `super().allow_request()` runs the real throttle logic, then this records the rejection.
 
-    Kept here (not on the base `IPThrottle`) on purpose: tweaking the base would tighten
-    the signature of `allow_request` and cascade into unrelated products that subclass
-    `IPThrottle`. Keeping the metric emission product-local means user_interviews owns
-    its own alerting surface without touching other products' code.
+    Kept product-local (not folded into the base `IPThrottle`) on purpose: tweaking the base would
+    cascade into unrelated products that subclass it. One mixin serves both the IP-keyed and the
+    token/respondent-keyed throttles here — `IPThrottle` is itself a `SimpleRateThrottle`, so the MRO
+    resolves `super()` to whichever concrete base each throttle names.
     """
 
     def allow_request(self, request: Request, view: Any) -> bool:
@@ -66,17 +68,21 @@ class _MetricsEmittingIPThrottle(IPThrottle):
         return bool(allowed)
 
 
-class InterviewStartCallIPThrottle(_MetricsEmittingIPThrottle):
-    """Per-IP cap on `start_call`. The endpoint is `AllowAny`, so without this any caller
-    can spin DB queries on share-token lookups indefinitely. 60/min comfortably handles
-    legitimate interviewees clicking Start (one share token can't dial multiple times in
-    the same minute), and any single IP burst above that is almost certainly probing."""
+class InterviewStartCallIPThrottle(_RateLimitMetricsMixin, IPThrottle):
+    """Per-IP cap on `start_call`. The endpoint is `AllowAny`, so without this any caller can spin DB
+    queries on share-token lookups indefinitely. This cap's real job is bounding cross-token probing
+    from one IP — per-token abuse is bounded by the token burst (120/min) + sustained (600/hour)
+    buckets. It sits above the token burst on purpose: a shared link's headline use case is many
+    people behind one corporate NAT / mobile CGNAT egress IP opening the same link, so a tight per-IP
+    cap would 429 legitimate concurrent respondents who share an egress. 200/min clears the token
+    burst (so the token bucket, not the IP, governs a single link's concurrency) while still stopping
+    a single IP from probing many tokens."""
 
     scope = "user_interviews_start_call_ip"
-    rate = "60/minute"
+    rate = "200/minute"
 
 
-class VapiWebhookIPThrottle(_MetricsEmittingIPThrottle):
+class VapiWebhookIPThrottle(_RateLimitMetricsMixin, IPThrottle):
     """Per-IP cap on `vapi_webhook`. Vapi calls us a small handful of times per interview
     (status-update + end-of-call-report), but its egress is shared across all of our tenants,
     so the bucket has to be generous enough that a noisy concurrent interview hour doesn't
@@ -89,21 +95,7 @@ class VapiWebhookIPThrottle(_MetricsEmittingIPThrottle):
     rate = "1200/minute"
 
 
-class _MetricsEmittingRateThrottle(SimpleRateThrottle):
-    """`SimpleRateThrottle` that emits `rate_limit_exceeded_total` on rejection, mirroring
-    `_MetricsEmittingIPThrottle` for throttles that key on something other than the raw IP."""
-
-    def allow_request(self, request: Request, view: Any) -> bool:
-        from posthog.rate_limit import RATE_LIMIT_EXCEEDED_COUNTER, get_route_from_path
-
-        allowed = super().allow_request(request, view)
-        if not allowed:
-            route = get_route_from_path(getattr(request, "path", None))
-            RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id="", scope=self.scope, path=route, route=route).inc()
-        return bool(allowed)
-
-
-class InterviewStartCallTokenThrottle(_MetricsEmittingRateThrottle):
+class InterviewStartCallTokenThrottle(_RateLimitMetricsMixin):
     """Sustained per-share-token ceiling on `start_call`. One token maps to either a single invited
     person (personalised link) or many self-serve respondents (a shared topic link), so this is a
     generous *sustained* bucket. On its own it would still let the whole hour's budget be spent in a
@@ -134,12 +126,13 @@ class InterviewStartCallTokenBurstThrottle(InterviewStartCallTokenThrottle):
     rate = "120/minute"
 
 
-class InterviewStartCallRespondentThrottle(_MetricsEmittingRateThrottle):
+class InterviewStartCallRespondentThrottle(_RateLimitMetricsMixin):
     """Per-respondent burst on `start_call`, mirroring the support widget's `WidgetUserBurstThrottle`.
     Keys on the client-generated `respondent_key` (a random per-browser id a shared-link visitor
     sends) so one respondent hammering Start is bounded without penalising the next visitor sharing
-    the same token. Falls back to IP when no key is present (personalised links, which don't send
-    one) — harmless overlap with the IP throttle, and it keeps the class safe if the key is omitted."""
+    the same token. Falls back to IP when no key is present (personalised links, which don't send one)
+    — so a personalised interviewee's effective per-IP ceiling is this 30/min (the lower of this and
+    the 200/min IP throttle), which is still far above one person clicking Start."""
 
     scope = "user_interviews_start_call_respondent"
     rate = "30/minute"

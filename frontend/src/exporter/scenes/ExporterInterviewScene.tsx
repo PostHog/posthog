@@ -332,6 +332,12 @@ async function fetchStartCallPayload(accessToken: string, body: StartCallBody): 
         body: JSON.stringify(body),
     })
     if (!response.ok) {
+        // A shared link is opened by many people at once (e.g. posted in a company Slack), so
+        // concurrent respondents can trip the rate limit. Surface a retry-friendly message rather
+        // than a raw error — the error panel already offers a "Try again" button.
+        if (response.status === 429) {
+            throw new Error('A lot of people are starting interviews right now. Please wait a moment and try again.')
+        }
         const text = await response.text()
         throw new Error(text || `Server responded ${response.status}`)
     }
