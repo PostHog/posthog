@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '../../../types'
@@ -52,6 +53,18 @@ export const INBOX_FLAT_TAB_LIST_PARAMS: Record<InboxFlatListTabKey, ReportListP
 
 function teammateUuidFromScope(scope: string): string | undefined {
     return scope.startsWith('teammate:') ? scope.slice('teammate:'.length).trim() || undefined : undefined
+}
+
+/**
+ * A network-level fetch failure (dropped connectivity, navigating away mid-request, an ad-blocker or
+ * extension aborting the call) never reaches a response, so `handleFetch` wraps it as an `ApiError`
+ * with no `status`. These are transient and outside our control, so the list loaders swallow them and
+ * keep the current state — the tab shows its normal empty/loading affordance and retries on the next
+ * render or refresh — instead of letting them bubble up as a captured "TypeError: Failed to fetch"
+ * exception. Genuine server/API errors carry a status and still propagate.
+ */
+function isNetworkError(error: unknown): boolean {
+    return error instanceof ApiError && error.status === undefined
 }
 
 /**
@@ -300,8 +313,15 @@ export const reportListLogic = kea<reportListLogicType>([
             null as number | null,
             {
                 loadCount: async () => {
-                    const response = await api.signalReports.list({ ...values.listApiParams, limit: 1 })
-                    return response.count
+                    try {
+                        const response = await api.signalReports.list({ ...values.listApiParams, limit: 1 })
+                        return response.count
+                    } catch (error) {
+                        if (isNetworkError(error)) {
+                            return values.count
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -309,16 +329,30 @@ export const reportListLogic = kea<reportListLogicType>([
             null as CountedPaginatedResponse<SignalReport> | null,
             {
                 loadReports: async () => {
-                    return await api.signalReports.list({ ...values.listApiParams, offset: 0, limit: PAGE_SIZE })
+                    try {
+                        return await api.signalReports.list({ ...values.listApiParams, offset: 0, limit: PAGE_SIZE })
+                    } catch (error) {
+                        if (isNetworkError(error)) {
+                            return values.reportsResponse
+                        }
+                        throw error
+                    }
                 },
                 loadMoreReports: async () => {
                     const current = values.reportsResponse?.results ?? []
-                    const response = await api.signalReports.list({
-                        ...values.listApiParams,
-                        offset: current.length,
-                        limit: PAGE_SIZE,
-                    })
-                    return { ...response, results: [...current, ...response.results] }
+                    try {
+                        const response = await api.signalReports.list({
+                            ...values.listApiParams,
+                            offset: current.length,
+                            limit: PAGE_SIZE,
+                        })
+                        return { ...response, results: [...current, ...response.results] }
+                    } catch (error) {
+                        if (isNetworkError(error)) {
+                            return values.reportsResponse
+                        }
+                        throw error
+                    }
                 },
             },
         ],
