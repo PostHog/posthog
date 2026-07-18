@@ -231,11 +231,11 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         [],
     ],
     "replaceOne": [
-        "function replaceOne (str, searchValue, replaceValue) { return str.replace(searchValue, replaceValue) }",
+        "function replaceOne (str, searchValue, replaceValue) { return str.replace(searchValue, () => replaceValue) }",
         [],
     ],
     "replaceAll": [
-        "function replaceAll (str, searchValue, replaceValue) { return str.replaceAll(searchValue, replaceValue) }",
+        "function replaceAll (str, searchValue, replaceValue) { return str.replaceAll(searchValue, () => replaceValue) }",
         [],
     ],
     "position": [
