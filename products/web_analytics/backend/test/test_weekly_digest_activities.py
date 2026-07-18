@@ -13,6 +13,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.organization import Organization
 
 from products.web_analytics.backend.temporal.weekly_digest.activities import (
+    _build_and_send_for_org,
     _get_org_batch_page,
     _is_user_targeted_for_digest,
     _run_wa_digest_batch,
@@ -233,7 +234,7 @@ class TestSendTestDigestSingleTeamMode(_DigestTestBase):
         super().setUp()
         self.build_digest_patcher = patch(
             "products.web_analytics.backend.temporal.weekly_digest.activities.build_team_digest",
-            side_effect=lambda team: _make_team_digest(team),
+            side_effect=lambda team, **kwargs: _make_team_digest(team),
         )
         self.build_digest_patcher.start()
 
@@ -284,7 +285,7 @@ class TestSendTestDigestFullUserMode(_DigestTestBase):
         super().setUp()
         self.build_digest_patcher = patch(
             "products.web_analytics.backend.temporal.weekly_digest.activities.build_team_digest",
-            side_effect=lambda team: _make_team_digest(team),
+            side_effect=lambda team, **kwargs: _make_team_digest(team),
         )
         self.build_digest_patcher.start()
 
@@ -558,7 +559,7 @@ class TestRunWaDigestBatch(APIBaseTest):
             ),
             patch(
                 "products.web_analytics.backend.temporal.weekly_digest.activities.build_team_digest",
-                side_effect=lambda team: _make_team_digest(team),
+                side_effect=lambda team, **kwargs: _make_team_digest(team),
             ),
             patch("products.web_analytics.backend.temporal.weekly_digest.activities.EmailMessage") as mock_email_class,
         ):
@@ -568,6 +569,25 @@ class TestRunWaDigestBatch(APIBaseTest):
         assert totals.orgs_processed == 1
         assert totals.emails_sent == 1
         assert totals.emails_skipped_optout == 1
+
+    def test_skips_org_when_all_teams_have_failed_overview(self):
+        # A team whose overview query failed must not be emailed as an all-zero section.
+        with (
+            patch(
+                "products.web_analytics.backend.temporal.weekly_digest.activities.posthoganalytics.feature_enabled",
+                return_value=True,
+            ),
+            patch(
+                "products.web_analytics.backend.temporal.weekly_digest.activities.build_team_digest",
+                side_effect=lambda team, **kwargs: {**_make_team_digest(team), "overview_available": False},
+            ),
+            patch("products.web_analytics.backend.temporal.weekly_digest.activities.EmailMessage") as mock_email_class,
+        ):
+            counts = _build_and_send_for_org(str(self.organization.id))
+
+        assert counts.skipped_reason == "no_team_data"
+        assert counts.sent == 0
+        mock_email_class.assert_not_called()
 
 
 class TestIsUserTargetedForDigest(APIBaseTest):

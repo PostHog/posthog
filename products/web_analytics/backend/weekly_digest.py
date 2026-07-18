@@ -15,6 +15,7 @@ from posthog.schema import (
 )
 
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.models.user import User
@@ -26,7 +27,16 @@ from products.web_analytics.backend.hogql_queries.web_overview import WebOvervie
 
 logger = structlog.get_logger(__name__)
 
+# Interactive callers (in-app digest/recap endpoints) can serve a recent cached result.
 DEFAULT_DIGEST_EXECUTION_MODE = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+# The emailed digest always computes fresh: a stale or empty shared-cache read renders as
+# "zero visitors", which is indistinguishable from a real traffic outage in a one-shot email.
+SCHEDULED_DIGEST_EXECUTION_MODE = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+
+
+class DigestQueryError(Exception):
+    """Raised when a digest metric query fails, so callers can tell a query failure apart from
+    genuine zero traffic instead of emailing an all-zero section."""
 
 
 def _default_overview() -> dict:
@@ -59,9 +69,10 @@ def get_overview_for_team(
         )
         runner = WebOverviewQueryRunner(team=team, query=query)
         response = runner.run(execution_mode=execution_mode, user=user)
-    except Exception:
+    except Exception as e:
         logger.exception("failed to query web overview", team_id=team.pk)
-        return result
+        capture_exception(e, {"team_id": team.pk, "digest_query": "web_overview"})
+        raise DigestQueryError("web overview query failed") from e
 
     results = getattr(response, "results", None)
     if not results:
@@ -166,8 +177,9 @@ def get_top_pages(
             }
             for row in results
         ]
-    except Exception:
+    except Exception as e:
         logger.exception("failed to query top pages", team_id=team.pk)
+        capture_exception(e, {"team_id": team.pk, "digest_query": "top_pages"})
         return []
 
 
@@ -208,8 +220,9 @@ def get_top_sources(
             for row in results
             if row[0]
         ]
-    except Exception:
+    except Exception as e:
         logger.exception("failed to query top sources", team_id=team.pk)
+        capture_exception(e, {"team_id": team.pk, "digest_query": "top_sources"})
         return []
 
 
@@ -234,8 +247,9 @@ def get_goals_for_team(
         response = runner.run(execution_mode=execution_mode, user=user)
     except NoActionsError:
         return []
-    except Exception:
+    except Exception as e:
         logger.exception("failed to query goals", team_id=team.pk)
+        capture_exception(e, {"team_id": team.pk, "digest_query": "goals"})
         return []
 
     results = []
@@ -263,7 +277,15 @@ def build_team_digest(
     execution_mode: ExecutionMode = DEFAULT_DIGEST_EXECUTION_MODE,
     user: User | None = None,
 ) -> dict:
-    overview = get_overview_for_team(team, days=days, compare=compare, execution_mode=execution_mode, user=user)
+    # A failed overview query is distinct from genuine zero traffic. Callers use
+    # `overview_available` to skip the team rather than ship an all-zero section.
+    overview_available = True
+    try:
+        overview = get_overview_for_team(team, days=days, compare=compare, execution_mode=execution_mode, user=user)
+    except DigestQueryError:
+        overview = _default_overview()
+        overview_available = False
+
     top_pages = get_top_pages(team, days=days, compare=compare, execution_mode=execution_mode, user=user)
     top_sources = get_top_sources(team, days=days, compare=compare, execution_mode=execution_mode, user=user)
     goals = get_goals_for_team(team, days=days, compare=compare, execution_mode=execution_mode, user=user)
@@ -271,6 +293,7 @@ def build_team_digest(
     return {
         "team": team,
         **overview,
+        "overview_available": overview_available,
         "top_pages": top_pages,
         "top_sources": top_sources,
         "goals": goals,

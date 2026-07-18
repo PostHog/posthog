@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -11,7 +12,9 @@ from posthog.models import Team
 from posthog.models.utils import uuid7
 
 from products.actions.backend.models.action import Action
+from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 from products.web_analytics.backend.weekly_digest import (
+    DigestQueryError,
     _format_duration,
     auto_select_project_for_user,
     build_team_digest,
@@ -136,6 +139,13 @@ class TestGetOverviewForTeam(ClickhouseTestMixin, APIBaseTest):
             "bounce_rate": {"current": 0.0, "previous": None, "change": None},
             "avg_session_duration": {"current": "0s", "previous": "0s", "change": None},
         }
+
+    def test_raises_on_query_failure_instead_of_returning_zeros(self):
+        # A failed query must be distinguishable from genuine zero traffic, otherwise the
+        # digest emails an all-zero section that reads as a real traffic outage.
+        with patch.object(WebOverviewQueryRunner, "run", side_effect=RuntimeError("clickhouse unavailable")):
+            with self.assertRaises(DigestQueryError):
+                get_overview_for_team(self.team)
 
 
 class TestGetTopPages(ClickhouseTestMixin, APIBaseTest):
@@ -383,3 +393,12 @@ class TestBuildTeamDigest(ClickhouseTestMixin, APIBaseTest):
         assert result["top_pages"] == []
         assert result["top_sources"] == []
         assert result["goals"] == []
+        # Genuine zero traffic is still a trustworthy result.
+        assert result["overview_available"] is True
+
+    def test_marks_overview_unavailable_when_query_fails(self):
+        with freeze_time(QUERY_TIMESTAMP):
+            with patch.object(WebOverviewQueryRunner, "run", side_effect=RuntimeError("clickhouse unavailable")):
+                result = build_team_digest(self.team)
+
+        assert result["overview_available"] is False
