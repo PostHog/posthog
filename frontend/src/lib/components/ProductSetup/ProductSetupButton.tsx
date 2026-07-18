@@ -21,7 +21,7 @@ import { ProductSetupPopover } from './ProductSetupPopover'
  * handled by SceneContent when a productKey is provided.
  */
 export function ProductSetupButton(): JSX.Element | null {
-    const { selectedProduct, isGlobalModalOpen, sceneHasNoSetup } = useValues(globalSetupLogic)
+    const { selectedProduct, isGlobalModalOpen } = useValues(globalSetupLogic)
     const { openGlobalSetup, closeGlobalSetup, setSelectedProduct } = useActions(globalSetupLogic)
     const { isCurrentOrganizationNew } = useValues(organizationLogic)
     const showPulseIndicator = useFeatureFlag('QUICK_START_PULSE_INDICATOR', 'test')
@@ -31,8 +31,11 @@ export function ProductSetupButton(): JSX.Element | null {
     const { remainingCount, shouldShowSetup, isDismissed } = useValues(logic)
     const { undismissSetup } = useActions(logic)
 
-    // Show button if there are remaining tasks OR if the modal is currently open (to show completion)
-    const shouldShowButton = isCurrentOrganizationNew && !sceneHasNoSetup && (remainingCount > 0 || isGlobalModalOpen)
+    // Show button if there are remaining tasks OR if the modal is currently open (to show completion).
+    // Don't gate on sceneHasNoSetup: a user mid-setup flow may navigate to a scene whose
+    // productKey isn't in PRODUCTS_WITH_SETUP (e.g. settings, billing) and the button should
+    // stay visible so they can return to the checklist without hunting for it.
+    const shouldShowButton = isCurrentOrganizationNew && (remainingCount > 0 || isGlobalModalOpen)
 
     const handleToggle = (): void => {
         if (isGlobalModalOpen) {
