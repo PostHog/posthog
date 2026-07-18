@@ -70,6 +70,7 @@ from products.experiments.backend.presentation.serializers import (
 from products.experiments.backend.recalculation import (
     build_job_payload,
     build_timeseries_cold_start_payload,
+    get_active_recalculation,
     get_latest_recalculation,
     get_recalculation_by_id,
     get_run_results,
@@ -1117,14 +1118,19 @@ class EnterpriseExperimentsViewSet(
     )
     def metrics_recalculation_latest(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment: Experiment = self.get_object()
+        active = get_active_recalculation(experiment)
+        active_run = {"id": str(active.id), "status": active.status} if active is not None else None
         recalc = get_latest_recalculation(experiment)
-        if recalc is not None:
-            return Response(_serialize_recalculation(recalc))
-        # Cold start: no completed run yet. Fall back to the latest timeseries data as a read-only
+
+        if (run := recalc or active) is not None:
+            return Response(_serialize_recalculation(run, active_run=active_run))
+
+        # Cold start: no runs worth showing. Fall back to the latest timeseries data as a read-only
         # placeholder so the user sees results immediately. Pure read, no workflow start.
         fallback = build_timeseries_cold_start_payload(experiment)
         if fallback is not None:
             return Response(ExperimentMetricsRecalculationSerializer(fallback).data)
+
         return Response({"detail": "No completed recalculation found"}, status=404)
 
     @extend_schema(responses={200: ExperimentMetricsRecalculationSerializer, 404: None})
@@ -1260,13 +1266,10 @@ class EnterpriseExperimentsViewSet(
         return Response(serializer.data)
 
 
-def _serialize_recalculation(recalc: ExperimentMetricsRecalculation) -> dict:
-    """Shape an ExperimentMetricsRecalculation row + its per-run results for the GET responses.
-
-    Computes the per-run results once and threads them into both the derived counters and the response
-    `results` field — recomputing per-metric fingerprints once per request is enough.
-    """
+def _serialize_recalculation(recalc: ExperimentMetricsRecalculation, active_run: dict | None = None) -> dict:
     results = get_run_results(recalc)
     payload = build_job_payload(recalc, results=results, include_live_progress=True)
     payload["results"] = results
+    if active_run is not None:
+        payload["active_run"] = active_run
     return ExperimentMetricsRecalculationSerializer(payload).data

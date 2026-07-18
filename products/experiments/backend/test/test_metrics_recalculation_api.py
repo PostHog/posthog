@@ -118,11 +118,29 @@ class TestMetricsRecalculationAPI(APIBaseTest):
     # GET /metrics_recalculation/latest/
     # ------------------------------------------------------------------
 
-    def test_get_latest_404_when_no_completed_run(self):
+    def test_get_latest_combines_terminal_results_with_active_run(self):
+        # Reload while recalculating: the payload is the latest terminal run's results, with the executing
+        # run's id + status alongside so the client resumes polling without losing what's on screen.
         exp = self._launched_experiment()
-        ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="pending")
+        done = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="completed")
+        active = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="pending")
         resp = self.client.get(self._latest_url(exp.id))
-        assert resp.status_code == status.HTTP_404_NOT_FOUND
+        assert resp.status_code == status.HTTP_200_OK, resp.content
+        body = resp.json()
+        assert body["id"] == str(done.id)
+        assert body["status"] == "completed"
+        assert body["active_run"] == {"id": str(active.id), "status": "pending"}
+
+    def test_get_latest_returns_active_run_when_no_terminal_exists(self):
+        # First-ever run still executing: no terminal results, but the client still needs an id to poll.
+        exp = self._launched_experiment()
+        active = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="pending")
+        resp = self.client.get(self._latest_url(exp.id))
+        assert resp.status_code == status.HTTP_200_OK, resp.content
+        body = resp.json()
+        assert body["id"] == str(active.id)
+        assert body["status"] == "pending"
+        assert body["active_run"] == {"id": str(active.id), "status": "pending"}
 
     def test_get_latest_returns_most_recent_completed_with_results(self):
         exp = self._launched_experiment()
@@ -163,6 +181,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert len(body["results"]) == 1
         assert body["results"][0]["metric_uuid"] == "m1"
         assert body["results"][0]["result"] == {"ok": True}
+        assert body.get("active_run") is None
 
     # ------------------------------------------------------------------
     # GET /metrics_recalculation/{id}/

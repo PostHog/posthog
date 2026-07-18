@@ -291,18 +291,27 @@ def request_recalculation(experiment: Experiment, user: User, trigger: str = "ma
         return build_job_payload(recalc, is_existing=False)
 
 
-def get_latest_recalculation(experiment: Experiment) -> ExperimentMetricsRecalculation | None:
-    """Most recent successfully-completed recalculation for an experiment, or None.
+def get_active_recalculation(experiment: Experiment) -> ExperimentMetricsRecalculation | None:
+    with team_scope(experiment.team_id, canonical=True):
+        threshold = timezone.now() - _STALE_RECALC_THRESHOLD
+        return (
+            ExperimentMetricsRecalculation.objects.filter(team=experiment.team, experiment=experiment)
+            .filter(
+                Q(status=ExperimentMetricsRecalculation.Status.PENDING, created_at__gte=threshold)
+                | Q(status=ExperimentMetricsRecalculation.Status.IN_PROGRESS, started_at__gte=threshold)
+            )
+            .order_by("-created_at")
+            .first()
+        )
 
-    Powers ``GET /metrics_recalculation/latest``: the frontend renders cached results from the last good run.
-    Runs that are pending/in_progress/failed are NOT returned — the client tracks those separately by id.
-    """
+
+def get_latest_recalculation(experiment: Experiment) -> ExperimentMetricsRecalculation | None:
     with team_scope(experiment.team_id, canonical=True):
         return (
-            ExperimentMetricsRecalculation.objects.filter(
-                team=experiment.team,
-                experiment=experiment,
-                status=ExperimentMetricsRecalculation.Status.COMPLETED,
+            ExperimentMetricsRecalculation.objects.filter(team=experiment.team, experiment=experiment)
+            .filter(
+                Q(status=ExperimentMetricsRecalculation.Status.COMPLETED)
+                | (Q(status=ExperimentMetricsRecalculation.Status.FAILED) & ~Q(metric_errors={}))
             )
             .order_by("-created_at")
             .first()
