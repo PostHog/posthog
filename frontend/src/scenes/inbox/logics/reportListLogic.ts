@@ -114,7 +114,10 @@ export interface reportListLogicValues {
     hasMore: boolean
     isLoaded: boolean
     listApiParams: any
-    loadedContext: { scope: InboxScope; hasActiveFilters: boolean } | null
+    loadedContext: {
+        hasActiveFilters: boolean
+        scope: InboxScope
+    } | null
     loadedQueryKey: string | null
     reports: SignalReport[]
     reportsResponse: ReportListResponse | null
@@ -249,8 +252,8 @@ export interface reportListLogicMeta {
         totalCount: (reportsResponse: ReportListResponse | null) => number | null
         loadedQueryKey: (reportsResponse: ReportListResponse | null) => string | null
         loadedContext: (reportsResponse: ReportListResponse | null) => {
-            scope: InboxScope
             hasActiveFilters: boolean
+            scope: InboxScope
         } | null
     }
 }
