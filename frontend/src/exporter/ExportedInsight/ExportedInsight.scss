@@ -48,6 +48,16 @@
             // height instead of the content's min-content height stretching the card taller.
             min-height: 0;
         }
+
+        // The quill sparkline shifts itself down 6px (`top-[6px]`) so its zero-baseline — drawn 6px
+        // above the canvas bottom, inside the hover-ring margin — rests exactly on the card's bottom
+        // edge. But an ancestor clips at that edge, so the 2px baseline stroke straddles the clip line
+        // and can all but vanish depending on sub-pixel flex heights. Ease the shift by 2px so the
+        // whole stroke stays inside the card, still visually hugging the bottom. A transform (rather
+        // than overriding `top`) sidesteps the `!important` on the tailwind utility.
+        [data-attr='metric-sparkline'] {
+            transform: translateY(-2px);
+        }
     }
 
     .LemonTable {
