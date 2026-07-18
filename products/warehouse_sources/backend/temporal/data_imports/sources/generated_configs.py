@@ -1139,6 +1139,11 @@ class CratesIOSourceConfig(config.Config):
 
 
 @config.config
+class CrispSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class CriteoSourceConfig(config.Config):
     pass
 
@@ -2393,6 +2398,11 @@ class KlaviyoSourceConfig(config.Config):
 
 @config.config
 class KnockSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class KommoSourceConfig(config.Config):
     pass
 
 
@@ -5127,6 +5137,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.COUPA: CoupaSourceConfig,
         ExternalDataSourceType.COVERALLS: CoverallsSourceConfig,
         ExternalDataSourceType.CRATESIO: CratesIOSourceConfig,
+        ExternalDataSourceType.CRISP: CrispSourceConfig,
         ExternalDataSourceType.CRITEO: CriteoSourceConfig,
         ExternalDataSourceType.CRONITOR: CronitorSourceConfig,
         ExternalDataSourceType.CRUNCHBASE: CrunchbaseSourceConfig,
@@ -5353,6 +5364,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.KLAUS: KlausSourceConfig,
         ExternalDataSourceType.KLAVIYO: KlaviyoSourceConfig,
         ExternalDataSourceType.KNOCK: KnockSourceConfig,
+        ExternalDataSourceType.KOMMO: KommoSourceConfig,
         ExternalDataSourceType.KONGKONNECT: KongKonnectSourceConfig,
         ExternalDataSourceType.KOYEB: KoyebSourceConfig,
         ExternalDataSourceType.KUBECOST: KubecostSourceConfig,

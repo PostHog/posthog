@@ -670,6 +670,7 @@ doesn't conflict with concurrent PRs.
 - copper
 - cosmosdb
 - couchbase
+- crisp
 - criteo
 - curve
 - databricks
@@ -775,6 +776,7 @@ doesn't conflict with concurrent PRs.
 - kissmetrics
 - klarna
 - knock
+- kommo
 - koyeb
 - kyve
 - lambda_labs
