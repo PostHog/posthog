@@ -6,6 +6,7 @@ from django.utils.html import format_html
 
 from posthog.storage import object_storage
 
+from . import loop_service
 from .models import CodeInvite, CodeInviteRedemption, Loop, LoopTrigger, SandboxSnapshot, Task, TaskRun
 
 
@@ -184,6 +185,17 @@ class LoopAdmin(admin.ModelAdmin):
         # Admin has no team context; Loop's default manager is fail-closed.
         return Loop.objects.unscoped().select_related("team", "created_by")
 
+    def delete_model(self, request: HttpRequest, obj: Loop) -> None:
+        # Tear down Temporal Schedules before the row is gone; CASCADE never talks to Temporal, so
+        # a raw admin delete would otherwise leave the schedules firing forever.
+        loop_service.delete_loop_schedules(obj)
+        super().delete_model(request, obj)
+
+    def delete_queryset(self, request: HttpRequest, queryset) -> None:
+        for loop in queryset:
+            loop_service.delete_loop_schedules(loop)
+        super().delete_queryset(request, queryset)
+
 
 @admin.register(LoopTrigger)
 class LoopTriggerAdmin(admin.ModelAdmin):
@@ -202,3 +214,13 @@ class LoopTriggerAdmin(admin.ModelAdmin):
         # Triggers are created through the loops API; their Temporal Schedule
         # identity hangs off the row id, so hand-created rows would drift.
         return False
+
+    def delete_model(self, request: HttpRequest, obj: LoopTrigger) -> None:
+        # Tear down the Temporal Schedule before the row is gone (CASCADE won't).
+        loop_service.delete_loop_trigger_schedule(obj)
+        super().delete_model(request, obj)
+
+    def delete_queryset(self, request: HttpRequest, queryset) -> None:
+        for trigger in queryset:
+            loop_service.delete_loop_trigger_schedule(trigger)
+        super().delete_queryset(request, queryset)

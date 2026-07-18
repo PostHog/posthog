@@ -47,3 +47,32 @@ class TestReconcileLoopTriggerSchedules(TestCase):
         self.assertEqual(reconciled, 2)
         synced_ids = {call.args[0].id for call in mock_sync.call_args_list}
         self.assertEqual(synced_ids, {pending.id, failed.id})
+
+    def test_skips_pending_triggers_on_a_soft_deleted_loop(self):
+        # A soft-deleted loop's schedule was torn down on delete; reconciliation must never recreate
+        # it, or a deleted loop leaves a zombie Temporal Schedule firing forever.
+        deleted_loop = Loop.objects.unscoped().create(
+            team=self.team,
+            created_by=self.user,
+            name="Gone",
+            instructions="x",
+            runtime_adapter="claude",
+            model="claude-sonnet-5",
+            deleted=True,
+        )
+        LoopTrigger.objects.unscoped().create(
+            team=self.team,
+            loop=deleted_loop,
+            type=LoopTrigger.TriggerType.SCHEDULE,
+            enabled=True,
+            config={"cron_expression": "0 9 * * *", "timezone": "UTC"},
+            schedule_sync_status=LoopTrigger.ScheduleSyncStatus.PENDING,
+        )
+        live = self._trigger(LoopTrigger.ScheduleSyncStatus.PENDING)
+
+        with patch(f"{RECONCILIATION_MODULE}.sync_loop_trigger_schedule") as mock_sync:
+            reconciled = reconcile_loop_trigger_schedules()
+
+        self.assertEqual(reconciled, 1)
+        synced_ids = {call.args[0].id for call in mock_sync.call_args_list}
+        self.assertEqual(synced_ids, {live.id})

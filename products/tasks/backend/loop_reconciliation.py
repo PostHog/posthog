@@ -38,6 +38,8 @@ def reconcile_loop_trigger_schedules() -> int:
             type=LoopTrigger.TriggerType.SCHEDULE,
             schedule_sync_status__in=_UNSYNCED_STATUSES,
             completed_at__isnull=True,
+            # A soft-deleted loop's schedule was torn down on delete; never recreate it here.
+            loop__deleted=False,
         )
         .select_related("loop")
         .order_by("updated_at")[:_RECONCILE_BATCH_SIZE]

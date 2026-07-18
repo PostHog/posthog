@@ -616,6 +616,13 @@ def list_internal_loops(team_id: int, *, origin_product: str | None = None) -> l
         return [_loop_to_dto(loop) for loop in loops]
 
 
+def delete_team_loop_schedules(team_id: int) -> None:
+    """Tear down every loop trigger's Temporal Schedule for a team. Called from the core
+    team-deletion workflow before the LoopTrigger rows are cascaded away, since Django's CASCADE
+    never talks to Temporal and the Schedule would otherwise fire forever into a deleted trigger."""
+    loop_service.delete_schedules_for_team(team_id)
+
+
 def delete_internal_loop(loop_id: str | UUID, team_id: int) -> bool:
     """Soft-delete an internal loop and delete its Temporal Schedules. Returns False if not found."""
     loop = Loop.objects.for_team(team_id, canonical=True).filter(deleted=False, internal=True, pk=loop_id).first()
@@ -823,19 +830,19 @@ def _sync_triggers(loop: Loop, trigger_payloads: list[dict]) -> None:
     existing_by_id: dict[UUID, LoopTrigger] = {trigger.id: trigger for trigger in loop.triggers.all()}
     seen_ids: set[UUID] = set()
     to_sync: list[LoopTrigger] = []
+    # Triggers repointed away from `schedule`: their old Temporal Schedule must be torn down, but
+    # only after the DB commits. Deleting it inside the atomic block means a rollback reverts the
+    # row to SCHEDULE while the Schedule is already irreversibly gone. `delete_loop_trigger_schedule`
+    # keys off the stable `schedule_id`, not the row's type, so a post-commit delete still reaches it.
+    schedules_to_delete: list[LoopTrigger] = []
 
     with transaction.atomic():
         for payload in trigger_payloads:
             trigger_id = payload.get("id")
             existing = existing_by_id.get(trigger_id) if trigger_id else None
             if existing is not None:
-                # A schedule trigger repointed to github/api must tear down its old Temporal
-                # Schedule now, while the row still reads SCHEDULE. `sync_loop_trigger_schedule`
-                # below no-ops for non-schedule types, so without this the old cron schedule
-                # would keep firing forever and no later delete could reach it (delete keys off
-                # the row's current type).
                 if existing.type == LoopTrigger.TriggerType.SCHEDULE and payload["type"] != existing.type:
-                    loop_service.delete_loop_trigger_schedule(existing)
+                    schedules_to_delete.append(existing)
                 existing.type = payload["type"]
                 existing.enabled = payload.get("enabled", True)
                 existing.config = payload.get("config") or {}
@@ -856,6 +863,9 @@ def _sync_triggers(loop: Loop, trigger_payloads: list[dict]) -> None:
                 to_sync.append(created)
 
         stale = [trigger for trigger_id, trigger in existing_by_id.items() if trigger_id not in seen_ids]
+
+    for trigger in schedules_to_delete:
+        loop_service.delete_loop_trigger_schedule(trigger)
 
     for trigger in stale:
         loop_service.delete_loop_trigger_schedule(trigger)
@@ -1041,6 +1051,7 @@ __all__ = [
     "count_team_loops",
     "create_loop",
     "delete_internal_loop",
+    "delete_team_loop_schedules",
     "desktop_canvas_exists",
     "desktop_folder_exists",
     "fire_loop_api",

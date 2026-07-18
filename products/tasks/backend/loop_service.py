@@ -229,6 +229,29 @@ def delete_loop_schedules(loop: Loop) -> None:
             logger.exception("loop_schedule_delete_failed", extra={"loop_trigger_id": str(trigger.id)})
 
 
+def delete_schedules_for_team(team_id: int) -> None:
+    """Delete every schedule-backed loop trigger's Temporal Schedule for a team.
+
+    For team/org/project deletion: Django's CASCADE removes the LoopTrigger rows but never talks
+    to Temporal, so without this the Schedules keep firing forever into deleted triggers. Called
+    from the team-deletion workflow before the rows are cascaded away. Best-effort per trigger.
+    """
+    triggers = list(LoopTrigger.objects.for_team(team_id, canonical=True).filter(type=LoopTrigger.TriggerType.SCHEDULE))
+    if not triggers:
+        return
+    try:
+        temporal = sync_connect()
+    except Exception:
+        logger.exception("loop_schedule_delete_failed", extra={"team_id": team_id})
+        return
+    for trigger in triggers:
+        try:
+            if schedule_exists(temporal, trigger.schedule_id):
+                delete_schedule(temporal, trigger.schedule_id)
+        except Exception:
+            logger.exception("loop_schedule_delete_failed", extra={"loop_trigger_id": str(trigger.id)})
+
+
 def signal_loop_run_cancelled(workflow_id: str) -> None:
     """Best-effort: tell a displaced loop run's workflow to wind down its sandbox.
 

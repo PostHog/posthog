@@ -10,7 +10,11 @@ from temporalio.client import ScheduleOverlapPolicy
 
 from posthog.models import Organization, Team, User
 
-from products.tasks.backend.loop_service import build_loop_trigger_schedule, sync_loop_trigger_schedule
+from products.tasks.backend.loop_service import (
+    build_loop_trigger_schedule,
+    delete_schedules_for_team,
+    sync_loop_trigger_schedule,
+)
 from products.tasks.backend.models import Loop, LoopTrigger
 from products.tasks.backend.temporal.loops.activities import run_loop_trigger
 
@@ -156,3 +160,23 @@ class TestLoopService(TestCase):
         mock_delete.assert_called_once()
         trigger.refresh_from_db()
         self.assertEqual(trigger.schedule_sync_status, LoopTrigger.ScheduleSyncStatus.SYNCED)
+
+    @patch("products.tasks.backend.loop_service.delete_schedule")
+    @patch("products.tasks.backend.loop_service.schedule_exists")
+    @patch("products.tasks.backend.loop_service.sync_connect")
+    def test_delete_schedules_for_team_tears_down_every_schedule_trigger(
+        self, mock_sync_connect, mock_schedule_exists, mock_delete
+    ):
+        # Team deletion cascades LoopTrigger rows away but never talks to Temporal, so this must
+        # delete every schedule trigger's Schedule (and ignore non-schedule triggers).
+        mock_sync_connect.return_value = MagicMock()
+        mock_schedule_exists.return_value = True
+        loop = self.create_loop()
+        cron = self.create_trigger(loop, {"cron_expression": "0 9 * * *", "timezone": "UTC"})
+        one_time = self.create_trigger(loop, {"run_at": "2026-08-01T10:00:00Z"})
+        self.create_trigger(loop, {"repository": "acme/web"}, type=LoopTrigger.TriggerType.GITHUB)
+
+        delete_schedules_for_team(self.team.id)
+
+        deleted_schedule_ids = {call.args[1] for call in mock_delete.call_args_list}
+        self.assertEqual(deleted_schedule_ids, {cron.schedule_id, one_time.schedule_id})
