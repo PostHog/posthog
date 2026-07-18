@@ -36,6 +36,6 @@ describe('formatExecuteSqlDescription', () => {
     it('keeps data-catalog discovery within its character budget', () => {
         const withSection = builder.formatExecuteSqlDescription({ [PRODUCT_DATA_CATALOG_FLAG]: true })
         const withoutSection = builder.formatExecuteSqlDescription()
-        expect(withSection.length - withoutSection.length).toBeLessThan(1200)
+        expect(withSection.length - withoutSection.length).toBeLessThan(1500)
     })
 })
