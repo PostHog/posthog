@@ -1049,6 +1049,7 @@ export interface eventUsageLogicActions {
             is_existing?: boolean
             poll_count?: number
             recalculation_id: string | null
+            reused_window?: boolean
             succeeded?: number
             total_metrics?: number
             trigger?:
@@ -1069,6 +1070,7 @@ export interface eventUsageLogicActions {
             is_existing?: boolean | undefined
             poll_count?: number | undefined
             recalculation_id: string | null
+            reused_window?: boolean | undefined
             succeeded?: number | undefined
             total_metrics?: number | undefined
             trigger?:
@@ -2413,6 +2415,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                     | 'experiment_stop'
                     | 'experiment_update'
                 is_existing?: boolean
+                reused_window?: boolean
                 total_metrics?: number
                 succeeded?: number
                 failed?: number

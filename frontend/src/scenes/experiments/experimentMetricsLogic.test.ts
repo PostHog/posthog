@@ -531,6 +531,35 @@ describe('experimentMetricsLogic', () => {
             }).toDispatchActions(['setCurrentRecalculation'])
             expect(createMock).toHaveBeenCalled()
         })
+
+        it.each([
+            ['config_change', { trigger: 'config_change', query_to: completedRecalculation.query_to }],
+            ['manual', { trigger: 'manual' }],
+        ] as const)('with a completed run loaded, %s sends the expected create body', async (trigger, expectedBody) => {
+            let capturedBody: any
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        completedRecalculation,
+                    ],
+                },
+                post: {
+                    // Return a terminal run so triggerRecalculation finishes without arming a poll timer.
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': async ({ request }) => {
+                        capturedBody = await request.json()
+                        return [201, completedRecalculation2]
+                    },
+                },
+            })
+            mountLogic()
+            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
+
+            await expectLogic(logic, () => {
+                logic.actions.triggerRecalculation(trigger)
+            }).toFinishAllListeners()
+            expect(capturedBody).toEqual(expectedBody)
+        })
     })
 
     describe('loading + progress selectors', () => {

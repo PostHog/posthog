@@ -10,7 +10,7 @@ Module-level free functions (not methods on ExperimentService) so the API view c
 """
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from django.db import transaction
@@ -220,12 +220,18 @@ def _cancel_superseded_workflows(recalculation_ids: list[str]) -> None:
             pass
 
 
-def request_recalculation(experiment: Experiment, user: User, trigger: str = "manual") -> dict:
+def request_recalculation(
+    experiment: Experiment, user: User, trigger: str = "manual", query_to: datetime | None = None
+) -> dict:
     """Create an idempotent batch recalculation request for all experiment metrics.
 
     If an active (pending or in_progress) run already exists for this experiment, returns the existing run's
     serialized payload with ``is_existing=True`` — the caller should NOT start a new workflow in that case.
     Otherwise creates a fresh pending row.
+
+    ``query_to`` requests reuse of the latest completed run's data window so unchanged metrics skip
+    recomputation. It is honored only when it exactly matches that run's ``query_to`` — a stale or arbitrary
+    client value falls back to a fresh window pinned by the workflow's start activity.
     """
     if not experiment.is_launched:
         raise ValidationError("Cannot recalculate metrics for experiment that hasn't started")
@@ -276,6 +282,23 @@ def request_recalculation(experiment: Experiment, user: User, trigger: str = "ma
             _recalculation_stale_cleanup_counter.inc(len(stale_ids))
             transaction.on_commit(lambda: _cancel_superseded_workflows([str(stale_id) for stale_id in stale_ids]))
 
+        # Honor a requested window reuse only when it matches the latest completed run, so clients can't pin
+        # arbitrary timestamps. The stamped query_to is preserved by the workflow's start activity.
+        reused_query_to = None
+        if query_to is not None:
+            latest_completed_query_to = (
+                ExperimentMetricsRecalculation.objects.filter(
+                    team=experiment.team,
+                    experiment=experiment,
+                    status=ExperimentMetricsRecalculation.Status.COMPLETED,
+                )
+                .order_by("-created_at")
+                .values_list("query_to", flat=True)
+                .first()
+            )
+            if latest_completed_query_to is not None and query_to == latest_completed_query_to:
+                reused_query_to = query_to
+
         # Set total_metrics up front from the experiment definition so the client can show progress
         # ("N of M") immediately, before the workflow's discovery activity confirms the same count.
         metrics = discover_experiment_metrics(experiment)
@@ -287,6 +310,7 @@ def request_recalculation(experiment: Experiment, user: User, trigger: str = "ma
             created_by=user,
             total_metrics=len(metrics),
             metric_uuids=[m.metric_uuid for m in metrics],
+            query_to=reused_query_to,
         )
         return build_job_payload(recalc, is_existing=False)
 
@@ -349,6 +373,7 @@ def _recalc_fingerprints_for_run(experiment: Experiment, recalc: ExperimentMetri
             stats_method,
             experiment.exposure_criteria,
             only_count_matured_users=experiment.only_count_matured_users,
+            excluded_variants=experiment.excluded_variants,
         )
         fingerprints[metric_uuid] = compute_recalc_fingerprint(config_fp)
     return fingerprints

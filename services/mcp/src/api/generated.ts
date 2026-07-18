@@ -54797,6 +54797,11 @@ export namespace Schemas {
        * * `experiment_stop` - Experiment Stop
        * * `experiment_update` - Experiment Update */
       trigger?: TriggerEnum;
+      /**
+         * Data-window end to reuse from the latest completed recalculation. When it matches that run's query_to, metrics whose configuration is unchanged skip recomputation; on mismatch a fresh window is pinned and all metrics recompute.
+         * @nullable
+         */
+      query_to?: string | null;
     }
 
     export interface RecapHighlight {
