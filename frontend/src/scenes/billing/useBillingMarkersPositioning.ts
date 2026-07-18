@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 
-import { Chart } from 'lib/Chart'
+import { Chart, ChartType } from 'lib/Chart'
 import { Dayjs } from 'lib/dayjs'
 
 export interface BillingMarkersPositioning {
@@ -9,8 +9,10 @@ export interface BillingMarkersPositioning {
     getMarkerPosition: (date: Dayjs) => { left: number; visible: boolean }
 }
 
-export function useBillingMarkersPositioning(
-    chart: Chart | undefined,
+// Generic over the chart type: accepting a bare `Chart` relies on Chart<'line'> widening to the
+// all-types default, an assignability check tsgo resolves inconsistently across compilations.
+export function useBillingMarkersPositioning<TType extends ChartType>(
+    chart: Chart<TType> | undefined,
     chartWidth: number,
     chartHeight: number
 ): BillingMarkersPositioning {
