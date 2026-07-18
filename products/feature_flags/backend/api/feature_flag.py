@@ -1355,8 +1355,18 @@ class FeatureFlagSerializer(
                         raise serializers.ValidationError(
                             "Filters are not valid (person-aggregated conditions can only use person, cohort, and flag properties)"
                         )
-                    if prop.type == "flag" and prop_dict.get("operator") != "flag_evaluates_to":
-                        raise serializers.ValidationError("Flag properties must use the 'flag_evaluates_to' operator")
+                    if prop.type == "flag":
+                        if prop_dict.get("operator") != "flag_evaluates_to":
+                            raise serializers.ValidationError(
+                                "Flag properties must use the 'flag_evaluates_to' operator"
+                            )
+                        # Flag dependency keys are flag IDs. The Rust flags service declares
+                        # PropertyFilter.key as a string and serde won't coerce a JSON number,
+                        # so a numeric key fails deserialization of the entire team's cached
+                        # flag payload. Persist it as a string so it round-trips cleanly.
+                        dependency_key = prop_dict.get("key")
+                        if dependency_key is not None:
+                            prop_dict["key"] = str(dependency_key)
                 else:
                     # Group-aggregated condition: only allow group properties matching the
                     # condition's group type
