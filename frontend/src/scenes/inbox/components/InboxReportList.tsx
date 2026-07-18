@@ -3,7 +3,7 @@ import { ComponentType, JSX, useEffect, useRef } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { captureInboxViewed } from '../inboxAnalytics'
+import { captureInboxReportsImpressed, captureInboxViewed } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxFiltersLogic } from '../logics/inboxFiltersLogic'
 import { reportListLogic, ReportListLogicProps } from '../logics/reportListLogic'
@@ -86,6 +86,32 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
             })
         }
     }, [listVisible, isLoaded, count, reports, tabKey, hasActiveFilters, sourceProductFilter, priorityFilter, scope])
+
+    // Impression log for ranking-model training: record each report the first time it appears in
+    // the visible list (initial page, pagination, refresh), with its rank at that moment. Deduped
+    // per tab mount so re-renders and detail-pane round-trips don't refire.
+    const impressedIdsRef = useRef(new Set<string>())
+    useEffect(() => {
+        if (!listVisible || !isLoaded) {
+            return
+        }
+        const fresh = reports
+            .map((report, index) => ({ report, rank: index + 1 }))
+            .filter(({ report }) => !impressedIdsRef.current.has(report.id))
+        if (fresh.length === 0) {
+            return
+        }
+        fresh.forEach(({ report }) => impressedIdsRef.current.add(report.id))
+        captureInboxReportsImpressed({
+            tab: tabKey,
+            reports: fresh.map(({ report }) => report),
+            ranks: fresh.map(({ rank }) => rank),
+            listSize: reports.length,
+            totalCount: count,
+            hasActiveFilters,
+            scope,
+        })
+    }, [listVisible, isLoaded, count, reports, tabKey, hasActiveFilters, scope])
 
     // Read fresh state at intersection time via refs so the observer is created once and not
     // rebuilt twice per page fetch (`hasMore`/`reportsResponseLoading` both flip during a load).
