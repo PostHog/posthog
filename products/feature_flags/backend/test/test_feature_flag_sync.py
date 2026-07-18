@@ -551,7 +551,7 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         self.flag1.refresh_from_db()
         assert self.flag1.last_called_at is None
 
-    def test_no_retry_on_too_many_bytes(self) -> None:
+    def test_autoretry_for_membership(self) -> None:
         """CHQueryErrorTooManyBytes should not be in the autoretry_for tuple"""
         autoretry_for = sync_feature_flag_last_called.autoretry_for
         assert CHQueryErrorTooManyBytes not in autoretry_for
