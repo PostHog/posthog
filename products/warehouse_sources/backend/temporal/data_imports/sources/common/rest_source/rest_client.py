@@ -4,6 +4,7 @@ from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 from requests import Request, Response, Session
 from requests.auth import AuthBase
@@ -47,6 +48,22 @@ _JSON_START_BYTES = frozenset(b'{["-tfn0123456789')
 def _looks_like_json(content: bytes) -> bool:
     stripped = content.lstrip()
     return bool(stripped) and stripped[0] in _JSON_START_BYTES
+
+
+def _safe_url(url: str) -> str:
+    """Scheme, host, and path only — never the query string, fragment, or userinfo.
+
+    An error message built from a URL can flow into non-retryable-error analytics
+    and error tracking, where tracked-session value redaction doesn't reach. An
+    ``api_key`` auth with ``location: "query"`` carries the secret in the query
+    string, so keep only the parts that are safe to surface."""
+    parts = urlsplit(url)
+    if not parts.scheme:
+        return url
+    host = parts.hostname or ""
+    if parts.port:
+        host = f"{host}:{parts.port}"
+    return f"{parts.scheme}://{host}{parts.path}"
 
 
 # Upper bound on how long we'll honor a server-provided retry delay, so a
@@ -215,7 +232,7 @@ class RESTClient:
 
         if response.status_code == 429 or response.status_code >= 500:
             raise RESTClientRetryableError(
-                f"HTTP {response.status_code} for {response.url}",
+                f"HTTP {response.status_code} for {_safe_url(response.url)}",
                 retry_after=_parse_retry_after(response),
             )
 
@@ -244,8 +261,8 @@ class RESTClient:
             # retry budget. A body that starts as JSON but fails to parse is a partial /
             # truncated read, which stays retryable.
             if not _looks_like_json(response.content):
-                raise RESTClientNonRetryableError(f"Non-JSON response from {response.url}") from e
-            raise RESTClientRetryableError(f"Malformed JSON response from {response.url}: {e}") from e
+                raise RESTClientNonRetryableError(f"Non-JSON response from {_safe_url(response.url)}") from e
+            raise RESTClientRetryableError(f"Malformed JSON response from {_safe_url(response.url)}: {e}") from e
 
         return response, body
 

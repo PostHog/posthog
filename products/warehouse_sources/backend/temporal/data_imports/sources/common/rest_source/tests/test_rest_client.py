@@ -384,6 +384,30 @@ class TestRESTClient:
         assert mock_session.send.call_count == 1
         mock_sleep.assert_not_called()
 
+    @patch("tenacity.nap.time.sleep")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
+    def test_non_json_error_message_omits_query_string_secret(self, MockSession, mock_sleep) -> None:
+        # An api_key auth with location="query" puts the secret in the URL. This message flows
+        # into non-retryable-error analytics where session-value redaction doesn't reach, so it
+        # must carry only scheme/host/path — never the query string that holds the key.
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+        resp = _make_non_json_response(b"<html>nope</html>")
+        resp.url = "https://api.example.com/leads?api_key=super-secret-value&page=1"
+        mock_session.send.return_value = resp
+
+        client = RESTClient(base_url="https://api.example.com")
+        with pytest.raises(RESTClientNonRetryableError) as ctx:
+            list(client.paginate(path="/leads", paginator=SinglePagePaginator()))
+
+        message = str(ctx.value)
+        assert "super-secret-value" not in message
+        assert "api_key" not in message
+        assert "https://api.example.com/leads" in message
+
     @pytest.mark.parametrize("content", [b"", b"   \n\t"], ids=["empty", "whitespace_only"])
     @patch("tenacity.nap.time.sleep")
     @patch(
