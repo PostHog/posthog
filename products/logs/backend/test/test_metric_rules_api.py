@@ -6,7 +6,6 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.constants import AvailableFeature
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
@@ -15,8 +14,6 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.logs.backend.models import MAX_ENABLED_METRIC_RULES, LogsMetricRule
 from products.logs.backend.presentation.filter_group_validation import MAX_FILTER_GROUP_LEAF_VALUES
 from products.logs.backend.presentation.views.metric_rules_api import LogsMetricRuleSerializer
-
-from ee.models.rbac.access_control import AccessControl
 
 VALID_FILTER_GROUP = {
     "type": "AND",
@@ -329,15 +326,20 @@ class TestLogsMetricRulesAPI(APIBaseTest):
     def test_write_requires_metrics_editor_access(self):
         # Metric rules publish log attribute values into the Metrics product, so rule
         # authors need authority over metrics too — a logs editor whose org restricted
-        # metrics must not be able to export logs data through this side door.
-        AccessControl.objects.create(team=self.team, resource="metrics", access_level="viewer")
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
-        ]
-        self.organization.save()
+        # metrics must not be able to export logs data through this side door. RBAC is
+        # patched at the core boundary (creating an AccessControl row needs `ee`, which
+        # products.logs may not depend on).
+        def deny_metrics_only(resource, required_level=None, *args, **kwargs):
+            return resource != "metrics"
 
-        response = self.client.post(self.base_url, self._payload(), format="json")
+        with patch(
+            "products.logs.backend.presentation.views.metric_rules_api.UserAccessControl.check_access_level_for_resource",
+            side_effect=deny_metrics_only,
+        ) as mock_check:
+            response = self.client.post(self.base_url, self._payload(), format="json")
+
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        mock_check.assert_any_call("metrics", "editor")
 
     @parameterized.expand(
         [
