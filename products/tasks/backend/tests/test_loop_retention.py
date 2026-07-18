@@ -1,5 +1,7 @@
 from datetime import timedelta
 
+from unittest.mock import patch
+
 from django.test import TestCase
 from django.utils import timezone as django_timezone
 
@@ -11,6 +13,8 @@ from posthog.models.user import User
 
 from products.tasks.backend.loop_retention import sweep_loop_task_retention
 from products.tasks.backend.models import Loop, Task, TaskRun
+
+RETENTION_MODULE = "products.tasks.backend.loop_retention"
 
 
 class LoopRetentionTestCase(TestCase):
@@ -84,3 +88,30 @@ class TestSweepLoopTaskRetention(LoopRetentionTestCase):
         self.assertTrue(Task.objects.get(id=stale_b.id).deleted)
         self.assertFalse(Task.objects.get(id=newest_a.id).deleted)
         self.assertFalse(Task.objects.get(id=newest_b.id).deleted)
+
+    def test_one_failing_task_does_not_abort_the_whole_sweep(self):
+        # A single bad row must not block pruning every other stale task (and every later day's sweep).
+        loop = self.create_loop()
+        base = django_timezone.now()
+        stale_1 = self.create_loop_task(loop, created_at=base - timedelta(days=2))
+        stale_2 = self.create_loop_task(loop, created_at=base - timedelta(days=1))
+
+        real_soft_delete = Task.soft_delete
+        calls = {"n": 0}
+
+        def flaky_soft_delete(task_self):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("boom")
+            return real_soft_delete(task_self)
+
+        with (
+            patch.object(Task, "soft_delete", flaky_soft_delete),
+            patch(f"{RETENTION_MODULE}.capture_exception") as mock_capture,
+        ):
+            deleted_count = sweep_loop_task_retention(retention_limit=0)
+
+        self.assertEqual(deleted_count, 1)
+        mock_capture.assert_called_once()
+        deleted_flags = sorted(Task.objects.get(id=task.id).deleted for task in (stale_1, stale_2))
+        self.assertEqual(deleted_flags, [False, True])

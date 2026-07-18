@@ -26,7 +26,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Q, QuerySet
 
 from pydantic import Field
@@ -707,18 +707,21 @@ def create_loop(team_id: int, user: User | None, validated_data: dict) -> LoopDT
             detail=f"A loop can have at most {MAX_TRIGGERS_PER_LOOP} triggers.",
         )
 
-    # internal=False: backend-created internal loops must not consume the user-facing quota.
-    if count_team_loops(team_id) >= MAX_LOOPS_PER_TEAM:
-        raise LoopLimitError(
-            code="max_loops_per_team",
-            limit=MAX_LOOPS_PER_TEAM,
-            detail=(
-                f"This project has reached the limit of {MAX_LOOPS_PER_TEAM} loops. "
-                "Delete a loop to make room, or contact support to raise the limit."
-            ),
-        )
-
     with transaction.atomic():
+        # Serialize a team's loop creation on the same advisory lock fire_loop uses, so concurrent
+        # creates can't each read a below-cap count and collectively overshoot MAX_LOOPS_PER_TEAM.
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"loop-team:{team_id}"])
+        # internal=False: backend-created internal loops must not consume the user-facing quota.
+        if count_team_loops(team_id) >= MAX_LOOPS_PER_TEAM:
+            raise LoopLimitError(
+                code="max_loops_per_team",
+                limit=MAX_LOOPS_PER_TEAM,
+                detail=(
+                    f"This project has reached the limit of {MAX_LOOPS_PER_TEAM} loops. "
+                    "Delete a loop to make room, or contact support to raise the limit."
+                ),
+            )
         loop = Loop.objects.create(
             team_id=team_id,
             created_by_id=getattr(user, "id", None),

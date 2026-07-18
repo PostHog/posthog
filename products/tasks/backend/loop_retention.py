@@ -13,7 +13,9 @@ from django.utils import timezone as django_timezone
 
 import structlog
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 
+from posthog.exceptions_capture import capture_exception
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.tasks.backend.models import LoopFire, Task, TaskRun
@@ -51,8 +53,16 @@ def sweep_loop_task_retention(retention_limit: int = LOOP_TASK_RETENTION_LIMIT) 
     for task in Task.objects.filter(  # nosemgrep: celery-task-team-scope-audit
         id__in=deletable_task_ids, deleted=False
     ):
-        task.soft_delete()
-        deleted_count += 1
+        try:
+            task.soft_delete()
+            deleted_count += 1
+        except SoftTimeLimitExceeded:
+            raise
+        except Exception as exc:
+            # One bad row must not abort the whole sweep (and block pruning for every later day);
+            # capture and move on, mirroring kill_stale_queued_task_runs.
+            capture_exception(exc)
+            logger.exception("loop_retention.task_soft_delete_failed", task_id=str(task.id))
     return deleted_count
 
 
@@ -84,6 +94,15 @@ def prune_loop_fire_records(retention_days: int = LOOP_FIRE_RETENTION_DAYS) -> i
 @shared_task(ignore_result=True, soft_time_limit=110, time_limit=170)
 @skip_team_scope_audit
 def sweep_loop_task_retention_task() -> None:
-    deleted_count = sweep_loop_task_retention()
+    # Prune the LoopFire ledger even if the task sweep raises: the two are independent janitors and a
+    # failure in one must not permanently starve the other.
+    deleted_count = 0
+    try:
+        deleted_count = sweep_loop_task_retention()
+    except SoftTimeLimitExceeded:
+        raise
+    except Exception as exc:
+        capture_exception(exc)
+        logger.exception("loop_retention.task_sweep_failed")
     pruned_fires = prune_loop_fire_records()
     logger.info("loop_retention.swept", deleted_count=deleted_count, pruned_fires=pruned_fires)

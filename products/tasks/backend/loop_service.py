@@ -5,6 +5,7 @@ from django.conf import settings
 from django.utils import timezone as django_timezone
 from django.utils.dateparse import parse_datetime
 
+from celery.exceptions import SoftTimeLimitExceeded
 from temporalio.client import (
     Schedule,
     ScheduleActionStartWorkflow,
@@ -137,6 +138,10 @@ def sync_loop_trigger_schedule(trigger: LoopTrigger) -> None:
         else:
             create_schedule(temporal, trigger.schedule_id, schedule)
         status = LoopTrigger.ScheduleSyncStatus.SYNCED
+    except SoftTimeLimitExceeded:
+        # The reconciliation sweep runs this in a loop under a Celery soft time limit; let the limit
+        # unwind the task instead of misrecording a timeout as a per-trigger Temporal sync failure.
+        raise
     except Exception:
         logger.exception("loop_trigger_schedule_sync_failed", extra={"loop_trigger_id": str(trigger.id)})
         status = LoopTrigger.ScheduleSyncStatus.FAILED
