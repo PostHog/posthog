@@ -133,6 +133,26 @@ test('assignReviewersWithAutoMergeGuard: disables auto-merge before and after re
     assert.deepEqual(calls, ['disable', 'assign', 'disable'])
 })
 
+test('assignReviewersWithAutoMergeGuard: rechecks auto-merge when reviewer assignment throws', async () => {
+    const calls = []
+
+    await assert.rejects(
+        assignReviewersWithAutoMergeGuard(['team-devex'], [], {
+            disableAutoMergeImpl: async () => {
+                calls.push('disable')
+                return false
+            },
+            assignReviewersImpl: async () => {
+                calls.push('assign')
+                throw new Error('partial assignment failed')
+            },
+        }),
+        /partial assignment failed/
+    )
+
+    assert.deepEqual(calls, ['disable', 'assign', 'disable'])
+})
+
 for (const [filename, expected] of [
     ['frontend/src/generated/core/api.ts', true],
     ['frontend/src/generated/core/api.schemas.ts', true],

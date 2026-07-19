@@ -7,6 +7,7 @@ Classifies snapshots as genuinely changed or rendering noise.
 Called by the Celery task; all business logic lives here.
 """
 
+from collections.abc import Callable
 from uuid import UUID
 
 from django.db.models import Q
@@ -127,7 +128,7 @@ def _store_diff(
     )
 
 
-def _diff_snapshot(snapshot: RunSnapshot) -> bool:
+def _diff_snapshot(snapshot: RunSnapshot, *, on_compared: Callable[[], None]) -> None:
     """Compare snapshot against baseline; classify and store diff metrics.
 
     Classification (in priority order):
@@ -160,16 +161,17 @@ def _diff_snapshot(snapshot: RunSnapshot) -> bool:
             has_baseline=baseline_bytes is not None,
             has_current=current_bytes is not None,
         )
-        return False
+        return
 
     result = compare_images(baseline_bytes, current_bytes)
+    on_compared()
 
     _store_thumbnail(snapshot, result)
 
     kind = classify_compare_result(result)
     if kind is not None:
         _store_diff(snapshot, result, kind)
-        return True
+        return
 
     # Both tiers below threshold — genuine noise, reclassify and cache for future runs
     snapshot.result = SnapshotResult.UNCHANGED
@@ -204,7 +206,6 @@ def _diff_snapshot(snapshot: RunSnapshot) -> bool:
             "diff_percentage": result.diff_percentage,
         },
     )
-    return True
 
 
 def _generate_thumbnail_for_new(snapshot: RunSnapshot) -> None:
@@ -280,6 +281,10 @@ def process_diffs(run_id: UUID) -> int:
         .iterator(chunk_size=100)
     )
     diffed_count = 0
+
+    def record_comparison() -> None:
+        nonlocal diffed_count
+        diffed_count += 1
 
     for snapshot in snapshots:
         if snapshot.result == SnapshotResult.NEW and snapshot.current_artifact:

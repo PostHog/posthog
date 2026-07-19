@@ -365,6 +365,17 @@ class TestCountProcessedDiffs(VisualReviewTeamScopedTestMixin, BaseTest):
 
         assert diffing.count_processed_diffs(run.id) == expected
 
+        with (
+            patch("products.visual_review.backend.logic.read_artifact_bytes", return_value=b"png"),
+            patch("products.visual_review.backend.diffing.compare_images", return_value=compare_result),
+            patch(
+                "products.visual_review.backend.diffing._store_thumbnail", side_effect=RuntimeError("storage failed")
+            ),
+            patch("products.visual_review.backend.diffing.logger") as mock_logger,
+        ):
+            assert process_diffs(create_result.run_id) == 1
+        mock_logger.warning.assert_called_once()
+
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestPostApprovalCommentTask:

@@ -500,11 +500,11 @@ async function assignReviewersWithAutoMergeGuard(
     }
 
     await disableAutoMergeImpl()
-    const reviewersAssigned = await assignReviewersImpl(teams, users)
-    if (reviewersAssigned) {
+    try {
+        return await assignReviewersImpl(teams, users)
+    } finally {
         await disableAutoMergeImpl()
     }
-    return reviewersAssigned
 }
 
 // Best-effort: a label failure must never fail the job.
