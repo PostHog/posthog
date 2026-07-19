@@ -113,6 +113,10 @@ class TaskProcessingContext:
         return (self.state or {}).get("auto_publish") is True
 
     @property
+    def computer_use(self) -> bool:
+        return (self.state or {}).get("computer_use") is True
+
+    @property
     def has_github_credentials(self) -> bool:
         return self.github_integration_id is not None or self.github_user_integration_id is not None
 

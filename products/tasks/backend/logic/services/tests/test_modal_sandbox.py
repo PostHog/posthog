@@ -448,6 +448,25 @@ class TestModalSandboxAgentServer:
         assert "agentsh exec" not in command
         assert "nohup" in command
 
+    def test_start_agent_server_starts_virtual_desktop_when_enabled(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+        )
+
+        mock_sandbox.start_agent_server(
+            repository="posthog/posthog",
+            task_id="task-123",
+            run_id="run-456",
+            computer_use=True,
+            wait_for_health=False,
+        )
+
+        commands = [call.args[0] for call in mock_sandbox.execute.call_args_list]
+        assert "DISPLAY=:99 /usr/local/bin/start-virtual-desktop" in commands
+        launch_command = next(command for command in commands if "--taskId" in command)
+        assert "DISPLAY=:99" in launch_command
+        assert "--computerUse true" in launch_command
+
     def test_start_agent_server_waits_for_repository_before_launch(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
             return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),

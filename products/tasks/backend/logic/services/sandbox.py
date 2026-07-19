@@ -250,6 +250,9 @@ class SandboxBase(ABC):
         result = self.execute("grep -q autoPublish /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
         return result.exit_code == 0
 
+    def start_virtual_desktop(self) -> ExecutionResult:
+        return self.execute("DISPLAY=:99 /usr/local/bin/start-virtual-desktop", timeout_seconds=30)
+
     def clone_repository(
         self,
         repository: str,
@@ -334,6 +337,7 @@ class SandboxBase(ABC):
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
+        computer_use: bool = False,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 

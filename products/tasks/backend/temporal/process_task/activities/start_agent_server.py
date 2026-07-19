@@ -338,6 +338,7 @@ def _invoke_start_agent_server(
             repo_ready_file=repo_ready_file,
             wait_for_health=wait_for_health,
             rtk_enabled=ctx.rtk_enabled,
+            computer_use=ctx.computer_use,
         )
 
         # Mark startup-time token issuance so follow-ups within the next

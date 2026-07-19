@@ -196,6 +196,15 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         warm_task.refresh_from_db()
         assert warm_task.description == "already there"
 
+    def test_computer_use_creates_a_new_cold_task(self):
+        warm_task, _ = self._warm_run()
+        with patch(f"{TITLE_SRC}.generate_task_title", return_value="T"):
+            dto = self._create(computer_use=True)
+
+        assert str(dto.id) != str(warm_task.id)
+        created_run = TaskRun.objects.exclude(task=warm_task).get()
+        assert created_run.state["computer_use"] is True
+
     def test_branch_mismatch_creates_a_new_cold_task(self):
         warm_task, _ = self._warm_run(branch="main")
         with patch(f"{TITLE_SRC}.generate_task_title", return_value="T"):

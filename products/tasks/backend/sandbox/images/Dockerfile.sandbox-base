@@ -38,6 +38,17 @@ RUN apt-get update && \
     postgresql-client \
     mysql-client \
     redis-tools \
+    # Virtual desktop tools
+    dbus-x11 \
+    epiphany-browser \
+    imagemagick \
+    libgtk-3-bin \
+    openbox \
+    wmctrl \
+    x11-utils \
+    xdotool \
+    xterm \
+    xvfb \
     # System libraries often needed by Python packages
     libssl-dev \
     libffi-dev \
@@ -164,6 +175,9 @@ ENV PATH="/opt/posthog/bin:${PATH}"
 ENV IS_SANDBOX=1
 
 ENV PYTHONPATH="/tmp/workspace"
+
+COPY products/tasks/backend/sandbox/images/start-virtual-desktop.sh /usr/local/bin/start-virtual-desktop
+RUN chmod +x /usr/local/bin/start-virtual-desktop
 
 WORKDIR /tmp/workspace
 

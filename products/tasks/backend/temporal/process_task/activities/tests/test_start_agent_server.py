@@ -181,6 +181,46 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
     assert sandbox.start_agent_server.call_args.kwargs["event_ingest_token"] == "event-ingest-token"
 
 
+async def test_start_agent_server_forwards_computer_use(mocker) -> None:
+    context = _context(state={"computer_use": True})
+    sandbox = mocker.Mock()
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Sandbox.get_by_id",
+        return_value=sandbox,
+    )
+    mocker.patch("products.tasks.backend.temporal.process_task.activities.start_agent_server.emit_agent_log")
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Task.objects.select_related"
+    ).return_value.get.return_value = mocker.Mock(created_by_id=None)
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_oauth_access_token_for_run",
+        return_value="oauth-token",
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_sandbox_ph_mcp_configs",
+        return_value=[],
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.TaskRun.objects.filter",
+    ).return_value.first.return_value = mocker.Mock(state={}, imported_mcp_servers=None)
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_sandbox_event_ingest_token",
+        return_value=None,
+    )
+
+    await start_agent_server(
+        StartAgentServerInput(
+            context=context,
+            sandbox_id="sandbox-id",
+            sandbox_url="https://sandbox.example",
+            sandbox_connect_token="connect-token",
+        )
+    )
+
+    assert sandbox.start_agent_server.call_args.kwargs["computer_use"] is True
+
+
 async def test_start_agent_server_forwards_imported_and_relayed_mcp_servers(mocker) -> None:
     context = _context()
     sandbox = mocker.Mock()

@@ -1777,6 +1777,11 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
             "follows the server-side default (enabled); false opts this run out."
         ),
     )
+    computer_use = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether this cloud run may control an isolated virtual Linux desktop in its sandbox.",
+    )
 
     def validate(self, attrs):
         errors: dict[str, str] = {}
@@ -1952,6 +1957,11 @@ class TaskRunBootstrapCreateRequestSerializer(
             "Whether rtk command-output compression is enabled for this run. Omitted or null "
             "follows the server-side default (enabled); false opts this run out."
         ),
+    )
+    computer_use = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether this cloud run may control an isolated virtual Linux desktop in its sandbox.",
     )
     home_quick_action = serializers.CharField(
         required=False,
