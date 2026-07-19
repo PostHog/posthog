@@ -411,6 +411,28 @@ def _is_transient_connect_dns_failure(e: BaseException) -> bool:
     return _DNS_TEMPORARY_FAILURE_TOKEN in " ".join(str(arg) for arg in e.args)
 
 
+# ECONNRESET at connect time: the peer sent a RST while the connection was being established, so
+# pymysql wraps the underlying `ConnectionResetError` as the 2003 "Can't connect to MySQL server
+# on '<host>' ([Errno 104] Connection reset by peer)" failure. Unlike a refused connection
+# (ECONNREFUSED, "Connection refused") or a failed DNS lookup — deterministic host/port misconfig
+# that stay non-retryable via the "Can't connect to MySQL server on" classifier — a reset means
+# something *was* reachable (an overloaded server, or a TCP proxy/load balancer in front of the DB
+# that accepts then resets while its backend is cycling or briefly down) and dropped us mid-connect,
+# so a fresh attempt usually recovers. Match the stable strerror phrase, not the volatile host or
+# the platform-specific [Errno NNN] prefix.
+_CONNECTION_RESET_TOKEN = "Connection reset by peer"
+
+
+def _is_transient_connect_reset(e: BaseException) -> bool:
+    """Return True if the peer reset the connection during connect — a transient blip."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    code = e.args[0] if e.args else None
+    if code != _CANT_CONNECT_CODE:
+        return False
+    return _CONNECTION_RESET_TOKEN in " ".join(str(arg) for arg in e.args)
+
+
 # pymysql raises this `InternalError` from `_read_packet` when an incoming packet's
 # sequence number doesn't match the expected one (it `_force_close()`s the socket first).
 _PACKET_SEQUENCE_ERROR_PHRASE = "Packet sequence number wrong"
@@ -470,6 +492,7 @@ def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
                 _is_transient_connect_drop(e)
                 or _is_transient_connect_timeout(e)
                 or _is_transient_connect_dns_failure(e)
+                or _is_transient_connect_reset(e)
                 or _is_transient_packet_sequence_error(e)
                 or _is_transient_vitess_dial_timeout(e)
             ):
