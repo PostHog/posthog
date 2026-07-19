@@ -12,6 +12,9 @@ class EvaluatePromptSuggestionInputs(BaseModel, frozen=True):
     team_id: int
     # How many rated sessions to re-run. None means the cap. Can lower the cap, never raise it.
     session_limit: int | None = None
+    # The edited config the user is testing. None re-runs the stored suggested_config. Defaulted so an
+    # in-flight run replaying without this field decodes it as "test the suggestion" (its original behavior).
+    config_override: dict[str, Any] | None = None
 
 
 class EvaluationSession(BaseModel, frozen=True):
@@ -27,6 +30,7 @@ class SelectEvaluationSessionsInputs(BaseModel, frozen=True):
     suggestion_id: UUID
     team_id: int
     session_limit: int | None = None
+    config_override: dict[str, Any] | None = None
 
 
 class SelectEvaluationSessionsOutput(BaseModel, frozen=True):

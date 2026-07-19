@@ -69,9 +69,11 @@ def select_evaluation_sessions_activity(inputs: SelectEvaluationSessionsInputs) 
         )
         for o in observations
     ]
-    # New rows carry the full proposed config. Old prompt-only rows fall back to a prompt overwrite,
-    # same as apply (see api/prompt_suggestions.py).
-    if suggestion.suggested_config is not None:
+    # The user-edited config under test wins. Otherwise new rows carry the full proposed config, and old
+    # prompt-only rows fall back to a prompt overwrite, same as apply (see api/prompt_suggestions.py).
+    if inputs.config_override is not None:
+        rerun_config = dict(inputs.config_override)
+    elif suggestion.suggested_config is not None:
         rerun_config = dict(suggestion.suggested_config)
     else:
         rerun_config = {**(scanner.scanner_config or {}), "prompt": suggestion.suggested_prompt}

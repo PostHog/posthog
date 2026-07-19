@@ -209,6 +209,21 @@ class TestPromptEvaluation(_VisionAPITestCase):
         self.assertEqual(output.snapshot.scanner_config, suggestion.suggested_config)
         self.assertNotIn("old_tag", output.snapshot.scanner_config["tags"])
 
+    def test_select_activity_config_override_wins_over_suggested_config(self) -> None:
+        # When the user tests an edited config, the re-run uses it, not the stored suggestion.
+        self._create_rated("sess-1", False)
+        suggestion = self._create_suggestion(
+            suggested_config={"prompt": "suggested prompt", "allow_inconclusive": False}
+        )
+        override = {"prompt": "user edited prompt", "allow_inconclusive": True}
+
+        output = select_evaluation_sessions_activity(
+            SelectEvaluationSessionsInputs(suggestion_id=suggestion.id, team_id=self.team.id, config_override=override)
+        )
+
+        assert output.snapshot is not None
+        self.assertEqual(output.snapshot.scanner_config, override)
+
     def test_record_and_finalize_produce_summary_and_dedup_retries(self) -> None:
         observation = self._create_rated("sess-1", False, verdict="yes")
         suggestion = self._create_suggestion(evaluation={"status": "running", "results": []})
