@@ -1313,7 +1313,10 @@ class InsightSerializer(InsightBasicSerializer):
                     is_cached=False,
                     query_status=dict(
                         QueryStatus(
-                            id=self.context["request"].query_params.get("client_query_id"),
+                            # QueryStatus.id is a required str; without a client_query_id this
+                            # fallback used to crash pydantic validation and turn the degraded
+                            # error state into a 500.
+                            id=self.context["request"].query_params.get("client_query_id") or "",
                             team_id=insight.team_id,
                             insight_id=str(insight.id),
                             dashboard_id=str(dashboard.id) if dashboard else None,
@@ -1336,7 +1339,10 @@ class InsightSerializer(InsightBasicSerializer):
                     is_cached=False,
                     query_status=dict(
                         QueryStatus(
-                            id=self.context["request"].query_params.get("client_query_id"),
+                            # QueryStatus.id is a required str; without a client_query_id this
+                            # fallback used to crash pydantic validation and turn the degraded
+                            # error state into a 500.
+                            id=self.context["request"].query_params.get("client_query_id") or "",
                             team_id=insight.team_id,
                             insight_id=str(insight.id),
                             dashboard_id=str(dashboard.id) if dashboard else None,

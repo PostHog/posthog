@@ -19,8 +19,9 @@ BRAINTREE_HOSTS = {
     "production": "https://payments.braintree-api.com/graphql",
     "sandbox": "https://payments.sandbox.braintree-api.com/graphql",
 }
-# Pinned GraphQL API version (date-versioned header, required).
-BRAINTREE_VERSION = "2019-01-01"
+# GraphQL API version (date-versioned header, required). Opaque vendor labels — never parsed.
+BRAINTREE_VERSION_2019_01_01 = "2019-01-01"
+BRAINTREE_VERSION_2026_07_14 = "2026-07-14"
 PAGE_SIZE = 100
 # Braintree recommends generous timeouts due to async transaction processing.
 REQUEST_TIMEOUT_SECONDS = 120
@@ -42,9 +43,9 @@ class BraintreeResumeConfig:
     after: str
 
 
-def _get_session(public_key: str, private_key: str) -> requests.Session:
+def _get_session(public_key: str, private_key: str, api_version: str) -> requests.Session:
     session = make_tracked_session(
-        headers={"Braintree-Version": BRAINTREE_VERSION},
+        headers={"Braintree-Version": api_version},
         redact_values=(private_key,),
     )
     session.auth = (public_key, private_key)
@@ -116,10 +117,10 @@ class _NoopLogger:
         return None
 
 
-def validate_credentials(environment: str, public_key: str, private_key: str) -> bool:
+def validate_credentials(environment: str, public_key: str, private_key: str, api_version: str) -> bool:
     """Confirm the key pair is valid with the GraphQL ping query."""
     try:
-        session = _get_session(public_key, private_key)
+        session = _get_session(public_key, private_key, api_version)
         data = _execute(session, _base_url(environment), "query { ping }", {}, _NoopLogger())  # type: ignore[arg-type]
         return data.get("ping") == "pong"
     except Exception:
@@ -131,13 +132,14 @@ def get_rows(
     public_key: str,
     private_key: str,
     endpoint: str,
+    api_version: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[BraintreeResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = BRAINTREE_ENDPOINTS[endpoint]
-    session = _get_session(public_key, private_key)
+    session = _get_session(public_key, private_key, api_version)
     url = _base_url(environment)
     query = _build_query(config)
 
@@ -186,6 +188,7 @@ def braintree_source(
     public_key: str,
     private_key: str,
     endpoint: str,
+    api_version: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[BraintreeResumeConfig],
     should_use_incremental_field: bool = False,
@@ -200,6 +203,7 @@ def braintree_source(
             public_key=public_key,
             private_key=private_key,
             endpoint=endpoint,
+            api_version=api_version,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,

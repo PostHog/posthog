@@ -282,7 +282,7 @@ fn build_consumer_with_restore(
     ));
 
     CohortStreamEventsConsumer::new(
-        consumer,
+        Arc::new(consumer),
         topic.to_string(),
         dispatcher,
         handle,
@@ -1224,7 +1224,7 @@ fn build_consumer_with_manifest(
     ));
 
     CohortStreamEventsConsumer::new(
-        consumer,
+        Arc::new(consumer),
         topic.to_string(),
         dispatcher,
         handle,

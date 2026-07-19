@@ -312,13 +312,17 @@ export const AIObservabilityGetCostsSchema = z.object({
     days: z.number().optional(),
 })
 
-// Accept both `orgId` and its `id` alias. `organizations-list` and
-// `organization-get` return/accept the organization under an `id` key, so agents
-// naturally reach for `id` here too. Requiring `orgId` alone made this the odd
-// tool out and drove a stream of validation failures in exec mode. Modeled as a
-// union so the advertised JSON schema expresses "exactly one identifier is
-// required" (anyOf) rather than silently allowing an empty object; normalized to
-// `orgId` so the handler stays simple.
+// Accept `orgId` and the aliases agents reach for when composing the call from
+// scratch. `organizations-list` / `organization-get` return the org under an `id`
+// key, and in exec mode agents don't read the advertised schema — they
+// reconstruct the field name from context, producing `id`, `organizationId`,
+// `organization_id`, or `org_id`. Requiring a single spelling made this the odd
+// tool out and drove a steady stream of exec-mode validation failures. Model each
+// accepted key as its own single-field required branch so the advertised JSON
+// schema (anyOf) enumerates every alias and still expresses "exactly one
+// identifier is required"; normalize to `orgId` so the handler stays simple.
+const orgIdAliasDescription =
+    'Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`.'
 export const OrganizationSetActiveSchema = z
     .union(
         [
@@ -329,17 +333,25 @@ export const OrganizationSetActiveSchema = z
                         'The organization to switch to: the `id` returned by `organizations-list` (a UUID-like string, not the organization name). Use `organizations-list` to resolve a name to its id.'
                     ),
             }),
-            z.object({
-                id: z
-                    .string()
-                    .describe(
-                        'Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`.'
-                    ),
-            }),
+            z.object({ id: z.string().describe(orgIdAliasDescription) }),
+            z.object({ organizationId: z.string().describe(orgIdAliasDescription) }),
+            z.object({ organization_id: z.string().describe(orgIdAliasDescription) }),
+            z.object({ org_id: z.string().describe(orgIdAliasDescription) }),
         ],
         { error: () => 'provide the organization id via "orgId" (get it from organizations-list)' }
     )
-    .transform((data) => ({ orgId: 'orgId' in data ? data.orgId : data.id }))
+    .transform((data) => ({
+        orgId:
+            'orgId' in data
+                ? data.orgId
+                : 'id' in data
+                  ? data.id
+                  : 'organizationId' in data
+                    ? data.organizationId
+                    : 'organization_id' in data
+                      ? data.organization_id
+                      : data.org_id,
+    }))
 
 export const ProjectGetAllSchema = z.object({})
 
