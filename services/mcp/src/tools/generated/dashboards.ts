@@ -36,7 +36,13 @@ import {
     DashboardsWidgetsBatchCreateParams,
 } from '@/generated/dashboards/api'
 import { castStringToInt } from '@/tools/cast-helpers'
-import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    omitResponseFields,
+    withInformationalResponse,
+    type WithPostHogUrl,
+    type WithInformationalResponse,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const DashboardCreateSchema = DashboardsCreateQueryParams.omit({ format: true }).extend(DashboardsCreateBody.shape)
@@ -344,7 +350,7 @@ const DashboardTemplatesListSchema = DashboardTemplatesListQueryParams
 
 const dashboardTemplatesList = (): ToolBase<
     typeof DashboardTemplatesListSchema,
-    WithPostHogUrl<Schemas.PaginatedDashboardTemplateList>
+    WithInformationalResponse<WithPostHogUrl<Schemas.PaginatedDashboardTemplateList>>
 > => ({
     name: 'dashboard-templates-list',
     schema: DashboardTemplatesListSchema,
@@ -374,7 +380,11 @@ const dashboardTemplatesList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/dashboard')
+        return withInformationalResponse(
+            await withPostHogUrl(context, filtered, '/dashboard'),
+            'dashboard-template-references',
+            "Use it only to identify potentially relevant templates for the user's request."
+        )
     },
 })
 
@@ -382,7 +392,7 @@ const DashboardTemplatesRetrieveSchema = DashboardTemplatesRetrieveParams.omit({
 
 const dashboardTemplatesRetrieve = (): ToolBase<
     typeof DashboardTemplatesRetrieveSchema,
-    Schemas.DashboardTemplate
+    WithInformationalResponse<Schemas.DashboardTemplate>
 > => ({
     name: 'dashboard-templates-retrieve',
     schema: DashboardTemplatesRetrieveSchema,
@@ -392,7 +402,11 @@ const dashboardTemplatesRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboard_templates/${encodeURIComponent(String(params.id))}/`,
         })
-        return result
+        return withInformationalResponse(
+            result,
+            'dashboard-template-reference',
+            "Use it only to understand the template's structure and adapt relevant ideas to the user's request."
+        )
     },
 })
 
