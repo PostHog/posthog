@@ -11,6 +11,7 @@ class TestTemplateDiscord(BaseHogFunctionTemplateTest):
         inputs = {
             "webhookUrl": "https://discord.com/api/webhooks/00000000000000000/xxxxxxxxxxxxxx",
             "content": "Alert <@123456789> triggered",
+            "allowedMentions": {"parse": ["roles", "users", "everyone"]},
         }
         inputs.update(kwargs)
         return inputs
@@ -27,10 +28,15 @@ class TestTemplateDiscord(BaseHogFunctionTemplateTest):
                 },
                 "body": {
                     "content": "Alert <@123456789> triggered",
-                    "allowed_mentions": {"parse": []},
+                    "allowed_mentions": {"parse": ["roles", "users", "everyone"]},
                 },
             },
         )
+
+    def test_mentions_can_be_suppressed(self):
+        self.run_function(inputs=self._inputs(allowedMentions={"parse": []}))
+
+        assert self.get_mock_fetch_calls()[0][1]["body"]["allowed_mentions"] == {"parse": []}
 
     def test_only_allow_teams_url(self):
         for url, allowed in [
