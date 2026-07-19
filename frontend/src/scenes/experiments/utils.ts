@@ -52,12 +52,7 @@ import type {
 } from 'products/experiments/frontend/generated/api.schemas'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from './constants'
-import {
-    EXPOSURE_DEFAULT_EVENT,
-    EXPOSURE_FEATURE_FLAG_PROPERTY,
-    EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY,
-    featureFlagVariantProperty,
-} from './exposureContract'
+import { EXPOSURE_DEFAULT_EVENT, featureFlagVariantProperty } from './exposureContract'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 
 const MULTIPLE_VARIANT_WARNING_THRESHOLD = 0.5 // on the 0-100 scale (0.5 = 0.5%)
@@ -258,24 +253,19 @@ export function getViewRecordingFilters(
     ) {
         filters.push(createExposureFilter(exposureCriteria, experiment.feature_flag_key, variantKey))
     } else {
+        // Filter on the `$feature/<flag>` property directly rather than the
+        // `$feature_flag_called` exposure event. Backend SDKs (posthog-python,
+        // posthog-node, etc.) emit `$feature_flag_called` without `$session_id`
+        // — a backend request has no browser session — so an event filter on
+        // it never joins to a session recording. `posthog-js` stamps
+        // `$feature/<flag>` on every session-tied event after flag load, so
+        // matching on that property works whether the flag is evaluated
+        // server-side, client-side, or both.
         filters.push({
-            id: EXPOSURE_DEFAULT_EVENT,
-            name: EXPOSURE_DEFAULT_EVENT,
-            type: 'events',
-            properties: [
-                {
-                    key: EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY,
-                    type: PropertyFilterType.Event,
-                    value: [variantKey],
-                    operator: PropertyOperator.Exact,
-                },
-                {
-                    key: EXPOSURE_FEATURE_FLAG_PROPERTY,
-                    type: PropertyFilterType.Event,
-                    value: experiment.feature_flag_key,
-                    operator: PropertyOperator.Exact,
-                },
-            ],
+            key: featureFlagVariantProperty(experiment.feature_flag_key),
+            type: PropertyFilterType.Feature,
+            value: [variantKey],
+            operator: PropertyOperator.Exact,
         })
     }
 
@@ -437,24 +427,14 @@ export function getViewRecordingFiltersLegacy(
                 }
             }
         } else {
+            // Filter on `$feature/<flag>` — see comment in getViewRecordingFilters
+            // above for why event-filtering on `$feature_flag_called` fails when
+            // the flag is evaluated server-side.
             filters.push({
-                id: EXPOSURE_DEFAULT_EVENT,
-                name: EXPOSURE_DEFAULT_EVENT,
-                type: 'events',
-                properties: [
-                    {
-                        key: EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY,
-                        type: PropertyFilterType.Event,
-                        value: [variantKey],
-                        operator: PropertyOperator.Exact,
-                    },
-                    {
-                        key: EXPOSURE_FEATURE_FLAG_PROPERTY,
-                        type: PropertyFilterType.Event,
-                        value: featureFlagKey,
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
+                key: featureFlagVariantProperty(featureFlagKey),
+                type: PropertyFilterType.Feature,
+                value: [variantKey],
+                operator: PropertyOperator.Exact,
             })
         }
         const countSeries = metric.count_query.series[0]

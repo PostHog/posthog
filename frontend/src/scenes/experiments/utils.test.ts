@@ -200,7 +200,7 @@ describe('getViewRecordingFilters', () => {
         })
     })
 
-    it('adds default exposure event if no exposure criteria', () => {
+    it('adds default exposure filter on $feature/<flag> when no exposure criteria', () => {
         const experiment = { ...experimentBase }
         const metric = {
             kind: NodeKind.ExperimentMetric,
@@ -210,27 +210,14 @@ describe('getViewRecordingFilters', () => {
 
         const filters = getViewRecordingFilters(experiment, metric, 'variantA')
         expect(filters[0]).toEqual({
-            id: '$feature_flag_called',
-            name: '$feature_flag_called',
-            type: 'events',
-            properties: [
-                {
-                    key: '$feature_flag_response',
-                    type: PropertyFilterType.Event,
-                    value: ['variantA'],
-                    operator: PropertyOperator.Exact,
-                },
-                {
-                    key: '$feature_flag',
-                    type: PropertyFilterType.Event,
-                    value: 'my-flag',
-                    operator: PropertyOperator.Exact,
-                },
-            ],
+            key: '$feature/my-flag',
+            type: PropertyFilterType.Feature,
+            value: ['variantA'],
+            operator: PropertyOperator.Exact,
         })
     })
 
-    it('falls back to default exposure event if exposure_criteria exists but exposure_config is undefined', () => {
+    it('falls back to $feature/<flag> filter if exposure_criteria exists but exposure_config is undefined', () => {
         const experiment = {
             ...experimentBase,
             exposure_criteria: {
@@ -246,23 +233,10 @@ describe('getViewRecordingFilters', () => {
 
         const filters = getViewRecordingFilters(experiment, metric, 'variantA')
         expect(filters[0]).toEqual({
-            id: '$feature_flag_called',
-            name: '$feature_flag_called',
-            type: 'events',
-            properties: [
-                {
-                    key: '$feature_flag_response',
-                    type: PropertyFilterType.Event,
-                    value: ['variantA'],
-                    operator: PropertyOperator.Exact,
-                },
-                {
-                    key: '$feature_flag',
-                    type: PropertyFilterType.Event,
-                    value: 'my-flag',
-                    operator: PropertyOperator.Exact,
-                },
-            ],
+            key: '$feature/my-flag',
+            type: PropertyFilterType.Feature,
+            value: ['variantA'],
+            operator: PropertyOperator.Exact,
         })
     })
 
@@ -586,23 +560,10 @@ describe('getViewRecordingFiltersLegacy', () => {
         )
         expect(filters).toEqual([
             {
-                id: '$feature_flag_called',
-                name: '$feature_flag_called',
-                type: 'events',
-                properties: [
-                    {
-                        key: '$feature_flag_response',
-                        type: PropertyFilterType.Event,
-                        value: ['test'],
-                        operator: PropertyOperator.Exact,
-                    },
-                    {
-                        key: '$feature_flag',
-                        type: PropertyFilterType.Event,
-                        value: 'jan-16-running',
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
+                key: `$feature/${featureFlagKey}`,
+                type: PropertyFilterType.Feature,
+                value: ['test'],
+                operator: PropertyOperator.Exact,
             },
             {
                 id: '[jan-16-running] event one',
@@ -662,23 +623,10 @@ describe('getViewRecordingFiltersLegacy', () => {
         )
         expect(filters).toEqual([
             {
-                id: '$feature_flag_called',
-                name: '$feature_flag_called',
-                type: 'events',
-                properties: [
-                    {
-                        key: '$feature_flag_response',
-                        type: PropertyFilterType.Event,
-                        value: ['test'],
-                        operator: PropertyOperator.Exact,
-                    },
-                    {
-                        key: '$feature_flag',
-                        type: PropertyFilterType.Event,
-                        value: 'jan-16-running',
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
+                key: `$feature/${featureFlagKey}`,
+                type: PropertyFilterType.Feature,
+                value: ['test'],
+                operator: PropertyOperator.Exact,
             },
             {
                 id: 8,
