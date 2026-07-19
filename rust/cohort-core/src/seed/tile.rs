@@ -115,6 +115,11 @@ impl SeedTile {
         self.count.get()
     }
 
+    /// The count with its non-zero proof intact, for consumers whose merge math relies on it.
+    pub const fn count_nonzero(&self) -> NonZeroU32 {
+        self.count
+    }
+
     pub const fn run_id(&self) -> RunId {
         self.run_id
     }

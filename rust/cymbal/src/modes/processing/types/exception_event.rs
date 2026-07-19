@@ -6,14 +6,16 @@ use uuid::Uuid;
 
 use crate::{
     error::EventError,
-    fingerprinting::{FingerprintRecordPart, FingerprintVersion},
+    fingerprinting::{Fingerprint, FingerprintRecordPart, FingerprintVersion},
     frames::releases::ReleaseInfo,
     issue_resolution::Issue,
     langs::native::DebugImage,
     modes::processing::normalization::normalize_wire_order,
     recursively_sanitize_properties,
-    types::{event::AnyEvent, ExceptionList, OutputErrProps, RawErrProps},
+    types::{event::AnyEvent, ExceptionList, ProcessedExceptionProperties, RawExceptionProperties},
 };
+
+use super::ProcessedExceptionPropertiesWire;
 
 pub const MAX_EXCEPTION_VALUE_LENGTH: usize = 10_000;
 
@@ -57,22 +59,60 @@ pub struct Resolved {
 }
 
 #[derive(Debug, Clone)]
-pub struct FingerprintData {
-    pub value: String,
-    pub version: Option<FingerprintVersion>,
-    pub record: Vec<FingerprintRecordPart>,
+pub struct SelectedFingerprint {
+    value: String,
+    version: Option<FingerprintVersion>,
+    record: Vec<FingerprintRecordPart>,
+}
+
+impl SelectedFingerprint {
+    pub(crate) fn manual(value: String) -> Self {
+        Self {
+            value,
+            version: None,
+            record: vec![FingerprintRecordPart::Manual],
+        }
+    }
+
+    pub(crate) fn custom(rule_id: Uuid) -> Self {
+        Self {
+            value: format!("custom-rule:{rule_id}"),
+            version: None,
+            record: vec![FingerprintRecordPart::Custom { rule_id }],
+        }
+    }
+
+    pub(crate) fn automatic(version: FingerprintVersion, fingerprint: Fingerprint) -> Self {
+        Self {
+            value: fingerprint.value,
+            version: Some(version),
+            record: fingerprint.record,
+        }
+    }
+
+    pub fn value(&self) -> &str {
+        &self.value
+    }
+
+    pub fn version(&self) -> Option<FingerprintVersion> {
+        self.version
+    }
+
+    pub fn record(&self) -> &[FingerprintRecordPart] {
+        &self.record
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct Fingerprinted {
     pub(crate) metadata: ResolvedMetadata,
-    pub(crate) fingerprint: FingerprintData,
+    pub(crate) fingerprint: SelectedFingerprint,
 }
 
 #[derive(Debug, Clone)]
 pub struct Linked {
     pub(crate) metadata: ResolvedMetadata,
-    pub(crate) fingerprint: FingerprintData,
+    pub(crate) fingerprint: SelectedFingerprint,
     pub(crate) issue: Issue,
 }
 
@@ -86,6 +126,11 @@ pub struct Finalized {
     linked: Linked,
 }
 
+/// Internal typestate carrier for a successfully accepted exception event.
+///
+/// The state parameter proves which processing stages have completed. This
+/// carrier intentionally has no serde implementation: wire payloads cannot
+/// prove that resolution, grouping, linking, rate checking, or alerting ran.
 #[derive(Debug, Clone)]
 pub struct ExceptionEvent<S> {
     pub(crate) uuid: Uuid,
@@ -185,7 +230,7 @@ impl ExceptionEvent<Resolved> {
 
     pub(crate) fn into_fingerprinted(
         self,
-        fingerprint: FingerprintData,
+        fingerprint: SelectedFingerprint,
     ) -> ExceptionEvent<Fingerprinted> {
         self.map_state(|state| Fingerprinted {
             metadata: state.metadata,
@@ -193,7 +238,7 @@ impl ExceptionEvent<Resolved> {
         })
     }
 
-    pub fn to_grouping_value(&self) -> Value {
+    pub fn grouping_rule_properties(&self) -> Value {
         let mut map = self.base_resolved_properties(&self.state.metadata);
         map.insert(
             "$exception_fingerprint".into(),
@@ -209,11 +254,7 @@ impl ExceptionEvent<Resolved> {
 }
 
 impl ExceptionEvent<Fingerprinted> {
-    pub fn metadata(&self) -> &ResolvedMetadata {
-        &self.state.metadata
-    }
-
-    pub fn fingerprint(&self) -> &FingerprintData {
+    pub fn fingerprint(&self) -> &SelectedFingerprint {
         &self.state.fingerprint
     }
 
@@ -225,24 +266,16 @@ impl ExceptionEvent<Fingerprinted> {
         })
     }
 
-    pub fn to_properties_value(&self) -> Value {
+    pub fn suppression_rule_properties(&self) -> Value {
         self.properties_with_fingerprint(&self.state.metadata, &self.state.fingerprint, None)
     }
 
-    pub fn to_output(&self, issue: &Issue) -> OutputErrProps {
-        self.build_output(&self.state.metadata, &self.state.fingerprint, issue.id)
+    pub fn processed_properties(&self, issue: &Issue) -> ProcessedExceptionProperties {
+        self.build_processed_properties(&self.state.metadata, &self.state.fingerprint, issue.id)
     }
 }
 
 impl ExceptionEvent<Linked> {
-    pub fn metadata(&self) -> &ResolvedMetadata {
-        &self.state.metadata
-    }
-
-    pub fn fingerprint(&self) -> &FingerprintData {
-        &self.state.fingerprint
-    }
-
     pub fn issue(&self) -> &Issue {
         &self.state.issue
     }
@@ -251,15 +284,7 @@ impl ExceptionEvent<Linked> {
         self.state.issue.id
     }
 
-    pub fn to_output(&self) -> OutputErrProps {
-        self.build_output(
-            &self.state.metadata,
-            &self.state.fingerprint,
-            self.state.issue.id,
-        )
-    }
-
-    pub fn to_properties_value(&self) -> Value {
+    pub fn rate_limit_rule_properties(&self) -> Value {
         self.properties_with_fingerprint(
             &self.state.metadata,
             &self.state.fingerprint,
@@ -273,24 +298,12 @@ impl ExceptionEvent<Linked> {
 }
 
 impl ExceptionEvent<RateChecked> {
-    pub fn metadata(&self) -> &ResolvedMetadata {
-        &self.state.linked.metadata
-    }
-
-    pub fn fingerprint(&self) -> &FingerprintData {
-        &self.state.linked.fingerprint
-    }
-
     pub fn issue(&self) -> &Issue {
         &self.state.linked.issue
     }
 
-    pub fn issue_id(&self) -> Uuid {
-        self.state.linked.issue.id
-    }
-
-    pub fn to_output(&self) -> OutputErrProps {
-        self.build_output(
+    pub fn processed_properties(&self) -> ProcessedExceptionProperties {
+        self.build_processed_properties(
             &self.state.linked.metadata,
             &self.state.linked.fingerprint,
             self.state.linked.issue.id,
@@ -305,53 +318,83 @@ impl ExceptionEvent<RateChecked> {
 }
 
 impl ExceptionEvent<Finalized> {
-    pub fn metadata(&self) -> &ResolvedMetadata {
-        &self.state.linked.metadata
-    }
+    pub fn into_clickhouse_properties(self) -> Value {
+        let ExceptionEvent {
+            exception_list,
+            debug_images,
+            props,
+            proposed_issue_name,
+            proposed_issue_description,
+            state,
+            ..
+        } = self;
+        let Linked {
+            metadata,
+            fingerprint,
+            issue,
+        } = state.linked;
 
-    pub fn fingerprint(&self) -> &FingerprintData {
-        &self.state.linked.fingerprint
-    }
-
-    pub fn issue(&self) -> &Issue {
-        &self.state.linked.issue
-    }
-
-    pub fn issue_id(&self) -> Uuid {
-        self.state.linked.issue.id
-    }
-
-    pub fn to_output(&self) -> OutputErrProps {
-        self.build_output(
-            &self.state.linked.metadata,
-            &self.state.linked.fingerprint,
-            self.state.linked.issue.id,
-        )
-    }
-
-    pub fn to_clickhouse_value(&self) -> Value {
-        let mut value = serde_json::to_value(self.to_output())
-            .expect("final exception properties are serializable");
-        let map = value
-            .as_object_mut()
-            .expect("serialized exception properties are an object");
-        if let Some(name) = &self.proposed_issue_name {
-            map.insert("$issue_name".into(), Value::String(name.clone()));
-        }
-        if let Some(description) = &self.proposed_issue_description {
+        let mut map: Map<String, Value> = props.into_iter().collect();
+        map.insert(
+            "$exception_list".into(),
+            serde_json::to_value(exception_list).expect("exception list is serializable"),
+        );
+        map.insert(
+            "$exception_sources".into(),
+            serde_json::to_value(metadata.sources).expect("exception sources are serializable"),
+        );
+        map.insert(
+            "$exception_types".into(),
+            serde_json::to_value(metadata.types).expect("exception types are serializable"),
+        );
+        map.insert(
+            "$exception_values".into(),
+            serde_json::to_value(metadata.messages).expect("exception messages are serializable"),
+        );
+        map.insert(
+            "$exception_functions".into(),
+            serde_json::to_value(metadata.functions).expect("exception functions are serializable"),
+        );
+        map.insert("$exception_handled".into(), Value::Bool(metadata.handled));
+        if !metadata.releases.is_empty() {
             map.insert(
-                "$issue_description".into(),
-                Value::String(description.clone()),
+                "$exception_releases".into(),
+                serde_json::to_value(metadata.releases)
+                    .expect("exception releases are serializable"),
             );
         }
-        if !self.debug_images.is_empty() {
+        map.insert(
+            "$exception_fingerprint".into(),
+            Value::String(fingerprint.value),
+        );
+        if let Some(version) = fingerprint.version {
+            map.insert(
+                "$exception_fingerprint_version".into(),
+                serde_json::to_value(version).expect("fingerprint version is serializable"),
+            );
+        }
+        map.insert(
+            "$exception_fingerprint_record".into(),
+            serde_json::to_value(fingerprint.record).expect("fingerprint record is serializable"),
+        );
+        map.insert(
+            "$exception_issue_id".into(),
+            Value::String(issue.id.to_string()),
+        );
+        if let Some(name) = proposed_issue_name {
+            map.insert("$issue_name".into(), Value::String(name));
+        }
+        if let Some(description) = proposed_issue_description {
+            map.insert("$issue_description".into(), Value::String(description));
+        }
+        if !debug_images.is_empty() {
             map.insert(
                 "$debug_images".into(),
-                serde_json::to_value(&self.debug_images)
+                serde_json::to_value(debug_images)
                     .expect("debug image properties are serializable"),
             );
         }
-        value
+        Value::Object(map)
     }
 }
 
@@ -409,7 +452,7 @@ impl<S> ExceptionEvent<S> {
     fn properties_with_fingerprint(
         &self,
         metadata: &ResolvedMetadata,
-        fingerprint: &FingerprintData,
+        fingerprint: &SelectedFingerprint,
         issue_id: Option<Uuid>,
     ) -> Value {
         let mut map = self.base_resolved_properties(metadata);
@@ -434,13 +477,13 @@ impl<S> ExceptionEvent<S> {
         Value::Object(map)
     }
 
-    fn build_output(
+    fn build_processed_properties(
         &self,
         metadata: &ResolvedMetadata,
-        fingerprint: &FingerprintData,
+        fingerprint: &SelectedFingerprint,
         issue_id: Uuid,
-    ) -> OutputErrProps {
-        OutputErrProps {
+    ) -> ProcessedExceptionProperties {
+        ProcessedExceptionProperties(ProcessedExceptionPropertiesWire {
             exception_list: self.exception_list.clone(),
             fingerprint: fingerprint.value.clone(),
             fingerprint_version: fingerprint.version,
@@ -453,7 +496,7 @@ impl<S> ExceptionEvent<S> {
             values: metadata.messages.clone(),
             sources: metadata.sources.clone(),
             functions: metadata.functions.clone(),
-        }
+        })
     }
 }
 
@@ -473,7 +516,7 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
             recursively_sanitize_properties(event.uuid, value, 0)?;
         }
 
-        let mut raw: RawErrProps = serde_json::from_value(properties)
+        let mut raw: RawExceptionProperties = serde_json::from_value(properties)
             .map_err(|error| EventError::InvalidProperties(event.uuid, error.to_string()))?;
         if raw.exception_list.is_empty() {
             return Err(EventError::EmptyExceptionList(event.uuid));
@@ -544,5 +587,114 @@ impl TryFrom<Result<ClickHouseEvent, EventError>> for ExceptionEvent<Parsed> {
 
     fn try_from(event: Result<ClickHouseEvent, EventError>) -> Result<Self, Self::Error> {
         event?.try_into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn resolved_event() -> ExceptionEvent<Resolved> {
+        ExceptionEvent {
+            uuid: Uuid::now_v7(),
+            team_id: 42,
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            exception_list: ExceptionList(vec![crate::types::Exception {
+                exception_id: Some("exception-id".to_string()),
+                exception_type: "Error".to_string(),
+                exception_message: "boom".to_string(),
+                mechanism: None,
+                module: None,
+                thread_id: None,
+                stack: None,
+            }]),
+            debug_images: vec![],
+            props: HashMap::from([("passthrough".to_string(), Value::Bool(true))]),
+            proposed_issue_name: None,
+            proposed_issue_description: None,
+            state: Resolved {
+                metadata: ResolvedMetadata {
+                    sources: vec![],
+                    types: vec!["Error".to_string()],
+                    messages: vec!["boom".to_string()],
+                    functions: vec![],
+                    handled: false,
+                    releases: HashMap::new(),
+                },
+                client_fingerprint: Some("client-fingerprint".to_string()),
+                legacy_order_resolved: None,
+            },
+        }
+    }
+
+    #[test]
+    fn selected_fingerprint_constructors_keep_origin_coherent() {
+        let manual = SelectedFingerprint::manual("manual-value".to_string());
+        assert_eq!(manual.value(), "manual-value");
+        assert_eq!(manual.version(), None);
+        assert!(matches!(manual.record(), [FingerprintRecordPart::Manual]));
+
+        let rule_id = Uuid::now_v7();
+        let custom = SelectedFingerprint::custom(rule_id);
+        assert_eq!(custom.value(), format!("custom-rule:{rule_id}"));
+        assert_eq!(custom.version(), None);
+        assert!(matches!(
+            custom.record(),
+            [FingerprintRecordPart::Custom { rule_id: id }] if *id == rule_id
+        ));
+
+        let automatic = SelectedFingerprint::automatic(
+            FingerprintVersion::V2,
+            Fingerprint {
+                value: "automatic-value".to_string(),
+                record: vec![FingerprintRecordPart::Exception {
+                    id: None,
+                    pieces: vec!["Error".to_string()],
+                }],
+            },
+        );
+        assert_eq!(automatic.value(), "automatic-value");
+        assert_eq!(automatic.version(), Some(FingerprintVersion::V2));
+        assert!(matches!(
+            automatic.record(),
+            [FingerprintRecordPart::Exception { .. }]
+        ));
+    }
+
+    #[test]
+    fn purpose_specific_projections_preserve_issue_id_nullability() {
+        let resolved = resolved_event();
+        let grouping = resolved.grouping_rule_properties();
+        assert_eq!(grouping["$exception_fingerprint"], "client-fingerprint");
+        assert!(grouping["$exception_fingerprint_record"].is_null());
+        assert!(grouping["$exception_issue_id"].is_null());
+
+        let fingerprinted = resolved.into_fingerprinted(SelectedFingerprint::manual(
+            "client-fingerprint".to_string(),
+        ));
+        let suppression = fingerprinted.suppression_rule_properties();
+        assert_eq!(suppression["$exception_fingerprint"], "client-fingerprint");
+        assert_eq!(
+            suppression["$exception_fingerprint_record"],
+            serde_json::json!([{"type": "manual"}])
+        );
+        assert!(suppression["$exception_issue_id"].is_null());
+
+        let issue = Issue {
+            id: Uuid::now_v7(),
+            team_id: 42,
+            status: crate::issue_resolution::IssueStatus::Active,
+            name: None,
+            description: None,
+            created_at: chrono::Utc::now(),
+        };
+        let assignment = serde_json::to_value(fingerprinted.processed_properties(&issue)).unwrap();
+        assert_eq!(assignment["$exception_issue_id"], issue.id.to_string());
+        assert_eq!(assignment["passthrough"], true);
+
+        let linked = fingerprinted.into_linked(issue.clone());
+        let rate_limit = linked.rate_limit_rule_properties();
+        assert_eq!(rate_limit["$exception_issue_id"], issue.id.to_string());
+        assert_eq!(rate_limit["passthrough"], true);
     }
 }

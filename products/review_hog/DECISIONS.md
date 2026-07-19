@@ -225,6 +225,20 @@ Helpers `_shields_badge` / `_finding_badge_line` + `_PRIORITY_BADGE` carry the l
 Color mechanism was a user decision (badge images, Greptile-style, accepting the external-image dependency) over the GitHub-native emoji/alert alternative.
 An earlier iteration also surfaced the problem/fix inline and un-collapsed two sections; that was reverted — the collapsed structure is intentional and stays.
 
+### ✅ BUILT 2026-07-17 — comment readability: bulleted validator verdicts, shown first in the comment
+
+Grilled with the user 2026-07-17 (vocabulary in `CONTEXT.md`). Problem: published findings are meaningful but read as prose blobs.
+Constraint: zero quality loss for the validator and for anything reading validator output downstream.
+Key facts driving the design: the finding body is dual-audience (rendered verbatim on GitHub AND consumed by the validator's `ISSUE` payload, dedup's fresh/prior payloads, and future turns' covered-findings block), while the validator's `argumentation` is presentation-only for _valid_ findings (its sole pipeline consumer is dedup's `prior_ruling`, dismissed findings only) — and the full body always travels with the argumentation, in the same comment or payload.
+So the risk is **compression** (dropping information), not **structure** (same facts as labeled bullets); restructuring the validator's output is safe without an e2e round.
+
+What shipped (all prompt/template-level, reversible — no ADR):
+
+- **Verify, don't restate — the validator's `argumentation` is now labeled bullets** (Checked / Found / Impact / Priority): the verification delta only, never a restatement of the body's claim — restatement is where most of the bloat lived (real comments restated nearly every fact). Changed together: the field description (`models/issue_validation.py`), `prompts/issue_validation/prompt.jinja`, and the checked-in `schema.json` (hand-synced; `generate_all_schemas()` re-emits it at run start anyway). Not yet observed live — check the argumentation shape on the next dogfood run.
+- **Validation-first comment layout.** The argumentation is human-facing, so its `<details>` block moved to FIRST under the title + badge line — reading order: claim (title) → why it's real (validation bullets) → description / suggested fix / AI-fix prompt for whoever wants more. Applied in both renderers: `_format_issue_comment` (`publish_review.py`) and the body's off-diff section (`prepare_validation_markdown.py`). Everything stays collapsed (user choice — compact scan on multi-finding reviews).
+- **Reviewer finding body stays prose — deliberately not restructured.** It feeds three LLM stages (validator, dedup, covered-findings), so a shape change there would need e2e parity verification; the user dropped that thread (and the staged/eval-plan drafted earlier the same day) as not worth the runs right now. If ever revisited: 4-arm matrix (control / reviewer-only / validator-only / both) on the frozen-PR protocol.
+- Rejected alternatives: additive TL;DR field (blob remains when expanded — the actual pain), render-time compression pass (lossy rewriting on the published text humans act on, plus an extra LLM call per finding).
+
 ### ✅ BUILT 2026-07-15 — reviewing-stage progress copy: "Reviewing chunks" → "Running review passes"
 
 Live misread on [posthog#71025](https://github.com/PostHog/posthog/pull/71025) (63 additions): the
@@ -681,6 +695,35 @@ The 5-row cap became the first page: the list grows by a page per "Show more" cl
 - Tests: BE — envelope + limit growth + has_more boundary at exact count + out-of-range 400s (wiring guard);
   jest — grow/collapse cycle (instant collapse, has_more preserved, scope flip resets the limit).
   Full suite: 503 backend + 3 jest green; `hogli build:openapi` regenerated cleanly (list function keeps its `reviewHogReviewsList` name).
+
+#### ✅ BUILT 2026-07-17 — page-level scope: the stats follow the "For you / Entire project" switch
+
+Supersedes the 2026-07-15 note that "`perspective_stats` stays personal": the split turned out to be
+the confusing part — flipping the list to Entire project left the hero and effectiveness cards
+silently personal, so the page showed one scope's list over another scope's numbers. One page-level
+switch now governs both. User decisions (grilled 2026-07-17): scope stays **project** (team), not
+org-wide; the switch moved to the **top of the page** (hero overline row), the Recent reviews
+section lost its local copy; project-scope effectiveness rows show **every** skill that raised
+findings (incl. teammates' customs — their names already surfaced via the everyone-scope detail
+drawer, and hero totals must equal the sum of rows); **all four** stat surfaces flip (hero proof
+card, Perspectives, Blind-spot, Validation criteria). Skill lists and toggles stay per-user — maybe
+skills follow later, deliberately not in this iteration.
+
+- **BE:** `GET reviews/perspective_stats/?scope=mine|everyone` (`PerspectiveStatsParamsSerializer`,
+  default `mine`) — `everyone` reuses the list's `_reports` scope plumbing; aggregation unchanged.
+- **Logic:** `loadPerspectiveStats` threads `values.reviewsScope` + takes a `breakpoint()`;
+  the scope listeners reload stats alongside the list, and `perspectiveStats → null` /
+  `recentReviewsPage → null` reducers on scope change drop the old data synchronously so the page
+  skeletons consistently instead of showing the wrong scope's stats or rows (the list half was a
+  PR-review finding: a failed reload would have stranded the other scope's rows on screen).
+  Persisted `reviewsScope` / URL `?reviews_scope=` / auto-default semantics untouched.
+- **UI:** `PageScopeSwitch` in the hero overline row; scope-aware copy — "findings worth the
+  team's time" / "This project's last N reviews" / validator card reads "Validation · dismissed by
+  validation" on project scope (the aggregate spans every author's active validator, so "your
+  quality bar" would lie).
+- Tests: BE — everyone-scope aggregation folds a teammate's report in + bad scope 400s (params-serializer
+  wiring guard), extended into the existing stats test; jest — scope flip rescopes the stats request and
+  nulls the stale value.
 
 #### ✅ BUILT 2026-07-02 — authoring guide moved to a canonical skill (`review-hog-authoring`)
 

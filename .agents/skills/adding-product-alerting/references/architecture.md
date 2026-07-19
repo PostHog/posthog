@@ -10,11 +10,28 @@ Use this reference to decide where code belongs before editing it.
 | Shared alert infrastructure | `products/alerts/backend/`                                   | Scheduling math, destination configuration and persistence, internal-event delivery, email transport, insight alert models/API, and insight evaluation |
 | Product adapter             | `products/<name>/backend/`                                   | Domain evaluation, model snapshots, the single mutator, event payloads, allowed destinations, due queries, history, and orchestration                  |
 | Shared alert creation UI    | `frontend/src/lib/components/Alerting/AlertWizard/`          | Reusable HogFunction destination, trigger, and configuration flow                                                                                      |
-| Product UI                  | `products/<name>/frontend/` or `frontend/src/scenes/<name>/` | Alert settings, product-specific fields, entry points, detail pages, and wizard configuration                                                          |
+| Shared product alert UI     | `products/alerts/frontend/components/`                       | Container-agnostic editor layout, definition primitives, advanced options, destination editor, schedule presentation, and evaluation chart             |
+| Product UI                  | `products/<name>/frontend/` or `frontend/src/scenes/<name>/` | Form logic, API calls, product fields, normalized adapters, entry points, detail tables, and wizard configuration                                      |
 
-`products/logs` is the reference adopter for the shared lifecycle, fixed-cadence scheduling, HogFunction destinations, delivery rollback, and product-owned Temporal orchestration.
+`products/logs` is the reference adopter for the shared lifecycle, fixed-cadence scheduling, HogFunction destinations, delivery rollback, product-owned Temporal orchestration, and the shared product alert editor components.
 
 Insight alerts are the reference adopter for shared calendar anchors, schedule restrictions, weekend skipping, and email delivery. Their model, API, query evaluation, and Django scheduling adapters live in `products/alerts/backend/` and `posthog/tasks/alerts/`. The evaluation package is shared across insight query kinds, but it is not a generic evaluator for unrelated products.
+
+## Frontend contract
+
+Shared product alert UI lives in `products/alerts/frontend/components/`. It is presentation infrastructure, not a frontend product registry.
+
+- `AlertEditor`, `AlertEditorFormDetails`, and `AlertEditorSection` provide the container-agnostic form shell.
+- `AlertDefinition*` components provide composable definition, schedule, next-evaluation, and timezone presentation.
+- `AlertAdvancedOptions` owns shared collapse and enabled-count behavior.
+- `AlertNotificationDestinationEditor` renders normalized saved and pending destinations.
+- `AlertEvaluationHistoryChart` renders normalized evaluation points and current thresholds.
+
+Products own keyed kea logic, API calls, form schemas, source/filter controls, supported destination types, HogFunction payloads, threshold conversion, enabled-count calculation, and history tables. Keep modals, scene widths, and embedded-section sizing in the product surface.
+
+`AlertWizard` remains the shared HogFunction creation flow. Adopters provide keyed `alertWizardLogic` props with supported sub-template IDs, `WizardTrigger[]`, `WizardDestination[]`, and optional URL or preset behavior. Backend destination support alone does not make an option available in the wizard.
+
+Read [frontend-alerting.md](frontend-alerting.md) before adding or extending a product alert frontend. Follow `frontend/src/AGENTS.md`, use generated API types, and guard network submissions from double clicks.
 
 ## Lifecycle contract
 
@@ -79,11 +96,3 @@ Email callers use `send_alert_email(...)` through the facade. The caller owns re
 Use the scheduler's real interval when computing shards. Use the same shard function when creating, updating, and advancing an alert.
 
 Products translate their enums and stored payloads into the shared contract. Due eligibility, schedule persistence, retry behavior, and orchestration stay product-specific because model fields, states, snooze behavior, and tenant constraints differ.
-
-## Frontend contract
-
-`AlertWizard` is a shared HogFunction creation flow, not a lifecycle engine.
-
-Adopters provide keyed `alertWizardLogic` props with supported sub-template IDs, `WizardTrigger[]`, `WizardDestination[]`, and optional URL/preset behavior. Compatibility comes from HogFunction sub-templates. Backend destination support alone does not make an option available in the wizard.
-
-Keep product business logic in kea. Follow `frontend/src/AGENTS.md`, use generated API types, and guard network submissions from double clicks.

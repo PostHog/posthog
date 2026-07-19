@@ -186,6 +186,7 @@ rules:
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
                               |LogsExclusionRule
+                              |LogsMetricRule
                               |LogsView
                               |LLMModelConfiguration
                               |LLMPrompt

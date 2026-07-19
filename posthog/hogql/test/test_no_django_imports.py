@@ -31,6 +31,7 @@ DJANGO_FREE_MODULES = [
     # providers land (it transitively imports the property transforms).
     "posthog.hogql.database.database",
     "posthog.hogql.resolver",
+    "posthog.hogql.property_metadata",
 ]
 
 _CHILD = f"""
