@@ -129,9 +129,17 @@ export class PostHogValidationError extends Error {
  * noise problem the 4xx short-circuit exists to prevent.
  */
 export class ToolInputValidationError extends Error {
-    constructor(message: string) {
+    /** Offending field paths (input-free) — surfaced on `$mcp_tool_call` so the
+     *  invalid parameter can be localized without inspecting raw agent input. */
+    public readonly fields: string[] | undefined
+    /** Zod issue codes for the same failure (e.g. `invalid_type`, `unrecognized_keys`). */
+    public readonly codes: string[] | undefined
+
+    constructor(message: string, detail?: { fields: string[]; codes: string[] }) {
         super(message)
         this.name = 'ToolInputValidationError'
+        this.fields = detail?.fields
+        this.codes = detail?.codes
     }
 }
 

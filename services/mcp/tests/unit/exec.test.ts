@@ -13,6 +13,7 @@ import {
     createExecTool,
     type ExecInnerCallProperties,
     type ExecToolOptions,
+    extractZodValidationDetail,
     parseExecCallInnerToolName,
 } from '@/tools/exec'
 import { ExecHelpCatalog } from '@/tools/exec-help'
@@ -1121,6 +1122,41 @@ describe('exec tool', () => {
             ['   '],
         ])('returns undefined for "%s"', (command) => {
             expect(parseExecCallInnerToolName(command)).toBeUndefined()
+        })
+    })
+
+    describe('extractZodValidationDetail', () => {
+        it('reports field paths and codes without leaking raw input values', () => {
+            const schema = z.object({
+                insight: z.number(),
+                subscribed_users: z.array(z.number()),
+                threshold: z.object({ bounds: z.object({ upper: z.number() }) }),
+            })
+            const result = schema.safeParse(
+                { insight: 'not-a-number-SENSITIVE', threshold: { bounds: { upper: 'also-SENSITIVE' } } },
+                { reportInput: true }
+            )
+            expect(result.success).toBe(false)
+            const detail = extractZodValidationDetail((result as { error: z.ZodError }).error)
+
+            expect(detail.fields).toEqual(
+                expect.arrayContaining(['insight', 'subscribed_users', 'threshold.bounds.upper'])
+            )
+            expect(detail.codes).toContain('invalid_type')
+            // Sanitization contract: the raw agent-supplied values must never ride
+            // through to telemetry, only the schema-structural field/code names.
+            const serialized = JSON.stringify(detail)
+            expect(serialized).not.toContain('SENSITIVE')
+        })
+
+        it('surfaces rejected key names for unrecognized properties', () => {
+            const schema = z.object({ name: z.string() }).strict()
+            const result = schema.safeParse({ name: 'ok', notifcation_targets: ['x'] }, { reportInput: true })
+            expect(result.success).toBe(false)
+            const detail = extractZodValidationDetail((result as { error: z.ZodError }).error)
+
+            expect(detail.codes).toContain('unrecognized_keys')
+            expect(detail.fields).toContain('notifcation_targets')
         })
     })
 
