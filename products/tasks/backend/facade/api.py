@@ -3500,6 +3500,7 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     pending_user_message = (validated_data.pop("pending_user_message", None) or "").strip() or None
     pending_user_artifact_ids = validated_data.pop("pending_user_artifact_ids", None) or []
     warm_auto_publish = validated_data.pop("auto_publish", None)
+    computer_use = validated_data.pop("computer_use", False)
 
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
@@ -3508,7 +3509,7 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
         warm_branch_provided
         and validated_data["origin_product"] == Task.OriginProduct.USER_CREATED
         and validated_data.get("repository")
-        and not validated_data.get("computer_use", False)
+        and not computer_use
         and user_id is not None
     ):
         warm_run = _find_idling_warm_run(
