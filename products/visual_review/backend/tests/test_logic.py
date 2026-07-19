@@ -2474,6 +2474,29 @@ class TestVerifyUploadsAndCreateArtifacts:
 
         assert len(scaled_queries) <= len(single_queries)
 
+    def test_verification_relinks_existing_artifacts_across_hash_batches(self, repo, mocker):
+        from products.visual_review.backend.hashing import hash_image
+
+        mocker.patch.object(logic, "ARTIFACT_HASH_BATCH_SIZE", 2)
+        snapshots: list[dict[str, str]] = []
+        for index, color in enumerate([(10, 20, 30, 255), (40, 50, 60, 255), (70, 80, 90, 255)]):
+            content_hash = hash_image(self._png(color))
+            logic.get_or_create_artifact(repo.id, content_hash, f"visual_review/{content_hash}")
+            snapshots.append({"identifier": f"Card-{index}", "content_hash": content_hash})
+
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="sha-retry",
+            branch="main",
+            pr_number=None,
+            snapshots=snapshots,
+        )
+
+        assert logic.verify_uploads_and_create_artifacts(run.id) == 0
+        assert RunSnapshot.objects.filter(run=run, current_artifact__isnull=False).count() == 3
+
     def test_hash_mismatch_raises_and_persists_no_artifacts(self, repo, mocker):
         # Two snapshots: first verifies cleanly, second has a mismatched claim.
         # The two-pass split must prevent the first artifact from being written

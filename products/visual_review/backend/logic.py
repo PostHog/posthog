@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 import html
 from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -60,6 +60,19 @@ from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
 
 logger = structlog.get_logger(__name__)
+
+ARTIFACT_HASH_BATCH_SIZE = 500
+
+
+def _iter_batches(values: Iterable[str], batch_size: int) -> Iterator[list[str]]:
+    batch: list[str] = []
+    for value in values:
+        batch.append(value)
+        if len(batch) == batch_size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
 
 
 class RepoNotFoundError(Exception):
@@ -195,9 +208,11 @@ def get_or_create_artifact(
 
 def find_missing_hashes(repo_id: UUID, hashes: list[str]) -> list[str]:
     """Return hashes that don't exist as artifacts in the repo."""
-    existing = set(
-        Artifact.objects.filter(repo_id=repo_id, content_hash__in=hashes).values_list("content_hash", flat=True)
-    )
+    existing: set[str] = set()
+    for hash_batch in _iter_batches(hashes, ARTIFACT_HASH_BATCH_SIZE):
+        existing.update(
+            Artifact.objects.filter(repo_id=repo_id, content_hash__in=hash_batch).values_list("content_hash", flat=True)
+        )
     return [h for h in hashes if h not in existing]
 
 
@@ -993,11 +1008,11 @@ def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
                 "height": None,
             }
 
-    existing_hashes = set(
-        Artifact.objects.filter(repo_id=repo_id, content_hash__in=expected_hashes).values_list(
-            "content_hash", flat=True
+    existing_hashes: set[str] = set()
+    for hash_batch in _iter_batches(expected_hashes, ARTIFACT_HASH_BATCH_SIZE):
+        existing_hashes.update(
+            Artifact.objects.filter(repo_id=repo_id, content_hash__in=hash_batch).values_list("content_hash", flat=True)
         )
-    )
 
     # Pass 1: read + hash all new uploads. Skip existing artifacts. Fail loudly
     # on any hash mismatch, decode error, or missing upload before any Artifact
@@ -1075,8 +1090,8 @@ def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
         )
         for actual_hash, size_bytes, metadata in verified
     ]
-    Artifact.objects.bulk_create(artifacts, batch_size=500, ignore_conflicts=True)
-    link_artifacts_to_snapshots(repo_id, {actual_hash for actual_hash, _, _ in verified})
+    Artifact.objects.bulk_create(artifacts, batch_size=ARTIFACT_HASH_BATCH_SIZE, ignore_conflicts=True)
+    link_artifacts_to_snapshots(repo_id, set(expected_hashes), run_id=run_id)
 
     return len(artifacts)
 
@@ -2979,7 +2994,7 @@ def update_snapshot_diff(
     return snapshot
 
 
-def link_artifacts_to_snapshots(repo_id: UUID, content_hashes: set[str]) -> int:
+def link_artifacts_to_snapshots(repo_id: UUID, content_hashes: set[str], *, run_id: UUID | None = None) -> int:
     """
     After artifacts are uploaded, link them to any pending snapshots.
 
@@ -2988,29 +3003,35 @@ def link_artifacts_to_snapshots(repo_id: UUID, content_hashes: set[str]) -> int:
     if not content_hashes:
         return 0
 
-    artifact_id = Artifact.objects.filter(
-        repo_id=repo_id,
-        content_hash=db_models.OuterRef("current_hash"),
-    ).values("id")[:1]
+    updated = 0
+    for hash_batch in _iter_batches(content_hashes, ARTIFACT_HASH_BATCH_SIZE):
+        artifact_id = Artifact.objects.filter(
+            repo_id=repo_id,
+            content_hash=db_models.OuterRef("current_hash"),
+        ).values("id")[:1]
+        current_snapshots = RunSnapshot.objects.filter(
+            run__repo_id=repo_id,
+            current_hash__in=hash_batch,
+            current_artifact__isnull=True,
+        )
+        if run_id is not None:
+            current_snapshots = current_snapshots.filter(run_id=run_id)
+        updated += current_snapshots.update(current_artifact_id=db_models.Subquery(artifact_id))
 
-    current_updated = RunSnapshot.objects.filter(
-        run__repo_id=repo_id,
-        current_hash__in=content_hashes,
-        current_artifact__isnull=True,
-    ).update(current_artifact_id=db_models.Subquery(artifact_id))
+        artifact_id = Artifact.objects.filter(
+            repo_id=repo_id,
+            content_hash=db_models.OuterRef("baseline_hash"),
+        ).values("id")[:1]
+        baseline_snapshots = RunSnapshot.objects.filter(
+            run__repo_id=repo_id,
+            baseline_hash__in=hash_batch,
+            baseline_artifact__isnull=True,
+        )
+        if run_id is not None:
+            baseline_snapshots = baseline_snapshots.filter(run_id=run_id)
+        updated += baseline_snapshots.update(baseline_artifact_id=db_models.Subquery(artifact_id))
 
-    artifact_id = Artifact.objects.filter(
-        repo_id=repo_id,
-        content_hash=db_models.OuterRef("baseline_hash"),
-    ).values("id")[:1]
-
-    baseline_updated = RunSnapshot.objects.filter(
-        run__repo_id=repo_id,
-        baseline_hash__in=content_hashes,
-        baseline_artifact__isnull=True,
-    ).update(baseline_artifact_id=db_models.Subquery(artifact_id))
-
-    return current_updated + baseline_updated
+    return updated
 
 
 def link_artifact_to_snapshots(repo_id: UUID, content_hash: str) -> int:

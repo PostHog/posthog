@@ -9,6 +9,8 @@ Called by the Celery task; all business logic lives here.
 
 from uuid import UUID
 
+from django.db.models import Q
+
 import structlog
 from blake3 import blake3
 from pixelhog import thumbnail as pixelhog_thumbnail
@@ -248,7 +250,10 @@ def process_diffs(run_id: UUID) -> int:
     each snapshot and generate thumbnails for the grid view.
     """
     snapshots = (
-        RunSnapshot.objects.filter(run_id=run_id, result__in=[SnapshotResult.NEW, SnapshotResult.CHANGED])
+        RunSnapshot.objects.filter(run_id=run_id)
+        .filter(
+            Q(result=SnapshotResult.NEW) | Q(result=SnapshotResult.CHANGED, change_kind="", diff_artifact__isnull=True)
+        )
         .select_related("run", "current_artifact", "baseline_artifact")
         .iterator(chunk_size=100)
     )

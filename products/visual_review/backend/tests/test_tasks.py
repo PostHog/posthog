@@ -1,9 +1,13 @@
 """Tests for visual_review Celery tasks."""
 
+import io
+
 import pytest
 from unittest.mock import patch
 
-from products.visual_review.backend import logic
+from PIL import Image
+
+from products.visual_review.backend import diffing, logic
 from products.visual_review.backend.diffing import process_diffs
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
@@ -208,6 +212,57 @@ class TestProcessRunDiffs:
             mock_logger.warning.assert_called()
             call_args = [call[0][0] for call in mock_logger.warning.call_args_list]
             assert any("diff_skipped_missing_artifact" in arg for arg in call_args)
+
+    def testprocess_diffs_does_not_repeat_completed_comparisons(self, repo, mocker):
+        def png(color: tuple[int, int, int, int]) -> bytes:
+            image = Image.new("RGBA", (10, 10), color)
+            buffer = io.BytesIO()
+            image.save(buffer, format="PNG")
+            return buffer.getvalue()
+
+        stored_bytes = {
+            "old_hash": png((255, 0, 0, 255)),
+            "new_hash": png((0, 0, 255, 255)),
+        }
+        logic.get_or_create_artifact(repo.id, "old_hash", "visual_review/old_hash")
+        logic.get_or_create_artifact(repo.id, "new_hash", "visual_review/new_hash")
+        create_result = api.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
+                baseline_hashes={"Button": "old_hash"},
+            ),
+            team_id=repo.team_id,
+        )
+        with (
+            patch(
+                "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+                return_value=({"Button": "old_hash"}, 0),
+            ),
+            patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
+        ):
+            logic.complete_run(create_result.run_id)
+
+        mocker.patch(
+            "products.visual_review.backend.storage.ArtifactStorage.read",
+            autospec=True,
+            side_effect=lambda _storage, content_hash: stored_bytes.get(content_hash),
+        )
+        mocker.patch(
+            "products.visual_review.backend.storage.ArtifactStorage.write",
+            autospec=True,
+            side_effect=lambda _storage, content_hash, content: (
+                stored_bytes.setdefault(content_hash, content) and f"visual_review/{content_hash}"
+            ),
+        )
+        compare_images = mocker.spy(diffing, "compare_images")
+
+        assert process_diffs(create_result.run_id) == 1
+        assert process_diffs(create_result.run_id) == 0
+        assert compare_images.call_count == 1
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
