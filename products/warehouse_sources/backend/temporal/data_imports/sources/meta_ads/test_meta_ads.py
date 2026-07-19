@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     MAX_AD_ACCOUNT_PAGES,
     META_ADS_MAX_HISTORY_DAYS,
     META_AUTH_ERROR_MESSAGE,
+    META_TRANSIENT_ERROR_MAX_ATTEMPTS,
     PAGE_LIMIT_FALLBACK_SIZES,
     MetaAdsAuthError,
     MetaAdsResumeConfig,
@@ -382,6 +383,56 @@ class TestSimplePaginationMalformedJson:
 
         # Bounded: one attempt per allowed try, then it gives up (stays retryable upstream).
         assert mock_get.return_value.get.call_count == MALFORMED_JSON_MAX_ATTEMPTS
+
+
+class TestTransientErrorRetry:
+    INITIAL_URL = "https://graph.facebook.com/v20/act_123/campaigns"
+    PARAMS: dict[str, Any] = {"fields": "id,name", "limit": 500, "access_token": "tok"}
+    # Meta's own body for a self-recovering server hiccup: 500, code 2, is_transient true.
+    TRANSIENT_BODY: dict[str, Any] = {
+        "error": {
+            "message": "An unexpected error has occurred. Please retry your request later.",
+            "type": "OAuthException",
+            "is_transient": True,
+            "code": 2,
+        }
+    }
+
+    def test_transient_error_reissues_same_request_then_succeeds(self, monkeypatch) -> None:
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        responses = [
+            _mock_response(500, self.TRANSIENT_BODY),
+            _mock_response(200, {"data": [{"id": "1"}], "paging": {}}),
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert batches == [[{"id": "1"}]]
+        assert mock_get.return_value.get.call_count == 2
+        # Retry re-issues the SAME request at the SAME limit — a transient blip is not a
+        # too-much-data timeout, so the page limit is left untouched.
+        assert mock_get.return_value.get.call_args_list[1].args[0] == self.INITIAL_URL
+        assert mock_get.return_value.get.call_args_list[1].kwargs["params"]["limit"] == 500
+
+    def test_persistent_transient_error_raises_after_bounded_attempts(self, monkeypatch) -> None:
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        responses = [_mock_response(500, self.TRANSIENT_BODY) for _ in range(META_TRANSIENT_ERROR_MAX_ATTEMPTS)]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            # Still surfaces the raw failure so it stays retryable at the Temporal layer.
+            with pytest.raises(Exception, match="Meta API request failed: 500"):
+                list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert mock_get.return_value.get.call_count == META_TRANSIENT_ERROR_MAX_ATTEMPTS
 
 
 class TestTimeRangePagination:
