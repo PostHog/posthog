@@ -52,12 +52,6 @@ export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
     helpCatalog?: ExecHelpCatalog
     /**
-     * Allows the standalone CLI to return raw JSON for informational responses.
-     * Never enable this for the MCP-exposed exec tool, where raw untrusted content
-     * would bypass the model-facing informational boundary.
-     */
-    allowRawInformationalJson?: boolean
-    /**
      * Client is an inline-exec UI-app host that renders MCP UI apps on the exec
      * response (Claude Code, Cowork). Gets the same UI-app payload treatment as the
      * PostHog Code consumer: structuredContent suppressed toward the model, app data
@@ -546,12 +540,7 @@ export function createExecTool(
                         typeof result === 'object' &&
                         (result as Record<string, unknown>)[POSTHOG_INFORMATIONAL_RESPONSE_KEY] === true
 
-                    if (
-                        useJson &&
-                        isInformationalResponse &&
-                        typeof formattedOverride === 'string' &&
-                        !options.allowRawInformationalJson
-                    ) {
+                    if (useJson && isInformationalResponse && typeof formattedOverride === 'string') {
                         const outputText = JSON.stringify({ content: formattedOverride })
                         trackInnerCall?.(tool.name, {
                             duration_ms: durationMs,
