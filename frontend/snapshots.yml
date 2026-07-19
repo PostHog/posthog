@@ -2248,6 +2248,22 @@ snapshots:
         hash: v1.k794b7964.cdded54a95432b459e3b56e14aef0cf30a8ebae6d3807a970e44753baf7d769f.LPIS0ZqXkHsdnpwTmLbmoCwIeJ3dpPBiO2LlcqaRVQs
     exporter-interview--default--wide--light:
         hash: v1.k794b7964.0014e85423a79e2e299bf376a734885ad7fab79e8e593b063520a93851da643d.vCAGA3wXiQhCp-7Q3TIDa1IesJiFEexU4AhoUUrH0tw
+    exporter-interview--shared-link--medium--dark:
+        hash: v1.k794b7964.85280b249f9f0656bb67a3d932ff0226aa289aa644004e4aab0cb4e9f37baa2f.oKGgQcmhdXNqFrOvwI4WF4VE6W-i7Fm1SqAPujLd7G4
+    exporter-interview--shared-link--medium--light:
+        hash: v1.k794b7964.ce8d76f42582858810387596274beb927004e96793b28c1e9db266aaea0b3be5.mBDLtqhyofz_JCBzV9zWSh1Sgo3KxENghTEBT21pCWU
+    exporter-interview--shared-link--narrow--dark:
+        hash: v1.k794b7964.eea37ea4e57ab4fe7862dd65823af6d078ce7574896872d968bc44b0675e2d7f.dicxBVQHHt8g1VQN2hi2j_jJ-1RxL9mL9XtzGV9HJ0U
+    exporter-interview--shared-link--narrow--light:
+        hash: v1.k794b7964.ddf8b0cbe69729133ef9e7f10be53219d52811837e47a2dfe486b72b4692717c.O3XJ7lf8RdDrvi7xK8wmWTF73ecAEB6rA9GH0fnJA5Y
+    exporter-interview--shared-link--superwide--dark:
+        hash: v1.k794b7964.66562d7eb7b2e2db226539a65fc7b24b4264de11c1d5d9bece7fcaa44dc255d8.z8BlaOQo9VAvQbbf7FN5A0LQxwruXMUNwXjo-dp38TE
+    exporter-interview--shared-link--superwide--light:
+        hash: v1.k794b7964.10323a11a1cbad29422007f3be064272de304119f3d287e91872b4ae38b6db5c.-4mP5CkXozGxsFrodhMVfyle7XsOwVIkvOMi9URL1Zk
+    exporter-interview--shared-link--wide--dark:
+        hash: v1.k794b7964.c47193f52f4bee5394b5366fe7f77e3ce8686c4d54691538f8b977a9137cc916.2DnCcDgPakh32tzyI1rUrw1HuPsVdemKnwQbCtr71Vs
+    exporter-interview--shared-link--wide--light:
+        hash: v1.k794b7964.939486068c7a4e78a11e5935353c3ec3053409ffd0748a8791ca53b09354e9b1.n75MvjKUHChadX4HGhCUI67Z20X8Luv8IwFAez8je9U
     exporter-other--event-table-insight--dark:
         hash: v1.k794b7964.b49f709fd4150d9aa62e5e72280c1a01d36b8ce9a73151d49cdc903394406476.HroHAic6d-U6xImox3yNijT04GTbLpTRTwvaxN46Frg
     exporter-other--event-table-insight--light:
