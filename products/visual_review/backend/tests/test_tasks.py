@@ -79,7 +79,8 @@ class TestProcessRunDiffs:
         )
 
         with (
-            patch("products.visual_review.backend.diffing.process_diffs", return_value=3),
+            patch("products.visual_review.backend.diffing.process_diffs", return_value=0),
+            patch("products.visual_review.backend.diffing.count_processed_diffs", return_value=3),
             patch("products.visual_review.backend.logic.capture_run_processing_metrics") as capture,
         ):
             process_run_diffs(repo.team_id, str(create_result.run_id))
@@ -102,6 +103,7 @@ class TestProcessRunDiffs:
 
         with (
             patch("products.visual_review.backend.diffing.process_diffs", side_effect=Exception("boom")),
+            patch("products.visual_review.backend.diffing.count_processed_diffs", side_effect=Exception("count boom")),
             patch("products.visual_review.backend.logic.capture_run_processing_metrics") as capture,
         ):
             with pytest.raises(Exception, match="boom"):
@@ -166,6 +168,27 @@ class TestProcessRunDiffs:
         snapshots = api.get_run_snapshots(create_result.run_id).snapshots
         assert len(snapshots) == 1
         assert snapshots[0].result == SnapshotResult.NEW
+
+    def testprocess_diffs_skips_new_with_existing_thumbnail(self, repo, mocker):
+        thumbnail, _ = logic.get_or_create_artifact(repo.id, "thumb_hash", "visual_review/thumb_hash")
+        current, _ = logic.get_or_create_artifact(repo.id, "new_hash", "visual_review/new_hash")
+        current.thumbnail = thumbnail
+        current.save(update_fields=["thumbnail"])
+        create_result = api.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[SnapshotManifestItem(identifier="NewComponent", content_hash="new_hash")],
+                baseline_hashes={},
+            ),
+            team_id=repo.team_id,
+        )
+        generate_thumbnail = mocker.patch("products.visual_review.backend.diffing._generate_thumbnail_for_new")
+
+        assert process_diffs(create_result.run_id) == 0
+        generate_thumbnail.assert_not_called()
 
     def testprocess_diffs_attempts_diff_for_changed(self, repo):
         # Create baseline artifact

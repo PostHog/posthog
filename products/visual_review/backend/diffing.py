@@ -15,6 +15,7 @@ import structlog
 from blake3 import blake3
 from pixelhog import thumbnail as pixelhog_thumbnail
 
+from .db import WRITER_DB
 from .diff import THUMB_HEIGHT, THUMB_WIDTH, CompareResult, compare_images
 from .diff_metadata import DiffMetadata
 from .facade.enums import ChangeKind, ClassificationReason, SnapshotResult, ToleratedReason
@@ -242,6 +243,21 @@ def _generate_thumbnail_for_new(snapshot: RunSnapshot) -> None:
     artifact.save(update_fields=["thumbnail"])
 
 
+def count_processed_diffs(run_id: UUID) -> int:
+    return (
+        RunSnapshot.objects.using(WRITER_DB)
+        .filter(run_id=run_id)
+        .filter(
+            ~Q(change_kind="")
+            | Q(
+                result=SnapshotResult.UNCHANGED,
+                classification_reason=ClassificationReason.BELOW_THRESHOLD,
+            )
+        )
+        .count()
+    )
+
+
 def process_diffs(run_id: UUID) -> int:
     """
     Process diffs for all changed snapshots in a run.
@@ -250,9 +266,15 @@ def process_diffs(run_id: UUID) -> int:
     each snapshot and generate thumbnails for the grid view.
     """
     snapshots = (
-        RunSnapshot.objects.filter(run_id=run_id)
+        RunSnapshot.objects.using(WRITER_DB)
+        .filter(run_id=run_id)
         .filter(
-            Q(result=SnapshotResult.NEW) | Q(result=SnapshotResult.CHANGED, change_kind="", diff_artifact__isnull=True)
+            Q(
+                result=SnapshotResult.NEW,
+                current_artifact__isnull=False,
+                current_artifact__thumbnail__isnull=True,
+            )
+            | Q(result=SnapshotResult.CHANGED, change_kind="", diff_artifact__isnull=True)
         )
         .select_related("run", "current_artifact", "baseline_artifact")
         .iterator(chunk_size=100)

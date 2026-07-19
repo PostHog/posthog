@@ -43,7 +43,7 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
     from posthog.egress.github.transport import GitHubRateLimitError
 
     from .. import logic
-    from ..diffing import process_diffs
+    from ..diffing import count_processed_diffs, process_diffs
 
     run_uuid = UUID(run_id)
     outcome = "completed"
@@ -98,7 +98,12 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
             span.set_attribute("visual_review.outcome", outcome)
             # Skip on retry: the run isn't terminal yet and will emit on its next attempt.
             if not retrying:
-                logic.capture_run_processing_metrics(run_uuid, outcome=outcome, diffed_count=diffed_count)
+                try:
+                    cumulative_diffed_count = count_processed_diffs(run_uuid)
+                except Exception:
+                    logger.warning("visual_review.diff_count_failed", run_id=run_id, exc_info=True)
+                    cumulative_diffed_count = diffed_count
+                logic.capture_run_processing_metrics(run_uuid, outcome=outcome, diffed_count=cumulative_diffed_count)
 
 
 @shared_task(
