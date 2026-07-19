@@ -925,8 +925,9 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
     const informationalWrapper = config.response?.informational_wrapper
     const wrapped = (expr: string): string => {
         const notedExpression = noted(expr)
+        const purposeArgument = informationalWrapper?.purpose ? `, ${JSON.stringify(informationalWrapper.purpose)}` : ''
         return informationalWrapper
-            ? `wrapInformationalResponse(${notedExpression}, ${JSON.stringify(informationalWrapper.tag)}, ${JSON.stringify(informationalWrapper.message)})`
+            ? `wrapInformationalResponse(${notedExpression}, ${JSON.stringify(informationalWrapper.tag)}${purposeArgument})`
             : notedExpression
     }
 
@@ -985,7 +986,7 @@ function generateToolCode(
     hasEnrichment: boolean
     needsWithAgentNote: boolean
     hasAgentNote: boolean
-    responseFilterImport: 'pickResponseFields' | 'omitResponseFields' | null
+    toolUtilsValueImports: Set<string>
 } {
     const schemaName = `${toPascalCase(toolName)}Schema`
     const factoryName = toCamelCase(toolName)
@@ -1203,7 +1204,12 @@ function generateToolCode(
             hasEnrichment,
             needsWithAgentNote,
             hasAgentNote,
-            responseFilterImport: responseFilter.helperImport,
+            toolUtilsValueImports: new Set(
+                [
+                    responseFilter.helperImport,
+                    config.response?.informational_wrapper && 'wrapInformationalResponse',
+                ].filter((value): value is string => !!value)
+            ),
         }
     }
 
@@ -1233,7 +1239,11 @@ const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ${fa
         hasEnrichment,
         needsWithAgentNote,
         hasAgentNote,
-        responseFilterImport: responseFilter.helperImport,
+        toolUtilsValueImports: new Set(
+            [responseFilter.helperImport, config.response?.informational_wrapper && 'wrapInformationalResponse'].filter(
+                (value): value is string => !!value
+            )
+        ),
     }
 }
 
@@ -1353,7 +1363,7 @@ function generateCustomSchemaToolCode(
     hasEnrichment: boolean
     needsWithAgentNote: boolean
     hasAgentNote: boolean
-    responseFilterImport: 'pickResponseFields' | 'omitResponseFields' | null
+    toolUtilsValueImports: Set<string>
 } {
     const pathParamNames = extractPathParams(resolved.path)
 
@@ -1452,7 +1462,11 @@ ${handlerBody}    },
         hasEnrichment: false,
         needsWithAgentNote,
         hasAgentNote,
-        responseFilterImport: responseFilter.helperImport,
+        toolUtilsValueImports: new Set(
+            [responseFilter.helperImport, config.response?.informational_wrapper && 'wrapInformationalResponse'].filter(
+                (value): value is string => !!value
+            )
+        ),
     }
 }
 
@@ -1535,9 +1549,7 @@ function generateCategoryFile(
 
     let hasWithAgentNote = false
     let hasAgentNote = false
-    const hasInformationalWrapper = enabledTools.some(([, config]) => config.response?.informational_wrapper)
-
-    const responseFilterImports = new Set<string>()
+    const requiredToolUtilsValueImports = new Set<string>()
 
     for (const [name, config, resolved] of enabledTools) {
         const result = generateToolCode(name, config, resolved, category, spec, knownTypes, getQuerySchema)
@@ -1577,8 +1589,8 @@ function generateCategoryFile(
         if (result.hasAgentNote) {
             hasAgentNote = true
         }
-        if (result.responseFilterImport) {
-            responseFilterImports.add(result.responseFilterImport)
+        for (const toolUtilsValueImport of result.toolUtilsValueImports) {
+            requiredToolUtilsValueImports.add(toolUtilsValueImport)
         }
     }
 
@@ -1717,10 +1729,7 @@ function generateCategoryFile(
     if (hasAgentNote) {
         toolUtilsValueImports.push('withAgentNote')
     }
-    if (hasInformationalWrapper) {
-        toolUtilsValueImports.push('wrapInformationalResponse')
-    }
-    for (const imp of responseFilterImports) {
+    for (const imp of requiredToolUtilsValueImports) {
         toolUtilsValueImports.push(imp)
     }
     let toolUtilsImportLine = ''

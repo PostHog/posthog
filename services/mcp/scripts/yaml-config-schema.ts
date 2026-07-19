@@ -189,7 +189,7 @@ export const ToolConfigSchema = z
                 informational_wrapper: z
                     .object({
                         tag: z.string().regex(/^[a-z][a-z0-9-]*$/),
-                        message: z.string().min(1),
+                        purpose: z.string().min(1).optional(),
                     })
                     .strict()
                     .optional(),
