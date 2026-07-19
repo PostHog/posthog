@@ -152,15 +152,18 @@ describe('scannerQualityLogic', () => {
 
         expect(logic.values.assembledConfig).toEqual({ prompt: 'new', tags: ['a', 'b', 'c'] })
         expect(logic.values.hasEditableFields).toBe(true)
+        expect(logic.values.applyIsNoop).toBe(false)
 
-        // Editing the prompt back to its current value makes that field a no-op.
-        await expectLogic(logic, () => logic.actions.setFieldValue('prompt', 'base')).toMatchValues({
-            assembledConfig: { prompt: 'base', tags: ['a', 'b', 'c'] },
+        // Editing a field flows straight into what apply would write.
+        await expectLogic(logic, () => logic.actions.setFieldValue('tags', ['a', 'c'])).toMatchValues({
+            assembledConfig: { prompt: 'new', tags: ['a', 'c'] },
         })
 
-        // Editing the tag list flows straight into what apply would write.
-        await expectLogic(logic, () => logic.actions.setFieldValue('tags', ['a', 'c'])).toMatchValues({
-            assembledConfig: { prompt: 'base', tags: ['a', 'c'] },
+        // Editing every field back to the current config makes applying a no-op.
+        logic.actions.setFieldValue('prompt', 'base')
+        await expectLogic(logic, () => logic.actions.setFieldValue('tags', ['a', 'b'])).toMatchValues({
+            assembledConfig: { prompt: 'base', tags: ['a', 'b'] },
+            applyIsNoop: true,
         })
     })
 

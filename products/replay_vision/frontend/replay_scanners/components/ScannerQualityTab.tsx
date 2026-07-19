@@ -297,6 +297,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         suggestionHistoryLoading,
         assembledConfig,
         recommendationEditedSinceTest,
+        applyIsNoop,
     } = useValues(logic)
     const {
         generateSuggestion,
@@ -424,7 +425,10 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                 size="small"
                                 type="primary"
                                 loading={applying}
-                                disabledReason={editDisabledReason ?? undefined}
+                                disabledReason={
+                                    editDisabledReason ??
+                                    (applyIsNoop ? 'Your edits match the current config' : undefined)
+                                }
                                 tooltip="Writes this config to the scanner as a new version"
                                 onClick={() => applySuggestion(currentSuggestion.id)}
                                 data-attr="vision-quality-apply-suggestion"
