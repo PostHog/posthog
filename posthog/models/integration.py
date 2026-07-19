@@ -2383,7 +2383,8 @@ class EmailIntegration:
         email_address: str = config["email"].lower()
         name: str = config["name"]
         domain: str = email_address.split("@")[1]
-        mail_from_subdomain: str = config.get("mail_from_subdomain", "feedback")
+        # Treat a blank subdomain as unset — an empty value would build an invalid ".<domain>" MAIL FROM.
+        mail_from_subdomain: str = config.get("mail_from_subdomain") or "feedback"
         provider: str = config.get("provider", "ses")
 
         if domain in free_email_domains_list or domain in disposable_email_domains_list:
@@ -2441,8 +2442,10 @@ class EmailIntegration:
         domain = self.integration.config.get("domain")
         # Only name and mail_from_subdomain can be updated
         name: str = config.get("name", self.integration.config.get("name"))
-        mail_from_subdomain: str = config.get(
-            "mail_from_subdomain", self.integration.config.get("mail_from_subdomain", "feedback")
+        # Treat a blank subdomain as unset — fall back to the stored value, then "feedback". An empty
+        # value would build an invalid ".<domain>" MAIL FROM that SES rejects.
+        mail_from_subdomain: str = (
+            config.get("mail_from_subdomain") or self.integration.config.get("mail_from_subdomain") or "feedback"
         )
 
         # Update domain in the appropriate provider

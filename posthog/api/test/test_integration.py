@@ -324,6 +324,26 @@ class TestEmailIntegration:
         )
 
     @patch("posthog.models.integration.SESProvider")
+    def test_update_native_integration_does_not_pass_blank_subdomain_to_ses(self, mock_ses_provider_class):
+        # A blank subdomain on the update path used to build an invalid ".<domain>" MAIL FROM that
+        # SES rejects, surfacing as a generic 500. A blank value must fall back to the stored value.
+        mock_client = MagicMock()
+        mock_ses_provider_class.return_value = mock_client
+
+        integration = EmailIntegration.create_native_integration(
+            {**self.valid_config, "mail_from_subdomain": "mail", "provider": "ses"},
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            created_by=self.user,
+        )
+
+        EmailIntegration(integration).update_native_integration({"mail_from_subdomain": ""}, self.team.id)
+
+        mock_client.update_mail_from_subdomain.assert_called_once_with("posthog.com", mail_from_subdomain="mail")
+        integration.refresh_from_db()
+        assert integration.config["mail_from_subdomain"] == "mail"
+
+    @patch("posthog.models.integration.SESProvider")
     def test_email_verify_returns_ses_result(self, mock_ses_provider_class):
         mock_client = MagicMock()
         mock_ses_provider_class.return_value = mock_client
